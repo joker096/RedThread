@@ -212,6 +212,12 @@ test('auth API supports registration, session lookup, logout and login', {
       body: JSON.stringify({ photoUrls: [uploadedPhoto.photoUrl] })
     });
     assert.equal(crossAccountPhotoAttach.status, 400);
+    const duplicatePhotoReferences = await request('/api/profiles/me', {
+      method: 'PATCH',
+      headers: { Cookie: firstCookie },
+      body: JSON.stringify({ photoUrls: [uploadedPhoto.photoUrl, uploadedPhoto.photoUrl] })
+    });
+    assert.equal(duplicatePhotoReferences.status, 400, 'the same private photo cannot be attached more than once');
 
     const assessmentAnswers = {
       relationshipGoal: 'marriage_soon',
