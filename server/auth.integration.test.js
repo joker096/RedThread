@@ -290,6 +290,8 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(undoMostRecentPass.status, 200);
     assert.equal((await undoMostRecentPass.json()).profile.id, registered.user.id);
+    const afterTargetedUndoSearch = await request('/api/profiles/search', { headers: { Cookie: maleCookie } });
+    assert.equal((await afterTargetedUndoSearch.json()).profiles.some(profile => profile.id === registered.user.id), true);
     const undoNoPass = await request('/api/passes/undo', {
       method: 'POST',
       headers: { Cookie: maleCookie }
@@ -337,6 +339,13 @@ test('auth API supports registration, session lookup, logout and login', {
       headers: { Cookie: secondCookie }
     });
     assert.equal(cannotUndoMatchedLike.status, 409, 'an active mutual match must not be silently broken by undo');
+
+    const cannotPassMatchedProfile = await request(`/api/passes/${maleRegistered.user.id}`, {
+      method: 'POST',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({})
+    });
+    assert.equal(cannotPassMatchedProfile.status, 404, 'matched profiles cannot be passed from a stale discovery card');
 
     const femaleMatches = await request('/api/matches', { headers: { Cookie: secondCookie } });
     assert.equal(femaleMatches.status, 200);
