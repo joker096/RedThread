@@ -20,6 +20,7 @@ const port = Number.parseInt(process.env.API_PORT || '3001', 10);
 const databaseUrl = process.env.DATABASE_URL;
 const sessionDurationSeconds = 60 * 60 * 24 * 30;
 const sessionCookieName = 'nit_session';
+const emailVerificationRequired = process.env.EMAIL_VERIFICATION_REQUIRED === 'true' || (process.env.NODE_ENV === 'production' && process.env.EMAIL_VERIFICATION_REQUIRED !== 'false');
 const allowedOrigin = process.env.APP_ORIGIN || 'http://localhost:3000';
 
 const pool = databaseUrl
@@ -64,6 +65,43 @@ const reportLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'too_many_reports' }
 });
+
+function emailDeliveryConfigured() {
+  return process.env.EMAIL_PROVIDER === 'resend' &&
+    Boolean(process.env.RESEND_API_KEY) &&
+    Boolean(process.env.EMAIL_FROM) &&
+    Boolean(process.env.APP_URL || process.env.APP_ORIGIN);
+}
+
+async function sendConfiguredEmail({ to, subject, html }) {
+  if (!emailDeliveryConfigured()) throw new Error('email_delivery_not_configured');
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: 'Bearer ' + process.env.RESEND_API_KEY,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ from: process.env.EMAIL_FROM, to: [to], subject, html })
+  });
+  if (!response.ok) {
+    const status = response.status;
+    throw new Error('email_provider_rejected_request_' + status);
+  }
+}
+
+async function createAccountActionToken(client, userId, purpose, lifetimeMinutes) {
+  const token = createSessionToken();
+  await client.query(
+    'INSERT INTO account_action_tokens (user_id, purpose, token_hash, expires_at) VALUES ($1, $2, $3, NOW() + ($4 * INTERVAL \'1 minute\'))',
+    [userId, purpose, hashSessionToken(token), lifetimeMinutes]
+  );
+  return token;
+}
+
+function accountActionUrl(parameter, token) {
+  const base = (process.env.APP_URL || process.env.APP_ORIGIN).replace(/\\/$/, '');
+  return base + '/?'+ parameter + '=' + encodeURIComponent(token);
+}
 
 function requireDatabase(_req, res, next) {
   if (!pool) {
@@ -238,9 +276,13 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
     const passwordHash = await hashPassword(password);
     client = await pool.connect();
     await client.query('BEGIN');
+    if (emailVerificationRequired && !emailDeliveryConfigured()) {
+      await client.query('ROLLBACK');
+      return res.status(503).json({ error: 'email_delivery_not_configured' });
+    }
     const userResult = await client.query(
-      'INSERT INTO users (email, password_hash, female_trial_ends_at) VALUES ($1, $2, CASE WHEN $3 = \'female\' THEN NOW() + INTERVAL \'24 hours\' ELSE NULL END) RETURNING id, email',
-      [email, passwordHash, gender]
+      'INSERT INTO users (email, password_hash, status, female_trial_ends_at) VALUES ($1, $2, $3, CASE WHEN $4 = \'female\' THEN NOW() + INTERVAL \'24 hours\' ELSE NULL END) RETURNING id, email',
+      [email, passwordHash, emailVerificationRequired ? 'pending' : 'active', gender]
     );
     const user = userResult.rows[0];
     const profileResult = await client.query(
@@ -252,8 +294,25 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
        RETURNING user_id AS id, display_name, gender, country, city, relationship_intent`,
       [user.id, displayName, birthDate, gender, country, city, relationshipIntent, familyFormat, hasChildren, wantsChildren, childrenLivingArrangement]
     );
-    const token = await createSession(client, user.id);
+    const verificationToken = emailVerificationRequired
+      ? await createAccountActionToken(client, user.id, 'email_verification', 60)
+      : null;
+    const token = emailVerificationRequired ? null : await createSession(client, user.id);
     await client.query('COMMIT');
+
+    if (verificationToken) {
+      try {
+        const link = accountActionUrl('verifyEmail', verificationToken);
+        await sendConfiguredEmail({
+          to: user.email,
+          subject: 'Verify your NIT account',
+          html: '<p>Welcome to NIT.</p><p>Confirm your email address to activate your account:</p><p><a href="' + link + '">Verify email</a></p><p>This link expires in 60 minutes. If you did not create this account, you can ignore this message.</p>'
+        });
+      } catch (mailError) {
+        console.error('Verification email delivery failed:', mailError?.message || 'unknown error');
+        return res.status(503).json({ error: 'verification_email_delivery_failed', accountCreated: true });
+      }
+    }
 
     // Screen after commit so the separate screening insert can see the new user row.
     try {
@@ -266,6 +325,9 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
       console.error('Registration screening failed:', screeningError?.message || 'unknown error');
     }
 
+    if (emailVerificationRequired) {
+      return res.status(201).json({ verificationRequired: true, message: 'Check your email to activate your account.' });
+    }
     writeSessionCookie(res, token);
     return res.status(201).json({ user: publicUser({ ...profileResult.rows[0], email: user.email }) });
   } catch (error) {
