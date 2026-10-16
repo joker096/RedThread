@@ -395,6 +395,12 @@ test('auth API supports registration, session lookup, logout and login', {
       headers: { Cookie: secondCookie }
     });
     assert.equal(cannotUndoMatchedLike.status, 409, 'an active mutual match must not be silently broken by undo');
+    const cannotUndoMatchedLikeAfterReload = await request('/api/discovery/undo', {
+      method: 'POST',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({})
+    });
+    assert.equal(cannotUndoMatchedLikeAfterReload.status, 409, 'the unified undo endpoint must also preserve active matches');
 
     const cannotPassMatchedProfile = await request(`/api/passes/${maleRegistered.user.id}`, {
       method: 'POST',
