@@ -221,6 +221,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   };
 
   const submitReport = async (profile: ServerProfile) => {
+    if (busy) return;
     setBusy(true);
     try {
       const response = await fetch('/api/reports', {

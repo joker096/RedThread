@@ -42,3 +42,106 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+
+/* Vow UI polish: keyboard access, touch ergonomics, and motion sensitivity. */
+:root {
+  color-scheme: dark;
+  text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  scroll-padding-top: 5rem;
+  scrollbar-gutter: stable;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overscroll-behavior-y: contain;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+[role="button"],
+a,
+select,
+input[type="checkbox"],
+input[type="radio"] {
+  touch-action: manipulation;
+}
+
+button,
+[role="button"],
+a,
+input,
+select,
+textarea {
+  outline-offset: 3px;
+}
+
+:where(button, [role="button"], a, input, select, textarea, summary):focus-visible {
+  outline: 2px solid #fb7185;
+  outline-offset: 3px;
+}
+
+:where(input, select, textarea) {
+  max-width: 100%;
+}
+
+:where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  scroll-margin-block: 6rem;
+}
+
+img {
+  max-width: 100%;
+}
+
+::selection {
+  color: #fff;
+  background: rgb(190 24 93 / 75%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+  }
+}
+
+@media (max-width: 639px) {
+  button,
+  [role="button"],
+  input,
+  select {
+    min-height: 40px;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: max(16px, 1em);
+  }
+}
+
+@supports (padding: max(0px)) {
+  #root {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
