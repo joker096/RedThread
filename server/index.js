@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import pg from 'pg';
+import { isValidAssessment, financialAlignment, ASSESSMENT_VERSION } from './relationshipAssessment.js';
 import {
   createSessionToken,
   hashPassword,
