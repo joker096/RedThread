@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { initialProfiles, initialCurrentUser } from './data/mockProfiles.ts';
 import { RelationshipAssessmentPanel } from './components/RelationshipAssessmentPanel.tsx';
+import { AccountAccessPanel } from './components/AccountAccessPanel.tsx';
 import type { 
   UserProfile, 
   Gender, 
@@ -66,6 +67,7 @@ export default function App() {
   const [selectedCountry, setSelectedCountry] = useState('all');
   const [selectedCity, setSelectedCity] = useState('all');
   const [intentFilter, setIntentFilter] = useState('all');
+  const [assessmentRevision, setAssessmentRevision] = useState(0);
   const [minAge, setMinAge] = useState(18);
   const [maxAge, setMaxAge] = useState(99);
 
@@ -529,7 +531,8 @@ export default function App() {
       case 'tests':
         return (
           <>
-            <RelationshipAssessmentPanel />
+            <AccountAccessPanel onAuthenticated={() => setAssessmentRevision(value => value + 1)} />
+            <RelationshipAssessmentPanel key={assessmentRevision} />
             <GenderSpecificTests
             currentGender={currentGender}
             onOpenMatrix={profile => {
