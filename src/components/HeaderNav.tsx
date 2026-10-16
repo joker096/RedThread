@@ -146,7 +146,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             title="Сменить анкету: Женщина ♀ (Lady VIP) или Мужчина ♂ (100% Free)"
           >
             <span className={`w-1.5 h-1.5 rounded-full ${currentGender === 'female' ? 'bg-rose-500' : 'bg-blue-400'}`}></span>
-            <span>{currentGender === 'female' ? 'Анна ♀' : 'Алексей ♂'}</span>
+            <span>{currentGender === 'female' ? `${t('demoWoman')} ♀` : `${t('demoMan')} ♂`}</span>
           </button>
 
           {/* Filter button */}
