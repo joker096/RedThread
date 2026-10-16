@@ -34,6 +34,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_verified_phone_unique
 CREATE INDEX IF NOT EXISTS users_trial_lookup_idx
   ON users (female_trial_ends_at, premium_until);
 
+-- Give existing female accounts one transition day after deployment; new accounts receive
+-- their trial at registration. This changes access only and never triggers a payment.
+UPDATE users u
+SET female_trial_ends_at = NOW() + INTERVAL '24 hours'
+FROM profiles p
+WHERE p.user_id = u.id
+  AND p.gender = 'female'
+  AND u.female_trial_ends_at IS NULL;
+
 ALTER TABLE user_reports DROP CONSTRAINT IF EXISTS user_reports_category_check;
 ALTER TABLE user_reports ADD CONSTRAINT user_reports_category_check
   CHECK (category IN ('spam', 'fake_profile', 'harassment', 'safety', 'children_misrepresentation', 'duplicate_profile', 'other'));
