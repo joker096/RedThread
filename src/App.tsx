@@ -1,0 +1,921 @@
+import React, { useState } from 'react';
+import { 
+  Heart, 
+  MessageCircle, 
+  Sparkles, 
+  ShieldCheck, 
+  DollarSign, 
+  Crown, 
+  Brain,
+  Smartphone,
+  Gift
+} from 'lucide-react';
+import { initialProfiles, initialCurrentUser } from './data/mockProfiles.ts';
+import type { 
+  UserProfile, 
+  Gender, 
+  DeviceFrame, 
+  ChatThread, 
+  AdStats 
+} from './types/index.ts';
+import { calculateCompatibility, shouldShowAds, filterBinaryCandidates } from './utils/compatibility.ts';
+import { HeaderNav } from './components/HeaderNav.tsx';
+import { RadarDiscovery } from './components/RadarDiscovery.tsx';
+import { CompatibilityMatrixModal } from './components/CompatibilityMatrixModal.tsx';
+import { ChatMessenger } from './components/ChatMessenger.tsx';
+import { LadyPremiumModal } from './components/LadyPremiumModal.tsx';
+import { BotSafetyScanner } from './components/BotSafetyScanner.tsx';
+import { AdManagerModal } from './components/AdManagerModal.tsx';
+import { FilterDrawer } from './components/FilterDrawer.tsx';
+import { BrandNamingModal, brandOptions } from './components/BrandNamingModal.tsx';
+import { GenderSpecificTests } from './components/GenderSpecificTests.tsx';
+
+export default function App() {
+  // Current user state
+  const [currentUser, setCurrentUser] = useState<UserProfile>(initialCurrentUser);
+  const [currentGender, setCurrentGender] = useState<Gender>('female');
+  const [isLadyPremium, setIsLadyPremium] = useState<boolean>(false);
+  const [deviceFrame, setDeviceFrame] = useState<DeviceFrame>('responsive');
+
+  // Navigation tab
+  const [activeTab, setActiveTab] = useState<'discovery' | 'tests' | 'chats' | 'safety' | 'monetization'>('discovery');
+
+  // Candidate profiles
+  const [profiles, setProfiles] = useState<UserProfile[]>(initialProfiles);
+
+  // Modals state
+  const [isMatrixOpen, setIsMatrixOpen] = useState(false);
+  const [matrixTargetProfile, setMatrixTargetProfile] = useState<UserProfile | null>(null);
+  const [isLadyPremiumOpen, setIsLadyPremiumOpen] = useState(false);
+  const [isBotScannerOpen, setIsBotScannerOpen] = useState(false);
+  const [botScanTargetProfile, setBotScanTargetProfile] = useState<UserProfile | null>(null);
+  const [isAdManagerOpen, setIsAdManagerOpen] = useState(false);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  // Brand naming state
+  const [currentBrandId, setCurrentBrandId] = useState<string>('twinheart');
+  const [isBrandModalOpen, setIsBrandModalOpen] = useState(false);
+
+  const currentBrand = brandOptions.find(b => b.id === currentBrandId) || brandOptions[0];
+
+  // Filters state
+  const [minCompatibility, setMinCompatibility] = useState(70);
+  const [onlyVerified, setOnlyVerified] = useState(false);
+  const [selectedCity, setSelectedCity] = useState('all');
+  const [intentFilter, setIntentFilter] = useState('all');
+
+  // Superlikes & Boosts inventory
+  const [superLikesCount, setSuperLikesCount] = useState(3);
+  const [boostActive, setBoostActive] = useState(false);
+
+  // Ad Stats
+  const [adStats, setAdStats] = useState<AdStats>({
+    impressions: 14280,
+    clicks: 542,
+    rewardedWatched: 128,
+    estimatedRevenueRub: 4120,
+    averageEcpmRub: 288
+  });
+
+  // Pre-configured chat threads
+  const [chatThreads, setChatThreads] = useState<ChatThread[]>([
+    {
+      id: 'thread_alexander',
+      partnerProfile: initialProfiles[0],
+      compatibilityScore: 97,
+      createdAt: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
+      lastMessage: 'Александр: С радостью встречусь завтра в 19:00. Какой кофе предпочитаешь?',
+      lastMessageTime: '15:20',
+      unreadCount: 1,
+      meetingDeadlineHoursLeft: 48,
+      messages: [
+        {
+          id: 'm1',
+          senderId: 'user_alexander',
+          text: 'Добрый день, Анна! Изучил твою анкету: редкое совпадение по взглядам на семью и детей.',
+          timestamp: 'Вчера 18:40'
+        },
+        {
+          id: 'm2',
+          senderId: 'current_user',
+          text: 'Привет, Александр! Меня приятно удивили твои ответы про брак и ответственность.',
+          timestamp: 'Вчера 19:10'
+        },
+        {
+          id: 'm3',
+          senderId: 'user_alexander',
+          text: 'В Красной Нити есть отличное правило: не тратить недели на переписки. Предлагаю живую встречу!',
+          timestamp: 'Сегодня 14:30'
+        },
+        {
+          id: 'm4',
+          senderId: 'user_alexander',
+          text: 'Приглашение на встречу',
+          timestamp: 'Сегодня 15:20',
+          isDateInvite: true,
+          dateInviteDetails: {
+            place: 'Уютная кофейня в центре',
+            day: 'Завтра',
+            time: '19:00',
+            status: 'pending'
+          }
+        }
+      ]
+    },
+    {
+      id: 'thread_dmitry',
+      partnerProfile: initialProfiles[1],
+      compatibilityScore: 92,
+      createdAt: new Date(Date.now() - 10 * 3600 * 1000).toISOString(),
+      lastMessage: 'Дмитрий: Отправил симпатию. Ценю искренность.',
+      lastMessageTime: '11:05',
+      unreadCount: 0,
+      meetingDeadlineHoursLeft: 62,
+      messages: [
+        {
+          id: 'dm1',
+          senderId: 'user_dmitry',
+          text: 'Здравствуйте, Анна! Рад взаимной симпатии. Вижу совпадение по ценностям.',
+          timestamp: '11:05'
+        }
+      ]
+    }
+  ]);
+
+  const [activeChatThreadId, setActiveChatThreadId] = useState<string | null>('thread_alexander');
+
+  // Gender persona toggle (strictly binary: Female seeking Male, Male seeking Female)
+  const handleToggleGender = () => {
+    if (currentGender === 'female') {
+      setCurrentGender('male');
+      setCurrentUser(prev => ({
+        ...prev,
+        name: 'Александр',
+        gender: 'male',
+        occupation: 'Руководитель проектов & Архитектор',
+        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&auto=format&fit=crop&q=80',
+        photos: ['https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&auto=format&fit=crop&q=80'],
+        bio: 'Ищу будущую жену и хранительницу очага для создания крепкой традиционной семьи.',
+        mbti: 'ENTJ • Лидер & Стратег'
+      }));
+      // Switch active chats to female candidates
+      setChatThreads([
+        {
+          id: 'thread_elena',
+          partnerProfile: initialProfiles[3], // Elena (female)
+          compatibilityScore: 98,
+          createdAt: new Date(Date.now() - 16 * 3600 * 1000).toISOString(),
+          lastMessage: 'Елена: Здравствуйте! Рада взаимной симпатии. Для меня семья тоже на 1 месте.',
+          lastMessageTime: '14:20',
+          unreadCount: 1,
+          meetingDeadlineHoursLeft: 56,
+          messages: [
+            {
+              id: 'em1',
+              senderId: 'user_elena',
+              text: 'Здравствуйте! У нас очень совпадают взгляды на семью и детей.',
+              timestamp: 'Вчера 20:15'
+            },
+            {
+              id: 'em2',
+              senderId: 'current_user',
+              text: 'Привет, Елена! В нашем приложении ценится живое общение. Буду рад пригласить вас на кофе.',
+              timestamp: 'Сегодня 11:30'
+            },
+            {
+              id: 'em3',
+              senderId: 'user_elena',
+              text: 'С удовольствием! Ценю решительных и надежных мужчин.',
+              timestamp: '14:20'
+            }
+          ]
+        },
+        {
+          id: 'thread_sofia',
+          partnerProfile: initialProfiles[4], // Sofia (female)
+          compatibilityScore: 95,
+          createdAt: new Date(Date.now() - 6 * 3600 * 1000).toISOString(),
+          lastMessage: 'София: Отправила вам симпатию! Хорошего дня!',
+          lastMessageTime: '09:40',
+          unreadCount: 0,
+          meetingDeadlineHoursLeft: 66,
+          messages: [
+            {
+              id: 'sm1',
+              senderId: 'user_sofia',
+              text: 'Добрый день! Прочитала вашу анкету, очень откликаются ваши цели на брак.',
+              timestamp: '09:40'
+            }
+          ]
+        }
+      ]);
+      setActiveChatThreadId('thread_elena');
+    } else {
+      setCurrentGender('female');
+      setCurrentUser(initialCurrentUser);
+      // Restore chats with male candidates
+      setChatThreads([
+        {
+          id: 'thread_alexander',
+          partnerProfile: initialProfiles[0],
+          compatibilityScore: 97,
+          createdAt: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
+          lastMessage: 'Александр: С радостью встречусь завтра в 19:00. Какой кофе предпочитаешь?',
+          lastMessageTime: '15:20',
+          unreadCount: 1,
+          meetingDeadlineHoursLeft: 48,
+          messages: [
+            {
+              id: 'm1',
+              senderId: 'user_alexander',
+              text: 'Добрый день, Анна! Изучил твою анкету: редкое совпадение по взглядам на семью и детей.',
+              timestamp: 'Вчера 18:40'
+            },
+            {
+              id: 'm2',
+              senderId: 'current_user',
+              text: 'Привет, Александр! Меня приятно удивили твои ответы про брак и ответственность.',
+              timestamp: 'Вчера 19:10'
+            },
+            {
+              id: 'm3',
+              senderId: 'user_alexander',
+              text: 'В Красной Нити есть отличное правило: не тратить недели на переписки. Предлагаю живую встречу!',
+              timestamp: 'Сегодня 14:30'
+            },
+            {
+              id: 'm4',
+              senderId: 'user_alexander',
+              text: 'Приглашение на встречу',
+              timestamp: 'Сегодня 15:20',
+              isDateInvite: true,
+              dateInviteDetails: {
+                place: 'Уютная кофейня в центре',
+                day: 'Завтра',
+                time: '19:00',
+                status: 'pending'
+              }
+            }
+          ]
+        },
+        {
+          id: 'thread_dmitry',
+          partnerProfile: initialProfiles[1],
+          compatibilityScore: 92,
+          createdAt: new Date(Date.now() - 10 * 3600 * 1000).toISOString(),
+          lastMessage: 'Дмитрий: Отправил симпатию. Ценю искренность.',
+          lastMessageTime: '11:05',
+          unreadCount: 0,
+          meetingDeadlineHoursLeft: 62,
+          messages: [
+            {
+              id: 'dm1',
+              senderId: 'user_dmitry',
+              text: 'Здравствуйте, Анна! Рад взаимной симпатии. Вижу совпадение по ценностям.',
+              timestamp: '11:05'
+            }
+          ]
+        }
+      ]);
+      setActiveChatThreadId('thread_alexander');
+    }
+  };
+
+  // Like candidate
+  const handleLike = (target: UserProfile) => {
+    setAdStats(prev => ({
+      ...prev,
+      impressions: prev.impressions + 1,
+      estimatedRevenueRub: prev.estimatedRevenueRub + 0.3
+    }));
+
+    if (target.isSponsorAd) return;
+
+    const existing = chatThreads.find(t => t.partnerProfile.id === target.id);
+    if (!existing) {
+      const comp = calculateCompatibility(
+        currentUser.crucialAnswers,
+        currentUser.intent,
+        currentUser.interests,
+        target
+      );
+      const newThread: ChatThread = {
+        id: `thread_${target.id}_${Date.now()}`,
+        partnerProfile: target,
+        compatibilityScore: comp.overallScore,
+        createdAt: new Date().toISOString(),
+        lastMessage: `${currentUser.name}: Отправлена взаимная симпатия!`,
+        lastMessageTime: 'Только что',
+        unreadCount: 0,
+        meetingDeadlineHoursLeft: 72,
+        messages: [
+          {
+            id: `msg_${Date.now()}`,
+            senderId: 'current_user',
+            text: `Привет, ${target.name}! У нас совпадение ценностей (${comp.overallScore}%). Рада знакомству без пустых переписок!`,
+            timestamp: 'Только что'
+          }
+        ]
+      };
+      setChatThreads(prev => [newThread, ...prev]);
+    }
+  };
+
+  // Superlike
+  const handleSuperLike = (target: UserProfile) => {
+    if (superLikesCount > 0) {
+      setSuperLikesCount(prev => prev - 1);
+    } else if (!isLadyPremium) {
+      setIsLadyPremiumOpen(true);
+      return;
+    }
+    handleLike(target);
+  };
+
+  // Pass candidate
+  const handlePass = (target: UserProfile) => {
+    setAdStats(prev => ({
+      ...prev,
+      impressions: prev.impressions + 1,
+      estimatedRevenueRub: prev.estimatedRevenueRub + 0.3
+    }));
+  };
+
+  // Send message
+  const handleSendMessage = (threadId: string, text: string) => {
+    setChatThreads(prev =>
+      prev.map(t => {
+        if (t.id === threadId) {
+          const newMsg = {
+            id: `msg_${Date.now()}`,
+            senderId: 'current_user',
+            text,
+            timestamp: 'Только что'
+          };
+          return {
+            ...t,
+            lastMessage: `Вы: ${text}`,
+            lastMessageTime: 'Только что',
+            messages: [...t.messages, newMsg]
+          };
+        }
+        return t;
+      })
+    );
+  };
+
+  // Send date invitation
+  const handleSendDateInvite = (threadId: string, place: string, day: string, time: string) => {
+    setChatThreads(prev =>
+      prev.map(t => {
+        if (t.id === threadId) {
+          const inviteMsg = {
+            id: `invite_${Date.now()}`,
+            senderId: 'current_user',
+            text: 'Приглашение на первое свидание',
+            timestamp: 'Только что',
+            isDateInvite: true,
+            dateInviteDetails: {
+              place,
+              day,
+              time,
+              status: 'pending' as const
+            }
+          };
+          return {
+            ...t,
+            lastMessage: `Приглашение: ${place} (${day}, ${time})`,
+            lastMessageTime: 'Только что',
+            messages: [...t.messages, inviteMsg]
+          };
+        }
+        return t;
+      })
+    );
+  };
+
+  // Accept date invite
+  const handleAcceptDateInvite = (threadId: string, messageId: string) => {
+    setChatThreads(prev =>
+      prev.map(t => {
+        if (t.id === threadId) {
+          return {
+            ...t,
+            messages: t.messages.map(m => {
+              if (m.id === messageId && m.dateInviteDetails) {
+                return {
+                  ...m,
+                  dateInviteDetails: {
+                    ...m.dateInviteDetails,
+                    status: 'accepted'
+                  }
+                };
+              }
+              return m;
+            })
+          };
+        }
+        return t;
+      })
+    );
+  };
+
+  // Rewarded ad completed
+  const handleWatchRewardedAd = () => {
+    setSuperLikesCount(prev => prev + 3);
+    setBoostActive(true);
+    setAdStats(prev => ({
+      ...prev,
+      rewardedWatched: prev.rewardedWatched + 1,
+      estimatedRevenueRub: prev.estimatedRevenueRub + 8.5
+    }));
+  };
+
+  // Report profile
+  const handleReportProfile = (profileId: string, reason: string) => {
+    setProfiles(prev =>
+      prev.map(p => {
+        if (p.id === profileId) {
+          return {
+            ...p,
+            verification: {
+              ...p.verification,
+              reportCount: p.verification.reportCount + 1,
+              botRiskLevel: 'high',
+              noBotScore: Math.max(10, p.verification.noBotScore - 30)
+            }
+          };
+        }
+        return p;
+      })
+    );
+  };
+
+  // Filtered profiles strictly binary (Women see Men, Men see Women)
+  const binaryPool = filterBinaryCandidates(profiles, currentGender);
+  const filteredProfiles = binaryPool.filter(p => {
+    if (p.isSponsorAd) return true;
+    if (onlyVerified && !p.verification.isVerified) return false;
+    if (selectedCity !== 'all' && !p.city.includes(selectedCity)) return false;
+    if (intentFilter !== 'all' && p.intent !== intentFilter) return false;
+    const comp = calculateCompatibility(
+      currentUser.crucialAnswers,
+      currentUser.intent,
+      currentUser.interests,
+      p
+    );
+    if (comp.overallScore < minCompatibility) return false;
+    return true;
+  });
+
+  const unreadCount = chatThreads.reduce((acc, t) => acc + t.unreadCount, 0);
+
+  // Content switcher
+  const renderMainContent = () => {
+    switch (activeTab) {
+      case 'tests':
+        return (
+          <GenderSpecificTests
+            currentGender={currentGender}
+            onOpenMatrix={profile => {
+              setMatrixTargetProfile(profile || profiles[0]);
+              setIsMatrixOpen(true);
+            }}
+            brandName={currentBrand.name}
+          />
+        );
+
+      case 'chats':
+        return (
+          <ChatMessenger
+            threads={chatThreads}
+            activeThreadId={activeChatThreadId}
+            onSelectThread={id => setActiveChatThreadId(id)}
+            onSendMessage={handleSendMessage}
+            onSendDateInvite={handleSendDateInvite}
+            onAcceptDateInvite={handleAcceptDateInvite}
+            isLadyPremium={isLadyPremium}
+            onOpenLadyPremium={() => setIsLadyPremiumOpen(true)}
+            onBackToList={() => setActiveChatThreadId(null)}
+          />
+        );
+
+      case 'safety':
+        return (
+          <div className="w-full max-w-md mx-auto p-2 text-left">
+            <div className="p-5 rounded-3xl bg-stone-900 border border-white/10 shadow-2xl mb-4">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-950 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+                  <Brain className="w-5 h-5 text-rose-400" />
+                </div>
+                <div>
+                  <h3 className="font-heading font-black text-white text-base">Психотипы & Защита от ботов</h3>
+                  <p className="text-[11px] text-stone-400">Twinby-анализ личности и 3D-Liveness</p>
+                </div>
+              </div>
+
+              <p className="text-xs text-stone-300 leading-relaxed mb-4">
+                Каждый кандидат проходит тест на совместимость (MBTI, стили привязанности, языки любви) и 3D-биометрию лица. Спам-боты и коммерческие аккаунты изолируются автоматически.
+              </p>
+
+              <div className="space-y-2 mb-4">
+                <div className="text-[11px] font-bold text-white uppercase tracking-wider">
+                  Проверить профили кандидатов:
+                </div>
+                {profiles.map(p => (
+                  <div
+                    key={p.id}
+                    onClick={() => {
+                      setBotScanTargetProfile(p);
+                      setIsBotScannerOpen(true);
+                    }}
+                    className="p-2.5 rounded-2xl bg-stone-950 border border-white/5 hover:border-rose-500/40 cursor-pointer flex items-center justify-between transition-all"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <img src={p.photos[0] || p.avatar} alt={p.name} className="w-9 h-9 rounded-xl object-cover" />
+                      <div>
+                        <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                          <span>{p.name}</span>
+                          {p.mbti && <span className="text-[10px] text-rose-400 font-normal">({p.mbti.split('•')[0]})</span>}
+                        </div>
+                        <div className="text-[10px] text-stone-400">{p.occupation || p.city}</div>
+                      </div>
+                    </div>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      p.verification.isVerified ? 'bg-emerald-950 text-emerald-300' : 'bg-rose-950 text-rose-300'
+                    }`}>
+                      {p.verification.isVerified ? 'Живой 99%' : 'Подозрительный'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+
+      case 'monetization':
+        return (
+          <div className="w-full max-w-md mx-auto p-2 text-left">
+            <div className="p-5 rounded-3xl bg-stone-900 border border-white/10 shadow-2xl mb-4">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-950 text-amber-400 flex items-center justify-center border border-amber-500/30">
+                  <DollarSign className="w-5 h-5 stroke-[2.5]" />
+                </div>
+                <div>
+                  <h3 className="font-heading font-black text-white text-base">Монетизация платформы</h3>
+                  <p className="text-[11px] text-stone-400">Реклама + Lady VIP Club</p>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-stone-950/70 border border-white/5 mb-4 text-xs text-stone-300 leading-relaxed">
+                <strong className="text-white block mb-1">Принцип монетизации:</strong>
+                Мужчинам сервис бесплатен навсегда. Доход формируют нативные спонсорские свидания, rewarded-ролики для бесплатных пользователей и подписка Lady VIP для женщин.
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setIsAdManagerOpen(true)}
+                  className="flex-1 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 font-bold text-stone-950 text-xs transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <DollarSign className="w-4 h-4" />
+                  <span>Статистика рекламы</span>
+                </button>
+                <button
+                  onClick={() => setIsLadyPremiumOpen(true)}
+                  className="flex-1 py-3 rounded-2xl bg-rose-600 hover:bg-rose-500 font-bold text-white text-xs transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <Crown className="w-4 h-4" />
+                  <span>Тарифы Lady VIP</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+
+      case 'discovery':
+      default:
+        return (
+          <RadarDiscovery
+            profiles={filteredProfiles}
+            myAnswers={currentUser.crucialAnswers}
+            myIntent={currentUser.intent}
+            myInterests={currentUser.interests}
+            isLadyPremium={isLadyPremium}
+            onLike={handleLike}
+            onSuperLike={handleSuperLike}
+            onPass={handlePass}
+            onOpenCompatibilityMatrix={profile => {
+              setMatrixTargetProfile(profile);
+              setIsMatrixOpen(true);
+            }}
+            onInspectBotSafety={profile => {
+              setBotScanTargetProfile(profile);
+              setIsBotScannerOpen(true);
+            }}
+            onOpenLadyPremium={() => setIsLadyPremiumOpen(true)}
+            onOpenAdManager={() => setIsAdManagerOpen(true)}
+            onAdClicked={() => {
+              setAdStats(prev => ({
+                ...prev,
+                clicks: prev.clicks + 1,
+                estimatedRevenueRub: prev.estimatedRevenueRub + 25
+              }));
+            }}
+          />
+        );
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-stone-950 text-stone-100 flex flex-col items-center">
+      {/* Device Mode Wrapper */}
+      <div className="w-full flex flex-col items-center flex-1">
+        {deviceFrame === 'responsive' ? (
+          /* RESPONSIVE FULL WEB / MOBILE */
+          <div className="w-full flex flex-col min-h-screen">
+            {/* Minimal Twinby Header */}
+            <HeaderNav
+              currentGender={currentGender}
+              isLadyPremium={isLadyPremium}
+              deviceFrame={deviceFrame}
+              brandName={currentBrand.name}
+              onOpenBrandModal={() => setIsBrandModalOpen(true)}
+              onToggleGender={handleToggleGender}
+              onToggleDeviceFrame={setDeviceFrame}
+              onOpenPremiumModal={() => setIsLadyPremiumOpen(true)}
+              onOpenBotScanner={() => {
+                setBotScanTargetProfile(profiles[0]);
+                setIsBotScannerOpen(true);
+              }}
+              onOpenAdManager={() => setIsAdManagerOpen(true)}
+              onOpenFilters={() => setIsFilterOpen(true)}
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
+              unreadChatsCount={unreadCount}
+            />
+
+            {/* Main Stage */}
+            <main className="flex-1 w-full max-w-xl mx-auto px-3 sm:px-4 py-3 sm:py-5 flex flex-col items-center pb-24">
+              {renderMainContent()}
+            </main>
+
+            {/* Twinby-Style Floating Bottom Navigation Dock */}
+            <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 bg-stone-950/85 backdrop-blur-2xl border border-white/10 rounded-full px-5 py-2 flex items-center gap-5 sm:gap-6 shadow-2xl">
+              <button
+                onClick={() => setActiveTab('discovery')}
+                className={`flex flex-col items-center gap-0.5 transition-colors ${
+                  activeTab === 'discovery' ? 'text-rose-500 font-bold scale-110' : 'text-stone-400 hover:text-white'
+                }`}
+                title="Радар пар"
+              >
+                <Heart className={`w-5 h-5 ${activeTab === 'discovery' ? 'fill-rose-500' : ''}`} />
+                <span className="text-[9px]">Радар</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('tests')}
+                className={`flex flex-col items-center gap-0.5 transition-colors ${
+                  activeTab === 'tests' ? 'text-rose-500 font-bold scale-110' : 'text-stone-400 hover:text-white'
+                }`}
+                title="Психологические тесты по полу"
+              >
+                <Brain className="w-5 h-5" />
+                <span className="text-[9px]">Тесты</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('chats')}
+                className={`relative flex flex-col items-center gap-0.5 transition-colors ${
+                  activeTab === 'chats' ? 'text-rose-500 font-bold scale-110' : 'text-stone-400 hover:text-white'
+                }`}
+                title="Диалоги"
+              >
+                <MessageCircle className="w-5 h-5" />
+                <span className="text-[9px]">Чаты</span>
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400"></span>
+                )}
+              </button>
+
+              <button
+                onClick={() => setActiveTab('safety')}
+                className={`flex flex-col items-center gap-0.5 transition-colors ${
+                  activeTab === 'safety' ? 'text-rose-500 font-bold scale-110' : 'text-stone-400 hover:text-white'
+                }`}
+                title="Анти-бот и безопасность"
+              >
+                <ShieldCheck className="w-5 h-5" />
+                <span className="text-[9px]">Защита</span>
+              </button>
+
+              <button
+                onClick={() => setIsLadyPremiumOpen(true)}
+                className="flex flex-col items-center gap-0.5 text-amber-400 hover:text-amber-300 font-bold"
+                title="Lady VIP"
+              >
+                <Crown className="w-5 h-5 fill-amber-400/20" />
+                <span className="text-[9px]">VIP</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* NATIVE SMARTPHONE EMULATOR FRAME (iPhone / Android) */
+          <div className="py-4 px-2 flex flex-col items-center w-full">
+            <div className="mb-2 text-xs text-stone-400 flex items-center gap-2">
+              <Smartphone className="w-3.5 h-3.5 text-rose-500" />
+              <span>Эмуляция:</span>
+              <strong className="text-white">
+                {deviceFrame === 'iphone' ? 'Apple iPhone 16 Pro' : 'Samsung Galaxy S25'}
+              </strong>
+              <button
+                onClick={() => setDeviceFrame('responsive')}
+                className="ml-2 text-rose-400 hover:underline"
+              >
+                Веб-режим
+              </button>
+            </div>
+
+            {/* Phone Chassis */}
+            <div className={`relative w-full max-w-[390px] h-[780px] rounded-[48px] p-2.5 shadow-2xl transition-all ${
+              deviceFrame === 'iphone'
+                ? 'bg-stone-900 border-[7px] border-stone-800 ring-2 ring-white/10'
+                : 'bg-stone-900 border-[5px] border-stone-800 ring-2 ring-white/10 rounded-[40px]'
+            }`}>
+              {/* Dynamic Island */}
+              {deviceFrame === 'iphone' ? (
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 w-26 h-5.5 bg-black rounded-full z-40 flex items-center justify-between px-2 text-[10px] text-white">
+                  <div className="w-2 h-2 rounded-full bg-stone-900"></div>
+                  <div className="w-2 h-2 rounded-full bg-stone-900"></div>
+                </div>
+              ) : (
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 w-3 h-3 bg-black rounded-full z-40 ring-1 ring-stone-700"></div>
+              )}
+
+              {/* Inside Viewport */}
+              <div className="w-full h-full rounded-[38px] overflow-hidden bg-stone-950 flex flex-col relative">
+                {/* Status Bar */}
+                <div className="w-full px-6 pt-2 pb-0.5 flex items-center justify-between text-[11px] font-semibold text-white z-30 select-none">
+                  <span>09:41</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px]">5G</span>
+                    <div className="w-4 h-2 rounded-sm border border-white p-0.2">
+                      <div className="w-2.5 h-full bg-white rounded-xs"></div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Minimal Header inside phone */}
+                <HeaderNav
+                  currentGender={currentGender}
+                  isLadyPremium={isLadyPremium}
+                  deviceFrame={deviceFrame}
+                  brandName={currentBrand.name}
+                  onOpenBrandModal={() => setIsBrandModalOpen(true)}
+                  onToggleGender={handleToggleGender}
+                  onToggleDeviceFrame={setDeviceFrame}
+                  onOpenPremiumModal={() => setIsLadyPremiumOpen(true)}
+                  onOpenBotScanner={() => {
+                    setBotScanTargetProfile(profiles[0]);
+                    setIsBotScannerOpen(true);
+                  }}
+                  onOpenAdManager={() => setIsAdManagerOpen(true)}
+                  onOpenFilters={() => setIsFilterOpen(true)}
+                  activeTab={activeTab}
+                  setActiveTab={setActiveTab}
+                  unreadChatsCount={unreadCount}
+                />
+
+                {/* Main Content inside phone */}
+                <div className="flex-1 overflow-y-auto p-2 no-scrollbar pb-16">
+                  {renderMainContent()}
+                </div>
+
+                {/* Mobile Bottom Dock inside phone */}
+                <div className="absolute bottom-3 left-3 right-3 z-30 bg-stone-900/90 backdrop-blur-xl border border-white/10 rounded-full py-1.5 px-3 flex items-center justify-around shadow-2xl">
+                  <button
+                    onClick={() => setActiveTab('discovery')}
+                    className={`flex flex-col items-center gap-0.5 ${
+                      activeTab === 'discovery' ? 'text-rose-500 font-bold scale-105' : 'text-stone-400'
+                    }`}
+                  >
+                    <Heart className={`w-4 h-4 ${activeTab === 'discovery' ? 'fill-rose-500' : ''}`} />
+                    <span className="text-[8px]">Радар</span>
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab('tests')}
+                    className={`flex flex-col items-center gap-0.5 ${
+                      activeTab === 'tests' ? 'text-rose-500 font-bold scale-105' : 'text-stone-400'
+                    }`}
+                  >
+                    <Brain className="w-4 h-4" />
+                    <span className="text-[8px]">Тесты</span>
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab('chats')}
+                    className={`relative flex flex-col items-center gap-0.5 ${
+                      activeTab === 'chats' ? 'text-rose-500 font-bold scale-105' : 'text-stone-400'
+                    }`}
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    <span className="text-[8px]">Чаты</span>
+                    {unreadCount > 0 && (
+                      <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400"></span>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab('safety')}
+                    className={`flex flex-col items-center gap-0.5 ${
+                      activeTab === 'safety' ? 'text-rose-500 font-bold scale-105' : 'text-stone-400'
+                    }`}
+                  >
+                    <ShieldCheck className="w-4 h-4" />
+                    <span className="text-[8px]">Защита</span>
+                  </button>
+
+                  <button
+                    onClick={() => setIsLadyPremiumOpen(true)}
+                    className="flex flex-col items-center gap-0.5 text-amber-400 font-bold"
+                  >
+                    <Crown className="w-4 h-4" />
+                    <span className="text-[8px]">VIP</span>
+                  </button>
+                </div>
+
+                {/* Home Indicator bar */}
+                <div className="w-full pb-1 flex justify-center bg-stone-950">
+                  <div className="w-24 h-1 rounded-full bg-stone-600"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* MODALS */}
+      {/* 1. Deep Compatibility Matrix */}
+      <CompatibilityMatrixModal
+        isOpen={isMatrixOpen}
+        onClose={() => setIsMatrixOpen(false)}
+        profile={matrixTargetProfile}
+        myAnswers={currentUser.crucialAnswers}
+        myIntent={currentUser.intent}
+        myInterests={currentUser.interests}
+        onStartChat={profile => {
+          handleLike(profile);
+          setActiveTab('chats');
+        }}
+      />
+
+      {/* 2. Lady Premium Club Modal */}
+      <LadyPremiumModal
+        isOpen={isLadyPremiumOpen}
+        onClose={() => setIsLadyPremiumOpen(false)}
+        isLadyPremium={isLadyPremium}
+        onToggleLadyPremium={() => setIsLadyPremium(!isLadyPremium)}
+      />
+
+      {/* 3. Bot & Safety Scanner */}
+      <BotSafetyScanner
+        isOpen={isBotScannerOpen}
+        onClose={() => setIsBotScannerOpen(false)}
+        targetProfile={botScanTargetProfile}
+        onReportProfile={handleReportProfile}
+      />
+
+      {/* 4. Ad Revenue Manager */}
+      <AdManagerModal
+        isOpen={isAdManagerOpen}
+        onClose={() => setIsAdManagerOpen(false)}
+        stats={adStats}
+        onWatchRewardedAd={handleWatchRewardedAd}
+        superLikesCount={superLikesCount}
+        boostActive={boostActive}
+      />
+
+      {/* 5. Filter Drawer */}
+      <FilterDrawer
+        isOpen={isFilterOpen}
+        onClose={() => setIsFilterOpen(false)}
+        minCompatibility={minCompatibility}
+        setMinCompatibility={setMinCompatibility}
+        onlyVerified={onlyVerified}
+        setOnlyVerified={setOnlyVerified}
+        selectedCity={selectedCity}
+        setSelectedCity={setSelectedCity}
+        intentFilter={intentFilter}
+        setIntentFilter={setIntentFilter}
+        onApply={() => {}}
+      />
+
+      {/* 6. Brand Naming Proposals Modal */}
+      <BrandNamingModal
+        isOpen={isBrandModalOpen}
+        onClose={() => setIsBrandModalOpen(false)}
+        currentBrandId={currentBrandId}
+        onSelectBrand={id => setCurrentBrandId(id)}
+      />
+    </div>
+  );
+}
