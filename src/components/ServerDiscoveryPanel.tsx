@@ -31,6 +31,9 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const [notice, setNotice] = useState('');
   const [likedIds, setLikedIds] = useState<string[]>([]);
   const [blockedIds, setBlockedIds] = useState<string[]>([]);
+  const [reportTargetId, setReportTargetId] = useState<string | null>(null);
+  const [reportCategory, setReportCategory] = useState('fake_profile');
+  const [reportDetails, setReportDetails] = useState('');
 
   const search = useCallback(async () => {
     setBusy(true);
@@ -84,6 +87,32 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       setNotice(data?.matched ? `У вас взаимная симпатия с ${profile.displayName}! Совпадение создано.` : `Симпатия отправлена анкете «${profile.displayName}».`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Не удалось отправить симпатию.');
+    }
+  };
+
+  const submitReport = async (profile: ServerProfile) => {
+    setBusy(true);
+    try {
+      const response = await fetch('/api/reports', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reportedUserId: profile.id, category: reportCategory, details: reportDetails.trim() })
+      });
+      const data = await response.json().catch(() => null);
+      if (response.status === 401) {
+        setAuthenticated(false);
+        setNotice('Войдите, чтобы отправить жалобу.');
+        return;
+      }
+      if (!response.ok) throw new Error(data?.error === 'invalid_report_details' ? 'Проверьте категорию и длину комментария.' : 'Не удалось отправить жалобу.');
+      setReportTargetId(null);
+      setReportDetails('');
+      setNotice('Жалоба отправлена на рассмотрение. Спасибо, что помогаете поддерживать безопасность.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Ошибка отправки жалобы.');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -162,6 +191,14 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                 <p className="mt-2 text-[10px] text-stone-500">{profile.relationshipIntent === 'marriage_family' ? 'Цель: брак и семья' : 'Цель: серьёзные отношения'}</p>
                 <button type="button" onClick={() => void like(profile)} disabled={likedIds.includes(profile.id)} className="mt-3 w-full rounded-xl border border-rose-500/30 px-3 py-2.5 text-xs font-bold text-rose-200 disabled:opacity-50">{likedIds.includes(profile.id) ? 'Симпатия отправлена' : 'Отправить симпатию'}</button>
                 <button type="button" onClick={() => void block(profile)} disabled={busy || blockedIds.includes(profile.id)} className="mt-2 w-full rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-400 disabled:opacity-50">Скрыть и заблокировать</button>
+                <button type="button" onClick={() => { setReportTargetId(reportTargetId === profile.id ? null : profile.id); setReportDetails(''); }} className="mt-2 w-full rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-400">Пожаловаться</button>
+                {reportTargetId === profile.id && (
+                  <div className="mt-2 space-y-2 rounded-xl border border-white/10 bg-stone-900 p-3">
+                    <label className="block text-xs text-stone-300">Причина<select value={reportCategory} onChange={e => setReportCategory(e.target.value)} className="mt-1 w-full rounded-lg border border-white/10 bg-stone-950 p-2 text-xs text-white"><option value="fake_profile">Подозрение на фейковую анкету</option><option value="spam">Спам или мошенничество</option><option value="harassment">Оскорбления или преследование</option><option value="safety">Угроза безопасности</option><option value="other">Другое</option></select></label>
+                    <label className="block text-xs text-stone-300">Комментарий (необязательно)<textarea value={reportDetails} onChange={e => setReportDetails(e.target.value)} maxLength={2000} rows={2} className="mt-1 w-full rounded-lg border border-white/10 bg-stone-950 p-2 text-xs text-white" /></label>
+                    <button type="button" onClick={() => void submitReport(profile)} disabled={busy} className="w-full rounded-lg bg-rose-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{busy ? 'Отправляем…' : 'Отправить жалобу'}</button>
+                  </div>
+                )}
               </article>
             ))}
           </div>
