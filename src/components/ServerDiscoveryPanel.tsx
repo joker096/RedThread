@@ -20,6 +20,7 @@ type ServerProfile = {
   wantsChildren?: 'yes' | 'no' | 'discuss' | 'unsure';
   childrenLivingArrangement?: string;
   financialAlignment: number | null;
+  compatibilityScore?: number | null;
 };
 
 type ServerDiscoveryPanelProps = { onOpenAccount: () => void };
@@ -284,7 +285,10 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                     <h4 className="font-semibold text-white">{profile.displayName}, {profile.age}</h4>
                     <p className="mt-1 text-xs text-stone-400">{profile.city}, {profile.country}</p>
                   </div>
-                  {profile.financialAlignment !== null && <span className="shrink-0 rounded-full border border-emerald-500/30 px-2 py-1 text-[10px] text-emerald-300">{t('finance')} {profile.financialAlignment}%</span>}
+                  <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                    {profile.compatibilityScore !== null && profile.compatibilityScore !== undefined && <span className="rounded-full border border-rose-500/30 px-2 py-1 text-[10px] text-rose-200">{t('compatibilityScore')} {profile.compatibilityScore}%</span>}
+                    {profile.financialAlignment !== null && <span className="rounded-full border border-emerald-500/30 px-2 py-1 text-[10px] text-emerald-300">{t('finance')} {profile.financialAlignment}%</span>}
+                  </div>
                 </div>
                 {profile.bio && <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-stone-300">{profile.bio}</p>}
                 <div className="mt-2 flex flex-wrap gap-1.5">

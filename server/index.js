@@ -860,6 +860,26 @@ app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req,
          p.has_children AS "hasChildren",
          p.wants_children AS "wantsChildren",
          p.children_living_arrangement AS "childrenLivingArrangement",
+         CASE
+           WHEN candidate_assessment.answers IS NULL OR my_assessment.answers IS NULL THEN NULL
+           ELSE ROUND(100.0 * (
+             (CASE WHEN candidate_assessment.answers->>'relationshipGoal' = my_assessment.answers->>'relationshipGoal' THEN 2 ELSE 0 END) +
+             (CASE WHEN candidate_assessment.answers->>'children' = my_assessment.answers->>'children' THEN 2 ELSE 0 END) +
+             (CASE WHEN candidate_assessment.answers->>'financialModel' = my_assessment.answers->>'financialModel' THEN 3 ELSE 0 END) +
+             (CASE WHEN candidate_assessment.answers->>'lifestyleExpectation' = my_assessment.answers->>'lifestyleExpectation' THEN 1 ELSE 0 END) +
+             (CASE WHEN candidate_assessment.answers->>'gifts' = my_assessment.answers->>'gifts' THEN 1 ELSE 0 END) +
+             (CASE WHEN candidate_assessment.answers->>'household' = my_assessment.answers->>'household' THEN 1 ELSE 0 END) +
+             (CASE WHEN candidate_assessment.answers->>'fidelity' = my_assessment.answers->>'fidelity' THEN 2 ELSE 0 END) +
+             (CASE WHEN candidate_assessment.answers->>'conflictStyle' = my_assessment.answers->>'conflictStyle' THEN 1 ELSE 0 END) +
+             (CASE WHEN candidate_assessment.answers->>'honesty' = my_assessment.answers->>'honesty' THEN 2 ELSE 0 END) +
+             (CASE WHEN candidate_assessment.answers->>'trustRepair' = my_assessment.answers->>'trustRepair' THEN 2 ELSE 0 END) +
+             (CASE WHEN candidate_assessment.answers->>'conflictSafety' = my_assessment.answers->>'conflictSafety' THEN 3 ELSE 0 END) +
+             (CASE WHEN candidate_assessment.answers->>'debtTransparency' = my_assessment.answers->>'debtTransparency' THEN 2 ELSE 0 END) +
+             (CASE WHEN candidate_assessment.answers->>'substanceLifestyle' = my_assessment.answers->>'substanceLifestyle' THEN 1 ELSE 0 END) +
+             (CASE WHEN candidate_assessment.answers->>'relocation' = my_assessment.answers->>'relocation' THEN 1 ELSE 0 END) +
+             (CASE WHEN candidate_assessment.answers->>'caregiving' = my_assessment.answers->>'caregiving' THEN 1 ELSE 0 END)
+           ) / 25.0)::int
+         END AS "compatibilityScore",
          candidate_assessment.answers AS assessment_answers,
          my_assessment.answers AS my_assessment_answers
        FROM profiles p
@@ -890,7 +910,7 @@ app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req,
          AND ($11::boolean IS NULL OR p.has_children = $11)
          AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, p.birth_date))::int BETWEEN COALESCE($7::int, 18) AND COALESCE($8::int, 120)
          AND ($9::int = 0 OR (candidate_assessment.answers IS NOT NULL AND my_assessment.answers IS NOT NULL AND (CASE WHEN candidate_assessment.answers->>'financialModel' = my_assessment.answers->>'financialModel' THEN 1 ELSE 0 END + CASE WHEN candidate_assessment.answers->>'lifestyleExpectation' = my_assessment.answers->>'lifestyleExpectation' THEN 1 ELSE 0 END + CASE WHEN candidate_assessment.answers->>'gifts' = my_assessment.answers->>'gifts' THEN 1 ELSE 0 END) * 100.0 / 3 >= ($9 - 0.5)))
-       ORDER BY p.updated_at DESC, p.user_id
+       ORDER BY "compatibilityScore" DESC NULLS LAST, p.updated_at DESC, p.user_id
        LIMIT $5 OFFSET $6`,
       [req.authUser.id, country, city, intent, parsedLimit + 1, parsedOffset, minAge, maxAge, minFinancialAlignment, familyFormat, childrenFilter === null ? null : childrenFilter === 'true']
     );
