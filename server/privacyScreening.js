@@ -86,7 +86,10 @@ export async function screenTextPrivate(text, scope = 'profile') {
 
 export async function screenProfilePrivate(profile) {
   const texts = [
+    await screenTextPrivate(profile?.displayName || '', 'profile'),
     await screenTextPrivate(profile?.bio || '', 'profile'),
+    await screenTextPrivate(profile?.country || '', 'profile'),
+    await screenTextPrivate(profile?.city || '', 'profile'),
     await screenTextPrivate(profile?.occupation || '', 'occupation'),
     await screenTextPrivate(profile?.education || '', 'education')
   ];
