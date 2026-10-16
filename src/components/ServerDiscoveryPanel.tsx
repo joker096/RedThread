@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
+import { getSwipeActionFromDelta } from '../utils/swipe.ts';
 
 type ServerProfile = {
   id: string;
@@ -88,7 +89,8 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   useEffect(() => { void search(); }, [search]);
 
   const like = async (profile: ServerProfile) => {
-    if (busy) return;
+    if (busy || likedIds.includes(profile.id)) return;
+    setBusy(true);
     try {
       const response = await fetch(`/api/likes/${encodeURIComponent(profile.id)}`, {
         method: 'POST',
@@ -105,10 +107,14 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       if (response.status === 402) throw new Error(data?.message || 'Пробный период завершён. Для симпатий потребуется Premium; оплата ещё не подключена.');
       if (!response.ok) throw new Error('Не удалось отправить симпатию.');
       setLikedIds(current => current.includes(profile.id) ? current : [...current, profile.id]);
-      setNotice(data?.matched ? `У вас взаимная симпатия с ${profile.displayName}! Совпадение создано.` : `{t('liked')} анкете «${profile.displayName}».`);
+      setNotice(data?.matched
+        ? `У вас взаимная симпатия с ${profile.displayName}! Совпадение создано.`
+        : `${t('liked')}: «${profile.displayName}».`);
       if (swipeMode) setProfiles(current => current.filter(item => item.id !== profile.id));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Не удалось отправить симпатию.');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -258,9 +264,11 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                   const endX = event.changedTouches[0]?.clientX;
                   if (endX === undefined) return;
                   const delta = endX - start;
-                  if (delta < -80) void like(profile);
-                  else if (delta > 80) void pass(profile);
+                  const action = getSwipeActionFromDelta(delta);
+                  if (action === 'like') void like(profile);
+                  else if (action === 'pass') void pass(profile);
                 }}
+                aria-label={swipeMode ? `Анкета ${profile.displayName}. Свайп вправо — симпатия, влево — пропуск.` : undefined}
                 className={`rounded-2xl border border-white/10 bg-stone-950/70 p-3 ${swipeMode ? 'touch-pan-y' : ''}`}>
                 {profile.photoUrls?.length ? (
                   <div className="mb-3 flex gap-2 overflow-x-auto">
