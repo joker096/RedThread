@@ -28,6 +28,9 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
   const [wantsChildren, setWantsChildren] = useState<'yes' | 'no' | 'discuss' | 'unsure'>('discuss');
   const [childrenLivingArrangement, setChildrenLivingArrangement] = useState<'with_me' | 'shared_custody' | 'with_other_parent' | 'not_applicable' | 'prefer_to_discuss'>('not_applicable');
   const [billingStatus, setBillingStatus] = useState<{access:string;trialEndsAt:string|null;premiumUntil:string|null;paymentConfigured:boolean}|null>(null);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteNotice, setDeleteNotice] = useState('');
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
 
@@ -87,6 +90,44 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
     }
   };
 
+  const deleteAccount = async () => {
+    if (!showDeleteAccount || !deletePassword) {
+      setShowDeleteAccount(true);
+      setDeleteNotice('Для подтверждения введите текущий пароль.');
+      return;
+    }
+    const confirmed = window.confirm('Удалить аккаунт? Анкета станет невидимой, данные профиля будут обезличены, а действие нельзя будет отменить.');
+    if (!confirmed) return;
+    setBusy(true);
+    setDeleteNotice('');
+    try {
+      const response = await fetch('/api/account', {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: deletePassword })
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        const errors: Record<string, string> = {
+          password_confirmation_required: 'Введите текущий пароль.',
+          password_confirmation_failed: 'Пароль не подошёл. Аккаунт не удалён.'
+        };
+        throw new Error(errors[data?.error] || 'Не удалось удалить аккаунт.');
+      }
+      setUser(null);
+      setBillingStatus(null);
+      setDeletePassword('');
+      setShowDeleteAccount(false);
+      setDeleteNotice('Аккаунт удалён, персональные поля обезличены.');
+      onAuthenticated();
+    } catch (error) {
+      setDeleteNotice(error instanceof Error ? error.message : 'Ошибка удаления аккаунта.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const logout = async () => {
     setBusy(true);
     try {
@@ -120,6 +161,13 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
             <p className="mt-1 text-xs leading-relaxed text-stone-300">{billingStatus.trialEndsAt && billingStatus.access === 'full' ? `Бесплатный доступ до ${new Date(billingStatus.trialEndsAt).toLocaleString()}.` : billingStatus.access !== 'full' ? 'Для платных функций понадобится Premium. Платёжный провайдер ещё не подключён, поэтому списаний сейчас нет.' : 'Подписка активна.'}</p>
           </div>}
           <button type="button" onClick={() => void logout()} disabled={busy} className="rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-stone-200 disabled:opacity-50">Выйти</button>
+          <div className="rounded-xl border border-red-500/20 bg-red-950/20 p-3">
+            <p className="text-sm font-semibold text-red-200">Удаление аккаунта</p>
+            <p className="mt-1 text-xs leading-relaxed text-stone-400">Анкета будет скрыта, профильные данные обезличены, отправленные вами сообщения помечены удалёнными. Некоторые записи могут сохраняться для безопасности и юридических обязательств.</p>
+            {showDeleteAccount && <label className="mt-3 block text-xs text-stone-300">Текущий пароль<input type="password" value={deletePassword} onChange={e => setDeletePassword(e.target.value)} autoComplete="current-password" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>}
+            <button type="button" onClick={() => { if (!showDeleteAccount) { setShowDeleteAccount(true); setDeleteNotice('Введите пароль, затем нажмите ещё раз для подтверждения удаления.'); } else { void deleteAccount(); } }} disabled={busy || (showDeleteAccount && !deletePassword)} className="mt-3 w-full rounded-xl border border-red-500/30 px-4 py-2.5 text-xs font-semibold text-red-200 disabled:opacity-50">{busy ? 'Обрабатываем…' : showDeleteAccount ? 'Подтвердить удаление аккаунта' : 'Удалить аккаунт'}</button>
+            {deleteNotice && <p role="status" className="mt-2 text-xs text-stone-300">{deleteNotice}</p>}
+          </div>
         </div>
       ) : (
         <>
