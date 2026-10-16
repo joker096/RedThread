@@ -23,3 +23,12 @@ test('invalid thresholds do not trigger actions', () => {
   assert.equal(getSwipeActionFromDelta(100, -1), 'none');
   assert.equal(getSwipeActionFromDelta(100, Number.NaN), 'none');
 });
+
+
+test('custom swipe thresholds are respected and zero threshold is rejected', () => {
+  assert.equal(getSwipeActionFromDelta(24, 25), 'none');
+  assert.equal(getSwipeActionFromDelta(25, 25), 'like');
+  assert.equal(getSwipeActionFromDelta(-25, 25), 'pass');
+  assert.equal(getSwipeActionFromDelta(0, 0), 'none');
+  assert.equal(getSwipeActionFromDelta(10, Number.POSITIVE_INFINITY), 'none');
+});
