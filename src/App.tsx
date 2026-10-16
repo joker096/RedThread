@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useLocale } from './i18n/LocaleProvider.tsx';
 import { 
   Heart, 
   MessageCircle, 
@@ -38,6 +39,7 @@ import { BrandNamingModal, brandOptions } from './components/BrandNamingModal.ts
 import { GenderSpecificTests } from './components/GenderSpecificTests.tsx';
 
 export default function App() {
+  const { t } = useLocale();
   // Current user state
   const [currentUser, setCurrentUser] = useState<UserProfile>(initialCurrentUser);
   const [currentGender, setCurrentGender] = useState<Gender>('female');
@@ -665,10 +667,10 @@ export default function App() {
           <>
             <div className="mb-4 flex flex-col gap-2 rounded-2xl border border-emerald-500/20 bg-stone-900/70 p-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-sm font-semibold text-white">Режим реальных аккаунтов</p>
-                <p className="mt-1 text-xs text-stone-400">Серверные анкеты не смешиваются с демонстрационными профилями.</p>
+                <p className="text-sm font-semibold text-white">{t('serverProfilesNotice')}</p>
+                <p className="mt-1 text-xs text-stone-400">{t('serverProfilesDescription')}</p>
               </div>
-              <button type="button" onClick={() => setDiscoveryMode('demo')} className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-stone-300">Открыть демо-превью</button>
+              <button type="button" onClick={() => setDiscoveryMode('demo')} className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-stone-300">{t('openDemoPreview')}</button>
             </div>
             <ServerDiscoveryPanel onOpenAccount={() => setActiveTab('tests')} />
           </>
@@ -676,10 +678,10 @@ export default function App() {
           <>
             <div className="mb-4 flex flex-col gap-2 rounded-2xl border border-amber-500/20 bg-amber-950/40 p-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-sm font-semibold text-amber-100">Демо-превью — не реальные люди</p>
-                <p className="mt-1 text-xs text-amber-200/70">Эти карточки предназначены только для проверки дизайна и не участвуют в серверном поиске.</p>
+                <p className="text-sm font-semibold text-amber-100">{t('demoProfilesNotice')}</p>
+                <p className="mt-1 text-xs text-amber-200/70">{t('demoProfilesDescription')}</p>
               </div>
-              <button type="button" onClick={() => setDiscoveryMode('server')} className="rounded-xl border border-amber-200/20 px-3 py-2 text-xs font-semibold text-amber-100">Вернуться к реальным анкетам</button>
+              <button type="button" onClick={() => setDiscoveryMode('server')} className="rounded-xl border border-amber-200/20 px-3 py-2 text-xs font-semibold text-amber-100">{t('returnToRealProfiles')}</button>
             </div>
             <RadarDiscovery
             profiles={filteredProfiles}
@@ -719,7 +721,7 @@ export default function App() {
       <PWAInstallBanner />
       {/* Prototype disclosure: prevents mock data from being mistaken for verified production activity. */}
       <div role="status" className="w-full border-b border-amber-500/20 bg-amber-950/70 px-3 py-2 text-center text-[11px] text-amber-100 flex flex-col sm:flex-row items-center justify-center gap-2">
-        <span>Прототип: реальные аккаунты, серверный поиск и чаты доступны после входа; демо-карточки и демонстрационные функции отдельно помечены.</span>
+        <span>{t('prototypeNotice')}</span>
         <button
           type="button"
           onClick={() => {
@@ -776,7 +778,7 @@ export default function App() {
                 title="Радар пар"
               >
                 <Heart className={`w-5 h-5 ${activeTab === 'discovery' ? 'fill-rose-500' : ''}`} />
-                <span className="text-[9px]">Радар</span>
+                <span className="text-[9px]">{t('radar')}</span>
               </button>
 
               <button
@@ -787,7 +789,7 @@ export default function App() {
                 title="Психологические тесты по полу"
               >
                 <Brain className="w-5 h-5" />
-                <span className="text-[9px]">Тесты</span>
+                <span className="text-[9px]">{t('testsShort')}</span>
               </button>
 
               <button
@@ -798,7 +800,7 @@ export default function App() {
                 title="Диалоги"
               >
                 <MessageCircle className="w-5 h-5" />
-                <span className="text-[9px]">Чаты</span>
+                <span className="text-[9px]">{t('chatsShort')}</span>
                 {unreadCount > 0 && (
                   <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400"></span>
                 )}
@@ -812,7 +814,7 @@ export default function App() {
                 title="Анти-бот и безопасность"
               >
                 <ShieldCheck className="w-5 h-5" />
-                <span className="text-[9px]">Защита</span>
+                <span className="text-[9px]">{t('safetyShort')}</span>
               </button>
 
               {currentGender === 'female' && (
@@ -908,7 +910,7 @@ export default function App() {
                     }`}
                   >
                     <Heart className={`w-4 h-4 ${activeTab === 'discovery' ? 'fill-rose-500' : ''}`} />
-                    <span className="text-[8px]">Радар</span>
+                    <span className="text-[8px]">{t('radar')}</span>
                   </button>
 
                   <button
@@ -918,7 +920,7 @@ export default function App() {
                     }`}
                   >
                     <Brain className="w-4 h-4" />
-                    <span className="text-[8px]">Тесты</span>
+                    <span className="text-[8px]">{t('testsShort')}</span>
                   </button>
 
                   <button
@@ -928,7 +930,7 @@ export default function App() {
                     }`}
                   >
                     <MessageCircle className="w-4 h-4" />
-                    <span className="text-[8px]">Чаты</span>
+                    <span className="text-[8px]">{t('chatsShort')}</span>
                     {unreadCount > 0 && (
                       <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400"></span>
                     )}
@@ -941,7 +943,7 @@ export default function App() {
                     }`}
                   >
                     <ShieldCheck className="w-4 h-4" />
-                    <span className="text-[8px]">Защита</span>
+                    <span className="text-[8px]">{t('safetyShort')}</span>
                   </button>
 
                   {currentGender === 'female' && (
