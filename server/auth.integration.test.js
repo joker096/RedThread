@@ -324,6 +324,14 @@ test('auth API supports registration, session lookup, logout and login', {
     const afterPassSearch = await request('/api/profiles/search', { headers: { Cookie: secondCookie } });
     assert.equal((await afterPassSearch.json()).profiles.some(profile => profile.id === maleRegistered.user.id), false);
 
+    const undoPass = await request('/api/passes/undo', { method: 'POST', headers: { Cookie: secondCookie }, body: JSON.stringify({}) });
+    assert.equal(undoPass.status, 200);
+    assert.equal((await undoPass.json()).profile.id, maleRegistered.user.id);
+    const afterUndoSearch = await request('/api/profiles/search', { headers: { Cookie: secondCookie } });
+    assert.equal((await afterUndoSearch.json()).profiles.some(profile => profile.id === maleRegistered.user.id), true);
+    const passAgain = await request('/api/passes/' + maleRegistered.user.id, { method: 'POST', headers: { Cookie: secondCookie }, body: JSON.stringify({}) });
+    assert.equal(passAgain.status, 204);
+
     const block = await request(`/api/blocks/${maleRegistered.user.id}`, {
       method: 'POST',
       headers: { Cookie: secondCookie },
@@ -362,6 +370,9 @@ test('auth API supports registration, session lookup, logout and login', {
       body: JSON.stringify({ email, password })
     });
     assert.equal(rejectedOrigin.status, 403);
+
+    const missingOrigin = await fetch(api + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+    assert.equal(missingOrigin.status, 403);
 
     const deleteWrongPassword = await request('/api/account', {
       method: 'DELETE',
