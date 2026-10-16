@@ -267,6 +267,13 @@ async function persistScreening(userId, scope, result) {
   await pool.query('INSERT INTO user_safety_screenings (user_id, scope, flags, severity, review_status) VALUES ($1, $2, $3::jsonb, $4, $5)', [userId, scope, JSON.stringify(result.flags), result.severity, result.requiresReview ? 'pending' : 'not_required']);
 }
 
+async function createNotification(userId, type, metadata = {}, dedupeKey = null, client = pool) {
+  await client.query(
+    'INSERT INTO user_notifications (user_id, type, metadata, dedupe_key) VALUES ($1, $2, $3::jsonb, $4) ON CONFLICT (user_id, dedupe_key) DO NOTHING',
+    [userId, type, JSON.stringify(metadata), dedupeKey]
+  );
+}
+
 function requirePaidFeatures(req, res, next) {
   // Men retain the current free access model. Safety, account settings, and reports are never paywalled.
   if (req.authUser.gender !== 'female' || req.authUser.premium_lifetime === true) return next();
@@ -1232,6 +1239,10 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
     );
     await client.query('COMMIT');
     const match = matchResult.rows[0];
+    if (match?.status === 'active') {
+      await createNotification(req.authUser.id, 'new_match', { matchId: match.id }, 'match:' + match.id, client);
+      await createNotification(targetId, 'new_match', { matchId: match.id }, 'match:' + match.id, client);
+    }
     return res.status(201).json({
       liked: true,
       matched: match?.status === 'active',
@@ -1291,11 +1302,12 @@ app.get('/api/matches/:matchId/messages', requireSession, requirePaidFeatures, a
 
   try {
     const access = await pool.query(
-      `SELECT 1 FROM matches WHERE id = $1 AND status = 'active'
+      `SELECT user_a_id, user_b_id FROM matches WHERE id = $1 AND status = 'active'
        AND (user_a_id = $2 OR user_b_id = $2) LIMIT 1`,
       [req.params.matchId, req.authUser.id]
     );
     if (access.rowCount === 0) return res.status(404).json({ error: 'match_not_found' });
+    const recipientId = access.rows[0].user_a_id === req.authUser.id ? access.rows[0].user_b_id : access.rows[0].user_a_id;
 
     const result = await pool.query(
       `SELECT id, sender_id AS "senderId", body AS text, created_at AS "createdAt"
@@ -1338,6 +1350,7 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
       [req.params.matchId, req.authUser.id, body]
     );
     await persistScreening(req.authUser.id, 'message', screening);
+    await createNotification(recipientId, 'new_message', { matchId: req.params.matchId });
     return res.status(201).json({ message: result.rows[0], screening: { engine: screening.engine, externalProcessing: false, flaggedForReview: screening.requiresReview } });
   } catch (error) {
     console.error('Message send failed:', error?.message || 'unknown error');
@@ -1345,6 +1358,47 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
   }
 });
 
+
+app.get('/api/notifications', requireSession, async (req, res) => {
+  const limit = Number.parseInt(String(req.query.limit ?? '20'), 10);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 50) return res.status(400).json({ error: 'invalid_pagination' });
+  try {
+    const result = await pool.query(
+      'SELECT id, type, metadata, created_at AS "createdAt", read_at AS "readAt" FROM user_notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2',
+      [req.authUser.id, limit]
+    );
+    const count = await pool.query('SELECT COUNT(*)::int AS count FROM user_notifications WHERE user_id = $1 AND read_at IS NULL', [req.authUser.id]);
+    return res.json({ notifications: result.rows, unreadCount: count.rows[0]?.count || 0 });
+  } catch (error) {
+    console.error('Notification list failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'notification_list_failed' });
+  }
+});
+
+app.post('/api/notifications/read-all', validateRequestOrigin, requireSession, async (req, res) => {
+  try {
+    await pool.query('UPDATE user_notifications SET read_at = NOW() WHERE user_id = $1 AND read_at IS NULL', [req.authUser.id]);
+    return res.status(204).end();
+  } catch (error) {
+    console.error('Notification read-all failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'notification_update_failed' });
+  }
+});
+
+app.post('/api/notifications/:notificationId/read', validateRequestOrigin, requireSession, async (req, res) => {
+  if (!isUuid(req.params.notificationId)) return res.status(400).json({ error: 'invalid_notification_id' });
+  try {
+    const result = await pool.query(
+      'UPDATE user_notifications SET read_at = COALESCE(read_at, NOW()) WHERE id = $1 AND user_id = $2 RETURNING id',
+      [req.params.notificationId, req.authUser.id]
+    );
+    if (!result.rowCount) return res.status(404).json({ error: 'notification_not_found' });
+    return res.status(204).end();
+  } catch (error) {
+    console.error('Notification update failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'notification_update_failed' });
+  }
+});
 
 app.get('/api/blocks', requireSession, async (req, res) => {
   try {

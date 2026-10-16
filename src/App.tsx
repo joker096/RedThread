@@ -18,6 +18,7 @@ import { ServerDiscoveryPanel } from './components/ServerDiscoveryPanel.tsx';
 import { ServerMatchesPanel } from './components/ServerMatchesPanel.tsx';
 import { ProfileEditorPanel } from './components/ProfileEditorPanel.tsx';
 import { ModeratorConsolePanel } from './components/ModeratorConsolePanel.tsx';
+import { NotificationCenterPanel } from './components/NotificationCenterPanel.tsx';
 import type { 
   UserProfile, 
   Gender, 
@@ -555,6 +556,7 @@ export default function App() {
         return (
           <>
             <AccountAccessPanel onAuthenticated={() => setAssessmentRevision(value => value + 1)} />
+            <NotificationCenterPanel />
             <ProfileEditorPanel key={assessmentRevision} onOpenAccount={() => setActiveTab('tests')} />
             <ModeratorConsolePanel />
             <RelationshipAssessmentPanel key={assessmentRevision} />
