@@ -20,9 +20,12 @@ export function isValidAssessment(answers) {
 }
 
 export function assessmentCompatibility(first, second) {
+  const weights = { relationshipGoal: 2, children: 2, financialModel: 3, lifestyleExpectation: 1, gifts: 1, household: 1, fidelity: 2, conflictStyle: 1, honesty: 2 };
   const keys = Object.keys(ASSESSMENT_OPTIONS);
   const aligned = keys.filter(key => first[key] === second[key]);
-  return { score: Math.round(aligned.length / keys.length * 100), alignedCount: aligned.length, total: keys.length };
+  const possibleWeight = keys.reduce((sum, key) => sum + weights[key], 0);
+  const earnedWeight = aligned.reduce((sum, key) => sum + weights[key], 0);
+  return { score: Math.round(earnedWeight / possibleWeight * 100), alignedCount: aligned.length, total: keys.length };
 }
 
 export function financialAlignment(first, second) {
