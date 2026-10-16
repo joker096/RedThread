@@ -914,10 +914,11 @@ function isUuid(value) {
 }
 
 function isSafePhotoUrl(value) {
-  if (typeof value !== 'string' || value.trim() !== value) return false;
-  if (/^\/api\/photos\/[a-f0-9-]{36}$/i.test(value)) return true;
-  try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password; }
-  catch { return false; }
+  // Profile photos must be uploaded through the sanitizer and private asset store.
+  // External URLs bypass image decoding, metadata stripping, access control, and review.
+  return typeof value === 'string' &&
+    value.trim() === value &&
+    /^\/api\/photos\/[a-f0-9-]{36}$/i.test(value);
 }
 
 app.post('/api/photos', validateRequestOrigin, requireSession, profileActionLimiter, express.raw({ type: ['image/jpeg', 'image/png'], limit: '8mb' }), async (req, res) => {
