@@ -520,6 +520,7 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
       `UPDATE profiles SET ${updates.join(', ')}, updated_at = NOW()
        WHERE user_id = $1
        RETURNING user_id AS id, display_name AS "displayName", gender, country, city, bio,
+         photo_urls AS "photoUrls", occupation, education, languages,
          relationship_intent AS "relationshipIntent", is_visible AS "isVisible"`,
       values
     );
