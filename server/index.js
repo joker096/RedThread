@@ -1,5 +1,4 @@
 import 'dotenv/config';
-import { createHash } from 'node:crypto';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import pg from 'pg';
