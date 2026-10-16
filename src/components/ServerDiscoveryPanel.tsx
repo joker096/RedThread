@@ -106,6 +106,31 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
     }
   };
 
+  const pass = async (profile: ServerProfile) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/passes/${encodeURIComponent(profile.id)}`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({})
+      });
+      const data = await response.json().catch(() => null);
+      if (response.status === 401) {
+        setAuthenticated(false);
+        setNotice('Войдите в аккаунт, чтобы управлять подбором.');
+        return;
+      }
+      if (response.status === 402) throw new Error(data?.message || 'Пробный период завершён. Для пропуска анкет потребуется Premium.');
+      if (!response.ok) throw new Error('Не удалось пропустить анкету.');
+      setProfiles(current => current.filter(item => item.id !== profile.id));
+      setNotice('Анкета пропущена и больше не будет показываться в поиске.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Ошибка пропуска анкеты.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const submitReport = async (profile: ServerProfile) => {
     setBusy(true);
     try {
@@ -216,6 +241,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                 {profile.languages?.length ? <p className="mt-1 text-xs text-stone-400">Языки: {profile.languages.join(', ')}</p> : null}
                 <p className="mt-2 text-[10px] text-stone-500">{profile.relationshipIntent === 'marriage_family' ? 'Цель: брак и семья' : 'Цель: серьёзные отношения'}</p>
                 <button type="button" onClick={() => void like(profile)} disabled={likedIds.includes(profile.id)} className="mt-3 w-full rounded-xl border border-rose-500/30 px-3 py-2.5 text-xs font-bold text-rose-200 disabled:opacity-50">{likedIds.includes(profile.id) ? 'Симпатия отправлена' : 'Отправить симпатию'}</button>
+                <button type="button" onClick={() => void pass(profile)} disabled={busy} className="mt-2 w-full rounded-xl border border-white/10 px-3 py-2.5 text-xs font-semibold text-stone-300 disabled:opacity-50">Пропустить анкету</button>
                 <button type="button" onClick={() => void block(profile)} disabled={busy || blockedIds.includes(profile.id)} className="mt-2 w-full rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-400 disabled:opacity-50">Скрыть и заблокировать</button>
                 <button type="button" onClick={() => { setReportTargetId(reportTargetId === profile.id ? null : profile.id); setReportDetails(''); }} className="mt-2 w-full rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-400">Пожаловаться</button>
                 {reportTargetId === profile.id && (
