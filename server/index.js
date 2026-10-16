@@ -1246,8 +1246,22 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
   if (!isUuid(targetId) || targetId === req.authUser.id) return res.status(400).json({ error: 'invalid_pass_target' });
   try {
     const target = await pool.query(
-      "SELECT p.gender FROM profiles p JOIN users u ON u.id = p.user_id WHERE p.user_id = $1 AND u.status = 'active' AND p.is_visible = TRUE AND p.children_disclosure_confirmed_at IS NOT NULL AND p.has_children IS NOT NULL",
-      [targetId]
+      `SELECT p.gender FROM profiles p JOIN users u ON u.id = p.user_id
+       WHERE p.user_id = $1 AND u.status = 'active' AND p.is_visible = TRUE
+         AND p.children_disclosure_confirmed_at IS NOT NULL AND p.has_children IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM user_blocks b
+           WHERE (b.blocker_id = $2 AND b.blocked_id = p.user_id)
+              OR (b.blocker_id = p.user_id AND b.blocked_id = $2)
+         )
+         AND NOT EXISTS (SELECT 1 FROM likes l WHERE l.sender_id = $2 AND l.target_id = p.user_id)
+         AND NOT EXISTS (
+           SELECT 1 FROM matches m
+           WHERE m.status = 'active'
+             AND ((m.user_a_id = $2 AND m.user_b_id = p.user_id)
+               OR (m.user_a_id = p.user_id AND m.user_b_id = $2))
+         )`,
+      [targetId, req.authUser.id]
     );
     if (!target.rows[0] || target.rows[0].gender === req.authUser.gender) return res.status(404).json({ error: 'target_not_available' });
     await pool.query('INSERT INTO profile_passes (passer_id, passed_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [req.authUser.id, targetId]);
