@@ -20,3 +20,13 @@ test('partial and fallback locales are reported honestly', () => {
   assert.equal(swahili.missing.length, swahili.total);
   assert.ok(LANGUAGE_OPTIONS.some(language => language.code === 'sw'));
 });
+
+
+test('language selector has unique locale codes and explicit auto, English, and Russian options', () => {
+  const codes = LANGUAGE_OPTIONS.map(language => language.code);
+  assert.equal(new Set(codes).size, codes.length, 'Locale codes must be unique');
+  assert.ok(codes.includes('auto'));
+  assert.ok(codes.includes('en'));
+  assert.ok(codes.includes('ru'));
+  assert.ok(LANGUAGE_OPTIONS.every(language => language.nativeName.trim().length > 0));
+});
