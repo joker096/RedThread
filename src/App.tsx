@@ -116,7 +116,7 @@ export default function App() {
         {
           id: 'm3',
           senderId: 'user_alexander',
-          text: 'В Красной Нити есть отличное правило: не тратить недели на переписки. Предлагаю живую встречу!',
+          text: 'В Vow есть отличное правило: не тратить недели на переписки. Предлагаю живую встречу!',
           timestamp: 'Сегодня 14:30'
         },
         {
@@ -161,7 +161,7 @@ export default function App() {
   const [isHydrated, setIsHydrated] = useState(false);
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem('nit-demo-state-v1');
+      const raw = window.localStorage.getItem('vow-demo-state-v1');
       if (raw) {
         const saved = JSON.parse(raw) as Record<string, unknown>;
         if (saved.currentUser) setCurrentUser(saved.currentUser as UserProfile);
@@ -195,7 +195,7 @@ export default function App() {
   useEffect(() => {
     if (!isHydrated) return;
     try {
-      window.localStorage.setItem('nit-demo-state-v1', JSON.stringify({
+      window.localStorage.setItem('vow-demo-state-v1', JSON.stringify({
         currentUser, currentGender, isLadyPremium, profiles, chatThreads, adStats,
         currentBrandId, minCompatibility, onlyVerified, selectedCountry, selectedCity, intentFilter,
         superLikesCount, boostActive, activeTab, activeChatThreadId
@@ -307,7 +307,7 @@ export default function App() {
             {
               id: 'm3',
               senderId: 'user_alexander',
-              text: 'В Красной Нити есть отличное правило: не тратить недели на переписки. Предлагаю живую встречу!',
+              text: 'В Vow есть отличное правило: не тратить недели на переписки. Предлагаю живую встречу!',
               timestamp: 'Сегодня 14:30'
             },
             {
@@ -724,7 +724,7 @@ export default function App() {
           type="button"
           onClick={() => {
             try {
-              window.localStorage.removeItem('nit-demo-state-v1');
+              window.localStorage.removeItem('vow-demo-state-v1');
             } catch {
               // The page can still be reloaded if storage is unavailable.
             }
