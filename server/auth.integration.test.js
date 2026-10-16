@@ -267,17 +267,17 @@ test('auth API supports registration, session lookup, logout and login', {
       headers: { Cookie: maleCookie }
     });
     assert.equal(undoTargetPass.status, 204);
-    const undoPass = await request('/api/passes/undo', {
+    const undoMostRecentPass = await request('/api/passes/undo', {
       method: 'POST',
       headers: { Cookie: maleCookie }
     });
-    assert.equal(undoPass.status, 200);
-    assert.equal((await undoPass.json()).profile.id, registered.user.id);
-    const undoAgain = await request('/api/passes/undo', {
+    assert.equal(undoMostRecentPass.status, 200);
+    assert.equal((await undoMostRecentPass.json()).profile.id, registered.user.id);
+    const undoNoPass = await request('/api/passes/undo', {
       method: 'POST',
       headers: { Cookie: maleCookie }
     });
-    assert.equal(undoAgain.status, 404);
+    assert.equal(undoNoPass.status, 404);
 
     const firstLike = await request(`/api/likes/${maleRegistered.user.id}`, {
       method: 'POST',
