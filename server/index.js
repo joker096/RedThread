@@ -929,6 +929,19 @@ app.post('/api/reports', validateRequestOrigin, requireSession, async (req, res)
   }
 });
 
+app.get('/api/admin/screenings', requireSession, async (req, res) => {
+  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
+  try {
+    const result = await pool.query(
+      "SELECT id, user_id AS \"userId\", scope, flags, severity, engine_version AS \"engineVersion\", review_status AS \"reviewStatus\", created_at AS \"createdAt\" FROM user_safety_screenings WHERE review_status = 'pending' ORDER BY created_at DESC LIMIT 100"
+    );
+    return res.json({ screenings: result.rows, rawTextStored: false, externalProcessing: false });
+  } catch (error) {
+    console.error('Screening queue failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'screening_queue_failed' });
+  }
+});
+
 app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSession, async (req, res) => {
   if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   const reportId = req.params.reportId;
