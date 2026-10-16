@@ -1,4 +1,4 @@
-export const ASSESSMENT_VERSION = 1;
+export const ASSESSMENT_VERSION = 2;
 
 export const ASSESSMENT_QUESTIONS = [
   {
@@ -91,6 +91,68 @@ export const ASSESSMENT_QUESTIONS = [
       { value: 'essential', label: 'Принципиально важно с самого начала' },
       { value: 'gradual', label: 'Открываюсь постепенно, по мере доверия' }
     ]
+  },
+  {
+    id: 'trustRepair',
+    category: 'Восстановление доверия',
+    prompt: 'Что для вас необходимо, если доверие было серьёзно нарушено?',
+    options: [
+      { value: 'accountability_actions', label: 'Признание ответственности и устойчивые действия по исправлению' },
+      { value: 'time_transparency', label: 'Время, открытый разговор и согласованные границы' },
+      { value: 'not_reconcile', label: 'После серьёзного нарушения отношения не продолжаю' }
+    ]
+  },
+  {
+    id: 'conflictSafety',
+    category: 'Безопасное общение',
+    prompt: 'Какие границы обязательны даже во время ссоры?',
+    options: [
+      { value: 'no_insults_control', label: 'Никаких оскорблений, угроз, контроля и физической агрессии' },
+      { value: 'pause_then_talk', label: 'Пауза и возвращение к разговору без унижения' },
+      { value: 'learning_boundaries', label: 'Готов(а) учиться здоровому общению и соблюдать договорённости' }
+    ]
+  },
+  {
+    id: 'debtTransparency',
+    category: 'Долги и обязательства',
+    prompt: 'Когда обсуждать кредиты, долги и регулярные финансовые обязательства?',
+    options: [
+      { value: 'open_before_commitment', label: 'До совместного бюджета, крупных покупок или переезда' },
+      { value: 'gradual_disclosure', label: 'Постепенно, по мере развития доверия' },
+      { value: 'keep_separate', label: 'Финансы раздельные, детали обсуждаем в пределах общих обязательств' }
+    ]
+  },
+  {
+    id: 'substanceLifestyle',
+    category: 'Привычки и образ жизни',
+    prompt: 'Какие привычки партнёра совместимы с вашим образом жизни?',
+    options: [
+      { value: 'no_smoking_no_drugs', label: 'Не курить и не употреблять наркотики; алкоголь не употребляю или крайне редко' },
+      { value: 'occasional_social', label: 'Допустимы редкие социальные случаи' },
+      { value: 'flexible', label: 'Отношусь гибко, если это не вредит отношениям и здоровью' }
+    ]
+  },
+  {
+    id: 'relocation',
+    category: 'Место жизни',
+    prompt: 'Готовы ли вы переехать ради совместной жизни?',
+    options: [
+      { value: 'stay_local', label: 'Хочу остаться в своём городе/стране' },
+      { value: 'within_country', label: 'Рассмотрю переезд внутри страны' },
+      { value: 'international', label: 'Рассмотрю переезд в другую страну' },
+      { value: 'depends_on_plan', label: 'Зависит от работы, детей и конкретного плана' }
+    ]
+  },
+  {
+    id: 'caregiving',
+    category: 'Семейные обязанности',
+    prompt: 'Как вы видите помощь родителям и близким, если им понадобится уход?',
+    options: [
+      { value: 'shared_care', label: 'Обсуждаем и распределяем нагрузку вместе' },
+      { value: 'family_primary', label: 'В первую очередь ухаживает их собственный ребёнок, партнёр поддерживает по договорённости' },
+      { value: 'professional_support', label: 'По возможности привлекаем профессиональную помощь' },
+      { value: 'case_by_case', label: 'Решаем по обстоятельствам и возможностям' }
+    ]
   }
 ] as const;
 
@@ -123,7 +185,13 @@ const WEIGHTS: Record<string, number> = {
   household: 1,
   fidelity: 2,
   conflictStyle: 1,
-  honesty: 2
+  honesty: 2,
+  trustRepair: 2,
+  conflictSafety: 3,
+  debtTransparency: 2,
+  substanceLifestyle: 1,
+  relocation: 1,
+  caregiving: 1
 };
 
 export function calculateAssessmentCompatibility(
