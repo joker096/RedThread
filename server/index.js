@@ -456,7 +456,7 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
   const values = [req.authUser.id];
   const addUpdate = (column, value) => {
     values.push(value);
-    updates.push(`${column} = ${values.length}`);
+    updates.push(`${column} = $${values.length}`);
   };
 
   if (Object.hasOwn(body, 'displayName')) {
