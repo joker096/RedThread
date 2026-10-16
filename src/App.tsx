@@ -411,6 +411,7 @@ export default function App() {
 
   // Superlike
   const handleSuperLike = (target: UserProfile) => {
+    if (target.isSponsorAd || target.superLikedByMe) return false;
     if (superLikesCount > 0) {
       setSuperLikesCount(prev => prev - 1);
     } else if (currentGender === 'male') {
@@ -425,13 +426,20 @@ export default function App() {
     return true;
   };
 
-  const handleUndoDemoAction = (target: UserProfile, action: 'like' | 'superLike') => {
-    // Never roll back a like after a mutual match has already opened a chat.
+  const handleUndoDemoAction = (
+    target: UserProfile,
+    action: 'like' | 'superLike',
+    previousState: { likedByMe: boolean; superLikedByMe: boolean }
+  ) => {
+    // A mutual match is a durable state transition; do not undo it from discovery.
     if (chatThreads.some(thread => thread.partnerProfile.id === target.id)) return false;
     setProfiles(prev => prev.map(profile => profile.id === target.id
-      ? { ...profile, likedByMe: false, ...(action === 'superLike' ? { superLikedByMe: false } : {}) }
+      ? { ...profile, likedByMe: previousState.likedByMe, superLikedByMe: previousState.superLikedByMe }
       : profile));
-    if (action === 'superLike') setSuperLikesCount(count => count + 1);
+    // Refund only a super-like actually spent by this action.
+    if (action === 'superLike' && !previousState.superLikedByMe) {
+      setSuperLikesCount(count => count + 1);
+    }
     return true;
   };
 

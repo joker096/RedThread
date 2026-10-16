@@ -30,7 +30,11 @@ interface RadarDiscoveryProps {
   isLadyPremium: boolean;
   onLike: (profile: UserProfile) => void;
   onSuperLike: (profile: UserProfile) => boolean | void;
-  onUndoAction: (profile: UserProfile, action: 'like' | 'superLike') => boolean | void;
+  onUndoAction: (
+    profile: UserProfile,
+    action: 'like' | 'superLike',
+    previousState: { likedByMe: boolean; superLikedByMe: boolean }
+  ) => boolean | void;
   onPass: (profile: UserProfile) => void;
   onOpenCompatibilityMatrix: (profile: UserProfile) => void;
   onInspectBotSafety: (profile: UserProfile) => void;
@@ -62,7 +66,13 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [photoIndex, setPhotoIndex] = useState(0);
   const [activePsychCardIndex, setActivePsychCardIndex] = useState(0);
-  const [history, setHistory] = useState<Array<{ index: number; profileId: string; action: 'like' | 'superLike' | 'pass' | 'ad' }>>([]);
+  const [history, setHistory] = useState<Array<{
+    index: number;
+    profileId: string;
+    action: 'like' | 'superLike' | 'pass' | 'ad';
+    wasLiked: boolean;
+    wasSuperLiked: boolean;
+  }>>([]);
   const touchStartX = useRef<number | null>(null);
 
   const currentProfile = profiles[currentIndex];
@@ -83,7 +93,13 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
   }, [profiles.length, currentIndex]);
 
   const handleNext = (action: 'like' | 'superLike' | 'pass' | 'ad') => {
-    if (currentProfile) setHistory(previous => [...previous, { index: currentIndex, profileId: currentProfile.id, action }].slice(-50));
+    if (currentProfile) setHistory(previous => [...previous, {
+      index: currentIndex,
+      profileId: currentProfile.id,
+      action,
+      wasLiked: Boolean(currentProfile.likedByMe),
+      wasSuperLiked: Boolean(currentProfile.superLikedByMe)
+    }].slice(-50));
     setIsPlayingAudio(false);
     setPhotoIndex(0);
     setActivePsychCardIndex(0);
@@ -117,7 +133,10 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
     const previous = history[history.length - 1];
     const previousProfile = profiles.find(profile => profile.id === previous.profileId);
     if (previousProfile && (previous.action === 'like' || previous.action === 'superLike')) {
-      if (onUndoAction(previousProfile, previous.action) === false) return;
+      if (onUndoAction(previousProfile, previous.action, {
+        likedByMe: previous.wasLiked,
+        superLikedByMe: previous.wasSuperLiked
+      }) === false) return;
     }
     setHistory(items => items.slice(0, -1));
     setCurrentIndex(previousProfile ? profiles.findIndex(profile => profile.id === previousProfile.id) : previous.index);
