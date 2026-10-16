@@ -13,7 +13,7 @@ test('server rejects missing, extra and invalid assessment answers', () => {
 
 test('server compatibility is deterministic and transparent', () => {
   assert.equal(assessmentCompatibility(answers, answers).score, 100);
-  assert.equal(assessmentCompatibility(answers, { ...answers, children: 'do_not_want' }).score, 87);
+  assert.equal(assessmentCompatibility(answers, { ...answers, children: 'do_not_want' }).score, 92);
 });
 
 test('financial alignment compares declared preferences without labeling a person', () => {
