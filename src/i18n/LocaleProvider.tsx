@@ -181,6 +181,20 @@ const messages = {
   hi: { language:'भाषा', autoLanguage:'स्वचालित', discovery:'खोजें', tests:'मूल्य परीक्षण', chats:'चैट', safety:'सुरक्षा', filters:'प्रोफ़ाइल फ़िल्टर', login:'लॉग इन / पंजीकरण', country:'देश', city:'शहर', ageFrom:'न्यूनतम आयु', ageTo:'अधिकतम आयु', search:'प्रोफ़ाइल खोजें', searching:'खोज रहे हैं…', undoPass:'पिछला स्किप वापस लें', like:'पसंद करें', liked:'पसंद भेजी गई', pass:'प्रोफ़ाइल छोड़ें', block:'छिपाएँ और ब्लॉक करें', report:'रिपोर्ट करें', noPhotos:'कोई फ़ोटो नहीं', any:'कोई भी', anyCountry:'कोई भी देश', anyCity:'कोई भी शहर', relationshipGoal:'रिश्ते का उद्देश्य', marriageFamily:'विवाह और परिवार', familyWithoutMarriage:'विवाह पंजीकरण के बिना परिवार', seriousRelationship:'गंभीर रिश्ता', familyFormat:'परिवार का स्वरूप', children:'बच्चे', notImportant:'महत्वपूर्ण नहीं', noChildren:'बच्चे नहीं हैं', hasChildren:'बच्चे हैं', doNotFilter:'फ़िल्टर न करें', financialMatch:'वित्तीय अपेक्षाओं का मेल', sendReport:'रिपोर्ट भेजें', sending:'भेज रहे हैं…', cancel:'रद्द करें', save:'सहेजें', loading:'लोड हो रहा है…' }
 };
 
+
+export function getTranslationCoverage(locale: string) {
+  const englishKeys = Object.keys(messages.en) as Array<keyof typeof messages.en>;
+  const catalog = messages[locale as keyof typeof messages] as Partial<typeof messages.en> | undefined;
+  const missing = englishKeys.filter(key => typeof catalog?.[key] !== 'string' || !catalog[key]?.trim());
+  return {
+    locale,
+    translated: englishKeys.length - missing.length,
+    total: englishKeys.length,
+    percentage: Math.round(((englishKeys.length - missing.length) / englishKeys.length) * 100),
+    missing
+  };
+}
+
 const rtlLocales = new Set(['ar', 'he', 'fa', 'ur']);
 const availableTranslations = new Set(Object.keys(messages));
 const storageKey = 'vow-locale-preference-v1';
