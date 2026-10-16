@@ -18,3 +18,17 @@ test('ordinary profile text is not suspicious by default', () => {
  const result=screenProfile({bio:'Люблю путешествия, книги и спокойные вечера.',hasChildren:false,childrenLivingArrangement:'not_applicable'});
  assert.equal(result.requiresReview,false); assert.equal(result.externalProcessing,false);
 });
+test('private screening never reports third-party processing when local model is disabled', async () => {
+  const previous = process.env.LOCAL_AI_ENABLED;
+  delete process.env.LOCAL_AI_ENABLED;
+  try {
+    const { screenTextPrivate } = await import('./privacyScreening.js');
+    const result = await screenTextPrivate('Люблю книги, прогулки и путешествия.', 'profile');
+    assert.equal(result.externalProcessing, false);
+    assert.equal(result.localModelEnabled, false);
+    assert.equal(result.engine, 'local-rules-v1');
+  } finally {
+    if (previous === undefined) delete process.env.LOCAL_AI_ENABLED;
+    else process.env.LOCAL_AI_ENABLED = previous;
+  }
+});
