@@ -186,11 +186,17 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         return;
       }
 
-      const response = await fetch('/api/passes/undo', {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(lastAction?.type === 'pass' ? { targetId: lastAction.profile.id } : {})
-      });
+      const response = lastAction
+        ? await fetch('/api/passes/undo', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ targetId: lastAction.profile.id })
+          })
+        : await fetch('/api/discovery/undo', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+          });
       const data = await response.json().catch(() => null);
       if (response.status === 401) {
         setAuthenticated(false);
@@ -198,11 +204,15 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         return;
       }
       if (response.status === 402) throw new Error(data?.message || 'Для подбора потребуется Premium.');
-      if (response.status === 404) throw new Error('Эту анкету уже нельзя вернуть: возможно, она скрыта или заблокирована.');
-      if (!response.ok || !data?.profile) throw new Error('Не удалось вернуть анкету.');
+      if (response.status === 404) throw new Error('Последнее действие уже нельзя отменить: анкета может быть скрыта или заблокирована.');
+      if (response.status === 409) throw new Error('Совпадение уже создано — отменить эту симпатию нельзя.');
+      if (!response.ok || !data?.profile) throw new Error('Не удалось отменить последнее действие.');
       setProfiles(current => [data.profile as ServerProfile, ...current.filter(item => item.id !== data.profile.id)]);
+      if (data.type === 'like') setLikedIds(current => current.filter(id => id !== data.profile.id));
       if (lastAction) setActionHistory(current => current.slice(0, -1));
-      setNotice('Последний пропуск отменён. Анкета снова доступна в вашей ленте.');
+      setNotice(data.type === 'like'
+        ? `Последняя симпатия к анкете «${data.profile.displayName}» отменена.`
+        : 'Последний пропуск отменён. Анкета снова доступна в вашей ленте.');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Не удалось отменить последнее действие.');
     } finally {

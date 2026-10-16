@@ -1390,6 +1390,109 @@ app.delete('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, 
   }
 });
 
+app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const latest = await client.query(
+      `SELECT action_type AS "actionType", target_id AS id
+       FROM (
+         SELECT 'like'::text AS action_type, target_id, created_at
+         FROM likes WHERE sender_id = $1
+         UNION ALL
+         SELECT 'pass'::text AS action_type, passed_user_id AS target_id, created_at
+         FROM profile_passes WHERE passer_id = $1
+       ) recent_actions
+       ORDER BY created_at DESC, action_type ASC
+       LIMIT 1`,
+      [req.authUser.id]
+    );
+    const action = latest.rows[0];
+    if (!action) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'no_discovery_action_to_undo' });
+    }
+
+    const profileResult = await client.query(
+      `SELECT p.user_id AS id, p.display_name AS "displayName",
+              EXTRACT(YEAR FROM AGE(CURRENT_DATE, p.birth_date))::int AS age,
+              p.gender, p.country, p.city, p.bio, p.photo_urls AS "photoUrls",
+              p.occupation, p.education, p.languages,
+              p.relationship_intent AS "relationshipIntent",
+              p.family_format AS "familyFormat", p.has_children AS "hasChildren",
+              p.wants_children AS "wantsChildren",
+              p.children_living_arrangement AS "childrenLivingArrangement",
+              NULL::int AS "financialAlignment"
+       FROM profiles p JOIN users u ON u.id = p.user_id
+       WHERE p.user_id = $1 AND u.status = 'active' AND p.is_visible = TRUE
+         AND p.birth_date IS NOT NULL
+         AND p.children_disclosure_confirmed_at IS NOT NULL AND p.has_children IS NOT NULL
+         AND p.gender <> $2
+         AND NOT EXISTS (
+           SELECT 1 FROM user_blocks b
+           WHERE (b.blocker_id = $2 AND b.blocked_id = p.user_id)
+              OR (b.blocker_id = p.user_id AND b.blocked_id = $2)
+         )`,
+      [action.id, req.authUser.id]
+    );
+    if (!profileResult.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'profile_not_available' });
+    }
+
+    if (action.actionType === 'like') {
+      const removed = await client.query(
+        `DELETE FROM likes l
+         WHERE l.sender_id = $1 AND l.target_id = $2
+           AND NOT EXISTS (
+             SELECT 1 FROM matches m
+             WHERE m.status = 'active'
+               AND ((m.user_a_id = $1 AND m.user_b_id = $2)
+                 OR (m.user_a_id = $2 AND m.user_b_id = $1))
+           )
+         RETURNING l.target_id`,
+        [req.authUser.id, action.id]
+      );
+      if (!removed.rowCount) {
+        const matched = await client.query(
+          `SELECT 1 FROM matches m
+           WHERE m.status = 'active'
+             AND ((m.user_a_id = $1 AND m.user_b_id = $2)
+               OR (m.user_a_id = $2 AND m.user_b_id = $1))
+           LIMIT 1`,
+          [req.authUser.id, action.id]
+        );
+        await client.query('ROLLBACK');
+        return res.status(matched.rowCount ? 409 : 404).json({
+          error: matched.rowCount ? 'cannot_undo_like_after_match' : 'like_not_found'
+        });
+      }
+    } else if (action.actionType === 'pass') {
+      const removed = await client.query(
+        'DELETE FROM profile_passes WHERE passer_id = $1 AND passed_user_id = $2 RETURNING passed_user_id',
+        [req.authUser.id, action.id]
+      );
+      if (!removed.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'pass_not_found' });
+      }
+    } else {
+      await client.query('ROLLBACK');
+      return res.status(500).json({ error: 'unknown_discovery_action' });
+    }
+
+    await client.query('COMMIT');
+    return res.json({ type: action.actionType, profile: profileResult.rows[0] });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Discovery undo failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'discovery_undo_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
 app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) => {
   try {
     const result = await pool.query(
