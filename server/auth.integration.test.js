@@ -315,6 +315,15 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(familySearch.status, 200);
     assert.equal((await familySearch.json()).profiles.some(profile => profile.id === maleRegistered.user.id && profile.hasChildren === true), true);
 
+    const passProfile = await request(`/api/passes/${maleRegistered.user.id}`, {
+      method: 'POST',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({})
+    });
+    assert.equal(passProfile.status, 204);
+    const afterPassSearch = await request('/api/profiles/search', { headers: { Cookie: secondCookie } });
+    assert.equal((await afterPassSearch.json()).profiles.some(profile => profile.id === maleRegistered.user.id), false);
+
     const block = await request(`/api/blocks/${maleRegistered.user.id}`, {
       method: 'POST',
       headers: { Cookie: secondCookie },
