@@ -65,11 +65,16 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
 
   // Keep the discovery card in range when filters or the candidate pool change.
   useEffect(() => {
-    if (profiles.length === 0 || currentIndex >= profiles.length) {
+    // Reset only when the candidate pool is empty. Reaching the end must not
+    // silently loop back to profiles the user has already reviewed.
+    if (profiles.length === 0) {
       setCurrentIndex(0);
+      setHistory([]);
       setPhotoIndex(0);
       setActivePsychCardIndex(0);
       setIsPlayingAudio(false);
+    } else if (currentIndex > profiles.length) {
+      setCurrentIndex(profiles.length);
     }
   }, [profiles.length, currentIndex]);
 
@@ -78,11 +83,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
     setIsPlayingAudio(false);
     setPhotoIndex(0);
     setActivePsychCardIndex(0);
-    if (currentIndex < profiles.length - 1) {
-      setCurrentIndex(prev => prev + 1);
-    } else {
-      setCurrentIndex(0);
-    }
+    setCurrentIndex(prev => Math.min(prev + 1, profiles.length));
   };
 
   const handleLikeCurrent = () => {
@@ -144,10 +145,22 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
         <div className="w-16 h-16 rounded-full bg-rose-950/60 flex items-center justify-center text-rose-400 mb-4 border border-rose-800/40">
           <Heart className="w-8 h-8" />
         </div>
-        <h3 className="font-heading text-lg font-bold text-white mb-2">Подходящих анкет пока нет</h3>
+        <h3 className="font-heading text-lg font-bold text-white mb-2">
+          {profiles.length > 0 && currentIndex >= profiles.length ? 'Вы просмотрели все анкеты' : 'Подходящих анкет пока нет'}
+        </h3>
         <p className="text-xs text-stone-400 max-w-sm mb-6 leading-relaxed">
-          Попробуйте изменить страну, город или другие фильтры. В деморежиме доступны только демонстрационные анкеты.
+          {profiles.length > 0 && currentIndex >= profiles.length
+            ? 'Повторный показ не запускается автоматически. Можно начать просмотр заново или изменить фильтры.'
+            : 'Попробуйте изменить страну, город или другие фильтры. В деморежиме доступны только демонстрационные анкеты.'}
         </p>
+        {profiles.length > 0 && currentIndex >= profiles.length && (
+          <button
+            onClick={() => { setHistory([]); setCurrentIndex(0); setPhotoIndex(0); setActivePsychCardIndex(0); setIsPlayingAudio(false); }}
+            className="mb-3 px-6 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-500 font-bold text-white text-xs"
+          >
+            Начать просмотр заново
+          </button>
+        )}
         <button
           onClick={onOpenFilters}
           className="px-6 py-2.5 rounded-full bg-rose-600 hover:bg-rose-500 font-bold text-white shadow-lg shadow-rose-950 text-xs"
