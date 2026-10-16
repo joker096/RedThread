@@ -982,6 +982,13 @@ export default function App() {
         intentFilter={intentFilter}
         setIntentFilter={setIntentFilter}
         onApply={() => setIsFilterOpen(false)}
+        onReset={() => {
+          setMinCompatibility(70);
+          setOnlyVerified(false);
+          setSelectedCountry('all');
+          setSelectedCity('all');
+          setIntentFilter('all');
+        }}
       />
 
       {/* 6. Brand Naming Proposals Modal */}
