@@ -32,10 +32,10 @@ This is a code-level review of the current feature branch, not a penetration tes
 
 ## Remaining security / production work
 
-- The default rate-limit store is process-local. Use a shared store (for example Redis) behind multiple API instances and configure trusted proxy handling deliberately.
+- When PostgreSQL is configured, the auth/profile/report/message limiters use the shared PostgreSQL counter store; fallback/local development paths may still be process-local. Validate multi-instance behavior under production load and configure trusted proxy handling deliberately.
 - Email verification and single-use, expiring password-reset tokens are now implemented in code through the Resend API adapter. Configure and test real credentials/domain, delivery and rate limits in each deployment; no real email delivery has been verified in this repository environment.
-- Implement safe photo uploads (file-signature validation, size/dimension limits, random names, metadata stripping, malware/vision moderation, private/quarantine storage and controlled delivery). The current API accepts HTTPS photo URLs, not file uploads.
-- Add admin/moderator audit logs, session revocation policy, and explicit permission tests for every admin route.
+- Profile photos are uploaded as image bytes, decoded and re-encoded with Sharp, size/pixel limited, stripped of metadata, assigned random names and stored privately. Delivery uses authenticated `/api/photos/<UUID>` references; external HTTPS image URLs are rejected because they bypass sanitization, visibility checks and moderation. Pending photos are hidden from other accounts until approved. Malware scanning and automated vision/AI moderation are not implemented; manual moderator review is currently the moderation gate. Configure durable private storage and test moderator access controls before production.
+- Moderator actions for photo approval/rejection and report review are audited in the moderation log; admin endpoints have access-control integration tests. Continue expanding permission tests to every administrative route and define session revocation policy.
 - Review all state-changing endpoints for Origin/CSRF enforcement, rate limiting, request size and field validation; add integration tests for missing/untrusted Origin.
 - Configure TLS, secure production cookies, database backups/restore drills, dependency vulnerability scanning, secrets scanning, privacy policy, export/deletion workflows and jurisdiction-specific legal review.
 - Add external penetration testing before launch. Automated checks and passing CI do not establish security.
