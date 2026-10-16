@@ -1440,6 +1440,27 @@ app.get('/api/admin/screenings', requireSession, async (req, res) => {
   }
 });
 
+app.get('/api/admin/reports', requireSession, async (req, res) => {
+  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
+  const limit = Number.parseInt(String(req.query.limit ?? '50'), 10);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) return res.status(400).json({ error: 'invalid_pagination' });
+  try {
+    const result = await pool.query(
+      `SELECT r.id, r.reporter_id AS "reporterId", r.reported_user_id AS "reportedUserId",
+              r.category, r.details, r.status, r.created_at AS "createdAt",
+              p.display_name AS "reportedDisplayName"
+       FROM user_reports r JOIN profiles p ON p.user_id = r.reported_user_id
+       WHERE r.status IN ('open', 'reviewing')
+       ORDER BY r.created_at ASC LIMIT $1`,
+      [limit]
+    );
+    return res.json({ reports: result.rows });
+  } catch (error) {
+    console.error('Moderation report list failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'moderation_report_list_failed' });
+  }
+});
+
 app.get('/api/admin/audit-log', requireSession, async (req, res) => {
   if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   const limit = Number.parseInt(String(req.query.limit ?? '50'), 10);
