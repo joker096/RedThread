@@ -1,6 +1,6 @@
 {
-  "name": "НИТЬ — серьёзные знакомства для семьи",
-  "description": "Серьёзные знакомства для отношений и семьи: совместимость по ценностям, инструменты безопасности и меньше пустых переписок.",
+  "name": "Vow — serious relationships and family",
+  "description": "Vow helps people build serious relationships through shared values, family goals and safety tools.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
