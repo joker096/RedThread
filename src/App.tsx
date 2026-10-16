@@ -66,6 +66,8 @@ export default function App() {
   const [selectedCountry, setSelectedCountry] = useState('all');
   const [selectedCity, setSelectedCity] = useState('all');
   const [intentFilter, setIntentFilter] = useState('all');
+  const [minAge, setMinAge] = useState(18);
+  const [maxAge, setMaxAge] = useState(99);
 
   // Superlikes & Boosts inventory
   const [superLikesCount, setSuperLikesCount] = useState(3);
@@ -507,6 +509,7 @@ export default function App() {
     if (p.isSponsorAd) return true;
     if (onlyVerified && !p.verification.isVerified) return false;
     if (!matchesProfileLocation(p, selectedCountry, selectedCity)) return false;
+    if (p.age < minAge || p.age > maxAge) return false;
     if (intentFilter !== 'all' && p.intent !== intentFilter) return false;
     const comp = calculateCompatibility(
       currentUser.crucialAnswers,
@@ -986,6 +989,10 @@ export default function App() {
         setSelectedCity={setSelectedCity}
         intentFilter={intentFilter}
         setIntentFilter={setIntentFilter}
+        minAge={minAge}
+        setMinAge={setMinAge}
+        maxAge={maxAge}
+        setMaxAge={setMaxAge}
         onApply={() => setIsFilterOpen(false)}
         onReset={() => {
           setMinCompatibility(70);
@@ -993,6 +1000,8 @@ export default function App() {
           setSelectedCountry('all');
           setSelectedCity('all');
           setIntentFilter('all');
+          setMinAge(18);
+          setMaxAge(99);
         }}
       />
 
