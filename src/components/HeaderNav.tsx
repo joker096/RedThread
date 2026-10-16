@@ -69,9 +69,10 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
         </div>
 
         {/* Center: Sleek Segmented Navigation (Desktop & Tablet) */}
-        <nav className="hidden sm:flex items-center gap-1 bg-stone-900/90 p-1 rounded-full border border-white/5">
+        <nav aria-label="Primary navigation" className="hidden sm:flex items-center gap-1 bg-stone-900/90 p-1 rounded-full border border-white/5">
           <button
             onClick={() => setActiveTab('discovery')}
+            aria-current={activeTab === 'discovery' ? 'page' : undefined}
             className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${
               activeTab === 'discovery'
                 ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-sm'
@@ -83,6 +84,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
 
           <button
             onClick={() => setActiveTab('tests')}
+            aria-current={activeTab === 'tests' ? 'page' : undefined}
             className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition-all ${
               activeTab === 'tests'
                 ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-sm'
@@ -95,6 +97,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
 
           <button
             onClick={() => setActiveTab('chats')}
+            aria-current={activeTab === 'chats' ? 'page' : undefined}
             className={`relative px-3 py-1 rounded-full text-xs font-bold transition-all ${
               activeTab === 'chats'
                 ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-sm'
@@ -111,6 +114,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
 
           <button
             onClick={() => setActiveTab('safety')}
+            aria-current={activeTab === 'safety' ? 'page' : undefined}
             className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${
               activeTab === 'safety'
                 ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-sm'
