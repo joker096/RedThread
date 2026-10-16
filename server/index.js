@@ -83,7 +83,6 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json', limit: 
       const periodEnd = active ? Number(object.current_period_end) : null;
       await pool.query(
         `UPDATE users SET premium_until = CASE WHEN $2::boolean THEN to_timestamp($3::double precision) ELSE NULL END,
-          premium_lifetime = FALSE,
           stripe_subscription_id = CASE WHEN $4::boolean THEN NULL ELSE COALESCE($5, stripe_subscription_id) END,
           stripe_customer_id = COALESCE($6, stripe_customer_id), updated_at = NOW()
           WHERE id = COALESCE($1::uuid, (SELECT id FROM users WHERE stripe_subscription_id = $5 LIMIT 1))`,
@@ -1323,6 +1322,7 @@ app.get('/api/matches/:matchId/messages', requireSession, requirePaidFeatures, a
 });
 
 const messageLimiter = rateLimit({
+  ...(pool ? { store: new PostgresRateLimitStore(pool, 'message') } : {}),
   windowMs: 5 * 60 * 1000,
   limit: 30,
   standardHeaders: true,
