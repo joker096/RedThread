@@ -67,10 +67,18 @@ const reportLimiter = rateLimit({
 });
 
 function emailDeliveryConfigured() {
+  const configuredUrl = process.env.APP_URL || process.env.APP_ORIGIN;
+  let validPublicUrl = false;
+  try {
+    const parsed = new URL(configuredUrl);
+    validPublicUrl = process.env.NODE_ENV === 'production'
+      ? parsed.protocol === 'https:' && !['localhost', '127.0.0.1', 'example.com'].includes(parsed.hostname)
+      : ['http:', 'https:'].includes(parsed.protocol);
+  } catch { validPublicUrl = false; }
   return process.env.EMAIL_PROVIDER === 'resend' &&
     Boolean(process.env.RESEND_API_KEY) &&
     Boolean(process.env.EMAIL_FROM) &&
-    Boolean(process.env.APP_URL || process.env.APP_ORIGIN);
+    validPublicUrl;
 }
 
 async function sendConfiguredEmail({ to, subject, html }) {
