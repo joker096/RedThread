@@ -4,22 +4,23 @@
 
 This is a code-level review of the current feature branch, not a penetration test or legal certification. The app is still a prototype and must not be represented as production-ready.
 
-## Localization findings
+## Localization findings — current status
 
-- The active interface is predominantly hard-coded in Russian, including forms, validation messages, profile discovery, moderation notices and empty states.
-- Several date/time labels use browser defaults without an explicit locale, so formatting can vary by device language.
-- Country and city are free-text values. This is flexible for early testing but will create spelling variants and inconsistent search results across languages.
-- No complete translation catalog, in-app language selector, locale persistence, plural rules, or translated email templates exists yet.
-- User-entered profile text must remain unchanged; translation should never silently rewrite bios or messages.
+- Added `src/i18n/LocaleProvider.tsx`, a persistent locale selector, automatic browser-language detection, locale-aware number/date formatting, and `lang` / `dir` updates on the document.
+- The selector lists 48 options, including common world languages and several regional languages. The initial message catalogs provide partial coverage for English, Russian, Spanish, French, German, Portuguese, Italian, Turkish, Georgian, Arabic, Chinese and Hindi. Other listed locales fall back to English; this is a language-selection framework, **not full translation of every screen into every language**.
+- Primary navigation and the server-discovery filters/actions have translation keys. Registration, test questionnaires, chat, subscription, moderation, service marketplace, accessibility announcements and email templates still need a complete extraction and translation pass.
+- RTL document direction is enabled for Arabic, Hebrew, Persian and Urdu. Layout QA is still required: changing `dir` alone does not guarantee every component works correctly in RTL.
+- Country and city are still largely free-text fields. International launch should add canonical country/region data, optional city autocomplete and explicit fallback behavior for unsupported regions.
+- User-written bios and messages must remain unchanged; translation of user content should be opt-in and visibly distinguished from the original.
 
 ### Localization implementation order
 
-1. Introduce a typed locale catalog for Russian, English and Georgian and a single locale provider with persisted preference.
-2. Migrate shared navigation, account flow, discovery filters, error/status notices and accessibility labels first.
-3. Use explicit Intl.DateTimeFormat and Intl.NumberFormat locale settings.
-4. Add locale-aware validation and pluralization; translate emails and legal/privacy text before launch.
-5. Replace free-text country/city fields with searchable canonical country data and optional city suggestions, while preserving manual entry.
-6. Add tests that render the core account/discovery flows in all supported locales and check for missing keys.
+1. Continue extracting hard-coded UI strings to stable translation keys, beginning with registration/authentication, questionnaire, chat, subscription and safety/moderation.
+2. Add complete pluralization/number/date rules, locale-aware validation and translated verification/reset email templates.
+3. Expand professionally reviewed catalogs by language and region; do not claim a locale is fully supported until missing-key and UI tests pass.
+4. Add automated checks for missing/unused keys, screenshots and RTL layouts, long translated strings, keyboard/screen-reader navigation and mobile overflow.
+5. Canonicalize country/city search while preserving manual input and Unicode names.
+6. Arrange native-speaker review for legal, privacy, safety and payment wording before each regional launch.
 
 ## Security review: addressed in this branch
 
@@ -32,7 +33,7 @@ This is a code-level review of the current feature branch, not a penetration tes
 ## Remaining security / production work
 
 - The default rate-limit store is process-local. Use a shared store (for example Redis) behind multiple API instances and configure trusted proxy handling deliberately.
-- Add email verification and single-use, expiring password-reset tokens. Only send messages through a configured SMTP provider; responses must not reveal whether an email exists.
+- Email verification and single-use, expiring password-reset tokens are now implemented in code through the Resend API adapter. Configure and test real credentials/domain, delivery and rate limits in each deployment; no real email delivery has been verified in this repository environment.
 - Implement safe photo uploads (file-signature validation, size/dimension limits, random names, metadata stripping, malware/vision moderation, private/quarantine storage and controlled delivery). The current API accepts HTTPS photo URLs, not file uploads.
 - Add admin/moderator audit logs, session revocation policy, and explicit permission tests for every admin route.
 - Review all state-changing endpoints for Origin/CSRF enforcement, rate limiting, request size and field validation; add integration tests for missing/untrusted Origin.
