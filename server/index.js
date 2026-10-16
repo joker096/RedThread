@@ -897,7 +897,7 @@ function isSafePhotoUrl(value) {
 app.post('/api/photos', validateRequestOrigin, requireSession, profileActionLimiter, express.raw({ type: ['image/jpeg', 'image/png'], limit: '8mb' }), async (req, res) => {
   if (process.env.NODE_ENV === 'production' && !process.env.PHOTO_STORAGE_DIR) return res.status(503).json({ error: 'photo_storage_not_configured' });
   let clean;
-  try { clean = sanitizeProfileImage(req.body); }
+  try { clean = await sanitizeProfileImage(req.body); }
   catch (error) { const code=error instanceof Error?error.message:'invalid_image'; return res.status(code==='image_too_large'?413:400).json({error:code}); }
   const id=randomUUID(), filePath=path.join(photoStorageDir,id+'.'+clean.extension), photoUrl='/api/photos/'+id;
   let client, fileWritten=false;

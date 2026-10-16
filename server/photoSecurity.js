@@ -1,72 +1,47 @@
+import sharp from 'sharp';
+
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_IMAGE_PIXELS = 20_000_000;
-const PNG_SIGNATURE = Buffer.from([137,80,78,71,13,10,26,10]);
 
-function dimensions(width, height) {
-  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width * height > MAX_IMAGE_PIXELS) throw new Error('invalid_image_dimensions');
-  return { width, height };
-}
+export async function sanitizeProfileImage(input) {
+  if (!Buffer.isBuffer(input) || input.length < 16) throw new Error('invalid_image');
+  if (input.length > MAX_IMAGE_BYTES) throw new Error('image_too_large');
 
-function sanitizeJpeg(input) {
-  if (input.length < 4 || input[0] !== 0xff || input[1] !== 0xd8) throw new Error('invalid_jpeg');
-  if (input[input.length - 2] !== 0xff || input[input.length - 1] !== 0xd9) throw new Error('invalid_jpeg_eoi');
-  const chunks=[input.subarray(0,2)]; let offset=2; let imageDimensions=null; let sawScan=false;
-  while(offset<input.length) {
-    if(input[offset]!==0xff) throw new Error('invalid_jpeg_segment');
-    while(offset<input.length && input[offset]===0xff) offset++;
-    if(offset>=input.length) throw new Error('truncated_jpeg');
-    const marker=input[offset++];
-    if(marker===0xd9){chunks.push(Buffer.from([0xff,marker]));break;}
-    if(marker===0xda){
-      if(offset+2>input.length) throw new Error('truncated_jpeg');
-      const length=input.readUInt16BE(offset);
-      if(length<2||offset+length>input.length) throw new Error('invalid_jpeg_segment');
-      chunks.push(Buffer.from([0xff,marker]),input.subarray(offset,offset+length),input.subarray(offset+length)); sawScan=true; break;
-    }
-    if(marker===0x01||(marker>=0xd0&&marker<=0xd7)){chunks.push(Buffer.from([0xff,marker]));continue;}
-    if(offset+2>input.length) throw new Error('truncated_jpeg');
-    const length=input.readUInt16BE(offset);
-    if(length<2||offset+length>input.length) throw new Error('invalid_jpeg_segment');
-    const end=offset+length, payload=input.subarray(offset+2,end);
-    if([0xc0,0xc1,0xc2,0xc3,0xc5,0xc6,0xc7,0xc9,0xca,0xcb,0xcd,0xce,0xcf].includes(marker)){
-      if(payload.length<5) throw new Error('invalid_jpeg_dimensions');
-      imageDimensions=dimensions(payload.readUInt16BE(3),payload.readUInt16BE(1));
-    }
-    if(!(marker>=0xe1&&marker<=0xef)&&marker!==0xfe) chunks.push(Buffer.from([0xff,marker]),input.subarray(offset,end));
-    offset=end;
+  let metadata;
+  try {
+    metadata = await sharp(input, { limitInputPixels: MAX_IMAGE_PIXELS, failOn: 'error' }).metadata();
+  } catch (error) {
+    const message = error instanceof Error ? error.message.toLowerCase() : '';
+    if (message.includes('pixel limit') || message.includes('dimensions')) throw new Error('invalid_image_dimensions');
+    throw new Error('invalid_image');
   }
-  if(!sawScan||!imageDimensions) throw new Error('invalid_or_incomplete_jpeg');
-  const buffer=Buffer.concat(chunks);
-  if(buffer.length>MAX_IMAGE_BYTES) throw new Error('image_too_large');
-  return {buffer,mimeType:'image/jpeg',extension:'jpg',...imageDimensions};
-}
 
-function sanitizePng(input) {
-  if(input.length<33||!input.subarray(0,8).equals(PNG_SIGNATURE)) throw new Error('invalid_png');
-  let offset=8,width=0,height=0,sawHeader=false,sawEnd=false; const chunks=[PNG_SIGNATURE];
-  while(offset+12<=input.length){
-    const length=input.readUInt32BE(offset), end=offset+12+length;
-    if(end>input.length) throw new Error('invalid_png_chunk');
-    const type=input.toString('ascii',offset+4,offset+8), data=input.subarray(offset+8,offset+8+length);
-    if(!sawHeader){
-      if(type!=='IHDR'||length!==13) throw new Error('invalid_png_header');
-      width=data.readUInt32BE(0); height=data.readUInt32BE(4); dimensions(width,height); sawHeader=true;
-    }
-    if(!['eXIf','tEXt','zTXt','iTXt'].includes(type)) chunks.push(input.subarray(offset,end));
-    offset=end;
-    if(type==='IEND'){sawEnd=true;break;}
+  if (!['jpeg', 'png'].includes(metadata.format || '')) throw new Error('unsupported_image_format');
+  const width = metadata.width || 0;
+  const height = metadata.height || 0;
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width * height > MAX_IMAGE_PIXELS) {
+    throw new Error('invalid_image_dimensions');
   }
-  if(!sawHeader||!sawEnd||offset!==input.length) throw new Error('invalid_or_incomplete_png');
-  const buffer=Buffer.concat(chunks);
-  if(buffer.length>MAX_IMAGE_BYTES) throw new Error('image_too_large');
-  return {buffer,mimeType:'image/png',extension:'png',width,height};
+
+  try {
+    const pipeline = sharp(input, { limitInputPixels: MAX_IMAGE_PIXELS, failOn: 'error' }).rotate();
+    const output = metadata.format === 'jpeg'
+      ? await pipeline.jpeg({ quality: 88, mozjpeg: true }).toBuffer({ resolveWithObject: true })
+      : await pipeline.png({ compressionLevel: 9, adaptiveFiltering: true }).toBuffer({ resolveWithObject: true });
+    if (output.data.length > MAX_IMAGE_BYTES) throw new Error('image_too_large');
+    return {
+      buffer: output.data,
+      mimeType: metadata.format === 'jpeg' ? 'image/jpeg' : 'image/png',
+      extension: metadata.format === 'jpeg' ? 'jpg' : 'png',
+      width: output.info.width,
+      height: output.info.height
+    };
+  } catch (error) {
+    if (error instanceof Error && error.message === 'image_too_large') throw error;
+    const message = error instanceof Error ? error.message.toLowerCase() : '';
+    if (message.includes('pixel limit') || message.includes('dimensions')) throw new Error('invalid_image_dimensions');
+    throw new Error('invalid_image');
+  }
 }
 
-export function sanitizeProfileImage(input) {
-  if(!Buffer.isBuffer(input)||input.length<16) throw new Error('invalid_image');
-  if(input.length>MAX_IMAGE_BYTES) throw new Error('image_too_large');
-  if(input[0]===0xff&&input[1]===0xd8) return sanitizeJpeg(input);
-  if(input.subarray(0,8).equals(PNG_SIGNATURE)) return sanitizePng(input);
-  throw new Error('unsupported_image_format');
-}
-export const PHOTO_LIMITS=Object.freeze({maxBytes:MAX_IMAGE_BYTES,maxPixels:MAX_IMAGE_PIXELS});
+export const PHOTO_LIMITS = Object.freeze({ maxBytes: MAX_IMAGE_BYTES, maxPixels: MAX_IMAGE_PIXELS });
