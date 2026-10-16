@@ -333,7 +333,6 @@ test('auth API supports registration, session lookup, logout and login', {
       headers: { Cookie: maleCookie },
       body: JSON.stringify({
         bio: 'Ищу серьёзные отношения',
-        photoUrls: ['https://images.example.test/profile.jpg'],
         occupation: 'Инженер',
         education: 'Высшее',
         languages: ['Русский', 'Английский'],
@@ -345,7 +344,6 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(profileUpdate.status, 200);
     const updatedProfile = (await profileUpdate.json()).profile;
-    assert.deepEqual(updatedProfile.photoUrls, ['https://images.example.test/profile.jpg']);
     assert.equal(updatedProfile.occupation, 'Инженер');
     assert.deepEqual(updatedProfile.languages, ['Русский', 'Английский']);
     assert.equal(updatedProfile.hasChildren, true);
@@ -356,7 +354,7 @@ test('auth API supports registration, session lookup, logout and login', {
     const invalidPhotoUrl = await request('/api/profiles/me', {
       method: 'PATCH',
       headers: { Cookie: maleCookie },
-      body: JSON.stringify({ photoUrls: ['http://insecure.example/profile.jpg'] })
+      body: JSON.stringify({ photoUrls: ['https://images.example.test/profile.jpg'] })
     });
     assert.equal(invalidPhotoUrl.status, 400);
 
