@@ -22,6 +22,10 @@ interface FilterDrawerProps {
   setSelectedCity: (val: string) => void;
   intentFilter: string;
   setIntentFilter: (val: string) => void;
+  minAge: number;
+  setMinAge: (val: number) => void;
+  maxAge: number;
+  setMaxAge: (val: number) => void;
   onApply: () => void;
   onReset: () => void;
 }
@@ -39,6 +43,10 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
   setSelectedCity,
   intentFilter,
   setIntentFilter,
+  minAge,
+  setMinAge,
+  maxAge,
+  setMaxAge,
   onApply,
   onReset
 }) => {
