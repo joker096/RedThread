@@ -327,6 +327,24 @@ app.post('/api/auth/logout', validateRequestOrigin, requireDatabase, async (req,
   return res.status(204).end();
 });
 
+app.get('/api/billing/status', requireSession, async (req, res) => {
+  const trialEndsAt = req.authUser.female_trial_ends_at ? new Date(req.authUser.female_trial_ends_at) : null;
+  const premiumUntil = req.authUser.premium_until ? new Date(req.authUser.premium_until) : null;
+  const now = Date.now();
+  const isTrialActive = req.authUser.gender === 'female' && trialEndsAt && trialEndsAt.getTime() > now;
+  const hasPremium = premiumUntil && premiumUntil.getTime() > now;
+  return res.json({
+    gender: req.authUser.gender,
+    trialEndsAt: trialEndsAt?.toISOString() || null,
+    premiumUntil: premiumUntil?.toISOString() || null,
+    access: req.authUser.gender !== 'female' || isTrialActive || hasPremium ? 'full' : 'premium_required',
+    trialActive: Boolean(isTrialActive),
+    premiumActive: Boolean(hasPremium),
+    paymentConfigured: false,
+    note: 'После окончания пробного периода доступ к платным функциям ограничивается. Автоматического списания без подключённого и подтверждённого платежного соглашения нет.'
+  });
+});
+
 app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req, res) => {
   const cleanFilter = (value, maxLength) => {
     if (typeof value !== 'string') return null;
@@ -338,6 +356,8 @@ app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req,
   const country = cleanFilter(req.query.country, 100);
   const city = cleanFilter(req.query.city, 120);
   const intent = cleanFilter(req.query.intent, 40);
+  const familyFormat = cleanFilter(req.query.familyFormat, 40);
+  const childrenFilter = cleanFilter(req.query.hasChildren, 10);
   const parseAge = value => value === undefined || value === '' ? null : Number.parseInt(String(value), 10);
   const minAge = parseAge(req.query.minAge);
   const maxAge = parseAge(req.query.maxAge);
@@ -346,6 +366,9 @@ app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req,
   if (intent && !['marriage_family', 'serious_relationship', 'family_without_marriage'].includes(intent)) {
     return res.status(400).json({ error: 'invalid_relationship_intent' });
   }
+
+  if (familyFormat && !['marriage', 'cohabitation', 'open_to_both'].includes(familyFormat)) return res.status(400).json({ error: 'invalid_family_format' });
+  if (childrenFilter !== null && !['true', 'false'].includes(childrenFilter)) return res.status(400).json({ error: 'invalid_children_filter' });
 
   const parsedLimit = Number.parseInt(String(req.query.limit ?? '20'), 10);
   const parsedOffset = Number.parseInt(String(req.query.offset ?? '0'), 10);
@@ -369,6 +392,10 @@ app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req,
          p.education,
          p.languages,
          p.relationship_intent AS "relationshipIntent",
+         p.family_format AS "familyFormat",
+         p.has_children AS "hasChildren",
+         p.wants_children AS "wantsChildren",
+         p.children_living_arrangement AS "childrenLivingArrangement",
          candidate_assessment.answers AS assessment_answers,
          my_assessment.answers AS my_assessment_answers
        FROM profiles p
@@ -379,6 +406,8 @@ app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req,
        WHERE p.user_id <> $1
          AND p.gender <> me.gender
          AND p.is_visible = TRUE
+         AND p.children_disclosure_confirmed_at IS NOT NULL
+         AND p.has_children IS NOT NULL
          AND p.birth_date IS NOT NULL
          AND u.status = 'active'
          AND NOT EXISTS (
@@ -389,11 +418,13 @@ app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req,
          AND ($2::text IS NULL OR p.country ILIKE '%' || $2 || '%')
          AND ($3::text IS NULL OR p.city ILIKE '%' || $3 || '%')
          AND ($4::text IS NULL OR p.relationship_intent = $4)
+         AND ($10::text IS NULL OR p.family_format = $10 OR p.family_format = 'open_to_both')
+         AND ($11::boolean IS NULL OR p.has_children = $11)
          AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, p.birth_date))::int BETWEEN COALESCE($7::int, 18) AND COALESCE($8::int, 120)
          AND ($9::int = 0 OR (candidate_assessment.answers IS NOT NULL AND my_assessment.answers IS NOT NULL AND (CASE WHEN candidate_assessment.answers->>'financialModel' = my_assessment.answers->>'financialModel' THEN 1 ELSE 0 END + CASE WHEN candidate_assessment.answers->>'lifestyleExpectation' = my_assessment.answers->>'lifestyleExpectation' THEN 1 ELSE 0 END + CASE WHEN candidate_assessment.answers->>'gifts' = my_assessment.answers->>'gifts' THEN 1 ELSE 0 END) * 100.0 / 3 >= ($9 - 0.5)))
        ORDER BY p.updated_at DESC, p.user_id
        LIMIT $5 OFFSET $6`,
-      [req.authUser.id, country, city, intent, parsedLimit + 1, parsedOffset, minAge, maxAge, minFinancialAlignment]
+      [req.authUser.id, country, city, intent, parsedLimit + 1, parsedOffset, minAge, maxAge, minFinancialAlignment, familyFormat, childrenFilter === null ? null : childrenFilter === 'true']
     );
     const hasMore = result.rows.length > parsedLimit;
     const profiles = (hasMore ? result.rows.slice(0, parsedLimit) : result.rows).map(profile => {
@@ -465,7 +496,13 @@ app.get('/api/profiles/me', requireSession, async (req, res) => {
       `SELECT user_id AS id, display_name AS "displayName",
         EXTRACT(YEAR FROM AGE(CURRENT_DATE, birth_date))::int AS age,
         gender, country, city, bio, photo_urls AS "photoUrls", occupation, education, languages,
-        relationship_intent AS "relationshipIntent", is_visible AS "isVisible"
+        relationship_intent AS "relationshipIntent", is_visible AS "isVisible",
+         family_format AS "familyFormat", has_children AS "hasChildren",
+         children_disclosure_confirmed_at AS "childrenDisclosureConfirmedAt",
+         wants_children AS "wantsChildren", children_living_arrangement AS "childrenLivingArrangement",
+        family_format AS "familyFormat", has_children AS "hasChildren",
+        children_disclosure_confirmed_at AS "childrenDisclosureConfirmedAt",
+        wants_children AS "wantsChildren", children_living_arrangement AS "childrenLivingArrangement"
        FROM profiles WHERE user_id = $1`,
       [req.authUser.id]
     );
@@ -530,8 +567,26 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
     }
     addUpdate('languages', [...new Set(body.languages.map(language => language.trim()))]);
   }
+  if (Object.hasOwn(body, 'familyFormat')) {
+    if (!['marriage', 'cohabitation', 'open_to_both'].includes(body.familyFormat)) return res.status(400).json({ error: 'invalid_family_format' });
+    addUpdate('family_format', body.familyFormat);
+  }
+  if (Object.hasOwn(body, 'hasChildren')) {
+    if (typeof body.hasChildren !== 'boolean') return res.status(400).json({ error: 'children_status_required' });
+    addUpdate('has_children', body.hasChildren);
+    addUpdate('children_disclosure_confirmed_at', new Date().toISOString());
+    // If a user changes child status, require a fresh explicit confirmation and re-enable only after this save.
+  }
+  if (Object.hasOwn(body, 'wantsChildren')) {
+    if (!['yes', 'no', 'discuss', 'unsure'].includes(body.wantsChildren)) return res.status(400).json({ error: 'invalid_wants_children' });
+    addUpdate('wants_children', body.wantsChildren);
+  }
+  if (Object.hasOwn(body, 'childrenLivingArrangement')) {
+    if (!['with_me', 'shared_custody', 'with_other_parent', 'not_applicable', 'prefer_to_discuss'].includes(body.childrenLivingArrangement)) return res.status(400).json({ error: 'invalid_children_living_arrangement' });
+    addUpdate('children_living_arrangement', body.childrenLivingArrangement);
+  }
   if (Object.hasOwn(body, 'relationshipIntent')) {
-    if (!['marriage_family', 'serious_relationship'].includes(body.relationshipIntent)) {
+    if (!['marriage_family', 'serious_relationship', 'family_without_marriage'].includes(body.relationshipIntent)) {
       return res.status(400).json({ error: 'invalid_relationship_intent' });
     }
     addUpdate('relationship_intent', body.relationshipIntent);
