@@ -40,3 +40,13 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+      - name: Validate container configuration
+        env:
+          POSTGRES_PASSWORD: ci-test-password
+          APP_ORIGIN: http://localhost:8080
+          APP_URL: http://localhost:8080
+        run: docker compose config --quiet
+      - name: Build API container
+        run: docker build --target api -t vow-api:ci .
+      - name: Build web container
+        run: docker build --target web -t vow-web:ci .
