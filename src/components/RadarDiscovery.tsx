@@ -167,14 +167,14 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
             onClick={() => { setHistory([]); setCurrentIndex(0); setPhotoIndex(0); setActivePsychCardIndex(0); setIsPlayingAudio(false); }}
             className="mb-3 px-6 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-500 font-bold text-white text-xs"
           >
-            Начать просмотр заново
+            {t('restartViewing')}
           </button>
         )}
         <button
           onClick={onOpenFilters}
           className="px-6 py-2.5 rounded-full bg-rose-600 hover:bg-rose-500 font-bold text-white shadow-lg shadow-rose-950 text-xs"
         >
-          Изменить фильтры
+          {t('changeFilters')}
         </button>
       </div>
     );
