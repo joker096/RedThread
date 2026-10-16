@@ -13,10 +13,13 @@ import {
   Video,
   ArrowLeft,
   Flame,
-  AlertCircle
+  AlertCircle,
+  HeartHandshake,
+  LockKeyhole
 } from 'lucide-react';
 import type { ChatThread, Message, UserProfile } from '../types/index.ts';
 import { checkAntiChitChatDeadline } from '../utils/compatibility.ts';
+import { PartnerServicesMarketplace } from './PartnerServicesMarketplace.tsx';
 
 interface ChatMessengerProps {
   threads: ChatThread[];
@@ -47,6 +50,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
   const [selectedDay, setSelectedDay] = useState('Завтра');
   const [selectedTime, setSelectedTime] = useState('19:00');
   const [showDirectContactUnlocked, setShowDirectContactUnlocked] = useState(false);
+  const [showPartnerServices, setShowPartnerServices] = useState(false);
 
   const activeThread = threads.find(t => t.id === activeThreadId) || threads[0];
 
@@ -177,8 +181,18 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             </div>
           </div>
 
-          {/* Quick Date Call-To-Action in Chat Header */}
+          {/* Partner services are only exposed inside an established mutual-match chat. */}
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowPartnerServices(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-emerald-600/30 bg-emerald-950/30 text-emerald-200 font-semibold text-xs hover:bg-emerald-900/40 transition-colors"
+              title="Юристы и свадебные услуги после этапа совместимости"
+            >
+              <HeartHandshake className="w-4 h-4" />
+              <span className="hidden lg:inline">Для пары</span>
+              <span className="lg:hidden">Услуги</span>
+            </button>
             <button
               onClick={() => setShowInviteModal(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 text-white font-semibold text-xs shadow-md shadow-rose-950 hover:from-rose-500 hover:to-red-500 transition-all"
@@ -419,6 +433,13 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
           </div>
         </div>
       )}
+
+      <PartnerServicesMarketplace
+        isOpen={showPartnerServices}
+        onClose={() => setShowPartnerServices(false)}
+        coupleNames={`Вы и ${activeThread.partnerProfile.name}`}
+        compatibilityScore={activeThread.compatibilityScore}
+      />
     </div>
   );
 };

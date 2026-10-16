@@ -1,7 +1,8 @@
 import React from 'react';
 import { 
   X, 
-  SlidersHorizontal, 
+  SlidersHorizontal,
+  MapPin, 
   ShieldCheck, 
   Heart, 
   Sparkles,
@@ -15,11 +16,18 @@ interface FilterDrawerProps {
   setMinCompatibility: (val: number) => void;
   onlyVerified: boolean;
   setOnlyVerified: (val: boolean) => void;
+  selectedCountry: string;
+  setSelectedCountry: (val: string) => void;
   selectedCity: string;
   setSelectedCity: (val: string) => void;
   intentFilter: string;
   setIntentFilter: (val: string) => void;
+  minAge: number;
+  setMinAge: (val: number) => void;
+  maxAge: number;
+  setMaxAge: (val: number) => void;
   onApply: () => void;
+  onReset: () => void;
 }
 
 export const FilterDrawer: React.FC<FilterDrawerProps> = ({
@@ -29,11 +37,18 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
   setMinCompatibility,
   onlyVerified,
   setOnlyVerified,
+  selectedCountry,
+  setSelectedCountry,
   selectedCity,
   setSelectedCity,
   intentFilter,
   setIntentFilter,
-  onApply
+  minAge,
+  setMinAge,
+  maxAge,
+  setMaxAge,
+  onApply,
+  onReset
 }) => {
   if (!isOpen) return null;
 
@@ -83,19 +98,50 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
             </div>
           </div>
 
-          {/* City Selection */}
-          <div>
-            <label className="block text-stone-300 font-medium mb-1.5">Город поиска:</label>
-            <select
-              value={selectedCity}
-              onChange={e => setSelectedCity(e.target.value)}
-              className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs"
-            >
-              <option value="all">Все города РФ</option>
-              <option value="Москва">Москва</option>
-              <option value="Санкт-Петербург">Санкт-Петербург</option>
-              <option value="Казань">Казань</option>
-            </select>
+          {/* Country and city location search */}
+          <div className="space-y-3 rounded-2xl border border-white/5 bg-stone-950/50 p-3">
+            <div className="flex items-center gap-2 text-white font-semibold">
+              <MapPin className="w-4 h-4 text-rose-400" />
+              <span>Локация поиска</span>
+            </div>
+            <div>
+              <label className="block text-stone-300 font-medium mb-1.5" htmlFor="discovery-country">Страна</label>
+              <input
+                id="discovery-country"
+                type="text"
+                value={selectedCountry === 'all' ? '' : selectedCountry}
+                onChange={e => setSelectedCountry(e.target.value.trimStart() || 'all')}
+                placeholder="Например, Грузия, Россия, Германия"
+                autoComplete="country-name"
+                className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs placeholder:text-stone-600"
+              />
+            </div>
+            <div>
+              <label className="block text-stone-300 font-medium mb-1.5" htmlFor="discovery-city">Город</label>
+              <input id="discovery-city" type="text" value={selectedCity === 'all' ? '' : selectedCity} onChange={e => setSelectedCity(e.target.value.trimStart() || 'all')} placeholder="Например, Тбилиси, Москва, Алматы" autoComplete="address-level2" className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs placeholder:text-stone-600" />
+              <p className="text-[10px] text-stone-500 mt-1">Можно указать любой город. Поиск не зависит от готового списка.</p>
+            </div>
+            {(selectedCountry !== 'all' || selectedCity !== 'all') && (
+              <button type="button" onClick={() => { setSelectedCountry('all'); setSelectedCity('all'); }} className="text-[11px] text-rose-300 hover:text-rose-200 underline underline-offset-2">Сбросить локацию</button>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-white/5 bg-stone-950/50 p-3">
+            <div className="mb-2 flex items-center gap-2 text-white font-semibold">
+              <SlidersHorizontal className="w-4 h-4 text-rose-400" />
+              <span>Возраст</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-stone-300" htmlFor="discovery-min-age">От</label>
+                <input id="discovery-min-age" type="number" min="18" max={maxAge} value={minAge} onChange={e => setMinAge(Math.min(maxAge, Math.max(18, Number(e.target.value) || 18)))} className="w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-white" />
+              </div>
+              <div>
+                <label className="mb-1 block text-stone-300" htmlFor="discovery-max-age">До</label>
+                <input id="discovery-max-age" type="number" min={minAge} max="120" value={maxAge} onChange={e => setMaxAge(Math.max(minAge, Math.min(120, Number(e.target.value) || minAge)))} className="w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-white" />
+              </div>
+            </div>
+            <p className="mt-1 text-[10px] text-stone-500">Поиск показывает только совершеннолетних кандидатов в выбранном диапазоне.</p>
           </div>
 
           {/* Relationship Goal */}
@@ -151,10 +197,13 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
 
         <div className="flex gap-2">
           <button
-            onClick={onClose}
+            onClick={() => {
+              onReset();
+              onClose();
+            }}
             className="flex-1 py-3 rounded-xl bg-stone-800 text-stone-300 font-semibold text-xs"
           >
-            Сбросить
+            Сбросить фильтры
           </button>
           <button
             onClick={() => {

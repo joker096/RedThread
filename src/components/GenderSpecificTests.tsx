@@ -335,7 +335,7 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
 
       {/* Main Tests View Header */}
       <div className="p-4 sm:p-5 rounded-3xl bg-stone-900/90 border border-white/10 shadow-2xl mb-4">
-        {/* Gender Badge & Twinby Concept Tag */}
+        {/* Gender badge and tests */}
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider ${
@@ -351,7 +351,7 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
             </span>
           </div>
 
-          <span className="text-[10px] text-stone-400">Twinby-психометрия</span>
+          <span className="text-[10px] text-stone-400">Тесты совместимости</span>
         </div>
 
         <h2 className="font-heading font-black text-xl text-white mb-1.5">
@@ -385,7 +385,7 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
         <div className="space-y-3">
           <div className="text-[11px] font-bold text-stone-400 uppercase tracking-wider flex items-center justify-between">
             <span>Каталог тестов ({tests.length}):</span>
-            <span className="text-[10px] text-rose-400 lowercase">пройдите для 100% коннекта</span>
+            <span className="text-[10px] text-rose-400 lowercase">завершите тест для полного профиля</span>
           </div>
 
           {tests.map(test => {

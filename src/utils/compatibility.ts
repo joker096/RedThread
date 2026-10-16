@@ -54,9 +54,9 @@ export function calculateCompatibility(
   // 4. Free time & lifestyle
   if (myAnswers.free_time === target.crucialAnswers.free_time) {
     lifestyleScore += 20;
-    greenFlags.push('Идеальная совместимость выходных и режима отдыха');
+    greenFlags.push('Похожий формат отдыха и свободного времени');
   } else {
-    lifestyleScore += 5;
+    frictionPoints.push('Разные предпочтения по отдыху и свободному времени');
   }
 
   // 5. Conflict resolution
@@ -76,7 +76,7 @@ export function calculateCompatibility(
   }
 
   // Clamp 0..100
-  const clamp = (val: number) => Math.min(99, Math.max(35, Math.round(val)));
+  const clamp = (val: number) => Math.min(100, Math.max(0, Math.round(val)));
   
   const finalValues = clamp(valuesScore);
   const finalFamily = clamp(familyScore);
@@ -93,7 +93,7 @@ export function calculateCompatibility(
   );
 
   return {
-    overallScore: Math.min(99, Math.max(40, overall)),
+    overallScore: Math.min(100, Math.max(0, overall)),
     valuesMatch: finalValues,
     familyGoalsMatch: finalFamily,
     lifestyleMatch: finalLifestyle,
@@ -154,7 +154,7 @@ export function detectBotRisk(profile: {
     reasons.push('Низкая уверенность нейросети в подлинности фото (возможен дипфейк/чужое фото)');
   }
 
-  const baseTrust = profile.noBotScore || 90;
+  const baseTrust = profile.noBotScore ?? 90;
   const computedSafety = Math.max(10, Math.min(100, Math.round(baseTrust - penalty)));
 
   let riskLevel: 'low' | 'medium' | 'high' = 'low';
@@ -167,7 +167,7 @@ export function detectBotRisk(profile: {
   return {
     isSafe: riskLevel === 'low',
     riskLevel,
-    reasons: reasons.length > 0 ? reasons : ['Биометрия проверена', 'Живая активность в сети', 'Чистая репутация'],
+    reasons: reasons.length > 0 ? reasons : ['В тексте анкеты не найдено явных спам-маркеров', 'Нет зарегистрированных жалоб', 'Автоматическая оценка не подтверждает личность и не заменяет модерацию'],
     safetyScore: computedSafety
   };
 }
@@ -220,19 +220,20 @@ export function shouldShowAds(isLadyPremium: boolean, isMale: boolean): {
   canWatchRewardedForBoost: boolean;
   freeExplanation: string;
 } {
-  if (isLadyPremium) {
-    return {
-      showBanners: false,
-      canWatchRewardedForBoost: false,
-      freeExplanation: 'Lady VIP активен: реклама полностью отключена, приоритетный показ'
-    };
-  }
-
+  // The male tier is always free and is never changed by the female Premium flag.
   if (isMale) {
     return {
       showBanners: true,
       canWatchRewardedForBoost: true,
       freeExplanation: 'Мужчинам сервис бесплатен. Поддерживается ненавязчивыми спонсорами.'
+    };
+  }
+
+  if (isLadyPremium) {
+    return {
+      showBanners: false,
+      canWatchRewardedForBoost: false,
+      freeExplanation: 'Lady VIP активен: реклама полностью отключена, приоритетный показ'
     };
   }
 

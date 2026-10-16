@@ -8,6 +8,7 @@ import {
   filterBinaryCandidates
 } from './compatibility.ts';
 import type { UserProfile, CrucialAnswers } from '../types/index.ts';
+import { matchesProfileLocation } from './location.ts';
 
 const mockAnswers: CrucialAnswers = {
   marriage_and_kids: 'Хочу семью и детей в ближайшие 1-2 года',
@@ -126,6 +127,10 @@ test('shouldShowAds respects Lady Premium status', () => {
   const maleUser = shouldShowAds(false, true);
   assert.equal(maleUser.showBanners, true);
   assert.ok(maleUser.freeExplanation.includes('Мужчинам сервис бесплатен'));
+
+  const maleWithStalePremiumFlag = shouldShowAds(true, true);
+  assert.equal(maleWithStalePremiumFlag.showBanners, true);
+  assert.equal(maleWithStalePremiumFlag.canWatchRewardedForBoost, true);
 });
 
 test('filterBinaryCandidates strictly ensures women see men and men see women', () => {
@@ -146,3 +151,60 @@ test('filterBinaryCandidates strictly ensures women see men and men see women', 
   assert.equal(forMaleUser.some(p => p.id === 'woman_1'), true, 'Male user must see female candidates');
 });
 
+
+
+test('lifestyle mismatch is not rewarded and is explained as a friction point', () => {
+  const matched = calculateCompatibility(
+    mockAnswers,
+    'marriage_family',
+    ['Спорт', 'Путешествия'],
+    mockTargetProfile
+  );
+  const mismatchedProfile: UserProfile = {
+    ...mockTargetProfile,
+    crucialAnswers: {
+      ...mockTargetProfile.crucialAnswers,
+      free_time: 'Уютный дом и спокойствие'
+    }
+  };
+  const mismatched = calculateCompatibility(
+    mockAnswers,
+    'marriage_family',
+    ['Спорт', 'Путешествия'],
+    mismatchedProfile
+  );
+
+  assert.ok(matched.lifestyleMatch > mismatched.lifestyleMatch);
+  assert.ok(mismatched.frictionPoints.some(point => point.includes('предпочтения по отдыху')));
+  assert.ok(mismatched.overallScore >= 0 && mismatched.overallScore <= 100);
+});
+
+
+test('detectBotRisk preserves an explicit zero trust score', () => {
+  const lowTrustProfile = {
+    bio: 'Люблю прогулки, книги и уютные вечера.',
+    isVerified: true,
+    livenessConfidence: 98,
+    reportCount: 0,
+    noBotScore: 0
+  };
+
+  const report = detectBotRisk(lowTrustProfile);
+  assert.equal(report.safetyScore, 10);
+  assert.equal(report.riskLevel, 'high');
+});
+
+
+test('location filters match country and city case-insensitively', () => {
+  const profile = { country: 'Грузия', city: 'Тбилиси' };
+  assert.equal(matchesProfileLocation(profile, 'грузия', 'тбилиси'), true);
+  assert.equal(matchesProfileLocation(profile, 'Гру', 'БИЛИ'), true);
+  assert.equal(matchesProfileLocation(profile, 'Россия', 'Тбилиси'), false);
+  assert.equal(matchesProfileLocation(profile, 'Грузия', 'Москва'), false);
+});
+
+test('location filters allow all locations and do not guess missing country', () => {
+  assert.equal(matchesProfileLocation({ city: 'Москва' }, 'all', 'all'), true);
+  assert.equal(matchesProfileLocation({ city: 'Москва' }, 'Россия', 'all'), false);
+  assert.equal(matchesProfileLocation({ country: 'ОАЭ / Россия', city: 'Дубай / Москва' }, 'ОАЭ', 'Дубай'), true);
+});

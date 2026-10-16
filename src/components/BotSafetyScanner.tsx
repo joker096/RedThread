@@ -90,11 +90,11 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
                   ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/30'
                   : 'bg-rose-950/80 text-rose-300 border border-rose-500/30'
               }`}>
-                {riskReport.isSafe ? 'Живой профиль' : 'Высокий риск бота'}
+                {riskReport.isSafe ? 'Низкий риск (демо)' : 'Есть признаки риска'}
               </span>
             </div>
             <p className="text-xs text-stone-400">
-              Автоматическая проверка анкеты {targetProfile.name} на ботов и нарушителей
+              Демо-оценка текста анкеты {targetProfile.name}; биометрическая проверка не подключена
             </p>
           </div>
         </div>
@@ -105,7 +105,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
             <div className="flex items-center gap-2">
               <Activity className="w-4 h-4 text-emerald-400 animate-pulse" />
               <span className="text-xs font-bold text-white uppercase tracking-wider">
-                {isScanning ? 'Идет нейро-анализ...' : 'Индекс подлинности анкеты'}
+                {isScanning ? 'Проверяем текстовые признаки...' : 'Эвристическая оценка риска (демо)'}
               </span>
             </div>
             <span className={`text-base font-heading font-black ${
@@ -127,8 +127,8 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
 
           <p className="text-[11px] text-stone-300 leading-relaxed">
             {riskReport.isSafe
-              ? 'Профиль прошел 3D-биометрию лица, проверку естественности времени ответов и не содержит признаков спам-ботов.'
-              : 'Внимание: в профиле обнаружены критические сигналы бота или коммерческого спама! Рекомендуем пропустить.'}
+              ? 'Оценка учитывает текст анкеты и тестовые поля. Она не подтверждает личность и не гарантирует отсутствие мошенничества.'
+              : 'Обнаружены текстовые признаки риска. Это предварительный сигнал, а не окончательный вывод о пользователе.'}
           </p>
         </div>
 
@@ -139,12 +139,12 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
             <div className="flex items-center gap-2.5">
               <ScanFace className="w-4 h-4 text-emerald-400" />
               <div>
-                <span className="text-white font-medium">3D-Liveness проверка селфи</span>
-                <p className="text-[10px] text-stone-400">Сверка мимики и объема лица с фото в анкете</p>
+                <span className="text-white font-medium">Проверка личности (не подключена)</span>
+                <p className="text-[10px] text-stone-400">Реальная проверка селфи и документов ещё не реализована</p>
               </div>
             </div>
             <span className="text-xs font-bold text-emerald-400 font-mono">
-              {targetProfile.verification.livenessConfidence}%
+              Не подключено
             </span>
           </div>
 
@@ -169,12 +169,12 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
             <div className="flex items-center gap-2.5">
               <UserCheck className="w-4 h-4 text-emerald-400" />
               <div>
-                <span className="text-white font-medium">Поведенческий паттерн человека</span>
-                <p className="text-[10px] text-stone-400">Отсутствие автоматических скриптов свайпов</p>
+                <span className="text-white font-medium">Поведенческие сигналы (не подключены)</span>
+                <p className="text-[10px] text-stone-400">Серверная телеметрия действий пока не подключена</p>
               </div>
             </div>
             <span className="text-xs font-bold text-emerald-400 font-mono">
-              Человек 99.8%
+              Нет данных
             </span>
           </div>
 
@@ -206,7 +206,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
 
           {reportSubmitted ? (
             <div className="p-2.5 rounded-xl bg-emerald-950/80 border border-emerald-500/30 text-emerald-300 text-xs text-center font-bold">
-              ✓ Спасибо! Жалоба отправлена нейросети. Профиль помещен в карантин.
+              ✓ Жалоба отмечена в демо-интерфейсе. Серверная модерация не подключена.
             </div>
           ) : (
             <form onSubmit={handleSendReport} className="flex gap-2">

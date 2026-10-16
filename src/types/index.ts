@@ -40,6 +40,7 @@ export interface UserProfile {
   name: string;
   age: number;
   city: string;
+  country?: string;
   gender: Gender;
   occupation: string;
   height: number;
@@ -58,6 +59,7 @@ export interface UserProfile {
   onlineStatus: 'online' | 'recently' | 'offline';
   superLikedByMe?: boolean;
   likedByMe?: boolean;
+  likedByCandidate?: boolean;
   isSponsorAd?: boolean;
   sponsorTitle?: string;
   sponsorDescription?: string;

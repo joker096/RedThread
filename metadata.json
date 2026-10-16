@@ -1,6 +1,8 @@
 {
-  "name": "Красная Нить — Знакомства для брака и семьи",
-  "description": "Серьезные знакомства без пустых переписок с автоматической защитой от ботов, матрицей совместимости и моделью Lady Premium.",
+  "name": "Vow — serious relationships and family",
+  "description": "Vow helps people build serious relationships through shared values, family goals and safety tools.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

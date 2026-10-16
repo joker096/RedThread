@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   Heart, 
   X, 
@@ -19,6 +19,8 @@ import {
 } from 'lucide-react';
 import type { UserProfile, CrucialAnswers } from '../types/index.ts';
 import { calculateCompatibility } from '../utils/compatibility.ts';
+import { getSwipeActionFromDelta } from '../utils/swipe.ts';
+import { useLocale } from '../i18n/LocaleProvider.tsx';
 
 interface RadarDiscoveryProps {
   profiles: UserProfile[];
@@ -27,12 +29,18 @@ interface RadarDiscoveryProps {
   myInterests: string[];
   isLadyPremium: boolean;
   onLike: (profile: UserProfile) => void;
-  onSuperLike: (profile: UserProfile) => void;
+  onSuperLike: (profile: UserProfile) => boolean | void;
+  onUndoAction: (
+    profile: UserProfile,
+    action: 'like' | 'superLike',
+    previousState: { likedByMe: boolean; superLikedByMe: boolean }
+  ) => boolean | void;
   onPass: (profile: UserProfile) => void;
   onOpenCompatibilityMatrix: (profile: UserProfile) => void;
   onInspectBotSafety: (profile: UserProfile) => void;
   onOpenLadyPremium: () => void;
   onOpenAdManager: () => void;
+  onOpenFilters: () => void;
   onAdClicked: () => void;
 }
 
@@ -44,50 +52,125 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
   isLadyPremium,
   onLike,
   onSuperLike,
+  onUndoAction,
   onPass,
   onOpenCompatibilityMatrix,
   onInspectBotSafety,
   onOpenLadyPremium,
   onOpenAdManager,
+  onOpenFilters,
   onAdClicked
 }) => {
+  const { t } = useLocale();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [photoIndex, setPhotoIndex] = useState(0);
   const [activePsychCardIndex, setActivePsychCardIndex] = useState(0);
+  const [history, setHistory] = useState<Array<{
+    index: number;
+    profileId: string;
+    action: 'like' | 'superLike' | 'pass' | 'ad';
+    wasLiked: boolean;
+    wasSuperLiked: boolean;
+  }>>([]);
+  const touchStartX = useRef<number | null>(null);
 
   const currentProfile = profiles[currentIndex];
+  const profilePoolSignature = profiles.map(profile => profile.id).join('\u001f');
+  const previousPoolSignature = useRef(profilePoolSignature);
 
-  const handleNext = () => {
+  // A filter change can reorder or replace candidates. Clear navigation history
+  // for a changed ID sequence, not for ordinary profile-state updates.
+  useEffect(() => {
+    if (previousPoolSignature.current !== profilePoolSignature) {
+      previousPoolSignature.current = profilePoolSignature;
+      setHistory([]);
+      setCurrentIndex(0);
+      setPhotoIndex(0);
+      setActivePsychCardIndex(0);
+      setIsPlayingAudio(false);
+      return;
+    }
+    if (profiles.length === 0) {
+      setCurrentIndex(0);
+      setHistory([]);
+      setPhotoIndex(0);
+      setActivePsychCardIndex(0);
+      setIsPlayingAudio(false);
+    } else if (currentIndex > profiles.length) {
+      setCurrentIndex(profiles.length);
+    }
+  }, [profilePoolSignature, profiles.length, currentIndex]);
+
+  const handleNext = (action: 'like' | 'superLike' | 'pass' | 'ad') => {
+    if (currentProfile) setHistory(previous => [...previous, {
+      index: currentIndex,
+      profileId: currentProfile.id,
+      action,
+      wasLiked: Boolean(currentProfile.likedByMe),
+      wasSuperLiked: Boolean(currentProfile.superLikedByMe)
+    }].slice(-50));
     setIsPlayingAudio(false);
     setPhotoIndex(0);
     setActivePsychCardIndex(0);
-    if (currentIndex < profiles.length - 1) {
-      setCurrentIndex(prev => prev + 1);
-    } else {
-      setCurrentIndex(0);
-    }
+    setCurrentIndex(prev => Math.min(prev + 1, profiles.length));
   };
 
   const handleLikeCurrent = () => {
     if (currentProfile) {
       onLike(currentProfile);
-      handleNext();
+      handleNext('like');
     }
   };
 
   const handleSuperLikeCurrent = () => {
     if (currentProfile) {
-      onSuperLike(currentProfile);
-      handleNext();
+      const accepted = onSuperLike(currentProfile);
+      if (accepted === false) return;
+      handleNext('superLike');
     }
   };
 
   const handlePassCurrent = () => {
     if (currentProfile) {
       onPass(currentProfile);
-      handleNext();
+      handleNext(currentProfile.isSponsorAd ? 'ad' : 'pass');
     }
+  };
+
+  const handleUndo = () => {
+    if (history.length === 0) return;
+    const previous = history[history.length - 1];
+    const previousProfile = profiles.find(profile => profile.id === previous.profileId);
+    if (previousProfile && (previous.action === 'like' || previous.action === 'superLike')) {
+      if (onUndoAction(previousProfile, previous.action, {
+        likedByMe: previous.wasLiked,
+        superLikedByMe: previous.wasSuperLiked
+      }) === false) return;
+    }
+    setHistory(items => items.slice(0, -1));
+    setCurrentIndex(previousProfile ? profiles.findIndex(profile => profile.id === previousProfile.id) : previous.index);
+    setPhotoIndex(0);
+    setActivePsychCardIndex(0);
+    setIsPlayingAudio(false);
+  };
+
+  const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    touchStartX.current = event.touches[0]?.clientX ?? null;
+  };
+
+  const handleTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
+    const start = touchStartX.current;
+    touchStartX.current = null;
+    const end = event.changedTouches[0]?.clientX;
+    if (start === null || end === undefined) return;
+    const action = getSwipeActionFromDelta(end - start);
+    if (currentProfile?.isSponsorAd) {
+      if (action !== 'none') { onPass(currentProfile); handleNext('ad'); }
+      return;
+    }
+    if (action === 'like') handleLikeCurrent();
+    if (action === 'pass') handlePassCurrent();
   };
 
   const toggleAudio = () => {
@@ -100,15 +183,27 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
         <div className="w-16 h-16 rounded-full bg-rose-950/60 flex items-center justify-center text-rose-400 mb-4 border border-rose-800/40">
           <Heart className="w-8 h-8" />
         </div>
-        <h3 className="font-heading text-lg font-bold text-white mb-2">Все анкеты просмотрены</h3>
+        <h3 className="font-heading text-lg font-bold text-white mb-2">
+          {profiles.length > 0 && currentIndex >= profiles.length ? t('allProfilesViewed') : t('noSuitableProfiles')}
+        </h3>
         <p className="text-xs text-stone-400 max-w-sm mb-6 leading-relaxed">
-          Мы подобрали только тех, кто подходит вам по психологическому профилю и ценностям.
+          {profiles.length > 0 && currentIndex >= profiles.length
+            ? t('noAutoRepeatHint')
+            : t('demoFilterHint')}
         </p>
+        {profiles.length > 0 && currentIndex >= profiles.length && (
+          <button
+            onClick={() => { setHistory([]); setCurrentIndex(0); setPhotoIndex(0); setActivePsychCardIndex(0); setIsPlayingAudio(false); }}
+            className="mb-3 px-6 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-500 font-bold text-white text-xs"
+          >
+            {t('restartViewing')}
+          </button>
+        )}
         <button
-          onClick={() => setCurrentIndex(0)}
+          onClick={onOpenFilters}
           className="px-6 py-2.5 rounded-full bg-rose-600 hover:bg-rose-500 font-bold text-white shadow-lg shadow-rose-950 text-xs"
         >
-          Начать сначала
+          {t('changeFilters')}
         </button>
       </div>
     );
@@ -118,12 +213,12 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
 
   return (
     <div className="w-full max-w-sm sm:max-w-md mx-auto flex flex-col items-center select-none">
-      {/* Top Micro-Bar: Twinby Compatibility % & Responsive Rewarded Pill */}
+      {/* Top Micro-Bar: Compatibility score and rewarded demo */}
       <div className="w-full flex items-center justify-between px-2 mb-2 text-xs">
         <div className="flex items-center gap-1.5 text-stone-300">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
           <span className="text-[11px] font-semibold text-stone-400">
-            Twinby-коннект: <strong className="text-white">{compatibility.overallScore}%</strong>
+            Совместимость: <strong className="text-white">{compatibility.overallScore}%</strong>
           </span>
         </div>
 
@@ -132,16 +227,16 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
           <button
             onClick={onOpenAdManager}
             className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px] font-bold hover:bg-amber-500/25 transition-all"
-            title="Посмотреть ролик спонсора и получить суперлайки"
+            title={t('sponsorVideoHelp')}
           >
             <Gift className="w-3 h-3 text-amber-400" />
-            <span>Бонус за ролик</span>
+            <span>{t('bonusVideo')}</span>
           </button>
         )}
       </div>
 
       {/* Main Full-Bleed Card Container */}
-      <div className="w-full relative rounded-3xl overflow-hidden bg-stone-900 border border-white/10 shadow-2xl transition-all">
+      <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} className="w-full relative rounded-3xl overflow-hidden bg-stone-900 border border-white/10 shadow-2xl transition-all">
         {currentProfile.isSponsorAd ? (
           /* 100% ADAPTIVE NATIVE SPONSOR AD CARD */
           <div className="flex flex-col w-full text-left">
@@ -156,7 +251,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
               {/* Sponsor Adaptive Tag */}
               <div className="absolute top-3 left-3 bg-amber-500 text-stone-950 text-[10px] sm:text-xs font-black px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full uppercase tracking-wider shadow-lg flex items-center gap-1">
                 <Award className="w-3.5 h-3.5 fill-stone-950" />
-                <span>Спонсор первого свидания</span>
+                <span>{t('sponsorFirstDate')}</span>
               </div>
             </div>
 
@@ -190,7 +285,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                   onClick={handlePassCurrent}
                   className="flex-1 py-2.5 sm:py-3 rounded-2xl bg-stone-800 hover:bg-stone-700 font-bold text-stone-300 text-xs transition-colors"
                 >
-                  Пропустить
+                  {t('skip')}
                 </button>
                 <button
                   onClick={() => {
@@ -206,7 +301,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
             </div>
           </div>
         ) : (
-          /* REAL PROFILE CARD (TWINBY DESIGN) */
+          /* Profile card */
           <div className="flex flex-col w-full text-left">
             {/* Top Photo Frame */}
             <div className="relative h-72 sm:h-80 w-full overflow-hidden bg-stone-950 select-none">
@@ -221,12 +316,12 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 <div
                   className="w-1/2 h-full cursor-pointer"
                   onClick={() => setPhotoIndex(prev => Math.max(0, prev - 1))}
-                  title="Предыдущее фото"
+                  title={t('previousPhoto')}
                 />
                 <div
                   className="w-1/2 h-full cursor-pointer"
                   onClick={() => setPhotoIndex(prev => Math.min(currentProfile.photos.length - 1, prev + 1))}
-                  title="Следующее фото"
+                  title={t('nextPhoto')}
                 />
               </div>
 
@@ -244,7 +339,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 </div>
               )}
 
-              {/* Twinby Radial Match Badge (Top Left) */}
+              {/* Compatibility badge (Top Left) */}
               <div
                 onClick={() => onOpenCompatibilityMatrix(currentProfile)}
                 className="absolute top-6 left-3 z-20 cursor-pointer bg-stone-950/75 hover:bg-stone-950/90 border border-white/15 text-white px-2.5 py-1 rounded-2xl backdrop-blur-xl flex items-center gap-2 shadow-lg transition-all"
@@ -256,11 +351,11 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 </div>
                 <div>
                   <div className="text-[9px] text-stone-300 font-semibold flex items-center gap-0.5">
-                    <span>Совместимость</span>
+                    <span>{t('compatibility')}</span>
                     <ChevronRight className="w-2.5 h-2.5 text-rose-400" />
                   </div>
                   <div className="text-[10px] font-bold text-emerald-400">
-                    {compatibility.overallScore >= 85 ? 'Высокая химия' : 'Хороший коннект'}
+                    {compatibility.overallScore >= 85 ? t('highChemistry') : t('goodConnection')}
                   </div>
                 </div>
               </div>
@@ -269,11 +364,11 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
               <div
                 onClick={() => onInspectBotSafety(currentProfile)}
                 className="absolute top-6 right-3 z-20 cursor-pointer bg-stone-950/75 hover:bg-stone-950/90 border border-emerald-500/30 text-emerald-400 px-2.5 py-1 rounded-2xl backdrop-blur-xl flex items-center gap-1 shadow-lg transition-colors"
-                title="Верификация 3D-Liveness"
+                title={t('livenessVerification')}
               >
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
                 <span className="text-[10px] font-bold text-white">
-                  {currentProfile.verification.isVerified ? 'Живой 99%' : 'Проверить'}
+                  {currentProfile.verification.isVerified ? t('verifiedDemo') : t('notVerified')}
                 </span>
               </div>
 
@@ -330,7 +425,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 <span>{currentProfile.height} см</span>
               </div>
 
-              {/* Twinby Psychology Pills */}
+              {/* Psychology profile tags */}
               <div className="flex flex-wrap gap-1.5 mb-2.5">
                 {currentProfile.mbti && (
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 border border-rose-500/30 text-rose-300 flex items-center gap-1">
@@ -350,13 +445,13 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 {currentProfile.bio}
               </p>
 
-              {/* Twinby Question Card Carousel */}
+              {/* Profile question cards */}
               {currentProfile.psychCards && currentProfile.psychCards.length > 0 && (
                 <div className="rounded-2xl bg-stone-900/95 border border-white/10 p-3 mb-3 shadow-inner">
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-[9px] uppercase font-bold tracking-wider text-rose-400 flex items-center gap-1">
                       <Sparkles className="w-2.5 h-2.5" />
-                      Карточка Twinby ({activePsychCardIndex + 1}/{currentProfile.psychCards.length})
+                      Вопрос профиля ({activePsychCardIndex + 1}/{currentProfile.psychCards.length})
                     </span>
                     <div className="flex gap-1">
                       {currentProfile.psychCards.map((_, i) => (
@@ -411,24 +506,33 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 </div>
               </div>
 
-              {/* Floating Circular Action Buttons (Twinby Signature Dock) */}
+              {/* Floating Circular Action Buttons (Profile action buttons) */}
               <div className="flex items-center justify-center gap-3 sm:gap-4 pt-1">
+                <button
+                  onClick={handleUndo}
+                  disabled={history.length === 0}
+                  className="w-10 h-10 rounded-full bg-stone-900 text-stone-300 disabled:text-stone-700 disabled:opacity-50 hover:bg-stone-800 flex items-center justify-center border border-white/10 transition-all"
+                  title={t('undoAction')}
+                  aria-label={t('undoAction')}
+                >
+                  <span className="text-lg leading-none">↶</span>
+                </button>
                 {/* 1. Pass (Circle) */}
                 <button
                   onClick={handlePassCurrent}
                   className="w-12 h-12 rounded-full bg-stone-900 hover:bg-stone-800 text-stone-400 hover:text-white flex items-center justify-center border border-white/10 transition-all hover:scale-110 active:scale-95 shadow-lg"
-                  title="Пропустить"
-                  aria-label="Пропустить"
+                  title={t('pass')}
+                  aria-label={t('pass')}
                 >
                   <X className="w-5 h-5 stroke-[2.5]" />
                 </button>
 
-                {/* 2. Compatibility Test Matrix (Twinby Lightning Bolt) */}
+                {/* 2. Compatibility Test Matrix (Compatibility details) */}
                 <button
                   onClick={() => onOpenCompatibilityMatrix(currentProfile)}
                   className="w-12 h-12 rounded-full bg-stone-900 hover:bg-rose-950/80 text-rose-400 flex items-center justify-center border border-rose-600/40 transition-all hover:scale-110 active:scale-95 shadow-lg shadow-rose-950/30"
-                  title="Психологический тест и Матрица совместимости"
-                  aria-label="Матрица совместимости"
+                  title={t('psychCompatibility')}
+                  aria-label={t('compatibilityMatrix')}
                 >
                   <Zap className="w-5 h-5 fill-rose-500 stroke-rose-400" />
                 </button>
@@ -437,8 +541,8 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 <button
                   onClick={handleSuperLikeCurrent}
                   className="w-12 h-12 rounded-full bg-gradient-to-tr from-amber-500 to-amber-600 text-stone-950 flex items-center justify-center font-bold shadow-lg shadow-amber-950/50 transition-all hover:scale-110 active:scale-95"
-                  title="Супер-симпатия"
-                  aria-label="Супер-симпатия"
+                  title={t('superLike')}
+                  aria-label={t('superLike')}
                 >
                   <Star className="w-5 h-5 fill-stone-950 stroke-none" />
                 </button>
@@ -447,8 +551,8 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 <button
                   onClick={handleLikeCurrent}
                   className="w-14 h-14 rounded-full bg-gradient-to-r from-rose-600 via-red-600 to-rose-700 hover:from-rose-500 hover:to-red-500 text-white flex items-center justify-center red-glow transition-all hover:scale-110 active:scale-95 shadow-xl shadow-rose-950/60"
-                  title="Симпатия и приглашение"
-                  aria-label="Симпатия"
+                  title={t('likeInvite')}
+                  aria-label={t('like')}
                 >
                   <Heart className="w-7 h-7 fill-white stroke-none" />
                 </button>

@@ -267,8 +267,8 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
             </div>
           ) : (
             <div className="p-2.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-200 flex items-center justify-between">
-              <span>Химия подтверждена! Ваши ответы резонируют на 98%.</span>
-              <span className="text-xs font-bold text-white bg-rose-600 px-2 py-0.5 rounded-full">+2% к союзу</span>
+              <span>Ответы совпали по этому мини-тесту. Это ориентир для разговора, а не научный прогноз отношений.</span>
+              <span className="text-[10px] font-bold text-white bg-rose-600 px-2 py-0.5 rounded-full">Ответы совпали</span>
             </div>
           )}
         </div>
@@ -289,7 +289,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
             className="flex-2 py-3 rounded-xl bg-gradient-to-r from-rose-600 via-red-600 to-rose-700 hover:from-rose-500 hover:to-red-500 font-bold text-white text-xs flex items-center justify-center gap-2 red-glow transition-all"
           >
             <Heart className="w-4 h-4 fill-white" />
-            <span>Начать диалог без пустых переписок</span>
+            <span>{profile.likedByCandidate ? 'Взаимная симпатия — открыть чат' : 'Отправить симпатию'}</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>

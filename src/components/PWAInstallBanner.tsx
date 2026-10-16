@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Smartphone, 
   Download, 
@@ -10,24 +10,62 @@ import {
   Apple
 } from 'lucide-react';
 
+interface InstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+}
+
 interface PWAInstallBannerProps {
   onDismiss?: () => void;
 }
 
 export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss }) => {
-  const [isOpen, setIsOpen] = useState(true);
-  const [installed, setInstalled] = useState(false);
+  const [installed, setInstalled] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(display-mode: standalone)').matches
+  );
+  const [isOpen, setIsOpen] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    if (window.matchMedia('(display-mode: standalone)').matches) return false;
+    try {
+      return window.localStorage.getItem('nit-install-banner-dismissed') !== '1';
+    } catch {
+      return true;
+    }
+  });
   const [showGuide, setShowGuide] = useState(false);
   const [activeGuide, setActiveGuide] = useState<'ios' | 'android'>('ios');
+  const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
+
+  useEffect(() => {
+    setActiveGuide(/android/i.test(navigator.userAgent) ? 'android' : 'ios');
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as InstallPromptEvent);
+    };
+    const handleInstalled = () => {
+      setInstalled(true);
+      setInstallPrompt(null);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleInstalled);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleInstalled);
+    };
+  }, []);
 
   if (!isOpen) return null;
 
-  const handleSimulateInstall = () => {
-    setInstalled(true);
-    setTimeout(() => {
-      setIsOpen(false);
-      if (onDismiss) onDismiss();
-    }, 2000);
+  const handleInstall = async () => {
+    if (!installPrompt) {
+      setShowGuide(true);
+      return;
+    }
+    await installPrompt.prompt();
+    const choice = await installPrompt.userChoice;
+    if (choice.outcome === 'accepted') setInstalled(true);
+    setInstallPrompt(null);
   };
 
   return (
@@ -38,9 +76,9 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
             <Smartphone className="w-3.5 h-3.5" />
           </div>
           <div className="truncate">
-            <span className="font-bold text-white text-[11px] sm:text-xs">Установите «Красную Нить» на iOS и Android</span>
+            <span className="font-bold text-white text-[11px] sm:text-xs">Добавьте «НИТЬ» на главный экран</span>
             <span className="text-stone-400 hidden lg:inline ml-2 text-[11px]">
-              (PWA: без App Store, мгновенные пуши о свиданиях)
+              (установка зависит от браузера; push-уведомления пока не подключены)
             </span>
           </div>
         </div>
@@ -56,21 +94,26 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
           {installed ? (
             <span className="px-2 py-0.5 rounded text-[11px] bg-emerald-950 text-emerald-300 font-bold border border-emerald-500/30 flex items-center gap-1">
               <Check className="w-3 h-3" />
-              <span>Готово</span>
+              <span>Установлено</span>
             </span>
-          ) : (
+          ) : installPrompt ? (
             <button
-              onClick={handleSimulateInstall}
+              onClick={handleInstall}
               className="px-2.5 py-0.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold flex items-center gap-1 shadow-sm text-[11px]"
             >
               <Download className="w-3 h-3" />
               <span>Установить</span>
             </button>
-          )}
+          ) : null}
 
           <button
             onClick={() => {
               setIsOpen(false);
+              try {
+                window.localStorage.setItem('nit-install-banner-dismissed', '1');
+              } catch {
+                // Dismissal persistence is optional when storage is unavailable.
+              }
               if (onDismiss) onDismiss();
             }}
             className="p-1 text-stone-500 hover:text-stone-300"
