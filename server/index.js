@@ -310,6 +310,11 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
   const country = cleanFilter(req.query.country, 100);
   const city = cleanFilter(req.query.city, 120);
   const intent = cleanFilter(req.query.intent, 40);
+  const parseAge = value => value === undefined || value === '' ? null : Number.parseInt(String(value), 10);
+  const minAge = parseAge(req.query.minAge);
+  const maxAge = parseAge(req.query.maxAge);
+  const minFinancialAlignment = req.query.minFinancialAlignment === undefined ? 0 : Number.parseInt(String(req.query.minFinancialAlignment), 10);
+  if ((minAge !== null && (!Number.isInteger(minAge) || minAge < 18 || minAge > 120)) || (maxAge !== null && (!Number.isInteger(maxAge) || maxAge < 18 || maxAge > 120)) || (minAge !== null && maxAge !== null && minAge > maxAge) || !Number.isInteger(minFinancialAlignment) || minFinancialAlignment < 0 || minFinancialAlignment > 100) return res.status(400).json({ error: 'invalid_age_or_financial_alignment_filter' });
   if (intent && !['marriage_family', 'serious_relationship'].includes(intent)) {
     return res.status(400).json({ error: 'invalid_relationship_intent' });
   }
@@ -331,10 +336,14 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
          p.country,
          p.city,
          p.bio,
-         p.relationship_intent AS "relationshipIntent"
+         p.relationship_intent AS "relationshipIntent",
+         candidate_assessment.answers AS assessment_answers,
+         my_assessment.answers AS my_assessment_answers
        FROM profiles p
        JOIN users u ON u.id = p.user_id
        JOIN profiles me ON me.user_id = $1
+       LEFT JOIN relationship_assessments candidate_assessment ON candidate_assessment.user_id = p.user_id
+       LEFT JOIN relationship_assessments my_assessment ON my_assessment.user_id = me.user_id
        WHERE p.user_id <> $1
          AND p.gender <> me.gender
          AND p.is_visible = TRUE
@@ -343,12 +352,18 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
          AND ($2::text IS NULL OR p.country ILIKE '%' || $2 || '%')
          AND ($3::text IS NULL OR p.city ILIKE '%' || $3 || '%')
          AND ($4::text IS NULL OR p.relationship_intent = $4)
+         AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, p.birth_date))::int BETWEEN COALESCE($7::int, 18) AND COALESCE($8::int, 120)
+         AND ($9::int = 0 OR (candidate_assessment.answers IS NOT NULL AND my_assessment.answers IS NOT NULL AND (CASE WHEN candidate_assessment.answers->>'financialModel' = my_assessment.answers->>'financialModel' THEN 1 ELSE 0 END + CASE WHEN candidate_assessment.answers->>'lifestyleExpectation' = my_assessment.answers->>'lifestyleExpectation' THEN 1 ELSE 0 END + CASE WHEN candidate_assessment.answers->>'gifts' = my_assessment.answers->>'gifts' THEN 1 ELSE 0 END) * 100 / 3 >= $9))
        ORDER BY p.updated_at DESC, p.user_id
        LIMIT $5 OFFSET $6`,
-      [req.authUser.id, country, city, intent, parsedLimit + 1, parsedOffset]
+      [req.authUser.id, country, city, intent, parsedLimit + 1, parsedOffset, minAge, maxAge, minFinancialAlignment]
     );
     const hasMore = result.rows.length > parsedLimit;
-    const profiles = hasMore ? result.rows.slice(0, parsedLimit) : result.rows;
+    const profiles = (hasMore ? result.rows.slice(0, parsedLimit) : result.rows).map(profile => {
+      const { assessment_answers: candidateAnswers, my_assessment_answers: myAnswers, ...publicProfile } = profile;
+      const alignment = candidateAnswers && myAnswers ? financialAlignment(myAnswers, candidateAnswers).score : null;
+      return { ...publicProfile, financialAlignment: alignment };
+    });
     return res.json({
       profiles,
       pagination: { limit: parsedLimit, offset: parsedOffset, hasMore }
@@ -362,6 +377,41 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
 function isUuid(value) {
   return typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value);
 }
+
+app.get('/api/assessment', requireSession, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT answers, assessment_version AS "assessmentVersion", completed_at AS "completedAt", updated_at AS "updatedAt" FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
+    return res.json({ assessment: result.rows[0] || null, version: ASSESSMENT_VERSION });
+  } catch (error) {
+    console.error('Assessment read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'assessment_read_failed' });
+  }
+});
+
+app.put('/api/assessment', validateRequestOrigin, requireSession, async (req, res) => {
+  const answers = req.body?.answers;
+  if (!isValidAssessment(answers)) return res.status(400).json({ error: 'assessment_answers_incomplete_or_invalid' });
+  try {
+    const result = await pool.query(
+      'INSERT INTO relationship_assessments (user_id, answers, assessment_version, completed_at, updated_at) VALUES ($1, $2::jsonb, $3, NOW(), NOW()) ON CONFLICT (user_id) DO UPDATE SET answers = EXCLUDED.answers, assessment_version = EXCLUDED.assessment_version, completed_at = NOW(), updated_at = NOW() RETURNING answers, assessment_version AS "assessmentVersion", completed_at AS "completedAt", updated_at AS "updatedAt"',
+      [req.authUser.id, JSON.stringify(answers), ASSESSMENT_VERSION]
+    );
+    return res.json({ assessment: result.rows[0] });
+  } catch (error) {
+    console.error('Assessment save failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'assessment_save_failed' });
+  }
+});
+
+app.delete('/api/assessment', validateRequestOrigin, requireSession, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
+    return res.status(204).end();
+  } catch (error) {
+    console.error('Assessment delete failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'assessment_delete_failed' });
+  }
+});
 
 app.get('/api/profiles/me', requireSession, async (req, res) => {
   try {
