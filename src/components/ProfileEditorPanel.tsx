@@ -100,7 +100,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
         const errors: Record<string, string> = {
           children_status_required: 'Обязательно укажите, есть ли у вас дети.',
           invalid_family_format: 'Проверьте формат семьи.',
-          invalid_photo_urls: 'Фотографии должны быть HTTPS-ссылками без логина и пароля; максимум 6.',
+          invalid_photo_urls: 'Можно использовать только фотографии, загруженные через безопасную форму; максимум 6.',
           invalid_languages: 'Укажите не более 10 языков, каждый от 2 до 40 символов.',
           invalid_bio: 'Описание не должно превышать 2000 символов.'
         };
@@ -151,8 +151,9 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
               finally{setUploadBusy(false);}
             }} className="mt-2 block w-full text-sm text-stone-300 file:mr-3 file:rounded-lg file:border-0 file:bg-rose-700 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white" />
           </label>
-          <label className="block text-xs text-stone-300">HTTPS-ссылки или загруженные фото (до 6 всего)<textarea value={photoUrls} onChange={e=>setPhotoUrls(e.target.value)} rows={3} placeholder="https://example.com/photo.jpg" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
-          <p className="text-[10px] leading-relaxed text-stone-500">JPEG/PNG проверяются по сигнатуре, структуре и размерам; EXIF и текстовые метаданные удаляются. Файлы доступны авторизованным пользователям с учётом видимости анкеты и блокировок. Не загружайте чужие фото без разрешения.</p>
+          <label className="block text-xs text-stone-300">Загруженные фотографии (до 6 всего)<textarea value={photoUrls} readOnly rows={3} placeholder="Загрузите фото через форму выше" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white read-only:opacity-80" /></label>
+          {photoUrls.split(/\n|,/).map(value => value.trim()).filter(Boolean).length > 0 && <button type="button" onClick={() => setPhotoUrls(current => current.split(/\n|,/).map(value => value.trim()).filter(Boolean).slice(0, -1).join("\n"))} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-stone-300">Убрать последнюю фотографию</button>}
+          <p className="text-[10px] leading-relaxed text-stone-500">При загрузке JPEG/PNG декодируются и повторно кодируются; EXIF и другие метаданные удаляются. Фото остаётся скрытым от других пользователей до одобрения модератором. Не загружайте чужие фото без разрешения.</p>
           <label className="block text-xs text-stone-300">Цель отношений<select value={relationshipIntent} onChange={e => setRelationshipIntent(e.target.value as typeof relationshipIntent)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="marriage_family">Брак и семья</option><option value="family_without_marriage">Семья без регистрации брака</option><option value="serious_relationship">Серьёзные отношения</option></select></label>
           <label className="block text-xs text-stone-300">Формат семьи<select value={familyFormat} onChange={e => setFamilyFormat(e.target.value as typeof familyFormat)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="open_to_both">Открыт(а) к обоим форматам</option><option value="marriage">Только официальный брак</option><option value="cohabitation">Совместная жизнь без брака</option></select></label>
           <fieldset className="rounded-xl border border-white/10 bg-stone-950 p-3">
