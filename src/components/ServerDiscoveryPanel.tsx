@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 type ServerProfile = {
   id: string;
@@ -40,6 +40,8 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const [reportTargetId, setReportTargetId] = useState<string | null>(null);
   const [reportCategory, setReportCategory] = useState('fake_profile');
   const [reportDetails, setReportDetails] = useState('');
+  const [swipeMode, setSwipeMode] = useState(false);
+  const touchStartX = useRef<number | null>(null);
 
   const search = useCallback(async () => {
     setBusy(true);
@@ -101,6 +103,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       if (!response.ok) throw new Error('Не удалось отправить симпатию.');
       setLikedIds(current => current.includes(profile.id) ? current : [...current, profile.id]);
       setNotice(data?.matched ? `У вас взаимная симпатия с ${profile.displayName}! Совпадение создано.` : `Симпатия отправлена анкете «${profile.displayName}».`);
+      if (swipeMode) setProfiles(current => current.filter(item => item.id !== profile.id));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Не удалось отправить симпатию.');
     }
@@ -207,11 +210,26 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
             <label className="text-xs text-stone-300">Наличие детей<select value={childrenFilter} onChange={e => setChildrenFilter(e.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="all">Не важно</option><option value="false">Детей нет</option><option value="true">Есть дети</option></select></label>
             <label className="text-xs text-stone-300">Совпадение финансовых ожиданий<select value={minFinancialAlignment} onChange={e => setMinFinancialAlignment(Number(e.target.value))} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="0">Не фильтровать</option><option value="33">От 33%</option><option value="67">От 67%</option><option value="100">Только 100%</option></select></label>
           </div>
-          <button type="button" onClick={() => void search()} disabled={busy} className="mb-4 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? 'Ищем…' : 'Найти анкеты'}</button>
+          <button type="button" onClick={() => void search()} disabled={busy} className="mb-2 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? 'Ищем…' : 'Найти анкеты'}</button>
+          <button type="button" onClick={() => setSwipeMode(value => !value)} className="mb-3 w-full rounded-xl border border-emerald-500/30 px-4 py-2.5 text-xs font-semibold text-emerald-200">{swipeMode ? 'Переключиться на список анкет' : 'Режим свайпов — по одной анкете'}</button>
+          {swipeMode && <p className="mb-3 text-[11px] text-stone-400">На телефоне проведите вправо, чтобы пропустить, или влево, чтобы отправить симпатию. Можно также использовать кнопки.</p>}
           {notice && <p role="status" className="mb-3 text-xs text-stone-300">{notice}</p>}
-          <div className="space-y-3">
-            {profiles.map(profile => (
-              <article key={profile.id} className="rounded-2xl border border-white/10 bg-stone-950/70 p-3">
+          <div className={swipeMode ? 'mx-auto max-w-lg space-y-3' : 'space-y-3'}>
+            {profiles.slice(0, swipeMode ? 1 : profiles.length).map(profile => (
+              <article key={profile.id}
+                onTouchStart={event => {
+                  if (swipeMode && !(event.target as HTMLElement).closest('button, input, select, textarea')) touchStartX.current = event.changedTouches[0]?.clientX ?? null;
+                }}
+                onTouchEnd={event => {
+                  if (!swipeMode || (event.target as HTMLElement).closest('button, input, select, textarea')) { touchStartX.current = null; return; }
+                  const start = touchStartX.current;
+                  touchStartX.current = null;
+                  if (start === null) return;
+                  const delta = event.changedTouches[0].clientX - start;
+                  if (delta < -80) void like(profile);
+                  else if (delta > 80) void pass(profile);
+                }}
+                className={`rounded-2xl border border-white/10 bg-stone-950/70 p-3 ${swipeMode ? 'touch-pan-y' : ''}`}>
                 {profile.photoUrls?.length ? (
                   <div className="mb-3 flex gap-2 overflow-x-auto">
                     {profile.photoUrls.slice(0, 6).map((url, index) => (
