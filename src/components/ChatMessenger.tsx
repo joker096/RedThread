@@ -119,26 +119,26 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                     : 'hover:bg-stone-900 text-stone-300'
                 }`}
               >
-                <div className="relative">
+                <span className="relative block">
                   <img
                     src={thread.partnerProfile.avatar}
                     alt={thread.partnerProfile.name}
                     className="w-12 h-12 rounded-xl object-cover"
                   />
-                  <div className="absolute -bottom-1 -right-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-rose-600 text-white">
+                  <span className="absolute -bottom-1 -right-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-rose-600 text-white">
                     {thread.compatibilityScore}%
-                  </div>
-                </div>
+                  </span>
+                </span>
 
-                <div className="flex-1 min-w-0 text-left">
-                  <div className="flex items-center justify-between">
+                <span className="flex-1 min-w-0 text-left block">
+                  <span className="flex items-center justify-between">
                     <span className="font-bold text-sm text-white truncate">
                       {thread.partnerProfile.name}
                     </span>
                     <span className="text-[10px] text-stone-400">{thread.lastMessageTime}</span>
-                  </div>
+                  </span>
                   <p className="text-xs text-stone-400 truncate mt-0.5">{thread.lastMessage}</p>
-                </div>
+                </span>
               </button>
             );
           })}
