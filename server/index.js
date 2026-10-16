@@ -33,6 +33,14 @@ const pool = databaseUrl
   : null;
 
 app.disable('x-powered-by');
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
 app.use(express.json({ limit: '32kb', strict: true }));
 
 const authLimiter = rateLimit({
@@ -52,7 +60,9 @@ function requireDatabase(_req, res, next) {
 
 function validateRequestOrigin(req, res, next) {
   const origin = req.get('origin');
-  if (!origin) return next();
+  // All browser-originated state changes must carry an explicit, trusted Origin.
+  // This deliberately rejects origin-less cookie-authenticated mutations.
+  if (!origin) return res.status(403).json({ error: 'origin_required' });
 
   try {
     if (new URL(origin).origin !== new URL(allowedOrigin).origin) {
@@ -690,6 +700,57 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
   } catch (error) {
     console.error('Profile update failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'profile_update_failed' });
+  }
+});
+
+app.post('/api/passes/undo', validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const latest = await client.query(
+      `SELECT pp.passed_user_id AS id
+       FROM profile_passes pp
+       JOIN profiles p ON p.user_id = pp.passed_user_id
+       JOIN users u ON u.id = p.user_id
+       WHERE pp.passer_id = $1
+         AND u.status = 'active' AND p.is_visible = TRUE
+         AND p.children_disclosure_confirmed_at IS NOT NULL AND p.has_children IS NOT NULL
+         AND p.gender <> $2
+       ORDER BY pp.created_at DESC
+       LIMIT 1
+       FOR UPDATE OF pp`,
+      [req.authUser.id, req.authUser.gender]
+    );
+    const passedId = latest.rows[0]?.id;
+    if (!passedId) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'no_recent_pass_to_undo' });
+    }
+    await client.query('DELETE FROM profile_passes WHERE passer_id = $1 AND passed_user_id = $2', [req.authUser.id, passedId]);
+    const profileResult = await client.query(
+      `SELECT p.user_id AS id, p.display_name AS "displayName",
+              EXTRACT(YEAR FROM AGE(CURRENT_DATE, p.birth_date))::int AS age,
+              p.gender, p.country, p.city, p.bio, p.photo_urls AS "photoUrls",
+              p.occupation, p.education, p.languages,
+              p.relationship_intent AS "relationshipIntent",
+              p.family_format AS "familyFormat", p.has_children AS "hasChildren",
+              p.wants_children AS "wantsChildren",
+              p.children_living_arrangement AS "childrenLivingArrangement",
+              NULL::int AS "financialAlignment"
+       FROM profiles p JOIN users u ON u.id = p.user_id
+       WHERE p.user_id = $1 AND u.status = 'active' AND p.is_visible = TRUE`,
+      [passedId]
+    );
+    await client.query('COMMIT');
+    if (!profileResult.rows[0]) return res.status(404).json({ error: 'profile_not_available' });
+    return res.json({ profile: profileResult.rows[0] });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Undo profile pass failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'pass_undo_failed' });
+  } finally {
+    client?.release();
   }
 });
 
