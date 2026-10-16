@@ -242,3 +242,8 @@ Frontend откроется на **http://localhost:3000**, API работает
 ## Платежи и подписки
 
 Ветка содержит интеграцию Stripe Checkout и проверку подписи webhook. До включения реальных платежей заполните `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` и Price ID для каждого тарифа в панели Stripe; создайте webhook на `/api/billing/webhook` для событий `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `customer.subscription.created`, `customer.subscription.updated` и `customer.subscription.deleted`. Для production используйте HTTPS и проверьте тарифы, налоги, условия автопродления, возвраты и локальные требования. Без ключей оформление блокируется и оплата не имитируется.
+
+
+## Конфиденциальность и резервные копии
+
+В `docs/PRIVACY_POLICY_TEMPLATE.md` находится шаблон политики, который необходимо заполнить и юридически проверить до публикации. `scripts/backup-postgres.sh` создаёт локальный дамп PostgreSQL с checksum и сроком локального хранения; расписание, внешняя зашифрованная копия, мониторинг и проверка восстановления настраиваются отдельно. Инструкции находятся в `docs/OPERATIONS_BACKUPS.md`.
