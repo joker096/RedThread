@@ -48,3 +48,55 @@ Before public launch:
 - The current discovery and chat UI includes demo data/features. Clearly separate them from registered-user data in any public demo; never use demo conversations as real user activity.
 - Do not enable live billing until payment, cancellation, refund and consumer-disclosure flows have been verified.
 - This runbook is an implementation guide, not a compliance certification or guarantee of security.
+
+
+## Release acceptance gates (must be evidenced, not assumed)
+
+Keep this list with the release candidate. A checked item means the named evidence exists for the exact candidate commit; a green build alone is not evidence that a provider or user journey works.
+
+### Gate A — build and container smoke test
+- [ ] CI passed on the exact release commit: database migrations, TypeScript lint, automated tests, production web build, Compose validation, API image build, and web image build.
+- [ ] On a clean host, `docker compose up --build -d` reaches healthy states for `db`, `api`, and `web`; the one-shot `migrate` service exits successfully.
+- [ ] `curl -fsS http://localhost:8080/api/health` succeeds through the web proxy.
+- [ ] Restart the stack and confirm test account/profile data remains; confirm the database is not listening on a public host port.
+- [ ] Confirm the deployment has no committed or baked-in `.env` values, and inspect the effective Compose configuration without publishing its secret output.
+
+### Gate B — account and privacy journeys
+- [ ] With email delivery enabled, register, receive and use a verification link, request another link, and verify expired/reused links are rejected.
+- [ ] Complete password reset; verify the reset token is one-time and all previous sessions become invalid.
+- [ ] Verify unauthenticated, unverified and cross-account requests cannot read private photos or another account's data.
+- [ ] Verify profile deletion, session revocation, data export/deletion behavior and the documented retention policy against a staging database.
+- [ ] Confirm block/report flows prevent unwanted discovery and messages and route reports to an authorized human moderator.
+
+### Gate C — safety, media and localization
+- [ ] Upload valid, corrupt, oversized and unsupported images; verify normalization removes metadata and private images are only served to authorized viewers.
+- [ ] Verify the default photo moderation state is pending when automated moderation is disabled or unavailable; uncertain results go to human review.
+- [ ] Exercise the complete signup, discovery, compatibility, chat, safety, error and email copy in each language claimed as supported.
+- [ ] Verify RTL layout for Arabic, Hebrew, Persian and Urdu, including dialogs, forms, navigation and swipe controls.
+- [ ] Test mobile viewport, keyboard-only operation, screen-reader labels, reduced motion and slow/offline network behavior.
+
+### Gate D — payments and operational recovery
+- [ ] Keep billing disabled until Stripe test-mode checkout, signed webhook verification, duplicate/replayed events, cancellation, failed payment and refund flows pass.
+- [ ] Confirm Premium entitlements are derived server-side and cannot be granted by changing client state.
+- [ ] Configure encrypted off-host backups for PostgreSQL and private photos; run and record a restore drill in an isolated staging environment.
+- [ ] Configure uptime/error alerts, log redaction, incident contacts, retention and access controls for operators/moderators.
+- [ ] Complete dependency/container/secret scans and an independent security review; resolve or explicitly risk-accept every high/critical finding.
+
+### Gate E — legal and launch decision
+- [ ] Publish reviewed terms, privacy notice, cookie/analytics disclosures where applicable, community rules, reporting/appeal process and account deletion instructions.
+- [ ] Confirm age restrictions, identity-verification approach, moderation staffing and jurisdiction-specific obligations with qualified counsel for each launch market.
+- [ ] Run a limited beta with documented consent, support contact, rollback plan and a tested process for pausing registration or payments.
+- [ ] Obtain a release decision from the responsible operator after reviewing the evidence above.
+
+## Local smoke-test commands
+
+Run from the repository root after starting the stack:
+
+```bash
+docker compose ps
+docker compose logs --tail=100 db migrate api web
+curl -fsS http://localhost:8080/api/health
+docker compose config --quiet
+```
+
+Do not paste the rendered output of `docker compose config` into public issues or chat: environment expansion can expose credentials. If a check fails, retain sanitized logs and the candidate commit SHA for diagnosis.
