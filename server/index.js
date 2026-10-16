@@ -1374,6 +1374,7 @@ app.delete('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, 
         [req.authUser.id, req.params.targetId]
       );
       if (matched.rowCount) return res.status(409).json({ error: 'cannot_undo_like_after_match' });
+      return res.status(404).json({ error: 'like_not_found' });
     }
     return res.status(204).end();
   } catch (error) {

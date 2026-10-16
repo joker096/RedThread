@@ -47,6 +47,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const [reportDetails, setReportDetails] = useState('');
   const [swipeMode, setSwipeMode] = useState(false);
   const touchStartX = useRef<number | null>(null);
+  const lastSearchKey = useRef<string | null>(null);
 
   const search = useCallback(async () => {
     setBusy(true);
@@ -62,8 +63,13 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
     if (intent !== 'all') params.set('intent', intent);
     if (familyFormat !== 'all') params.set('familyFormat', familyFormat);
     if (childrenFilter !== 'all') params.set('hasChildren', childrenFilter);
+    const searchKey = params.toString();
+    if (lastSearchKey.current !== searchKey) {
+      lastSearchKey.current = searchKey;
+      setActionHistory([]);
+    }
     try {
-      const response = await fetch(`/api/profiles/search?${params.toString()}`, { credentials: 'include' });
+      const response = await fetch(`/api/profiles/search?${searchKey}`, { credentials: 'include' });
       if (response.status === 401) {
         setAuthenticated(false);
         setProfiles([]);

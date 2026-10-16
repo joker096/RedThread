@@ -76,11 +76,21 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
   const touchStartX = useRef<number | null>(null);
 
   const currentProfile = profiles[currentIndex];
+  const profilePoolSignature = profiles.map(profile => profile.id).join('\u001f');
+  const previousPoolSignature = useRef(profilePoolSignature);
 
-  // Keep the discovery card in range when filters or the candidate pool change.
+  // A filter change can reorder or replace candidates. Clear navigation history
+  // for a changed ID sequence, not for ordinary profile-state updates.
   useEffect(() => {
-    // Reset only when the candidate pool is empty. Reaching the end must not
-    // silently loop back to profiles the user has already reviewed.
+    if (previousPoolSignature.current !== profilePoolSignature) {
+      previousPoolSignature.current = profilePoolSignature;
+      setHistory([]);
+      setCurrentIndex(0);
+      setPhotoIndex(0);
+      setActivePsychCardIndex(0);
+      setIsPlayingAudio(false);
+      return;
+    }
     if (profiles.length === 0) {
       setCurrentIndex(0);
       setHistory([]);
@@ -90,7 +100,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
     } else if (currentIndex > profiles.length) {
       setCurrentIndex(profiles.length);
     }
-  }, [profiles.length, currentIndex]);
+  }, [profilePoolSignature, profiles.length, currentIndex]);
 
   const handleNext = (action: 'like' | 'superLike' | 'pass' | 'ad') => {
     if (currentProfile) setHistory(previous => [...previous, {

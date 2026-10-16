@@ -334,6 +334,11 @@ test('auth API supports registration, session lookup, logout and login', {
       headers: { Cookie: secondCookie }
     });
     assert.equal(undoLike.status, 204);
+    const undoLikeAgain = await request(`/api/likes/${maleRegistered.user.id}`, {
+      method: 'DELETE',
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(undoLikeAgain.status, 404, 'undo must report when there is no like to remove');
     const afterUndoLikeSearch = await request('/api/profiles/search', { headers: { Cookie: secondCookie } });
     assert.equal((await afterUndoLikeSearch.json()).profiles.some(profile => profile.id === maleRegistered.user.id), true,
       'undoing a like makes the profile eligible for discovery again');
