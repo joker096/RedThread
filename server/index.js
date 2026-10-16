@@ -50,6 +50,20 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'too_many_auth_attempts' }
 });
+const profileActionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too_many_profile_actions' }
+});
+const reportLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too_many_reports' }
+});
 
 function requireDatabase(_req, res, next) {
   if (!pool) {
@@ -703,7 +717,7 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
   }
 });
 
-app.post('/api/passes/undo', validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
   let client;
   try {
     client = await pool.connect();
@@ -754,7 +768,7 @@ app.post('/api/passes/undo', validateRequestOrigin, requireSession, requirePaidF
   }
 });
 
-app.post('/api/passes/:targetId', validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
   const targetId = req.params.targetId;
   if (!isUuid(targetId) || targetId === req.authUser.id) return res.status(400).json({ error: 'invalid_pass_target' });
   try {
@@ -771,7 +785,7 @@ app.post('/api/passes/:targetId', validateRequestOrigin, requireSession, require
   }
 });
 
-app.post('/api/likes/:targetId', validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
   const targetId = req.params.targetId;
   if (!isUuid(targetId)) return res.status(400).json({ error: 'invalid_target_id' });
   if (targetId === req.authUser.id) return res.status(400).json({ error: 'cannot_like_self' });
@@ -837,7 +851,7 @@ app.post('/api/likes/:targetId', validateRequestOrigin, requireSession, requireP
   }
 });
 
-app.delete('/api/likes/:targetId', validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+app.delete('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
   if (!isUuid(req.params.targetId)) return res.status(400).json({ error: 'invalid_target_id' });
   try {
     await pool.query('DELETE FROM likes WHERE sender_id = $1 AND target_id = $2', [req.authUser.id, req.params.targetId]);
@@ -952,7 +966,7 @@ app.get('/api/blocks', requireSession, async (req, res) => {
   }
 });
 
-app.post('/api/blocks/:targetId', validateRequestOrigin, requireSession, async (req, res) => {
+app.post('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, async (req, res) => {
   const targetId = req.params.targetId;
   if (!isUuid(targetId) || targetId === req.authUser.id) return res.status(400).json({ error: 'invalid_block_target' });
   const client = await pool.connect().catch(() => null);
@@ -979,7 +993,7 @@ app.post('/api/blocks/:targetId', validateRequestOrigin, requireSession, async (
   }
 });
 
-app.delete('/api/blocks/:targetId', validateRequestOrigin, requireSession, async (req, res) => {
+app.delete('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, async (req, res) => {
   const targetId = req.params.targetId;
   if (!isUuid(targetId) || targetId === req.authUser.id) return res.status(400).json({ error: 'invalid_block_target' });
   try {
@@ -991,7 +1005,7 @@ app.delete('/api/blocks/:targetId', validateRequestOrigin, requireSession, async
   }
 });
 
-app.post('/api/reports', validateRequestOrigin, requireSession, async (req, res) => {
+app.post('/api/reports', reportLimiter, validateRequestOrigin, requireSession, async (req, res) => {
   const reportedUserId = req.body?.reportedUserId;
   const category = req.body?.category;
   const details = typeof req.body?.details === 'string' ? req.body.details.trim() : '';
