@@ -1350,7 +1350,7 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
       [req.params.matchId, req.authUser.id, body]
     );
     await persistScreening(req.authUser.id, 'message', screening);
-    await createNotification(recipientId, 'new_message', { matchId: req.params.matchId });
+    await createNotification(recipientId, 'new_message', { matchId: req.params.matchId }).catch(error => console.error('Message notification failed:', error?.message || 'unknown error'));
     return res.status(201).json({ message: result.rows[0], screening: { engine: screening.engine, externalProcessing: false, flaggedForReview: screening.requiresReview } });
   } catch (error) {
     console.error('Message send failed:', error?.message || 'unknown error');

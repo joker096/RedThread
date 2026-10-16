@@ -96,6 +96,36 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(trial.trialActive, true);
     assert.equal(trial.paymentConfigured, false);
 
+    const notificationList = await request('/api/notifications', { headers: { Cookie: firstCookie } });
+    assert.equal(notificationList.status, 200);
+    assert.deepEqual((await notificationList.json()).notifications, []);
+    const markNotificationsRead = await request('/api/notifications/read-all', {
+      method: 'POST',
+      headers: { Cookie: firstCookie }
+    });
+    assert.equal(markNotificationsRead.status, 204);
+
+    const tinyPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/n1sAAAAASUVORK5CYII=', 'base64');
+    const photoUpload = await request('/api/photos', {
+      method: 'POST',
+      headers: { Cookie: firstCookie, 'Content-Type': 'image/png' },
+      body: tinyPng
+    });
+    assert.equal(photoUpload.status, 201);
+    const uploadedPhoto = await photoUpload.json();
+    assert.match(uploadedPhoto.photoUrl, /^\/api\/photos\/[a-f0-9-]{36}$/i);
+    const photoRead = await request(uploadedPhoto.photoUrl, { headers: { Cookie: firstCookie } });
+    assert.equal(photoRead.status, 200);
+    assert.equal(photoRead.headers.get('content-type'), 'image/png');
+    const removePhoto = await request('/api/profiles/me', {
+      method: 'PATCH',
+      headers: { Cookie: firstCookie },
+      body: JSON.stringify({ photoUrls: [] })
+    });
+    assert.equal(removePhoto.status, 200);
+    const removedPhotoRead = await request(uploadedPhoto.photoUrl, { headers: { Cookie: firstCookie } });
+    assert.equal(removedPhotoRead.status, 404);
+
     const missingChildrenDisclosure = await request('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify({
