@@ -86,6 +86,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   useEffect(() => { void search(); }, [search]);
 
   const like = async (profile: ServerProfile) => {
+    if (busy) return;
     try {
       const response = await fetch(`/api/likes/${encodeURIComponent(profile.id)}`, {
         method: 'POST',
@@ -225,7 +226,9 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                   const start = touchStartX.current;
                   touchStartX.current = null;
                   if (start === null) return;
-                  const delta = event.changedTouches[0].clientX - start;
+                  const endX = event.changedTouches[0]?.clientX;
+                  if (endX === undefined) return;
+                  const delta = endX - start;
                   if (delta < -80) void like(profile);
                   else if (delta > 80) void pass(profile);
                 }}
