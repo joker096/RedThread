@@ -6,6 +6,7 @@ import { sanitizeProfileImage } from './photoSecurity.js';
 import express from 'express';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import rateLimit from 'express-rate-limit';
+import { PostgresRateLimitStore } from './postgresRateLimitStore.js';
 import pg from 'pg';
 import { isValidAssessment, financialAlignment, ASSESSMENT_VERSION } from './relationshipAssessment.js';
 import {
@@ -56,6 +57,7 @@ app.use(express.json({ limit: '32kb', strict: true }));
 const photoStorageDir = path.resolve(process.env.PHOTO_STORAGE_DIR || 'uploads/private-photos');
 
 const authLimiter = rateLimit({
+  ...(pool ? { store: new PostgresRateLimitStore(pool, 'auth') } : {}),
   windowMs: 15 * 60 * 1000,
   limit: 10,
   standardHeaders: true,
@@ -63,6 +65,7 @@ const authLimiter = rateLimit({
   message: { error: 'too_many_auth_attempts' }
 });
 const profileActionLimiter = rateLimit({
+  ...(pool ? { store: new PostgresRateLimitStore(pool, 'profile') } : {}),
   windowMs: 15 * 60 * 1000,
   limit: 60,
   standardHeaders: true,
@@ -70,6 +73,7 @@ const profileActionLimiter = rateLimit({
   message: { error: 'too_many_profile_actions' }
 });
 const reportLimiter = rateLimit({
+  ...(pool ? { store: new PostgresRateLimitStore(pool, 'report') } : {}),
   windowMs: 60 * 60 * 1000,
   limit: 5,
   standardHeaders: true,
@@ -604,6 +608,7 @@ app.post('/api/auth/logout', validateRequestOrigin, requireDatabase, async (req,
 });
 
 app.delete('/api/account', validateRequestOrigin, requireSession, async (req, res) => {
+  let privatePhotoPaths = [];
   const password = req.body?.password;
   if (typeof password !== 'string' || password.length < 1 || password.length > 128) {
     return res.status(400).json({ error: 'password_confirmation_required' });
@@ -618,6 +623,9 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
 
     client = await pool.connect();
     await client.query('BEGIN');
+    const photoFiles = await client.query('SELECT storage_path FROM photo_assets WHERE user_id = $1', [req.authUser.id]);
+    privatePhotoPaths = photoFiles.rows.map(row => row.storage_path);
+    await client.query('DELETE FROM photo_assets WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM sessions WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM likes WHERE sender_id = $1 OR target_id = $1', [req.authUser.id]);
@@ -648,6 +656,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
       [req.authUser.id]
     );
     await client.query('COMMIT');
+    await Promise.all(privatePhotoPaths.map(filePath => unlink(filePath).catch(() => {})));
     clearSessionCookie(res);
     return res.status(204).end();
   } catch (error) {
@@ -1341,20 +1350,45 @@ app.get('/api/admin/screenings', requireSession, async (req, res) => {
   }
 });
 
+app.get('/api/admin/audit-log', requireSession, async (req, res) => {
+  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
+  const limit = Number.parseInt(String(req.query.limit ?? '50'), 10);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) return res.status(400).json({ error: 'invalid_pagination' });
+  try {
+    const result = await pool.query(
+      'SELECT id, moderator_id AS "moderatorId", action, target_type AS "targetType", target_id AS "targetId", reason, details, created_at AS "createdAt" FROM moderation_audit_log ORDER BY created_at DESC LIMIT $1',
+      [limit]
+    );
+    return res.json({ entries: result.rows });
+  } catch (error) {
+    console.error('Audit log read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'audit_log_read_failed' });
+  }
+});
+
 app.post('/api/admin/screenings/:screeningId/resolve', validateRequestOrigin, requireSession, async (req, res) => {
   if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   if (!isUuid(req.params.screeningId)) return res.status(400).json({ error: 'invalid_screening_id' });
+  let client;
   try {
-    const result = await pool.query(
-      "UPDATE user_safety_screenings SET review_status = 'cleared', reviewed_at = NOW(), reviewed_by = $2 WHERE id = $1 AND review_status = 'pending' RETURNING id, review_status AS \"reviewStatus\"",
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const result = await client.query(
+      "UPDATE user_safety_screenings SET review_status = 'cleared', reviewed_at = NOW(), reviewed_by = $2 WHERE id = $1 AND review_status = 'pending' RETURNING id, user_id AS \"userId\", review_status AS \"reviewStatus\"",
       [req.params.screeningId, req.authUser.id]
     );
-    if (!result.rows[0]) return res.status(404).json({ error: 'pending_screening_not_found' });
+    if (!result.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'pending_screening_not_found' }); }
+    await client.query(
+      "INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, details) VALUES ($1, 'screening_cleared', 'safety_screening', $2, $3::jsonb)",
+      [req.authUser.id, req.params.screeningId, JSON.stringify({ userId: result.rows[0].userId })]
+    );
+    await client.query('COMMIT');
     return res.json({ screening: result.rows[0] });
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Screening resolve failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'screening_resolve_failed' });
-  }
+  } finally { client?.release(); }
 });
 
 app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSession, async (req, res) => {
@@ -1397,6 +1431,11 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
     }
     const status = action === 'dismiss' ? 'dismissed' : 'resolved';
     await client.query('UPDATE user_reports SET status = $2 WHERE id = $1', [reportId, status]);
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 500) : '';
+    await client.query(
+      'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, reason, details) VALUES ($1, $2, $3, $4, $5, $6::jsonb)',
+      [req.authUser.id, action, 'user_report', reportId, reason || null, JSON.stringify({ category: report.category, targetUserId: report.reported_user_id, newStatus: status })]
+    );
     await client.query('COMMIT');
     return res.json({ ok: true, action, accountSuspended: action === 'suspend_user' });
   } catch (error) {
