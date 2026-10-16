@@ -499,10 +499,7 @@ app.get('/api/profiles/me', requireSession, async (req, res) => {
         relationship_intent AS "relationshipIntent", is_visible AS "isVisible",
          family_format AS "familyFormat", has_children AS "hasChildren",
          children_disclosure_confirmed_at AS "childrenDisclosureConfirmedAt",
-         wants_children AS "wantsChildren", children_living_arrangement AS "childrenLivingArrangement",
-        family_format AS "familyFormat", has_children AS "hasChildren",
-        children_disclosure_confirmed_at AS "childrenDisclosureConfirmedAt",
-        wants_children AS "wantsChildren", children_living_arrangement AS "childrenLivingArrangement"
+         wants_children AS "wantsChildren", children_living_arrangement AS "childrenLivingArrangement"
        FROM profiles WHERE user_id = $1`,
       [req.authUser.id]
     );
@@ -603,7 +600,10 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
        WHERE user_id = $1
        RETURNING user_id AS id, display_name AS "displayName", gender, country, city, bio,
          photo_urls AS "photoUrls", occupation, education, languages,
-         relationship_intent AS "relationshipIntent", is_visible AS "isVisible"`,
+         relationship_intent AS "relationshipIntent", is_visible AS "isVisible",
+         family_format AS "familyFormat", has_children AS "hasChildren",
+         children_disclosure_confirmed_at AS "childrenDisclosureConfirmedAt",
+         wants_children AS "wantsChildren", children_living_arrangement AS "childrenLivingArrangement"`,
       values
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'profile_not_found' });
