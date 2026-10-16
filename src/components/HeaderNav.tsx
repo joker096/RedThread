@@ -55,14 +55,14 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
         {/* NIT brand */}
         <div 
           className="flex items-center gap-1.5 select-none group shrink-0"
-          title="НИТЬ — serious relationships"
+          title="Vow — serious relationships"
         >
           <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-tr from-rose-600 via-red-600 to-amber-500 flex items-center justify-center text-white shadow-md shadow-rose-950/60 group-hover:scale-105 transition-transform">
             <Flame className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-white" />
           </div>
           <div className="flex items-baseline gap-1">
             <span className="font-heading font-black tracking-tight text-sm sm:text-base text-white">
-              {brandName}<span className="text-rose-500">.</span>
+              Vow<span className="text-rose-500">.</span>
             </span>
           </div>
         </div>
