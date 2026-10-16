@@ -413,6 +413,39 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(femaleMatches.status, 200);
     assert.equal((await femaleMatches.json()).matches.some(match => match.id === matchPayload.match.id), true);
 
+    const outsiderRegistration = await request('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: `outsider-${randomUUID()}@example.test`,
+        password,
+        displayName: 'Посторонний пользователь',
+        birthDate: '1992-03-15',
+        gender: 'female',
+        country: 'Грузия',
+        city: 'Батуми',
+        relationshipIntent: 'serious_relationship',
+        familyFormat: 'open_to_both',
+        hasChildren: false,
+        wantsChildren: 'discuss',
+        childrenLivingArrangement: 'not_applicable'
+      })
+    });
+    assert.equal(outsiderRegistration.status, 201);
+    const outsiderCookie = outsiderRegistration.headers.get('set-cookie')?.split(';')[0];
+    assert.ok(outsiderCookie?.startsWith('nit_session='));
+
+    const outsiderReadMessages = await request(`/api/matches/${matchPayload.match.id}/messages`, {
+      headers: { Cookie: outsiderCookie }
+    });
+    assert.equal(outsiderReadMessages.status, 404, 'a non-participant must not read another pair\'s conversation');
+
+    const outsiderSendMessage = await request(`/api/matches/${matchPayload.match.id}/messages`, {
+      method: 'POST',
+      headers: { Cookie: outsiderCookie },
+      body: JSON.stringify({ text: 'Попытка написать в чужой чат' })
+    });
+    assert.equal(outsiderSendMessage.status, 404, 'a non-participant must not send messages to another pair\'s conversation');
+
     const sendMessage = await request(`/api/matches/${matchPayload.match.id}/messages`, {
       method: 'POST',
       headers: { Cookie: maleCookie },
