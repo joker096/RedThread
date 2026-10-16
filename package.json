@@ -9,7 +9,10 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx --test src/utils/compatibility.test.ts"
+    "test": "tsx --test src/utils/compatibility.test.ts",
+    "dev:api": "node --watch server/index.js",
+    "start:api": "node server/index.js",
+    "db:migrate": "node scripts/migrate.js"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -21,7 +24,8 @@
     "vite": "^8.3.0",
     "express": "^4.21.2",
     "dotenv": "^17.2.3",
-    "motion": "^12.23.24"
+    "motion": "^12.23.24",
+    "pg": "^8.16.3"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
