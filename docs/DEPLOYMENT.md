@@ -16,14 +16,14 @@ Requirements: Docker Engine and the Docker Compose plugin.
    APP_ORIGIN=http://localhost:8080
    APP_URL=http://localhost:8080
    WEB_BIND=127.0.0.1:8080
-   EMAIL_VERIFICATION_REQUIRED=true
+   EMAIL_VERIFICATION_REQUIRED=false # local preview only if email provider is not configured
    ```
 2. Generate a URL-safe database password (for example, `openssl rand -hex 32`). Do not commit `.env` or paste secrets into issues/chat.
 3. Start the stack: `docker compose up --build -d`.
 4. Open `http://localhost:8080`. Check `docker compose ps`, `docker compose logs --tail=100 api`, and `curl -fsS http://localhost:8080/api/health`.
 5. Stop it with `docker compose down`. Persistent database and private-photo volumes remain. To destroy local data explicitly, `docker compose down -v` (destructive).
 
-The first start builds the API and web image, waits for PostgreSQL health, applies migrations once through the one-shot `migrate` service, and then starts the API and web proxy. The database is not published to the host. The default web binding is loopback-only.
+The first start builds the API and web image, waits for PostgreSQL health, applies migrations once through the one-shot `migrate` service, and then starts the API and web proxy. For local-only testing without a configured Resend sender, you may set `EMAIL_VERIFICATION_REQUIRED=false`; never disable verification on a public deployment. The database is not published to the host. The default web binding is loopback-only.
 
 ## Public hosting requirements
 

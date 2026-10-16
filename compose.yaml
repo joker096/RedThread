@@ -41,7 +41,7 @@ services:
       PGSSL: ${PGSSL:-false}
       APP_ORIGIN: ${APP_ORIGIN:?Set APP_ORIGIN in .env}
       APP_URL: ${APP_URL:?Set APP_URL in .env}
-      EMAIL_VERIFICATION_REQUIRED: "true"
+      EMAIL_VERIFICATION_REQUIRED: ${EMAIL_VERIFICATION_REQUIRED:-true}
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-resend}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-Vow <noreply@example.com>}
