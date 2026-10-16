@@ -731,6 +731,11 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
          AND u.status = 'active' AND p.is_visible = TRUE
          AND p.children_disclosure_confirmed_at IS NOT NULL AND p.has_children IS NOT NULL
          AND p.gender <> $2
+         AND NOT EXISTS (
+           SELECT 1 FROM user_blocks b
+           WHERE (b.blocker_id = $1 AND b.blocked_id = p.user_id)
+              OR (b.blocker_id = p.user_id AND b.blocked_id = $1)
+         )
        ORDER BY pp.created_at DESC
        LIMIT 1
        FOR UPDATE OF pp`,
