@@ -1,7 +1,8 @@
 import React from 'react';
 import { 
   X, 
-  SlidersHorizontal, 
+  SlidersHorizontal,
+  MapPin, 
   ShieldCheck, 
   Heart, 
   Sparkles,
@@ -31,6 +32,8 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
   setMinCompatibility,
   onlyVerified,
   setOnlyVerified,
+  selectedCountry,
+  setSelectedCountry,
   selectedCity,
   setSelectedCity,
   intentFilter,
@@ -85,19 +88,31 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
             </div>
           </div>
 
-          {/* City Selection */}
-          <div>
-            <label className="block text-stone-300 font-medium mb-1.5">Город поиска:</label>
-            <select
-              value={selectedCity}
-              onChange={e => setSelectedCity(e.target.value)}
-              className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs"
-            >
-              <option value="all">Все города РФ</option>
-              <option value="Москва">Москва</option>
-              <option value="Санкт-Петербург">Санкт-Петербург</option>
-              <option value="Казань">Казань</option>
-            </select>
+          {/* Country and city location search */}
+          <div className="space-y-3 rounded-2xl border border-white/5 bg-stone-950/50 p-3">
+            <div className="flex items-center gap-2 text-white font-semibold">
+              <MapPin className="w-4 h-4 text-rose-400" />
+              <span>Локация поиска</span>
+            </div>
+            <div>
+              <label className="block text-stone-300 font-medium mb-1.5" htmlFor="discovery-country">Страна</label>
+              <select id="discovery-country" value={selectedCountry} onChange={e => setSelectedCountry(e.target.value)} className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs">
+                <option value="all">Все страны</option>
+                <option value="Россия">Россия</option>
+                <option value="Грузия">Грузия</option>
+                <option value="Казахстан">Казахстан</option>
+                <option value="Армения">Армения</option>
+                <option value="Другая страна">Другая страна</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-stone-300 font-medium mb-1.5" htmlFor="discovery-city">Город</label>
+              <input id="discovery-city" type="text" value={selectedCity === 'all' ? '' : selectedCity} onChange={e => setSelectedCity(e.target.value.trimStart() || 'all')} placeholder="Например, Тбилиси, Москва, Алматы" autoComplete="address-level2" className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs placeholder:text-stone-600" />
+              <p className="text-[10px] text-stone-500 mt-1">Можно указать любой город, не только из готового списка.</p>
+            </div>
+            {(selectedCountry !== 'all' || selectedCity !== 'all') && (
+              <button type="button" onClick={() => { setSelectedCountry('all'); setSelectedCity('all'); }} className="text-[11px] text-rose-300 hover:text-rose-200 underline underline-offset-2">Сбросить локацию</button>
+            )}
           </div>
 
           {/* Relationship Goal */}
