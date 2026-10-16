@@ -1428,13 +1428,13 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
        WHERE p.user_id = $1 AND u.status = 'active' AND p.is_visible = TRUE
          AND p.birth_date IS NOT NULL
          AND p.children_disclosure_confirmed_at IS NOT NULL AND p.has_children IS NOT NULL
-         AND p.gender <> $2
+         AND p.gender <> $3
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = $2 AND b.blocked_id = p.user_id)
               OR (b.blocker_id = p.user_id AND b.blocked_id = $2)
          )`,
-      [action.id, req.authUser.id]
+      [action.id, req.authUser.id, req.authUser.gender]
     );
     if (!profileResult.rows[0]) {
       await client.query('ROLLBACK');
