@@ -40,6 +40,7 @@ export interface UserProfile {
   name: string;
   age: number;
   city: string;
+  country?: string;
   gender: Gender;
   occupation: string;
   height: number;
