@@ -155,38 +155,91 @@ img {
   --vow-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --vow-ease-spring: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
+
 @keyframes vow-card-enter {
   from { opacity: 0; transform: translateY(12px) scale(0.985); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
+
 @keyframes vow-message-enter {
   from { opacity: 0; transform: translateY(6px) scale(0.99); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
+
 @keyframes vow-match-pulse {
   0% { transform: scale(0.92); opacity: 0.65; }
   65% { transform: scale(1.035); opacity: 1; }
   100% { transform: scale(1); opacity: 1; }
 }
+
 .vow-profile-card {
   animation: vow-card-enter var(--vow-motion-emphasis) var(--vow-ease-out) both;
-  transition: border-color var(--vow-motion-standard) ease, box-shadow var(--vow-motion-standard) ease, background-color var(--vow-motion-standard) ease, transform var(--vow-motion-standard) var(--vow-ease-out);
+  transition:
+    border-color var(--vow-motion-standard) ease,
+    box-shadow var(--vow-motion-standard) ease,
+    background-color var(--vow-motion-standard) ease,
+    transform var(--vow-motion-standard) var(--vow-ease-out);
   transform-origin: 50% 80%;
 }
+
 @media (hover: hover) and (pointer: fine) {
-  .vow-profile-card:hover { border-color: rgb(244 63 94 / 35%); box-shadow: 0 12px 34px -24px rgb(244 63 94 / 55%); transform: translateY(-2px); }
+  .vow-profile-card:hover {
+    border-color: rgb(244 63 94 / 35%);
+    box-shadow: 0 12px 34px -24px rgb(244 63 94 / 55%);
+    transform: translateY(-2px);
+  }
 }
+
 .vow-motion-button {
-  transition: transform var(--vow-motion-fast) var(--vow-ease-spring), background-color var(--vow-motion-fast) ease, border-color var(--vow-motion-fast) ease, box-shadow var(--vow-motion-fast) ease, color var(--vow-motion-fast) ease;
+  transition:
+    transform var(--vow-motion-fast) var(--vow-ease-spring),
+    background-color var(--vow-motion-fast) ease,
+    border-color var(--vow-motion-fast) ease,
+    box-shadow var(--vow-motion-fast) ease,
+    color var(--vow-motion-fast) ease;
 }
-.vow-motion-button:active:not(:disabled) { transform: scale(0.97); }
-.vow-motion-button:disabled { cursor: not-allowed; }
-.vow-like-button:hover:not(:disabled) { background-color: rgb(190 24 93 / 18%); border-color: rgb(244 63 94 / 65%); box-shadow: 0 0 20px -12px rgb(251 113 133 / 90%); }
-.vow-pass-button:hover:not(:disabled) { background-color: rgb(255 255 255 / 5%); border-color: rgb(255 255 255 / 25%); }
-.vow-message-enter { animation: vow-message-enter var(--vow-motion-standard) var(--vow-ease-out) both; }
-.vow-match-celebration { animation: vow-match-pulse 520ms var(--vow-ease-spring) both; }
+
+.vow-motion-button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.vow-motion-button:disabled {
+  cursor: not-allowed;
+}
+
+.vow-like-button:hover:not(:disabled) {
+  background-color: rgb(190 24 93 / 18%);
+  border-color: rgb(244 63 94 / 65%);
+  box-shadow: 0 0 20px -12px rgb(251 113 133 / 90%);
+}
+
+.vow-pass-button:hover:not(:disabled) {
+  background-color: rgb(255 255 255 / 5%);
+  border-color: rgb(255 255 255 / 25%);
+}
+
+.vow-message-enter {
+  animation: vow-message-enter var(--vow-motion-standard) var(--vow-ease-out) both;
+}
+
+.vow-match-celebration {
+  animation: vow-match-pulse 520ms var(--vow-ease-spring) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .vow-profile-card, .vow-message-enter, .vow-match-celebration { animation: none !important; }
-  .vow-profile-card, .vow-motion-button { transition: none !important; }
-  .vow-profile-card:hover, .vow-motion-button:active:not(:disabled) { transform: none !important; }
+  .vow-profile-card,
+  .vow-message-enter,
+  .vow-match-celebration {
+    animation: none !important;
+  }
+
+  .vow-profile-card,
+  .vow-motion-button {
+    transition: none !important;
+  }
+
+  .vow-profile-card:hover,
+  .vow-motion-button:active:not(:disabled) {
+    transform: none !important;
+  }
 }
