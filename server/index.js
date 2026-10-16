@@ -836,7 +836,7 @@ app.post('/api/reports', validateRequestOrigin, requireSession, async (req, res)
   const reportedUserId = req.body?.reportedUserId;
   const category = req.body?.category;
   const details = typeof req.body?.details === 'string' ? req.body.details.trim() : '';
-  const validCategories = ['spam', 'fake_profile', 'harassment', 'safety', 'other'];
+  const validCategories = ['spam', 'fake_profile', 'harassment', 'safety', 'children_misrepresentation', 'duplicate_profile', 'other'];
   if (!isUuid(reportedUserId) || reportedUserId === req.authUser.id) {
     return res.status(400).json({ error: 'invalid_report_target' });
   }
@@ -856,6 +856,57 @@ app.post('/api/reports', validateRequestOrigin, requireSession, async (req, res)
   } catch (error) {
     console.error('Report submission failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'report_submission_failed' });
+  }
+});
+
+app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSession, async (req, res) => {
+  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
+  const reportId = req.params.reportId;
+  const action = req.body?.action;
+  const confirmed = req.body?.confirmed === true;
+  if (!isUuid(reportId) || !['resolve', 'dismiss', 'suspend_user'].includes(action)) {
+    return res.status(400).json({ error: 'invalid_moderation_action' });
+  }
+  if (action === 'suspend_user' && !confirmed) {
+    return res.status(400).json({ error: 'explicit_moderator_confirmation_required' });
+  }
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const reportResult = await client.query(
+      'SELECT id, reported_user_id, category, status FROM user_reports WHERE id = $1 FOR UPDATE',
+      [reportId]
+    );
+    const report = reportResult.rows[0];
+    if (!report || report.status === 'resolved' || report.status === 'dismissed') {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'open_report_not_found' });
+    }
+    if (action === 'suspend_user') {
+      if (!['children_misrepresentation', 'duplicate_profile', 'fake_profile', 'safety'].includes(report.category)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'category_not_eligible_for_suspension' });
+      }
+      await client.query("UPDATE users SET status = 'suspended', updated_at = NOW() WHERE id = $1", [report.reported_user_id]);
+      await client.query('UPDATE profiles SET is_visible = FALSE, updated_at = NOW() WHERE user_id = $1', [report.reported_user_id]);
+      await client.query(
+        "UPDATE matches SET status = 'blocked' WHERE status = 'active' AND (user_a_id = $1 OR user_b_id = $1)",
+        [report.reported_user_id]
+      );
+      await client.query('DELETE FROM sessions WHERE user_id = $1', [report.reported_user_id]);
+    }
+    const status = action === 'dismiss' ? 'dismissed' : 'resolved';
+    await client.query('UPDATE user_reports SET status = $2 WHERE id = $1', [reportId, status]);
+    await client.query('COMMIT');
+    return res.json({ ok: true, action, accountSuspended: action === 'suspend_user' });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Moderation action failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'moderation_action_failed' });
+  } finally {
+    client?.release();
   }
 });
 
