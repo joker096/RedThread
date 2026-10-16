@@ -833,12 +833,14 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
     );
     if (access.rowCount === 0) return res.status(404).json({ error: 'match_not_found' });
 
+    const screening = screenText(body, 'message');
     const result = await pool.query(
       `INSERT INTO messages (match_id, sender_id, body) VALUES ($1, $2, $3)
        RETURNING id, sender_id AS "senderId", body AS text, created_at AS "createdAt"`,
       [req.params.matchId, req.authUser.id, body]
     );
-    return res.status(201).json({ message: result.rows[0] });
+    await persistScreening(req.authUser.id, 'message', screening, body);
+    return res.status(201).json({ message: result.rows[0], screening: { engine: screening.engine, externalProcessing: false, flaggedForReview: screening.requiresReview } });
   } catch (error) {
     console.error('Message send failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'message_send_failed' });
