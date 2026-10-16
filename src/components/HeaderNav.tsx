@@ -48,7 +48,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   setActiveTab,
   unreadChatsCount
 }) => {
-  const { t, locale, requestedLocale, setLocale } = useLocale();
+  const { t, requestedLocale, setLocale } = useLocale();
   return (
     <header className="sticky top-0 z-40 w-full bg-stone-950/80 backdrop-blur-2xl border-b border-white/5 px-2.5 sm:px-4 py-2">
       <div className="max-w-xl sm:max-w-4xl mx-auto flex items-center justify-between gap-1.5 sm:gap-3">
