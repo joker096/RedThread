@@ -135,6 +135,32 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
     }
   };
 
+  const undoPass = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const response = await fetch('/api/passes/undo', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({})
+      });
+      const data = await response.json().catch(() => null);
+      if (response.status === 401) {
+        setAuthenticated(false);
+        setNotice('Войдите в аккаунт, чтобы вернуть пропущенную анкету.');
+        return;
+      }
+      if (response.status === 402) throw new Error(data?.message || 'Для подбора потребуется Premium.');
+      if (response.status === 404) throw new Error('Нет пропущенных анкет, которые можно вернуть.');
+      if (!response.ok || !data?.profile) throw new Error('Не удалось вернуть анкету.');
+      setProfiles(current => [data.profile as ServerProfile, ...current.filter(item => item.id !== data.profile.id)]);
+      setNotice('Последний пропуск отменён. Анкета снова доступна в вашей ленте.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Не удалось отменить пропуск.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const submitReport = async (profile: ServerProfile) => {
     setBusy(true);
     try {
@@ -213,6 +239,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
           </div>
           <button type="button" onClick={() => void search()} disabled={busy} className="mb-2 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? 'Ищем…' : 'Найти анкеты'}</button>
           <button type="button" onClick={() => setSwipeMode(value => !value)} className="mb-3 w-full rounded-xl border border-emerald-500/30 px-4 py-2.5 text-xs font-semibold text-emerald-200">{swipeMode ? 'Переключиться на список анкет' : 'Режим свайпов — по одной анкете'}</button>
+          <button type="button" onClick={() => void undoPass()} disabled={busy} className="mb-3 w-full rounded-xl border border-amber-500/30 px-4 py-2.5 text-xs font-semibold text-amber-200 disabled:opacity-50">↶ Отменить последний пропуск</button>
           {swipeMode && <p className="mb-3 text-[11px] text-stone-400">На телефоне проведите вправо, чтобы пропустить, или влево, чтобы отправить симпатию. Можно также использовать кнопки.</p>}
           {notice && <p role="status" className="mb-3 text-xs text-stone-300">{notice}</p>}
           <div className={swipeMode ? 'mx-auto max-w-lg space-y-3' : 'space-y-3'}>
