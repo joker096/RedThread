@@ -89,7 +89,8 @@ async function sendConfiguredEmail({ to, subject, html }) {
       Authorization: 'Bearer ' + process.env.RESEND_API_KEY,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ from: process.env.EMAIL_FROM, to: [to], subject, html })
+    body: JSON.stringify({ from: process.env.EMAIL_FROM, to: [to], subject, html }),
+    signal: AbortSignal.timeout(10_000)
   });
   if (!response.ok) {
     const status = response.status;
