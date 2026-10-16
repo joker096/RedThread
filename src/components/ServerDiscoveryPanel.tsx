@@ -48,8 +48,10 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const [swipeMode, setSwipeMode] = useState(false);
   const touchStartX = useRef<number | null>(null);
   const lastSearchKey = useRef<string | null>(null);
+  const searchRequestId = useRef(0);
 
   const search = useCallback(async () => {
+    const requestId = ++searchRequestId.current;
     setBusy(true);
     setNotice('');
     const params = new URLSearchParams({
@@ -70,6 +72,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
     }
     try {
       const response = await fetch(`/api/profiles/search?${searchKey}`, { credentials: 'include' });
+      if (requestId !== searchRequestId.current) return;
       if (response.status === 401) {
         setAuthenticated(false);
         setProfiles([]);
@@ -84,13 +87,16 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       }
       if (!response.ok) throw new Error('Не удалось выполнить поиск. Проверьте, что сервер настроен и миграции применены.');
       const data = await response.json();
+      if (requestId !== searchRequestId.current) return;
       setProfiles(data.profiles || []);
       setAuthenticated(true);
       setNotice(data.profiles?.length ? `${t('registeredProfiles')}: ${formatNumber(data.profiles.length)}` : 'Подходящих анкет пока нет. Попробуйте изменить фильтры.');
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Не удалось подключиться к серверу.');
+      if (requestId === searchRequestId.current) {
+        setNotice(error instanceof Error ? error.message : 'Не удалось подключиться к серверу.');
+      }
     } finally {
-      setBusy(false);
+      if (requestId === searchRequestId.current) setBusy(false);
     }
   }, [minAge, maxAge, minFinancialAlignment, country, city, intent, familyFormat, childrenFilter]);
 
