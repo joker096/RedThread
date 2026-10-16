@@ -444,8 +444,9 @@ app.post('/api/likes/:targetId', validateRequestOrigin, requireSession, async (r
   if (!isUuid(targetId)) return res.status(400).json({ error: 'invalid_target_id' });
   if (targetId === req.authUser.id) return res.status(400).json({ error: 'cannot_like_self' });
 
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
     const targetResult = await client.query(
       `SELECT p.user_id, p.gender
@@ -491,11 +492,11 @@ app.post('/api/likes/:targetId', validateRequestOrigin, requireSession, async (r
       match: match?.status === 'active' ? match : null
     });
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Like action failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'like_action_failed' });
   } finally {
-    client.release();
+    client?.release();
   }
 });
 
