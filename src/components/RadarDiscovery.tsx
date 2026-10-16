@@ -33,6 +33,7 @@ interface RadarDiscoveryProps {
   onInspectBotSafety: (profile: UserProfile) => void;
   onOpenLadyPremium: () => void;
   onOpenAdManager: () => void;
+  onOpenFilters: () => void;
   onAdClicked: () => void;
 }
 
@@ -49,6 +50,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
   onInspectBotSafety,
   onOpenLadyPremium,
   onOpenAdManager,
+  onOpenFilters,
   onAdClicked
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -110,15 +112,15 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
         <div className="w-16 h-16 rounded-full bg-rose-950/60 flex items-center justify-center text-rose-400 mb-4 border border-rose-800/40">
           <Heart className="w-8 h-8" />
         </div>
-        <h3 className="font-heading text-lg font-bold text-white mb-2">Все анкеты просмотрены</h3>
+        <h3 className="font-heading text-lg font-bold text-white mb-2">Подходящих анкет пока нет</h3>
         <p className="text-xs text-stone-400 max-w-sm mb-6 leading-relaxed">
-          Мы подобрали только тех, кто подходит вам по психологическому профилю и ценностям.
+          Попробуйте изменить страну, город или другие фильтры. В деморежиме доступны только демонстрационные анкеты.
         </p>
         <button
-          onClick={() => setCurrentIndex(0)}
+          onClick={onOpenFilters}
           className="px-6 py-2.5 rounded-full bg-rose-600 hover:bg-rose-500 font-bold text-white shadow-lg shadow-rose-950 text-xs"
         >
-          Начать сначала
+          Изменить фильтры
         </button>
       </div>
     );
