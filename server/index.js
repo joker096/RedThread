@@ -1226,8 +1226,15 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
               p.children_living_arrangement AS "childrenLivingArrangement",
               NULL::int AS "financialAlignment"
        FROM profiles p JOIN users u ON u.id = p.user_id
-       WHERE p.user_id = $1 AND u.status = 'active' AND p.is_visible = TRUE`,
-      [passedId]
+       WHERE p.user_id = $1 AND u.status = 'active' AND p.is_visible = TRUE
+         AND p.birth_date IS NOT NULL
+         AND p.children_disclosure_confirmed_at IS NOT NULL AND p.has_children IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM user_blocks b
+           WHERE (b.blocker_id = $2 AND b.blocked_id = p.user_id)
+              OR (b.blocker_id = p.user_id AND b.blocked_id = $2)
+         )`,
+      [passedId, req.authUser.id]
     );
     await client.query('COMMIT');
     if (!profileResult.rows[0]) return res.status(404).json({ error: 'profile_not_available' });
