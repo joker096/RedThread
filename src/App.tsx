@@ -986,8 +986,6 @@ export default function App() {
       <LadyPremiumModal
         isOpen={isLadyPremiumOpen}
         onClose={() => setIsLadyPremiumOpen(false)}
-        isLadyPremium={isLadyPremium}
-        onToggleLadyPremium={() => setIsLadyPremium(!isLadyPremium)}
       />
 
       {/* 3. Bot & Safety Scanner */}
