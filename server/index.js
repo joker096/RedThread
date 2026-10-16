@@ -233,7 +233,7 @@ async function createSession(client, userId) {
 }
 
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', service: 'nit-api' });
+  res.json({ status: 'ok', service: 'vow-api' });
 });
 
 app.get('/api/ready', async (_req, res) => {
@@ -317,8 +317,8 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
         const link = accountActionUrl('verifyEmail', verificationToken);
         await sendConfiguredEmail({
           to: user.email,
-          subject: 'Verify your NIT account',
-          html: '<p>Welcome to NIT.</p><p>Confirm your email address to activate your account:</p><p><a href="' + link + '">Verify email</a></p><p>This link expires in 60 minutes. If you did not create this account, you can ignore this message.</p>'
+          subject: 'Verify your Vow account',
+          html: '<p>Welcome to Vow.</p><p>Confirm your email address to activate your account:</p><p><a href="' + link + '">Verify email</a></p><p>This link expires in 60 minutes. If you did not create this account, you can ignore this message.</p>'
         });
       } catch (mailError) {
         console.error('Verification email delivery failed:', mailError?.message || 'unknown error');
@@ -414,7 +414,7 @@ app.post('/api/auth/email-verification/resend', authLimiter, validateRequestOrig
       } finally { client.release(); }
       await sendConfiguredEmail({
         to: user.email,
-        subject: 'Verify your NIT account',
+        subject: 'Verify your Vow account',
         html: '<p>Confirm your email address:</p><p><a href="' + accountActionUrl('verifyEmail', token) + '">Verify email</a></p><p>This link expires in 60 minutes.</p>'
       });
     }
@@ -1346,7 +1346,7 @@ app.use('/api', (_req, res) => {
 });
 
 const server = app.listen(port, '0.0.0.0', () => {
-  console.log(`НИТЬ API listening on port ${port}`);
+  console.log(`Vow API listening on port ${port}`);
 });
 
 async function shutdown(signal) {
