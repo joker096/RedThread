@@ -336,7 +336,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
   let client;
   try {
     const account = await pool.query("SELECT password_hash FROM users WHERE id = $1 AND status = 'active'", [req.authUser.id]);
-    if (!account.rows[0] || !(await verifyPassword(password, account.rows[0].password_hash))) {
+    if (!account.rows[0] || typeof account.rows[0].password_hash !== 'string' || !(await verifyPassword(password, account.rows[0].password_hash))) {
       return res.status(401).json({ error: 'password_confirmation_failed' });
     }
 
