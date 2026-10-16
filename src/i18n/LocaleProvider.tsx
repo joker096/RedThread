@@ -119,7 +119,7 @@ const messages = {
 
 const rtlLocales = new Set(['ar', 'he', 'fa', 'ur']);
 const availableTranslations = new Set(Object.keys(messages));
-const storageKey = 'nit-locale-preference-v1';
+const storageKey = 'vow-locale-preference-v1';
 
 function detectLocale(): string {
   const candidates = typeof navigator === 'undefined' ? ['en'] : [...(navigator.languages || []), navigator.language || 'en'];
