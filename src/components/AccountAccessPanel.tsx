@@ -33,6 +33,10 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [canResendVerification, setCanResendVerification] = useState(false);
+  const [showReset, setShowReset] = useState(false);
+  const [resetToken, setResetToken] = useState('');
+  const [resetPassword, setResetPassword] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -40,18 +44,46 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       .then(async response => response.ok ? response.json() : null)
       .then(async data => {
         if (!cancelled && data?.user) {
-          setUser(data.user);
+          if (data?.verificationRequired) {
+        setMessage('Аккаунт создан. Проверьте почту и перейдите по ссылке для подтверждения email.');
+        setPassword('');
+        return;
+      }
+      setUser(data.user);
           const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
           if (!cancelled) setBillingStatus(billing);
         }
       })
       .catch(() => {});
+    const params = new URLSearchParams(window.location.search);
+    const verificationToken = params.get('verifyEmail');
+    const passwordResetToken = params.get('resetPassword');
+    if (verificationToken) {
+      fetch('/api/auth/verify-email', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: verificationToken })
+      }).then(async response => {
+        const data = await response.json().catch(() => null);
+        if (!response.ok) throw new Error('This verification link is invalid or has expired. Request a new one.');
+        setMessage(data?.message || 'Email verified. You can now sign in.');
+        setMode('login');
+      }).catch(error => setMessage(error instanceof Error ? error.message : 'Email verification failed.'));
+      params.delete('verifyEmail');
+      window.history.replaceState({}, '', window.location.pathname + (params.size ? '?' + params.toString() : '') + window.location.hash);
+    }
+    if (passwordResetToken) {
+      setResetToken(passwordResetToken);
+      setShowReset(true);
+      params.delete('resetPassword');
+      window.history.replaceState({}, '', window.location.pathname + (params.size ? '?' + params.toString() : '') + window.location.hash);
+    }
     return () => { cancelled = true; };
   }, []);
 
   const submit = async () => {
     setBusy(true);
     setMessage('');
+    setCanResendVerification(false);
     try {
       const body = mode === 'login'
         ? { email, password }
@@ -70,11 +102,15 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
           must_be_18_or_older_with_valid_birth_date: 'Регистрация доступна только совершеннолетним (18+).',
           email_already_registered: 'Этот email уже зарегистрирован. Войдите в аккаунт.',
           email_or_password_incorrect: 'Неверный email или пароль.',
+          email_verification_required: 'Сначала подтвердите адрес электронной почты. Можно отправить письмо повторно.',
+          email_delivery_not_configured: 'Отправка писем не настроена на сервере.',
+          verification_email_delivery_failed: 'Аккаунт создан, но письмо не доставлено. Запросите повторную отправку письма.',
           valid_country_and_city_required: 'Укажите страну и город.',
           invalid_gender: 'Выберите пол.',
           children_status_required: 'Обязательно укажите, есть ли у вас дети.',
           invalid_family_format: 'Выберите подходящий формат семьи.'
         };
+        if (data?.error === 'email_verification_required' || data?.error === 'verification_email_delivery_failed') setCanResendVerification(true);
         throw new Error(errors[data?.error] || 'Не удалось выполнить запрос. Проверьте данные и доступность API.');
       }
       setUser(data.user);
@@ -88,6 +124,56 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
     } finally {
       setBusy(false);
     }
+  };
+
+  const resendVerification = async () => {
+    setBusy(true);
+    try {
+      const response = await fetch('/api/auth/email-verification/resend', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email })
+      });
+      const data = await response.json().catch(() => null);
+      setMessage(data?.message || 'Если аккаунту требуется подтверждение, письмо будет отправлено.');
+      setCanResendVerification(false);
+    } catch {
+      setMessage('Не удалось запросить письмо. Попробуйте позже.');
+    } finally { setBusy(false); }
+  };
+
+  const requestPasswordReset = async () => {
+    setBusy(true);
+    try {
+      const response = await fetch('/api/auth/password-reset/request', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email })
+      });
+      const data = await response.json().catch(() => null);
+      setMessage(data?.message || 'Если аккаунт существует, инструкции будут отправлены на email.');
+    } catch {
+      setMessage('Не удалось запросить восстановление. Попробуйте позже.');
+    } finally { setBusy(false); }
+  };
+
+  const completePasswordReset = async () => {
+    if (resetPassword.length < 12) {
+      setMessage('Новый пароль должен содержать не менее 12 символов.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const response = await fetch('/api/auth/password-reset/complete', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: resetToken, password: resetPassword })
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error === 'invalid_or_expired_token' ? 'Ссылка недействительна или срок её действия истёк.' : 'Не удалось изменить пароль.');
+      setShowReset(false);
+      setResetToken('');
+      setResetPassword('');
+      setMode('login');
+      setMessage(data?.message || 'Пароль изменён. Войдите с новым паролем.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Не удалось изменить пароль.');
+    } finally { setBusy(false); }
   };
 
   const deleteAccount = async () => {
@@ -169,6 +255,12 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
             {deleteNotice && <p role="status" className="mt-2 text-xs text-stone-300">{deleteNotice}</p>}
           </div>
         </div>
+      ) : showReset ? (
+        <div className="space-y-3">
+          <p className="text-sm text-stone-300">Создайте новый пароль. Ссылка одноразовая и действует ограниченное время.</p>
+          <label className="block text-xs text-stone-300">Новый пароль (минимум 12 символов)<input type="password" value={resetPassword} onChange={event => setResetPassword(event.target.value)} minLength={12} maxLength={128} autoComplete="new-password" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
+          <button type="button" onClick={() => void completePasswordReset()} disabled={busy || resetPassword.length < 12} className="w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-40">{busy ? 'Обрабатываем…' : 'Изменить пароль'}</button>
+        </div>
       ) : (
         <>
           <div className="mb-3 grid grid-cols-2 gap-2">
@@ -200,6 +292,10 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
             <label className="block text-xs text-stone-300">Email<input type="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
             <label className="block text-xs text-stone-300">Пароль (минимум 12 символов)<input type="password" value={password} onChange={e => setPassword(e.target.value)} minLength={12} maxLength={128} required autoComplete={mode === 'login' ? 'current-password' : 'new-password'} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
             <button type="button" onClick={() => void submit()} disabled={busy || !email.trim() || password.length < 12 || (mode === 'register' && (!displayName.trim() || !birthDate || !country.trim() || !city.trim() || hasChildren === null))} className="w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">{busy ? 'Подождите…' : mode === 'login' ? 'Войти' : 'Создать аккаунт'}</button>
+            {mode === 'login' && <div className="grid grid-cols-1 gap-2">
+              <button type="button" onClick={() => void requestPasswordReset()} disabled={busy || !email.trim()} className="text-left text-xs text-rose-300 underline disabled:opacity-40">Забыли пароль? Отправить ссылку на email</button>
+              {canResendVerification && <button type="button" onClick={() => void resendVerification()} disabled={busy || !email.trim()} className="text-left text-xs text-amber-300 underline disabled:opacity-40">Отправить письмо подтверждения повторно</button>}
+            </div>}
           </div>
         </>
       )}
