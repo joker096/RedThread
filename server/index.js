@@ -327,6 +327,62 @@ app.post('/api/auth/logout', validateRequestOrigin, requireDatabase, async (req,
   return res.status(204).end();
 });
 
+app.delete('/api/account', validateRequestOrigin, requireSession, async (req, res) => {
+  const password = req.body?.password;
+  if (typeof password !== 'string' || password.length < 1 || password.length > 128) {
+    return res.status(400).json({ error: 'password_confirmation_required' });
+  }
+
+  let client;
+  try {
+    const account = await pool.query("SELECT password_hash FROM users WHERE id = $1 AND status = 'active'", [req.authUser.id]);
+    if (!account.rows[0] || !(await verifyPassword(password, account.rows[0].password_hash))) {
+      return res.status(401).json({ error: 'password_confirmation_failed' });
+    }
+
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await client.query('DELETE FROM sessions WHERE user_id = $1', [req.authUser.id]);
+    await client.query('DELETE FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
+    await client.query('DELETE FROM likes WHERE sender_id = $1 OR target_id = $1', [req.authUser.id]);
+    await client.query('DELETE FROM user_blocks WHERE blocker_id = $1 OR blocked_id = $1', [req.authUser.id]);
+    await client.query(
+      "UPDATE messages SET body = '[сообщение удалено]', deleted_at = COALESCE(deleted_at, NOW()) WHERE sender_id = $1",
+      [req.authUser.id]
+    );
+    await client.query(
+      `UPDATE profiles SET
+         display_name = 'Удалённый пользователь', country = '—', city = '—', bio = '',
+         photo_urls = '{}', occupation = '', education = '', languages = '{}',
+         is_visible = FALSE, has_children = NULL, children_disclosure_confirmed_at = NULL,
+         family_format = 'open_to_both', wants_children = 'discuss',
+         children_living_arrangement = 'not_applicable', updated_at = NOW()
+       WHERE user_id = $1`,
+      [req.authUser.id]
+    );
+    await client.query(
+      `UPDATE users SET status = 'deleted', email = $2, password_hash = NULL,
+         phone_e164 = NULL, phone_verified_at = NULL, female_trial_ends_at = NULL,
+         premium_until = NULL, updated_at = NOW()
+       WHERE id = $1`,
+      [req.authUser.id, 'deleted+' + req.authUser.id + '@deleted.invalid']
+    );
+    await client.query(
+      "UPDATE matches SET status = 'closed' WHERE user_a_id = $1 OR user_b_id = $1",
+      [req.authUser.id]
+    );
+    await client.query('COMMIT');
+    clearSessionCookie(res);
+    return res.status(204).end();
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Account deletion failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'account_deletion_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
 app.get('/api/billing/status', requireSession, async (req, res) => {
   const trialEndsAt = req.authUser.female_trial_ends_at ? new Date(req.authUser.female_trial_ends_at) : null;
   const premiumUntil = req.authUser.premium_until ? new Date(req.authUser.premium_until) : null;
