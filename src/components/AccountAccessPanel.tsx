@@ -14,7 +14,7 @@ type AccountUser = {
 type AccountAccessPanelProps = { onAuthenticated: () => void };
 
 export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthenticated }) => {
-  const { formatDate } = useLocale();
+  const { formatDate, t } = useLocale();
   const [user, setUser] = useState<AccountUser | null>(null);
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
@@ -235,8 +235,8 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
   return (
     <section className="mb-5 rounded-3xl border border-white/10 bg-stone-900/80 p-4 sm:p-5">
       <div className="mb-3">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-rose-300">Vow account</p>
-        <h3 className="mt-1 text-lg font-bold text-white">{user ? 'Вы вошли в аккаунт' : mode === 'login' ? 'Вход' : 'Создать аккаунт'}</h3>
+        <p className="text-[10px] uppercase tracking-[0.2em] text-rose-300">{t('accountTitle')}</p>
+        <h3 className="mt-1 text-lg font-bold text-white">{user ? t('signedIn') : mode === 'login' ? t('signIn') : t('createAccount')}</h3>
       </div>
       {user ? (
         <div className="flex flex-col gap-3">
@@ -248,38 +248,38 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
             <p className="text-sm font-semibold text-white">{billingStatus.access === 'full' ? 'Полный доступ активен' : 'Пробный период завершён'}</p>
             <p className="mt-1 text-xs leading-relaxed text-stone-300">{billingStatus.trialEndsAt && billingStatus.access === 'full' ? `Бесплатный доступ до ${formatDate(billingStatus.trialEndsAt, { dateStyle: 'medium', timeStyle: 'short' })}.` : billingStatus.access !== 'full' ? 'Для платных функций понадобится Premium. Платёжный провайдер ещё не подключён, поэтому списаний сейчас нет.' : 'Подписка активна.'}</p>
           </div>}
-          <button type="button" onClick={() => void logout()} disabled={busy} className="rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-stone-200 disabled:opacity-50">Выйти</button>
+          <button type="button" onClick={() => void logout()} disabled={busy} className="rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-stone-200 disabled:opacity-50">{t('logout')}</button>
           <div className="rounded-xl border border-red-500/20 bg-red-950/20 p-3">
-            <p className="text-sm font-semibold text-red-200">Удаление аккаунта</p>
-            <p className="mt-1 text-xs leading-relaxed text-stone-400">Анкета будет скрыта, профильные данные обезличены, отправленные вами сообщения помечены удалёнными. Некоторые записи могут сохраняться для безопасности и юридических обязательств.</p>
-            {showDeleteAccount && <label className="mt-3 block text-xs text-stone-300">Текущий пароль<input type="password" value={deletePassword} onChange={e => setDeletePassword(e.target.value)} autoComplete="current-password" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>}
-            <button type="button" onClick={() => { if (!showDeleteAccount) { setShowDeleteAccount(true); setDeleteNotice('Введите пароль, затем нажмите ещё раз для подтверждения удаления.'); } else { void deleteAccount(); } }} disabled={busy || (showDeleteAccount && !deletePassword)} className="mt-3 w-full rounded-xl border border-red-500/30 px-4 py-2.5 text-xs font-semibold text-red-200 disabled:opacity-50">{busy ? 'Обрабатываем…' : showDeleteAccount ? 'Подтвердить удаление аккаунта' : 'Удалить аккаунт'}</button>
+            <p className="text-sm font-semibold text-red-200">{t('deleteAccount')}</p>
+            <p className="mt-1 text-xs leading-relaxed text-stone-400">{t('deleteAccountDetails')}</p>
+            {showDeleteAccount && <label className="mt-3 block text-xs text-stone-300">{t('currentPassword')}<input type="password" value={deletePassword} onChange={e => setDeletePassword(e.target.value)} autoComplete="current-password" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>}
+            <button type="button" onClick={() => { if (!showDeleteAccount) { setShowDeleteAccount(true); setDeleteNotice('Введите пароль, затем нажмите ещё раз для подтверждения удаления.'); } else { void deleteAccount(); } }} disabled={busy || (showDeleteAccount && !deletePassword)} className="mt-3 w-full rounded-xl border border-red-500/30 px-4 py-2.5 text-xs font-semibold text-red-200 disabled:opacity-50">{busy ? t('processing') : showDeleteAccount ? t('confirmDelete') : t('deleteAccount')}</button>
             {deleteNotice && <p role="status" className="mt-2 text-xs text-stone-300">{deleteNotice}</p>}
           </div>
         </div>
       ) : showReset ? (
         <div className="space-y-3">
-          <p className="text-sm text-stone-300">Создайте новый пароль. Ссылка одноразовая и действует ограниченное время.</p>
-          <label className="block text-xs text-stone-300">Новый пароль (минимум 12 символов)<input type="password" value={resetPassword} onChange={event => setResetPassword(event.target.value)} minLength={12} maxLength={128} autoComplete="new-password" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
+          <p className="text-sm text-stone-300">{t('resetPasswordDetails')}</p>
+          <label className="block text-xs text-stone-300">{t('newPassword')}<input type="password" value={resetPassword} onChange={event => setResetPassword(event.target.value)} minLength={12} maxLength={128} autoComplete="new-password" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
           <button type="button" onClick={() => void completePasswordReset()} disabled={busy || resetPassword.length < 12} className="w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-40">{busy ? 'Обрабатываем…' : 'Изменить пароль'}</button>
         </div>
       ) : (
         <>
           <div className="mb-3 grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => { setMode('login'); setMessage(''); }} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${mode === 'login' ? 'border-rose-500 bg-rose-950/50 text-white' : 'border-white/10 text-stone-400'}`}>Войти</button>
-            <button type="button" onClick={() => { setMode('register'); setMessage(''); }} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${mode === 'register' ? 'border-rose-500 bg-rose-950/50 text-white' : 'border-white/10 text-stone-400'}`}>Регистрация</button>
+            <button type="button" onClick={() => { setMode('login'); setMessage(''); }} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${mode === 'login' ? 'border-rose-500 bg-rose-950/50 text-white' : 'border-white/10 text-stone-400'}`}>{t('signIn')}</button>
+            <button type="button" onClick={() => { setMode('register'); setMessage(''); }} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${mode === 'register' ? 'border-rose-500 bg-rose-950/50 text-white' : 'border-white/10 text-stone-400'}`}>{t('register')}</button>
           </div>
           <div className="space-y-3">
             {mode === 'register' && <>
-              <label className="block text-xs text-stone-300">Имя для анкеты<input value={displayName} onChange={e => setDisplayName(e.target.value)} minLength={2} maxLength={80} autoComplete="name" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
-              <label className="block text-xs text-stone-300">Дата рождения (18+)<input type="date" value={birthDate} onChange={e => setBirthDate(e.target.value)} max={new Date().toISOString().slice(0, 10)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
-              <label className="block text-xs text-stone-300">Пол<select value={gender} onChange={e => setGender(e.target.value as 'female' | 'male')} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="female">Женский</option><option value="male">Мужской</option></select></label>
+              <label className="block text-xs text-stone-300">{t('profileName')}<input value={displayName} onChange={e => setDisplayName(e.target.value)} minLength={2} maxLength={80} autoComplete="name" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
+              <label className="block text-xs text-stone-300">{t('birthDate')}<input type="date" value={birthDate} onChange={e => setBirthDate(e.target.value)} max={new Date().toISOString().slice(0, 10)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
+              <label className="block text-xs text-stone-300">{t('gender')}<select value={gender} onChange={e => setGender(e.target.value as 'female' | 'male')} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="female">{t('female')}</option><option value="male">{t('male')}</option></select></label>
               <div className="grid grid-cols-2 gap-2">
-                <label className="block text-xs text-stone-300">Страна<input value={country} onChange={e => setCountry(e.target.value)} maxLength={100} autoComplete="country-name" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
-                <label className="block text-xs text-stone-300">Город<input value={city} onChange={e => setCity(e.target.value)} maxLength={120} autoComplete="address-level2" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
+                <label className="block text-xs text-stone-300">{t('countryLabel')}<input value={country} onChange={e => setCountry(e.target.value)} maxLength={100} autoComplete="country-name" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
+                <label className="block text-xs text-stone-300">{t('cityLabel')}<input value={city} onChange={e => setCity(e.target.value)} maxLength={120} autoComplete="address-level2" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
               </div>
-              <label className="block text-xs text-stone-300">Цель отношений<select value={relationshipIntent} onChange={e => setRelationshipIntent(e.target.value as typeof relationshipIntent)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="marriage_family">Брак и семья</option><option value="family_without_marriage">Семья без регистрации брака</option><option value="serious_relationship">Серьёзные отношения, с перспективой семьи</option></select></label>
-              <label className="block text-xs text-stone-300">Формат семьи<select value={familyFormat} onChange={e => setFamilyFormat(e.target.value as typeof familyFormat)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="open_to_both">Открыт(а) к браку и совместной жизни</option><option value="marriage">Только официальный брак</option><option value="cohabitation">Совместная жизнь без регистрации брака</option></select></label>
+              <label className="block text-xs text-stone-300">{t('relationshipIntentLabel')}<select value={relationshipIntent} onChange={e => setRelationshipIntent(e.target.value as typeof relationshipIntent)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="marriage_family">{t('marriageFamilyOption')}</option><option value="family_without_marriage">{t('familyWithoutMarriageOption')}</option><option value="serious_relationship">{t('seriousRelationshipOption')}</option></select></label>
+              <label className="block text-xs text-stone-300">{t('familyFormatLabel')}<select value={familyFormat} onChange={e => setFamilyFormat(e.target.value as typeof familyFormat)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="open_to_both">Открыт(а) к браку и совместной жизни</option><option value="marriage">Только официальный брак</option><option value="cohabitation">Совместная жизнь без регистрации брака</option></select></label>
               <fieldset className="rounded-xl border border-white/10 bg-stone-950 p-3">
                 <legend className="px-1 text-xs font-semibold text-white">Есть ли у вас дети? Обязательный вопрос</legend>
                 <p className="mb-2 text-[10px] leading-relaxed text-stone-400">Укажите правду. Информация важна для осознанного выбора обоих партнёров.</p>
@@ -291,7 +291,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
                 <label className="mt-3 block text-xs text-stone-300">Хотите ли вы детей в будущем?<select value={wantsChildren} onChange={e => setWantsChildren(e.target.value as typeof wantsChildren)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="yes">Да</option><option value="no">Нет</option><option value="discuss">Готов(а) обсуждать с партнёром</option><option value="unsure">Пока не уверен(а)</option></select></label>
               </fieldset>
             </>}
-            <label className="block text-xs text-stone-300">Email<input type="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
+            <label className="block text-xs text-stone-300">{t('email')}<input type="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
             <label className="block text-xs text-stone-300">Пароль (минимум 12 символов)<input type="password" value={password} onChange={e => setPassword(e.target.value)} minLength={12} maxLength={128} required autoComplete={mode === 'login' ? 'current-password' : 'new-password'} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
             <button type="button" onClick={() => void submit()} disabled={busy || !email.trim() || password.length < 12 || (mode === 'register' && (!displayName.trim() || !birthDate || !country.trim() || !city.trim() || hasChildren === null))} className="w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">{busy ? 'Подождите…' : mode === 'login' ? 'Войти' : 'Создать аккаунт'}</button>
             {mode === 'login' && <div className="grid grid-cols-1 gap-2">
