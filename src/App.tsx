@@ -205,7 +205,7 @@ export default function App() {
     }
   }, [
     isHydrated, currentUser, currentGender, isLadyPremium, profiles, chatThreads, adStats,
-    currentBrandId, minCompatibility, onlyVerified, selectedCity, intentFilter,
+    currentBrandId, minCompatibility, onlyVerified, selectedCountry, selectedCity, intentFilter,
     superLikesCount, boostActive, activeTab, activeChatThreadId
   ]);
 
