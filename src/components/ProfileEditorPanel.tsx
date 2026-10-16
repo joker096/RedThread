@@ -4,7 +4,10 @@ type Profile = {
   id: string; displayName: string; age: number; gender: 'female' | 'male';
   country: string; city: string; bio: string; photoUrls: string[];
   occupation: string; education: string; languages: string[];
-  relationshipIntent: 'marriage_family' | 'serious_relationship'; isVisible: boolean;
+  relationshipIntent: 'marriage_family' | 'serious_relationship' | 'family_without_marriage'; isVisible: boolean;
+  familyFormat: 'marriage' | 'cohabitation' | 'open_to_both'; hasChildren: boolean | null;
+  childrenDisclosureConfirmedAt: string | null; wantsChildren: 'yes' | 'no' | 'discuss' | 'unsure';
+  childrenLivingArrangement: 'with_me' | 'shared_custody' | 'with_other_parent' | 'not_applicable' | 'prefer_to_discuss';
 };
 type BlockedProfile = { id: string; displayName: string; createdAt: string };
 type Props = { onOpenAccount: () => void };
@@ -19,7 +22,11 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const [education, setEducation] = useState('');
   const [photoUrls, setPhotoUrls] = useState('');
   const [languages, setLanguages] = useState('');
-  const [relationshipIntent, setRelationshipIntent] = useState<'marriage_family' | 'serious_relationship'>('marriage_family');
+  const [relationshipIntent, setRelationshipIntent] = useState<'marriage_family' | 'serious_relationship' | 'family_without_marriage'>('marriage_family');
+  const [familyFormat, setFamilyFormat] = useState<'marriage' | 'cohabitation' | 'open_to_both'>('open_to_both');
+  const [hasChildren, setHasChildren] = useState<boolean | null>(null);
+  const [wantsChildren, setWantsChildren] = useState<'yes' | 'no' | 'discuss' | 'unsure'>('discuss');
+  const [childrenLivingArrangement, setChildrenLivingArrangement] = useState<'with_me' | 'shared_custody' | 'with_other_parent' | 'not_applicable' | 'prefer_to_discuss'>('not_applicable');
   const [isVisible, setIsVisible] = useState(true);
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
@@ -43,6 +50,10 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       setPhotoUrls((p.photoUrls || []).join('\n'));
       setLanguages((p.languages || []).join(', '));
       setRelationshipIntent(p.relationshipIntent);
+      setFamilyFormat(p.familyFormat || 'open_to_both');
+      setHasChildren(typeof p.hasChildren === 'boolean' ? p.hasChildren : null);
+      setWantsChildren(p.wantsChildren || 'discuss');
+      setChildrenLivingArrangement(p.childrenLivingArrangement || 'not_applicable');
       setIsVisible(p.isVisible);
       setAuthenticated(true);
       const blocksResponse = await fetch('/api/blocks', { credentials: 'include' });
@@ -79,13 +90,15 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           displayName, bio, country, city, occupation, education,
-          photoUrls: photos, languages: languageList, relationshipIntent, isVisible
+          photoUrls: photos, languages: languageList, relationshipIntent, familyFormat, hasChildren, wantsChildren, childrenLivingArrangement, isVisible
         })
       });
       const data = await response.json().catch(() => null);
       if (response.status === 401) { setAuthenticated(false); return; }
       if (!response.ok) {
         const errors: Record<string, string> = {
+          children_status_required: 'Обязательно укажите, есть ли у вас дети.',
+          invalid_family_format: 'Проверьте формат семьи.',
           invalid_photo_urls: 'Фотографии должны быть HTTPS-ссылками без логина и пароля; максимум 6.',
           invalid_languages: 'Укажите не более 10 языков, каждый от 2 до 40 символов.',
           invalid_bio: 'Описание не должно превышать 2000 символов.'
@@ -124,9 +137,20 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
           <label className="block text-xs text-stone-300">Языки через запятую<input value={languages} onChange={e => setLanguages(e.target.value)} placeholder="Русский, английский" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
           <label className="block text-xs text-stone-300">HTTPS-ссылки на фотографии (до 6, по одной в строке)<textarea value={photoUrls} onChange={e => setPhotoUrls(e.target.value)} rows={3} placeholder="https://example.com/photo.jpg" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
           <p className="text-[10px] leading-relaxed text-stone-500">Это пока ссылки, не загрузка файлов. Не используйте чужие фотографии без разрешения; HTTPS-ссылка сама по себе не подтверждает личность.</p>
-          <label className="block text-xs text-stone-300">Намерение<select value={relationshipIntent} onChange={e => setRelationshipIntent(e.target.value as 'marriage_family' | 'serious_relationship')} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="marriage_family">Брак и семья</option><option value="serious_relationship">Серьёзные отношения</option></select></label>
+          <label className="block text-xs text-stone-300">Цель отношений<select value={relationshipIntent} onChange={e => setRelationshipIntent(e.target.value as typeof relationshipIntent)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="marriage_family">Брак и семья</option><option value="family_without_marriage">Семья без регистрации брака</option><option value="serious_relationship">Серьёзные отношения</option></select></label>
+          <label className="block text-xs text-stone-300">Формат семьи<select value={familyFormat} onChange={e => setFamilyFormat(e.target.value as typeof familyFormat)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="open_to_both">Открыт(а) к обоим форматам</option><option value="marriage">Только официальный брак</option><option value="cohabitation">Совместная жизнь без брака</option></select></label>
+          <fieldset className="rounded-xl border border-white/10 bg-stone-950 p-3">
+            <legend className="px-1 text-xs font-semibold text-white">Есть ли у вас дети? Обязательно</legend>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => {setHasChildren(true);setChildrenLivingArrangement('prefer_to_discuss');}} className={`rounded-lg border p-2 text-xs ${hasChildren === true ? 'border-rose-500 bg-rose-950 text-white' : 'border-white/10 text-stone-300'}`}>Да</button>
+              <button type="button" onClick={() => {setHasChildren(false);setChildrenLivingArrangement('not_applicable');}} className={`rounded-lg border p-2 text-xs ${hasChildren === false ? 'border-rose-500 bg-rose-950 text-white' : 'border-white/10 text-stone-300'}`}>Нет</button>
+            </div>
+            {hasChildren === true && <label className="mt-3 block text-xs text-stone-300">Где живут дети?<select value={childrenLivingArrangement} onChange={e => setChildrenLivingArrangement(e.target.value as typeof childrenLivingArrangement)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="with_me">Со мной</option><option value="shared_custody">Совместная опека / по очереди</option><option value="with_other_parent">С другим родителем</option><option value="prefer_to_discuss">Обсудить лично</option></select></label>}
+            <label className="mt-3 block text-xs text-stone-300">Дети в будущем?<select value={wantsChildren} onChange={e => setWantsChildren(e.target.value as typeof wantsChildren)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="yes">Да</option><option value="no">Нет</option><option value="discuss">Обсуждать с партнёром</option><option value="unsure">Не уверен(а)</option></select></label>
+            {profile?.childrenDisclosureConfirmedAt === null && <p className="mt-2 text-[10px] text-amber-300">Подтвердите информацию о детях и сохраните анкету, чтобы снова стать видимым в поиске.</p>}
+          </fieldset>
           <label className="flex items-center gap-3 rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-stone-200"><input type="checkbox" checked={isVisible} onChange={e => setIsVisible(e.target.checked)} className="h-4 w-4 accent-rose-500" />Показывать анкету в поиске</label>
-          <button type="button" onClick={() => void save()} disabled={busy || !displayName.trim() || !country.trim() || !city.trim()} className="w-full rounded-xl bg-amber-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? 'Сохраняем…' : 'Сохранить анкету'}</button>
+          <button type="button" onClick={() => void save()} disabled={busy || !displayName.trim() || !country.trim() || !city.trim() || hasChildren === null} className="w-full rounded-xl bg-amber-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? 'Сохраняем…' : 'Сохранить анкету'}</button>
           <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-3">
             <h4 className="text-sm font-semibold text-white">Заблокированные пользователи</h4>
             {!blockedProfiles.length ? <p className="mt-2 text-xs text-stone-500">Список пуст.</p> : blockedProfiles.map(blocked => (
