@@ -71,6 +71,7 @@ export default function App() {
   const [selectedCity, setSelectedCity] = useState('all');
   const [intentFilter, setIntentFilter] = useState('all');
   const [assessmentRevision, setAssessmentRevision] = useState(0);
+  const [discoveryMode, setDiscoveryMode] = useState<'server' | 'demo'>('server');
   const [minAge, setMinAge] = useState(18);
   const [maxAge, setMaxAge] = useState(99);
 
@@ -660,10 +661,27 @@ export default function App() {
 
       case 'discovery':
       default:
-        return (
+        return discoveryMode === 'server' ? (
           <>
-          <ServerDiscoveryPanel onOpenAccount={() => setActiveTab('tests')} />
-          <RadarDiscovery
+            <div className="mb-4 flex flex-col gap-2 rounded-2xl border border-emerald-500/20 bg-stone-900/70 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-white">Режим реальных аккаунтов</p>
+                <p className="mt-1 text-xs text-stone-400">Серверные анкеты не смешиваются с демонстрационными профилями.</p>
+              </div>
+              <button type="button" onClick={() => setDiscoveryMode('demo')} className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-stone-300">Открыть демо-превью</button>
+            </div>
+            <ServerDiscoveryPanel onOpenAccount={() => setActiveTab('tests')} />
+          </>
+        ) : (
+          <>
+            <div className="mb-4 flex flex-col gap-2 rounded-2xl border border-amber-500/20 bg-amber-950/40 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-amber-100">Демо-превью — не реальные люди</p>
+                <p className="mt-1 text-xs text-amber-200/70">Эти карточки предназначены только для проверки дизайна и не участвуют в серверном поиске.</p>
+              </div>
+              <button type="button" onClick={() => setDiscoveryMode('server')} className="rounded-xl border border-amber-200/20 px-3 py-2 text-xs font-semibold text-amber-100">Вернуться к реальным анкетам</button>
+            </div>
+            <RadarDiscovery
             profiles={filteredProfiles}
             myAnswers={currentUser.crucialAnswers}
             myIntent={currentUser.intent}
@@ -701,7 +719,7 @@ export default function App() {
       <PWAInstallBanner />
       {/* Prototype disclosure: prevents mock data from being mistaken for verified production activity. */}
       <div role="status" className="w-full border-b border-amber-500/20 bg-amber-950/70 px-3 py-2 text-center text-[11px] text-amber-100 flex flex-col sm:flex-row items-center justify-center gap-2">
-        <span>Демо-режим: анкеты, взаимные симпатии и бонусы показаны для проверки интерфейса. Реальная регистрация и серверные чаты ещё не подключены.</span>
+        <span>Прототип: реальные аккаунты, серверный поиск и чаты доступны после входа; демо-карточки и демонстрационные функции отдельно помечены.</span>
         <button
           type="button"
           onClick={() => {
