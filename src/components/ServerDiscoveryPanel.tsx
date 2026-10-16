@@ -41,6 +41,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const [notice, setNotice] = useState('');
   const [likedIds, setLikedIds] = useState<string[]>([]);
   const [blockedIds, setBlockedIds] = useState<string[]>([]);
+  const [actionHistory, setActionHistory] = useState<Array<{ type: 'like' | 'pass'; profile: ServerProfile }>>([]);
   const [reportTargetId, setReportTargetId] = useState<string | null>(null);
   const [reportCategory, setReportCategory] = useState('fake_profile');
   const [reportDetails, setReportDetails] = useState('');
@@ -107,6 +108,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       }
       if (response.status === 402) throw new Error(data?.message || 'Пробный период завершён. Для симпатий потребуется Premium; оплата ещё не подключена.');
       if (!response.ok) throw new Error('Не удалось отправить симпатию.');
+      if (!data?.matched) setActionHistory(current => [...current, { type: 'like', profile }].slice(-50));
       setLikedIds(current => current.includes(profile.id) ? current : [...current, profile.id]);
       setNotice(data?.matched
         ? `У вас взаимная симпатия с ${profile.displayName}! Совпадение создано. Открываем чаты.`
@@ -136,6 +138,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       }
       if (response.status === 402) throw new Error(data?.message || 'Пробный период завершён. Для пропуска анкет потребуется Premium.');
       if (!response.ok) throw new Error('Не удалось пропустить анкету.');
+      setActionHistory(current => [...current, { type: 'pass', profile }].slice(-50));
       setProfiles(current => current.filter(item => item.id !== profile.id));
       setNotice('Анкета пропущена и больше не будет показываться в поиске.');
     } catch (error) {
@@ -146,12 +149,34 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   };
 
   const undoPass = async () => {
-    if (busy) return;
+    if (busy || actionHistory.length === 0) return;
+    const lastAction = actionHistory[actionHistory.length - 1];
     setBusy(true);
     try {
+      if (lastAction.type === 'like') {
+        const response = await fetch(`/api/likes/${encodeURIComponent(lastAction.profile.id)}`, {
+          method: 'DELETE', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({})
+        });
+        if (response.status === 401) {
+          setAuthenticated(false);
+          setNotice('Войдите в аккаунт, чтобы отменить симпатию.');
+          return;
+        }
+        if (!response.ok) throw new Error('Не удалось отменить последнюю симпатию.');
+        setLikedIds(current => current.filter(id => id !== lastAction.profile.id));
+        setProfiles(current => current.some(item => item.id === lastAction.profile.id)
+          ? current
+          : [lastAction.profile, ...current]);
+        setActionHistory(current => current.slice(0, -1));
+        setNotice(`Симпатия к анкете «${lastAction.profile.displayName}» отменена.`);
+        return;
+      }
+
       const response = await fetch('/api/passes/undo', {
         method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({})
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetId: lastAction.profile.id })
       });
       const data = await response.json().catch(() => null);
       if (response.status === 401) {
@@ -160,12 +185,13 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         return;
       }
       if (response.status === 402) throw new Error(data?.message || 'Для подбора потребуется Premium.');
-      if (response.status === 404) throw new Error('Нет пропущенных анкет, которые можно вернуть.');
+      if (response.status === 404) throw new Error('Эту анкету уже нельзя вернуть: возможно, она скрыта или заблокирована.');
       if (!response.ok || !data?.profile) throw new Error('Не удалось вернуть анкету.');
       setProfiles(current => [data.profile as ServerProfile, ...current.filter(item => item.id !== data.profile.id)]);
+      setActionHistory(current => current.slice(0, -1));
       setNotice('Последний пропуск отменён. Анкета снова доступна в вашей ленте.');
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Не удалось отменить пропуск.');
+      setNotice(error instanceof Error ? error.message : 'Не удалось отменить последнее действие.');
     } finally {
       setBusy(false);
     }
@@ -249,7 +275,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
           </div>
           <button type="button" onClick={() => void search()} disabled={busy} className="mb-2 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? t('searching') : t('search')}</button>
           <button type="button" onClick={() => setSwipeMode(value => !value)} className="mb-3 w-full rounded-xl border border-emerald-500/30 px-4 py-2.5 text-xs font-semibold text-emerald-200">{swipeMode ? t('listMode') : t('swipeMode')}</button>
-          <button type="button" onClick={() => void undoPass()} disabled={busy} className="mb-3 w-full rounded-xl border border-amber-500/30 px-4 py-2.5 text-xs font-semibold text-amber-200 disabled:opacity-50">↶ {t('undoPass')}</button>
+          <button type="button" onClick={() => void undoPass()} disabled={busy || actionHistory.length === 0} className="mb-3 w-full rounded-xl border border-amber-500/30 px-4 py-2.5 text-xs font-semibold text-amber-200 disabled:opacity-50">↶ {t('undoAction')}</button>
           {swipeMode && <p className="mb-3 text-[11px] text-stone-400">{t('swipeHint')}</p>}
           {notice && <p role="status" className="mb-3 text-xs text-stone-300">{notice}</p>}
           <div className={swipeMode ? 'mx-auto max-w-lg space-y-3' : 'space-y-3'}>

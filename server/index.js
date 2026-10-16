@@ -1180,15 +1180,21 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+    const requestedTargetId = req.body?.targetId ?? null;
+    if (requestedTargetId !== null && !isUuid(requestedTargetId)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'invalid_pass_target' });
+    }
     const latest = await client.query(
       `SELECT pp.passed_user_id AS id
        FROM profile_passes pp
        JOIN profiles p ON p.user_id = pp.passed_user_id
        JOIN users u ON u.id = p.user_id
        WHERE pp.passer_id = $1
+         AND ($2::uuid IS NULL OR pp.passed_user_id = $2)
          AND u.status = 'active' AND p.is_visible = TRUE
          AND p.children_disclosure_confirmed_at IS NOT NULL AND p.has_children IS NOT NULL
-         AND p.gender <> $2
+         AND p.gender <> $3
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = $1 AND b.blocked_id = p.user_id)
@@ -1197,7 +1203,7 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
        ORDER BY pp.created_at DESC
        LIMIT 1
        FOR UPDATE OF pp`,
-      [req.authUser.id, req.authUser.gender]
+      [req.authUser.id, requestedTargetId, req.authUser.gender]
     );
     const passedId = latest.rows[0]?.id;
     if (!passedId) {
