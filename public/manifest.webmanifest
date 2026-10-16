@@ -1,9 +1,9 @@
 {
   "id": "/",
-  "name": "НИТЬ — серьёзные знакомства",
-  "short_name": "НИТЬ",
+  "name": "Vow — serious relationships",
+  "short_name": "Vow",
   "description": "Знакомства для долгосрочных отношений и семьи",
-  "lang": "ru",
+  "lang": "en",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
