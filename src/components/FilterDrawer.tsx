@@ -118,6 +118,24 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
             )}
           </div>
 
+          <div className="rounded-2xl border border-white/5 bg-stone-950/50 p-3">
+            <div className="mb-2 flex items-center gap-2 text-white font-semibold">
+              <SlidersHorizontal className="w-4 h-4 text-rose-400" />
+              <span>Возраст</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-stone-300" htmlFor="discovery-min-age">От</label>
+                <input id="discovery-min-age" type="number" min="18" max={maxAge} value={minAge} onChange={e => setMinAge(Math.min(maxAge, Math.max(18, Number(e.target.value) || 18)))} className="w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-white" />
+              </div>
+              <div>
+                <label className="mb-1 block text-stone-300" htmlFor="discovery-max-age">До</label>
+                <input id="discovery-max-age" type="number" min={minAge} max="120" value={maxAge} onChange={e => setMaxAge(Math.max(minAge, Math.min(120, Number(e.target.value) || minAge)))} className="w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-white" />
+              </div>
+            </div>
+            <p className="mt-1 text-[10px] text-stone-500">Поиск показывает только совершеннолетних кандидатов в выбранном диапазоне.</p>
+          </div>
+
           {/* Relationship Goal */}
           <div>
             <label className="block text-stone-300 font-medium mb-1.5">Главная цель:</label>
