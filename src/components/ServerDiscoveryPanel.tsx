@@ -28,6 +28,7 @@ type ServerDiscoveryPanelProps = { onOpenAccount: () => void };
 export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOpenAccount }) => {
   const { t, formatNumber } = useLocale();
   const [profiles, setProfiles] = useState<ServerProfile[]>([]);
+  const [matchedProfile, setMatchedProfile] = useState<ServerProfile | null>(null);
   const [country, setCountry] = useState('');
   const [city, setCity] = useState('');
   const [minAge, setMinAge] = useState(18);
@@ -125,7 +126,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       setNotice(data?.matched
         ? t('mutualLikeOpenedChats').replace('{name}', profile.displayName)
         : `${t('liked')}: «${profile.displayName}».`);
-      if (data?.matched) window.dispatchEvent(new CustomEvent('vow:match-created'));
+      if (data?.matched) setMatchedProfile(profile);
       setProfiles(current => current.filter(item => item.id !== profile.id));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : t('sendLikeError'));
@@ -381,6 +382,22 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
             ))}
           </div>
         </>
+      )}
+      {matchedProfile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm" onClick={event => {
+          if (event.target === event.currentTarget) setMatchedProfile(null);
+        }}>
+          <div role="dialog" aria-modal="true" aria-label={t('mutualMatches')} className="w-full max-w-sm rounded-3xl border border-rose-400/30 bg-stone-950 p-6 text-center shadow-2xl shadow-rose-950/40">
+            <div className="vow-match-celebration mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full border border-rose-400/30 bg-rose-950/50 text-4xl text-rose-300" aria-hidden="true">♥</div>
+            {matchedProfile.photoUrls?.[0] && <img src={matchedProfile.photoUrls[0]} alt="" className="mx-auto mb-4 h-20 w-20 rounded-full border border-rose-400/30 object-cover" />}
+            <h3 className="text-xl font-bold text-white">{t('mutualMatches')}</h3>
+            <p className="mt-3 text-sm leading-relaxed text-stone-300">{t('mutualLikeOpenedChats').replace('{name}', matchedProfile.displayName)}</p>
+            <button type="button" autoFocus onClick={() => {
+              setMatchedProfile(null);
+              window.dispatchEvent(new CustomEvent('vow:match-created'));
+            }} className="vow-motion-button mt-5 w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white hover:bg-rose-500">{t('sendMessage')}</button>
+          </div>
+        </div>
       )}
     </section>
   );
