@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useLocale } from '../i18n/LocaleProvider.tsx';
 
 type ServerProfile = {
   id: string;
@@ -23,6 +24,7 @@ type ServerProfile = {
 type ServerDiscoveryPanelProps = { onOpenAccount: () => void };
 
 export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOpenAccount }) => {
+  const { t, formatNumber } = useLocale();
   const [profiles, setProfiles] = useState<ServerProfile[]>([]);
   const [country, setCountry] = useState('');
   const [city, setCity] = useState('');
@@ -75,7 +77,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       const data = await response.json();
       setProfiles(data.profiles || []);
       setAuthenticated(true);
-      setNotice(data.profiles?.length ? `Найдено анкет: ${data.profiles.length}` : 'Подходящих анкет пока нет. Попробуйте изменить фильтры.');
+      setNotice(data.profiles?.length ? `${t('registeredProfiles')}: ${formatNumber(data.profiles.length)}` : 'Подходящих анкет пока нет. Попробуйте изменить фильтры.');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Не удалось подключиться к серверу.');
     } finally {
@@ -103,7 +105,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       if (response.status === 402) throw new Error(data?.message || 'Пробный период завершён. Для симпатий потребуется Premium; оплата ещё не подключена.');
       if (!response.ok) throw new Error('Не удалось отправить симпатию.');
       setLikedIds(current => current.includes(profile.id) ? current : [...current, profile.id]);
-      setNotice(data?.matched ? `У вас взаимная симпатия с ${profile.displayName}! Совпадение создано.` : `Симпатия отправлена анкете «${profile.displayName}».`);
+      setNotice(data?.matched ? `У вас взаимная симпатия с ${profile.displayName}! Совпадение создано.` : `{t('liked')} анкете «${profile.displayName}».`);
       if (swipeMode) setProfiles(current => current.filter(item => item.id !== profile.id));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Не удалось отправить симпатию.');
@@ -216,31 +218,31 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   return (
     <section className="mb-5 rounded-3xl border border-emerald-500/20 bg-stone-900/80 p-4 sm:p-5">
       <div className="mb-3">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-300">Серверный поиск</p>
-        <h3 className="mt-1 text-lg font-bold text-white">Анкеты из базы аккаунтов</h3>
-        <p className="mt-1 text-xs leading-relaxed text-stone-400">Показываются реальные зарегистрированные аккаунты, подходящие под фильтры. Это отдельная выдача: демонстрационные карточки ниже не являются реальными пользователями.</p>
+        <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-300">{t('serverSearchEyebrow')}</p>
+        <h3 className="mt-1 text-lg font-bold text-white">{t('serverProfilesTitle')}</h3>
+        <p className="mt-1 text-xs leading-relaxed text-stone-400">{t('realProfilesNote')}</p>
       </div>
       {authenticated === false ? (
         <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-4">
-          <p className="text-sm text-stone-200">Чтобы искать зарегистрированные анкеты и отправлять симпатии, войдите или создайте аккаунт.</p>
-          <button type="button" onClick={onOpenAccount} className="mt-3 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white">Вход и регистрация</button>
+          <p className="text-sm text-stone-200">{t('signInToSearch')}</p>
+          <button type="button" onClick={onOpenAccount} className="mt-3 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white">{t('login')}</button>
         </div>
       ) : (
         <>
           <div className="mb-4 grid grid-cols-2 gap-2">
-            <label className="text-xs text-stone-300">Страна<input value={country} onChange={e => setCountry(e.target.value)} placeholder="Любая страна" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white" /></label>
-            <label className="text-xs text-stone-300">Город<input value={city} onChange={e => setCity(e.target.value)} placeholder="Любой город" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white" /></label>
-            <label className="text-xs text-stone-300">Возраст от<input type="number" min="18" max={maxAge} value={minAge} onChange={e => setMinAge(Math.min(maxAge, Math.max(18, Number(e.target.value) || 18)))} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white" /></label>
-            <label className="text-xs text-stone-300">Возраст до<input type="number" min={minAge} max="120" value={maxAge} onChange={e => setMaxAge(Math.max(minAge, Math.min(120, Number(e.target.value) || minAge)))} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white" /></label>
-            <label className="text-xs text-stone-300">Цель отношений<select value={intent} onChange={e => setIntent(e.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="all">Любая</option><option value="marriage_family">Брак и семья</option><option value="family_without_marriage">Семья без регистрации брака</option><option value="serious_relationship">Серьёзные отношения</option></select></label>
-            <label className="text-xs text-stone-300">Формат семьи<select value={familyFormat} onChange={e => setFamilyFormat(e.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="all">Любой формат</option><option value="marriage">Только брак</option><option value="cohabitation">Совместная жизнь без регистрации</option><option value="open_to_both">Открыт(а) к обоим</option></select></label>
-            <label className="text-xs text-stone-300">Наличие детей<select value={childrenFilter} onChange={e => setChildrenFilter(e.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="all">Не важно</option><option value="false">Детей нет</option><option value="true">Есть дети</option></select></label>
-            <label className="text-xs text-stone-300">Совпадение финансовых ожиданий<select value={minFinancialAlignment} onChange={e => setMinFinancialAlignment(Number(e.target.value))} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="0">Не фильтровать</option><option value="33">От 33%</option><option value="67">От 67%</option><option value="100">Только 100%</option></select></label>
+            <label className="text-xs text-stone-300">{t('country')}<input value={country} onChange={e => setCountry(e.target.value)} placeholder="{t('anyCountry')}" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white" /></label>
+            <label className="text-xs text-stone-300">{t('city')}<input value={city} onChange={e => setCity(e.target.value)} placeholder="{t('anyCity')}" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white" /></label>
+            <label className="text-xs text-stone-300">{t('ageFrom')}<input type="number" min="18" max={maxAge} value={minAge} onChange={e => setMinAge(Math.min(maxAge, Math.max(18, Number(e.target.value) || 18)))} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white" /></label>
+            <label className="text-xs text-stone-300">{t('ageTo')}<input type="number" min={minAge} max="120" value={maxAge} onChange={e => setMaxAge(Math.max(minAge, Math.min(120, Number(e.target.value) || minAge)))} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white" /></label>
+            <label className="text-xs text-stone-300">{t('relationshipGoal')}<select value={intent} onChange={e => setIntent(e.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="all">{t('any')}</option><option value="marriage_family">{t('marriageFamily')}</option><option value="family_without_marriage">{t('familyWithoutMarriage')}</option><option value="serious_relationship">{t('seriousRelationship')}</option></select></label>
+            <label className="text-xs text-stone-300">{t('familyFormat')}<select value={familyFormat} onChange={e => setFamilyFormat(e.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="all">{t('anyFormat')}</option><option value="marriage">{t('marriageOnly')}</option><option value="cohabitation">{t('cohabitation')}</option><option value="open_to_both">{t('openToBoth')}</option></select></label>
+            <label className="text-xs text-stone-300">{t('children')}<select value={childrenFilter} onChange={e => setChildrenFilter(e.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="all">{t('notImportant')}</option><option value="false">{t('noChildren')}</option><option value="true">{t('hasChildren')}</option></select></label>
+            <label className="text-xs text-stone-300">{t('financialMatch')}<select value={minFinancialAlignment} onChange={e => setMinFinancialAlignment(Number(e.target.value))} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="0">{t('doNotFilter')}</option><option value="33">От 33%</option><option value="67">От 67%</option><option value="100">Только 100%</option></select></label>
           </div>
-          <button type="button" onClick={() => void search()} disabled={busy} className="mb-2 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? 'Ищем…' : 'Найти анкеты'}</button>
-          <button type="button" onClick={() => setSwipeMode(value => !value)} className="mb-3 w-full rounded-xl border border-emerald-500/30 px-4 py-2.5 text-xs font-semibold text-emerald-200">{swipeMode ? 'Переключиться на список анкет' : 'Режим свайпов — по одной анкете'}</button>
-          <button type="button" onClick={() => void undoPass()} disabled={busy} className="mb-3 w-full rounded-xl border border-amber-500/30 px-4 py-2.5 text-xs font-semibold text-amber-200 disabled:opacity-50">↶ Отменить последний пропуск</button>
-          {swipeMode && <p className="mb-3 text-[11px] text-stone-400">На телефоне проведите вправо, чтобы пропустить, или влево, чтобы отправить симпатию. Можно также использовать кнопки.</p>}
+          <button type="button" onClick={() => void search()} disabled={busy} className="mb-2 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? '{t('searching')}' : '{t('search')}'}</button>
+          <button type="button" onClick={() => setSwipeMode(value => !value)} className="mb-3 w-full rounded-xl border border-emerald-500/30 px-4 py-2.5 text-xs font-semibold text-emerald-200">{swipeMode ? '{t('listMode')}' : '{t('swipeMode')}'}</button>
+          <button type="button" onClick={() => void undoPass()} disabled={busy} className="mb-3 w-full rounded-xl border border-amber-500/30 px-4 py-2.5 text-xs font-semibold text-amber-200 disabled:opacity-50">↶ {t('undoPass')}</button>
+          {swipeMode && <p className="mb-3 text-[11px] text-stone-400">{t('swipeHint')}</p>}
           {notice && <p role="status" className="mb-3 text-xs text-stone-300">{notice}</p>}
           <div className={swipeMode ? 'mx-auto max-w-lg space-y-3' : 'space-y-3'}>
             {profiles.slice(0, swipeMode ? 1 : profiles.length).map(profile => (
@@ -267,36 +269,36 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                     ))}
                   </div>
                 ) : (
-                  <div className="mb-3 flex h-20 items-center justify-center rounded-xl border border-dashed border-white/10 text-xs text-stone-500">Фотографии не добавлены</div>
+                  <div className="mb-3 flex h-20 items-center justify-center rounded-xl border border-dashed border-white/10 text-xs text-stone-500">{t('noPhotos')}</div>
                 )}
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h4 className="font-semibold text-white">{profile.displayName}, {profile.age}</h4>
                     <p className="mt-1 text-xs text-stone-400">{profile.city}, {profile.country}</p>
                   </div>
-                  {profile.financialAlignment !== null && <span className="shrink-0 rounded-full border border-emerald-500/30 px-2 py-1 text-[10px] text-emerald-300">Финансы {profile.financialAlignment}%</span>}
+                  {profile.financialAlignment !== null && <span className="shrink-0 rounded-full border border-emerald-500/30 px-2 py-1 text-[10px] text-emerald-300">{t('finance')} {profile.financialAlignment}%</span>}
                 </div>
                 {profile.bio && <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-stone-300">{profile.bio}</p>}
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  {profile.relationshipIntent === 'family_without_marriage' && <span className="rounded-full border border-amber-500/20 bg-amber-950/30 px-2 py-1 text-[10px] text-amber-200">Семья без брака</span>}
-                  {profile.familyFormat === 'cohabitation' && <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-stone-300">Совместная жизнь без регистрации</span>}
-                  {profile.hasChildren === true && <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-stone-300">Есть дети</span>}
-                  {profile.hasChildren === false && <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-stone-400">Детей нет</span>}
-                  {profile.wantsChildren === 'yes' && <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-stone-300">Хочет детей</span>}
-                  {profile.wantsChildren === 'no' && <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-stone-300">Не планирует детей</span>}
+                  {profile.relationshipIntent === 'family_without_marriage' && <span className="rounded-full border border-amber-500/20 bg-amber-950/30 px-2 py-1 text-[10px] text-amber-200">{t('familyWithoutMarriage')}</span>}
+                  {profile.familyFormat === 'cohabitation' && <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-stone-300">{t('cohabitation')}</span>}
+                  {profile.hasChildren === true && <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-stone-300">{t('hasChildren')}</span>}
+                  {profile.hasChildren === false && <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-stone-400">{t('noChildren')}</span>}
+                  {profile.wantsChildren === 'yes' && <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-stone-300">{t('childrenWant')}</span>}
+                  {profile.wantsChildren === 'no' && <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-stone-300">{t('childrenNoWant')}</span>}
                 </div>
                 {(profile.occupation || profile.education) && <p className="mt-2 text-xs text-stone-400">{[profile.occupation, profile.education].filter(Boolean).join(' · ')}</p>}
-                {profile.languages?.length ? <p className="mt-1 text-xs text-stone-400">Языки: {profile.languages.join(', ')}</p> : null}
-                <p className="mt-2 text-[10px] text-stone-500">{profile.relationshipIntent === 'marriage_family' ? 'Цель: брак и семья' : 'Цель: серьёзные отношения'}</p>
-                <button type="button" onClick={() => void like(profile)} disabled={likedIds.includes(profile.id)} className="mt-3 w-full rounded-xl border border-rose-500/30 px-3 py-2.5 text-xs font-bold text-rose-200 disabled:opacity-50">{likedIds.includes(profile.id) ? 'Симпатия отправлена' : 'Отправить симпатию'}</button>
-                <button type="button" onClick={() => void pass(profile)} disabled={busy} className="mt-2 w-full rounded-xl border border-white/10 px-3 py-2.5 text-xs font-semibold text-stone-300 disabled:opacity-50">Пропустить анкету</button>
-                <button type="button" onClick={() => void block(profile)} disabled={busy || blockedIds.includes(profile.id)} className="mt-2 w-full rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-400 disabled:opacity-50">Скрыть и заблокировать</button>
-                <button type="button" onClick={() => { setReportTargetId(reportTargetId === profile.id ? null : profile.id); setReportDetails(''); }} className="mt-2 w-full rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-400">Пожаловаться</button>
+                {profile.languages?.length ? <p className="mt-1 text-xs text-stone-400">{t('languages')}: {profile.languages.join(', ')}</p> : null}
+                <p className="mt-2 text-[10px] text-stone-500">{profile.relationshipIntent === 'marriage_family' ? '{t('profileMarriage')}' : '{t('profileSerious')}'}</p>
+                <button type="button" onClick={() => void like(profile)} disabled={likedIds.includes(profile.id)} className="mt-3 w-full rounded-xl border border-rose-500/30 px-3 py-2.5 text-xs font-bold text-rose-200 disabled:opacity-50">{likedIds.includes(profile.id) ? '{t('liked')}' : '{t('like')}'}</button>
+                <button type="button" onClick={() => void pass(profile)} disabled={busy} className="mt-2 w-full rounded-xl border border-white/10 px-3 py-2.5 text-xs font-semibold text-stone-300 disabled:opacity-50">{t('pass')}</button>
+                <button type="button" onClick={() => void block(profile)} disabled={busy || blockedIds.includes(profile.id)} className="mt-2 w-full rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-400 disabled:opacity-50">{t('block')}</button>
+                <button type="button" onClick={() => { setReportTargetId(reportTargetId === profile.id ? null : profile.id); setReportDetails(''); }} className="mt-2 w-full rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-400">{t('report')}</button>
                 {reportTargetId === profile.id && (
                   <div className="mt-2 space-y-2 rounded-xl border border-white/10 bg-stone-900 p-3">
-                    <label className="block text-xs text-stone-300">Причина<select value={reportCategory} onChange={e => setReportCategory(e.target.value)} className="mt-1 w-full rounded-lg border border-white/10 bg-stone-950 p-2 text-xs text-white"><option value="fake_profile">Подозрение на фейковую анкету</option><option value="spam">Спам или мошенничество</option><option value="harassment">Оскорбления или преследование</option><option value="safety">Угроза безопасности</option><option value="children_misrepresentation">Сокрытие наличия детей</option><option value="duplicate_profile">Повторная анкета</option><option value="other">Другое</option></select></label>
-                    <label className="block text-xs text-stone-300">Комментарий (необязательно)<textarea value={reportDetails} onChange={e => setReportDetails(e.target.value)} maxLength={2000} rows={2} className="mt-1 w-full rounded-lg border border-white/10 bg-stone-950 p-2 text-xs text-white" /></label>
-                    <button type="button" onClick={() => void submitReport(profile)} disabled={busy} className="w-full rounded-lg bg-rose-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{busy ? 'Отправляем…' : 'Отправить жалобу'}</button>
+                    <label className="block text-xs text-stone-300">{t('reportReason')}<select value={reportCategory} onChange={e => setReportCategory(e.target.value)} className="mt-1 w-full rounded-lg border border-white/10 bg-stone-950 p-2 text-xs text-white"><option value="fake_profile">{t('reportFake')}</option><option value="spam">{t('reportSpam')}</option><option value="harassment">{t('reportHarassment')}</option><option value="safety">{t('reportSafety')}</option><option value="children_misrepresentation">{t('reportChildren')}</option><option value="duplicate_profile">{t('reportDuplicate')}</option><option value="other">{t('reportOther')}</option></select></label>
+                    <label className="block text-xs text-stone-300">{t('reportComment')}<textarea value={reportDetails} onChange={e => setReportDetails(e.target.value)} maxLength={2000} rows={2} className="mt-1 w-full rounded-lg border border-white/10 bg-stone-950 p-2 text-xs text-white" /></label>
+                    <button type="button" onClick={() => void submitReport(profile)} disabled={busy} className="w-full rounded-lg bg-rose-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{busy ? '{t('sending')}' : '{t('sendReport')}'}</button>
                   </div>
                 )}
               </article>
