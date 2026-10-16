@@ -23,6 +23,7 @@ interface FilterDrawerProps {
   intentFilter: string;
   setIntentFilter: (val: string) => void;
   onApply: () => void;
+  onReset: () => void;
 }
 
 export const FilterDrawer: React.FC<FilterDrawerProps> = ({
@@ -38,7 +39,8 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
   setSelectedCity,
   intentFilter,
   setIntentFilter,
-  onApply
+  onApply,
+  onReset
 }) => {
   if (!isOpen) return null;
 
@@ -96,19 +98,20 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
             </div>
             <div>
               <label className="block text-stone-300 font-medium mb-1.5" htmlFor="discovery-country">Страна</label>
-              <select id="discovery-country" value={selectedCountry} onChange={e => setSelectedCountry(e.target.value)} className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs">
-                <option value="all">Все страны</option>
-                <option value="Россия">Россия</option>
-                <option value="Грузия">Грузия</option>
-                <option value="Казахстан">Казахстан</option>
-                <option value="Армения">Армения</option>
-                <option value="Другая страна">Другая страна</option>
-              </select>
+              <input
+                id="discovery-country"
+                type="text"
+                value={selectedCountry === 'all' ? '' : selectedCountry}
+                onChange={e => setSelectedCountry(e.target.value.trimStart() || 'all')}
+                placeholder="Например, Грузия, Россия, Германия"
+                autoComplete="country-name"
+                className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs placeholder:text-stone-600"
+              />
             </div>
             <div>
               <label className="block text-stone-300 font-medium mb-1.5" htmlFor="discovery-city">Город</label>
               <input id="discovery-city" type="text" value={selectedCity === 'all' ? '' : selectedCity} onChange={e => setSelectedCity(e.target.value.trimStart() || 'all')} placeholder="Например, Тбилиси, Москва, Алматы" autoComplete="address-level2" className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs placeholder:text-stone-600" />
-              <p className="text-[10px] text-stone-500 mt-1">Можно указать любой город, не только из готового списка.</p>
+              <p className="text-[10px] text-stone-500 mt-1">Можно указать любой город. Поиск не зависит от готового списка.</p>
             </div>
             {(selectedCountry !== 'all' || selectedCity !== 'all') && (
               <button type="button" onClick={() => { setSelectedCountry('all'); setSelectedCity('all'); }} className="text-[11px] text-rose-300 hover:text-rose-200 underline underline-offset-2">Сбросить локацию</button>
@@ -168,10 +171,13 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
 
         <div className="flex gap-2">
           <button
-            onClick={onClose}
+            onClick={() => {
+              onReset();
+              onClose();
+            }}
             className="flex-1 py-3 rounded-xl bg-stone-800 text-stone-300 font-semibold text-xs"
           >
-            Сбросить
+            Сбросить фильтры
           </button>
           <button
             onClick={() => {
