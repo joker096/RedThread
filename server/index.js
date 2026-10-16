@@ -337,6 +337,10 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
          p.country,
          p.city,
          p.bio,
+         p.photo_urls AS "photoUrls",
+         p.occupation,
+         p.education,
+         p.languages,
          p.relationship_intent AS "relationshipIntent",
          candidate_assessment.answers AS assessment_answers,
          my_assessment.answers AS my_assessment_answers
@@ -350,6 +354,11 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
          AND p.is_visible = TRUE
          AND p.birth_date IS NOT NULL
          AND u.status = 'active'
+         AND NOT EXISTS (
+           SELECT 1 FROM user_blocks b
+           WHERE (b.blocker_id = $1 AND b.blocked_id = p.user_id)
+              OR (b.blocker_id = p.user_id AND b.blocked_id = $1)
+         )
          AND ($2::text IS NULL OR p.country ILIKE '%' || $2 || '%')
          AND ($3::text IS NULL OR p.city ILIKE '%' || $3 || '%')
          AND ($4::text IS NULL OR p.relationship_intent = $4)
@@ -377,6 +386,15 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
 
 function isUuid(value) {
   return typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value);
+}
+
+function isSafePhotoUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && !url.username && !url.password && value.trim() === value;
+  } catch {
+    return false;
+  }
 }
 
 app.get('/api/assessment', requireSession, async (req, res) => {
@@ -419,7 +437,8 @@ app.get('/api/profiles/me', requireSession, async (req, res) => {
     const result = await pool.query(
       `SELECT user_id AS id, display_name AS "displayName",
         EXTRACT(YEAR FROM AGE(CURRENT_DATE, birth_date))::int AS age,
-        gender, country, city, bio, relationship_intent AS "relationshipIntent", is_visible AS "isVisible"
+        gender, country, city, bio, photo_urls AS "photoUrls", occupation, education, languages,
+        relationship_intent AS "relationshipIntent", is_visible AS "isVisible"
        FROM profiles WHERE user_id = $1`,
       [req.authUser.id]
     );
@@ -462,6 +481,28 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
     }
     addUpdate('city', body.city.trim());
   }
+  if (Object.hasOwn(body, 'photoUrls')) {
+    if (!Array.isArray(body.photoUrls) || body.photoUrls.length > 6 ||
+        body.photoUrls.some(url => typeof url !== 'string' || url.length > 2048 || !isSafePhotoUrl(url))) {
+      return res.status(400).json({ error: 'invalid_photo_urls' });
+    }
+    addUpdate('photo_urls', body.photoUrls);
+  }
+  if (Object.hasOwn(body, 'occupation')) {
+    if (typeof body.occupation !== 'string' || body.occupation.trim().length > 120) return res.status(400).json({ error: 'invalid_occupation' });
+    addUpdate('occupation', body.occupation.trim());
+  }
+  if (Object.hasOwn(body, 'education')) {
+    if (typeof body.education !== 'string' || body.education.trim().length > 120) return res.status(400).json({ error: 'invalid_education' });
+    addUpdate('education', body.education.trim());
+  }
+  if (Object.hasOwn(body, 'languages')) {
+    if (!Array.isArray(body.languages) || body.languages.length > 10 ||
+        body.languages.some(language => typeof language !== 'string' || language.trim().length < 2 || language.trim().length > 40)) {
+      return res.status(400).json({ error: 'invalid_languages' });
+    }
+    addUpdate('languages', [...new Set(body.languages.map(language => language.trim()))]);
+  }
   if (Object.hasOwn(body, 'relationshipIntent')) {
     if (!['marriage_family', 'serious_relationship'].includes(body.relationshipIntent)) {
       return res.status(400).json({ error: 'invalid_relationship_intent' });
@@ -502,8 +543,13 @@ app.post('/api/likes/:targetId', validateRequestOrigin, requireSession, async (r
     const targetResult = await client.query(
       `SELECT p.user_id, p.gender
        FROM profiles p JOIN users u ON u.id = p.user_id
-       WHERE p.user_id = $1 AND p.is_visible = TRUE AND u.status = 'active'`,
-      [targetId]
+       WHERE p.user_id = $1 AND p.is_visible = TRUE AND u.status = 'active'
+         AND NOT EXISTS (
+           SELECT 1 FROM user_blocks b
+           WHERE (b.blocker_id = $2 AND b.blocked_id = p.user_id)
+              OR (b.blocker_id = p.user_id AND b.blocked_id = $2)
+         )`,
+      [targetId, req.authUser.id]
     );
     const target = targetResult.rows[0];
     if (!target || target.gender === req.authUser.gender) {
@@ -645,6 +691,61 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
   } catch (error) {
     console.error('Message send failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'message_send_failed' });
+  }
+});
+
+
+app.get('/api/blocks', requireSession, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT b.blocked_id AS id, p.display_name AS "displayName", b.created_at AS "createdAt"
+       FROM user_blocks b JOIN profiles p ON p.user_id = b.blocked_id
+       WHERE b.blocker_id = $1 ORDER BY b.created_at DESC`,
+      [req.authUser.id]
+    );
+    return res.json({ blocks: result.rows });
+  } catch (error) {
+    console.error('Block list failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'block_list_failed' });
+  }
+});
+
+app.post('/api/blocks/:targetId', validateRequestOrigin, requireSession, async (req, res) => {
+  const targetId = req.params.targetId;
+  if (!isUuid(targetId) || targetId === req.authUser.id) return res.status(400).json({ error: 'invalid_block_target' });
+  const client = await pool.connect().catch(() => null);
+  if (!client) return res.status(503).json({ error: 'database_unavailable' });
+  try {
+    await client.query('BEGIN');
+    const target = await client.query(`SELECT 1 FROM users WHERE id = $1 AND status = 'active'`, [targetId]);
+    if (!target.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'target_not_available' });
+    }
+    await client.query('INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [req.authUser.id, targetId]);
+    await client.query('DELETE FROM likes WHERE (sender_id = $1 AND target_id = $2) OR (sender_id = $2 AND target_id = $1)', [req.authUser.id, targetId]);
+    await client.query(`UPDATE matches SET status = 'blocked'
+      WHERE user_a_id = LEAST($1::uuid, $2::uuid) AND user_b_id = GREATEST($1::uuid, $2::uuid) AND status = 'active'`, [req.authUser.id, targetId]);
+    await client.query('COMMIT');
+    return res.status(204).end();
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Block user failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'block_user_failed' });
+  } finally {
+    client.release();
+  }
+});
+
+app.delete('/api/blocks/:targetId', validateRequestOrigin, requireSession, async (req, res) => {
+  const targetId = req.params.targetId;
+  if (!isUuid(targetId) || targetId === req.authUser.id) return res.status(400).json({ error: 'invalid_block_target' });
+  try {
+    await pool.query('DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2', [req.authUser.id, targetId]);
+    return res.status(204).end();
+  } catch (error) {
+    console.error('Unblock user failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'unblock_user_failed' });
   }
 });
 
