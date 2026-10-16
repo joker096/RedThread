@@ -676,8 +676,22 @@ export default function App() {
     <div className="min-h-screen bg-stone-950 text-stone-100 flex flex-col items-center">
       <PWAInstallBanner />
       {/* Prototype disclosure: prevents mock data from being mistaken for verified production activity. */}
-      <div role="status" className="w-full border-b border-amber-500/20 bg-amber-950/70 px-3 py-2 text-center text-[11px] text-amber-100">
-        Демо-режим: анкеты, взаимные симпатии и бонусы показаны для проверки интерфейса. Реальная регистрация и серверные чаты ещё не подключены.
+      <div role="status" className="w-full border-b border-amber-500/20 bg-amber-950/70 px-3 py-2 text-center text-[11px] text-amber-100 flex flex-col sm:flex-row items-center justify-center gap-2">
+        <span>Демо-режим: анкеты, взаимные симпатии и бонусы показаны для проверки интерфейса. Реальная регистрация и серверные чаты ещё не подключены.</span>
+        <button
+          type="button"
+          onClick={() => {
+            try {
+              window.localStorage.removeItem('nit-demo-state-v1');
+            } catch {
+              // The page can still be reloaded if storage is unavailable.
+            }
+            window.location.reload();
+          }}
+          className="shrink-0 rounded-full border border-amber-200/30 px-2.5 py-1 font-bold hover:bg-amber-900/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-200"
+        >
+          Сбросить демо
+        </button>
       </div>
       {/* Device Mode Wrapper */}
       <div className="w-full flex flex-col items-center flex-1">
