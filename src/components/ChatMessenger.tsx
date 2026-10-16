@@ -194,7 +194,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
               <span className="lg:hidden">Услуги</span>
             </button>
             <button
-              onClick={() => setShowInviteModal(true)
+              onClick={() => setShowInviteModal(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 text-white font-semibold text-xs shadow-md shadow-rose-950 hover:from-rose-500 hover:to-red-500 transition-all"
             >
               <Coffee className="w-3.5 h-3.5" />
