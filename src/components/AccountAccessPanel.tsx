@@ -235,7 +235,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
   return (
     <section className="mb-5 rounded-3xl border border-white/10 bg-stone-900/80 p-4 sm:p-5">
       <div className="mb-3">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-rose-300">Аккаунт НИТЬ</p>
+        <p className="text-[10px] uppercase tracking-[0.2em] text-rose-300">Vow account</p>
         <h3 className="mt-1 text-lg font-bold text-white">{user ? 'Вы вошли в аккаунт' : mode === 'login' ? 'Вход' : 'Создать аккаунт'}</h3>
       </div>
       {user ? (
