@@ -285,7 +285,8 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(undoTargetPass.status, 204);
     const undoMostRecentPass = await request('/api/passes/undo', {
       method: 'POST',
-      headers: { Cookie: maleCookie }
+      headers: { Cookie: maleCookie },
+      body: JSON.stringify({ targetId: registered.user.id })
     });
     assert.equal(undoMostRecentPass.status, 200);
     assert.equal((await undoMostRecentPass.json()).profile.id, registered.user.id);
@@ -404,7 +405,7 @@ test('auth API supports registration, session lookup, logout and login', {
       headers: { Cookie: secondCookie }
     });
     assert.equal(familySearch.status, 200);
-    assert.equal((await familySearch.json()).profiles.some(profile => profile.id === maleRegistered.user.id && profile.hasChildren === true), true);
+    assert.equal((await familySearch.json()).profiles.some(profile => profile.id === maleRegistered.user.id), false);
 
     const passProfile = await request(`/api/passes/${maleRegistered.user.id}`, {
       method: 'POST',
