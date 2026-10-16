@@ -228,6 +228,11 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
        RETURNING user_id AS id, display_name, gender, country, city, relationship_intent`,
       [user.id, displayName, birthDate, gender, country, city, relationshipIntent, familyFormat, hasChildren, wantsChildren, childrenLivingArrangement]
     );
+    const registrationScreening = await screenProfilePrivate({
+      displayName, country, city, bio: '', occupation: '', education: '',
+      hasChildren, childrenLivingArrangement
+    });
+    await persistScreening(user.id, 'profile', registrationScreening);
     const token = await createSession(client, user.id);
     await client.query('COMMIT');
 
