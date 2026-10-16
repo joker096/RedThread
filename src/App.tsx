@@ -19,6 +19,7 @@ import type {
   AdStats 
 } from './types/index.ts';
 import { calculateCompatibility, shouldShowAds, filterBinaryCandidates } from './utils/compatibility.ts';
+import { matchesProfileLocation } from './utils/location.ts';
 import { HeaderNav } from './components/HeaderNav.tsx';
 import { PWAInstallBanner } from './components/PWAInstallBanner.tsx';
 import { RadarDiscovery } from './components/RadarDiscovery.tsx';
@@ -504,9 +505,7 @@ export default function App() {
   const filteredProfiles = binaryPool.filter(p => {
     if (p.isSponsorAd) return true;
     if (onlyVerified && !p.verification.isVerified) return false;
-    const profileCountry = p.country || 'Россия';
-    if (selectedCountry !== 'all' && profileCountry !== selectedCountry) return false;
-    if (selectedCity !== 'all' && !p.city.toLocaleLowerCase().includes(selectedCity.trim().toLocaleLowerCase())) return false;
+    if (!matchesProfileLocation(p, selectedCountry, selectedCity)) return false;
     if (intentFilter !== 'all' && p.intent !== intentFilter) return false;
     const comp = calculateCompatibility(
       currentUser.crucialAnswers,
