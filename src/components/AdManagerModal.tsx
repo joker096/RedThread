@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   DollarSign, 
   Play, 
@@ -33,6 +33,22 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
   const [isPlayingVideo, setIsPlayingVideo] = useState(false);
   const [countdown, setCountdown] = useState(5);
   const [rewardClaimed, setRewardClaimed] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      if (timerRef.current) clearInterval(timerRef.current);
+      timerRef.current = null;
+      setIsPlayingVideo(false);
+      setCountdown(5);
+    }
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -41,17 +57,18 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
     setRewardClaimed(false);
     setCountdown(5);
 
-    const timer = setInterval(() => {
-      setCountdown(prev => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          setIsPlayingVideo(false);
-          setRewardClaimed(true);
-          onWatchRewardedAd();
-          return 0;
-        }
-        return prev - 1;
-      });
+    if (timerRef.current) clearInterval(timerRef.current);
+    let secondsRemaining = 5;
+    timerRef.current = setInterval(() => {
+      secondsRemaining -= 1;
+      setCountdown(secondsRemaining);
+      if (secondsRemaining <= 0) {
+        if (timerRef.current) clearInterval(timerRef.current);
+        timerRef.current = null;
+        setIsPlayingVideo(false);
+        setRewardClaimed(true);
+        onWatchRewardedAd();
+      }
     }, 1000);
   };
 
@@ -80,7 +97,7 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
               </span>
             </div>
             <p className="text-xs text-stone-400">
-              Пока мужчины пользуются сервисом бесплатно, реклама окупает платформу
+              Демонстрация монетизации. Реальная рекламная сеть не подключена.
             </p>
           </div>
         </div>
@@ -98,7 +115,7 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
           </div>
 
           <p className="text-xs text-stone-300 mb-3 leading-relaxed">
-            Пользователь может посмотреть 15-секундный спонсорский ролик и получить <strong className="text-white">+3 Супер-симпатии</strong> или <strong className="text-white">Буст анкеты в топ на 24 часа</strong> абсолютно бесплатно!
+            В демонстрации можно запустить короткую симуляцию награды и получить <strong className="text-white">+3 Супер-симпатии</strong> и <strong className="text-white">Буст анкеты</strong> в рамках тестового сценария. Это не реальный рекламный показ.
           </p>
 
           {/* Current inventory */}
@@ -115,14 +132,14 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
 
           {isPlayingVideo ? (
             <div className="p-4 rounded-2xl bg-stone-950 border border-amber-500 text-center animate-pulse">
-              <div className="text-xs font-bold text-amber-300 mb-1">Воспроизведение видеоспонсора: «Романтический ужин в Radisson Cruise»</div>
+              <div className="text-xs font-bold text-amber-300 mb-1">Демонстрация рекламного сценария — реальный ролик не подключён</div>
               <div className="text-2xl font-mono font-black text-white">{countdown} сек</div>
               <div className="text-[10px] text-stone-400 mt-1">Не закрывайте окно до начисления бонуса...</div>
             </div>
           ) : rewardClaimed ? (
             <div className="p-3 rounded-xl bg-emerald-950/80 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center justify-center gap-2">
               <CheckCircle className="w-4 h-4" />
-              <span>Награда успешно начислена: +3 Супер-симпатии и Буст активен!</span>
+              <span>Демо-награда добавлена локально. Рекламная сеть не подключена.</span>
             </div>
           ) : (
             <button
@@ -139,7 +156,7 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
         <div className="space-y-2 mb-5">
           <div className="text-xs font-bold text-stone-300 uppercase tracking-wider flex items-center gap-1.5">
             <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Аналитика рекламной сетки (Яндекс Реклама & Спонсоры)</span>
+            <span>Демо-статистика (рекламная сеть не подключена)</span>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
@@ -148,15 +165,15 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
               <div className="text-lg font-heading font-black text-white mt-0.5">
                 {stats.impressions.toLocaleString()}
               </div>
-              <div className="text-[9px] text-emerald-400 mt-0.5">+14% за сегодня</div>
+              <div className="text-[9px] text-stone-400 mt-0.5">Нет данных провайдера</div>
             </div>
 
             <div className="p-3 rounded-2xl bg-stone-950/70 border border-white/5">
-              <div className="text-[10px] text-stone-400">Клики (CTR 3.8%)</div>
+              <div className="text-[10px] text-stone-400">Клики в демо</div>
               <div className="text-lg font-heading font-black text-white mt-0.5">
                 {stats.clicks.toLocaleString()}
               </div>
-              <div className="text-[9px] text-stone-400 mt-0.5">Высокая релевантность</div>
+              <div className="text-[9px] text-stone-400 mt-0.5">Не реальные рекламные клики</div>
             </div>
 
             <div className="p-3 rounded-2xl bg-stone-950/70 border border-white/5 col-span-2 sm:col-span-1">
@@ -164,16 +181,16 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
               <div className="text-lg font-heading font-black text-amber-400 mt-0.5">
                 {stats.averageEcpmRub} ₽
               </div>
-              <div className="text-[9px] text-stone-400 mt-0.5">Премиум аудитория</div>
+              <div className="text-[9px] text-stone-400 mt-0.5">Не подключено</div>
             </div>
 
             <div className="p-3 rounded-2xl bg-stone-950/70 border border-white/5 col-span-2 sm:col-span-2">
-              <div className="text-[10px] text-stone-400">Расчетный доход от рекламы (в сутки)</div>
+              <div className="text-[10px] text-stone-400">Доход от рекламы</div>
               <div className="text-xl font-heading font-black text-emerald-400 mt-0.5">
                 {stats.estimatedRevenueRub.toLocaleString()} ₽
               </div>
               <div className="text-[10px] text-stone-400 mt-0.5">
-                Прогноз на месяц: ~{Math.round(stats.estimatedRevenueRub * 30).toLocaleString()} ₽
+                Доход не рассчитывается без данных рекламной сети
               </div>
             </div>
 
@@ -182,7 +199,7 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
               <div className="text-lg font-heading font-black text-white mt-0.5">
                 {stats.rewardedWatched}
               </div>
-              <div className="text-[9px] text-amber-400 mt-0.5">100% досмотр</div>
+              <div className="text-[9px] text-stone-400 mt-0.5">Симуляции</div>
             </div>
           </div>
         </div>

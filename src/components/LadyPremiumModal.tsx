@@ -47,9 +47,9 @@ export const LadyPremiumModal: React.FC<LadyPremiumModalProps> = ({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-xl font-heading font-black text-white">Lady Premium Club</h2>
+              <h2 className="text-xl font-heading font-black text-white">Lady Premium — демо</h2>
               <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full">
-                VIP Для Женщин
+                Демо · оплата не подключена
               </span>
             </div>
             <p className="text-xs text-stone-400">
@@ -62,10 +62,10 @@ export const LadyPremiumModal: React.FC<LadyPremiumModalProps> = ({
         <div className="p-3.5 rounded-2xl bg-rose-950/40 border border-rose-800/30 mb-5 text-xs">
           <div className="font-bold text-rose-300 flex items-center gap-1.5 mb-1">
             <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500" />
-            <span>Почему в «Красной Нити» платят только женщины?</span>
+            <span>Демонстрационная модель подписки</span>
           </div>
           <p className="text-stone-300 text-[11px] leading-relaxed">
-            В обычных сервисах мужчины платят за каждый свайп, из-за чего в поиске остаются случайные искатели легких встреч. Мы сделали вход для мужчин <strong className="text-white">100% бесплатным</strong> — это собирает лучший пул зрелых, надежных и занятых кандидатов для семьи. Женщины же получают эксклюзивные инструменты отбора и приоритетного показа.
+            В этой концепции мужчинам предлагается бесплатный базовый доступ, а женщины могут выбрать дополнительные инструменты отбора. Это бизнес-гипотеза, которую нужно проверить на реальном спросе; сам тариф не гарантирует серьёзность намерений пользователей.
           </p>
         </div>
 
@@ -81,8 +81,8 @@ export const LadyPremiumModal: React.FC<LadyPremiumModalProps> = ({
                 <Zap className="w-3.5 h-3.5" />
               </div>
               <div>
-                <div className="font-bold text-white text-[11px]">Приоритет №1 в радаре</div>
-                <div className="text-[10px] text-stone-400">Показываетесь первой топ-1% мужчинам</div>
+                <div className="font-bold text-white text-[11px]">Приоритет в радаре (идея)</div>
+                <div className="text-[10px] text-stone-400">Возможная функция будущего сервиса</div>
               </div>
             </div>
 
@@ -92,7 +92,7 @@ export const LadyPremiumModal: React.FC<LadyPremiumModalProps> = ({
               </div>
               <div>
                 <div className="font-bold text-white text-[11px]">Детектор намерений</div>
-                <div className="text-[10px] text-stone-400">AI-анализ зрелости и правдивости анкеты</div>
+                <div className="text-[10px] text-stone-400">Возможная функция; AI-проверка не подключена</div>
               </div>
             </div>
 
@@ -144,7 +144,7 @@ export const LadyPremiumModal: React.FC<LadyPremiumModalProps> = ({
             }`}
           >
             <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gradient-to-r from-amber-500 to-rose-600 text-stone-950 text-[9px] font-black uppercase px-2.5 py-0.5 rounded-full tracking-wider whitespace-nowrap shadow-md">
-              Хит • Выгода 35%
+              Пример тарифа
             </div>
             <div className="text-[11px] font-bold text-amber-300">3 месяца</div>
             <div className="text-base font-heading font-black text-white mt-1">1 990 ₽</div>
@@ -169,9 +169,9 @@ export const LadyPremiumModal: React.FC<LadyPremiumModalProps> = ({
         {/* Instant Toggle Activation Demo Switch */}
         <div className="p-3 rounded-2xl bg-stone-950 border border-white/10 mb-5 flex items-center justify-between">
           <div>
-            <div className="text-xs font-bold text-white">Статус подписки в приложении:</div>
+            <div className="text-xs font-bold text-white">Демо-статус подписки (без оплаты):</div>
             <div className="text-[10px] text-stone-400">
-              {isLadyPremium ? 'Активирован (Все VIP привилегии включены)' : 'Не активен (Базовый тариф с рекламой)'}
+              {isLadyPremium ? 'Включён только в интерфейсе прототипа' : 'Не включён'}
             </div>
           </div>
 
@@ -196,7 +196,7 @@ export const LadyPremiumModal: React.FC<LadyPremiumModalProps> = ({
           className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 text-stone-950 font-heading font-black text-sm flex items-center justify-center gap-2 shadow-xl shadow-amber-950/50 transition-all hover:scale-[1.02] active:scale-95"
         >
           <Crown className="w-5 h-5 fill-stone-950" />
-          <span>{isLadyPremium ? 'Сохранить и продолжить' : 'Оформить Lady VIP подписку'}</span>
+          <span>{isLadyPremium ? 'Закрыть окно' : 'Включить VIP в демо'}</span>
           <ArrowRight className="w-4 h-4 stroke-[2.5]" />
         </button>
       </div>

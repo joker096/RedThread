@@ -1,6 +1,8 @@
 {
-  "name": "Красная Нить — Знакомства для брака и семьи",
-  "description": "Серьезные знакомства без пустых переписок с автоматической защитой от ботов, матрицей совместимости и моделью Lady Premium.",
+  "name": "НИТЬ — серьёзные знакомства для семьи",
+  "description": "Серьёзные знакомства для отношений и семьи: совместимость по ценностям, инструменты безопасности и меньше пустых переписок.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

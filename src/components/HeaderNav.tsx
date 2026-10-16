@@ -50,11 +50,10 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   return (
     <header className="sticky top-0 z-40 w-full bg-stone-950/80 backdrop-blur-2xl border-b border-white/5 px-2.5 sm:px-4 py-2">
       <div className="max-w-xl sm:max-w-4xl mx-auto flex items-center justify-between gap-1.5 sm:gap-3">
-        {/* Left: Sleek Minimal Twinby Logo with Brand Picker */}
+        {/* NIT brand */}
         <div 
-          onClick={onOpenBrandModal} 
-          className="flex items-center gap-1.5 cursor-pointer select-none group shrink-0"
-          title="Нажмите, чтобы сменить название"
+          className="flex items-center gap-1.5 select-none group shrink-0"
+          title="НИТЬ — серьёзные знакомства"
         >
           <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-tr from-rose-600 via-red-600 to-amber-500 flex items-center justify-center text-white shadow-md shadow-rose-950/60 group-hover:scale-105 transition-transform">
             <Flame className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-white" />
@@ -145,18 +144,20 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             <SlidersHorizontal className="w-3.5 h-3.5" />
           </button>
 
-          {/* Lady Premium Queen Pill */}
-          <button
-            onClick={onOpenPremiumModal}
-            className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full text-[11px] font-black transition-all shadow-md shrink-0 ${
-              isLadyPremium
-                ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-stone-950 ring-1 ring-amber-300'
-                : 'bg-gradient-to-r from-rose-600 to-red-600 text-white hover:brightness-110'
-            }`}
-          >
-            <Crown className="w-3 h-3 fill-current shrink-0" />
-            <span>{isLadyPremium ? 'VIP' : 'Queen'}</span>
-          </button>
+          {/* Lady Premium is only offered in the female demo persona. */}
+          {currentGender === 'female' && (
+            <button
+              onClick={onOpenPremiumModal}
+              className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full text-[11px] font-black transition-all shadow-md shrink-0 ${
+                isLadyPremium
+                  ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-stone-950 ring-1 ring-amber-300'
+                  : 'bg-gradient-to-r from-rose-600 to-red-600 text-white hover:brightness-110'
+              }`}
+            >
+              <Crown className="w-3 h-3 fill-current shrink-0" />
+              <span>{isLadyPremium ? 'VIP' : 'Lady VIP'}</span>
+            </button>
+          )}
         </div>
       </div>
     </header>

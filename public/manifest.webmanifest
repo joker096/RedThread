@@ -1,0 +1,21 @@
+{
+  "id": "/",
+  "name": "НИТЬ — серьёзные знакомства",
+  "short_name": "НИТЬ",
+  "description": "Знакомства для долгосрочных отношений и семьи",
+  "lang": "ru",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0c0a09",
+  "theme_color": "#991b1b",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

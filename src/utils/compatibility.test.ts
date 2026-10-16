@@ -126,6 +126,10 @@ test('shouldShowAds respects Lady Premium status', () => {
   const maleUser = shouldShowAds(false, true);
   assert.equal(maleUser.showBanners, true);
   assert.ok(maleUser.freeExplanation.includes('Мужчинам сервис бесплатен'));
+
+  const maleWithStalePremiumFlag = shouldShowAds(true, true);
+  assert.equal(maleWithStalePremiumFlag.showBanners, true);
+  assert.equal(maleWithStalePremiumFlag.canWatchRewardedForBoost, true);
 });
 
 test('filterBinaryCandidates strictly ensures women see men and men see women', () => {
@@ -146,3 +150,45 @@ test('filterBinaryCandidates strictly ensures women see men and men see women', 
   assert.equal(forMaleUser.some(p => p.id === 'woman_1'), true, 'Male user must see female candidates');
 });
 
+
+
+test('lifestyle mismatch is not rewarded and is explained as a friction point', () => {
+  const matched = calculateCompatibility(
+    mockAnswers,
+    'marriage_family',
+    ['Спорт', 'Путешествия'],
+    mockTargetProfile
+  );
+  const mismatchedProfile: UserProfile = {
+    ...mockTargetProfile,
+    crucialAnswers: {
+      ...mockTargetProfile.crucialAnswers,
+      free_time: 'Уютный дом и спокойствие'
+    }
+  };
+  const mismatched = calculateCompatibility(
+    mockAnswers,
+    'marriage_family',
+    ['Спорт', 'Путешествия'],
+    mismatchedProfile
+  );
+
+  assert.ok(matched.lifestyleMatch > mismatched.lifestyleMatch);
+  assert.ok(mismatched.frictionPoints.some(point => point.includes('предпочтения по отдыху')));
+  assert.ok(mismatched.overallScore >= 0 && mismatched.overallScore <= 100);
+});
+
+
+test('detectBotRisk preserves an explicit zero trust score', () => {
+  const lowTrustProfile = {
+    bio: 'Люблю прогулки, книги и уютные вечера.',
+    isVerified: true,
+    livenessConfidence: 98,
+    reportCount: 0,
+    noBotScore: 0
+  };
+
+  const report = detectBotRisk(lowTrustProfile);
+  assert.equal(report.safetyScore, 10);
+  assert.equal(report.riskLevel, 'high');
+});

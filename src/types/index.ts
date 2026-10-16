@@ -58,6 +58,7 @@ export interface UserProfile {
   onlineStatus: 'online' | 'recently' | 'offline';
   superLikedByMe?: boolean;
   likedByMe?: boolean;
+  likedByCandidate?: boolean;
   isSponsorAd?: boolean;
   sponsorTitle?: string;
   sponsorDescription?: string;

@@ -4,6 +4,7 @@ export const initialProfiles: UserProfile[] = [
   // --- MALE PROFILES (Shown when Current User is Female) ---
   {
     id: 'user_alexander',
+    likedByCandidate: true,
     name: 'Александр',
     age: 32,
     city: 'Москва',
@@ -130,6 +131,7 @@ export const initialProfiles: UserProfile[] = [
   // --- FEMALE PROFILES (Shown when Current User is Male) ---
   {
     id: 'user_elena',
+    likedByCandidate: true,
     name: 'Елена',
     age: 28,
     city: 'Москва',

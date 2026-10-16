@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Heart, 
   MessageCircle, 
@@ -20,6 +20,7 @@ import type {
 } from './types/index.ts';
 import { calculateCompatibility, shouldShowAds, filterBinaryCandidates } from './utils/compatibility.ts';
 import { HeaderNav } from './components/HeaderNav.tsx';
+import { PWAInstallBanner } from './components/PWAInstallBanner.tsx';
 import { RadarDiscovery } from './components/RadarDiscovery.tsx';
 import { CompatibilityMatrixModal } from './components/CompatibilityMatrixModal.tsx';
 import { ChatMessenger } from './components/ChatMessenger.tsx';
@@ -52,7 +53,7 @@ export default function App() {
   const [isAdManagerOpen, setIsAdManagerOpen] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   // Brand naming state
-  const [currentBrandId, setCurrentBrandId] = useState<string>('twinheart');
+  const [currentBrandId, setCurrentBrandId] = useState<string>('thread');
   const [isBrandModalOpen, setIsBrandModalOpen] = useState(false);
 
   const currentBrand = brandOptions.find(b => b.id === currentBrandId) || brandOptions[0];
@@ -68,12 +69,13 @@ export default function App() {
   const [boostActive, setBoostActive] = useState(false);
 
   // Ad Stats
+  // Live ad metrics start at zero; production values must come from the ad provider.
   const [adStats, setAdStats] = useState<AdStats>({
-    impressions: 14280,
-    clicks: 542,
-    rewardedWatched: 128,
-    estimatedRevenueRub: 4120,
-    averageEcpmRub: 288
+    impressions: 0,
+    clicks: 0,
+    rewardedWatched: 0,
+    estimatedRevenueRub: 0,
+    averageEcpmRub: 0
   });
 
   // Pre-configured chat threads
@@ -143,8 +145,62 @@ export default function App() {
 
   const [activeChatThreadId, setActiveChatThreadId] = useState<string | null>('thread_alexander');
 
+  // Demo-only persistence: keep the prototype usable across refreshes on this device.
+  // Production accounts and cross-device sync must use an authenticated backend.
+  const [isHydrated, setIsHydrated] = useState(false);
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem('nit-demo-state-v1');
+      if (raw) {
+        const saved = JSON.parse(raw) as Record<string, unknown>;
+        if (saved.currentUser) setCurrentUser(saved.currentUser as UserProfile);
+        if (saved.currentGender === 'female' || saved.currentGender === 'male') setCurrentGender(saved.currentGender);
+        if (typeof saved.isLadyPremium === 'boolean') setIsLadyPremium(saved.isLadyPremium);
+        if (Array.isArray(saved.profiles)) setProfiles(saved.profiles as UserProfile[]);
+        if (Array.isArray(saved.chatThreads)) setChatThreads(saved.chatThreads as ChatThread[]);
+        if (saved.adStats && typeof saved.adStats === 'object') setAdStats(saved.adStats as AdStats);
+        if (typeof saved.currentBrandId === 'string') setCurrentBrandId(saved.currentBrandId);
+        if (typeof saved.minCompatibility === 'number') setMinCompatibility(saved.minCompatibility);
+        if (typeof saved.onlyVerified === 'boolean') setOnlyVerified(saved.onlyVerified);
+        if (typeof saved.selectedCity === 'string') setSelectedCity(saved.selectedCity);
+        if (typeof saved.intentFilter === 'string') setIntentFilter(saved.intentFilter);
+        if (typeof saved.superLikesCount === 'number') setSuperLikesCount(saved.superLikesCount);
+        if (typeof saved.boostActive === 'boolean') setBoostActive(saved.boostActive);
+        if (typeof saved.activeTab === 'string' && ['discovery', 'tests', 'chats', 'safety', 'monetization'].includes(saved.activeTab)) {
+          setActiveTab(saved.activeTab as 'discovery' | 'tests' | 'chats' | 'safety' | 'monetization');
+        }
+        if (typeof saved.activeChatThreadId === 'string' || saved.activeChatThreadId === null) {
+          setActiveChatThreadId(saved.activeChatThreadId as string | null);
+        }
+      }
+    } catch {
+      // Ignore stale or malformed local demo data and continue with sample defaults.
+    } finally {
+      setIsHydrated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isHydrated) return;
+    try {
+      window.localStorage.setItem('nit-demo-state-v1', JSON.stringify({
+        currentUser, currentGender, isLadyPremium, profiles, chatThreads, adStats,
+        currentBrandId, minCompatibility, onlyVerified, selectedCity, intentFilter,
+        superLikesCount, boostActive, activeTab, activeChatThreadId
+      }));
+    } catch {
+      // Storage can be disabled or full; the app remains usable for this session.
+    }
+  }, [
+    isHydrated, currentUser, currentGender, isLadyPremium, profiles, chatThreads, adStats,
+    currentBrandId, minCompatibility, onlyVerified, selectedCity, intentFilter,
+    superLikesCount, boostActive, activeTab, activeChatThreadId
+  ]);
+
   // Gender persona toggle (strictly binary: Female seeking Male, Male seeking Female)
   const handleToggleGender = () => {
+    // The gender switch is a demo persona switch, not a paid-account transfer.
+    setIsLadyPremium(false);
     if (currentGender === 'female') {
       setCurrentGender('male');
       setCurrentUser(prev => ({
@@ -282,48 +338,44 @@ export default function App() {
 
   // Like candidate
   const handleLike = (target: UserProfile) => {
-    setAdStats(prev => ({
-      ...prev,
-      impressions: prev.impressions + 1,
-      estimatedRevenueRub: prev.estimatedRevenueRub + 0.3
-    }));
-
     if (target.isSponsorAd) return;
 
+    // A like is not a match. A chat is opened only for a reciprocal demo like.
+    setProfiles(prev => prev.map(profile =>
+      profile.id === target.id ? { ...profile, likedByMe: true } : profile
+    ));
+
+    if (!target.likedByCandidate) return;
     const existing = chatThreads.find(t => t.partnerProfile.id === target.id);
-    if (!existing) {
-      const comp = calculateCompatibility(
-        currentUser.crucialAnswers,
-        currentUser.intent,
-        currentUser.interests,
-        target
-      );
-      const newThread: ChatThread = {
-        id: `thread_${target.id}_${Date.now()}`,
-        partnerProfile: target,
-        compatibilityScore: comp.overallScore,
-        createdAt: new Date().toISOString(),
-        lastMessage: `${currentUser.name}: Отправлена взаимная симпатия!`,
-        lastMessageTime: 'Только что',
-        unreadCount: 0,
-        meetingDeadlineHoursLeft: 72,
-        messages: [
-          {
-            id: `msg_${Date.now()}`,
-            senderId: 'current_user',
-            text: `Привет, ${target.name}! У нас совпадение ценностей (${comp.overallScore}%). Рада знакомству без пустых переписок!`,
-            timestamp: 'Только что'
-          }
-        ]
-      };
-      setChatThreads(prev => [newThread, ...prev]);
-    }
+    if (existing) return;
+
+    const comp = calculateCompatibility(
+      currentUser.crucialAnswers,
+      currentUser.intent,
+      currentUser.interests,
+      target
+    );
+    const newThread: ChatThread = {
+      id: `thread_${target.id}_${Date.now()}`,
+      partnerProfile: target,
+      compatibilityScore: comp.overallScore,
+      createdAt: new Date().toISOString(),
+      lastMessage: 'Взаимная симпатия — можно начать разговор',
+      lastMessageTime: 'Только что',
+      unreadCount: 0,
+      meetingDeadlineHoursLeft: 72,
+      messages: []
+    };
+    setChatThreads(prev => [newThread, ...prev]);
   };
 
   // Superlike
   const handleSuperLike = (target: UserProfile) => {
     if (superLikesCount > 0) {
       setSuperLikesCount(prev => prev - 1);
+    } else if (currentGender === 'male') {
+      setIsAdManagerOpen(true);
+      return;
     } else if (!isLadyPremium) {
       setIsLadyPremiumOpen(true);
       return;
@@ -332,12 +384,8 @@ export default function App() {
   };
 
   // Pass candidate
-  const handlePass = (target: UserProfile) => {
-    setAdStats(prev => ({
-      ...prev,
-      impressions: prev.impressions + 1,
-      estimatedRevenueRub: prev.estimatedRevenueRub + 0.3
-    }));
+  const handlePass = (_target: UserProfile) => {
+    // Skipping a profile is not an ad impression or revenue event.
   };
 
   // Send message
@@ -425,8 +473,7 @@ export default function App() {
     setBoostActive(true);
     setAdStats(prev => ({
       ...prev,
-      rewardedWatched: prev.rewardedWatched + 1,
-      estimatedRevenueRub: prev.estimatedRevenueRub + 8.5
+      rewardedWatched: prev.rewardedWatched + 1
     }));
   };
 
@@ -509,12 +556,12 @@ export default function App() {
                 </div>
                 <div>
                   <h3 className="font-heading font-black text-white text-base">Психотипы & Защита от ботов</h3>
-                  <p className="text-[11px] text-stone-400">Twinby-анализ личности и 3D-Liveness</p>
+                  <p className="text-[11px] text-stone-400">Демо-анализ анкеты; проверка личности не подключена</p>
                 </div>
               </div>
 
               <p className="text-xs text-stone-300 leading-relaxed mb-4">
-                Каждый кандидат проходит тест на совместимость (MBTI, стили привязанности, языки любви) и 3D-биометрию лица. Спам-боты и коммерческие аккаунты изолируются автоматически.
+                В демо можно оценить ответы и текст анкеты. Биометрическая проверка, поведенческий анализ и серверная модерация пока не подключены.
               </p>
 
               <div className="space-y-2 mb-4">
@@ -543,7 +590,7 @@ export default function App() {
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                       p.verification.isVerified ? 'bg-emerald-950 text-emerald-300' : 'bg-rose-950 text-rose-300'
                     }`}>
-                      {p.verification.isVerified ? 'Живой 99%' : 'Подозрительный'}
+                      {p.verification.isVerified ? 'Проверен (демо)' : 'Не проверен'}
                     </span>
                   </div>
                 ))}
@@ -568,7 +615,7 @@ export default function App() {
 
               <div className="p-3.5 rounded-2xl bg-stone-950/70 border border-white/5 mb-4 text-xs text-stone-300 leading-relaxed">
                 <strong className="text-white block mb-1">Принцип монетизации:</strong>
-                Мужчинам сервис бесплатен навсегда. Доход формируют нативные спонсорские свидания, rewarded-ролики для бесплатных пользователей и подписка Lady VIP для женщин.
+                Планируемая модель: бесплатный базовый доступ для мужчин, спонсорские размещения и подписка Lady VIP. Реальные рекламные и платёжные интеграции пока не подключены.
               </div>
 
               <div className="flex gap-2">
@@ -617,7 +664,7 @@ export default function App() {
               setAdStats(prev => ({
                 ...prev,
                 clicks: prev.clicks + 1,
-                estimatedRevenueRub: prev.estimatedRevenueRub + 25
+                estimatedRevenueRub: prev.estimatedRevenueRub
               }));
             }}
           />
@@ -627,12 +674,17 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-100 flex flex-col items-center">
+      <PWAInstallBanner />
+      {/* Prototype disclosure: prevents mock data from being mistaken for verified production activity. */}
+      <div role="status" className="w-full border-b border-amber-500/20 bg-amber-950/70 px-3 py-2 text-center text-[11px] text-amber-100">
+        Демо-режим: анкеты, взаимные симпатии и бонусы показаны для проверки интерфейса. Реальная регистрация и серверные чаты ещё не подключены.
+      </div>
       {/* Device Mode Wrapper */}
       <div className="w-full flex flex-col items-center flex-1">
         {deviceFrame === 'responsive' ? (
           /* RESPONSIVE FULL WEB / MOBILE */
           <div className="w-full flex flex-col min-h-screen">
-            {/* Minimal Twinby Header */}
+            {/* NIT header */}
             <HeaderNav
               currentGender={currentGender}
               isLadyPremium={isLadyPremium}
@@ -658,7 +710,7 @@ export default function App() {
               {renderMainContent()}
             </main>
 
-            {/* Twinby-Style Floating Bottom Navigation Dock */}
+            {/* Bottom navigation dock */}
             <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 bg-stone-950/85 backdrop-blur-2xl border border-white/10 rounded-full px-5 py-2 flex items-center gap-5 sm:gap-6 shadow-2xl">
               <button
                 onClick={() => setActiveTab('discovery')}
@@ -707,14 +759,16 @@ export default function App() {
                 <span className="text-[9px]">Защита</span>
               </button>
 
-              <button
-                onClick={() => setIsLadyPremiumOpen(true)}
-                className="flex flex-col items-center gap-0.5 text-amber-400 hover:text-amber-300 font-bold"
-                title="Lady VIP"
-              >
-                <Crown className="w-5 h-5 fill-amber-400/20" />
-                <span className="text-[9px]">VIP</span>
-              </button>
+              {currentGender === 'female' && (
+                <button
+                  onClick={() => setIsLadyPremiumOpen(true)}
+                  className="flex flex-col items-center gap-0.5 text-amber-400 hover:text-amber-300 font-bold"
+                  title="Lady VIP — демо-подписка"
+                >
+                  <Crown className="w-5 h-5 fill-amber-400/20" />
+                  <span className="text-[9px]">VIP</span>
+                </button>
+              )}
             </div>
           </div>
         ) : (
@@ -769,7 +823,7 @@ export default function App() {
                   isLadyPremium={isLadyPremium}
                   deviceFrame={deviceFrame}
                   brandName={currentBrand.name}
-                  onOpenBrandModal={() => setIsBrandModalOpen(true)}
+                  onOpenBrandModal={() => {}}
                   onToggleGender={handleToggleGender}
                   onToggleDeviceFrame={setDeviceFrame}
                   onOpenPremiumModal={() => setIsLadyPremiumOpen(true)}
@@ -834,13 +888,15 @@ export default function App() {
                     <span className="text-[8px]">Защита</span>
                   </button>
 
-                  <button
-                    onClick={() => setIsLadyPremiumOpen(true)}
-                    className="flex flex-col items-center gap-0.5 text-amber-400 font-bold"
-                  >
-                    <Crown className="w-4 h-4" />
-                    <span className="text-[8px]">VIP</span>
-                  </button>
+                  {currentGender === 'female' && (
+                    <button
+                      onClick={() => setIsLadyPremiumOpen(true)}
+                      className="flex flex-col items-center gap-0.5 text-amber-400 font-bold"
+                    >
+                      <Crown className="w-4 h-4" />
+                      <span className="text-[8px]">VIP</span>
+                    </button>
+                  )}
                 </div>
 
                 {/* Home Indicator bar */}
@@ -864,7 +920,7 @@ export default function App() {
         myInterests={currentUser.interests}
         onStartChat={profile => {
           handleLike(profile);
-          setActiveTab('chats');
+          setActiveTab(profile.likedByCandidate ? 'chats' : 'discovery');
         }}
       />
 
@@ -906,7 +962,7 @@ export default function App() {
         setSelectedCity={setSelectedCity}
         intentFilter={intentFilter}
         setIntentFilter={setIntentFilter}
-        onApply={() => {}}
+        onApply={() => setIsFilterOpen(false)}
       />
 
       {/* 6. Brand Naming Proposals Modal */}
