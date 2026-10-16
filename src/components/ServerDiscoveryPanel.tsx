@@ -26,6 +26,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [likedIds, setLikedIds] = useState<string[]>([]);
+  const [blockedIds, setBlockedIds] = useState<string[]>([]);
 
   const search = useCallback(async () => {
     setBusy(true);
@@ -82,6 +83,32 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
     }
   };
 
+  const block = async (profile: ServerProfile) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/blocks/${encodeURIComponent(profile.id)}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      if (response.status === 401) {
+        setAuthenticated(false);
+        setNotice('Войдите, чтобы заблокировать пользователя.');
+        return;
+      }
+      if (!response.ok) throw new Error('Не удалось заблокировать пользователя.');
+      setBlockedIds(current => [...current, profile.id]);
+      setProfiles(current => current.filter(item => item.id !== profile.id));
+      setNotice(`Анкета «${profile.displayName}» заблокирована и больше не будет показываться вам.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Ошибка блокировки.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <section className="mb-5 rounded-3xl border border-emerald-500/20 bg-stone-900/80 p-4 sm:p-5">
       <div className="mb-3">
@@ -119,6 +146,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                 {profile.bio && <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-stone-300">{profile.bio}</p>}
                 <p className="mt-2 text-[10px] text-stone-500">{profile.relationshipIntent === 'marriage_family' ? 'Цель: брак и семья' : 'Цель: серьёзные отношения'}</p>
                 <button type="button" onClick={() => void like(profile)} disabled={likedIds.includes(profile.id)} className="mt-3 w-full rounded-xl border border-rose-500/30 px-3 py-2.5 text-xs font-bold text-rose-200 disabled:opacity-50">{likedIds.includes(profile.id) ? 'Симпатия отправлена' : 'Отправить симпатию'}</button>
+                <button type="button" onClick={() => void block(profile)} disabled={busy || blockedIds.includes(profile.id)} className="mt-2 w-full rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-400 disabled:opacity-50">Скрыть и заблокировать</button>
               </article>
             ))}
           </div>
