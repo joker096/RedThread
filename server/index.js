@@ -105,7 +105,8 @@ async function requireSession(req, res, next) {
 
   try {
     const result = await pool.query(
-      `SELECT u.id, u.email, u.status, p.display_name, p.gender, p.country, p.city, p.relationship_intent, s.id AS session_id
+      `SELECT u.id, u.email, u.status, u.role, u.female_trial_ends_at, u.premium_until, u.phone_verified_at,
+              p.display_name, p.gender, p.country, p.city, p.relationship_intent, s.id AS session_id
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        JOIN profiles p ON p.user_id = u.id
@@ -125,6 +126,20 @@ async function requireSession(req, res, next) {
     console.error('Authentication middleware failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'authentication_failed' });
   }
+}
+
+function requirePaidFeatures(req, res, next) {
+  // Men retain the current free access model. Safety, account settings, and reports are never paywalled.
+  if (req.authUser.gender !== 'female') return next();
+  const trialEndsAt = req.authUser.female_trial_ends_at ? new Date(req.authUser.female_trial_ends_at).getTime() : 0;
+  const premiumUntil = req.authUser.premium_until ? new Date(req.authUser.premium_until).getTime() : 0;
+  const now = Date.now();
+  if (trialEndsAt > now || premiumUntil > now) return next();
+  return res.status(402).json({
+    error: 'premium_required',
+    message: 'Бесплатный период завершён. Для продолжения использования функций подбора нужен Premium.',
+    paymentConfigured: false
+  });
 }
 
 async function createSession(client, userId) {
@@ -163,6 +178,10 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
   const country = typeof req.body?.country === 'string' ? req.body.country.trim() : '';
   const city = typeof req.body?.city === 'string' ? req.body.city.trim() : '';
   const relationshipIntent = req.body?.relationshipIntent || 'marriage_family';
+  const familyFormat = req.body?.familyFormat || 'open_to_both';
+  const hasChildren = req.body?.hasChildren;
+  const wantsChildren = req.body?.wantsChildren || 'discuss';
+  const childrenLivingArrangement = req.body?.childrenLivingArrangement || (hasChildren === true ? 'prefer_to_discuss' : 'not_applicable');
 
   if (!isValidEmail(email)) return res.status(400).json({ error: 'invalid_email' });
   if (typeof password !== 'string' || password.length < 12 || password.length > 128) {
@@ -176,9 +195,13 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
   if (!country || country.length > 100 || !city || city.length > 120) {
     return res.status(400).json({ error: 'valid_country_and_city_required' });
   }
-  if (!['marriage_family', 'serious_relationship'].includes(relationshipIntent)) {
+  if (!['marriage_family', 'serious_relationship', 'family_without_marriage'].includes(relationshipIntent)) {
     return res.status(400).json({ error: 'invalid_relationship_intent' });
   }
+  if (!['marriage', 'cohabitation', 'open_to_both'].includes(familyFormat)) return res.status(400).json({ error: 'invalid_family_format' });
+  if (typeof hasChildren !== 'boolean') return res.status(400).json({ error: 'children_status_required' });
+  if (!['yes', 'no', 'discuss', 'unsure'].includes(wantsChildren)) return res.status(400).json({ error: 'invalid_wants_children' });
+  if (!['with_me', 'shared_custody', 'with_other_parent', 'not_applicable', 'prefer_to_discuss'].includes(childrenLivingArrangement)) return res.status(400).json({ error: 'invalid_children_living_arrangement' });
 
   let client;
   try {
@@ -186,15 +209,18 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
     client = await pool.connect();
     await client.query('BEGIN');
     const userResult = await client.query(
-      'INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email',
-      [email, passwordHash]
+      'INSERT INTO users (email, password_hash, female_trial_ends_at) VALUES ($1, $2, CASE WHEN $3 = \'female\' THEN NOW() + INTERVAL \'24 hours\' ELSE NULL END) RETURNING id, email',
+      [email, passwordHash, gender]
     );
     const user = userResult.rows[0];
     const profileResult = await client.query(
-      `INSERT INTO profiles (user_id, display_name, birth_date, gender, country, city, relationship_intent)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO profiles (
+         user_id, display_name, birth_date, gender, country, city, relationship_intent,
+         family_format, has_children, children_disclosure_confirmed_at, wants_children, children_living_arrangement
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10, $11)
        RETURNING user_id AS id, display_name, gender, country, city, relationship_intent`,
-      [user.id, displayName, birthDate, gender, country, city, relationshipIntent]
+      [user.id, displayName, birthDate, gender, country, city, relationshipIntent, familyFormat, hasChildren, wantsChildren, childrenLivingArrangement]
     );
     const token = await createSession(client, user.id);
     await client.query('COMMIT');
@@ -264,7 +290,8 @@ app.get('/api/auth/me', requireDatabase, async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT u.id, u.email, u.status, p.display_name, p.gender, p.country, p.city, p.relationship_intent, s.id AS session_id
+      `SELECT u.id, u.email, u.status, u.role, u.female_trial_ends_at, u.premium_until, u.phone_verified_at,
+              p.display_name, p.gender, p.country, p.city, p.relationship_intent, s.id AS session_id
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        JOIN profiles p ON p.user_id = u.id
@@ -300,7 +327,7 @@ app.post('/api/auth/logout', validateRequestOrigin, requireDatabase, async (req,
   return res.status(204).end();
 });
 
-app.get('/api/profiles/search', requireSession, async (req, res) => {
+app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req, res) => {
   const cleanFilter = (value, maxLength) => {
     if (typeof value !== 'string') return null;
     const trimmed = value.trim();
@@ -316,7 +343,7 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
   const maxAge = parseAge(req.query.maxAge);
   const minFinancialAlignment = req.query.minFinancialAlignment === undefined ? 0 : Number.parseInt(String(req.query.minFinancialAlignment), 10);
   if ((minAge !== null && (!Number.isInteger(minAge) || minAge < 18 || minAge > 120)) || (maxAge !== null && (!Number.isInteger(maxAge) || maxAge < 18 || maxAge > 120)) || (minAge !== null && maxAge !== null && minAge > maxAge) || !Number.isInteger(minFinancialAlignment) || minFinancialAlignment < 0 || minFinancialAlignment > 100) return res.status(400).json({ error: 'invalid_age_or_financial_alignment_filter' });
-  if (intent && !['marriage_family', 'serious_relationship'].includes(intent)) {
+  if (intent && !['marriage_family', 'serious_relationship', 'family_without_marriage'].includes(intent)) {
     return res.status(400).json({ error: 'invalid_relationship_intent' });
   }
 
@@ -397,7 +424,7 @@ function isSafePhotoUrl(value) {
   }
 }
 
-app.get('/api/assessment', requireSession, async (req, res) => {
+app.get('/api/assessment', requireSession, requirePaidFeatures, async (req, res) => {
   try {
     const result = await pool.query('SELECT answers, assessment_version AS "assessmentVersion", completed_at AS "completedAt", updated_at AS "updatedAt" FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
     return res.json({ assessment: result.rows[0] || null, version: ASSESSMENT_VERSION });
@@ -407,7 +434,7 @@ app.get('/api/assessment', requireSession, async (req, res) => {
   }
 });
 
-app.put('/api/assessment', validateRequestOrigin, requireSession, async (req, res) => {
+app.put('/api/assessment', validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
   const answers = req.body?.answers;
   if (!isValidAssessment(answers)) return res.status(400).json({ error: 'assessment_answers_incomplete_or_invalid' });
   try {
@@ -422,7 +449,7 @@ app.put('/api/assessment', validateRequestOrigin, requireSession, async (req, re
   }
 });
 
-app.delete('/api/assessment', validateRequestOrigin, requireSession, async (req, res) => {
+app.delete('/api/assessment', validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
   try {
     await pool.query('DELETE FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
     return res.status(204).end();
@@ -532,7 +559,7 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
   }
 });
 
-app.post('/api/likes/:targetId', validateRequestOrigin, requireSession, async (req, res) => {
+app.post('/api/likes/:targetId', validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
   const targetId = req.params.targetId;
   if (!isUuid(targetId)) return res.status(400).json({ error: 'invalid_target_id' });
   if (targetId === req.authUser.id) return res.status(400).json({ error: 'cannot_like_self' });
@@ -598,7 +625,7 @@ app.post('/api/likes/:targetId', validateRequestOrigin, requireSession, async (r
   }
 });
 
-app.delete('/api/likes/:targetId', validateRequestOrigin, requireSession, async (req, res) => {
+app.delete('/api/likes/:targetId', validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
   if (!isUuid(req.params.targetId)) return res.status(400).json({ error: 'invalid_target_id' });
   try {
     await pool.query('DELETE FROM likes WHERE sender_id = $1 AND target_id = $2', [req.authUser.id, req.params.targetId]);
@@ -609,7 +636,7 @@ app.delete('/api/likes/:targetId', validateRequestOrigin, requireSession, async 
   }
 });
 
-app.get('/api/matches', requireSession, async (req, res) => {
+app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT m.id, m.status, m.created_at AS "createdAt",
@@ -636,7 +663,7 @@ app.get('/api/matches', requireSession, async (req, res) => {
   }
 });
 
-app.get('/api/matches/:matchId/messages', requireSession, async (req, res) => {
+app.get('/api/matches/:matchId/messages', requireSession, requirePaidFeatures, async (req, res) => {
   if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
   const limit = Math.min(100, Math.max(1, Number.parseInt(String(req.query.limit ?? '50'), 10) || 50));
   const offset = Math.min(5000, Math.max(0, Number.parseInt(String(req.query.offset ?? '0'), 10) || 0));
