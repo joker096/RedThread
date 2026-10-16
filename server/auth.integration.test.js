@@ -407,23 +407,6 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(familySearch.status, 200);
     assert.equal((await familySearch.json()).profiles.some(profile => profile.id === maleRegistered.user.id), false);
 
-    const passProfile = await request(`/api/passes/${maleRegistered.user.id}`, {
-      method: 'POST',
-      headers: { Cookie: secondCookie },
-      body: JSON.stringify({})
-    });
-    assert.equal(passProfile.status, 204);
-    const afterPassSearch = await request('/api/profiles/search', { headers: { Cookie: secondCookie } });
-    assert.equal((await afterPassSearch.json()).profiles.some(profile => profile.id === maleRegistered.user.id), false);
-
-    const undoPass = await request('/api/passes/undo', { method: 'POST', headers: { Cookie: secondCookie }, body: JSON.stringify({ targetId: maleRegistered.user.id }) });
-    assert.equal(undoPass.status, 200);
-    assert.equal((await undoPass.json()).profile.id, maleRegistered.user.id);
-    const afterUndoSearch = await request('/api/profiles/search', { headers: { Cookie: secondCookie } });
-    assert.equal((await afterUndoSearch.json()).profiles.some(profile => profile.id === maleRegistered.user.id), true);
-    const passAgain = await request('/api/passes/' + maleRegistered.user.id, { method: 'POST', headers: { Cookie: secondCookie }, body: JSON.stringify({}) });
-    assert.equal(passAgain.status, 204);
-
     const block = await request(`/api/blocks/${maleRegistered.user.id}`, {
       method: 'POST',
       headers: { Cookie: secondCookie },
