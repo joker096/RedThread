@@ -1,6 +1,5 @@
 import 'dotenv/config';
 import express from 'express';
-import { createHash } from 'node:crypto';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import rateLimit from 'express-rate-limit';
 import pg from 'pg';
@@ -130,9 +129,9 @@ async function requireSession(req, res, next) {
   }
 }
 
-function screeningDigest(value) { return createHash('sha256').update(String(value)).digest('hex'); }
-async function persistScreening(userId, scope, result, sourceForDigest) {
-  await pool.query('INSERT INTO user_safety_screenings (user_id, scope, flags, severity, source_sha256, review_status) VALUES ($1, $2, $3::jsonb, $4, $5, $6)', [userId, scope, JSON.stringify(result.flags), result.severity, screeningDigest(sourceForDigest), result.requiresReview ? 'pending' : 'not_required']);
+async function persistScreening(userId, scope, result) {
+  // Persist only the minimal classification metadata. Do not persist source text or text-derived hashes.
+  await pool.query('INSERT INTO user_safety_screenings (user_id, scope, flags, severity, review_status) VALUES ($1, $2, $3::jsonb, $4, $5)', [userId, scope, JSON.stringify(result.flags), result.severity, result.requiresReview ? 'pending' : 'not_required']);
 }
 
 function requirePaidFeatures(req, res, next) {
@@ -671,10 +670,7 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'profile_not_found' });
     const screening = await screenProfilePrivate(result.rows[0]);
-    await persistScreening(req.authUser.id, 'profile', screening, JSON.stringify({
-      bio: result.rows[0].bio, occupation: result.rows[0].occupation, education: result.rows[0].education,
-      hasChildren: result.rows[0].hasChildren, childrenLivingArrangement: result.rows[0].childrenLivingArrangement
-    }));
+    await persistScreening(req.authUser.id, 'profile', screening);
     return res.json({ profile: result.rows[0], screening: { engine: screening.engine, externalProcessing: false, flags: screening.flags, requiresReview: screening.requiresReview } });
   } catch (error) {
     console.error('Profile update failed:', error?.message || 'unknown error');
@@ -839,7 +835,7 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
        RETURNING id, sender_id AS "senderId", body AS text, created_at AS "createdAt"`,
       [req.params.matchId, req.authUser.id, body]
     );
-    await persistScreening(req.authUser.id, 'message', screening, body);
+    await persistScreening(req.authUser.id, 'message', screening);
     return res.status(201).json({ message: result.rows[0], screening: { engine: screening.engine, externalProcessing: false, flaggedForReview: screening.requiresReview } });
   } catch (error) {
     console.error('Message send failed:', error?.message || 'unknown error');
