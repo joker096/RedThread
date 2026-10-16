@@ -228,13 +228,19 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
        RETURNING user_id AS id, display_name, gender, country, city, relationship_intent`,
       [user.id, displayName, birthDate, gender, country, city, relationshipIntent, familyFormat, hasChildren, wantsChildren, childrenLivingArrangement]
     );
-    const registrationScreening = await screenProfilePrivate({
-      displayName, country, city, bio: '', occupation: '', education: '',
-      hasChildren, childrenLivingArrangement
-    });
-    await persistScreening(user.id, 'profile', registrationScreening);
     const token = await createSession(client, user.id);
     await client.query('COMMIT');
+
+    // Screen after commit so the separate screening insert can see the new user row.
+    try {
+      const registrationScreening = await screenProfilePrivate({
+        displayName, country, city, bio: '', occupation: '', education: '',
+        hasChildren, childrenLivingArrangement
+      });
+      await persistScreening(user.id, 'profile', registrationScreening);
+    } catch (screeningError) {
+      console.error('Registration screening failed:', screeningError?.message || 'unknown error');
+    }
 
     writeSessionCookie(res, token);
     return res.status(201).json({ user: publicUser({ ...profileResult.rows[0], email: user.email }) });
