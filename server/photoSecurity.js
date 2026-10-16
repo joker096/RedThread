@@ -9,6 +9,7 @@ function dimensions(width, height) {
 
 function sanitizeJpeg(input) {
   if (input.length < 4 || input[0] !== 0xff || input[1] !== 0xd8) throw new Error('invalid_jpeg');
+  if (input[input.length - 2] !== 0xff || input[input.length - 1] !== 0xd9) throw new Error('invalid_jpeg_eoi');
   const chunks=[input.subarray(0,2)]; let offset=2; let imageDimensions=null; let sawScan=false;
   while(offset<input.length) {
     if(input[offset]!==0xff) throw new Error('invalid_jpeg_segment');

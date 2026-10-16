@@ -992,6 +992,13 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
       values
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'profile_not_found' });
+    if (Object.hasOwn(body, 'photoUrls')) {
+      const removed = await pool.query(
+        "DELETE FROM photo_assets WHERE user_id = $1 AND NOT (('/api/photos/' || id::text) = ANY($2::text[])) RETURNING storage_path AS \"storagePath\"",
+        [req.authUser.id, body.photoUrls.filter(url => url.startsWith('/api/photos/'))]
+      );
+      await Promise.all(removed.rows.map(asset => unlink(asset.storagePath).catch(() => {})));
+    }
     const screening = await screenProfilePrivate(result.rows[0]);
     await persistScreening(req.authUser.id, 'profile', screening);
     return res.json({ profile: result.rows[0], screening: { engine: screening.engine, externalProcessing: false, flags: screening.flags, requiresReview: screening.requiresReview } });
