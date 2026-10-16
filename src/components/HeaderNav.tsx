@@ -13,7 +13,7 @@ import {
   DollarSign
 } from 'lucide-react';
 import type { DeviceFrame, Gender } from '../types/index.ts';
-import { LANGUAGE_OPTIONS, useLocale } from '../i18n/LocaleProvider.tsx';
+import { getTranslationCoverage, LANGUAGE_OPTIONS, useLocale } from '../i18n/LocaleProvider.tsx';
 
 interface HeaderNavProps {
   currentGender: Gender;
@@ -48,7 +48,8 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   setActiveTab,
   unreadChatsCount
 }) => {
-  const { t, requestedLocale, setLocale } = useLocale();
+  const { t, locale, requestedLocale, setLocale } = useLocale();
+  const activeTranslationCoverage = getTranslationCoverage(locale).percentage;
   return (
     <header className="sticky top-0 z-40 w-full bg-stone-950/80 backdrop-blur-2xl border-b border-white/5 px-2.5 sm:px-4 py-2">
       <div className="max-w-xl sm:max-w-4xl mx-auto flex items-center justify-between gap-1.5 sm:gap-3">
@@ -128,12 +129,17 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             value={requestedLocale}
             onChange={event => setLocale(event.target.value)}
             aria-label={t('language')}
-            title={t('language')}
+            title={activeTranslationCoverage < 100 ? `${t('language')} — ${t('partialTranslationHelp')}` : t('language')}
+            aria-description={activeTranslationCoverage < 100 ? t('partialTranslationHelp') : undefined}
             className="max-w-[74px] sm:max-w-[124px] rounded-full border border-white/10 bg-stone-900 px-1.5 py-1.5 text-[10px] sm:text-xs text-stone-200"
           >
-            {LANGUAGE_OPTIONS.map(option => (
-              <option key={option.code} value={option.code}>{option.code === 'auto' ? t('autoLanguage') : option.nativeName}</option>
-            ))}
+            {LANGUAGE_OPTIONS.map(option => {
+              const coverage = option.code === 'auto' ? 100 : getTranslationCoverage(option.code).percentage;
+              const label = option.code === 'auto'
+                ? t('autoLanguage')
+                : `${option.nativeName}${coverage < 100 ? ` · ${coverage}%` : ''}`;
+              return <option key={option.code} value={option.code}>{label}</option>;
+            })}
           </select>
           {/* Binary Role Switcher */}
           <button

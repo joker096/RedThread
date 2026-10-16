@@ -56,7 +56,7 @@ type MessageKey = keyof typeof messages.en;
 
 const messages = {
   en: {
-    compatibility: 'Compatibility', allProfilesViewed: 'You have viewed all profiles', noSuitableProfiles: 'No suitable profiles yet',
+    compatibility: 'Compatibility', partialTranslationHelp: 'Some interface text may appear in English until translation is complete', allProfilesViewed: 'You have viewed all profiles', noSuitableProfiles: 'No suitable profiles yet',
     noAutoRepeatHint: 'Profiles will not repeat automatically. Restart viewing or change filters.',
     demoFilterHint: 'Try changing your country, city, or filters. Demo mode uses demonstration profiles only.',
     restartViewing: 'Start viewing again', changeFilters: 'Change filters', sponsorVideoHelp: 'Watch a sponsor video to earn super-likes',
@@ -121,7 +121,7 @@ const messages = {
     answersSaved: 'Answers saved. The server can use your stated preferences for matching.', saveAnswersError: 'Could not save answers.', assessmentProgress: 'Completed questions'
   },
   ru: {
-    compatibility: 'Совместимость', allProfilesViewed: 'Вы просмотрели все анкеты', noSuitableProfiles: 'Подходящих анкет пока нет',
+    compatibility: 'Совместимость', partialTranslationHelp: 'Пока перевод не завершён, часть интерфейса может отображаться на английском языке', allProfilesViewed: 'Вы просмотрели все анкеты', noSuitableProfiles: 'Подходящих анкет пока нет',
     noAutoRepeatHint: 'Анкеты не повторяются автоматически. Можно начать просмотр заново или изменить фильтры.',
     demoFilterHint: 'Попробуйте изменить страну, город или фильтры. В деморежиме используются только демонстрационные анкеты.',
     restartViewing: 'Начать просмотр заново', changeFilters: 'Изменить фильтры', sponsorVideoHelp: 'Посмотрите ролик спонсора и получите суперлайки',
