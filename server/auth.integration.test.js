@@ -142,14 +142,13 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(search.status, 200);
     const searchResult = await search.json();
-    assert.equal(searchResult.profiles.some(profile => profile.email === email), false);
+    assert.equal(searchResult.profiles.some(profile => profile.id === registered.user.id), false);
     assert.equal(searchResult.profiles.some(profile => profile.displayName === 'Тестовый профиль' && profile.gender === 'male'), true);
 
     const wrongLocation = await request('/api/profiles/search?country=' + encodeURIComponent('Россия'), {
       headers: { Cookie: secondCookie }
     });
     assert.equal(wrongLocation.status, 200);
-    assert.equal(wrongLocation.profiles, undefined);
     assert.equal((await wrongLocation.json()).profiles.length, 0);
 
     const unauthenticatedSearch = await request('/api/profiles/search');
