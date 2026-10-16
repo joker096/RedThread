@@ -6,7 +6,6 @@ CREATE TABLE IF NOT EXISTS user_safety_screenings (
  flags JSONB NOT NULL DEFAULT '[]'::jsonb,
  severity TEXT NOT NULL CHECK (severity IN ('none','info','low','high')),
  engine_version TEXT NOT NULL DEFAULT 'local-rules-v1',
- source_sha256 TEXT NOT NULL,
  review_status TEXT NOT NULL DEFAULT 'not_required' CHECK (review_status IN ('not_required','pending','reviewing','cleared','actioned')),
  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
  reviewed_at TIMESTAMPTZ,
