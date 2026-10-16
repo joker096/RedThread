@@ -353,6 +353,23 @@ test('auth API supports registration, session lookup, logout and login', {
       body: JSON.stringify({ email, password })
     });
     assert.equal(rejectedOrigin.status, 403);
+
+    const deleteWrongPassword = await request('/api/account', {
+      method: 'DELETE',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({ password: 'incorrect password' })
+    });
+    assert.equal(deleteWrongPassword.status, 401);
+
+    const deleteAccount = await request('/api/account', {
+      method: 'DELETE',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({ password })
+    });
+    assert.equal(deleteAccount.status, 204);
+
+    const deletedAccountMe = await request('/api/auth/me', { headers: { Cookie: secondCookie } });
+    assert.equal(deletedAccountMe.status, 401);
   } finally {
     if (child.exitCode === null) {
       child.kill('SIGTERM');
