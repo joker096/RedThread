@@ -340,6 +340,150 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
   }
 });
 
+app.post('/api/auth/verify-email', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
+  const token = typeof req.body?.token === 'string' ? req.body.token : '';
+  if (token.length < 32 || token.length > 512) return res.status(400).json({ error: 'invalid_or_expired_token' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      `SELECT id, user_id FROM account_action_tokens
+       WHERE purpose = 'email_verification' AND token_hash = $1
+         AND consumed_at IS NULL AND expires_at > NOW()
+       FOR UPDATE`,
+      [hashSessionToken(token)]
+    );
+    const action = result.rows[0];
+    if (!action) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'invalid_or_expired_token' });
+    }
+    await client.query(
+      `UPDATE users SET email_verified_at = COALESCE(email_verified_at, NOW()),
+         status = CASE WHEN status = 'pending' THEN 'active' ELSE status END,
+         updated_at = NOW() WHERE id = $1`,
+      [action.user_id]
+    );
+    await client.query('UPDATE account_action_tokens SET consumed_at = NOW() WHERE id = $1', [action.id]);
+    await client.query('COMMIT');
+    return res.json({ verified: true, message: 'Email verified. You can now sign in.' });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Email verification failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'email_verification_failed' });
+  } finally {
+    client.release();
+  }
+});
+
+app.post('/api/auth/email-verification/resend', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  // Keep the response generic so the endpoint does not disclose registered addresses.
+  const generic = { accepted: true, message: 'If the account needs verification, an email will be sent.' };
+  if (!isValidEmail(email) || !emailDeliveryConfigured()) return res.status(202).json(generic);
+  try {
+    const userResult = await pool.query(
+      `SELECT id, email FROM users
+       WHERE email = $1 AND status = 'pending' AND email_verified_at IS NULL LIMIT 1`,
+      [email]
+    );
+    const user = userResult.rows[0];
+    if (user) {
+      const client = await pool.connect();
+      let token;
+      try {
+        await client.query('BEGIN');
+        await client.query("UPDATE account_action_tokens SET consumed_at = NOW() WHERE user_id = $1 AND purpose = 'email_verification' AND consumed_at IS NULL", [user.id]);
+        token = await createAccountActionToken(client, user.id, 'email_verification', 60);
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw error;
+      } finally { client.release(); }
+      await sendConfiguredEmail({
+        to: user.email,
+        subject: 'Verify your NIT account',
+        html: '<p>Confirm your email address:</p><p><a href="' + accountActionUrl('verifyEmail', token) + '">Verify email</a></p><p>This link expires in 60 minutes.</p>'
+      });
+    }
+  } catch (error) {
+    console.error('Verification resend failed:', error?.message || 'unknown error');
+  }
+  return res.status(202).json(generic);
+});
+
+app.post('/api/auth/password-reset/request', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  const generic = { accepted: true, message: 'If an eligible account exists, password reset instructions will be sent.' };
+  if (!isValidEmail(email) || !emailDeliveryConfigured()) return res.status(202).json(generic);
+  try {
+    const result = await pool.query(
+      "SELECT id, email FROM users WHERE email = $1 AND status = 'active' LIMIT 1",
+      [email]
+    );
+    const user = result.rows[0];
+    if (user) {
+      const client = await pool.connect();
+      let token;
+      try {
+        await client.query('BEGIN');
+        await client.query("UPDATE account_action_tokens SET consumed_at = NOW() WHERE user_id = $1 AND purpose = 'password_reset' AND consumed_at IS NULL", [user.id]);
+        token = await createAccountActionToken(client, user.id, 'password_reset', 30);
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw error;
+      } finally { client.release(); }
+      await sendConfiguredEmail({
+        to: user.email,
+        subject: 'Reset your NIT password',
+        html: '<p>Use this link to choose a new password:</p><p><a href="' + accountActionUrl('resetPassword', token) + '">Reset password</a></p><p>This link expires in 30 minutes. If you did not request this, ignore this email.</p>'
+      });
+    }
+  } catch (error) {
+    console.error('Password reset request failed:', error?.message || 'unknown error');
+  }
+  return res.status(202).json(generic);
+});
+
+app.post('/api/auth/password-reset/complete', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
+  const token = typeof req.body?.token === 'string' ? req.body.token : '';
+  const password = req.body?.password;
+  if (typeof password !== 'string' || password.length < 12 || password.length > 128) {
+    return res.status(400).json({ error: 'password_must_be_12_to_128_characters' });
+  }
+  if (token.length < 32 || token.length > 512) return res.status(400).json({ error: 'invalid_or_expired_token' });
+  const passwordHash = await hashPassword(password);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      `SELECT id, user_id FROM account_action_tokens
+       WHERE purpose = 'password_reset' AND token_hash = $1
+         AND consumed_at IS NULL AND expires_at > NOW()
+       FOR UPDATE`,
+      [hashSessionToken(token)]
+    );
+    const action = result.rows[0];
+    if (!action) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'invalid_or_expired_token' });
+    }
+    await client.query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2', [passwordHash, action.user_id]);
+    await client.query('UPDATE account_action_tokens SET consumed_at = NOW() WHERE id = $1', [action.id]);
+    await client.query('DELETE FROM sessions WHERE user_id = $1', [action.user_id]);
+    await client.query('COMMIT');
+    clearSessionCookie(res);
+    return res.json({ reset: true, message: 'Password changed. Sign in with your new password.' });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Password reset completion failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'password_reset_failed' });
+  } finally {
+    client.release();
+  }
+});
+
 app.post('/api/auth/login', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   const password = req.body?.password;
@@ -349,7 +493,7 @@ app.post('/api/auth/login', authLimiter, validateRequestOrigin, requireDatabase,
 
   try {
     const result = await pool.query(
-      `SELECT u.id, u.email, u.password_hash, u.status, p.display_name, p.gender, p.country, p.city, p.relationship_intent
+      `SELECT u.id, u.email, u.password_hash, u.status, u.email_verified_at, p.display_name, p.gender, p.country, p.city, p.relationship_intent
        FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.email = $1 LIMIT 1`,
       [email]
     );
@@ -362,7 +506,10 @@ app.post('/api/auth/login', authLimiter, validateRequestOrigin, requireDatabase,
       return res.status(401).json({ error: 'email_or_password_incorrect' });
     }
     if (user.status !== 'active') {
-      return res.status(403).json({ error: 'account_unavailable' });
+      return res.status(403).json({ error: user.status === 'pending' ? 'email_verification_required' : 'account_unavailable' });
+    }
+    if (emailVerificationRequired && !user.email_verified_at) {
+      return res.status(403).json({ error: 'email_verification_required' });
     }
 
     const client = await pool.connect();
