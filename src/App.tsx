@@ -59,7 +59,7 @@ export default function App() {
   const [isAdManagerOpen, setIsAdManagerOpen] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   // Brand naming state
-  const [currentBrandId, setCurrentBrandId] = useState<string>('thread');
+  const [currentBrandId, setCurrentBrandId] = useState<string>('vow');
   const [isBrandModalOpen, setIsBrandModalOpen] = useState(false);
 
   const currentBrand = brandOptions.find(b => b.id === currentBrandId) || brandOptions[0];
