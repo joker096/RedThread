@@ -77,7 +77,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                 : 'text-stone-400 hover:text-stone-200'
             }`}
           >
-            Радар
+            {t('discovery')}
           </button>
 
           <button
@@ -116,7 +116,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                 : 'text-stone-400 hover:text-stone-200'
             }`}
           >
-            Анти-бот
+            {t('safety')}
           </button>
         </nav>
 
