@@ -1,17 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ASSESSMENT_QUESTIONS, type AssessmentAnswers } from '../utils/relationshipAssessment.ts';
+import { getLocalizedAssessmentQuestions } from '../utils/assessmentTranslations.ts';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 
 const emptyAnswers: AssessmentAnswers = {};
 
 export const RelationshipAssessmentPanel: React.FC = () => {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
+  const questions = useMemo(() => getLocalizedAssessmentQuestions(locale), [locale]);
   const [answers, setAnswers] = useState<AssessmentAnswers>(emptyAnswers);
   const [status, setStatus] = useState<'loading' | 'ready' | 'saving' | 'saved' | 'login' | 'error'>('loading');
   const [note, setNote] = useState('');
   const complete = useMemo(
-    () => ASSESSMENT_QUESTIONS.every(question => Boolean(answers[question.id])),
-    [answers]
+    () => questions.every(question => Boolean(answers[question.id])),
+    [answers, questions]
   );
 
   useEffect(() => {
@@ -91,13 +93,13 @@ export const RelationshipAssessmentPanel: React.FC = () => {
           <p className="text-[10px] uppercase tracking-[0.2em] text-rose-300">{t('valuesTestEyebrow')}</p>
           <h3 className="mt-1 text-lg font-bold text-white">{t('compatibilityImportant')}</h3>
         </div>
-        <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-stone-400">{Object.keys(answers).length}/{ASSESSMENT_QUESTIONS.length}</span>
+        <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-stone-400">{Object.keys(answers).length}/{questions.length}</span>
       </div>
       <p className="mb-4 text-xs leading-relaxed text-stone-400">
         {t('valuesTestDescription')}
       </p>
       <div className="space-y-4">
-        {ASSESSMENT_QUESTIONS.map((question, index) => (
+        {questions.map((question, index) => (
           <fieldset key={question.id} className="rounded-2xl border border-white/5 bg-stone-950/60 p-3">
             <legend className="px-1 text-[10px] uppercase tracking-wider text-rose-300">{index + 1}. {question.category}</legend>
             <p className="mb-3 text-sm font-medium text-stone-100">{question.prompt}</p>

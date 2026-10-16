@@ -29,3 +29,18 @@ test('financial alignment measures stated preference differences, not character'
   assert.equal(result.score, 33);
   assert.deepEqual(result.differences.sort(), ['financialModel', 'gifts']);
 });
+
+import { getLocalizedAssessmentQuestions } from './assessmentTranslations.ts';
+
+test('localized compatibility questions preserve IDs and option values', () => {
+  const russian = getLocalizedAssessmentQuestions('ru');
+  const english = getLocalizedAssessmentQuestions('en');
+  assert.equal(english.length, russian.length);
+  for (let i = 0; i < russian.length; i += 1) {
+    assert.equal(english[i].id, russian[i].id);
+    assert.deepEqual(english[i].options.map(option => option.value), russian[i].options.map(option => option.value));
+    assert.ok(english[i].prompt.length > 0);
+    assert.ok(english[i].options.every(option => option.label.length > 0));
+  }
+  assert.notEqual(english[0].prompt, russian[0].prompt);
+});
