@@ -818,9 +818,10 @@ export default function App() {
             </main>
 
             {/* Bottom navigation dock */}
-            <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 bg-stone-950/85 backdrop-blur-2xl border border-white/10 rounded-full px-5 py-2 flex items-center gap-5 sm:gap-6 shadow-2xl">
+            <div role="navigation" aria-label="Основная навигация" className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 bg-stone-950/85 backdrop-blur-2xl border border-white/10 rounded-full px-5 py-2 flex items-center gap-5 sm:gap-6 shadow-2xl">
               <button
                 onClick={() => setActiveTab('discovery')}
+                aria-current={activeTab === 'discovery' ? 'page' : undefined}
                 className={`flex flex-col items-center gap-0.5 transition-colors ${
                   activeTab === 'discovery' ? 'text-rose-500 font-bold scale-110' : 'text-stone-400 hover:text-white'
                 }`}
@@ -832,6 +833,7 @@ export default function App() {
 
               <button
                 onClick={() => setActiveTab('tests')}
+                aria-current={activeTab === 'tests' ? 'page' : undefined}
                 className={`flex flex-col items-center gap-0.5 transition-colors ${
                   activeTab === 'tests' ? 'text-rose-500 font-bold scale-110' : 'text-stone-400 hover:text-white'
                 }`}
@@ -843,6 +845,7 @@ export default function App() {
 
               <button
                 onClick={() => setActiveTab('chats')}
+                aria-current={activeTab === 'chats' ? 'page' : undefined}
                 className={`relative flex flex-col items-center gap-0.5 transition-colors ${
                   activeTab === 'chats' ? 'text-rose-500 font-bold scale-110' : 'text-stone-400 hover:text-white'
                 }`}
@@ -857,6 +860,7 @@ export default function App() {
 
               <button
                 onClick={() => setActiveTab('safety')}
+                aria-current={activeTab === 'safety' ? 'page' : undefined}
                 className={`flex flex-col items-center gap-0.5 transition-colors ${
                   activeTab === 'safety' ? 'text-rose-500 font-bold scale-110' : 'text-stone-400 hover:text-white'
                 }`}
@@ -951,9 +955,10 @@ export default function App() {
                 </div>
 
                 {/* Mobile Bottom Dock inside phone */}
-                <div className="absolute bottom-3 left-3 right-3 z-30 bg-stone-900/90 backdrop-blur-xl border border-white/10 rounded-full py-1.5 px-3 flex items-center justify-around shadow-2xl">
+                <div role="navigation" aria-label="Навигация приложения" className="absolute bottom-3 left-3 right-3 z-30 bg-stone-900/90 backdrop-blur-xl border border-white/10 rounded-full py-1.5 px-3 flex items-center justify-around shadow-2xl">
                   <button
                     onClick={() => setActiveTab('discovery')}
+                aria-current={activeTab === 'discovery' ? 'page' : undefined}
                     className={`flex flex-col items-center gap-0.5 ${
                       activeTab === 'discovery' ? 'text-rose-500 font-bold scale-105' : 'text-stone-400'
                     }`}
@@ -964,6 +969,7 @@ export default function App() {
 
                   <button
                     onClick={() => setActiveTab('tests')}
+                aria-current={activeTab === 'tests' ? 'page' : undefined}
                     className={`flex flex-col items-center gap-0.5 ${
                       activeTab === 'tests' ? 'text-rose-500 font-bold scale-105' : 'text-stone-400'
                     }`}
@@ -974,6 +980,7 @@ export default function App() {
 
                   <button
                     onClick={() => setActiveTab('chats')}
+                aria-current={activeTab === 'chats' ? 'page' : undefined}
                     className={`relative flex flex-col items-center gap-0.5 ${
                       activeTab === 'chats' ? 'text-rose-500 font-bold scale-105' : 'text-stone-400'
                     }`}
@@ -987,6 +994,7 @@ export default function App() {
 
                   <button
                     onClick={() => setActiveTab('safety')}
+                aria-current={activeTab === 'safety' ? 'page' : undefined}
                     className={`flex flex-col items-center gap-0.5 ${
                       activeTab === 'safety' ? 'text-rose-500 font-bold scale-105' : 'text-stone-400'
                     }`}
