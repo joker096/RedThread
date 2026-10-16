@@ -551,7 +551,7 @@ app.get('/api/auth/me', requireDatabase, async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT u.id, u.email, u.status, u.role, u.female_trial_ends_at, u.premium_until, u.phone_verified_at,
+      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.female_trial_ends_at, u.premium_until, u.phone_verified_at,
               p.display_name, p.gender, p.country, p.city, p.relationship_intent, s.id AS session_id
        FROM sessions s
        JOIN users u ON u.id = s.user_id
