@@ -179,7 +179,13 @@ test('auth API supports registration, session lookup, logout and login', {
       household: 'equal',
       fidelity: 'strict',
       conflictStyle: 'talk_soon',
-      honesty: 'essential'
+      honesty: 'essential',
+      trustRepair: 'accountability_actions',
+      conflictSafety: 'no_insults_control',
+      debtTransparency: 'open_before_commitment',
+      substanceLifestyle: 'occasional_social',
+      relocation: 'depends_on_plan',
+      caregiving: 'shared_care'
     };
     const incompleteAssessment = await request('/api/assessment', {
       method: 'PUT',
