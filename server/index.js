@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import { createHash } from 'node:crypto';
-import { screenProfile, screenText } from './privacyScreening.js';
+import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import rateLimit from 'express-rate-limit';
 import pg from 'pg';
 import { isValidAssessment, financialAlignment, ASSESSMENT_VERSION } from './relationshipAssessment.js';
@@ -670,7 +670,7 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
       values
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'profile_not_found' });
-    const screening = screenProfile(result.rows[0]);
+    const screening = await screenProfilePrivate(result.rows[0]);
     await persistScreening(req.authUser.id, 'profile', screening, JSON.stringify({
       bio: result.rows[0].bio, occupation: result.rows[0].occupation, education: result.rows[0].education,
       hasChildren: result.rows[0].hasChildren, childrenLivingArrangement: result.rows[0].childrenLivingArrangement
@@ -833,7 +833,7 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
     );
     if (access.rowCount === 0) return res.status(404).json({ error: 'match_not_found' });
 
-    const screening = screenText(body, 'message');
+    const screening = await screenTextPrivate(body, 'message');
     const result = await pool.query(
       `INSERT INTO messages (match_id, sender_id, body) VALUES ($1, $2, $3)
        RETURNING id, sender_id AS "senderId", body AS text, created_at AS "createdAt"`,
