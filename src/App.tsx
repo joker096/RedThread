@@ -14,6 +14,7 @@ import { initialProfiles, initialCurrentUser } from './data/mockProfiles.ts';
 import { RelationshipAssessmentPanel } from './components/RelationshipAssessmentPanel.tsx';
 import { AccountAccessPanel } from './components/AccountAccessPanel.tsx';
 import { ServerDiscoveryPanel } from './components/ServerDiscoveryPanel.tsx';
+import { ServerMatchesPanel } from './components/ServerMatchesPanel.tsx';
 import type { 
   UserProfile, 
   Gender, 
@@ -547,6 +548,8 @@ export default function App() {
 
       case 'chats':
         return (
+          <>
+          <ServerMatchesPanel onOpenAccount={() => setActiveTab('tests')} />
           <ChatMessenger
             threads={chatThreads}
             activeThreadId={activeChatThreadId}
@@ -558,6 +561,7 @@ export default function App() {
             onOpenLadyPremium={() => setIsLadyPremiumOpen(true)}
             onBackToList={() => setActiveChatThreadId(null)}
           />
+          </>
         );
 
       case 'safety':
