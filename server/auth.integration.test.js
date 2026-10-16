@@ -121,14 +121,7 @@ test('auth API supports registration, session lookup, logout and login', {
     const photoRead = await request(uploadedPhoto.photoUrl, { headers: { Cookie: firstCookie } });
     assert.equal(photoRead.status, 200);
     assert.equal(photoRead.headers.get('content-type'), 'image/png');
-    const removePhoto = await request('/api/profiles/me', {
-      method: 'PATCH',
-      headers: { Cookie: firstCookie },
-      body: JSON.stringify({ photoUrls: [] })
-    });
-    assert.equal(removePhoto.status, 200);
-    const removedPhotoRead = await request(uploadedPhoto.photoUrl, { headers: { Cookie: firstCookie } });
-    assert.equal(removedPhotoRead.status, 404);
+
 
     const missingChildrenDisclosure = await request('/api/auth/register', {
       method: 'POST',
@@ -219,6 +212,14 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(duplicatePhotoReferences.status, 400, 'the same private photo cannot be attached more than once');
 
+    const removePhoto = await request('/api/profiles/me', {
+      method: 'PATCH',
+      headers: { Cookie: firstCookie },
+      body: JSON.stringify({ photoUrls: [] })
+    });
+    assert.equal(removePhoto.status, 200);
+    const removedPhotoRead = await request(uploadedPhoto.photoUrl, { headers: { Cookie: firstCookie } });
+    assert.equal(removedPhotoRead.status, 404);
     const assessmentAnswers = {
       relationshipGoal: 'marriage_soon',
       children: 'want_soon',
