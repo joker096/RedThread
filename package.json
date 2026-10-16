@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx --test src/utils/compatibility.test.ts",
+    "test": "tsx --test src/utils/compatibility.test.ts server/security.test.js",
     "dev:api": "node --watch server/index.js",
     "start:api": "node server/index.js",
     "db:migrate": "node scripts/migrate.js"
@@ -25,7 +25,8 @@
     "express": "^4.21.2",
     "dotenv": "^17.2.3",
     "motion": "^12.23.24",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "express-rate-limit": "^7.5.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
