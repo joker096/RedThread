@@ -36,7 +36,7 @@ CREATE INDEX IF NOT EXISTS users_trial_lookup_idx
 
 ALTER TABLE user_reports DROP CONSTRAINT IF EXISTS user_reports_category_check;
 ALTER TABLE user_reports ADD CONSTRAINT user_reports_category_check
-  CHECK (category IN ('spam', 'fake_profile', 'harassment', 'safety', 'children_misrepresentation', 'other'));
+  CHECK (category IN ('spam', 'fake_profile', 'harassment', 'safety', 'children_misrepresentation', 'duplicate_profile', 'other'));
 
 COMMENT ON COLUMN profiles.has_children IS 'Self-declared child status; do not infer from photos or reports.';
 COMMENT ON COLUMN profiles.children_disclosure_confirmed_at IS 'Timestamp when the user explicitly confirmed their child-status disclosure.';
