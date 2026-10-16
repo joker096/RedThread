@@ -1059,7 +1059,7 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
     addUpdate('city', body.city.trim());
   }
   if (Object.hasOwn(body, 'photoUrls')) {
-    if (!Array.isArray(body.photoUrls) || body.photoUrls.length > 6 ||
+    if (!Array.isArray(body.photoUrls) || body.photoUrls.length > 6 || new Set(body.photoUrls).size !== body.photoUrls.length ||
         body.photoUrls.some(url => typeof url !== 'string' || url.length > 2048 || !isSafePhotoUrl(url))) return res.status(400).json({ error: 'invalid_photo_urls' });
     const ids=body.photoUrls.filter(url=>url.startsWith('/api/photos/')).map(url=>url.slice('/api/photos/'.length));
     if(ids.some(id=>!isUuid(id))) return res.status(400).json({error:'invalid_photo_urls'});
