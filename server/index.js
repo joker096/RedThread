@@ -107,7 +107,7 @@ async function createAccountActionToken(client, userId, purpose, lifetimeMinutes
 }
 
 function accountActionUrl(parameter, token) {
-  const base = (process.env.APP_URL || process.env.APP_ORIGIN).replace(/\\/$/, '');
+  const base = (process.env.APP_URL || process.env.APP_ORIGIN).replace(/\/+$/, '');
   return base + '/?'+ parameter + '=' + encodeURIComponent(token);
 }
 
