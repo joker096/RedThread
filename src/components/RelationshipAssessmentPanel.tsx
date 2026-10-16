@@ -20,6 +20,13 @@ export const RelationshipAssessmentPanel: React.FC = () => {
           if (!cancelled) setStatus('ready');
           return null;
         }
+        if (response.status === 402) {
+          if (!cancelled) {
+            setStatus('ready');
+            setNote('Пробный период завершён. Доступ к тесту входит в Premium; платёжная система ещё не подключена.');
+          }
+          return null;
+        }
         if (!response.ok) throw new Error('Не удалось загрузить сохранённые ответы');
         return response.json();
       })
@@ -59,6 +66,11 @@ export const RelationshipAssessmentPanel: React.FC = () => {
       if (response.status === 401) {
         setStatus('login');
         setNote('Чтобы сохранить ответы между устройствами и использовать их для серверного подбора, сначала войдите в аккаунт. Сейчас ответы не отправлены.');
+        return;
+      }
+      if (response.status === 402) {
+        setStatus('error');
+        setNote('Пробный период завершён. Сохранение и использование теста входят в Premium; платёжная система ещё не подключена.');
         return;
       }
       if (!response.ok) throw new Error('Не удалось сохранить ответы');
