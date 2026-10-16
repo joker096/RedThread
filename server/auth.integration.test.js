@@ -266,7 +266,7 @@ test('auth API supports registration, session lookup, logout and login', {
       method: 'POST',
       headers: { Cookie: maleCookie }
     });
-    assert.equal(passProfile.status, 201);
+    assert.equal(passProfile.status, 204);
     const undoPass = await request('/api/passes/undo', {
       method: 'POST',
       headers: { Cookie: maleCookie }
