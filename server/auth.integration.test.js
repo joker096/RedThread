@@ -318,6 +318,20 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(undoPassAgain.status, 200);
 
+    const passForReloadUndo = await request(`/api/passes/${registered.user.id}`, {
+      method: 'POST',
+      headers: { Cookie: maleCookie },
+      body: JSON.stringify({})
+    });
+    assert.equal(passForReloadUndo.status, 204);
+    const persistedPassUndo = await request('/api/discovery/undo', {
+      method: 'POST',
+      headers: { Cookie: maleCookie },
+      body: JSON.stringify({})
+    });
+    assert.equal(persistedPassUndo.status, 200);
+    assert.equal((await persistedPassUndo.json()).type, 'pass');
+
     const firstLike = await request(`/api/likes/${maleRegistered.user.id}`, {
       method: 'POST',
       headers: { Cookie: secondCookie }
@@ -349,6 +363,23 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(firstLikeAgain.status, 201);
     assert.equal((await firstLikeAgain.json()).matched, false);
+
+    const persistedLikeUndo = await request('/api/discovery/undo', {
+      method: 'POST',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({})
+    });
+    assert.equal(persistedLikeUndo.status, 200);
+    const persistedLikeUndoPayload = await persistedLikeUndo.json();
+    assert.equal(persistedLikeUndoPayload.type, 'like');
+    assert.equal(persistedLikeUndoPayload.profile.id, maleRegistered.user.id);
+
+    const firstLikeThird = await request(`/api/likes/${maleRegistered.user.id}`, {
+      method: 'POST',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({})
+    });
+    assert.equal(firstLikeThird.status, 201);
 
     const reciprocalLike = await request(`/api/likes/${registered.user.id}`, {
       method: 'POST',
