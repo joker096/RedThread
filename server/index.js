@@ -97,6 +97,35 @@ function publicUser(row) {
   };
 }
 
+async function requireSession(req, res, next) {
+  if (!pool) return res.status(503).json({ error: 'database_not_configured' });
+  const token = readSessionToken(req);
+  if (!token) return res.status(401).json({ error: 'not_authenticated' });
+
+  try {
+    const result = await pool.query(
+      `SELECT u.id, u.email, u.status, p.display_name, p.gender, p.country, p.city, p.relationship_intent, s.id AS session_id
+       FROM sessions s
+       JOIN users u ON u.id = s.user_id
+       JOIN profiles p ON p.user_id = u.id
+       WHERE s.token_hash = $1 AND s.expires_at > NOW()
+       LIMIT 1`,
+      [hashSessionToken(token)]
+    );
+    const user = result.rows[0];
+    if (!user || user.status !== 'active') {
+      clearSessionCookie(res);
+      return res.status(401).json({ error: 'not_authenticated' });
+    }
+    req.authUser = user;
+    await pool.query('UPDATE sessions SET last_seen_at = NOW() WHERE id = $1', [user.session_id]);
+    return next();
+  } catch (error) {
+    console.error('Authentication middleware failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'authentication_failed' });
+  }
+}
+
 async function createSession(client, userId) {
   const token = createSessionToken();
   const tokenHash = hashSessionToken(token);
@@ -275,6 +304,66 @@ app.post('/api/auth/logout', validateRequestOrigin, requireDatabase, async (req,
   }
   clearSessionCookie(res);
   return res.status(204).end();
+});
+
+app.get('/api/profiles/search', requireSession, async (req, res) => {
+  const cleanFilter = (value, maxLength) => {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed || trimmed.toLocaleLowerCase() === 'all') return null;
+    return trimmed.slice(0, maxLength);
+  };
+
+  const country = cleanFilter(req.query.country, 100);
+  const city = cleanFilter(req.query.city, 120);
+  const intent = cleanFilter(req.query.intent, 40);
+  if (intent && !['marriage_family', 'serious_relationship'].includes(intent)) {
+    return res.status(400).json({ error: 'invalid_relationship_intent' });
+  }
+
+  const parsedLimit = Number.parseInt(String(req.query.limit ?? '20'), 10);
+  const parsedOffset = Number.parseInt(String(req.query.offset ?? '0'), 10);
+  if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 50 ||
+      !Number.isInteger(parsedOffset) || parsedOffset < 0 || parsedOffset > 5000) {
+    return res.status(400).json({ error: 'invalid_pagination' });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT
+         p.user_id AS id,
+         p.display_name AS "displayName",
+         EXTRACT(YEAR FROM AGE(CURRENT_DATE, p.birth_date))::int AS age,
+         p.gender,
+         p.country,
+         p.city,
+         p.bio,
+         p.relationship_intent AS "relationshipIntent"
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id
+       JOIN profiles me ON me.user_id = $1
+       WHERE p.user_id <> $1
+         AND p.gender <> me.gender
+         AND p.is_visible = TRUE
+         AND p.birth_date IS NOT NULL
+         AND u.status = 'active'
+         AND ($2::text IS NULL OR p.country ILIKE '%' || $2 || '%')
+         AND ($3::text IS NULL OR p.city ILIKE '%' || $3 || '%')
+         AND ($4::text IS NULL OR p.relationship_intent = $4)
+       ORDER BY p.updated_at DESC, p.user_id
+       LIMIT $5 OFFSET $6`,
+      [req.authUser.id, country, city, intent, parsedLimit + 1, parsedOffset]
+    );
+    const hasMore = result.rows.length > parsedLimit;
+    const profiles = hasMore ? result.rows.slice(0, parsedLimit) : result.rows;
+    return res.json({
+      profiles,
+      pagination: { limit: parsedLimit, offset: parsedOffset, hasMore }
+    });
+  } catch (error) {
+    console.error('Profile search failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'profile_search_failed' });
+  }
 });
 
 app.use('/api', (_req, res) => {
