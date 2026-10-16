@@ -693,6 +693,23 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
   }
 });
 
+app.post('/api/passes/:targetId', validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+  const targetId = req.params.targetId;
+  if (!isUuid(targetId) || targetId === req.authUser.id) return res.status(400).json({ error: 'invalid_pass_target' });
+  try {
+    const target = await pool.query(
+      "SELECT p.gender FROM profiles p JOIN users u ON u.id = p.user_id WHERE p.user_id = $1 AND u.status = 'active' AND p.is_visible = TRUE AND p.children_disclosure_confirmed_at IS NOT NULL AND p.has_children IS NOT NULL",
+      [targetId]
+    );
+    if (!target.rows[0] || target.rows[0].gender === req.authUser.gender) return res.status(404).json({ error: 'target_not_available' });
+    await pool.query('INSERT INTO profile_passes (passer_id, passed_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [req.authUser.id, targetId]);
+    return res.status(204).end();
+  } catch (error) {
+    console.error('Profile pass failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'profile_pass_failed' });
+  }
+});
+
 app.post('/api/likes/:targetId', validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
   const targetId = req.params.targetId;
   if (!isUuid(targetId)) return res.status(400).json({ error: 'invalid_target_id' });
