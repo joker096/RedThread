@@ -169,7 +169,6 @@ export default function App() {
         const saved = JSON.parse(raw) as Record<string, unknown>;
         if (saved.currentUser) setCurrentUser(saved.currentUser as UserProfile);
         if (saved.currentGender === 'female' || saved.currentGender === 'male') setCurrentGender(saved.currentGender);
-        if (typeof saved.isLadyPremium === 'boolean') setIsLadyPremium(saved.isLadyPremium);
         if (Array.isArray(saved.profiles)) setProfiles(saved.profiles as UserProfile[]);
         if (Array.isArray(saved.chatThreads)) setChatThreads(saved.chatThreads as ChatThread[]);
         if (saved.adStats && typeof saved.adStats === 'object') setAdStats(saved.adStats as AdStats);
@@ -199,7 +198,7 @@ export default function App() {
     if (!isHydrated) return;
     try {
       window.localStorage.setItem('nit-demo-state-v1', JSON.stringify({
-        currentUser, currentGender, isLadyPremium, profiles, chatThreads, adStats,
+        currentUser, currentGender, profiles, chatThreads, adStats,
         currentBrandId, minCompatibility, onlyVerified, selectedCountry, selectedCity, intentFilter,
         superLikesCount, boostActive, activeTab, activeChatThreadId
       }));
@@ -207,15 +206,32 @@ export default function App() {
       // Storage can be disabled or full; the app remains usable for this session.
     }
   }, [
-    isHydrated, currentUser, currentGender, isLadyPremium, profiles, chatThreads, adStats,
+    isHydrated, currentUser, currentGender, profiles, chatThreads, adStats,
     currentBrandId, minCompatibility, onlyVerified, selectedCountry, selectedCity, intentFilter,
     superLikesCount, boostActive, activeTab, activeChatThreadId
   ]);
 
+  // Paid status comes from the authenticated backend, never from local demo storage.
+  useEffect(() => {
+    let active = true;
+    const refreshPremiumStatus = async () => {
+      try {
+        const response = await fetch('/api/billing/status', { credentials: 'include' });
+        if (!response.ok) { if (active) setIsLadyPremium(false); return; }
+        const data = await response.json();
+        if (active) setIsLadyPremium(Boolean(data?.premiumActive));
+      } catch {
+        if (active) setIsLadyPremium(false);
+      }
+    };
+    void refreshPremiumStatus();
+    window.addEventListener('focus', refreshPremiumStatus);
+    return () => { active = false; window.removeEventListener('focus', refreshPremiumStatus); };
+  }, []);
+
   // Gender persona toggle (strictly binary: Female seeking Male, Male seeking Female)
   const handleToggleGender = () => {
     // The gender switch is a demo persona switch, not a paid-account transfer.
-    setIsLadyPremium(false);
     if (currentGender === 'female') {
       setCurrentGender('male');
       setCurrentUser(prev => ({
