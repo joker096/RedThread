@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
+import { createHash } from 'node:crypto';
+import { screenProfile, screenText } from './privacyScreening.js';
 import rateLimit from 'express-rate-limit';
 import pg from 'pg';
 import { isValidAssessment, financialAlignment, ASSESSMENT_VERSION } from './relationshipAssessment.js';
@@ -126,6 +128,11 @@ async function requireSession(req, res, next) {
     console.error('Authentication middleware failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'authentication_failed' });
   }
+}
+
+function screeningDigest(value) { return createHash('sha256').update(String(value)).digest('hex'); }
+async function persistScreening(userId, scope, result, sourceForDigest) {
+  await pool.query('INSERT INTO user_safety_screenings (user_id, scope, flags, severity, source_sha256, review_status) VALUES ($1, $2, $3::jsonb, $4, $5, $6)', [userId, scope, JSON.stringify(result.flags), result.severity, screeningDigest(sourceForDigest), result.requiresReview ? 'pending' : 'not_required']);
 }
 
 function requirePaidFeatures(req, res, next) {
