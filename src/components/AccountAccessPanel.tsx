@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useLocale } from '../i18n/LocaleProvider.tsx';
 
 type AccountUser = {
   id: string;
@@ -13,6 +14,7 @@ type AccountUser = {
 type AccountAccessPanelProps = { onAuthenticated: () => void };
 
 export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthenticated }) => {
+  const { formatDate } = useLocale();
   const [user, setUser] = useState<AccountUser | null>(null);
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
@@ -244,7 +246,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
           </div>
           {billingStatus && user.gender === 'female' && <div className={`rounded-xl border p-3 ${billingStatus.access === 'full' ? 'border-emerald-500/20 bg-emerald-950/20' : 'border-amber-500/20 bg-amber-950/20'}`}>
             <p className="text-sm font-semibold text-white">{billingStatus.access === 'full' ? 'Полный доступ активен' : 'Пробный период завершён'}</p>
-            <p className="mt-1 text-xs leading-relaxed text-stone-300">{billingStatus.trialEndsAt && billingStatus.access === 'full' ? `Бесплатный доступ до ${new Date(billingStatus.trialEndsAt).toLocaleString()}.` : billingStatus.access !== 'full' ? 'Для платных функций понадобится Premium. Платёжный провайдер ещё не подключён, поэтому списаний сейчас нет.' : 'Подписка активна.'}</p>
+            <p className="mt-1 text-xs leading-relaxed text-stone-300">{billingStatus.trialEndsAt && billingStatus.access === 'full' ? `Бесплатный доступ до ${formatDate(billingStatus.trialEndsAt, { dateStyle: 'medium', timeStyle: 'short' })}.` : billingStatus.access !== 'full' ? 'Для платных функций понадобится Premium. Платёжный провайдер ещё не подключён, поэтому списаний сейчас нет.' : 'Подписка активна.'}</p>
           </div>}
           <button type="button" onClick={() => void logout()} disabled={busy} className="rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-stone-200 disabled:opacity-50">Выйти</button>
           <div className="rounded-xl border border-red-500/20 bg-red-950/20 p-3">
