@@ -366,6 +366,270 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
   }
 });
 
+function isUuid(value) {
+  return typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value);
+}
+
+app.get('/api/profiles/me', requireSession, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT user_id AS id, display_name AS "displayName",
+        EXTRACT(YEAR FROM AGE(CURRENT_DATE, birth_date))::int AS age,
+        gender, country, city, bio, relationship_intent AS "relationshipIntent", is_visible AS "isVisible"
+       FROM profiles WHERE user_id = $1`,
+      [req.authUser.id]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: 'profile_not_found' });
+    return res.json({ profile: result.rows[0] });
+  } catch (error) {
+    console.error('Profile read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'profile_read_failed' });
+  }
+});
+
+app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req, res) => {
+  const body = req.body || {};
+  const updates = [];
+  const values = [req.authUser.id];
+  const addUpdate = (column, value) => {
+    values.push(value);
+    updates.push(`${column} = ${values.length}`);
+  };
+
+  if (Object.hasOwn(body, 'displayName')) {
+    if (typeof body.displayName !== 'string' || body.displayName.trim().length < 2 || body.displayName.trim().length > 80) {
+      return res.status(400).json({ error: 'invalid_display_name' });
+    }
+    addUpdate('display_name', body.displayName.trim());
+  }
+  if (Object.hasOwn(body, 'bio')) {
+    if (typeof body.bio !== 'string' || body.bio.length > 2000) return res.status(400).json({ error: 'invalid_bio' });
+    addUpdate('bio', body.bio.trim());
+  }
+  if (Object.hasOwn(body, 'country')) {
+    if (typeof body.country !== 'string' || !body.country.trim() || body.country.trim().length > 100) {
+      return res.status(400).json({ error: 'invalid_country' });
+    }
+    addUpdate('country', body.country.trim());
+  }
+  if (Object.hasOwn(body, 'city')) {
+    if (typeof body.city !== 'string' || !body.city.trim() || body.city.trim().length > 120) {
+      return res.status(400).json({ error: 'invalid_city' });
+    }
+    addUpdate('city', body.city.trim());
+  }
+  if (Object.hasOwn(body, 'relationshipIntent')) {
+    if (!['marriage_family', 'serious_relationship'].includes(body.relationshipIntent)) {
+      return res.status(400).json({ error: 'invalid_relationship_intent' });
+    }
+    addUpdate('relationship_intent', body.relationshipIntent);
+  }
+  if (Object.hasOwn(body, 'isVisible')) {
+    if (typeof body.isVisible !== 'boolean') return res.status(400).json({ error: 'invalid_visibility' });
+    addUpdate('is_visible', body.isVisible);
+  }
+  if (updates.length === 0) return res.status(400).json({ error: 'no_valid_profile_fields' });
+
+  try {
+    const result = await pool.query(
+      `UPDATE profiles SET ${updates.join(', ')}, updated_at = NOW()
+       WHERE user_id = $1
+       RETURNING user_id AS id, display_name AS "displayName", gender, country, city, bio,
+         relationship_intent AS "relationshipIntent", is_visible AS "isVisible"`,
+      values
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: 'profile_not_found' });
+    return res.json({ profile: result.rows[0] });
+  } catch (error) {
+    console.error('Profile update failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'profile_update_failed' });
+  }
+});
+
+app.post('/api/likes/:targetId', validateRequestOrigin, requireSession, async (req, res) => {
+  const targetId = req.params.targetId;
+  if (!isUuid(targetId)) return res.status(400).json({ error: 'invalid_target_id' });
+  if (targetId === req.authUser.id) return res.status(400).json({ error: 'cannot_like_self' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const targetResult = await client.query(
+      `SELECT p.user_id, p.gender
+       FROM profiles p JOIN users u ON u.id = p.user_id
+       WHERE p.user_id = $1 AND p.is_visible = TRUE AND u.status = 'active'`,
+      [targetId]
+    );
+    const target = targetResult.rows[0];
+    if (!target || target.gender === req.authUser.gender) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'target_not_available' });
+    }
+
+    await client.query(
+      'INSERT INTO likes (sender_id, target_id) VALUES ($1, $2) ON CONFLICT (sender_id, target_id) DO NOTHING',
+      [req.authUser.id, targetId]
+    );
+    const reciprocal = await client.query(
+      'SELECT 1 FROM likes WHERE sender_id = $1 AND target_id = $2 LIMIT 1',
+      [targetId, req.authUser.id]
+    );
+    if (reciprocal.rowCount === 0) {
+      await client.query('COMMIT');
+      return res.status(201).json({ liked: true, matched: false, match: null });
+    }
+
+    await client.query(
+      `INSERT INTO matches (user_a_id, user_b_id)
+       VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid))
+       ON CONFLICT (user_a_id, user_b_id) DO NOTHING`,
+      [req.authUser.id, targetId]
+    );
+    const matchResult = await client.query(
+      `SELECT id, status, created_at AS "createdAt" FROM matches
+       WHERE user_a_id = LEAST($1::uuid, $2::uuid) AND user_b_id = GREATEST($1::uuid, $2::uuid)`,
+      [req.authUser.id, targetId]
+    );
+    await client.query('COMMIT');
+    const match = matchResult.rows[0];
+    return res.status(201).json({
+      liked: true,
+      matched: match?.status === 'active',
+      match: match?.status === 'active' ? match : null
+    });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Like action failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'like_action_failed' });
+  } finally {
+    client.release();
+  }
+});
+
+app.delete('/api/likes/:targetId', validateRequestOrigin, requireSession, async (req, res) => {
+  if (!isUuid(req.params.targetId)) return res.status(400).json({ error: 'invalid_target_id' });
+  try {
+    await pool.query('DELETE FROM likes WHERE sender_id = $1 AND target_id = $2', [req.authUser.id, req.params.targetId]);
+    return res.status(204).end();
+  } catch (error) {
+    console.error('Unlike failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'unlike_failed' });
+  }
+});
+
+app.get('/api/matches', requireSession, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT m.id, m.status, m.created_at AS "createdAt",
+         other.user_id AS "partnerId", other.display_name AS "displayName",
+         EXTRACT(YEAR FROM AGE(CURRENT_DATE, other.birth_date))::int AS age,
+         other.gender, other.country, other.city, other.bio,
+         latest.body AS "lastMessage", latest.created_at AS "lastMessageAt"
+       FROM matches m
+       JOIN profiles other ON other.user_id = CASE WHEN m.user_a_id = $1 THEN m.user_b_id ELSE m.user_a_id END
+       LEFT JOIN LATERAL (
+         SELECT body, created_at FROM messages
+         WHERE match_id = m.id AND deleted_at IS NULL
+         ORDER BY created_at DESC LIMIT 1
+       ) latest ON TRUE
+       WHERE (m.user_a_id = $1 OR m.user_b_id = $1) AND m.status = 'active'
+       ORDER BY COALESCE(latest.created_at, m.created_at) DESC
+       LIMIT 100`,
+      [req.authUser.id]
+    );
+    return res.json({ matches: result.rows });
+  } catch (error) {
+    console.error('Match list failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'match_list_failed' });
+  }
+});
+
+app.get('/api/matches/:matchId/messages', requireSession, async (req, res) => {
+  if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
+  const limit = Math.min(100, Math.max(1, Number.parseInt(String(req.query.limit ?? '50'), 10) || 50));
+  const offset = Math.min(5000, Math.max(0, Number.parseInt(String(req.query.offset ?? '0'), 10) || 0));
+
+  try {
+    const access = await pool.query(
+      `SELECT 1 FROM matches WHERE id = $1 AND status = 'active'
+       AND (user_a_id = $2 OR user_b_id = $2) LIMIT 1`,
+      [req.params.matchId, req.authUser.id]
+    );
+    if (access.rowCount === 0) return res.status(404).json({ error: 'match_not_found' });
+
+    const result = await pool.query(
+      `SELECT id, sender_id AS "senderId", body AS text, created_at AS "createdAt"
+       FROM messages WHERE match_id = $1 AND deleted_at IS NULL
+       ORDER BY created_at ASC LIMIT $2 OFFSET $3`,
+      [req.params.matchId, limit, offset]
+    );
+    return res.json({ messages: result.rows, pagination: { limit, offset } });
+  } catch (error) {
+    console.error('Message history failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'message_history_failed' });
+  }
+});
+
+const messageLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too_many_messages' }
+});
+
+app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin, requireSession, async (req, res) => {
+  if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
+  const body = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+  if (!body || body.length > 4000) return res.status(400).json({ error: 'message_must_be_1_to_4000_characters' });
+
+  try {
+    const access = await pool.query(
+      `SELECT 1 FROM matches WHERE id = $1 AND status = 'active'
+       AND (user_a_id = $2 OR user_b_id = $2) LIMIT 1`,
+      [req.params.matchId, req.authUser.id]
+    );
+    if (access.rowCount === 0) return res.status(404).json({ error: 'match_not_found' });
+
+    const result = await pool.query(
+      `INSERT INTO messages (match_id, sender_id, body) VALUES ($1, $2, $3)
+       RETURNING id, sender_id AS "senderId", body AS text, created_at AS "createdAt"`,
+      [req.params.matchId, req.authUser.id, body]
+    );
+    return res.status(201).json({ message: result.rows[0] });
+  } catch (error) {
+    console.error('Message send failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'message_send_failed' });
+  }
+});
+
+app.post('/api/reports', validateRequestOrigin, requireSession, async (req, res) => {
+  const reportedUserId = req.body?.reportedUserId;
+  const category = req.body?.category;
+  const details = typeof req.body?.details === 'string' ? req.body.details.trim() : '';
+  const validCategories = ['spam', 'fake_profile', 'harassment', 'safety', 'other'];
+  if (!isUuid(reportedUserId) || reportedUserId === req.authUser.id) {
+    return res.status(400).json({ error: 'invalid_report_target' });
+  }
+  if (!validCategories.includes(category) || details.length > 2000) {
+    return res.status(400).json({ error: 'invalid_report_details' });
+  }
+
+  try {
+    const target = await pool.query('SELECT 1 FROM users WHERE id = $1 LIMIT 1', [reportedUserId]);
+    if (target.rowCount === 0) return res.status(404).json({ error: 'reported_user_not_found' });
+    const result = await pool.query(
+      `INSERT INTO user_reports (reporter_id, reported_user_id, category, details)
+       VALUES ($1, $2, $3, $4) RETURNING id, status, created_at AS "createdAt"`,
+      [req.authUser.id, reportedUserId, category, details]
+    );
+    return res.status(201).json({ report: result.rows[0] });
+  } catch (error) {
+    console.error('Report submission failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'report_submission_failed' });
+  }
+});
+
 app.use('/api', (_req, res) => {
   res.status(404).json({ error: 'api_route_not_found' });
 });
