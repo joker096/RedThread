@@ -121,6 +121,8 @@ test('auth API supports registration, session lookup, logout and login', {
     const photoRead = await request(uploadedPhoto.photoUrl, { headers: { Cookie: firstCookie } });
     assert.equal(photoRead.status, 200);
     assert.equal(photoRead.headers.get('content-type'), 'image/png');
+    const pendingPhotoReadByOtherAccount = await request(uploadedPhoto.photoUrl, { headers: { Cookie: maleCookie } });
+    assert.equal(pendingPhotoReadByOtherAccount.status, 404, 'pending photos must not be visible to other accounts');
     const crossAccountPhotoAttach = await request('/api/profiles/me', {
       method: 'PATCH',
       headers: { Cookie: maleCookie },
