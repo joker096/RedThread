@@ -75,7 +75,11 @@ test('auth API supports registration, session lookup, logout and login', {
         gender: 'female',
         country: 'Грузия',
         city: 'Тбилиси',
-        relationshipIntent: 'marriage_family'
+        relationshipIntent: 'family_without_marriage',
+        familyFormat: 'cohabitation',
+        hasChildren: false,
+        wantsChildren: 'yes',
+        childrenLivingArrangement: 'not_applicable'
       })
     });
     assert.equal(registration.status, 201);
@@ -132,7 +136,11 @@ test('auth API supports registration, session lookup, logout and login', {
         gender: 'male',
         country: 'Грузия',
         city: 'Тбилиси',
-        relationshipIntent: 'marriage_family'
+        relationshipIntent: 'family_without_marriage',
+        familyFormat: 'cohabitation',
+        hasChildren: false,
+        wantsChildren: 'yes',
+        childrenLivingArrangement: 'not_applicable'
       })
     });
     assert.equal(maleRegistration.status, 201);
