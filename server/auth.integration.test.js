@@ -121,14 +121,6 @@ test('auth API supports registration, session lookup, logout and login', {
     const photoRead = await request(uploadedPhoto.photoUrl, { headers: { Cookie: firstCookie } });
     assert.equal(photoRead.status, 200);
     assert.equal(photoRead.headers.get('content-type'), 'image/png');
-    const pendingPhotoReadByOtherAccount = await request(uploadedPhoto.photoUrl, { headers: { Cookie: maleCookie } });
-    assert.equal(pendingPhotoReadByOtherAccount.status, 404, 'pending photos must not be visible to other accounts');
-    const crossAccountPhotoAttach = await request('/api/profiles/me', {
-      method: 'PATCH',
-      headers: { Cookie: maleCookie },
-      body: JSON.stringify({ photoUrls: [uploadedPhoto.photoUrl] })
-    });
-    assert.equal(crossAccountPhotoAttach.status, 400);
     const removePhoto = await request('/api/profiles/me', {
       method: 'PATCH',
       headers: { Cookie: firstCookie },
@@ -211,6 +203,15 @@ test('auth API supports registration, session lookup, logout and login', {
     const maleRegistered = await maleRegistration.json();
     const maleCookie = maleRegistration.headers.get('set-cookie')?.split(';')[0];
     assert.ok(maleCookie?.startsWith('nit_session='));
+
+    const pendingPhotoReadByOtherAccount = await request(uploadedPhoto.photoUrl, { headers: { Cookie: maleCookie } });
+    assert.equal(pendingPhotoReadByOtherAccount.status, 404, 'pending photos must not be visible to other accounts');
+    const crossAccountPhotoAttach = await request('/api/profiles/me', {
+      method: 'PATCH',
+      headers: { Cookie: maleCookie },
+      body: JSON.stringify({ photoUrls: [uploadedPhoto.photoUrl] })
+    });
+    assert.equal(crossAccountPhotoAttach.status, 400);
 
     const assessmentAnswers = {
       relationshipGoal: 'marriage_soon',
