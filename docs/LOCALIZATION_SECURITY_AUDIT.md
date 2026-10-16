@@ -27,7 +27,7 @@ This is a code-level review of the current feature branch, not a penetration tes
 - Mutating API routes that use the Origin validator now reject requests with no Origin header as well as untrusted origins. Browser clients should send the exact configured APP_ORIGIN; verify any non-browser integration explicitly.
 - API responses receive baseline headers: X-Content-Type-Options, X-Frame-Options, Referrer-Policy, restrictive Permissions-Policy, and Cache-Control: no-store.
 - Profile pass/undo, likes, blocks and reports have in-process rate limits in addition to authentication rate limiting.
-- A user can undo a specific recent persisted pass or a like that has not produced an active match. Undo is scoped to the authenticated user; a mutual match cannot be silently broken by the unlike endpoint. The server discovery query excludes profiles already liked or passed by the current user, and the pass endpoint rejects blocked, already-liked and actively matched profiles.
+- A user can undo a specific recent persisted pass or a like that has not produced an active match. The unified discovery-undo endpoint can also identify and undo the latest persisted like/pass after a page reload. Undo is scoped to the authenticated user; a mutual match cannot be silently broken by either undo path. Blocking removes likes and passes between both accounts so stale actions cannot interfere with undo. The server discovery query excludes profiles already liked or passed by the current user, and the pass endpoint rejects blocked, already-liked and actively matched profiles.
 - No raw message/profile text or text-derived hash is written to the screening metadata table; automated risk flags are for review, not an automatic ban.
 
 ## Remaining security / production work

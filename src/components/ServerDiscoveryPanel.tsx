@@ -262,7 +262,9 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         return;
       }
       if (!response.ok) throw new Error('Не удалось заблокировать пользователя.');
-      setBlockedIds(current => [...current, profile.id]);
+      setBlockedIds(current => current.includes(profile.id) ? current : [...current, profile.id]);
+      setActionHistory(current => current.filter(action => action.profile.id !== profile.id));
+      setLikedIds(current => current.filter(id => id !== profile.id));
       setProfiles(current => current.filter(item => item.id !== profile.id));
       setNotice(`Анкета «${profile.displayName}» заблокирована и больше не будет показываться вам.`);
     } catch (error) {
@@ -298,7 +300,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
           </div>
           <button type="button" onClick={() => void search()} disabled={busy} className="mb-2 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? t('searching') : t('search')}</button>
           <button type="button" onClick={() => setSwipeMode(value => !value)} className="mb-3 w-full rounded-xl border border-emerald-500/30 px-4 py-2.5 text-xs font-semibold text-emerald-200">{swipeMode ? t('listMode') : t('swipeMode')}</button>
-          <button type="button" onClick={() => void undoPass()} disabled={busy} className="mb-3 w-full rounded-xl border border-amber-500/30 px-4 py-2.5 text-xs font-semibold text-amber-200 disabled:opacity-50">↶ {actionHistory.length ? t('undoAction') : t('undoPass')}</button>
+          <button type="button" onClick={() => void undoPass()} disabled={busy} className="mb-3 w-full rounded-xl border border-amber-500/30 px-4 py-2.5 text-xs font-semibold text-amber-200 disabled:opacity-50">↶ {t('undoAction')}</button>
           {swipeMode && <p className="mb-3 text-[11px] text-stone-400">{t('swipeHint')}</p>}
           {notice && <p role="status" className="mb-3 text-xs text-stone-300">{notice}</p>}
           <div className={swipeMode ? 'mx-auto max-w-lg space-y-3' : 'space-y-3'}>

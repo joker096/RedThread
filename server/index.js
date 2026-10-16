@@ -1655,6 +1655,7 @@ app.post('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, r
     }
     await client.query('INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [req.authUser.id, targetId]);
     await client.query('DELETE FROM likes WHERE (sender_id = $1 AND target_id = $2) OR (sender_id = $2 AND target_id = $1)', [req.authUser.id, targetId]);
+    await client.query('DELETE FROM profile_passes WHERE (passer_id = $1 AND passed_user_id = $2) OR (passer_id = $2 AND passed_user_id = $1)', [req.authUser.id, targetId]);
     await client.query(`UPDATE matches SET status = 'blocked'
       WHERE user_a_id = LEAST($1::uuid, $2::uuid) AND user_b_id = GREATEST($1::uuid, $2::uuid) AND status = 'active'`, [req.authUser.id, targetId]);
     await client.query('COMMIT');
