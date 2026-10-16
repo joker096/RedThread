@@ -8,6 +8,10 @@ type ServerProfile = {
   country: string;
   city: string;
   bio: string;
+  photoUrls?: string[];
+  occupation?: string;
+  education?: string;
+  languages?: string[];
   relationshipIntent: 'marriage_family' | 'serious_relationship';
   financialAlignment: number | null;
 };
@@ -136,6 +140,15 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
           <div className="space-y-3">
             {profiles.map(profile => (
               <article key={profile.id} className="rounded-2xl border border-white/10 bg-stone-950/70 p-3">
+                {profile.photoUrls?.length ? (
+                  <div className="mb-3 flex gap-2 overflow-x-auto">
+                    {profile.photoUrls.slice(0, 6).map((url, index) => (
+                      <img key={url} src={url} alt={`Фото профиля ${profile.displayName}, ${index + 1}`} loading="lazy" referrerPolicy="no-referrer" className="h-28 w-24 shrink-0 rounded-xl border border-white/10 bg-stone-900 object-cover" />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mb-3 flex h-20 items-center justify-center rounded-xl border border-dashed border-white/10 text-xs text-stone-500">Фотографии не добавлены</div>
+                )}
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h4 className="font-semibold text-white">{profile.displayName}, {profile.age}</h4>
@@ -144,6 +157,8 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                   {profile.financialAlignment !== null && <span className="shrink-0 rounded-full border border-emerald-500/30 px-2 py-1 text-[10px] text-emerald-300">Финансы {profile.financialAlignment}%</span>}
                 </div>
                 {profile.bio && <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-stone-300">{profile.bio}</p>}
+                {(profile.occupation || profile.education) && <p className="mt-2 text-xs text-stone-400">{[profile.occupation, profile.education].filter(Boolean).join(' · ')}</p>}
+                {profile.languages?.length ? <p className="mt-1 text-xs text-stone-400">Языки: {profile.languages.join(', ')}</p> : null}
                 <p className="mt-2 text-[10px] text-stone-500">{profile.relationshipIntent === 'marriage_family' ? 'Цель: брак и семья' : 'Цель: серьёзные отношения'}</p>
                 <button type="button" onClick={() => void like(profile)} disabled={likedIds.includes(profile.id)} className="mt-3 w-full rounded-xl border border-rose-500/30 px-3 py-2.5 text-xs font-bold text-rose-200 disabled:opacity-50">{likedIds.includes(profile.id) ? 'Симпатия отправлена' : 'Отправить симпатию'}</button>
                 <button type="button" onClick={() => void block(profile)} disabled={busy || blockedIds.includes(profile.id)} className="mt-2 w-full rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-400 disabled:opacity-50">Скрыть и заблокировать</button>
