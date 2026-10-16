@@ -8,6 +8,7 @@ import {
   filterBinaryCandidates
 } from './compatibility.ts';
 import type { UserProfile, CrucialAnswers } from '../types/index.ts';
+import { matchesProfileLocation } from './location.ts';
 
 const mockAnswers: CrucialAnswers = {
   marriage_and_kids: 'Хочу семью и детей в ближайшие 1-2 года',
@@ -191,4 +192,19 @@ test('detectBotRisk preserves an explicit zero trust score', () => {
   const report = detectBotRisk(lowTrustProfile);
   assert.equal(report.safetyScore, 10);
   assert.equal(report.riskLevel, 'high');
+});
+
+
+test('location filters match country and city case-insensitively', () => {
+  const profile = { country: 'Грузия', city: 'Тбилиси' };
+  assert.equal(matchesProfileLocation(profile, 'грузия', 'тбилиси'), true);
+  assert.equal(matchesProfileLocation(profile, 'Гру', 'БИЛИ'), true);
+  assert.equal(matchesProfileLocation(profile, 'Россия', 'Тбилиси'), false);
+  assert.equal(matchesProfileLocation(profile, 'Грузия', 'Москва'), false);
+});
+
+test('location filters allow all locations and do not guess missing country', () => {
+  assert.equal(matchesProfileLocation({ city: 'Москва' }, 'all', 'all'), true);
+  assert.equal(matchesProfileLocation({ city: 'Москва' }, 'Россия', 'all'), false);
+  assert.equal(matchesProfileLocation({ country: 'ОАЭ / Россия', city: 'Дубай / Москва' }, 'ОАЭ', 'Дубай'), true);
 });
