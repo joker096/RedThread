@@ -1301,12 +1301,11 @@ app.get('/api/matches/:matchId/messages', requireSession, requirePaidFeatures, a
 
   try {
     const access = await pool.query(
-      `SELECT user_a_id, user_b_id FROM matches WHERE id = $1 AND status = 'active'
+      `SELECT 1 FROM matches WHERE id = $1 AND status = 'active'
        AND (user_a_id = $2 OR user_b_id = $2) LIMIT 1`,
       [req.params.matchId, req.authUser.id]
     );
     if (access.rowCount === 0) return res.status(404).json({ error: 'match_not_found' });
-    const recipientId = access.rows[0].user_a_id === req.authUser.id ? access.rows[0].user_b_id : access.rows[0].user_a_id;
 
     const result = await pool.query(
       `SELECT id, sender_id AS "senderId", body AS text, created_at AS "createdAt"
@@ -1337,11 +1336,12 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
 
   try {
     const access = await pool.query(
-      `SELECT 1 FROM matches WHERE id = $1 AND status = 'active'
+      `SELECT user_a_id, user_b_id FROM matches WHERE id = $1 AND status = 'active'
        AND (user_a_id = $2 OR user_b_id = $2) LIMIT 1`,
       [req.params.matchId, req.authUser.id]
     );
     if (access.rowCount === 0) return res.status(404).json({ error: 'match_not_found' });
+    const recipientId = access.rows[0].user_a_id === req.authUser.id ? access.rows[0].user_b_id : access.rows[0].user_a_id;
 
     const screening = await screenTextPrivate(body, 'message');
     const result = await pool.query(
