@@ -37,6 +37,7 @@ const ALLOWED_AI_FLAGS = new Set([
 
 async function classifyWithLocalModel(text, scope) {
   if (process.env.LOCAL_AI_ENABLED !== 'true') return null;
+  if (typeof text !== 'string' || !text.trim()) return [];
   const model = (process.env.LOCAL_AI_MODEL || 'qwen2.5:3b').trim().slice(0, 80);
   const prompt = [
     'You are a cautious safety classifier for a dating application.',
@@ -86,10 +87,10 @@ export async function screenTextPrivate(text, scope = 'profile') {
 
 export async function screenProfilePrivate(profile) {
   const texts = [
-    await screenTextPrivate(profile?.displayName || '', 'profile'),
+    await screenTextPrivate(profile?.displayName || '', 'metadata'),
     await screenTextPrivate(profile?.bio || '', 'profile'),
-    await screenTextPrivate(profile?.country || '', 'profile'),
-    await screenTextPrivate(profile?.city || '', 'profile'),
+    await screenTextPrivate(profile?.country || '', 'metadata'),
+    await screenTextPrivate(profile?.city || '', 'metadata'),
     await screenTextPrivate(profile?.occupation || '', 'occupation'),
     await screenTextPrivate(profile?.education || '', 'education')
   ];
