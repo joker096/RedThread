@@ -89,6 +89,27 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal('password_hash' in registered.user, false);
     const firstCookie = registration.headers.get('set-cookie')?.split(';')[0];
     assert.ok(firstCookie?.startsWith('nit_session='));
+    const billingStatus = await request('/api/billing/status', { headers: { Cookie: firstCookie } });
+    assert.equal(billingStatus.status, 200);
+    const trial = await billingStatus.json();
+    assert.equal(trial.access, 'full');
+    assert.equal(trial.trialActive, true);
+    assert.equal(trial.paymentConfigured, false);
+
+    const missingChildrenDisclosure = await request('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: `missing-children-${randomUUID()}@example.test`,
+        password,
+        displayName: 'Без ответа',
+        birthDate: '1990-01-01',
+        gender: 'female',
+        country: 'Грузия',
+        city: 'Тбилиси'
+      })
+    });
+    assert.equal(missingChildrenDisclosure.status, 400);
+    assert.equal((await missingChildrenDisclosure.json()).error, 'children_status_required');
 
     const duplicate = await request('/api/auth/register', {
       method: 'POST',
@@ -99,7 +120,8 @@ test('auth API supports registration, session lookup, logout and login', {
         birthDate: '1990-01-01',
         gender: 'female',
         country: 'Грузия',
-        city: 'Тбилиси'
+        city: 'Тбилиси',
+        hasChildren: false
       })
     });
     assert.equal(duplicate.status, 409);
