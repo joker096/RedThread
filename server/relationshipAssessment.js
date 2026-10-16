@@ -1,4 +1,4 @@
-export const ASSESSMENT_VERSION = 1;
+export const ASSESSMENT_VERSION = 2;
 
 export const ASSESSMENT_OPTIONS = {
   relationshipGoal: ['marriage_soon', 'marriage_later', 'serious_no_rush'],
@@ -9,7 +9,13 @@ export const ASSESSMENT_OPTIONS = {
   household: ['equal', 'strengths', 'traditional'],
   fidelity: ['strict', 'discussed'],
   conflictStyle: ['talk_soon', 'time_first', 'avoid'],
-  honesty: ['essential', 'gradual']
+  honesty: ['essential', 'gradual'],
+  trustRepair: ['accountability_actions', 'time_transparency', 'not_reconcile'],
+  conflictSafety: ['no_insults_control', 'pause_then_talk', 'learning_boundaries'],
+  debtTransparency: ['open_before_commitment', 'gradual_disclosure', 'keep_separate'],
+  substanceLifestyle: ['no_smoking_no_drugs', 'occasional_social', 'flexible'],
+  relocation: ['stay_local', 'within_country', 'international', 'depends_on_plan'],
+  caregiving: ['shared_care', 'family_primary', 'professional_support', 'case_by_case']
 };
 
 export function isValidAssessment(answers) {
@@ -20,7 +26,7 @@ export function isValidAssessment(answers) {
 }
 
 export function assessmentCompatibility(first, second) {
-  const weights = { relationshipGoal: 2, children: 2, financialModel: 3, lifestyleExpectation: 1, gifts: 1, household: 1, fidelity: 2, conflictStyle: 1, honesty: 2 };
+  const weights = { relationshipGoal: 2, children: 2, financialModel: 3, lifestyleExpectation: 1, gifts: 1, household: 1, fidelity: 2, conflictStyle: 1, honesty: 2, trustRepair: 2, conflictSafety: 3, debtTransparency: 2, substanceLifestyle: 1, relocation: 1, caregiving: 1 };
   const keys = Object.keys(ASSESSMENT_OPTIONS);
   const aligned = keys.filter(key => first[key] === second[key]);
   const possibleWeight = keys.reduce((sum, key) => sum + weights[key], 0);
