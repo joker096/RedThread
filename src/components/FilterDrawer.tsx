@@ -15,6 +15,8 @@ interface FilterDrawerProps {
   setMinCompatibility: (val: number) => void;
   onlyVerified: boolean;
   setOnlyVerified: (val: boolean) => void;
+  selectedCountry: string;
+  setSelectedCountry: (val: string) => void;
   selectedCity: string;
   setSelectedCity: (val: string) => void;
   intentFilter: string;
