@@ -1,7 +1,8 @@
 import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
+import { verifyStripeWebhookSignature } from './stripeWebhookSecurity.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import express from 'express';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
@@ -57,12 +58,7 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json', limit: 
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!secret || !Buffer.isBuffer(req.body)) return res.status(503).json({ error: 'billing_webhook_not_configured' });
   const header = req.get('stripe-signature') || '';
-  const timestamp = header.match(/(?:^|,)t=(\d+)/)?.[1];
-  const signatures = [...header.matchAll(/(?:^|,)v1=([a-f0-9]{64})/gi)].map(match => match[1]);
-  if (!timestamp || !signatures.length || Math.abs(Date.now() - Number(timestamp) * 1000) > 5 * 60 * 1000) return res.status(400).json({ error: 'invalid_webhook_signature' });
-  const expected = createHmac('sha256', secret).update(timestamp + '.').update(req.body).digest();
-  const valid = signatures.some(signature => { const supplied = Buffer.from(signature, 'hex'); return supplied.length === expected.length && timingSafeEqual(supplied, expected); });
-  if (!valid) return res.status(400).json({ error: 'invalid_webhook_signature' });
+  if (!verifyStripeWebhookSignature(req.body, header, secret)) return res.status(400).json({ error: 'invalid_webhook_signature' });
   let event;
   try { event = JSON.parse(req.body.toString('utf8')); } catch { return res.status(400).json({ error: 'invalid_webhook_payload' }); }
   if (!pool) return res.status(503).json({ error: 'database_not_configured' });
