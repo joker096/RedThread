@@ -22,6 +22,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
   const messageRequestId = useRef(0);
 
@@ -73,6 +74,14 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   }, [t]);
 
   useEffect(() => { void loadMatches(); }, [loadMatches]);
+  useEffect(() => {
+    let cancelled = false;
+    void fetch('/api/auth/me', { credentials: 'include' })
+      .then(response => response.ok ? response.json() : null)
+      .then(data => { if (!cancelled) setCurrentUserId(data?.user?.id ?? null); })
+      .catch(() => { if (!cancelled) setCurrentUserId(null); });
+    return () => { cancelled = true; };
+  }, []);
   useEffect(() => { if (selected) void loadMessages(selected); }, [selected, loadMessages]);
 
   const send = async () => {
@@ -125,7 +134,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
             <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-3">
               <div role="log" aria-live="polite" aria-label={t('serverChats')} className="mb-3 max-h-64 space-y-2 overflow-y-auto">
                 {messages.map(message => (
-                  <div key={message.id} className={`max-w-[90%] rounded-xl px-3 py-2 text-xs ${message.senderId ? 'bg-stone-800 text-stone-100' : 'bg-stone-800 text-stone-100'}`}>
+                  <div key={message.id} className={`max-w-[90%] rounded-xl px-3 py-2 text-xs ${message.senderId === currentUserId ? 'ml-auto bg-rose-700 text-white' : 'mr-auto bg-stone-800 text-stone-100'}`}>
                     <p className="whitespace-pre-wrap break-words">{message.text}</p>
                     <time className="mt-1 block text-[9px] text-stone-500">{formatDate(message.createdAt, { dateStyle: 'medium', timeStyle: 'short' })}</time>
                   </div>
