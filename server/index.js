@@ -454,7 +454,7 @@ app.post('/api/auth/password-reset/request', authLimiter, validateRequestOrigin,
       } finally { client.release(); }
       await sendConfiguredEmail({
         to: user.email,
-        subject: 'Reset your NIT password',
+        subject: 'Reset your Vow password',
         html: '<p>Use this link to choose a new password:</p><p><a href="' + accountActionUrl('resetPassword', token) + '">Reset password</a></p><p>This link expires in 30 minutes. If you did not request this, ignore this email.</p>'
       });
     }
