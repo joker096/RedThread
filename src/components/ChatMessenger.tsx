@@ -108,10 +108,12 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
           {threads.map(thread => {
             const isSelected = thread.id === activeThread.id;
             return (
-              <div
+              <button
+                type="button"
                 key={thread.id}
                 onClick={() => onSelectThread(thread.id)}
-                className={`flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all ${
+                aria-pressed={isSelected}
+                className={`w-full text-left flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-rose-400 ${
                   isSelected
                     ? 'bg-rose-950/50 border border-rose-800/40 text-white'
                     : 'hover:bg-stone-900 text-stone-300'
@@ -137,7 +139,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                   </div>
                   <p className="text-xs text-stone-400 truncate mt-0.5">{thread.lastMessage}</p>
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>
