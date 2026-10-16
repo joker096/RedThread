@@ -231,7 +231,7 @@ async function requireSession(req, res, next) {
 
   try {
     const result = await pool.query(
-      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.female_trial_ends_at, u.premium_until, u.premium_lifetime, u.phone_verified_at,
+      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.female_trial_ends_at, u.premium_until, u.premium_lifetime, u.stripe_customer_id, u.phone_verified_at,
               p.display_name, p.gender, p.country, p.city, p.relationship_intent, s.id AS session_id
        FROM sessions s
        JOIN users u ON u.id = s.user_id
@@ -753,6 +753,36 @@ app.post('/api/billing/checkout', validateRequestOrigin, requireSession, async (
   } catch (error) {
     console.error('Stripe checkout request failed:', error?.message || 'unknown error');
     return res.status(502).json({ error: 'checkout_session_failed' });
+  }
+});
+
+app.post('/api/billing/portal', validateRequestOrigin, requireSession, async (req, res) => {
+  if (!process.env.STRIPE_SECRET_KEY || !req.authUser.stripe_customer_id) return res.status(503).json({ error: 'billing_portal_not_available' });
+  let baseUrl;
+  try {
+    baseUrl = new URL(process.env.APP_URL || process.env.APP_ORIGIN || allowedOrigin);
+    if (process.env.NODE_ENV === 'production' && baseUrl.protocol !== 'https:') throw new Error('https_required');
+    if (!['http:', 'https:'].includes(baseUrl.protocol)) throw new Error('invalid_protocol');
+  } catch { return res.status(503).json({ error: 'billing_return_url_not_configured' }); }
+  const returnUrl = new URL('/', baseUrl);
+  returnUrl.searchParams.set('billing', 'manage');
+  const form = new URLSearchParams({ customer: req.authUser.stripe_customer_id, return_url: returnUrl.toString() });
+  try {
+    const response = await fetch('https://api.stripe.com/v1/billing_portal/sessions', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + process.env.STRIPE_SECRET_KEY, 'Content-Type': 'application/x-www-form-urlencoded', 'Idempotency-Key': randomUUID() },
+      body: form,
+      signal: AbortSignal.timeout(12_000)
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || typeof payload?.url !== 'string') {
+      console.error('Stripe portal rejected:', response.status, payload?.error?.type || 'unknown_error');
+      return res.status(502).json({ error: 'billing_portal_failed' });
+    }
+    return res.json({ url: payload.url });
+  } catch (error) {
+    console.error('Stripe portal request failed:', error?.message || 'unknown error');
+    return res.status(502).json({ error: 'billing_portal_failed' });
   }
 });
 

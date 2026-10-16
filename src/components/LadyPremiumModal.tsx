@@ -11,6 +11,8 @@ export const LadyPremiumModal: React.FC<LadyPremiumModalProps> = ({ isOpen, onCl
   const [paymentConfigured, setPaymentConfigured] = useState(false);
   const [availablePlans, setAvailablePlans] = useState<string[]>([]);
   const [premiumActive, setPremiumActive] = useState(false);
+  const [premiumLifetime, setPremiumLifetime] = useState(false);
+  const [portalBusy, setPortalBusy] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -23,12 +25,27 @@ export const LadyPremiumModal: React.FC<LadyPremiumModalProps> = ({ isOpen, onCl
           setPaymentConfigured(Boolean(data?.paymentConfigured));
           setAvailablePlans(Array.isArray(data?.availablePlans) ? data.availablePlans : []);
           setPremiumActive(Boolean(data?.premiumActive));
+          setPremiumLifetime(Boolean(data?.premiumLifetime));
           setCheckoutNotice('');
         }
       })
-      .catch(error => { if (active) { setPaymentConfigured(false); setAvailablePlans([]); setPremiumActive(false); setCheckoutNotice(error instanceof Error ? error.message : 'Войдите в аккаунт, чтобы оформить Premium.'); } });
+      .catch(error => { if (active) { setPaymentConfigured(false); setAvailablePlans([]); setPremiumActive(false); setPremiumLifetime(false); setCheckoutNotice(error instanceof Error ? error.message : 'Войдите в аккаунт, чтобы оформить Premium.'); } });
     return () => { active = false; };
   }, [isOpen]);
+
+  const manageSubscription = async () => {
+    setPortalBusy(true); setCheckoutNotice('');
+    try {
+      const response = await fetch('/api/billing/portal', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(response.status === 401 ? 'Войдите в аккаунт.' : 'Управление подпиской пока недоступно.');
+      if (typeof data?.url !== 'string' || !data.url.startsWith('https://billing.stripe.com/')) throw new Error('Платёжный провайдер вернул некорректную ссылку.');
+      window.location.assign(data.url);
+    } catch (error) {
+      setCheckoutNotice(error instanceof Error ? error.message : 'Не удалось открыть управление подпиской.');
+      setPortalBusy(false);
+    }
+  };
 
   const startCheckout = async () => {
     setCheckoutBusy(true); setCheckoutNotice('');
@@ -87,6 +104,8 @@ export const LadyPremiumModal: React.FC<LadyPremiumModalProps> = ({ isOpen, onCl
           {premiumActive ? 'Premium активен для этого аккаунта.' : paymentConfigured && availablePlans.includes(selectedPlan) ? 'Доступ включится после подтверждённого webhook платёжного провайдера.' : 'Настройте Stripe API key, webhook secret и Price ID выбранного тарифа, чтобы принимать реальные платежи.'}
         </div>
         {checkoutNotice && <p role="status" className="mb-3 rounded-xl border border-amber-500/20 bg-amber-950/30 p-3 text-xs text-amber-200">{checkoutNotice}</p>}
+        {premiumActive && !premiumLifetime && <button type="button" onClick={() => void manageSubscription()} disabled={portalBusy} className="mb-2 w-full rounded-2xl border border-amber-500/30 px-4 py-3 text-xs font-semibold text-amber-200 disabled:opacity-50">{portalBusy ? 'Открываем управление…' : 'Управлять или отменить подписку'}</button>}
+        {premiumLifetime && <p className="mb-2 text-center text-xs text-emerald-300">Пожизненный Premium активен.</p>}
         <button type="button" onClick={() => void startCheckout()} disabled={checkoutBusy || premiumActive || !paymentConfigured || !availablePlans.includes(selectedPlan)} className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-400 text-stone-950 font-heading font-black text-sm flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50">
           <Crown className="w-5 h-5 fill-stone-950" /><span>{checkoutBusy ? 'Переходим к оплате…' : premiumActive ? 'Premium уже активен' : paymentConfigured && availablePlans.includes(selectedPlan) ? 'Перейти к безопасной оплате' : 'Оплата пока недоступна'}</span><ArrowRight className="w-4 h-4 stroke-[2.5]" />
         </button>
