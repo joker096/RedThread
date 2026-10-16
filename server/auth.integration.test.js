@@ -121,6 +121,40 @@ test('auth API supports registration, session lookup, logout and login', {
     const secondCookie = login.headers.get('set-cookie')?.split(';')[0];
     assert.ok(secondCookie?.startsWith('nit_session='));
 
+    const maleEmail = `test-${randomUUID()}@example.test`;
+    const maleRegistration = await request('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: maleEmail,
+        password,
+        displayName: 'Тестовый профиль',
+        birthDate: '1990-05-10',
+        gender: 'male',
+        country: 'Грузия',
+        city: 'Тбилиси',
+        relationshipIntent: 'marriage_family'
+      })
+    });
+    assert.equal(maleRegistration.status, 201);
+
+    const search = await request('/api/profiles/search?country=' + encodeURIComponent('грузия') + '&city=' + encodeURIComponent('тбилиси'), {
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(search.status, 200);
+    const searchResult = await search.json();
+    assert.equal(searchResult.profiles.some(profile => profile.email === email), false);
+    assert.equal(searchResult.profiles.some(profile => profile.displayName === 'Тестовый профиль' && profile.gender === 'male'), true);
+
+    const wrongLocation = await request('/api/profiles/search?country=' + encodeURIComponent('Россия'), {
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(wrongLocation.status, 200);
+    assert.equal(wrongLocation.profiles, undefined);
+    assert.equal((await wrongLocation.json()).profiles.length, 0);
+
+    const unauthenticatedSearch = await request('/api/profiles/search');
+    assert.equal(unauthenticatedSearch.status, 401);
+
     const wrongPassword = await request('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password: 'incorrect password' })
