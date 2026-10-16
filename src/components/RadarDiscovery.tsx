@@ -20,6 +20,7 @@ import {
 import type { UserProfile, CrucialAnswers } from '../types/index.ts';
 import { calculateCompatibility } from '../utils/compatibility.ts';
 import { getSwipeActionFromDelta } from '../utils/swipe.ts';
+import { useLocale } from '../i18n/LocaleProvider.tsx';
 
 interface RadarDiscoveryProps {
   profiles: UserProfile[];
@@ -56,6 +57,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
   onOpenFilters,
   onAdClicked
 }) => {
+  const { t } = useLocale();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [photoIndex, setPhotoIndex] = useState(0);
@@ -153,12 +155,12 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
           <Heart className="w-8 h-8" />
         </div>
         <h3 className="font-heading text-lg font-bold text-white mb-2">
-          {profiles.length > 0 && currentIndex >= profiles.length ? 'Вы просмотрели все анкеты' : 'Подходящих анкет пока нет'}
+          {profiles.length > 0 && currentIndex >= profiles.length ? t('allProfilesViewed') : t('noSuitableProfiles')}
         </h3>
         <p className="text-xs text-stone-400 max-w-sm mb-6 leading-relaxed">
           {profiles.length > 0 && currentIndex >= profiles.length
-            ? 'Повторный показ не запускается автоматически. Можно начать просмотр заново или изменить фильтры.'
-            : 'Попробуйте изменить страну, город или другие фильтры. В деморежиме доступны только демонстрационные анкеты.'}
+            ? t('noAutoRepeatHint')
+            : t('demoFilterHint')}
         </p>
         {profiles.length > 0 && currentIndex >= profiles.length && (
           <button
@@ -196,10 +198,10 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
           <button
             onClick={onOpenAdManager}
             className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px] font-bold hover:bg-amber-500/25 transition-all"
-            title="Посмотреть ролик спонсора и получить суперлайки"
+            title={t('sponsorVideoHelp')}
           >
             <Gift className="w-3 h-3 text-amber-400" />
-            <span>Бонус за ролик</span>
+            <span>{t('bonusVideo')}</span>
           </button>
         )}
       </div>
@@ -220,7 +222,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
               {/* Sponsor Adaptive Tag */}
               <div className="absolute top-3 left-3 bg-amber-500 text-stone-950 text-[10px] sm:text-xs font-black px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full uppercase tracking-wider shadow-lg flex items-center gap-1">
                 <Award className="w-3.5 h-3.5 fill-stone-950" />
-                <span>Спонсор первого свидания</span>
+                <span>{t('sponsorFirstDate')}</span>
               </div>
             </div>
 
@@ -254,7 +256,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                   onClick={handlePassCurrent}
                   className="flex-1 py-2.5 sm:py-3 rounded-2xl bg-stone-800 hover:bg-stone-700 font-bold text-stone-300 text-xs transition-colors"
                 >
-                  Пропустить
+                  {t('skip')}
                 </button>
                 <button
                   onClick={() => {
@@ -285,12 +287,12 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 <div
                   className="w-1/2 h-full cursor-pointer"
                   onClick={() => setPhotoIndex(prev => Math.max(0, prev - 1))}
-                  title="Предыдущее фото"
+                  title={t('previousPhoto')}
                 />
                 <div
                   className="w-1/2 h-full cursor-pointer"
                   onClick={() => setPhotoIndex(prev => Math.min(currentProfile.photos.length - 1, prev + 1))}
-                  title="Следующее фото"
+                  title={t('nextPhoto')}
                 />
               </div>
 
@@ -320,11 +322,11 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 </div>
                 <div>
                   <div className="text-[9px] text-stone-300 font-semibold flex items-center gap-0.5">
-                    <span>Совместимость</span>
+                    <span>{t('compatibility')}</span>
                     <ChevronRight className="w-2.5 h-2.5 text-rose-400" />
                   </div>
                   <div className="text-[10px] font-bold text-emerald-400">
-                    {compatibility.overallScore >= 85 ? 'Высокая химия' : 'Хороший коннект'}
+                    {compatibility.overallScore >= 85 ? t('highChemistry') : t('goodConnection')}
                   </div>
                 </div>
               </div>
@@ -333,11 +335,11 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
               <div
                 onClick={() => onInspectBotSafety(currentProfile)}
                 className="absolute top-6 right-3 z-20 cursor-pointer bg-stone-950/75 hover:bg-stone-950/90 border border-emerald-500/30 text-emerald-400 px-2.5 py-1 rounded-2xl backdrop-blur-xl flex items-center gap-1 shadow-lg transition-colors"
-                title="Верификация 3D-Liveness"
+                title={t('livenessVerification')}
               >
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
                 <span className="text-[10px] font-bold text-white">
-                  {currentProfile.verification.isVerified ? 'Проверен (демо)' : 'Не проверен'}
+                  {currentProfile.verification.isVerified ? t('verifiedDemo') : t('notVerified')}
                 </span>
               </div>
 
@@ -481,8 +483,8 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                   onClick={handleUndo}
                   disabled={history.length === 0}
                   className="w-10 h-10 rounded-full bg-stone-900 text-stone-300 disabled:text-stone-700 disabled:opacity-50 hover:bg-stone-800 flex items-center justify-center border border-white/10 transition-all"
-                  title="Отменить последнее действие"
-                  aria-label="Отменить последнее действие"
+                  title={t('undoAction')}
+                  aria-label={t('undoAction')}
                 >
                   <span className="text-lg leading-none">↶</span>
                 </button>
@@ -500,8 +502,8 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 <button
                   onClick={() => onOpenCompatibilityMatrix(currentProfile)}
                   className="w-12 h-12 rounded-full bg-stone-900 hover:bg-rose-950/80 text-rose-400 flex items-center justify-center border border-rose-600/40 transition-all hover:scale-110 active:scale-95 shadow-lg shadow-rose-950/30"
-                  title="Психологический тест и Матрица совместимости"
-                  aria-label="Матрица совместимости"
+                  title={t('psychCompatibility')}
+                  aria-label={t('compatibilityMatrix')}
                 >
                   <Zap className="w-5 h-5 fill-rose-500 stroke-rose-400" />
                 </button>
@@ -510,8 +512,8 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 <button
                   onClick={handleSuperLikeCurrent}
                   className="w-12 h-12 rounded-full bg-gradient-to-tr from-amber-500 to-amber-600 text-stone-950 flex items-center justify-center font-bold shadow-lg shadow-amber-950/50 transition-all hover:scale-110 active:scale-95"
-                  title="Супер-симпатия"
-                  aria-label="Супер-симпатия"
+                  title={t('superLike')}
+                  aria-label={t('superLike')}
                 >
                   <Star className="w-5 h-5 fill-stone-950 stroke-none" />
                 </button>
@@ -520,8 +522,8 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 <button
                   onClick={handleLikeCurrent}
                   className="w-14 h-14 rounded-full bg-gradient-to-r from-rose-600 via-red-600 to-rose-700 hover:from-rose-500 hover:to-red-500 text-white flex items-center justify-center red-glow transition-all hover:scale-110 active:scale-95 shadow-xl shadow-rose-950/60"
-                  title="Симпатия и приглашение"
-                  aria-label="Симпатия"
+                  title={t('likeInvite')}
+                  aria-label={t('like')}
                 >
                   <Heart className="w-7 h-7 fill-white stroke-none" />
                 </button>

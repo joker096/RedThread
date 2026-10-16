@@ -56,6 +56,14 @@ type MessageKey = keyof typeof messages.en;
 
 const messages = {
   en: {
+    compatibility: 'Compatibility', allProfilesViewed: 'You have viewed all profiles', noSuitableProfiles: 'No suitable profiles yet',
+    noAutoRepeatHint: 'Profiles will not repeat automatically. Restart viewing or change filters.',
+    demoFilterHint: 'Try changing your country, city, or filters. Demo mode uses demonstration profiles only.',
+    restartViewing: 'Start viewing again', changeFilters: 'Change filters', sponsorVideoHelp: 'Watch a sponsor video to earn super-likes',
+    bonusVideo: 'Video bonus', previousPhoto: 'Previous photo', nextPhoto: 'Next photo', highChemistry: 'High chemistry',
+    goodConnection: 'Good connection', livenessVerification: '3D liveness verification', verifiedDemo: 'Verified (demo)',
+    notVerified: 'Not verified', psychCompatibility: 'Values test and compatibility matrix', compatibilityMatrix: 'Compatibility matrix',
+    superLike: 'Super-like', likeInvite: 'Like and invite', sponsorFirstDate: 'First-date sponsor', partner: 'Partner', skip: 'Skip',
     language: 'Language', autoLanguage: 'Automatic', discovery: 'Discover', tests: 'Values test', chats: 'Chats',
     safety: 'Safety', filters: 'Profile filters', login: 'Sign in / Register', serverSearch: 'Server search',
     registeredProfiles: 'Registered profiles', country: 'Country', anyCountry: 'Any country', city: 'City',
@@ -113,6 +121,14 @@ const messages = {
     answersSaved: 'Answers saved. The server can use your stated preferences for matching.', saveAnswersError: 'Could not save answers.', assessmentProgress: 'Completed questions'
   },
   ru: {
+    compatibility: 'Совместимость', allProfilesViewed: 'Вы просмотрели все анкеты', noSuitableProfiles: 'Подходящих анкет пока нет',
+    noAutoRepeatHint: 'Анкеты не повторяются автоматически. Можно начать просмотр заново или изменить фильтры.',
+    demoFilterHint: 'Попробуйте изменить страну, город или фильтры. В деморежиме используются только демонстрационные анкеты.',
+    restartViewing: 'Начать просмотр заново', changeFilters: 'Изменить фильтры', sponsorVideoHelp: 'Посмотрите ролик спонсора и получите суперлайки',
+    bonusVideo: 'Бонус за ролик', previousPhoto: 'Предыдущее фото', nextPhoto: 'Следующее фото', highChemistry: 'Высокая химия',
+    goodConnection: 'Хороший коннект', livenessVerification: 'Проверка 3D-Liveness', verifiedDemo: 'Проверен (демо)',
+    notVerified: 'Не проверен', psychCompatibility: 'Психологический тест и матрица совместимости', compatibilityMatrix: 'Матрица совместимости',
+    superLike: 'Супер-симпатия', likeInvite: 'Симпатия и приглашение', sponsorFirstDate: 'Спонсор первого свидания', partner: 'Партнёр', skip: 'Пропустить',
     language: 'Язык', autoLanguage: 'Автоматически', discovery: 'Знакомства', tests: 'Тест ценностей', chats: 'Чаты',
     safety: 'Безопасность', filters: 'Фильтры анкет', login: 'Вход и регистрация', serverSearch: 'Поиск на сервере',
     registeredProfiles: 'Анкеты зарегистрированных пользователей', country: 'Страна', anyCountry: 'Любая страна', city: 'Город',
