@@ -52,6 +52,8 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         return;
       }
       setUser(data.user);
+      window.dispatchEvent(new Event('vow:session-changed'));
+          window.dispatchEvent(new Event('vow:session-changed'));
           const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
           if (!cancelled) setBillingStatus(billing);
         }
@@ -204,6 +206,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         throw new Error(errors[data?.error] || 'Не удалось удалить аккаунт.');
       }
       setUser(null);
+      window.dispatchEvent(new Event('vow:session-changed'));
       setBillingStatus(null);
       setDeletePassword('');
       setShowDeleteAccount(false);
@@ -222,6 +225,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       const response = await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
       if (!response.ok) throw new Error('Не удалось завершить сессию.');
       setUser(null);
+      window.dispatchEvent(new Event('vow:session-changed'));
       setBillingStatus(null);
       setMessage('Вы вышли из аккаунта.');
       onAuthenticated();

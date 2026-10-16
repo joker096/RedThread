@@ -20,7 +20,7 @@ export const ModeratorConsolePanel:React.FC=()=>{
   }catch(e){setNotice(e instanceof Error?e.message:'Ошибка загрузки панели.');setReady(true);}
   finally{setBusy(false);}
  },[]);
- useEffect(()=>{void refresh();},[refresh]);
+ useEffect(()=>{void refresh();const refreshOnSession=()=>void refresh();window.addEventListener('focus',refreshOnSession);window.addEventListener('vow:session-changed',refreshOnSession);return()=>{window.removeEventListener('focus',refreshOnSession);window.removeEventListener('vow:session-changed',refreshOnSession);};},[refresh]);
  const act=async(url:string,payload?:Record<string,unknown>)=>{
   setBusy(true);setNotice('');
   try{

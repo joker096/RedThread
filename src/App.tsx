@@ -227,7 +227,8 @@ export default function App() {
     };
     void refreshPremiumStatus();
     window.addEventListener('focus', refreshPremiumStatus);
-    return () => { active = false; window.removeEventListener('focus', refreshPremiumStatus); };
+    window.addEventListener('vow:session-changed', refreshPremiumStatus);
+    return () => { active = false; window.removeEventListener('focus', refreshPremiumStatus); window.removeEventListener('vow:session-changed', refreshPremiumStatus); };
   }, []);
 
   // Gender persona toggle (strictly binary: Female seeking Male, Male seeking Female)

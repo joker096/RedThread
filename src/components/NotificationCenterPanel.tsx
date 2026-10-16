@@ -20,7 +20,7 @@ export const NotificationCenterPanel:React.FC=()=>{
   }catch(error){setNotice(error instanceof Error?error.message:'Ошибка уведомлений.');setReady(true);}
   finally{setBusy(false);}
  },[]);
- useEffect(()=>{void refresh();},[refresh]);
+ useEffect(()=>{void refresh();const refreshOnSession=()=>void refresh();window.addEventListener('focus',refreshOnSession);window.addEventListener('vow:session-changed',refreshOnSession);return()=>{window.removeEventListener('focus',refreshOnSession);window.removeEventListener('vow:session-changed',refreshOnSession);};},[refresh]);
  const markRead=async(id?:string)=>{
   setBusy(true);
   try{
