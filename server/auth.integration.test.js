@@ -241,6 +241,56 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(report.status, 201);
 
+    const profileUpdate = await request('/api/profiles/me', {
+      method: 'PATCH',
+      headers: { Cookie: maleCookie },
+      body: JSON.stringify({
+        bio: 'Ищу серьёзные отношения',
+        photoUrls: ['https://images.example.test/profile.jpg'],
+        occupation: 'Инженер',
+        education: 'Высшее',
+        languages: ['Русский', 'Английский']
+      })
+    });
+    assert.equal(profileUpdate.status, 200);
+    const updatedProfile = (await profileUpdate.json()).profile;
+    assert.deepEqual(updatedProfile.photoUrls, ['https://images.example.test/profile.jpg']);
+    assert.equal(updatedProfile.occupation, 'Инженер');
+    assert.deepEqual(updatedProfile.languages, ['Русский', 'Английский']);
+
+    const invalidPhotoUrl = await request('/api/profiles/me', {
+      method: 'PATCH',
+      headers: { Cookie: maleCookie },
+      body: JSON.stringify({ photoUrls: ['http://insecure.example/profile.jpg'] })
+    });
+    assert.equal(invalidPhotoUrl.status, 400);
+
+    const block = await request(`/api/blocks/${maleRegistered.user.id}`, {
+      method: 'POST',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({})
+    });
+    assert.equal(block.status, 204);
+
+    const blockedList = await request('/api/blocks', { headers: { Cookie: secondCookie } });
+    assert.equal(blockedList.status, 200);
+    assert.equal((await blockedList.json()).blocks.some(item => item.id === maleRegistered.user.id), true);
+
+    const afterBlockSearch = await request('/api/profiles/search', { headers: { Cookie: secondCookie } });
+    assert.equal((await afterBlockSearch.json()).profiles.some(profile => profile.id === maleRegistered.user.id), false);
+
+    const afterBlockLike = await request(`/api/likes/${maleRegistered.user.id}`, {
+      method: 'POST',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({})
+    });
+    assert.equal(afterBlockLike.status, 404);
+
+    const blockedMatchMessages = await request(`/api/matches/${matchPayload.match.id}/messages`, {
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(blockedMatchMessages.status, 404);
+
     const wrongPassword = await request('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password: 'incorrect password' })
