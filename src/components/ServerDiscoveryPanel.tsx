@@ -308,17 +308,28 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
             {profiles.slice(0, swipeMode ? 1 : profiles.length).map(profile => (
               <article key={profile.id}
                 onTouchStart={event => {
-                  if (swipeMode && !(event.target as HTMLElement).closest('button, input, select, textarea')) touchStartX.current = event.changedTouches[0]?.clientX ?? null;
+                  if (swipeMode && !(event.target as HTMLElement).closest('button, input, select, textarea')) {
+                    touchStartX.current = event.changedTouches[0]?.clientX ?? null;
+                    event.currentTarget.style.transition = 'none';
+                  }
+                }}
+                onTouchMove={event => {
+                  if (!swipeMode || touchStartX.current === null || (event.target as HTMLElement).closest('button, input, select, textarea')) return;
+                  const currentX = event.changedTouches[0]?.clientX;
+                  if (currentX === undefined) return;
+                  const delta = currentX - touchStartX.current;
+                  const tilt = Math.max(-7, Math.min(7, delta / 24));
+                  event.currentTarget.style.transform = `translateX(${delta}px) rotate(${tilt}deg)`;
                 }}
                 onTouchEnd={event => {
-                  if (!swipeMode || (event.target as HTMLElement).closest('button, input, select, textarea')) { touchStartX.current = null; return; }
                   const start = touchStartX.current;
                   touchStartX.current = null;
-                  if (start === null) return;
+                  event.currentTarget.style.transition = '';
+                  event.currentTarget.style.transform = '';
+                  if (!swipeMode || (event.target as HTMLElement).closest('button, input, select, textarea') || start === null) return;
                   const endX = event.changedTouches[0]?.clientX;
                   if (endX === undefined) return;
-                  const delta = endX - start;
-                  const action = getSwipeActionFromDelta(delta);
+                  const action = getSwipeActionFromDelta(endX - start);
                   if (action === 'like') void like(profile);
                   else if (action === 'pass') void pass(profile);
                 }}
