@@ -231,6 +231,13 @@ export default function App() {
     return () => { active = false; window.removeEventListener('focus', refreshPremiumStatus); window.removeEventListener('vow:session-changed', refreshPremiumStatus); };
   }, []);
 
+  // A confirmed mutual server match should take the user straight to real chats.
+  useEffect(() => {
+    const openChatsForMatch = () => setActiveTab('chats');
+    window.addEventListener('vow:match-created', openChatsForMatch);
+    return () => window.removeEventListener('vow:match-created', openChatsForMatch);
+  }, []);
+
   // Gender persona toggle (strictly binary: Female seeking Male, Male seeking Female)
   const handleToggleGender = () => {
     // The gender switch is a demo persona switch, not a paid-account transfer.

@@ -109,8 +109,9 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       if (!response.ok) throw new Error('Не удалось отправить симпатию.');
       setLikedIds(current => current.includes(profile.id) ? current : [...current, profile.id]);
       setNotice(data?.matched
-        ? `У вас взаимная симпатия с ${profile.displayName}! Совпадение создано.`
+        ? `У вас взаимная симпатия с ${profile.displayName}! Совпадение создано. Открываем чаты.`
         : `${t('liked')}: «${profile.displayName}».`);
+      if (data?.matched) window.dispatchEvent(new CustomEvent('vow:match-created'));
       if (swipeMode) setProfiles(current => current.filter(item => item.id !== profile.id));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Не удалось отправить симпатию.');
