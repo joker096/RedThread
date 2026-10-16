@@ -107,18 +107,13 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
   };
 
   const handleUndo = () => {
-    setHistory(previous => {
-      if (previous.length === 0) return previous;
-      const nextHistory = [...previous];
-      const previousIndex = nextHistory.pop();
-      if (previousIndex !== undefined) {
-        setCurrentIndex(previousIndex);
-        setPhotoIndex(0);
-        setActivePsychCardIndex(0);
-        setIsPlayingAudio(false);
-      }
-      return nextHistory;
-    });
+    if (history.length === 0) return;
+    const previousIndex = history[history.length - 1];
+    setHistory(previous => previous.slice(0, -1));
+    setCurrentIndex(previousIndex);
+    setPhotoIndex(0);
+    setActivePsychCardIndex(0);
+    setIsPlayingAudio(false);
   };
 
   const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
@@ -131,6 +126,10 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
     const end = event.changedTouches[0]?.clientX;
     if (start === null || end === undefined) return;
     const action = getSwipeActionFromDelta(end - start);
+    if (currentProfile?.isSponsorAd) {
+      if (action !== 'none') handlePassCurrent();
+      return;
+    }
     if (action === 'like') handleLikeCurrent();
     if (action === 'pass') handlePassCurrent();
   };
