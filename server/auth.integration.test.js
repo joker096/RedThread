@@ -262,11 +262,11 @@ test('auth API supports registration, session lookup, logout and login', {
     const unauthenticatedSearch = await request('/api/profiles/search');
     assert.equal(unauthenticatedSearch.status, 401);
 
-    const passProfile = await request('/api/passes/' + registered.user.id, {
+    const undoTargetPass = await request('/api/passes/' + registered.user.id, {
       method: 'POST',
       headers: { Cookie: maleCookie }
     });
-    assert.equal(passProfile.status, 204);
+    assert.equal(undoTargetPass.status, 204);
     const undoPass = await request('/api/passes/undo', {
       method: 'POST',
       headers: { Cookie: maleCookie }
