@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   Heart, 
   X, 
@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import type { UserProfile, CrucialAnswers } from '../types/index.ts';
 import { calculateCompatibility } from '../utils/compatibility.ts';
+import { getSwipeActionFromDelta } from '../utils/swipe.ts';
 
 interface RadarDiscoveryProps {
   profiles: UserProfile[];
@@ -57,6 +58,8 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [photoIndex, setPhotoIndex] = useState(0);
   const [activePsychCardIndex, setActivePsychCardIndex] = useState(0);
+  const [history, setHistory] = useState<number[]>([]);
+  const touchStartX = useRef<number | null>(null);
 
   const currentProfile = profiles[currentIndex];
 
@@ -71,6 +74,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
   }, [profiles.length, currentIndex]);
 
   const handleNext = () => {
+    if (profiles.length > 0) setHistory(previous => [...previous, currentIndex].slice(-50));
     setIsPlayingAudio(false);
     setPhotoIndex(0);
     setActivePsychCardIndex(0);
@@ -100,6 +104,35 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
       onPass(currentProfile);
       handleNext();
     }
+  };
+
+  const handleUndo = () => {
+    setHistory(previous => {
+      if (previous.length === 0) return previous;
+      const nextHistory = [...previous];
+      const previousIndex = nextHistory.pop();
+      if (previousIndex !== undefined) {
+        setCurrentIndex(previousIndex);
+        setPhotoIndex(0);
+        setActivePsychCardIndex(0);
+        setIsPlayingAudio(false);
+      }
+      return nextHistory;
+    });
+  };
+
+  const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    touchStartX.current = event.touches[0]?.clientX ?? null;
+  };
+
+  const handleTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
+    const start = touchStartX.current;
+    touchStartX.current = null;
+    const end = event.changedTouches[0]?.clientX;
+    if (start === null || end === undefined) return;
+    const action = getSwipeActionFromDelta(end - start);
+    if (action === 'like') handleLikeCurrent();
+    if (action === 'pass') handlePassCurrent();
   };
 
   const toggleAudio = () => {
@@ -153,7 +186,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
       </div>
 
       {/* Main Full-Bleed Card Container */}
-      <div className="w-full relative rounded-3xl overflow-hidden bg-stone-900 border border-white/10 shadow-2xl transition-all">
+      <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} className="w-full relative rounded-3xl overflow-hidden bg-stone-900 border border-white/10 shadow-2xl transition-all">
         {currentProfile.isSponsorAd ? (
           /* 100% ADAPTIVE NATIVE SPONSOR AD CARD */
           <div className="flex flex-col w-full text-left">
@@ -425,6 +458,15 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
 
               {/* Floating Circular Action Buttons (Profile action buttons) */}
               <div className="flex items-center justify-center gap-3 sm:gap-4 pt-1">
+                <button
+                  onClick={handleUndo}
+                  disabled={history.length === 0}
+                  className="w-10 h-10 rounded-full bg-stone-900 text-stone-300 disabled:text-stone-700 disabled:opacity-50 hover:bg-stone-800 flex items-center justify-center border border-white/10 transition-all"
+                  title="Отменить последнее действие"
+                  aria-label="Отменить последнее действие"
+                >
+                  <span className="text-lg leading-none">↶</span>
+                </button>
                 {/* 1. Pass (Circle) */}
                 <button
                   onClick={handlePassCurrent}
