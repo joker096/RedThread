@@ -663,6 +663,7 @@ export default function App() {
             }}
             onOpenLadyPremium={() => setIsLadyPremiumOpen(true)}
             onOpenAdManager={() => setIsAdManagerOpen(true)}
+            onOpenFilters={() => setIsFilterOpen(true)}
             onAdClicked={() => {
               setAdStats(prev => ({
                 ...prev,
