@@ -78,7 +78,11 @@ const messages = {
     reportSafety: 'Safety threat', reportChildren: 'Misrepresentation about children', reportDuplicate: 'Duplicate profile',
     reportOther: 'Other', swipeHint: 'Swipe right to pass or left to like. Buttons are also available.',
     serverSearchEyebrow: 'SERVER SEARCH', languageAutoHelp: 'Use device language when available',
-    cancel: 'Cancel', save: 'Save', retry: 'Try again', loading: 'Loading…'
+    cancel: 'Cancel', save: 'Save', retry: 'Try again', loading: 'Loading…',
+    demoWoman: 'Demo woman', demoMan: 'Demo man', radar: 'Discover', testsShort: 'Values', chatsShort: 'Chats', safetyShort: 'Safety',
+    prototypeNotice: 'Prototype: registered accounts, server search and chats are available after sign-in; demo cards and demo features are clearly marked.', resetDemo: 'Reset demo',
+    demoProfilesNotice: 'Demo preview — not real people', demoProfilesDescription: 'These cards are only for checking the design and are not part of server search.',
+    serverProfilesNotice: 'Registered accounts', serverProfilesDescription: 'Server profiles are separate from demonstration profiles.', openDemoPreview: 'Open demo preview', returnToRealProfiles: 'Return to registered profiles', webMode: 'Web mode', emulator: 'Emulator:'
   },
   ru: {
     language: 'Язык', autoLanguage: 'Автоматически', discovery: 'Знакомства', tests: 'Тест ценностей', chats: 'Чаты',
@@ -103,7 +107,11 @@ const messages = {
     reportSafety: 'Угроза безопасности', reportChildren: 'Сокрытие наличия детей', reportDuplicate: 'Повторная анкета',
     reportOther: 'Другое', swipeHint: 'Проведите вправо, чтобы пропустить, или влево, чтобы отправить симпатию. Можно также использовать кнопки.',
     serverSearchEyebrow: 'ПОИСК НА СЕРВЕРЕ', languageAutoHelp: 'Использовать язык устройства, если он поддерживается',
-    cancel: 'Отмена', save: 'Сохранить', retry: 'Повторить', loading: 'Загрузка…'
+    cancel: 'Отмена', save: 'Сохранить', retry: 'Повторить', loading: 'Загрузка…',
+    demoWoman: 'Демо: женщина', demoMan: 'Демо: мужчина', radar: 'Радар', testsShort: 'Тесты', chatsShort: 'Чаты', safetyShort: 'Защита',
+    prototypeNotice: 'Прототип: реальные аккаунты, серверный поиск и чаты доступны после входа; демо-карточки и демонстрационные функции отдельно помечены.', resetDemo: 'Сбросить демо',
+    demoProfilesNotice: 'Демо-превью — не реальные люди', demoProfilesDescription: 'Эти карточки предназначены только для проверки дизайна и не участвуют в серверном поиске.',
+    serverProfilesNotice: 'Режим зарегистрированных аккаунтов', serverProfilesDescription: 'Серверные анкеты не смешиваются с демонстрационными профилями.', openDemoPreview: 'Открыть демо-превью', returnToRealProfiles: 'Вернуться к реальным анкетам', webMode: 'Веб-режим', emulator: 'Эмуляция:'
   },
   es: { language:'Idioma', autoLanguage:'Automático', discovery:'Descubrir', tests:'Test de valores', chats:'Chats', safety:'Seguridad', filters:'Filtros de perfiles', login:'Iniciar sesión / Registrarse', country:'País', city:'Ciudad', ageFrom:'Edad mínima', ageTo:'Edad máxima', search:'Buscar perfiles', searching:'Buscando…', undoPass:'Deshacer último descarte', like:'Me gusta', liked:'Me gusta enviado', pass:'Descartar perfil', block:'Ocultar y bloquear', report:'Denunciar', noPhotos:'No hay fotos', any:'Cualquiera', anyCountry:'Cualquier país', anyCity:'Cualquier ciudad', relationshipGoal:'Objetivo de relación', marriageFamily:'Matrimonio y familia', familyWithoutMarriage:'Familia sin matrimonio legal', seriousRelationship:'Relación seria', familyFormat:'Formato familiar', children:'Hijos', notImportant:'No importa', noChildren:'Sin hijos', hasChildren:'Tiene hijos', doNotFilter:'Sin filtro', financialMatch:'Compatibilidad financiera', sendReport:'Enviar denuncia', sending:'Enviando…', cancel:'Cancelar', save:'Guardar', loading:'Cargando…' },
   fr: { language:'Langue', autoLanguage:'Automatique', discovery:'Découvrir', tests:'Test de valeurs', chats:'Messages', safety:'Sécurité', filters:'Filtres de profils', login:'Connexion / Inscription', country:'Pays', city:'Ville', ageFrom:'Âge minimum', ageTo:'Âge maximum', search:'Rechercher des profils', searching:'Recherche…', undoPass:'Annuler le dernier refus', like:'Aimer', liked:'J’aime envoyé', pass:'Ignorer le profil', block:'Masquer et bloquer', report:'Signaler', noPhotos:'Aucune photo', any:'Tous', anyCountry:'Tous les pays', anyCity:'Toutes les villes', relationshipGoal:'Objectif relationnel', marriageFamily:'Mariage et famille', familyWithoutMarriage:'Famille sans mariage officiel', seriousRelationship:'Relation sérieuse', familyFormat:'Format familial', children:'Enfants', notImportant:'Sans importance', noChildren:'Sans enfants', hasChildren:'A des enfants', doNotFilter:'Ne pas filtrer', financialMatch:'Compatibilité financière', sendReport:'Envoyer le signalement', sending:'Envoi…', cancel:'Annuler', save:'Enregistrer', loading:'Chargement…' },
