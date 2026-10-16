@@ -108,7 +108,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       }
       if (response.status === 402) throw new Error(data?.message || 'Пробный период завершён. Для симпатий потребуется Premium; оплата ещё не подключена.');
       if (!response.ok) throw new Error('Не удалось отправить симпатию.');
-      if (!data?.matched) setActionHistory(current => [...current, { type: 'like', profile }].slice(-50));
+      if (!data?.matched) setActionHistory(current => [...current, { type: 'like' as const, profile }].slice(-50));
       setLikedIds(current => current.includes(profile.id) ? current : [...current, profile.id]);
       setNotice(data?.matched
         ? `У вас взаимная симпатия с ${profile.displayName}! Совпадение создано. Открываем чаты.`
@@ -138,7 +138,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       }
       if (response.status === 402) throw new Error(data?.message || 'Пробный период завершён. Для пропуска анкет потребуется Premium.');
       if (!response.ok) throw new Error('Не удалось пропустить анкету.');
-      setActionHistory(current => [...current, { type: 'pass', profile }].slice(-50));
+      setActionHistory(current => [...current, { type: 'pass' as const, profile }].slice(-50));
       setProfiles(current => current.filter(item => item.id !== profile.id));
       setNotice('Анкета пропущена и больше не будет показываться в поиске.');
     } catch (error) {
