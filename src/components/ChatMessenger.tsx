@@ -137,7 +137,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                     </span>
                     <span className="text-[10px] text-stone-400">{thread.lastMessageTime}</span>
                   </span>
-                  <p className="text-xs text-stone-400 truncate mt-0.5">{thread.lastMessage}</p>
+                  <span className="block text-xs text-stone-400 truncate mt-0.5">{thread.lastMessage}</span>
                 </span>
               </button>
             );
