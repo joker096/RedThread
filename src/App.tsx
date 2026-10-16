@@ -11,6 +11,7 @@ import {
   Gift
 } from 'lucide-react';
 import { initialProfiles, initialCurrentUser } from './data/mockProfiles.ts';
+import { RelationshipAssessmentPanel } from './components/RelationshipAssessmentPanel.tsx';
 import type { 
   UserProfile, 
   Gender, 
@@ -524,7 +525,9 @@ export default function App() {
     switch (activeTab) {
       case 'tests':
         return (
-          <GenderSpecificTests
+          <>
+            <RelationshipAssessmentPanel />
+            <GenderSpecificTests
             currentGender={currentGender}
             onOpenMatrix={profile => {
               setMatrixTargetProfile(profile || profiles[0]);
@@ -532,6 +535,7 @@ export default function App() {
             }}
             brandName={currentBrand.name}
           />
+          </>
         );
 
       case 'chats':
