@@ -53,10 +53,9 @@ export async function moderateProfilePhoto(imageBuffer, options = {}) {
     const payload = await response.json();
     const parsed = JSON.parse(payload?.message?.content || '{}');
     const confidence = Number(parsed.confidence);
-    const flags = Array.isArray(parsed.flags)
-      ? [...new Set(parsed.flags.filter(flag => typeof flag === 'string' && ALLOWED_FLAGS.has(flag)))]
-      : null;
-    if (!flags || !Number.isFinite(confidence) || confidence < 0 || confidence > 1) return pending('invalid_model_response');
+    if (!Array.isArray(parsed.flags) || parsed.flags.some(flag => typeof flag !== 'string' || !ALLOWED_FLAGS.has(flag))) return pending('invalid_model_response');
+    const flags = [...new Set(parsed.flags)];
+    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) return pending('invalid_model_response');
 
     if (parsed.decision === 'unsafe' && confidence >= CONFIDENCE_THRESHOLD &&
         flags.some(flag => flag === 'sexual_nudity' || flag === 'graphic_violence')) {

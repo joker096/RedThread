@@ -69,6 +69,16 @@ test('model failures and malformed output fail closed to pending', async () => {
   assert.equal(malformed.reason, 'model_error');
 });
 
+test('unknown model flags fail closed instead of being silently ignored', async () => {
+  const result = await moderateProfilePhoto(image, {
+    enabled: true,
+    model: 'llava:7b',
+    fetchImpl: mockFetch({ decision: 'safe', confidence: 0.999, adultPersonVisible: true, flags: ['unrecognized_risk'] })
+  });
+  assert.equal(result.status, 'pending');
+  assert.equal(result.reason, 'invalid_model_response');
+});
+
 test('invalid image inputs never reach the model', async () => {
   let called = false;
   const result = await moderateProfilePhoto(Buffer.alloc(0), {
