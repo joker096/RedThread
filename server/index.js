@@ -1,11 +1,25 @@
 import 'dotenv/config';
+import { createHash } from 'node:crypto';
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import pg from 'pg';
+import {
+  createSessionToken,
+  hashPassword,
+  hashSessionToken,
+  isAdultDate,
+  isValidEmail,
+  normalizeEmail,
+  verifyPassword
+} from './security.js';
 
 const { Pool } = pg;
 const app = express();
 const port = Number.parseInt(process.env.API_PORT || '3001', 10);
 const databaseUrl = process.env.DATABASE_URL;
+const sessionDurationSeconds = 60 * 60 * 24 * 30;
+const sessionCookieName = 'nit_session';
+const allowedOrigin = process.env.APP_ORIGIN || 'http://localhost:3000';
 
 const pool = databaseUrl
   ? new Pool({
@@ -20,27 +34,248 @@ const pool = databaseUrl
 app.disable('x-powered-by');
 app.use(express.json({ limit: '32kb', strict: true }));
 
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too_many_auth_attempts' }
+});
+
+function requireDatabase(_req, res, next) {
+  if (!pool) {
+    return res.status(503).json({ error: 'database_not_configured' });
+  }
+  next();
+}
+
+function validateRequestOrigin(req, res, next) {
+  const origin = req.get('origin');
+  if (!origin) return next();
+
+  try {
+    if (new URL(origin).origin !== new URL(allowedOrigin).origin) {
+      return res.status(403).json({ error: 'origin_not_allowed' });
+    }
+  } catch {
+    return res.status(403).json({ error: 'origin_not_allowed' });
+  }
+  return next();
+}
+
+function readSessionToken(req) {
+  const cookieHeader = req.headers.cookie || '';
+  const prefix = `${sessionCookieName}=`;
+  const cookie = cookieHeader.split(';').map(part => part.trim()).find(part => part.startsWith(prefix));
+  return cookie ? cookie.slice(prefix.length) : null;
+}
+
+function writeSessionCookie(res, token) {
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  res.setHeader(
+    'Set-Cookie',
+    `${sessionCookieName}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${sessionDurationSeconds}${secure}`
+  );
+}
+
+function clearSessionCookie(res) {
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  res.setHeader(
+    'Set-Cookie',
+    `${sessionCookieName}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`
+  );
+}
+
+function publicUser(row) {
+  return {
+    id: row.id,
+    email: row.email,
+    displayName: row.display_name,
+    gender: row.gender,
+    country: row.country,
+    city: row.city,
+    relationshipIntent: row.relationship_intent
+  };
+}
+
+async function createSession(client, userId) {
+  const token = createSessionToken();
+  const tokenHash = hashSessionToken(token);
+  await client.query(
+    'INSERT INTO sessions (user_id, token_hash, expires_at) VALUES ($1, $2, NOW() + INTERVAL \'30 days\')',
+    [userId, tokenHash]
+  );
+  return token;
+}
+
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', service: 'nit-api' });
 });
 
 app.get('/api/ready', async (_req, res) => {
   if (!pool) {
-    return res.status(503).json({
-      status: 'not_ready',
-      reason: 'database_not_configured'
-    });
+    return res.status(503).json({ status: 'not_ready', reason: 'database_not_configured' });
   }
 
   try {
     await pool.query('SELECT 1');
     return res.json({ status: 'ready', database: 'connected' });
   } catch {
-    return res.status(503).json({
-      status: 'not_ready',
-      reason: 'database_unavailable'
-    });
+    return res.status(503).json({ status: 'not_ready', reason: 'database_unavailable' });
   }
+});
+
+app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  const password = req.body?.password;
+  const displayName = typeof req.body?.displayName === 'string' ? req.body.displayName.trim() : '';
+  const birthDate = req.body?.birthDate;
+  const gender = req.body?.gender;
+  const country = typeof req.body?.country === 'string' ? req.body.country.trim() : '';
+  const city = typeof req.body?.city === 'string' ? req.body.city.trim() : '';
+  const relationshipIntent = req.body?.relationshipIntent || 'marriage_family';
+
+  if (!isValidEmail(email)) {
+    return res.status(400).json({ error: 'invalid_email' });
+  }
+  if (typeof password !== 'string' || password.length < 12 || password.length > 128) {
+    return res.status(400).json({ error: 'password_must_be_12_to_128_characters' });
+  }
+  if (displayName.length < 2 || displayName.length > 80) {
+    return res.status(400).json({ error: 'display_name_must_be_2_to_80_characters' });
+  }
+  if (!isAdultDate(birthDate)) {
+    return res.status(400).json({ error: 'must_be_18_or_older_with_valid_birth_date' });
+  }
+  if (gender !== 'female' && gender !== 'male') {
+    return res.status(400).json({ error: 'invalid_gender' });
+  }
+  if (!country || country.length > 100 || !city || city.length > 120) {
+    return res.status(400).json({ error: 'valid_country_and_city_required' });
+  }
+  if (!['marriage_family', 'serious_relationship'].includes(relationshipIntent)) {
+    return res.status(400).json({ error: 'invalid_relationship_intent' });
+  }
+
+  const passwordHash = await hashPassword(password);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const userResult = await client.query(
+      'INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email',
+      [email, passwordHash]
+    );
+    const user = userResult.rows[0];
+    const profileResult = await client.query(
+      `INSERT INTO profiles (user_id, display_name, birth_date, gender, country, city, relationship_intent)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING user_id AS id, display_name, gender, country, city, relationship_intent`,
+      [user.id, displayName, birthDate, gender, country, city, relationshipIntent]
+    );
+    const token = await createSession(client, user.id);
+    await client.query('COMMIT');
+
+    writeSessionCookie(res, token);
+    return res.status(201).json({ user: { ...publicUser({ ...profileResult.rows[0], email: user.email }) } });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    if (error?.code === '23505') {
+      return res.status(409).json({ error: 'email_already_registered' });
+    }
+    console.error('Registration failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'registration_failed' });
+  } finally {
+    client.release();
+  }
+});
+
+app.post('/api/auth/login', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  const password = req.body?.password;
+  if (!isValidEmail(email) || typeof password !== 'string' || password.length > 128) {
+    return res.status(400).json({ error: 'invalid_credentials_format' });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT u.id, u.email, u.password_hash, u.status, p.display_name, p.gender, p.country, p.city, p.relationship_intent
+       FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.email = $1 LIMIT 1`,
+      [email]
+    );
+    const user = result.rows[0];
+    const passwordMatches = user
+      ? await verifyPassword(password, user.password_hash)
+      : await hashPassword(password).then(() => false);
+
+    if (!user || !passwordMatches) {
+      return res.status(401).json({ error: 'email_or_password_incorrect' });
+    }
+    if (user.status !== 'active') {
+      return res.status(403).json({ error: 'account_unavailable' });
+    }
+
+    const client = await pool.connect();
+    let token;
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM sessions WHERE expires_at < NOW()');
+      token = await createSession(client, user.id);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    writeSessionCookie(res, token);
+    return res.json({ user: publicUser(user) });
+  } catch (error) {
+    console.error('Login failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'login_failed' });
+  }
+});
+
+app.get('/api/auth/me', requireDatabase, async (req, res) => {
+  const token = readSessionToken(req);
+  if (!token) return res.status(401).json({ error: 'not_authenticated' });
+
+  try {
+    const result = await pool.query(
+      `SELECT u.id, u.email, u.status, p.display_name, p.gender, p.country, p.city, p.relationship_intent, s.id AS session_id
+       FROM sessions s
+       JOIN users u ON u.id = s.user_id
+       JOIN profiles p ON p.user_id = u.id
+       WHERE s.token_hash = $1 AND s.expires_at > NOW()
+       LIMIT 1`,
+      [hashSessionToken(token)]
+    );
+    const user = result.rows[0];
+    if (!user || user.status !== 'active') {
+      clearSessionCookie(res);
+      return res.status(401).json({ error: 'not_authenticated' });
+    }
+
+    await pool.query('UPDATE sessions SET last_seen_at = NOW() WHERE id = $1', [user.session_id]);
+    return res.json({ user: publicUser(user) });
+  } catch (error) {
+    console.error('Session lookup failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'session_lookup_failed' });
+  }
+});
+
+app.post('/api/auth/logout', validateRequestOrigin, requireDatabase, async (req, res) => {
+  const token = readSessionToken(req);
+  if (token) {
+    try {
+      await pool.query('DELETE FROM sessions WHERE token_hash = $1', [hashSessionToken(token)]);
+    } catch (error) {
+      console.error('Logout failed:', error?.message || 'unknown error');
+      return res.status(500).json({ error: 'logout_failed' });
+    }
+  }
+  clearSessionCookie(res);
+  return res.status(204).end();
 });
 
 app.use('/api', (_req, res) => {
