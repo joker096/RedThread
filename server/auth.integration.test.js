@@ -285,7 +285,11 @@ test('auth API supports registration, session lookup, logout and login', {
         photoUrls: ['https://images.example.test/profile.jpg'],
         occupation: 'Инженер',
         education: 'Высшее',
-        languages: ['Русский', 'Английский']
+        languages: ['Русский', 'Английский'],
+        hasChildren: true,
+        familyFormat: 'cohabitation',
+        wantsChildren: 'no',
+        childrenLivingArrangement: 'with_me'
       })
     });
     assert.equal(profileUpdate.status, 200);
@@ -293,6 +297,10 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.deepEqual(updatedProfile.photoUrls, ['https://images.example.test/profile.jpg']);
     assert.equal(updatedProfile.occupation, 'Инженер');
     assert.deepEqual(updatedProfile.languages, ['Русский', 'Английский']);
+    assert.equal(updatedProfile.hasChildren, true);
+    assert.equal(updatedProfile.familyFormat, 'cohabitation');
+    assert.equal(updatedProfile.wantsChildren, 'no');
+    assert.ok(updatedProfile.childrenDisclosureConfirmedAt);
 
     const invalidPhotoUrl = await request('/api/profiles/me', {
       method: 'PATCH',
@@ -300,6 +308,12 @@ test('auth API supports registration, session lookup, logout and login', {
       body: JSON.stringify({ photoUrls: ['http://insecure.example/profile.jpg'] })
     });
     assert.equal(invalidPhotoUrl.status, 400);
+
+    const familySearch = await request('/api/profiles/search?hasChildren=true&familyFormat=cohabitation&intent=family_without_marriage', {
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(familySearch.status, 200);
+    assert.equal((await familySearch.json()).profiles.some(profile => profile.id === maleRegistered.user.id && profile.hasChildren === true), true);
 
     const block = await request(`/api/blocks/${maleRegistered.user.id}`, {
       method: 'POST',
