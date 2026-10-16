@@ -100,7 +100,7 @@ async function sendConfiguredEmail({ to, subject, html }) {
 async function createAccountActionToken(client, userId, purpose, lifetimeMinutes) {
   const token = createSessionToken();
   await client.query(
-    'INSERT INTO account_action_tokens (user_id, purpose, token_hash, expires_at) VALUES ($1, $2, $3, NOW() + ($4 * INTERVAL \'1 minute\'))',
+    `INSERT INTO account_action_tokens (user_id, purpose, token_hash, expires_at) VALUES ($1, $2, $3, NOW() + ($4::int * INTERVAL '1 minute'))`,
     [userId, purpose, hashSessionToken(token), lifetimeMinutes]
   );
   return token;
