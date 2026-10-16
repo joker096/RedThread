@@ -30,6 +30,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const [isVisible, setIsVisible] = useState(true);
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
+  const [uploadBusy, setUploadBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [blockedProfiles, setBlockedProfiles] = useState<BlockedProfile[]>([]);
 
@@ -135,8 +136,23 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
             <label className="block text-xs text-stone-300">Образование<input value={education} onChange={e => setEducation(e.target.value)} maxLength={120} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
           </div>
           <label className="block text-xs text-stone-300">Языки через запятую<input value={languages} onChange={e => setLanguages(e.target.value)} placeholder="Русский, английский" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
-          <label className="block text-xs text-stone-300">HTTPS-ссылки на фотографии (до 6, по одной в строке)<textarea value={photoUrls} onChange={e => setPhotoUrls(e.target.value)} rows={3} placeholder="https://example.com/photo.jpg" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
-          <p className="text-[10px] leading-relaxed text-stone-500">Это пока ссылки, не загрузка файлов. Не используйте чужие фотографии без разрешения; HTTPS-ссылка сама по себе не подтверждает личность.</p>
+          <label className="block text-xs text-stone-300">Загрузить фотографию (JPEG или PNG, до 8 МБ)
+            <input type="file" accept="image/jpeg,image/png" disabled={uploadBusy || (photoUrls.split(/\n|,/).map(value => value.trim()).filter(Boolean).length >= 6)} onChange={async event => {
+              const file=event.currentTarget.files?.[0]; event.currentTarget.value=''; if(!file)return;
+              if(!['image/jpeg','image/png'].includes(file.type)||file.size>8*1024*1024){setNotice('Выберите JPEG или PNG размером не более 8 МБ.');return;}
+              setUploadBusy(true);setNotice('');
+              try {
+                const response=await fetch('/api/photos',{method:'POST',credentials:'include',headers:{'Content-Type':file.type},body:file});
+                const data=await response.json().catch(()=>null);
+                if(!response.ok) throw new Error(data?.error==='photo_limit_reached'?'Можно добавить не более 6 фотографий.':data?.error==='photo_storage_not_configured'?'На сервере не настроено постоянное хранилище фотографий.':'Не удалось загрузить фото. Проверьте подключение и настройки хранилища.');
+                setPhotoUrls(current=>[...current.split(/\n|,/).map(value=>value.trim()).filter(Boolean),data.photoUrl].join('\n'));
+                setNotice('Фото загружено. Сохраните анкету, чтобы подтвердить состав фотографий.');
+              } catch(error){setNotice(error instanceof Error?error.message:'Ошибка загрузки фотографии.');}
+              finally{setUploadBusy(false);}
+            }} className="mt-2 block w-full text-sm text-stone-300 file:mr-3 file:rounded-lg file:border-0 file:bg-rose-700 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white" />
+          </label>
+          <label className="block text-xs text-stone-300">HTTPS-ссылки или загруженные фото (до 6 всего)<textarea value={photoUrls} onChange={e=>setPhotoUrls(e.target.value)} rows={3} placeholder="https://example.com/photo.jpg" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
+          <p className="text-[10px] leading-relaxed text-stone-500">JPEG/PNG проверяются по сигнатуре, структуре и размерам; EXIF и текстовые метаданные удаляются. Файлы доступны авторизованным пользователям с учётом видимости анкеты и блокировок. Не загружайте чужие фото без разрешения.</p>
           <label className="block text-xs text-stone-300">Цель отношений<select value={relationshipIntent} onChange={e => setRelationshipIntent(e.target.value as typeof relationshipIntent)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="marriage_family">Брак и семья</option><option value="family_without_marriage">Семья без регистрации брака</option><option value="serious_relationship">Серьёзные отношения</option></select></label>
           <label className="block text-xs text-stone-300">Формат семьи<select value={familyFormat} onChange={e => setFamilyFormat(e.target.value as typeof familyFormat)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="open_to_both">Открыт(а) к обоим форматам</option><option value="marriage">Только официальный брак</option><option value="cohabitation">Совместная жизнь без брака</option></select></label>
           <fieldset className="rounded-xl border border-white/10 bg-stone-950 p-3">
@@ -150,7 +166,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
             {profile?.childrenDisclosureConfirmedAt === null && <p className="mt-2 text-[10px] text-amber-300">Подтвердите информацию о детях и сохраните анкету, чтобы снова стать видимым в поиске.</p>}
           </fieldset>
           <label className="flex items-center gap-3 rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-stone-200"><input type="checkbox" checked={isVisible} onChange={e => setIsVisible(e.target.checked)} className="h-4 w-4 accent-rose-500" />Показывать анкету в поиске</label>
-          <button type="button" onClick={() => void save()} disabled={busy || !displayName.trim() || !country.trim() || !city.trim() || hasChildren === null} className="w-full rounded-xl bg-amber-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? 'Сохраняем…' : 'Сохранить анкету'}</button>
+          <button type="button" onClick={() => void save()} disabled={busy || uploadBusy || !displayName.trim() || !country.trim() || !city.trim() || hasChildren === null} className="w-full rounded-xl bg-amber-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? 'Сохраняем…' : 'Сохранить анкету'}</button>
           <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-3">
             <h4 className="text-sm font-semibold text-white">Заблокированные пользователи</h4>
             {!blockedProfiles.length ? <p className="mt-2 text-xs text-stone-500">Список пуст.</p> : blockedProfiles.map(blocked => (

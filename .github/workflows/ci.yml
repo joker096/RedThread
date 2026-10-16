@@ -33,7 +33,6 @@ jobs:
           node-version: 22
       - run: npm install
       - run: npm run db:migrate
-      - run: npm run db:migrate
       - run: npm run lint
       - run: npm test
       - run: npm run build

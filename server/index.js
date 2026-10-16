@@ -1,4 +1,8 @@
 import 'dotenv/config';
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { sanitizeProfileImage } from './photoSecurity.js';
 import express from 'express';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import rateLimit from 'express-rate-limit';
@@ -49,6 +53,7 @@ app.use((_req, res, next) => {
   next();
 });
 app.use(express.json({ limit: '32kb', strict: true }));
+const photoStorageDir = path.resolve(process.env.PHOTO_STORAGE_DIR || 'uploads/private-photos');
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -778,13 +783,61 @@ function isUuid(value) {
 }
 
 function isSafePhotoUrl(value) {
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' && !url.username && !url.password && value.trim() === value;
-  } catch {
-    return false;
-  }
+  if (typeof value !== 'string' || value.trim() !== value) return false;
+  if (/^\/api\/photos\/[a-f0-9-]{36}$/i.test(value)) return true;
+  try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password; }
+  catch { return false; }
 }
+
+app.post('/api/photos', validateRequestOrigin, requireSession, profileActionLimiter, express.raw({ type: ['image/jpeg', 'image/png'], limit: '8mb' }), async (req, res) => {
+  if (process.env.NODE_ENV === 'production' && !process.env.PHOTO_STORAGE_DIR) return res.status(503).json({ error: 'photo_storage_not_configured' });
+  let clean;
+  try { clean = sanitizeProfileImage(req.body); }
+  catch (error) { const code=error instanceof Error?error.message:'invalid_image'; return res.status(code==='image_too_large'?413:400).json({error:code}); }
+  const id=randomUUID(), filePath=path.join(photoStorageDir,id+'.'+clean.extension), photoUrl='/api/photos/'+id;
+  let client, fileWritten=false;
+  try {
+    client=await pool.connect(); await client.query('BEGIN');
+    const profile=await client.query('SELECT photo_urls FROM profiles WHERE user_id=$1 FOR UPDATE',[req.authUser.id]);
+    if(!profile.rows[0]){await client.query('ROLLBACK');return res.status(404).json({error:'profile_not_found'});}
+    if((profile.rows[0].photo_urls||[]).length>=6){await client.query('ROLLBACK');return res.status(400).json({error:'photo_limit_reached'});}
+    await mkdir(photoStorageDir,{recursive:true,mode:0o700});
+    await writeFile(filePath,clean.buffer,{flag:'wx',mode:0o600}); fileWritten=true;
+    await client.query('INSERT INTO photo_assets (id,user_id,storage_path,mime_type,byte_size,width,height) VALUES ($1,$2,$3,$4,$5,$6,$7)',[id,req.authUser.id,filePath,clean.mimeType,clean.buffer.length,clean.width,clean.height]);
+    await client.query("UPDATE profiles SET photo_urls=COALESCE(photo_urls,'{}') || ARRAY[$2]::text[],updated_at=NOW() WHERE user_id=$1",[req.authUser.id,photoUrl]);
+    await client.query('COMMIT');
+    return res.status(201).json({photoUrl,mimeType:clean.mimeType,width:clean.width,height:clean.height});
+  } catch(error) {
+    if(client) await client.query('ROLLBACK').catch(()=>{});
+    if(fileWritten) await unlink(filePath).catch(()=>{});
+    console.error('Photo upload failed:',error?.message||'unknown error');
+    return res.status(500).json({error:'photo_upload_failed'});
+  } finally { client?.release(); }
+});
+
+app.get('/api/photos/:photoId', requireSession, async (req,res) => {
+  if(!isUuid(req.params.photoId)) return res.status(404).end();
+  try {
+    const result=await pool.query(
+      `SELECT a.storage_path AS "storagePath",a.mime_type AS "mimeType"
+       FROM photo_assets a JOIN profiles p ON p.user_id=a.user_id JOIN users u ON u.id=a.user_id
+       WHERE a.id=$1 AND u.status='active'
+         AND ('/api/photos/' || a.id::text)=ANY(COALESCE(p.photo_urls,'{}'))
+         AND (a.user_id=$2 OR (p.is_visible=TRUE AND NOT EXISTS (
+           SELECT 1 FROM user_blocks b WHERE (b.blocker_id=$2 AND b.blocked_id=a.user_id) OR (b.blocker_id=a.user_id AND b.blocked_id=$2)
+         ))) LIMIT 1`,
+      [req.params.photoId,req.authUser.id]
+    );
+    const asset=result.rows[0]; if(!asset) return res.status(404).end();
+    const bytes=await readFile(asset.storagePath);
+    res.setHeader('Content-Type',asset.mimeType);res.setHeader('Content-Length',bytes.length);
+    res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Cross-Origin-Resource-Policy','same-site');
+    res.setHeader('Cache-Control','private, max-age=300');return res.send(bytes);
+  } catch(error) {
+    if(error?.code==='ENOENT') return res.status(404).end();
+    console.error('Photo read failed:',error?.message||'unknown error');return res.status(500).json({error:'photo_read_failed'});
+  }
+});
 
 app.get('/api/assessment', requireSession, requirePaidFeatures, async (req, res) => {
   try {
@@ -875,10 +928,11 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
   }
   if (Object.hasOwn(body, 'photoUrls')) {
     if (!Array.isArray(body.photoUrls) || body.photoUrls.length > 6 ||
-        body.photoUrls.some(url => typeof url !== 'string' || url.length > 2048 || !isSafePhotoUrl(url))) {
-      return res.status(400).json({ error: 'invalid_photo_urls' });
-    }
-    addUpdate('photo_urls', body.photoUrls);
+        body.photoUrls.some(url => typeof url !== 'string' || url.length > 2048 || !isSafePhotoUrl(url))) return res.status(400).json({ error: 'invalid_photo_urls' });
+    const ids=body.photoUrls.filter(url=>url.startsWith('/api/photos/')).map(url=>url.slice('/api/photos/'.length));
+    if(ids.some(id=>!isUuid(id))) return res.status(400).json({error:'invalid_photo_urls'});
+    if(ids.length){const owned=await pool.query('SELECT id FROM photo_assets WHERE user_id=$1 AND id=ANY($2::uuid[])',[req.authUser.id,ids]);if(owned.rowCount!==new Set(ids).size)return res.status(400).json({error:'invalid_photo_urls'});}
+    addUpdate('photo_urls',body.photoUrls);
   }
   if (Object.hasOwn(body, 'occupation')) {
     if (typeof body.occupation !== 'string' || body.occupation.trim().length > 120) return res.status(400).json({ error: 'invalid_occupation' });
