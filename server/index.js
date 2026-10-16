@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import express from 'express';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
@@ -53,6 +53,50 @@ app.use((_req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   next();
 });
+app.post('/api/billing/webhook', express.raw({ type: 'application/json', limit: '1mb' }), async (req, res) => {
+  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!secret || !Buffer.isBuffer(req.body)) return res.status(503).json({ error: 'billing_webhook_not_configured' });
+  const header = req.get('stripe-signature') || '';
+  const timestamp = header.match(/(?:^|,)t=(\d+)/)?.[1];
+  const signatures = [...header.matchAll(/(?:^|,)v1=([a-f0-9]{64})/gi)].map(match => match[1]);
+  if (!timestamp || !signatures.length || Math.abs(Date.now() - Number(timestamp) * 1000) > 5 * 60 * 1000) return res.status(400).json({ error: 'invalid_webhook_signature' });
+  const expected = createHmac('sha256', secret).update(timestamp + '.').update(req.body).digest();
+  const valid = signatures.some(signature => { const supplied = Buffer.from(signature, 'hex'); return supplied.length === expected.length && timingSafeEqual(supplied, expected); });
+  if (!valid) return res.status(400).json({ error: 'invalid_webhook_signature' });
+  let event;
+  try { event = JSON.parse(req.body.toString('utf8')); } catch { return res.status(400).json({ error: 'invalid_webhook_payload' }); }
+  if (!pool) return res.status(503).json({ error: 'database_not_configured' });
+  try {
+    const object = event?.data?.object || {};
+    const userId = object.metadata?.userId || object.client_reference_id || null;
+    const customerId = typeof object.customer === 'string' ? object.customer : object.customer?.id || null;
+    if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
+      if (userId && object.mode === 'payment' && object.payment_status === 'paid' && object.metadata?.plan === 'lifetime') {
+        await pool.query('UPDATE users SET premium_lifetime = TRUE, premium_until = NULL, stripe_customer_id = COALESCE($2, stripe_customer_id), stripe_subscription_id = NULL, updated_at = NOW() WHERE id = $1', [userId, customerId]);
+      } else if (userId && object.mode === 'subscription') {
+        const subscriptionId = typeof object.subscription === 'string' ? object.subscription : object.subscription?.id || null;
+        await pool.query('UPDATE users SET stripe_customer_id = COALESCE($2, stripe_customer_id), stripe_subscription_id = COALESCE($3, stripe_subscription_id), updated_at = NOW() WHERE id = $1', [userId, customerId, subscriptionId]);
+      }
+    } else if (['customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted'].includes(event.type)) {
+      const subscriptionId = object.id || null;
+      const active = event.type !== 'customer.subscription.deleted' && ['active', 'trialing'].includes(object.status) && Number.isFinite(Number(object.current_period_end));
+      const periodEnd = active ? Number(object.current_period_end) : null;
+      await pool.query(
+        `UPDATE users SET premium_until = CASE WHEN $2::boolean THEN to_timestamp($3::double precision) ELSE NULL END,
+          premium_lifetime = FALSE,
+          stripe_subscription_id = CASE WHEN $4::boolean THEN NULL ELSE COALESCE($5, stripe_subscription_id) END,
+          stripe_customer_id = COALESCE($6, stripe_customer_id), updated_at = NOW()
+          WHERE id = COALESCE($1::uuid, (SELECT id FROM users WHERE stripe_subscription_id = $5 LIMIT 1))`,
+        [userId, active, periodEnd, event.type === 'customer.subscription.deleted', subscriptionId, customerId]
+      );
+    }
+    return res.json({ received: true });
+  } catch (error) {
+    console.error('Stripe webhook processing failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'billing_webhook_processing_failed' });
+  }
+});
+
 app.use(express.json({ limit: '32kb', strict: true }));
 const photoStorageDir = path.resolve(process.env.PHOTO_STORAGE_DIR || 'uploads/private-photos');
 
@@ -192,7 +236,7 @@ async function requireSession(req, res, next) {
 
   try {
     const result = await pool.query(
-      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.female_trial_ends_at, u.premium_until, u.phone_verified_at,
+      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.female_trial_ends_at, u.premium_until, u.premium_lifetime, u.phone_verified_at,
               p.display_name, p.gender, p.country, p.city, p.relationship_intent, s.id AS session_id
        FROM sessions s
        JOIN users u ON u.id = s.user_id
@@ -225,7 +269,7 @@ async function persistScreening(userId, scope, result) {
 
 function requirePaidFeatures(req, res, next) {
   // Men retain the current free access model. Safety, account settings, and reports are never paywalled.
-  if (req.authUser.gender !== 'female') return next();
+  if (req.authUser.gender !== 'female' || req.authUser.premium_lifetime === true) return next();
   const trialEndsAt = req.authUser.female_trial_ends_at ? new Date(req.authUser.female_trial_ends_at).getTime() : 0;
   const premiumUntil = req.authUser.premium_until ? new Date(req.authUser.premium_until).getTime() : 0;
   const now = Date.now();
@@ -668,24 +712,70 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
   }
 });
 
+app.post('/api/billing/checkout', validateRequestOrigin, requireSession, async (req, res) => {
+  const plan = req.body?.plan;
+  const plans = {
+    '1month': { price: process.env.STRIPE_PRICE_ID_1MONTH, mode: 'subscription' },
+    '3months': { price: process.env.STRIPE_PRICE_ID_3MONTHS, mode: 'subscription' },
+    lifetime: { price: process.env.STRIPE_PRICE_ID_LIFETIME, mode: 'payment' }
+  };
+  const selected = plans[plan];
+  if (!selected || !process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_WEBHOOK_SECRET || !selected.price) return res.status(503).json({ error: 'payment_not_configured' });
+  let baseUrl;
+  try {
+    baseUrl = new URL(process.env.APP_URL || process.env.APP_ORIGIN || allowedOrigin);
+    if (process.env.NODE_ENV === 'production' && baseUrl.protocol !== 'https:') throw new Error('https_required');
+    if (!['http:', 'https:'].includes(baseUrl.protocol)) throw new Error('invalid_protocol');
+  } catch { return res.status(503).json({ error: 'billing_return_url_not_configured' }); }
+  const successUrl = new URL('/', baseUrl); successUrl.searchParams.set('billing', 'success');
+  const cancelUrl = new URL('/', baseUrl); cancelUrl.searchParams.set('billing', 'cancelled');
+  const form = new URLSearchParams();
+  form.set('mode', selected.mode); form.set('line_items[0][price]', selected.price); form.set('line_items[0][quantity]', '1');
+  form.set('client_reference_id', req.authUser.id); form.set('metadata[userId]', req.authUser.id); form.set('metadata[plan]', plan);
+  if (selected.mode === 'subscription') form.set('subscription_data[metadata][userId]', req.authUser.id);
+  if (selected.mode === 'payment') form.set('payment_intent_data[metadata][userId]', req.authUser.id);
+  if (req.authUser.email) form.set('customer_email', req.authUser.email);
+  form.set('success_url', successUrl.toString()); form.set('cancel_url', cancelUrl.toString());
+  try {
+    const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + process.env.STRIPE_SECRET_KEY, 'Content-Type': 'application/x-www-form-urlencoded', 'Idempotency-Key': randomUUID() },
+      body: form, signal: AbortSignal.timeout(12_000)
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || typeof payload?.url !== 'string') {
+      console.error('Stripe checkout rejected:', response.status, payload?.error?.type || 'unknown_error');
+      return res.status(502).json({ error: 'checkout_session_failed' });
+    }
+    return res.json({ url: payload.url, plan });
+  } catch (error) {
+    console.error('Stripe checkout request failed:', error?.message || 'unknown error');
+    return res.status(502).json({ error: 'checkout_session_failed' });
+  }
+});
+
 app.get('/api/billing/status', requireSession, async (req, res) => {
   const trialEndsAt = req.authUser.female_trial_ends_at ? new Date(req.authUser.female_trial_ends_at) : null;
   const premiumUntil = req.authUser.premium_until ? new Date(req.authUser.premium_until) : null;
   const now = Date.now();
   const isTrialActive = req.authUser.gender === 'female' && trialEndsAt && trialEndsAt.getTime() > now;
-  const hasPremium = premiumUntil && premiumUntil.getTime() > now;
+  const hasTimedPremium = premiumUntil && premiumUntil.getTime() > now;
+  const hasPremium = Boolean(req.authUser.premium_lifetime || hasTimedPremium);
+  const availablePlans = [
+    ...(process.env.STRIPE_PRICE_ID_1MONTH ? ['1month'] : []),
+    ...(process.env.STRIPE_PRICE_ID_3MONTHS ? ['3months'] : []),
+    ...(process.env.STRIPE_PRICE_ID_LIFETIME ? ['lifetime'] : [])
+  ];
+  const paymentConfigured = Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_WEBHOOK_SECRET && availablePlans.length);
   return res.json({
-    gender: req.authUser.gender,
-    trialEndsAt: trialEndsAt?.toISOString() || null,
-    premiumUntil: premiumUntil?.toISOString() || null,
+    gender: req.authUser.gender, trialEndsAt: trialEndsAt?.toISOString() || null,
+    premiumUntil: req.authUser.premium_lifetime ? null : premiumUntil?.toISOString() || null,
+    premiumLifetime: Boolean(req.authUser.premium_lifetime),
     access: req.authUser.gender !== 'female' || isTrialActive || hasPremium ? 'full' : 'premium_required',
-    trialActive: Boolean(isTrialActive),
-    premiumActive: Boolean(hasPremium),
-    paymentConfigured: false,
-    note: 'После окончания пробного периода доступ к платным функциям ограничивается. Автоматического списания без подключённого и подтверждённого платежного соглашения нет.'
+    trialActive: Boolean(isTrialActive), premiumActive: hasPremium, paymentConfigured, availablePlans,
+    note: paymentConfigured ? 'Payment is processed by Stripe; access changes only after a verified webhook.' : 'Payments are not configured. No payment will be collected until Stripe keys, price IDs and webhook secret are configured.'
   });
 });
-
 app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req, res) => {
   const cleanFilter = (value, maxLength) => {
     if (typeof value !== 'string') return null;
