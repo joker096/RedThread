@@ -602,6 +602,11 @@ export default function App() {
       case 'chats':
         return (
           <>
+          <div role="status" className="mb-3 rounded-xl border border-amber-400/30 bg-amber-950/30 px-3 py-2 text-xs leading-relaxed text-amber-100">
+            <strong className="mr-1">DEMO / ДЕМО:</strong>
+            Sample conversation below is prototype data stored locally; it is not a live server conversation.
+            <span className="block mt-1 text-amber-200/80">Пример переписки ниже — демонстрационные данные прототипа, сохранённые локально, а не реальный диалог на сервере.</span>
+          </div>
           <ServerMatchesPanel onOpenAccount={() => setActiveTab('tests')} />
           <ChatMessenger
             threads={chatThreads}
