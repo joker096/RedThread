@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ASSESSMENT_QUESTIONS, type AssessmentAnswers } from '../utils/relationshipAssessment.ts';
+import { useLocale } from '../i18n/LocaleProvider.tsx';
 
 const emptyAnswers: AssessmentAnswers = {};
 
 export const RelationshipAssessmentPanel: React.FC = () => {
+  const { t } = useLocale();
   const [answers, setAnswers] = useState<AssessmentAnswers>(emptyAnswers);
   const [status, setStatus] = useState<'loading' | 'ready' | 'saving' | 'saved' | 'login' | 'error'>('loading');
   const [note, setNote] = useState('');
@@ -23,11 +25,11 @@ export const RelationshipAssessmentPanel: React.FC = () => {
         if (response.status === 402) {
           if (!cancelled) {
             setStatus('ready');
-            setNote('Пробный период завершён. Доступ к тесту входит в Premium; платёжная система ещё не подключена.');
+            setNote(t('trialExpiredTest'));
           }
           return null;
         }
-        if (!response.ok) throw new Error('Не удалось загрузить сохранённые ответы');
+        if (!response.ok) throw new Error(t('loadSavedAnswersError'));
         return response.json();
       })
       .then(data => {
@@ -35,7 +37,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
         if (data?.assessment?.answers) {
           setAnswers(data.assessment.answers);
           setStatus('saved');
-          setNote('Загружены ваши ответы с сервера.');
+          setNote(t('loadedSavedAnswers'));
         } else if (status !== 'ready') {
           setStatus('ready');
         }
@@ -43,7 +45,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
       .catch(() => {
         if (!cancelled) {
           setStatus('ready');
-          setNote('Серверная анкета пока недоступна. Ответы останутся только в этом окне.');
+          setNote(t('serverProfileUnavailable'));
         }
       });
     return () => { cancelled = true; };
@@ -51,7 +53,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
 
   const save = async () => {
     if (!complete) {
-      setNote('Ответьте на каждый вопрос, чтобы сохранить результаты.');
+      setNote(t('answerEveryQuestion'));
       return;
     }
     setStatus('saving');
@@ -65,7 +67,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
       });
       if (response.status === 401) {
         setStatus('login');
-        setNote('Чтобы сохранить ответы между устройствами и использовать их для серверного подбора, сначала войдите в аккаунт. Сейчас ответы не отправлены.');
+        setNote(t('loginToSaveAssessment'));
         return;
       }
       if (response.status === 402) {
@@ -73,12 +75,12 @@ export const RelationshipAssessmentPanel: React.FC = () => {
         setNote('Пробный период завершён. Сохранение и использование теста входят в Premium; платёжная система ещё не подключена.');
         return;
       }
-      if (!response.ok) throw new Error('Не удалось сохранить ответы');
+      if (!response.ok) throw new Error(t('saveAnswersError'));
       setStatus('saved');
-      setNote('Ответы сохранены. Сервер сможет использовать заявленные предпочтения для подбора.');
+      setNote(t('answersSaved'));
     } catch {
       setStatus('error');
-      setNote('Не удалось связаться с сервером. Проверьте подключение и попробуйте ещё раз.');
+      setNote(t('saveAnswersError'));
     }
   };
 
@@ -86,13 +88,13 @@ export const RelationshipAssessmentPanel: React.FC = () => {
     <section className="mb-5 rounded-3xl border border-rose-500/20 bg-stone-900/80 p-4 sm:p-5">
       <div className="mb-2 flex items-start justify-between gap-3">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.2em] text-rose-300">НИТЬ · тест ценностей</p>
-          <h3 className="mt-1 text-lg font-bold text-white">Совместимость в важных вопросах</h3>
+          <p className="text-[10px] uppercase tracking-[0.2em] text-rose-300">{t('valuesTestEyebrow')}</p>
+          <h3 className="mt-1 text-lg font-bold text-white">{t('compatibilityImportant')}</h3>
         </div>
         <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-stone-400">{Object.keys(answers).length}/{ASSESSMENT_QUESTIONS.length}</span>
       </div>
       <p className="mb-4 text-xs leading-relaxed text-stone-400">
-        Здесь нет «правильных» и «неправильных» ответов. Мы сравниваем заявленные ожидания о семье, деньгах, быте и доверии — не ставим диагнозы и не определяем характер человека.
+        {t('valuesTestDescription')}
       </p>
       <div className="space-y-4">
         {ASSESSMENT_QUESTIONS.map((question, index) => (
@@ -119,10 +121,10 @@ export const RelationshipAssessmentPanel: React.FC = () => {
       </div>
       <div className="mt-4 flex flex-col gap-2">
         <button type="button" onClick={() => void save()} disabled={!complete || status === 'saving'} className="w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">
-          {status === 'saving' ? 'Сохраняем…' : 'Сохранить тест и использовать для подбора'}
+          {status === 'saving' ? t('savingAnswers') : t('saveAndUseTest')}
         </button>
         {note && <p role="status" className="text-xs leading-relaxed text-stone-300">{note}</p>}
-        {status === 'saved' && <p className="text-[10px] text-emerald-300">Сохранено на сервере</p>}
+        {status === 'saved' && <p className="text-[10px] text-emerald-300">{t('savedOnServer')}</p>}
       </div>
     </section>
   );
