@@ -29,6 +29,8 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const [minAge, setMinAge] = useState(18);
   const [maxAge, setMaxAge] = useState(99);
   const [intent, setIntent] = useState('all');
+  const [familyFormat, setFamilyFormat] = useState('all');
+  const [childrenFilter, setChildrenFilter] = useState('all');
   const [minFinancialAlignment, setMinFinancialAlignment] = useState(0);
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
@@ -51,11 +53,20 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
     if (country.trim()) params.set('country', country.trim());
     if (city.trim()) params.set('city', city.trim());
     if (intent !== 'all') params.set('intent', intent);
+    if (familyFormat !== 'all') params.set('familyFormat', familyFormat);
+    if (childrenFilter !== 'all') params.set('hasChildren', childrenFilter);
     try {
       const response = await fetch(`/api/profiles/search?${params.toString()}`, { credentials: 'include' });
       if (response.status === 401) {
         setAuthenticated(false);
         setProfiles([]);
+        return;
+      }
+      if (response.status === 402) {
+        const data = await response.json().catch(() => null);
+        setProfiles([]);
+        setAuthenticated(true);
+        setNotice(data?.message || 'Пробный период завершён. Для платных функций потребуется Premium.');
         return;
       }
       if (!response.ok) throw new Error('Не удалось выполнить поиск. Проверьте, что сервер настроен и миграции применены.');
@@ -68,7 +79,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
     } finally {
       setBusy(false);
     }
-  }, [minAge, maxAge, minFinancialAlignment, country, city, intent]);
+  }, [minAge, maxAge, minFinancialAlignment, country, city, intent, familyFormat, childrenFilter]);
 
   useEffect(() => { void search(); }, [search]);
 
@@ -165,7 +176,9 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
             <label className="text-xs text-stone-300">Город<input value={city} onChange={e => setCity(e.target.value)} placeholder="Любой город" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white" /></label>
             <label className="text-xs text-stone-300">Возраст от<input type="number" min="18" max={maxAge} value={minAge} onChange={e => setMinAge(Math.min(maxAge, Math.max(18, Number(e.target.value) || 18)))} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white" /></label>
             <label className="text-xs text-stone-300">Возраст до<input type="number" min={minAge} max="120" value={maxAge} onChange={e => setMaxAge(Math.max(minAge, Math.min(120, Number(e.target.value) || minAge)))} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white" /></label>
-            <label className="text-xs text-stone-300">Цель отношений<select value={intent} onChange={e => setIntent(e.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="all">Любая</option><option value="marriage_family">Брак и семья</option><option value="serious_relationship">Серьёзные отношения</option></select></label>
+            <label className="text-xs text-stone-300">Цель отношений<select value={intent} onChange={e => setIntent(e.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="all">Любая</option><option value="marriage_family">Брак и семья</option><option value="family_without_marriage">Семья без регистрации брака</option><option value="serious_relationship">Серьёзные отношения</option></select></label>
+            <label className="text-xs text-stone-300">Формат семьи<select value={familyFormat} onChange={e => setFamilyFormat(e.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="all">Любой формат</option><option value="marriage">Только брак</option><option value="cohabitation">Совместная жизнь без регистрации</option><option value="open_to_both">Открыт(а) к обоим</option></select></label>
+            <label className="text-xs text-stone-300">Наличие детей<select value={childrenFilter} onChange={e => setChildrenFilter(e.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="all">Не важно</option><option value="false">Детей нет</option><option value="true">Есть дети</option></select></label>
             <label className="text-xs text-stone-300">Совпадение финансовых ожиданий<select value={minFinancialAlignment} onChange={e => setMinFinancialAlignment(Number(e.target.value))} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="0">Не фильтровать</option><option value="33">От 33%</option><option value="67">От 67%</option><option value="100">Только 100%</option></select></label>
           </div>
           <button type="button" onClick={() => void search()} disabled={busy} className="mb-4 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? 'Ищем…' : 'Найти анкеты'}</button>
