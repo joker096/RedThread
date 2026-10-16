@@ -13,6 +13,7 @@ import {
 import { initialProfiles, initialCurrentUser } from './data/mockProfiles.ts';
 import { RelationshipAssessmentPanel } from './components/RelationshipAssessmentPanel.tsx';
 import { AccountAccessPanel } from './components/AccountAccessPanel.tsx';
+import { ServerDiscoveryPanel } from './components/ServerDiscoveryPanel.tsx';
 import type { 
   UserProfile, 
   Gender, 
@@ -654,6 +655,8 @@ export default function App() {
       case 'discovery':
       default:
         return (
+          <>
+          <ServerDiscoveryPanel onOpenAccount={() => setActiveTab('tests')} />
           <RadarDiscovery
             profiles={filteredProfiles}
             myAnswers={currentUser.crucialAnswers}
@@ -682,6 +685,7 @@ export default function App() {
               }));
             }}
           />
+          </>
         );
     }
   };
