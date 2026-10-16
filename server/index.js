@@ -928,10 +928,10 @@ app.get('/api/photos/:photoId', requireSession, async (req,res) => {
        FROM photo_assets a JOIN profiles p ON p.user_id=a.user_id JOIN users u ON u.id=a.user_id
        WHERE a.id=$1 AND u.status='active'
          AND ('/api/photos/' || a.id::text)=ANY(COALESCE(p.photo_urls,'{}'))
-         AND (a.user_id=$2 OR (p.is_visible=TRUE AND NOT EXISTS (
+         AND (a.user_id=$2 OR ($3::boolean AND a.review_status IN ('pending','approved','rejected')) OR (a.review_status='approved' AND p.is_visible=TRUE AND NOT EXISTS (
            SELECT 1 FROM user_blocks b WHERE (b.blocker_id=$2 AND b.blocked_id=a.user_id) OR (b.blocker_id=a.user_id AND b.blocked_id=$2)
          ))) LIMIT 1`,
-      [req.params.photoId,req.authUser.id]
+      [req.params.photoId,req.authUser.id,['admin','moderator'].includes(req.authUser.role)]
     );
     const asset=result.rows[0]; if(!asset) return res.status(404).end();
     const bytes=await readFile(asset.storagePath);
@@ -1513,6 +1513,51 @@ app.get('/api/admin/reports', requireSession, async (req, res) => {
     console.error('Moderation report list failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'moderation_report_list_failed' });
   }
+});
+
+app.get('/api/admin/photos', requireSession, async (req, res) => {
+  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
+  try {
+    const result = await pool.query(
+      `SELECT a.id, a.user_id AS "userId", p.display_name AS "displayName",
+              a.mime_type AS "mimeType", a.width, a.height, a.created_at AS "createdAt"
+       FROM photo_assets a JOIN profiles p ON p.user_id = a.user_id
+       JOIN users u ON u.id = a.user_id
+       WHERE a.review_status = 'pending' AND u.status = 'active'
+       ORDER BY a.created_at ASC LIMIT 100`
+    );
+    return res.json({ photos: result.rows });
+  } catch (error) {
+    console.error('Pending photo list failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'pending_photo_list_failed' });
+  }
+});
+
+app.post('/api/admin/photos/:photoId/review', validateRequestOrigin, requireSession, async (req, res) => {
+  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
+  if (!isUuid(req.params.photoId) || !['approve', 'reject'].includes(req.body?.decision)) return res.status(400).json({ error: 'invalid_photo_review' });
+  const status = req.body.decision === 'approve' ? 'approved' : 'rejected';
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 500) : '';
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const result = await client.query(
+      "UPDATE photo_assets SET review_status = $2 WHERE id = $1 AND review_status = 'pending' RETURNING id, user_id AS \"userId\"",
+      [req.params.photoId, status]
+    );
+    if (!result.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'pending_photo_not_found' }); }
+    await client.query(
+      'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, reason, details) VALUES ($1, $2, $3, $4, $5, $6::jsonb)',
+      [req.authUser.id, 'photo_' + status, 'photo_asset', req.params.photoId, reason || null, JSON.stringify({ userId: result.rows[0].userId })]
+    );
+    await client.query('COMMIT');
+    return res.json({ id: req.params.photoId, reviewStatus: status });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Photo moderation failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'photo_review_failed' });
+  } finally { client?.release(); }
 });
 
 app.get('/api/admin/audit-log', requireSession, async (req, res) => {

@@ -146,7 +146,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
                 const data=await response.json().catch(()=>null);
                 if(!response.ok) throw new Error(data?.error==='photo_limit_reached'?'Можно добавить не более 6 фотографий.':data?.error==='photo_storage_not_configured'?'На сервере не настроено постоянное хранилище фотографий.':'Не удалось загрузить фото. Проверьте подключение и настройки хранилища.');
                 setPhotoUrls(current=>[...current.split(/\n|,/).map(value=>value.trim()).filter(Boolean),data.photoUrl].join('\n'));
-                setNotice('Фото загружено. Сохраните анкету, чтобы подтвердить состав фотографий.');
+                setNotice('Фото загружено и ожидает проверки модератором. После одобрения оно станет доступно в поиске.');
               } catch(error){setNotice(error instanceof Error?error.message:'Ошибка загрузки фотографии.');}
               finally{setUploadBusy(false);}
             }} className="mt-2 block w-full text-sm text-stone-300 file:mr-3 file:rounded-lg file:border-0 file:bg-rose-700 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white" />
