@@ -903,6 +903,10 @@ app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req,
            SELECT 1 FROM profile_passes skipped
            WHERE skipped.passer_id = $1 AND skipped.passed_user_id = p.user_id
          )
+         AND NOT EXISTS (
+           SELECT 1 FROM likes prior_like
+           WHERE prior_like.sender_id = $1 AND prior_like.target_id = p.user_id
+         )
          AND ($2::text IS NULL OR p.country ILIKE '%' || $2 || '%')
          AND ($3::text IS NULL OR p.city ILIKE '%' || $3 || '%')
          AND ($4::text IS NULL OR p.relationship_intent = $4)
