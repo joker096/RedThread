@@ -136,6 +136,9 @@ test('auth API supports registration, session lookup, logout and login', {
       })
     });
     assert.equal(maleRegistration.status, 201);
+    const maleRegistered = await maleRegistration.json();
+    const maleCookie = maleRegistration.headers.get('set-cookie')?.split(';')[0];
+    assert.ok(maleCookie?.startsWith('nit_session='));
 
     const search = await request('/api/profiles/search?country=' + encodeURIComponent('грузия') + '&city=' + encodeURIComponent('тбилиси'), {
       headers: { Cookie: secondCookie }
@@ -153,6 +156,55 @@ test('auth API supports registration, session lookup, logout and login', {
 
     const unauthenticatedSearch = await request('/api/profiles/search');
     assert.equal(unauthenticatedSearch.status, 401);
+
+    const firstLike = await request(`/api/likes/${maleRegistered.user.id}`, {
+      method: 'POST',
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(firstLike.status, 201);
+    assert.equal((await firstLike.json()).matched, false);
+
+    const reciprocalLike = await request(`/api/likes/${registered.user.id}`, {
+      method: 'POST',
+      headers: { Cookie: maleCookie }
+    });
+    assert.equal(reciprocalLike.status, 201);
+    const matchPayload = await reciprocalLike.json();
+    assert.equal(matchPayload.matched, true);
+    assert.ok(matchPayload.match.id);
+
+    const femaleMatches = await request('/api/matches', { headers: { Cookie: secondCookie } });
+    assert.equal(femaleMatches.status, 200);
+    assert.equal((await femaleMatches.json()).matches.some(match => match.id === matchPayload.match.id), true);
+
+    const sendMessage = await request(`/api/matches/${matchPayload.match.id}/messages`, {
+      method: 'POST',
+      headers: { Cookie: maleCookie },
+      body: JSON.stringify({ text: 'Здравствуйте! Рад нашему совпадению.' })
+    });
+    assert.equal(sendMessage.status, 201);
+    const sentMessage = (await sendMessage.json()).message;
+    assert.equal(sentMessage.text, 'Здравствуйте! Рад нашему совпадению.');
+
+    const readMessages = await request(`/api/matches/${matchPayload.match.id}/messages`, {
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(readMessages.status, 200);
+    assert.equal((await readMessages.json()).messages.some(message => message.id === sentMessage.id), true);
+
+    const noSessionMessages = await request(`/api/matches/${matchPayload.match.id}/messages`);
+    assert.equal(noSessionMessages.status, 401);
+
+    const report = await request('/api/reports', {
+      method: 'POST',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({
+        reportedUserId: maleRegistered.user.id,
+        category: 'other',
+        details: 'Тестовая жалоба из интеграционного теста'
+      })
+    });
+    assert.equal(report.status, 201);
 
     const wrongPassword = await request('/api/auth/login', {
       method: 'POST',
