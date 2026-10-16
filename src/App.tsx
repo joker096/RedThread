@@ -15,6 +15,7 @@ import { RelationshipAssessmentPanel } from './components/RelationshipAssessment
 import { AccountAccessPanel } from './components/AccountAccessPanel.tsx';
 import { ServerDiscoveryPanel } from './components/ServerDiscoveryPanel.tsx';
 import { ServerMatchesPanel } from './components/ServerMatchesPanel.tsx';
+import { ProfileEditorPanel } from './components/ProfileEditorPanel.tsx';
 import type { 
   UserProfile, 
   Gender, 
@@ -534,6 +535,7 @@ export default function App() {
         return (
           <>
             <AccountAccessPanel onAuthenticated={() => setAssessmentRevision(value => value + 1)} />
+            <ProfileEditorPanel key={assessmentRevision} onOpenAccount={() => setActiveTab('tests')} />
             <RelationshipAssessmentPanel key={assessmentRevision} />
             <GenderSpecificTests
             currentGender={currentGender}
