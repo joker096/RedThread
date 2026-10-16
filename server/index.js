@@ -670,7 +670,12 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
       values
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'profile_not_found' });
-    return res.json({ profile: result.rows[0] });
+    const screening = screenProfile(result.rows[0]);
+    await persistScreening(req.authUser.id, 'profile', screening, JSON.stringify({
+      bio: result.rows[0].bio, occupation: result.rows[0].occupation, education: result.rows[0].education,
+      hasChildren: result.rows[0].hasChildren, childrenLivingArrangement: result.rows[0].childrenLivingArrangement
+    }));
+    return res.json({ profile: result.rows[0], screening: { engine: screening.engine, externalProcessing: false, flags: screening.flags, requiresReview: screening.requiresReview } });
   } catch (error) {
     console.error('Profile update failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'profile_update_failed' });
