@@ -163,6 +163,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
           setNotice('Войдите в аккаунт, чтобы отменить симпатию.');
           return;
         }
+        if (response.status === 409) throw new Error('Совпадение уже создано — симпатию нельзя отменить этим действием.');
         if (!response.ok) throw new Error('Не удалось отменить последнюю симпатию.');
         setLikedIds(current => current.filter(id => id !== lastAction.profile.id));
         setProfiles(current => current.some(item => item.id === lastAction.profile.id)

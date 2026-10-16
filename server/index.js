@@ -1327,7 +1327,29 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
 app.delete('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
   if (!isUuid(req.params.targetId)) return res.status(400).json({ error: 'invalid_target_id' });
   try {
-    await pool.query('DELETE FROM likes WHERE sender_id = $1 AND target_id = $2', [req.authUser.id, req.params.targetId]);
+    const result = await pool.query(
+      `DELETE FROM likes l
+       WHERE l.sender_id = $1 AND l.target_id = $2
+         AND NOT EXISTS (
+           SELECT 1 FROM matches m
+           WHERE m.status = 'active'
+             AND ((m.user_a_id = $1 AND m.user_b_id = $2)
+               OR (m.user_a_id = $2 AND m.user_b_id = $1))
+         )
+       RETURNING l.target_id`,
+      [req.authUser.id, req.params.targetId]
+    );
+    if (result.rowCount === 0) {
+      const matched = await pool.query(
+        `SELECT 1 FROM matches m
+         WHERE m.status = 'active'
+           AND ((m.user_a_id = $1 AND m.user_b_id = $2)
+             OR (m.user_a_id = $2 AND m.user_b_id = $1))
+         LIMIT 1`,
+        [req.authUser.id, req.params.targetId]
+      );
+      if (matched.rowCount) return res.status(409).json({ error: 'cannot_undo_like_after_match' });
+    }
     return res.status(204).end();
   } catch (error) {
     console.error('Unlike failed:', error?.message || 'unknown error');

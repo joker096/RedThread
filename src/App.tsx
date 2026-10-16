@@ -415,12 +415,24 @@ export default function App() {
       setSuperLikesCount(prev => prev - 1);
     } else if (currentGender === 'male') {
       setIsAdManagerOpen(true);
-      return;
+      return false;
     } else if (!isLadyPremium) {
       setIsLadyPremiumOpen(true);
-      return;
+      return false;
     }
     handleLike(target);
+    setProfiles(prev => prev.map(profile => profile.id === target.id ? { ...profile, superLikedByMe: true } : profile));
+    return true;
+  };
+
+  const handleUndoDemoAction = (target: UserProfile, action: 'like' | 'superLike') => {
+    // Never roll back a like after a mutual match has already opened a chat.
+    if (chatThreads.some(thread => thread.partnerProfile.id === target.id)) return false;
+    setProfiles(prev => prev.map(profile => profile.id === target.id
+      ? { ...profile, likedByMe: false, ...(action === 'superLike' ? { superLikedByMe: false } : {}) }
+      : profile));
+    if (action === 'superLike') setSuperLikesCount(count => count + 1);
+    return true;
   };
 
   // Pass candidate
@@ -719,6 +731,7 @@ export default function App() {
             isLadyPremium={isLadyPremium}
             onLike={handleLike}
             onSuperLike={handleSuperLike}
+            onUndoAction={handleUndoDemoAction}
             onPass={handlePass}
             onOpenCompatibilityMatrix={profile => {
               setMatrixTargetProfile(profile);

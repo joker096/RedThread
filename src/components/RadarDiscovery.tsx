@@ -28,7 +28,8 @@ interface RadarDiscoveryProps {
   myInterests: string[];
   isLadyPremium: boolean;
   onLike: (profile: UserProfile) => void;
-  onSuperLike: (profile: UserProfile) => void;
+  onSuperLike: (profile: UserProfile) => boolean | void;
+  onUndoAction: (profile: UserProfile, action: 'like' | 'superLike') => boolean | void;
   onPass: (profile: UserProfile) => void;
   onOpenCompatibilityMatrix: (profile: UserProfile) => void;
   onInspectBotSafety: (profile: UserProfile) => void;
@@ -46,6 +47,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
   isLadyPremium,
   onLike,
   onSuperLike,
+  onUndoAction,
   onPass,
   onOpenCompatibilityMatrix,
   onInspectBotSafety,
@@ -58,7 +60,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [photoIndex, setPhotoIndex] = useState(0);
   const [activePsychCardIndex, setActivePsychCardIndex] = useState(0);
-  const [history, setHistory] = useState<number[]>([]);
+  const [history, setHistory] = useState<Array<{ index: number; profileId: string; action: 'like' | 'superLike' | 'pass' | 'ad' }>>([]);
   const touchStartX = useRef<number | null>(null);
 
   const currentProfile = profiles[currentIndex];
@@ -78,8 +80,8 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
     }
   }, [profiles.length, currentIndex]);
 
-  const handleNext = () => {
-    if (profiles.length > 0) setHistory(previous => [...previous, currentIndex].slice(-50));
+  const handleNext = (action: 'like' | 'superLike' | 'pass' | 'ad') => {
+    if (currentProfile) setHistory(previous => [...previous, { index: currentIndex, profileId: currentProfile.id, action }].slice(-50));
     setIsPlayingAudio(false);
     setPhotoIndex(0);
     setActivePsychCardIndex(0);
@@ -89,29 +91,34 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
   const handleLikeCurrent = () => {
     if (currentProfile) {
       onLike(currentProfile);
-      handleNext();
+      handleNext('like');
     }
   };
 
   const handleSuperLikeCurrent = () => {
     if (currentProfile) {
-      onSuperLike(currentProfile);
-      handleNext();
+      const accepted = onSuperLike(currentProfile);
+      if (accepted === false) return;
+      handleNext('superLike');
     }
   };
 
   const handlePassCurrent = () => {
     if (currentProfile) {
       onPass(currentProfile);
-      handleNext();
+      handleNext(currentProfile.isSponsorAd ? 'ad' : 'pass');
     }
   };
 
   const handleUndo = () => {
     if (history.length === 0) return;
-    const previousIndex = history[history.length - 1];
-    setHistory(previous => previous.slice(0, -1));
-    setCurrentIndex(previousIndex);
+    const previous = history[history.length - 1];
+    const previousProfile = profiles.find(profile => profile.id === previous.profileId);
+    if (previousProfile && (previous.action === 'like' || previous.action === 'superLike')) {
+      if (onUndoAction(previousProfile, previous.action) === false) return;
+    }
+    setHistory(items => items.slice(0, -1));
+    setCurrentIndex(previousProfile ? profiles.findIndex(profile => profile.id === previousProfile.id) : previous.index);
     setPhotoIndex(0);
     setActivePsychCardIndex(0);
     setIsPlayingAudio(false);
@@ -128,7 +135,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
     if (start === null || end === undefined) return;
     const action = getSwipeActionFromDelta(end - start);
     if (currentProfile?.isSponsorAd) {
-      if (action !== 'none') handlePassCurrent();
+      if (action !== 'none') { onPass(currentProfile); handleNext('ad'); }
       return;
     }
     if (action === 'like') handleLikeCurrent();
