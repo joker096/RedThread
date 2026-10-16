@@ -4,6 +4,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { verifyStripeWebhookSignature } from './stripeWebhookSecurity.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
+import { moderateProfilePhoto } from './photoModeration.js';
 import express from 'express';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import rateLimit from 'express-rate-limit';
@@ -927,6 +928,19 @@ app.post('/api/photos', validateRequestOrigin, requireSession, profileActionLimi
   try { clean = await sanitizeProfileImage(req.body); }
   catch (error) { const code=error instanceof Error?error.message:'invalid_image'; return res.status(code==='image_too_large'?413:400).json({error:code}); }
   const id=randomUUID(), filePath=path.join(photoStorageDir,id+'.'+clean.extension), photoUrl='/api/photos/'+id;
+  const moderation = await moderateProfilePhoto(clean.buffer);
+  if (moderation.status === 'rejected') {
+    try {
+      await pool.query(
+        'INSERT INTO moderation_audit_log (action,target_type,target_id,reason,details) VALUES ($1,$2,$3,$4,$5::jsonb)',
+        ['photo_ai_rejected', 'photo_upload', id, moderation.reason, JSON.stringify({ engine: moderation.engine, confidence: moderation.confidence, flags: moderation.flags })]
+      );
+    } catch (error) {
+      console.error('Photo moderation audit failed:', error?.message || 'unknown error');
+      return res.status(503).json({ error: 'photo_moderation_audit_unavailable' });
+    }
+    return res.status(422).json({ error: 'photo_rejected_by_automated_review' });
+  }
   let client, fileWritten=false;
   try {
     client=await pool.connect(); await client.query('BEGIN');
@@ -935,10 +949,11 @@ app.post('/api/photos', validateRequestOrigin, requireSession, profileActionLimi
     if((profile.rows[0].photo_urls||[]).length>=6){await client.query('ROLLBACK');return res.status(400).json({error:'photo_limit_reached'});}
     await mkdir(photoStorageDir,{recursive:true,mode:0o700});
     await writeFile(filePath,clean.buffer,{flag:'wx',mode:0o600}); fileWritten=true;
-    await client.query('INSERT INTO photo_assets (id,user_id,storage_path,mime_type,byte_size,width,height) VALUES ($1,$2,$3,$4,$5,$6,$7)',[id,req.authUser.id,filePath,clean.mimeType,clean.buffer.length,clean.width,clean.height]);
+    await client.query('INSERT INTO photo_assets (id,user_id,storage_path,mime_type,byte_size,width,height,review_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',[id,req.authUser.id,filePath,clean.mimeType,clean.buffer.length,clean.width,clean.height,moderation.status]);
+    if (moderation.status === 'approved') await client.query('INSERT INTO moderation_audit_log (action,target_type,target_id,reason,details) VALUES ($1,$2,$3,$4,$5::jsonb)', ['photo_ai_approved', 'photo', id, moderation.reason, JSON.stringify({ engine: moderation.engine, confidence: moderation.confidence, flags: moderation.flags })]);
     await client.query("UPDATE profiles SET photo_urls=COALESCE(photo_urls,'{}') || ARRAY[$2]::text[],updated_at=NOW() WHERE user_id=$1",[req.authUser.id,photoUrl]);
     await client.query('COMMIT');
-    return res.status(201).json({photoUrl,mimeType:clean.mimeType,width:clean.width,height:clean.height});
+    return res.status(201).json({photoUrl,mimeType:clean.mimeType,width:clean.width,height:clean.height,reviewStatus:moderation.status,moderationEngine:moderation.engine});
   } catch(error) {
     if(client) await client.query('ROLLBACK').catch(()=>{});
     if(fileWritten) await unlink(filePath).catch(()=>{});
