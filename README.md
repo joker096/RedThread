@@ -61,6 +61,17 @@
 - Миграции: `server/migrations/*.sql`, применяются через `npm run db:migrate`.
 - CI: GitHub Actions, PostgreSQL 16, TypeScript lint, тесты и production build.
 
+## Контейнерный запуск и локальное превью
+
+Для быстрого запуска интерфейса, API и PostgreSQL через Docker Compose см. [инструкцию по развёртыванию](./docs/DEPLOYMENT.md).
+
+Краткий порядок:
+1. Создайте локальный `.env` с `POSTGRES_PASSWORD`, `APP_ORIGIN=http://localhost:8080`, `APP_URL=http://localhost:8080` и `WEB_BIND=127.0.0.1:8080`.
+2. Запустите `docker compose up --build -d`.
+3. Откройте `http://localhost:8080`; диагностика: `docker compose ps` и `docker compose logs --tail=100 api`.
+
+Если почтовый провайдер ещё не настроен, подтверждение email можно отключить только для локальной проверки через `EMAIL_VERIFICATION_REQUIRED=false`. Не используйте такое значение на публичном сервере. Этот запуск создаёт локальное превью, а не публичный сайт.
+
 ## Локальный запуск
 
 Требуется Node.js 22 или совместимая актуальная версия и PostgreSQL.
