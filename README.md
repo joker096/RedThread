@@ -80,6 +80,7 @@
 - `GET /api/profiles/search?country=Грузия&city=Тбилиси&minAge=25&maxAge=40`
 - `GET/PUT/DELETE /api/assessment`
 - `POST/DELETE /api/likes/:targetId`
+- `POST /api/passes/:targetId`, `POST /api/passes/undo`, `POST /api/discovery/undo` — пропуск и отмена последнего серверного действия, в том числе после перезагрузки страницы
 - `GET /api/matches`, `GET/POST /api/matches/:matchId/messages`
 - `GET /api/blocks`, `POST/DELETE /api/blocks/:targetId`
 - `POST /api/reports`
