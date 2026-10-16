@@ -163,21 +163,15 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
   const city = typeof req.body?.city === 'string' ? req.body.city.trim() : '';
   const relationshipIntent = req.body?.relationshipIntent || 'marriage_family';
 
-  if (!isValidEmail(email)) {
-    return res.status(400).json({ error: 'invalid_email' });
-  }
+  if (!isValidEmail(email)) return res.status(400).json({ error: 'invalid_email' });
   if (typeof password !== 'string' || password.length < 12 || password.length > 128) {
     return res.status(400).json({ error: 'password_must_be_12_to_128_characters' });
   }
   if (displayName.length < 2 || displayName.length > 80) {
     return res.status(400).json({ error: 'display_name_must_be_2_to_80_characters' });
   }
-  if (!isAdultDate(birthDate)) {
-    return res.status(400).json({ error: 'must_be_18_or_older_with_valid_birth_date' });
-  }
-  if (gender !== 'female' && gender !== 'male') {
-    return res.status(400).json({ error: 'invalid_gender' });
-  }
+  if (!isAdultDate(birthDate)) return res.status(400).json({ error: 'must_be_18_or_older_with_valid_birth_date' });
+  if (gender !== 'female' && gender !== 'male') return res.status(400).json({ error: 'invalid_gender' });
   if (!country || country.length > 100 || !city || city.length > 120) {
     return res.status(400).json({ error: 'valid_country_and_city_required' });
   }
@@ -185,9 +179,10 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
     return res.status(400).json({ error: 'invalid_relationship_intent' });
   }
 
-  const passwordHash = await hashPassword(password);
-  const client = await pool.connect();
+  let client;
   try {
+    const passwordHash = await hashPassword(password);
+    client = await pool.connect();
     await client.query('BEGIN');
     const userResult = await client.query(
       'INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email',
@@ -204,16 +199,14 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
     await client.query('COMMIT');
 
     writeSessionCookie(res, token);
-    return res.status(201).json({ user: { ...publicUser({ ...profileResult.rows[0], email: user.email }) } });
+    return res.status(201).json({ user: publicUser({ ...profileResult.rows[0], email: user.email }) });
   } catch (error) {
-    await client.query('ROLLBACK');
-    if (error?.code === '23505') {
-      return res.status(409).json({ error: 'email_already_registered' });
-    }
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (error?.code === '23505') return res.status(409).json({ error: 'email_already_registered' });
     console.error('Registration failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'registration_failed' });
   } finally {
-    client.release();
+    client?.release();
   }
 });
 
