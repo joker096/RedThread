@@ -6,6 +6,7 @@ type Profile = {
   occupation: string; education: string; languages: string[];
   relationshipIntent: 'marriage_family' | 'serious_relationship'; isVisible: boolean;
 };
+type BlockedProfile = { id: string; displayName: string; createdAt: string };
 type Props = { onOpenAccount: () => void };
 
 export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
@@ -23,6 +24,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
+  const [blockedProfiles, setBlockedProfiles] = useState<BlockedProfile[]>([]);
 
   const load = async () => {
     try {
@@ -43,11 +45,27 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       setRelationshipIntent(p.relationshipIntent);
       setIsVisible(p.isVisible);
       setAuthenticated(true);
+      const blocksResponse = await fetch('/api/blocks', { credentials: 'include' });
+      if (blocksResponse.ok) {
+        const blockData = await blocksResponse.json();
+        setBlockedProfiles(blockData.blocks || []);
+      }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Ошибка загрузки профиля.');
     }
   };
   useEffect(() => { void load(); }, []);
+
+  const unblock = async (id: string) => {
+    try {
+      const response = await fetch(`/api/blocks/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'include' });
+      if (!response.ok) throw new Error('Не удалось разблокировать пользователя.');
+      setBlockedProfiles(current => current.filter(profile => profile.id !== id));
+      setNotice('Пользователь разблокирован. Его анкета может снова появиться в поиске.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Ошибка разблокировки.');
+    }
+  };
 
   const save = async () => {
     setBusy(true);
@@ -109,6 +127,15 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
           <label className="block text-xs text-stone-300">Намерение<select value={relationshipIntent} onChange={e => setRelationshipIntent(e.target.value as 'marriage_family' | 'serious_relationship')} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="marriage_family">Брак и семья</option><option value="serious_relationship">Серьёзные отношения</option></select></label>
           <label className="flex items-center gap-3 rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-stone-200"><input type="checkbox" checked={isVisible} onChange={e => setIsVisible(e.target.checked)} className="h-4 w-4 accent-rose-500" />Показывать анкету в поиске</label>
           <button type="button" onClick={() => void save()} disabled={busy || !displayName.trim() || !country.trim() || !city.trim()} className="w-full rounded-xl bg-amber-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? 'Сохраняем…' : 'Сохранить анкету'}</button>
+          <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-3">
+            <h4 className="text-sm font-semibold text-white">Заблокированные пользователи</h4>
+            {!blockedProfiles.length ? <p className="mt-2 text-xs text-stone-500">Список пуст.</p> : blockedProfiles.map(blocked => (
+              <div key={blocked.id} className="mt-2 flex items-center justify-between gap-3 rounded-xl border border-white/10 p-2">
+                <span className="truncate text-xs text-stone-300">{blocked.displayName}</span>
+                <button type="button" onClick={() => void unblock(blocked.id)} className="shrink-0 rounded-lg border border-white/10 px-2 py-1.5 text-[10px] text-stone-300">Разблокировать</button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
       {notice && <p role="status" className="mt-3 text-xs text-stone-300">{notice}</p>}
