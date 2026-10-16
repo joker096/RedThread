@@ -140,7 +140,42 @@ test('auth API supports registration, session lookup, logout and login', {
     const maleCookie = maleRegistration.headers.get('set-cookie')?.split(';')[0];
     assert.ok(maleCookie?.startsWith('nit_session='));
 
-    const search = await request('/api/profiles/search?country=' + encodeURIComponent('грузия') + '&city=' + encodeURIComponent('тбилиси'), {
+    const assessmentAnswers = {
+      relationshipGoal: 'marriage_soon',
+      children: 'want_soon',
+      financialModel: 'shared_equal',
+      lifestyleExpectation: 'balanced',
+      gifts: 'medium',
+      household: 'equal',
+      fidelity: 'strict',
+      conflictStyle: 'talk_soon',
+      honesty: 'essential'
+    };
+    const incompleteAssessment = await request('/api/assessment', {
+      method: 'PUT',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({ answers: { financialModel: 'provider_full' } })
+    });
+    assert.equal(incompleteAssessment.status, 400);
+
+    const savedFemaleAssessment = await request('/api/assessment', {
+      method: 'PUT',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({ answers: assessmentAnswers })
+    });
+    assert.equal(savedFemaleAssessment.status, 200);
+    const savedMaleAssessment = await request('/api/assessment', {
+      method: 'PUT',
+      headers: { Cookie: maleCookie },
+      body: JSON.stringify({ answers: assessmentAnswers })
+    });
+    assert.equal(savedMaleAssessment.status, 200);
+
+    const assessmentRead = await request('/api/assessment', { headers: { Cookie: secondCookie } });
+    assert.equal(assessmentRead.status, 200);
+    assert.equal((await assessmentRead.json()).assessment.answers.financialModel, 'shared_equal');
+
+    const search = await request('/api/profiles/search?minAge=36&maxAge=36&minFinancialAlignment=100&country=' + encodeURIComponent('грузия') + '&city=' + encodeURIComponent('тбилиси'), {
       headers: { Cookie: secondCookie }
     });
     assert.equal(search.status, 200);
