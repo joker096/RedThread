@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 
 type ServerMatch = {
@@ -22,7 +22,9 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
+  const messageRequestId = useRef(0);
 
   const loadMatches = useCallback(async () => {
     try {
@@ -48,17 +50,38 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
 
   const loadMessages = useCallback(async (matchId: string) => {
     if (!matchId) return;
+    const requestId = ++messageRequestId.current;
     try {
       const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/messages`, { credentials: 'include' });
+      if (requestId !== messageRequestId.current) return;
+      if (response.status === 401) {
+        setAuthenticated(false);
+        setMatches([]);
+        setSelected('');
+        setMessages([]);
+        setNotice(t('loginToSeeMatches'));
+        return;
+      }
       if (!response.ok) throw new Error(t('loadMessagesError'));
       const data = await response.json();
+      if (requestId !== messageRequestId.current) return;
       setMessages(data.messages || []);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('loadMessagesError'));
+      if (requestId === messageRequestId.current) {
+        setNotice(error instanceof Error ? error.message : t('loadMessagesError'));
+      }
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { void loadMatches(); }, [loadMatches]);
+  useEffect(() => {
+    let cancelled = false;
+    void fetch('/api/auth/me', { credentials: 'include' })
+      .then(response => response.ok ? response.json() : null)
+      .then(data => { if (!cancelled) setCurrentUserId(data?.user?.id ?? null); })
+      .catch(() => { if (!cancelled) setCurrentUserId(null); });
+    return () => { cancelled = true; };
+  }, []);
   useEffect(() => { if (selected) void loadMessages(selected); }, [selected, loadMessages]);
 
   const send = async () => {
@@ -100,7 +123,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       ) : (
         <div className="space-y-3">
           {matches.map(match => (
-            <button type="button" key={match.id} onClick={() => setSelected(match.id)} className={`w-full rounded-2xl border p-3 text-left ${selected === match.id ? 'border-sky-400/60 bg-sky-950/30' : 'border-white/10 bg-stone-950/60'}`}>
+            <button type="button" key={match.id} onClick={() => { setMessages([]); setNotice(''); setSelected(match.id); }} className={`w-full rounded-2xl border p-3 text-left ${selected === match.id ? 'border-sky-400/60 bg-sky-950/30' : 'border-white/10 bg-stone-950/60'}`}>
               <span className="block text-sm font-semibold text-white">{match.displayName}, {match.age}</span>
               <span className="mt-1 block text-xs text-stone-400">{match.city}, {match.country}</span>
               <span className="mt-1 block truncate text-xs text-stone-500">{match.lastMessage || t('matchCreatedMessage')}</span>
@@ -109,16 +132,16 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
           {notice && <p role="status" className="text-xs text-stone-300">{notice}</p>}
           {selected && (
             <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-3">
-              <div className="mb-3 max-h-64 space-y-2 overflow-y-auto">
+              <div role="log" aria-live="polite" aria-label={t('serverChats')} className="mb-3 max-h-64 space-y-2 overflow-y-auto">
                 {messages.map(message => (
-                  <div key={message.id} className={`max-w-[90%] rounded-xl px-3 py-2 text-xs ${message.senderId ? 'bg-stone-800 text-stone-100' : 'bg-stone-800 text-stone-100'}`}>
+                  <div key={message.id} className={`max-w-[90%] rounded-xl px-3 py-2 text-xs ${message.senderId === currentUserId ? 'ml-auto bg-rose-700 text-white' : 'mr-auto bg-stone-800 text-stone-100'}`}>
                     <p className="whitespace-pre-wrap break-words">{message.text}</p>
                     <time className="mt-1 block text-[9px] text-stone-500">{formatDate(message.createdAt, { dateStyle: 'medium', timeStyle: 'short' })}</time>
                   </div>
                 ))}
                 {!messages.length && <p className="text-xs text-stone-500">{t('noMessagesYet')}</p>}
               </div>
-              <textarea value={draft} onChange={e => setDraft(e.target.value)} maxLength={4000} rows={2} placeholder={t('writeMessage')} className="w-full resize-y rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white" />
+              <textarea aria-label={t('writeMessage')} value={draft} onChange={e => setDraft(e.target.value)} maxLength={4000} rows={2} placeholder={t('writeMessage')} className="w-full resize-y rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white" />
               <button type="button" onClick={() => void send()} disabled={busy || !draft.trim()} className="mt-2 w-full rounded-xl bg-sky-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-40">{busy ? t('sendingMessage') : t('sendMessage')}</button>
               <button type="button" onClick={() => void loadMessages(selected)} className="mt-2 w-full rounded-xl border border-white/10 px-4 py-2 text-xs text-stone-300">{t('refreshMessages')}</button>
             </div>
