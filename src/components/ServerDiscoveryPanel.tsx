@@ -203,7 +203,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         setNotice(t('signInToUndoAction'));
         return;
       }
-      if (response.status === 402) throw new Error(data?.message || 'Для подбора потребуется Premium.');
+      if (response.status === 402) throw new Error(data?.message || t('premiumUndoRequired'));
       if (response.status === 404) throw new Error(t('undoUnavailable'));
       if (response.status === 409) throw new Error(t('undoMatchError'));
       if (!response.ok || !data?.profile) throw new Error(t('undoActionError'));
@@ -240,7 +240,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       setReportDetails('');
       setNotice(t('reportSuccess'));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Ошибка отправки жалобы.');
+      setNotice(error instanceof Error ? error.message : t('reportError'));
     } finally {
       setBusy(false);
     }
