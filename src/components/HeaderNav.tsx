@@ -13,6 +13,7 @@ import {
   DollarSign
 } from 'lucide-react';
 import type { DeviceFrame, Gender } from '../types/index.ts';
+import { LANGUAGE_OPTIONS, useLocale } from '../i18n/LocaleProvider.tsx';
 
 interface HeaderNavProps {
   currentGender: Gender;
@@ -47,13 +48,14 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   setActiveTab,
   unreadChatsCount
 }) => {
+  const { t, locale, requestedLocale, setLocale } = useLocale();
   return (
     <header className="sticky top-0 z-40 w-full bg-stone-950/80 backdrop-blur-2xl border-b border-white/5 px-2.5 sm:px-4 py-2">
       <div className="max-w-xl sm:max-w-4xl mx-auto flex items-center justify-between gap-1.5 sm:gap-3">
         {/* NIT brand */}
         <div 
           className="flex items-center gap-1.5 select-none group shrink-0"
-          title="НИТЬ — серьёзные знакомства"
+          title="НИТЬ — serious relationships"
         >
           <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-tr from-rose-600 via-red-600 to-amber-500 flex items-center justify-center text-white shadow-md shadow-rose-950/60 group-hover:scale-105 transition-transform">
             <Flame className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-white" />
@@ -87,7 +89,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             }`}
           >
             <Brain className="w-3.5 h-3.5 text-rose-400" />
-            <span>Тесты</span>
+            <span>{t('tests')}</span>
           </button>
 
           <button
@@ -98,7 +100,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                 : 'text-stone-400 hover:text-stone-200'
             }`}
           >
-            <span>Чаты</span>
+            <span>{t('chats')}</span>
             {unreadChatsCount > 0 && (
               <span className="ml-1 px-1.5 py-0.2 rounded-full text-[9px] bg-amber-400 text-stone-950 font-black">
                 {unreadChatsCount}
@@ -120,6 +122,19 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
 
         {/* Right: Quick Controls & Persona Toggle */}
         <div className="flex items-center gap-1 sm:gap-2">
+          <label className="sr-only" htmlFor="app-language">{t('language')}</label>
+          <select
+            id="app-language"
+            value={requestedLocale}
+            onChange={event => setLocale(event.target.value)}
+            aria-label={t('language')}
+            title={t('language')}
+            className="max-w-[74px] sm:max-w-[124px] rounded-full border border-white/10 bg-stone-900 px-1.5 py-1.5 text-[10px] sm:text-xs text-stone-200"
+          >
+            {LANGUAGE_OPTIONS.map(option => (
+              <option key={option.code} value={option.code}>{option.code === 'auto' ? t('autoLanguage') : option.nativeName}</option>
+            ))}
+          </select>
           {/* Binary Role Switcher */}
           <button
             onClick={onToggleGender}
@@ -138,8 +153,8 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           <button
             onClick={onOpenFilters}
             className="p-1.5 rounded-full bg-stone-900 border border-white/10 text-stone-300 hover:text-white hover:border-rose-500/40 transition-colors shrink-0"
-            title="Фильтры анкет"
-            aria-label="Фильтры"
+            title={t('filters')}
+            aria-label={t('filters')}
           >
             <SlidersHorizontal className="w-3.5 h-3.5" />
           </button>
