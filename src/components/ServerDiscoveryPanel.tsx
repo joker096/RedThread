@@ -82,18 +82,18 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         const data = await response.json().catch(() => null);
         setProfiles([]);
         setAuthenticated(true);
-        setNotice(data?.message || 'Пробный период завершён. Для платных функций потребуется Premium.');
+        setNotice(data?.message || t('trialEndedSearch'));
         return;
       }
-      if (!response.ok) throw new Error('Не удалось выполнить поиск. Проверьте, что сервер настроен и миграции применены.');
+      if (!response.ok) throw new Error(t('searchSetupError'));
       const data = await response.json();
       if (requestId !== searchRequestId.current) return;
       setProfiles(data.profiles || []);
       setAuthenticated(true);
-      setNotice(data.profiles?.length ? `${t('registeredProfiles')}: ${formatNumber(data.profiles.length)}` : 'Подходящих анкет пока нет. Попробуйте изменить фильтры.');
+      setNotice(data.profiles?.length ? `${t('registeredProfiles')}: ${formatNumber(data.profiles.length)}` : t('noProfilesForFilters'));
     } catch (error) {
       if (requestId === searchRequestId.current) {
-        setNotice(error instanceof Error ? error.message : 'Не удалось подключиться к серверу.');
+        setNotice(error instanceof Error ? error.message : t('connectionError'));
       }
     } finally {
       if (requestId === searchRequestId.current) setBusy(false);
@@ -115,20 +115,20 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       const data = await response.json().catch(() => null);
       if (response.status === 401) {
         setAuthenticated(false);
-        setNotice('Войдите в аккаунт, чтобы отправлять симпатии.');
+        setNotice(t('signInToLike'));
         return;
       }
-      if (response.status === 402) throw new Error(data?.message || 'Пробный период завершён. Для симпатий потребуется Premium; оплата ещё не подключена.');
-      if (!response.ok) throw new Error('Не удалось отправить симпатию.');
+      if (response.status === 402) throw new Error(data?.message || t('trialEndedLike'));
+      if (!response.ok) throw new Error(t('sendLikeError'));
       if (!data?.matched) setActionHistory(current => [...current, { type: 'like' as const, profile }].slice(-50));
       setLikedIds(current => current.includes(profile.id) ? current : [...current, profile.id]);
       setNotice(data?.matched
-        ? `У вас взаимная симпатия с ${profile.displayName}! Совпадение создано. Открываем чаты.`
+        ? t('mutualLikeOpenedChats').replace('{name}', profile.displayName)
         : `${t('liked')}: «${profile.displayName}».`);
       if (data?.matched) window.dispatchEvent(new CustomEvent('vow:match-created'));
       setProfiles(current => current.filter(item => item.id !== profile.id));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Не удалось отправить симпатию.');
+      setNotice(error instanceof Error ? error.message : t('sendLikeError'));
     } finally {
       setBusy(false);
     }
@@ -145,16 +145,16 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       const data = await response.json().catch(() => null);
       if (response.status === 401) {
         setAuthenticated(false);
-        setNotice('Войдите в аккаунт, чтобы управлять подбором.');
+        setNotice(t('signInToPass'));
         return;
       }
-      if (response.status === 402) throw new Error(data?.message || 'Пробный период завершён. Для пропуска анкет потребуется Premium.');
-      if (!response.ok) throw new Error('Не удалось пропустить анкету.');
+      if (response.status === 402) throw new Error(data?.message || t('trialEndedPass'));
+      if (!response.ok) throw new Error(t('passError'));
       setActionHistory(current => [...current, { type: 'pass' as const, profile }].slice(-50));
       setProfiles(current => current.filter(item => item.id !== profile.id));
-      setNotice('Анкета пропущена и больше не будет показываться в поиске.');
+      setNotice(t('passedProfileNotice'));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Ошибка пропуска анкеты.');
+      setNotice(error instanceof Error ? error.message : t('passError'));
     } finally {
       setBusy(false);
     }
@@ -172,17 +172,17 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         });
         if (response.status === 401) {
           setAuthenticated(false);
-          setNotice('Войдите в аккаунт, чтобы отменить симпатию.');
+          setNotice(t('signInToUndoLike'));
           return;
         }
-        if (response.status === 409) throw new Error('Совпадение уже создано — симпатию нельзя отменить этим действием.');
-        if (!response.ok) throw new Error('Не удалось отменить последнюю симпатию.');
+        if (response.status === 409) throw new Error(t('undoLikeMatchError'));
+        if (!response.ok) throw new Error(t('undoLikeError'));
         setLikedIds(current => current.filter(id => id !== lastAction.profile.id));
         setProfiles(current => current.some(item => item.id === lastAction.profile.id)
           ? current
           : [lastAction.profile, ...current]);
         setActionHistory(current => current.slice(0, -1));
-        setNotice(`Симпатия к анкете «${lastAction.profile.displayName}» отменена.`);
+        setNotice(t('undoLikeSuccess').replace('{name}', lastAction.profile.displayName));
         return;
       }
 
@@ -200,21 +200,21 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       const data = await response.json().catch(() => null);
       if (response.status === 401) {
         setAuthenticated(false);
-        setNotice('Войдите в аккаунт, чтобы вернуть пропущенную анкету.');
+        setNotice(t('signInToUndoAction'));
         return;
       }
       if (response.status === 402) throw new Error(data?.message || 'Для подбора потребуется Premium.');
-      if (response.status === 404) throw new Error('Последнее действие уже нельзя отменить: анкета может быть скрыта или заблокирована.');
-      if (response.status === 409) throw new Error('Совпадение уже создано — отменить эту симпатию нельзя.');
-      if (!response.ok || !data?.profile) throw new Error('Не удалось отменить последнее действие.');
+      if (response.status === 404) throw new Error(t('undoUnavailable'));
+      if (response.status === 409) throw new Error(t('undoMatchError'));
+      if (!response.ok || !data?.profile) throw new Error(t('undoActionError'));
       setProfiles(current => [data.profile as ServerProfile, ...current.filter(item => item.id !== data.profile.id)]);
       if (data.type === 'like') setLikedIds(current => current.filter(id => id !== data.profile.id));
       if (lastAction) setActionHistory(current => current.slice(0, -1));
       setNotice(data.type === 'like'
-        ? `Последняя симпатия к анкете «${data.profile.displayName}» отменена.`
-        : 'Последний пропуск отменён. Анкета снова доступна в вашей ленте.');
+        ? t('undoLikeSuccess').replace('{name}', data.profile.displayName)
+        : t('undoPassSuccess'));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Не удалось отменить последнее действие.');
+      setNotice(error instanceof Error ? error.message : t('undoActionError'));
     } finally {
       setBusy(false);
     }
@@ -232,13 +232,13 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       const data = await response.json().catch(() => null);
       if (response.status === 401) {
         setAuthenticated(false);
-        setNotice('Войдите, чтобы отправить жалобу.');
+        setNotice(t('signInToReport'));
         return;
       }
-      if (!response.ok) throw new Error(data?.error === 'invalid_report_details' ? 'Проверьте категорию и длину комментария.' : 'Не удалось отправить жалобу.');
+      if (!response.ok) throw new Error(data?.error === 'invalid_report_details' ? t('invalidReportDetails') : t('reportError'));
       setReportTargetId(null);
       setReportDetails('');
-      setNotice('Жалоба отправлена на рассмотрение. Спасибо, что помогаете поддерживать безопасность.');
+      setNotice(t('reportSuccess'));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Ошибка отправки жалобы.');
     } finally {
@@ -258,17 +258,17 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       });
       if (response.status === 401) {
         setAuthenticated(false);
-        setNotice('Войдите, чтобы заблокировать пользователя.');
+        setNotice(t('signInToBlock'));
         return;
       }
-      if (!response.ok) throw new Error('Не удалось заблокировать пользователя.');
+      if (!response.ok) throw new Error(t('blockError'));
       setBlockedIds(current => current.includes(profile.id) ? current : [...current, profile.id]);
       setActionHistory(current => current.filter(action => action.profile.id !== profile.id));
       setLikedIds(current => current.filter(id => id !== profile.id));
       setProfiles(current => current.filter(item => item.id !== profile.id));
-      setNotice(`Анкета «${profile.displayName}» заблокирована и больше не будет показываться вам.`);
+      setNotice(t('blockedProfileNotice').replace('{name}', profile.displayName));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Ошибка блокировки.');
+      setNotice(error instanceof Error ? error.message : t('blockOperationError'));
     } finally {
       setBusy(false);
     }
@@ -296,7 +296,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
             <label className="text-xs text-stone-300">{t('relationshipGoal')}<select value={intent} onChange={e => setIntent(e.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="all">{t('any')}</option><option value="marriage_family">{t('marriageFamily')}</option><option value="family_without_marriage">{t('familyWithoutMarriage')}</option><option value="serious_relationship">{t('seriousRelationship')}</option></select></label>
             <label className="text-xs text-stone-300">{t('familyFormat')}<select value={familyFormat} onChange={e => setFamilyFormat(e.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="all">{t('anyFormat')}</option><option value="marriage">{t('marriageOnly')}</option><option value="cohabitation">{t('cohabitation')}</option><option value="open_to_both">{t('openToBoth')}</option></select></label>
             <label className="text-xs text-stone-300">{t('children')}<select value={childrenFilter} onChange={e => setChildrenFilter(e.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="all">{t('notImportant')}</option><option value="false">{t('noChildren')}</option><option value="true">{t('hasChildren')}</option></select></label>
-            <label className="text-xs text-stone-300">{t('financialMatch')}<select value={minFinancialAlignment} onChange={e => setMinFinancialAlignment(Number(e.target.value))} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="0">{t('doNotFilter')}</option><option value="33">От 33%</option><option value="67">От 67%</option><option value="100">Только 100%</option></select></label>
+            <label className="text-xs text-stone-300">{t('financialMatch')}<select value={minFinancialAlignment} onChange={e => setMinFinancialAlignment(Number(e.target.value))} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="0">{t('doNotFilter')}</option><option value="33">{t('financialFrom33')}</option><option value="67">{t('financialFrom67')}</option><option value="100">{t('financialOnly100')}</option></select></label>
           </div>
           <button type="button" onClick={() => void search()} disabled={busy} className="mb-2 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? t('searching') : t('search')}</button>
           <button type="button" onClick={() => setSwipeMode(value => !value)} className="mb-3 w-full rounded-xl border border-emerald-500/30 px-4 py-2.5 text-xs font-semibold text-emerald-200">{swipeMode ? t('listMode') : t('swipeMode')}</button>
@@ -321,12 +321,12 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                   if (action === 'like') void like(profile);
                   else if (action === 'pass') void pass(profile);
                 }}
-                aria-label={swipeMode ? `Анкета ${profile.displayName}. Свайп вправо — симпатия, влево — пропуск.` : undefined}
+                aria-label={swipeMode ? t('swipeProfileAria').replace('{name}', profile.displayName) : undefined}
                 className={`rounded-2xl border border-white/10 bg-stone-950/70 p-3 ${swipeMode ? 'touch-pan-y' : ''}`}>
                 {profile.photoUrls?.length ? (
                   <div className="mb-3 flex gap-2 overflow-x-auto">
                     {profile.photoUrls.slice(0, 6).map((url, index) => (
-                      <img key={url} src={url} alt={`Фото профиля ${profile.displayName}, ${index + 1}`} loading="lazy" referrerPolicy="no-referrer" className="h-28 w-24 shrink-0 rounded-xl border border-white/10 bg-stone-900 object-cover" />
+                      <img key={url} src={url} alt={t('photoAlt').replace('{name}', profile.displayName).replace('{number}', String(index + 1))} loading="lazy" referrerPolicy="no-referrer" className="h-28 w-24 shrink-0 rounded-xl border border-white/10 bg-stone-900 object-cover" />
                     ))}
                   </div>
                 ) : (
