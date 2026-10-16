@@ -61,6 +61,7 @@ export default function App() {
   // Filters state
   const [minCompatibility, setMinCompatibility] = useState(70);
   const [onlyVerified, setOnlyVerified] = useState(false);
+  const [selectedCountry, setSelectedCountry] = useState('all');
   const [selectedCity, setSelectedCity] = useState('all');
   const [intentFilter, setIntentFilter] = useState('all');
 
@@ -162,6 +163,7 @@ export default function App() {
         if (typeof saved.currentBrandId === 'string') setCurrentBrandId(saved.currentBrandId);
         if (typeof saved.minCompatibility === 'number') setMinCompatibility(saved.minCompatibility);
         if (typeof saved.onlyVerified === 'boolean') setOnlyVerified(saved.onlyVerified);
+        if (typeof saved.selectedCountry === 'string') setSelectedCountry(saved.selectedCountry);
         if (typeof saved.selectedCity === 'string') setSelectedCity(saved.selectedCity);
         if (typeof saved.intentFilter === 'string') setIntentFilter(saved.intentFilter);
         if (typeof saved.superLikesCount === 'number') setSuperLikesCount(saved.superLikesCount);
@@ -185,7 +187,7 @@ export default function App() {
     try {
       window.localStorage.setItem('nit-demo-state-v1', JSON.stringify({
         currentUser, currentGender, isLadyPremium, profiles, chatThreads, adStats,
-        currentBrandId, minCompatibility, onlyVerified, selectedCity, intentFilter,
+        currentBrandId, minCompatibility, onlyVerified, selectedCountry, selectedCity, intentFilter,
         superLikesCount, boostActive, activeTab, activeChatThreadId
       }));
     } catch {
@@ -502,7 +504,9 @@ export default function App() {
   const filteredProfiles = binaryPool.filter(p => {
     if (p.isSponsorAd) return true;
     if (onlyVerified && !p.verification.isVerified) return false;
-    if (selectedCity !== 'all' && !p.city.includes(selectedCity)) return false;
+    const profileCountry = p.country || 'Россия';
+    if (selectedCountry !== 'all' && profileCountry !== selectedCountry) return false;
+    if (selectedCity !== 'all' && !p.city.toLocaleLowerCase().includes(selectedCity.trim().toLocaleLowerCase())) return false;
     if (intentFilter !== 'all' && p.intent !== intentFilter) return false;
     const comp = calculateCompatibility(
       currentUser.crucialAnswers,
@@ -972,6 +976,8 @@ export default function App() {
         setMinCompatibility={setMinCompatibility}
         onlyVerified={onlyVerified}
         setOnlyVerified={setOnlyVerified}
+        selectedCountry={selectedCountry}
+        setSelectedCountry={setSelectedCountry}
         selectedCity={selectedCity}
         setSelectedCity={setSelectedCity}
         intentFilter={intentFilter}
