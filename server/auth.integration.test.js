@@ -99,6 +99,10 @@ test('auth API supports registration, session lookup, logout and login', {
     const notificationList = await request('/api/notifications', { headers: { Cookie: firstCookie } });
     assert.equal(notificationList.status, 200);
     assert.deepEqual((await notificationList.json()).notifications, []);
+    for (const adminPath of ['/api/admin/reports', '/api/admin/photos', '/api/admin/audit-log']) {
+      const forbidden = await request(adminPath, { headers: { Cookie: firstCookie } });
+      assert.equal(forbidden.status, 403);
+    }
     const markNotificationsRead = await request('/api/notifications/read-all', {
       method: 'POST',
       headers: { Cookie: firstCookie }
@@ -257,6 +261,23 @@ test('auth API supports registration, session lookup, logout and login', {
 
     const unauthenticatedSearch = await request('/api/profiles/search');
     assert.equal(unauthenticatedSearch.status, 401);
+
+    const passProfile = await request('/api/passes/' + registered.user.id, {
+      method: 'POST',
+      headers: { Cookie: maleCookie }
+    });
+    assert.equal(passProfile.status, 201);
+    const undoPass = await request('/api/passes/undo', {
+      method: 'POST',
+      headers: { Cookie: maleCookie }
+    });
+    assert.equal(undoPass.status, 200);
+    assert.equal((await undoPass.json()).profile.id, registered.user.id);
+    const undoAgain = await request('/api/passes/undo', {
+      method: 'POST',
+      headers: { Cookie: maleCookie }
+    });
+    assert.equal(undoAgain.status, 404);
 
     const firstLike = await request(`/api/likes/${maleRegistered.user.id}`, {
       method: 'POST',
