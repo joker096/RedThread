@@ -176,7 +176,7 @@ async function requireSession(req, res, next) {
 
   try {
     const result = await pool.query(
-      `SELECT u.id, u.email, u.status, u.role, u.female_trial_ends_at, u.premium_until, u.phone_verified_at,
+      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.female_trial_ends_at, u.premium_until, u.phone_verified_at,
               p.display_name, p.gender, p.country, p.city, p.relationship_intent, s.id AS session_id
        FROM sessions s
        JOIN users u ON u.id = s.user_id
@@ -189,6 +189,9 @@ async function requireSession(req, res, next) {
     if (!user || user.status !== 'active') {
       clearSessionCookie(res);
       return res.status(401).json({ error: 'not_authenticated' });
+    }
+    if (emailVerificationRequired && !user.email_verified_at) {
+      return res.status(403).json({ error: 'email_verification_required' });
     }
     req.authUser = user;
     await pool.query('UPDATE sessions SET last_seen_at = NOW() WHERE id = $1', [user.session_id]);
@@ -392,7 +395,7 @@ app.post('/api/auth/email-verification/resend', authLimiter, validateRequestOrig
   try {
     const userResult = await pool.query(
       `SELECT id, email FROM users
-       WHERE email = $1 AND status = 'pending' AND email_verified_at IS NULL LIMIT 1`,
+       WHERE email = $1 AND status IN ('pending', 'active') AND email_verified_at IS NULL LIMIT 1`,
       [email]
     );
     const user = userResult.rows[0];
@@ -561,6 +564,9 @@ app.get('/api/auth/me', requireDatabase, async (req, res) => {
     if (!user || user.status !== 'active') {
       clearSessionCookie(res);
       return res.status(401).json({ error: 'not_authenticated' });
+    }
+    if (emailVerificationRequired && !user.email_verified_at) {
+      return res.status(403).json({ error: 'email_verification_required' });
     }
 
     await pool.query('UPDATE sessions SET last_seen_at = NOW() WHERE id = $1', [user.session_id]);
