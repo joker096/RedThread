@@ -12,7 +12,11 @@ type ServerProfile = {
   occupation?: string;
   education?: string;
   languages?: string[];
-  relationshipIntent: 'marriage_family' | 'serious_relationship';
+  relationshipIntent: 'marriage_family' | 'serious_relationship' | 'family_without_marriage';
+  familyFormat?: 'marriage' | 'cohabitation' | 'open_to_both';
+  hasChildren?: boolean | null;
+  wantsChildren?: 'yes' | 'no' | 'discuss' | 'unsure';
+  childrenLivingArrangement?: string;
   financialAlignment: number | null;
 };
 
@@ -186,6 +190,14 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                   {profile.financialAlignment !== null && <span className="shrink-0 rounded-full border border-emerald-500/30 px-2 py-1 text-[10px] text-emerald-300">Финансы {profile.financialAlignment}%</span>}
                 </div>
                 {profile.bio && <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-stone-300">{profile.bio}</p>}
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {profile.relationshipIntent === 'family_without_marriage' && <span className="rounded-full border border-amber-500/20 bg-amber-950/30 px-2 py-1 text-[10px] text-amber-200">Семья без брака</span>}
+                  {profile.familyFormat === 'cohabitation' && <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-stone-300">Совместная жизнь без регистрации</span>}
+                  {profile.hasChildren === true && <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-stone-300">Есть дети</span>}
+                  {profile.hasChildren === false && <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-stone-400">Детей нет</span>}
+                  {profile.wantsChildren === 'yes' && <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-stone-300">Хочет детей</span>}
+                  {profile.wantsChildren === 'no' && <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-stone-300">Не планирует детей</span>}
+                </div>
                 {(profile.occupation || profile.education) && <p className="mt-2 text-xs text-stone-400">{[profile.occupation, profile.education].filter(Boolean).join(' · ')}</p>}
                 {profile.languages?.length ? <p className="mt-1 text-xs text-stone-400">Языки: {profile.languages.join(', ')}</p> : null}
                 <p className="mt-2 text-[10px] text-stone-500">{profile.relationshipIntent === 'marriage_family' ? 'Цель: брак и семья' : 'Цель: серьёзные отношения'}</p>
