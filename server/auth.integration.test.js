@@ -298,6 +298,26 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(undoNoPass.status, 404);
 
+    // A stale or manually crafted request must not like a profile that is still passed.
+    const passAgain = await request(`/api/passes/${registered.user.id}`, {
+      method: 'POST',
+      headers: { Cookie: maleCookie },
+      body: JSON.stringify({})
+    });
+    assert.equal(passAgain.status, 204);
+    const likePassedProfile = await request(`/api/likes/${registered.user.id}`, {
+      method: 'POST',
+      headers: { Cookie: maleCookie },
+      body: JSON.stringify({})
+    });
+    assert.equal(likePassedProfile.status, 404, 'a passed profile cannot be liked through a stale or direct API request');
+    const undoPassAgain = await request('/api/passes/undo', {
+      method: 'POST',
+      headers: { Cookie: maleCookie },
+      body: JSON.stringify({ targetId: registered.user.id })
+    });
+    assert.equal(undoPassAgain.status, 200);
+
     const firstLike = await request(`/api/likes/${maleRegistered.user.id}`, {
       method: 'POST',
       headers: { Cookie: secondCookie }
