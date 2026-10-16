@@ -480,7 +480,7 @@ app.put('/api/assessment', validateRequestOrigin, requireSession, requirePaidFea
   }
 });
 
-app.delete('/api/assessment', validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+app.delete('/api/assessment', validateRequestOrigin, requireSession, async (req, res) => {
   try {
     await pool.query('DELETE FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
     return res.status(204).end();
