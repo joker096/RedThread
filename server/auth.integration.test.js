@@ -121,6 +121,12 @@ test('auth API supports registration, session lookup, logout and login', {
     const photoRead = await request(uploadedPhoto.photoUrl, { headers: { Cookie: firstCookie } });
     assert.equal(photoRead.status, 200);
     assert.equal(photoRead.headers.get('content-type'), 'image/png');
+    const crossAccountPhotoAttach = await request('/api/profiles/me', {
+      method: 'PATCH',
+      headers: { Cookie: maleCookie },
+      body: JSON.stringify({ photoUrls: [uploadedPhoto.photoUrl] })
+    });
+    assert.equal(crossAccountPhotoAttach.status, 400);
     const removePhoto = await request('/api/profiles/me', {
       method: 'PATCH',
       headers: { Cookie: firstCookie },
