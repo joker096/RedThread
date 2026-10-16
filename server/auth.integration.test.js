@@ -302,6 +302,26 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(firstLike.status, 201);
     assert.equal((await firstLike.json()).matched, false);
 
+    const afterLikeSearch = await request('/api/profiles/search', { headers: { Cookie: secondCookie } });
+    assert.equal((await afterLikeSearch.json()).profiles.some(profile => profile.id === maleRegistered.user.id), false,
+      'profiles already liked by the current user must not be repeated in discovery');
+
+    const undoLike = await request(`/api/likes/${maleRegistered.user.id}`, {
+      method: 'DELETE',
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(undoLike.status, 204);
+    const afterUndoLikeSearch = await request('/api/profiles/search', { headers: { Cookie: secondCookie } });
+    assert.equal((await afterUndoLikeSearch.json()).profiles.some(profile => profile.id === maleRegistered.user.id), true,
+      'undoing a like makes the profile eligible for discovery again');
+
+    const firstLikeAgain = await request(`/api/likes/${maleRegistered.user.id}`, {
+      method: 'POST',
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(firstLikeAgain.status, 201);
+    assert.equal((await firstLikeAgain.json()).matched, false);
+
     const reciprocalLike = await request(`/api/likes/${registered.user.id}`, {
       method: 'POST',
       headers: { Cookie: maleCookie }
@@ -310,6 +330,12 @@ test('auth API supports registration, session lookup, logout and login', {
     const matchPayload = await reciprocalLike.json();
     assert.equal(matchPayload.matched, true);
     assert.ok(matchPayload.match.id);
+
+    const cannotUndoMatchedLike = await request(`/api/likes/${maleRegistered.user.id}`, {
+      method: 'DELETE',
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(cannotUndoMatchedLike.status, 409, 'an active mutual match must not be silently broken by undo');
 
     const femaleMatches = await request('/api/matches', { headers: { Cookie: secondCookie } });
     assert.equal(femaleMatches.status, 200);
@@ -389,7 +415,7 @@ test('auth API supports registration, session lookup, logout and login', {
     const afterPassSearch = await request('/api/profiles/search', { headers: { Cookie: secondCookie } });
     assert.equal((await afterPassSearch.json()).profiles.some(profile => profile.id === maleRegistered.user.id), false);
 
-    const undoPass = await request('/api/passes/undo', { method: 'POST', headers: { Cookie: secondCookie }, body: JSON.stringify({}) });
+    const undoPass = await request('/api/passes/undo', { method: 'POST', headers: { Cookie: secondCookie }, body: JSON.stringify({ targetId: maleRegistered.user.id }) });
     assert.equal(undoPass.status, 200);
     assert.equal((await undoPass.json()).profile.id, maleRegistered.user.id);
     const afterUndoSearch = await request('/api/profiles/search', { headers: { Cookie: secondCookie } });
