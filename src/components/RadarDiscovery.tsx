@@ -492,8 +492,8 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 <button
                   onClick={handlePassCurrent}
                   className="w-12 h-12 rounded-full bg-stone-900 hover:bg-stone-800 text-stone-400 hover:text-white flex items-center justify-center border border-white/10 transition-all hover:scale-110 active:scale-95 shadow-lg"
-                  title="Пропустить"
-                  aria-label="Пропустить"
+                  title={t('pass')}
+                  aria-label={t('pass')}
                 >
                   <X className="w-5 h-5 stroke-[2.5]" />
                 </button>
