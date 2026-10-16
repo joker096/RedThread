@@ -72,7 +72,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
       }
       if (response.status === 402) {
         setStatus('error');
-        setNote('Пробный период завершён. Сохранение и использование теста входят в Premium; платёжная система ещё не подключена.');
+        setNote(t('premiumSaveAssessment'));
         return;
       }
       if (!response.ok) throw new Error(t('saveAnswersError'));
