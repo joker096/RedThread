@@ -170,8 +170,9 @@ export const LocaleProvider: React.FC<React.PropsWithChildren> = ({ children }) 
   }, []);
 
   const t = useCallback((key: MessageKey) => {
-    const active = messages[locale as keyof typeof messages] || messages.en;
-    return active[key] || messages.en[key] || key;
+    const active = (messages[locale as keyof typeof messages] || messages.en) as Record<string, string>;
+    const english = messages.en as Record<string, string>;
+    return active[key] || english[key] || key;
   }, [locale]);
 
   const value = useMemo<LocaleContextValue>(() => ({
