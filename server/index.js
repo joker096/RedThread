@@ -938,6 +938,22 @@ app.get('/api/admin/screenings', requireSession, async (req, res) => {
   }
 });
 
+app.post('/api/admin/screenings/:screeningId/resolve', validateRequestOrigin, requireSession, async (req, res) => {
+  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
+  if (!isUuid(req.params.screeningId)) return res.status(400).json({ error: 'invalid_screening_id' });
+  try {
+    const result = await pool.query(
+      "UPDATE user_safety_screenings SET review_status = 'cleared', reviewed_at = NOW(), reviewed_by = $2 WHERE id = $1 AND review_status = 'pending' RETURNING id, review_status AS \"reviewStatus\"",
+      [req.params.screeningId, req.authUser.id]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: 'pending_screening_not_found' });
+    return res.json({ screening: result.rows[0] });
+  } catch (error) {
+    console.error('Screening resolve failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'screening_resolve_failed' });
+  }
+});
+
 app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSession, async (req, res) => {
   if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   const reportId = req.params.reportId;
