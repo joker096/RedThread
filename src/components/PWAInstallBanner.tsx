@@ -37,6 +37,7 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
   const [showGuide, setShowGuide] = useState(false);
   const [activeGuide, setActiveGuide] = useState<'ios' | 'android'>('ios');
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
+  const [isInstalling, setIsInstalling] = useState(false);
 
   useEffect(() => {
     setActiveGuide(/android/i.test(navigator.userAgent) ? 'android' : 'ios');
@@ -60,14 +61,25 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
   if (!isOpen) return null;
 
   const handleInstall = async () => {
-    if (!installPrompt) {
+    if (!installPrompt || isInstalling) {
       setShowGuide(true);
       return;
     }
-    await installPrompt.prompt();
-    const choice = await installPrompt.userChoice;
-    if (choice.outcome === 'accepted') setInstalled(true);
-    setInstallPrompt(null);
+
+    const promptEvent = installPrompt;
+    setIsInstalling(true);
+    try {
+      await promptEvent.prompt();
+      await promptEvent.userChoice;
+      // The app is considered installed only after the browser confirms it.
+      // The appinstalled event handler owns that state transition.
+      setInstallPrompt(null);
+    } catch {
+      // Some browsers reject the install prompt; keep the guide available.
+      setShowGuide(true);
+    } finally {
+      setIsInstalling(false);
+    }
   };
 
   return (
@@ -105,7 +117,9 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
             <button
               type="button"
               onClick={handleInstall}
-              className="flex min-h-8 items-center gap-1 rounded-lg bg-rose-600 px-2.5 py-1 text-[11px] font-bold text-white shadow-sm hover:bg-rose-500"
+              disabled={isInstalling}
+              aria-busy={isInstalling}
+              className="flex min-h-8 items-center gap-1 rounded-lg bg-rose-600 px-2.5 py-1 text-[11px] font-bold text-white shadow-sm hover:bg-rose-500 disabled:cursor-wait disabled:opacity-60"
             >
               <Download className="w-3 h-3" />
               <span>{t('installButton')}</span>
