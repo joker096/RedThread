@@ -435,7 +435,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
           )}
           {swipeMode && <p className="mb-3 text-[11px] text-stone-400">{t('swipeHint')}</p>}
           {notice && <p role="status" aria-live="polite" aria-atomic="true" className="mb-3 text-xs text-stone-300">{notice}</p>}
-          {!busy && authenticated === true && profiles.length === 0 && (
+          {!busy && authenticated === true && profiles.length === 0 && (searchFailed || notice === t('noProfilesForFilters')) && (
             <div className="mb-3 rounded-2xl border border-white/10 bg-stone-950/60 p-4 text-center" aria-live="polite">
               <p className="text-sm font-semibold text-stone-200">{searchFailed ? (notice || t('connectionError')) : t('noProfilesForFilters')}</p>
               {!searchFailed && <p className="mt-1 text-xs leading-relaxed text-stone-400">{t('demoFilterHint')}</p>}
