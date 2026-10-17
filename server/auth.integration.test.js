@@ -186,6 +186,9 @@ test('auth API supports registration, session lookup, logout and login', {
     const loggedOutMe = await request('/api/auth/me', { headers: { Cookie: firstCookie } });
     assert.equal(loggedOutMe.status, 401);
 
+    const loggedOutMatches = await request('/api/matches', { headers: { Cookie: firstCookie } });
+    assert.equal(loggedOutMatches.status, 401, 'expired or logged-out sessions must not load server matches');
+
     const login = await request('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password })
