@@ -39,7 +39,7 @@ const normalizeServerProfile = (value: unknown): ServerProfile | null => {
       typeof profile.displayName !== 'string' || !profile.displayName.trim() || profile.displayName.trim().length > 100 ||
       typeof profile.age !== 'number' || !Number.isFinite(profile.age) || profile.age < 18 || profile.age > 120 ||
       (profile.gender !== 'female' && profile.gender !== 'male') ||
-      !['marriage_family', 'serious_relationship', 'family_without_marriage'].includes(String(profile.relationshipIntent))) {
+      (profile.relationshipIntent !== 'marriage_family' && profile.relationshipIntent !== 'serious_relationship' && profile.relationshipIntent !== 'family_without_marriage')) {
     return null;
   }
 
