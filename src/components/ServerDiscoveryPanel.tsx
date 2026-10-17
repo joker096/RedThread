@@ -53,17 +53,21 @@ const normalizeServerProfile = (value: unknown): ServerProfile | null => {
     id: profile.id.trim(),
     displayName: profile.displayName.trim(),
     age: Math.floor(profile.age),
-    country: typeof profile.country === 'string' ? profile.country : '',
-    city: typeof profile.city === 'string' ? profile.city : '',
-    bio: typeof profile.bio === 'string' ? profile.bio : '',
+    country: typeof profile.country === 'string' ? profile.country.trim().slice(0, 100) : '',
+    city: typeof profile.city === 'string' ? profile.city.trim().slice(0, 100) : '',
+    bio: typeof profile.bio === 'string' ? profile.bio.trim().slice(0, 2000) : '',
     relationshipIntent: profile.relationshipIntent,
     financialAlignment: score(profile.financialAlignment),
     compatibilityScore: score(profile.compatibilityScore) ?? undefined,
     photoUrls: Array.isArray(profile.photoUrls)
-      ? profile.photoUrls.filter(isSafeProfilePhotoUrl).map(url => url.trim())
+      ? profile.photoUrls.filter(isSafeProfilePhotoUrl).slice(0, 20).map(url => url.trim())
       : [],
     languages: Array.isArray(profile.languages)
-      ? profile.languages.filter((language): language is string => typeof language === 'string')
+      ? profile.languages
+          .filter((language): language is string => typeof language === 'string')
+          .map(language => language.trim().slice(0, 50))
+          .filter(Boolean)
+          .slice(0, 20)
       : []
   } as ServerProfile;
 };
