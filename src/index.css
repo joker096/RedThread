@@ -524,3 +524,9 @@ body {
 [dir="rtl"] .vow-chat-layout {
   flex-direction: row-reverse;
 }
+
+
+/* Keep chat back navigation pointing toward the logical start in RTL locales. */
+[dir="rtl"] .vow-rtl-back-icon {
+  transform: rotate(180deg);
+}
