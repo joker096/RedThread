@@ -434,7 +434,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             }}
             placeholder={t('chatMessagePlaceholder')}
             aria-label={t('chatMessageLabel')}
-            className="min-w-0 flex-1 rounded-xl border border-white/10 bg-stone-900 px-3 py-3 text-xs text-white placeholder-stone-500 focus:border-rose-500/60 focus:outline-none sm:px-4 sm:text-sm"
+            className="min-w-0 flex-1 rounded-xl border border-white/10 bg-stone-900 px-3 py-3 text-xs text-white placeholder-stone-500 focus:border-rose-500/60 focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 sm:px-4 sm:text-sm"
           />
 
           {sendErrors[activeThread.id] && <p role="alert" className="order-last basis-full px-1 text-xs text-rose-300 sm:order-none sm:basis-auto sm:max-w-36">{sendErrors[activeThread.id]}</p>}
