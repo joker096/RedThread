@@ -93,7 +93,7 @@ const messages = {
     blockedProfilesEmpty: 'You have not blocked anyone.',
     blockedProfilesLoadError: 'Could not load blocked profiles.',
     unblock: 'Unblock',
-    unblockSuccess: '“{name}” has been unblocked.'
+    unblockSuccess: '“{name}” has been unblocked.',
     financialFrom33: '33% or higher',
     financialFrom67: '67% or higher',
     financialOnly100: '100% only',
@@ -204,7 +204,7 @@ const messages = {
     blockedProfilesEmpty: 'У вас пока нет заблокированных анкет.',
     blockedProfilesLoadError: 'Не удалось загрузить список блокировок.',
     unblock: 'Разблокировать',
-    unblockSuccess: 'Анкета «{name}» разблокирована.'
+    unblockSuccess: 'Анкета «{name}» разблокирована.',
     financialFrom33: 'От 33%',
     financialFrom67: 'От 67%',
     financialOnly100: 'Только 100%',
