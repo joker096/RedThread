@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getTranslationCoverage, LANGUAGE_OPTIONS } from './LocaleProvider.tsx';
+import { getTranslationCoverage, getTranslationPlaceholderMismatches, LANGUAGE_OPTIONS } from './LocaleProvider.tsx';
 
 test('English and Russian catalogs cover every defined message key', () => {
   assert.equal(getTranslationCoverage('en').percentage, 100);
@@ -109,11 +109,16 @@ test('Portuguese catalog covers core discovery, safety, account and messaging UI
   }
 });
 
-test('Georgian translations cover the core discovery and safety interface without claiming full localization', () => {
+test('Georgian translations preserve every English interpolation placeholder', () => {
+  const mismatches = getTranslationPlaceholderMismatches('ka');
+  assert.deepEqual(mismatches, [], JSON.stringify(mismatches, null, 2));
+});
+
+test('Georgian catalog covers every defined interface message', () => {
   const georgian = getTranslationCoverage('ka');
-  assert.ok(georgian.translated > 0, 'Georgian should provide real translated messages');
-  assert.ok(georgian.percentage < 100, 'Partial Georgian coverage must remain clearly partial');
-  for (const key of ['language', 'discovery', 'safety', 'like', 'report', 'block', 'search', 'relationshipGoal'] as const) {
+  assert.equal(georgian.percentage, 100, 'Georgian should cover the complete English message catalog');
+  assert.equal(georgian.missing.length, 0, 'Georgian should not silently fall back to English for defined messages');
+  for (const key of ['language', 'discovery', 'safety', 'like', 'report', 'block', 'search', 'relationshipGoal', 'accountTitle', 'signIn', 'createAccount', 'email', 'password', 'chats', 'notificationCenter', 'authInvalidEmail', 'authDeleteConfirm', 'partialTranslationHelp'] as const) {
     assert.ok(!georgian.missing.includes(key), `Georgian core key "${key}" should be translated`);
   }
 });
