@@ -50,12 +50,25 @@ test('every advertised language has a truthful, internally consistent coverage r
 });
 
 test('unsupported advertised locales fall back honestly rather than claiming complete translation', () => {
-  for (const language of LANGUAGE_OPTIONS.filter(item => !['auto', 'en', 'ru', 'es', 'fr', 'de', 'pt', 'it', 'tr', 'ar', 'zh', 'hi'].includes(item.code))) {
+  for (const language of LANGUAGE_OPTIONS.filter(item => !['auto', 'en', 'ru', 'es', 'fr', 'de', 'pt', 'it', 'tr', 'ar', 'zh', 'hi', 'nl'].includes(item.code))) {
     const coverage = getTranslationCoverage(language.code);
     if (coverage.translated === 0) {
       assert.equal(coverage.percentage, 0);
       assert.equal(coverage.missing.length, coverage.total);
     }
+  }
+});
+
+test('Dutch catalog covers core discovery, safety, account and messaging UI', () => {
+  const dutch = getTranslationCoverage('nl');
+  assert.ok(dutch.translated >= 100, 'Dutch should translate a substantial core set of UI messages');
+  assert.ok(dutch.percentage > 0 && dutch.percentage < 100, 'Dutch must remain partial until complete');
+  for (const key of [
+    'language', 'discovery', 'safety', 'like', 'pass', 'report', 'block', 'search',
+    'relationshipGoal', 'accountTitle', 'signIn', 'createAccount', 'email', 'password',
+    'chats', 'notificationCenter', 'authInvalidEmail', 'authDeleteConfirm', 'partialTranslationHelp'
+  ] as const) {
+    assert.ok(!dutch.missing.includes(key), `Dutch core key "${key}" should be translated`);
   }
 });
 
