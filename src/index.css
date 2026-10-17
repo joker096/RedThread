@@ -518,3 +518,9 @@ body {
   }
 }
 
+
+
+/* Keep the chat sidebar and message alignment consistent in RTL locales. */
+[dir="rtl"] .vow-chat-layout {
+  flex-direction: row-reverse;
+}
