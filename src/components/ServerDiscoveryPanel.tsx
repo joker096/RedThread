@@ -414,6 +414,11 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
 
   const submitReport = async (profile: ServerProfile) => {
     if (busy) return;
+    const validReportCategories = ['fake_profile', 'spam', 'harassment', 'safety', 'children_misrepresentation', 'duplicate_profile', 'other'];
+    if (!validReportCategories.includes(reportCategory)) {
+      setNotice(t('reportError'));
+      return;
+    }
     const actionEpoch = sessionEpoch.current;
     setBusy(true);
     try {
