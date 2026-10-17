@@ -230,7 +230,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
           <div className="flex items-center gap-3">
             <button type="button"
               onClick={onBackToList}
-              className="md:hidden p-1.5 rounded-lg bg-stone-800 text-stone-300 hover:text-white"
+              className="md:hidden p-1.5 rounded-lg bg-stone-800 text-stone-300 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
               aria-label={t('chatBackToList')}
             >
               <ArrowLeft className="vow-rtl-back-icon w-4 h-4" />
@@ -266,7 +266,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             <button
               type="button"
               onClick={() => setShowPartnerServices(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-emerald-600/30 bg-emerald-950/30 text-emerald-200 font-semibold text-xs hover:bg-emerald-900/40 transition-colors"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-emerald-600/30 bg-emerald-950/30 text-emerald-200 font-semibold text-xs hover:bg-emerald-900/40 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
               title={t('chatPartnerServicesTitle')}
             >
               <HeartHandshake className="w-4 h-4" />
@@ -277,7 +277,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
               onClick={() => setShowInviteModal(true)}
               aria-haspopup="dialog"
               aria-expanded={showInviteModal}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 text-white font-semibold text-xs shadow-md shadow-rose-950 hover:from-rose-500 hover:to-red-500 transition-all"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 text-white font-semibold text-xs shadow-md shadow-rose-950 hover:from-rose-500 hover:to-red-500 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
             >
               <Coffee className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">{t('chatPlanDate')}</span>
@@ -379,7 +379,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                       ) : (
                         <button type="button"
                           onClick={() => onAcceptDateInvite(activeThread.id, msg.id)}
-                          className="w-full py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
+                          className="w-full py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
                         >
                           <Check className="w-4 h-4" />
                           <span>{t('chatAcceptInvite')}</span>
@@ -409,7 +409,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
           <button
             type="button"
             onClick={() => setShowInviteModal(true)}
-            className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-stone-800 text-rose-400 transition-colors hover:bg-stone-700"
+            className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-stone-800 text-rose-400 transition-colors hover:bg-stone-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
             title={t('chatInviteDate')}
             aria-label={t('chatInviteDate')}
             aria-haspopup="dialog"
@@ -442,7 +442,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             type="submit"
             disabled={!inputText.trim() || sendingThreadIds.has(activeThread.id)}
             aria-busy={sendingThreadIds.has(activeThread.id)}
-            className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-rose-600 text-white shadow-md transition-all hover:bg-rose-500 disabled:opacity-40"
+            className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-rose-600 text-white shadow-md transition-all hover:bg-rose-500 disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
             aria-label={t('chatSendMessage')}
           >
             {sendingThreadIds.has(activeThread.id)
@@ -466,7 +466,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                 type="button"
                 onClick={() => setShowInviteModal(false)}
                 aria-label={t('chatCloseInvite')}
-                className="flex min-h-11 min-w-11 items-center justify-center rounded-full text-stone-400 hover:text-white"
+                className="flex min-h-11 min-w-11 items-center justify-center rounded-full text-stone-400 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
               >
                 ✕
               </button>
@@ -527,13 +527,13 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             <div className="flex gap-2">
               <button type="button"
                 onClick={() => setShowInviteModal(false)}
-                className="flex-1 py-2.5 rounded-xl bg-stone-800 text-stone-300 font-semibold text-xs"
+                className="flex-1 py-2.5 rounded-xl bg-stone-800 text-stone-300 font-semibold text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
               >
                 {t('cancel')}
               </button>
               <button type="button"
                 onClick={handleCreateInvite}
-                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs"
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
               >
                 {t('chatSendInvite')}
               </button>
