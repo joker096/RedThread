@@ -22,6 +22,10 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const draft = selected ? (drafts[selected] || '') : '';
   const [busy, setBusy] = useState(false);
+  const [matchesLoading, setMatchesLoading] = useState(true);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [matchesFailed, setMatchesFailed] = useState(false);
+  const [messagesFailed, setMessagesFailed] = useState(false);
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
@@ -30,6 +34,8 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
 
   const loadMatches = useCallback(async () => {
     const requestId = ++matchesRequestId.current;
+    setMatchesLoading(true);
+    setMatchesFailed(false);
     try {
       const response = await fetch('/api/matches', { credentials: 'include' });
       if (requestId !== matchesRequestId.current) return;
@@ -47,10 +53,12 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       if (!response.ok) throw new Error(t('loadMatchesError'));
       const data = await response.json();
       if (requestId !== matchesRequestId.current) return;
-      setMatches(data.matches || []);
+      const nextMatches: ServerMatch[] = Array.isArray(data?.matches) ? data.matches : [];
+      setMatches(nextMatches);
       setAuthenticated(true);
-      setNotice(data.matches?.length ? '' : t('noMutualMatches'));
-      if (selected && !(data.matches || []).some((match: ServerMatch) => match.id === selected)) {
+      setMatchesFailed(false);
+      setNotice(nextMatches.length ? '' : t('noMutualMatches'));
+      if (selected && !nextMatches.some(match => match.id === selected)) {
         // Invalidate any in-flight message request for a match that is no longer available.
         messageRequestId.current += 1;
         setSelected('');
@@ -58,14 +66,19 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       }
     } catch (error) {
       if (requestId === matchesRequestId.current) {
+        setMatchesFailed(true);
         setNotice(error instanceof Error ? error.message : t('loadMatchesError'));
       }
+    } finally {
+      if (requestId === matchesRequestId.current) setMatchesLoading(false);
     }
-  }, [selected]);
+  }, [selected, t]);
 
   const loadMessages = useCallback(async (matchId: string) => {
     if (!matchId) return;
     const requestId = ++messageRequestId.current;
+    setMessagesLoading(true);
+    setMessagesFailed(false);
     try {
       const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/messages`, { credentials: 'include' });
       if (requestId !== messageRequestId.current) return;
@@ -93,11 +106,15 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       if (!response.ok) throw new Error(t('loadMessagesError'));
       const data = await response.json();
       if (requestId !== messageRequestId.current) return;
-      setMessages(data.messages || []);
+      setMessages(Array.isArray(data?.messages) ? data.messages : []);
+      setMessagesFailed(false);
     } catch (error) {
       if (requestId === messageRequestId.current) {
+        setMessagesFailed(true);
         setNotice(error instanceof Error ? error.message : t('loadMessagesError'));
       }
+    } finally {
+      if (requestId === messageRequestId.current) setMessagesLoading(false);
     }
   }, [t]);
 
@@ -189,6 +206,9 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         </div>
       ) : (
         <div className="space-y-3">
+          {matchesLoading && <p role="status" aria-live="polite" className="rounded-xl border border-white/10 bg-stone-950/40 px-3 py-3 text-center text-xs text-stone-300">{t('loading')}</p>}
+          {!matchesLoading && matchesFailed && <div className="rounded-xl border border-rose-500/20 bg-rose-950/20 p-3" role="alert"><p className="text-xs text-stone-200">{notice || t('loadMatchesError')}</p><button type="button" onClick={() => void loadMatches()} className="mt-2 min-h-11 rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300">{t('retry')}</button></div>}
+          {!matchesLoading && !matchesFailed && matches.length === 0 && <div className="rounded-xl border border-white/10 bg-stone-950/40 p-4 text-center"><p className="text-sm text-stone-200">{t('noMutualMatches')}</p></div>}
           {matches.map(match => (
             <button data-testid="server-match-item" type="button" key={match.id} onClick={() => { messageRequestId.current += 1; setMessages([]); setNotice(''); setSelected(match.id); }} className={`vow-motion-button w-full rounded-2xl border p-3.5 text-start transition-colors ${selected === match.id ? 'border-sky-400/60 bg-sky-950/40 shadow-md shadow-sky-950/30' : 'border-white/10 bg-stone-950/45 hover:border-white/20 hover:bg-stone-950/70'}`}>
               <span className="block text-sm font-semibold text-white">{match.displayName}, {match.age}</span>
@@ -196,17 +216,19 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
               <span className="mt-1 block truncate text-xs text-stone-500">{match.lastMessage || t('matchCreatedMessage')}</span>
             </button>
           ))}
-          {notice && <p role="status" className="text-xs text-stone-300">{notice}</p>}
+          {notice && !matchesFailed && <p role="status" aria-live="polite" aria-atomic="true" className="text-xs text-stone-300">{notice}</p>}
           {selected && (
             <div data-testid="real-match-chat" className="rounded-2xl border border-white/10 bg-stone-950/55 p-3.5 shadow-inner sm:p-4">
-              <div data-testid="server-match-messages" role="log" aria-live="polite" aria-label={t('serverChats')} className="mb-4 max-h-72 space-y-2.5 overflow-y-auto overscroll-contain rounded-xl bg-black/10 p-1">
+              <div data-testid="server-match-messages" role="log" aria-live="polite" aria-label={t('serverChats')} aria-busy={messagesLoading} className="mb-4 max-h-72 space-y-2.5 overflow-y-auto overscroll-contain rounded-xl bg-black/10 p-1">
+                {messagesLoading && <p role="status" className="px-2 py-3 text-xs text-stone-400">{t('loading')}</p>}
+                {messagesFailed && <div role="alert" className="rounded-xl border border-rose-500/20 bg-rose-950/20 p-3"><p className="text-xs text-stone-200">{notice || t('loadMessagesError')}</p><button type="button" onClick={() => void loadMessages(selected)} className="mt-2 min-h-10 rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300">{t('retry')}</button></div>}
                 {messages.map(message => (
                   <div key={message.id} className={`max-w-[90%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed shadow-sm ${message.senderId === currentUserId ? 'ms-auto rounded-br-md bg-gradient-to-br from-rose-600 to-rose-700 text-white' : 'me-auto rounded-bl-md border border-white/5 bg-stone-800 text-stone-100'}`}>
                     <p className="whitespace-pre-wrap break-words">{message.text}</p>
                     <time className={`mt-1 block text-[9px] ${message.senderId === currentUserId ? 'text-rose-100/70' : 'text-stone-500'}`}>{formatDate(message.createdAt, { dateStyle: 'medium', timeStyle: 'short' })}</time>
                   </div>
                 ))}
-                {!messages.length && <p className="text-xs text-stone-500">{t('noMessagesYet')}</p>}
+                {!messagesLoading && !messagesFailed && !messages.length && <p className="px-2 py-3 text-xs text-stone-500">{t('noMessagesYet')}</p>}
               </div>
               <textarea aria-label={t('writeMessage')} value={draft} onChange={e => setDrafts(current => ({ ...current, [selected]: e.target.value }))} maxLength={4000} rows={2} placeholder={t('writeMessage')} className="w-full resize-y rounded-xl border border-white/10 bg-stone-900/90 p-3.5 text-sm text-white outline-none transition placeholder:text-stone-500 focus:border-rose-400/60 focus:ring-2 focus:ring-rose-400/15" />
               <button data-testid="server-match-send" type="button" onClick={() => void send()} disabled={busy || !draft.trim()} className="vow-motion-button mt-2 min-h-12 w-full rounded-xl bg-gradient-to-r from-rose-600 to-rose-700 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-rose-950/25 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">{busy ? t('sendingMessage') : t('sendMessage')}</button>
