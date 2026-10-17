@@ -46,7 +46,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
   onOpenLadyPremium,
   onBackToList
 }) => {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [sendErrors, setSendErrors] = useState<Record<string, string>>({});
   const sendingThreadIdsRef = useRef(new Set<string>());
@@ -322,7 +322,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
           <div className="flex items-center gap-2">
             <Clock className="w-3.5 h-3.5 text-rose-500" />
             <span>
-              {t('chatDateCountdown')} <strong className="text-white font-mono">{antiChitChat.hoursLeft} ч</strong>
+              {t('chatDateCountdown')} <strong className="text-white font-mono">{new Intl.NumberFormat(locale, { style: 'unit', unit: 'hour', unitDisplay: 'short' }).format(antiChitChat.hoursLeft)}</strong>
             </span>
           </div>
           <span className="text-[11px] text-rose-300 hidden sm:inline">
