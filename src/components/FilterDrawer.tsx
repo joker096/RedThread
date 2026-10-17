@@ -80,7 +80,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="vow-filter-backdrop fixed inset-0 z-50 flex items-end justify-center bg-stone-950/80 p-2 backdrop-blur-sm animate-in fade-in duration-200 sm:items-center sm:p-4">
+    <div className="vow-filter-backdrop fixed inset-0 z-50 flex items-end justify-center bg-stone-950/80 p-2 backdrop-blur-sm animate-in fade-in duration-200 sm:items-center sm:p-4" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
       <div role="dialog" aria-modal="true" aria-labelledby="discovery-filter-title" className="relative max-h-[calc(100dvh-1rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-t-3xl border border-rose-900/40 bg-stone-900 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] text-start shadow-2xl sm:max-h-[min(90dvh,52rem)] sm:rounded-3xl sm:p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
