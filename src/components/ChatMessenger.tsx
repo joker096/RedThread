@@ -239,6 +239,8 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             </button>
             <button type="button"
               onClick={() => setShowInviteModal(true)}
+              aria-haspopup="dialog"
+              aria-expanded={showInviteModal}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 text-white font-semibold text-xs shadow-md shadow-rose-950 hover:from-rose-500 hover:to-red-500 transition-all"
             >
               <Coffee className="w-3.5 h-3.5" />
@@ -261,6 +263,8 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                   : 'bg-stone-800 border-white/5 text-stone-400 hover:text-white'
               }`}
               title={isLadyPremium ? t('chatDirectContactOpen') : t('chatDirectContactVip')}
+              aria-label={isLadyPremium ? t('chatDirectContactOpen') : t('chatDirectContactVip')}
+              aria-pressed={isLadyPremium ? showDirectContactUnlocked : undefined}
             >
               <Phone className="w-4 h-4" />
             </button>
@@ -372,6 +376,8 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-stone-800 text-rose-400 transition-colors hover:bg-stone-700"
             title={t('chatInviteDate')}
             aria-label={t('chatInviteDate')}
+            aria-haspopup="dialog"
+            aria-expanded={showInviteModal}
           >
             <Coffee className="w-4 h-4" />
           </button>
