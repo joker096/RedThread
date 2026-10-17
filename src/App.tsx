@@ -812,6 +812,7 @@ export default function App() {
               }}
               onOpenAdManager={() => setIsAdManagerOpen(true)}
               onOpenFilters={() => setIsFilterOpen(true)}
+              showFilters={activeTab === 'discovery' && discoveryMode === 'demo'}
               activeTab={activeTab}
               setActiveTab={setActiveTab}
               unreadChatsCount={unreadCount}
@@ -949,6 +950,7 @@ export default function App() {
                   }}
                   onOpenAdManager={() => setIsAdManagerOpen(true)}
                   onOpenFilters={() => setIsFilterOpen(true)}
+                  showFilters={activeTab === 'discovery' && discoveryMode === 'demo'}
                   activeTab={activeTab}
                   setActiveTab={setActiveTab}
                   unreadChatsCount={unreadCount}
