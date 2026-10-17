@@ -34,6 +34,7 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
   const [countdown, setCountdown] = useState(5);
   const [rewardClaimed, setRewardClaimed] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -41,14 +42,50 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
       timerRef.current = null;
       setIsPlayingVideo(false);
       setCountdown(5);
+      return;
     }
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
+
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    const getFocusable = () => dialog
+      ? Array.from(dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+        )).filter(element => element.getAttribute('aria-hidden') !== 'true')
+      : [];
+    getFocusable()[0]?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = getFocusable();
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog?.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog?.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialog?.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
       }
     };
-  }, [isOpen]);
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      previouslyFocused?.focus();
+      if (timerRef.current) clearInterval(timerRef.current);
+      timerRef.current = null;
+    };
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -74,7 +111,7 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
 
   return (
     <div className="vow-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
-      <div role="dialog" aria-modal="true" aria-labelledby="ad-manager-title" aria-describedby="ad-manager-description" className="relative w-full max-w-lg rounded-3xl bg-stone-900 border border-amber-500/30 shadow-2xl p-5 sm:p-6 text-left my-auto">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="ad-manager-title" aria-describedby="ad-manager-description" tabIndex={-1} className="relative w-full max-w-lg rounded-3xl bg-stone-900 border border-amber-500/30 shadow-2xl p-5 sm:p-6 text-left my-auto">
         {/* Close Button */}
         <button
           onClick={onClose}
