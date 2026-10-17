@@ -1320,6 +1320,12 @@ const rtlLocales = new Set(['ar', 'he', 'fa', 'ur']);
 export function getTextDirection(locale: string): 'rtl' | 'ltr' {
   return rtlLocales.has(locale) ? 'rtl' : 'ltr';
 }
+
+export function normalizeLocalePreference(value: string | null | undefined): string {
+  return value === 'auto' || (typeof value === 'string' && LANGUAGE_OPTIONS.some(item => item.code === value))
+    ? value
+    : 'auto';
+}
 const availableTranslations = new Set(Object.keys(messages));
 const storageKey = 'vow-locale-preference-v1';
 
@@ -1350,7 +1356,7 @@ export const LocaleProvider: React.FC<React.PropsWithChildren> = ({ children }) 
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(storageKey);
-      setRequestedLocale(saved || 'auto');
+      setRequestedLocale(normalizeLocalePreference(saved));
     } catch {
       setRequestedLocale('auto');
     }
@@ -1365,9 +1371,9 @@ export const LocaleProvider: React.FC<React.PropsWithChildren> = ({ children }) 
   }, [locale]);
 
   const setLocale = useCallback((next: string) => {
-    const safe = next === 'auto' || LANGUAGE_OPTIONS.some(item => item.code === next);
-    if (!safe) return;
-    setRequestedLocale(next);
+    const safe = normalizeLocalePreference(next);
+    if (safe !== next) return;
+    setRequestedLocale(safe);
     try { window.localStorage.setItem(storageKey, next); } catch { /* Private browsing may disable storage. */ }
   }, []);
 
