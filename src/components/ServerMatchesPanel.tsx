@@ -56,6 +56,12 @@ const normalizeServerMessage = (value: unknown): ServerMessage | null => {
   };
 };
 
+const normalizeUserId = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null;
+  const id = value.trim();
+  return id && id.length <= 256 ? id : null;
+};
+
 const deduplicateById = <T extends { id: string }>(items: T[]): T[] => {
   const seen = new Set<string>();
   return items.filter(item => {
@@ -207,7 +213,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       .then(response => response.ok ? response.json() : null)
       .then(data => {
         if (!cancelled && requestId === currentUserRequestId.current) {
-          setCurrentUserId(typeof data?.user?.id === 'string' ? data.user.id : null);
+          setCurrentUserId(normalizeUserId(data?.user?.id));
         }
       })
       .catch(() => {
@@ -241,7 +247,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         .then(response => response.ok ? response.json() : null)
         .then(data => {
           if (userRequestId === currentUserRequestId.current) {
-            setCurrentUserId(typeof data?.user?.id === 'string' ? data.user.id : null);
+            setCurrentUserId(normalizeUserId(data?.user?.id));
           }
         })
         .catch(() => {
