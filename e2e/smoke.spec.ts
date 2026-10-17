@@ -193,3 +193,33 @@ test('password reset token is removed from the address bar before the reset form
   await expect.poll(() => page.url()).not.toContain(token);
   await expect(page.locator('input[autocomplete="new-password"]')).toHaveAttribute('minlength', '12');
 });
+
+
+test('RTL languages set document direction and remain usable on narrow phones', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.goto('/');
+
+  const languageSelector = page.locator('#app-language');
+  await expect(languageSelector).toBeVisible();
+
+  for (const locale of ['ar', 'fa', 'he', 'ur']) {
+    await languageSelector.selectOption(locale);
+    await expect(page.locator('html')).toHaveAttribute('lang', locale);
+    await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+    await expect(languageSelector).toHaveValue(locale);
+
+    const dimensions = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      document: document.documentElement.scrollWidth,
+      body: document.body.scrollWidth
+    }));
+    expect(
+      dimensions.document,
+      `RTL locale ${locale} causes horizontal overflow at 320px: ${JSON.stringify(dimensions)}`
+    ).toBeLessThanOrEqual(dimensions.viewport);
+  }
+
+  await languageSelector.selectOption('en');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
+});
