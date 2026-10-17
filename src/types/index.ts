@@ -61,6 +61,8 @@ export interface UserProfile {
   likedByMe?: boolean;
   likedByCandidate?: boolean;
   isSponsorAd?: boolean;
+  /** Stable server-configured campaign slug; absent on demo placements. */
+  sponsorCampaignId?: string;
   sponsorTitle?: string;
   sponsorDescription?: string;
   sponsorCta?: string;

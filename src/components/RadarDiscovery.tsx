@@ -76,10 +76,37 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
   const touchStartX = useRef<number | null>(null);
   // A sponsored placement is dismissed for this discovery session after one pass/swipe.
   const dismissedSponsorAds = useRef(new Set<string>());
+  // Only configured, server-backed campaigns may produce analytics events.
+  // Demo placements deliberately have no campaign ID and are never counted.
+  const recordedImpressionCampaigns = useRef(new Set<string>());
+  const impressionRequests = useRef(new Map<string, Promise<void>>());
+
+  const sendAdEvent = (campaignId: string, eventType: 'impression' | 'click') => {
+    if (!campaignId) return Promise.resolve();
+    return fetch('/api/ads/events', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        eventId: crypto.randomUUID(),
+        campaignId,
+        eventType
+      })
+    }).then(() => undefined).catch(() => {
+      // Analytics must never interrupt discovery or opening the sponsor destination.
+    });
+  };
 
   const currentProfile = profiles[currentIndex];
   const profilePoolSignature = profiles.map(profile => profile.id).join('\u001f');
   const previousPoolSignature = useRef(profilePoolSignature);
+
+  useEffect(() => {
+    const campaignId = currentProfile?.isSponsorAd ? currentProfile.sponsorCampaignId : undefined;
+    if (!campaignId || recordedImpressionCampaigns.current.has(campaignId)) return;
+    recordedImpressionCampaigns.current.add(campaignId);
+    impressionRequests.current.set(campaignId, sendAdEvent(campaignId, 'impression'));
+  }, [currentProfile?.id, currentProfile?.isSponsorAd, currentProfile?.sponsorCampaignId]);
 
   // A filter change can reorder or replace candidates. Clear navigation history
   // for a changed ID sequence, not for ordinary profile-state updates.
@@ -303,6 +330,13 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                     if (!currentProfile.sponsorUrl) return;
                     onAdClicked();
                     window.open(currentProfile.sponsorUrl, '_blank', 'noopener,noreferrer');
+                    const campaignId = currentProfile.sponsorCampaignId;
+                    if (campaignId) {
+                      // Do not block navigation on analytics; ensure the impression request
+                      // is attempted first because the server requires it before a click.
+                      void (impressionRequests.current.get(campaignId) ?? Promise.resolve())
+                        .then(() => sendAdEvent(campaignId, 'click'));
+                    }
                   }}
                   disabled={!currentProfile.sponsorUrl}
                   className="inline-flex min-h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-rose-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
