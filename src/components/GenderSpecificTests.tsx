@@ -284,7 +284,7 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
   };
 
   return (
-    <div className="w-full max-w-md mx-auto text-left">
+    <div className="vow-screen w-full max-w-md mx-auto text-left">
       {/* Active Test Modal / Runner */}
       {activeTest && (
         <div className="fixed inset-0 z-50 bg-stone-950/80 backdrop-blur-xl flex items-center justify-center p-4">
