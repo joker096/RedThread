@@ -276,7 +276,9 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       }
       setProfiles(current => current.filter(item => item.id !== profile.id));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('sendLikeError'));
+      if (actionEpoch === sessionEpoch.current) {
+        setNotice(error instanceof Error ? error.message : t('sendLikeError'));
+      }
     } finally {
       if (actionEpoch === sessionEpoch.current) setBusy(false);
     }
@@ -304,7 +306,9 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       setProfiles(current => current.filter(item => item.id !== profile.id));
       setNotice(t('passedProfileNotice'));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('passError'));
+      if (actionEpoch === sessionEpoch.current) {
+        setNotice(error instanceof Error ? error.message : t('passError'));
+      }
     } finally {
       if (actionEpoch === sessionEpoch.current) setBusy(false);
     }
