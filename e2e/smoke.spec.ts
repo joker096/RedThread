@@ -4,7 +4,6 @@ const lightThemeToggle = /switch to light theme|включить светлую 
 const darkThemeToggle = /switch to dark theme|включить тёмную тему|включить темную тему/i;
 const showDemoChats = /show demo conversations|показать демо-переписки/i;
 const hideDemoChats = /hide demo conversations|скрыть демо-переписки/i;
-const chatsNavigation = /^(?:chats|чаты)(?:\s+\d+)?$/i;
 
 test('theme toggle changes scheme and persists after reload', async ({ page }) => {
   await page.goto('/');
@@ -23,7 +22,7 @@ test('theme toggle changes scheme and persists after reload', async ({ page }) =
 test('demo conversations stay hidden until explicitly opened', async ({ page }) => {
   await page.goto('/');
   // Use a stable test id so the test does not depend on locale-specific labels.
-  const chatsButton = page.getByTestId('nav-chats').first();
+  const chatsButton = page.locator('[data-testid="nav-chats"]:visible').first();
   await expect(chatsButton).toBeVisible();
   await chatsButton.click();
 
