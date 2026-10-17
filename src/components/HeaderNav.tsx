@@ -51,8 +51,8 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   const { t, locale, requestedLocale, setLocale } = useLocale();
   const activeTranslationCoverage = getTranslationCoverage(locale).percentage;
   return (
-    <header className="sticky top-0 z-40 w-full bg-stone-950/80 backdrop-blur-2xl border-b border-white/5 px-2.5 sm:px-4 py-2">
-      <div className="max-w-xl sm:max-w-4xl mx-auto flex items-center justify-between gap-1.5 sm:gap-3">
+    <header className="sticky top-0 z-40 w-full border-b border-white/[0.07] bg-stone-950/90 px-3 py-2 backdrop-blur-2xl supports-[backdrop-filter]:bg-stone-950/75 sm:px-5">
+      <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-2 sm:gap-4">
         {/* NIT brand */}
         <div 
           className="flex items-center gap-1.5 select-none group shrink-0"
@@ -69,7 +69,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
         </div>
 
         {/* Center: Sleek Segmented Navigation (Desktop & Tablet) */}
-        <nav aria-label="Primary navigation" className="hidden sm:flex items-center gap-1 bg-stone-900/90 p-1 rounded-full border border-white/5">
+        <nav aria-label="Primary navigation" className="hidden lg:flex items-center gap-1 rounded-full border border-white/[0.07] bg-stone-900/90 p-1">
           <button
             onClick={() => setActiveTab('discovery')}
             aria-current={activeTab === 'discovery' ? 'page' : undefined}
@@ -135,7 +135,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             aria-label={t('language')}
             title={activeTranslationCoverage < 100 ? `${t('language')} — ${t('partialTranslationHelp')}` : t('language')}
             aria-description={activeTranslationCoverage < 100 ? t('partialTranslationHelp') : undefined}
-            className="max-w-[74px] sm:max-w-[124px] rounded-full border border-white/10 bg-stone-900 px-1.5 py-1.5 text-[10px] sm:text-xs text-stone-200"
+            className="min-h-10 max-w-[88px] rounded-full border border-white/10 bg-stone-900 px-2 py-2 text-xs text-stone-200 sm:max-w-[132px]"
           >
             {LANGUAGE_OPTIONS.map(option => {
               const coverage = option.code === 'auto' ? 100 : getTranslationCoverage(option.code).percentage;
@@ -148,12 +148,12 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           {/* Binary Role Switcher */}
           <button
             onClick={onToggleGender}
-            className={`flex items-center gap-1 px-2 py-1 rounded-full border text-[11px] font-semibold transition-all shrink-0 ${
+            className={`vow-motion-button flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-2 text-[11px] font-semibold transition-all ${
               currentGender === 'female'
                 ? 'bg-rose-950/40 border-rose-500/40 text-rose-200'
                 : 'bg-blue-950/40 border-blue-500/40 text-blue-200'
             }`}
-            title="Сменить анкету: Женщина ♀ (Lady VIP) или Мужчина ♂ (100% Free)"
+            title="Демо-режим: переключить отображаемую анкету" aria-label="Демо-режим: переключить отображаемую анкету"
           >
             <span className={`w-1.5 h-1.5 rounded-full ${currentGender === 'female' ? 'bg-rose-500' : 'bg-blue-400'}`}></span>
             <span>{currentGender === 'female' ? `${t('demoWoman')} ♀` : `${t('demoMan')} ♂`}</span>
@@ -162,27 +162,13 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           {/* Filter button */}
           <button
             onClick={onOpenFilters}
-            className="p-1.5 rounded-full bg-stone-900 border border-white/10 text-stone-300 hover:text-white hover:border-rose-500/40 transition-colors shrink-0"
+            className="vow-motion-button flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-stone-900 text-stone-300 transition-colors hover:border-rose-500/40 hover:text-white"
             title={t('filters')}
             aria-label={t('filters')}
           >
             <SlidersHorizontal className="w-3.5 h-3.5" />
           </button>
 
-          {/* Lady Premium is only offered in the female demo persona. */}
-          {currentGender === 'female' && (
-            <button
-              onClick={onOpenPremiumModal}
-              className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full text-[11px] font-black transition-all shadow-md shrink-0 ${
-                isLadyPremium
-                  ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-stone-950 ring-1 ring-amber-300'
-                  : 'bg-gradient-to-r from-rose-600 to-red-600 text-white hover:brightness-110'
-              }`}
-            >
-              <Crown className="w-3 h-3 fill-current shrink-0" />
-              <span>{isLadyPremium ? 'VIP' : 'Lady VIP'}</span>
-            </button>
-          )}
         </div>
       </div>
     </header>
