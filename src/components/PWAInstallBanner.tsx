@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useLocale } from '../i18n/LocaleProvider';
 import { 
   Smartphone, 
   Download, 
@@ -20,6 +21,7 @@ interface PWAInstallBannerProps {
 }
 
 export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss }) => {
+  const { t } = useLocale();
   const [installed, setInstalled] = useState(() =>
     typeof window !== 'undefined' && window.matchMedia('(display-mode: standalone)').matches
   );
@@ -76,9 +78,9 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
             <Smartphone className="w-3.5 h-3.5" />
           </div>
           <div className="truncate">
-            <span className="font-bold text-white text-[11px] sm:text-xs">Добавьте «НИТЬ» на главный экран</span>
+            <span className="font-bold text-white text-[11px] sm:text-xs">{t('installBannerTitle')}</span>
             <span className="text-stone-400 hidden lg:inline ml-2 text-[11px]">
-              (установка зависит от браузера; push-уведомления пока не подключены)
+              {t('installBannerNote')}
             </span>
           </div>
         </div>
@@ -91,13 +93,13 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
             aria-controls="vow-install-guide"
             className="min-h-8 rounded-lg border border-white/5 bg-stone-900 px-2 py-1 text-[11px] text-rose-300 hover:text-white"
           >
-            {showGuide ? 'Скрыть гид' : 'Как установить'}
+            {showGuide ? t('installGuideHide') : t('installGuideShow')}
           </button>
 
           {installed ? (
             <span className="px-2 py-0.5 rounded text-[11px] bg-emerald-950 text-emerald-300 font-bold border border-emerald-500/30 flex items-center gap-1">
               <Check className="w-3 h-3" />
-              <span>Установлено</span>
+              <span>{t('installInstalled')}</span>
             </span>
           ) : installPrompt ? (
             <button
@@ -106,7 +108,7 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
               className="flex min-h-8 items-center gap-1 rounded-lg bg-rose-600 px-2.5 py-1 text-[11px] font-bold text-white shadow-sm hover:bg-rose-500"
             >
               <Download className="w-3 h-3" />
-              <span>Установить</span>
+              <span>{t('installButton')}</span>
             </button>
           ) : null}
 
@@ -122,7 +124,7 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
               if (onDismiss) onDismiss();
             }}
             className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-stone-500 hover:text-stone-300"
-            aria-label="Закрыть баннер"
+            aria-label={t('installDismiss')}
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -157,9 +159,9 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
 
           <div className="text-[11px] text-stone-300">
             {activeGuide === 'ios' ? (
-              <span>Нажмите «Поделиться» <Share className="w-3 h-3 inline text-blue-400" /> в Safari и выберите <strong>«На экран „Домой“»</strong></span>
+              <span>{t('installIosInstructions').split('{share}')[0]}<Share className="w-3 h-3 inline text-blue-400" />{t('installIosInstructions').split('{share}')[1]}</span>
             ) : (
-              <span>В Chrome нажмите меню ⋮ и выберите <strong>«Установить приложение»</strong></span>
+              <span>{t('installAndroidInstructions')}</span>
             )}
           </div>
         </div>
