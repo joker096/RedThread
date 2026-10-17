@@ -178,7 +178,14 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
                 const data=await response.json().catch(()=>null);
                 if(!response.ok) throw new Error(data?.error==='photo_limit_reached'?t('profilePhotoLimit'):data?.error==='photo_storage_not_configured'?t('profilePhotoStorageError'):data?.error==='photo_rejected_by_automated_review'?t('profilePhotoRejected'):t('profilePhotoUploadError'));
                 if (typeof data?.photoUrl !== 'string' || !(/^https?:\/\//i.test(data.photoUrl.trim()) || /^\/(?!\/)/.test(data.photoUrl.trim()))) throw new Error(t('profilePhotoUploadError'));
-                setPhotoUrls(current=>[...current.split(/\n|,/).map(value=>value.trim()).filter(Boolean),data.photoUrl].join('\n'));
+                setPhotoUrls(current => {
+                  const existing = current.split(/\n|,/).map(value => value.trim()).filter(Boolean);
+                  if (existing.length >= 6) {
+                    setNotice(t('profilePhotoLimit'));
+                    return current;
+                  }
+                  return [...existing, data.photoUrl.trim()].join('\n');
+                });
                 setNotice(data.reviewStatus==='approved'?t('profilePhotoApproved'): t('profilePhotoPending'));
               } catch(error){setNotice(error instanceof Error?error.message:t('profilePhotoUploadError'));}
               finally{setUploadBusy(false);}
