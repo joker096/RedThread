@@ -824,14 +824,14 @@ export default function App() {
             </main>
 
             {/* Bottom navigation dock */}
-            <div role="navigation" aria-label="Основная навигация" className="fixed bottom-[calc(env(safe-area-inset-bottom)+0.5rem)] left-1/2 z-30 flex w-[calc(100%-1rem)] max-w-md -translate-x-1/2 items-stretch justify-around gap-1 rounded-[1.6rem] border border-white/10 bg-stone-950/90 px-2 py-2 shadow-2xl backdrop-blur-2xl lg:hidden">
+            <div role="navigation" aria-label={t('primaryNavigation')} className="fixed bottom-[calc(env(safe-area-inset-bottom)+0.5rem)] left-1/2 z-30 flex w-[calc(100%-1rem)] max-w-md -translate-x-1/2 items-stretch justify-around gap-1 rounded-[1.6rem] border border-white/10 bg-stone-950/90 px-2 py-2 shadow-2xl backdrop-blur-2xl lg:hidden">
               <button
                 onClick={() => setActiveTab('discovery')}
                 aria-current={activeTab === 'discovery' ? 'page' : undefined}
                 className={`vow-motion-button flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 transition-colors ${
                   activeTab === 'discovery' ? 'text-rose-500 font-bold scale-110' : 'text-stone-400 hover:text-white'
                 }`}
-                title="Радар пар"
+                title={t('radar')}
               >
                 <Heart className={`w-5 h-5 ${activeTab === 'discovery' ? 'fill-rose-500' : ''}`} />
                 <span className="text-[10px] leading-tight">{t('radar')}</span>
@@ -843,7 +843,7 @@ export default function App() {
                 className={`vow-motion-button flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 transition-colors ${
                   activeTab === 'tests' ? 'text-rose-500 font-bold scale-110' : 'text-stone-400 hover:text-white'
                 }`}
-                title="Психологические тесты по полу"
+                title={t('tests')}
               >
                 <Brain className="w-5 h-5" />
                 <span className="text-[10px] leading-tight">{t('testsShort')}</span>
@@ -855,7 +855,7 @@ export default function App() {
                 className={`vow-motion-button relative flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 transition-colors ${
                   activeTab === 'chats' ? 'text-rose-500 font-bold scale-110' : 'text-stone-400 hover:text-white'
                 }`}
-                title="Диалоги"
+                title={t('chats')}
               >
                 <MessageCircle className="w-5 h-5" />
                 <span className="text-[10px] leading-tight">{t('chatsShort')}</span>
@@ -870,7 +870,7 @@ export default function App() {
                 className={`vow-motion-button flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 transition-colors ${
                   activeTab === 'safety' ? 'text-rose-500 font-bold scale-110' : 'text-stone-400 hover:text-white'
                 }`}
-                title="Анти-бот и безопасность"
+                title={t('safety')}
               >
                 <ShieldCheck className="w-5 h-5" />
                 <span className="text-[10px] leading-tight">{t('safetyShort')}</span>
@@ -962,7 +962,7 @@ export default function App() {
                 </div>
 
                 {/* Mobile Bottom Dock inside phone */}
-                <div role="navigation" aria-label="Навигация приложения" className="absolute bottom-3 left-3 right-3 z-30 flex items-stretch justify-around gap-1 rounded-[1.4rem] border border-white/10 bg-stone-900/95 px-2 py-2 shadow-2xl backdrop-blur-xl">
+                <div role="navigation" aria-label={t('primaryNavigation')} className="absolute bottom-3 left-3 right-3 z-30 flex items-stretch justify-around gap-1 rounded-[1.4rem] border border-white/10 bg-stone-900/95 px-2 py-2 shadow-2xl backdrop-blur-xl">
                   <button
                     onClick={() => setActiveTab('discovery')}
                 aria-current={activeTab === 'discovery' ? 'page' : undefined}
