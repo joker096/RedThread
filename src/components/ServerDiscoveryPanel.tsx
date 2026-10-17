@@ -70,10 +70,11 @@ const normalizeServerProfile = (value: unknown): ServerProfile | null => {
     financialAlignment: score(profile.financialAlignment),
     compatibilityScore: score(profile.compatibilityScore) ?? undefined,
     photoUrls: Array.isArray(profile.photoUrls)
-      ? profile.photoUrls.filter(isSafeProfilePhotoUrl).slice(0, 12).map(url => url.trim())
+      ? profile.photoUrls.slice(0, 48).filter(isSafeProfilePhotoUrl).slice(0, 12).map(url => url.trim())
       : [],
     languages: Array.isArray(profile.languages)
-      ? profile.languages.filter((language): language is string => typeof language === 'string' && language.trim().length > 0)
+      ? profile.languages.slice(0, 80)
+          .filter((language): language is string => typeof language === 'string' && language.trim().length > 0)
           .slice(0, 20).map(language => language.trim().slice(0, 40))
       : []
   };
