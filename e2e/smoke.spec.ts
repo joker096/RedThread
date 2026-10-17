@@ -21,7 +21,8 @@ test('theme toggle changes scheme and persists after reload', async ({ page }) =
 
 test('real match inbox refreshes when the app window regains focus', async ({ page }) => {
   let matchRequests = 0;
-  await page.route('**/api/matches', async route => {
+  await page.route('**/*', async route => {
+    if (new URL(route.request().url()).pathname !== '/api/matches') return route.continue();
     matchRequests += 1;
     await route.fulfill({
       status: 200,
@@ -44,7 +45,8 @@ test('real match inbox refreshes when the app window regains focus', async ({ pa
 
 test('expired session clears the match inbox instead of leaving stale chats visible', async ({ page }) => {
   let matchRequests = 0;
-  await page.route('**/api/matches', async route => {
+  await page.route('**/*', async route => {
+    if (new URL(route.request().url()).pathname !== '/api/matches') return route.continue();
     matchRequests += 1;
     if (matchRequests === 1) {
       await route.fulfill({
