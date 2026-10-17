@@ -86,23 +86,28 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
 
   const send = async () => {
     const text = draft.trim();
-    if (!text || !selected || busy) return;
+    const matchId = selected;
+    const requestId = messageRequestId.current;
+    if (!text || !matchId || busy) return;
     setBusy(true);
     setNotice('');
     try {
-      const response = await fetch(`/api/matches/${encodeURIComponent(selected)}/messages`, {
+      const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/messages`,
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text })
       });
       const data = await response.json().catch(() => null);
+      if (requestId !== messageRequestId.current) return;
       if (!response.ok) throw new Error(data?.error === 'too_many_messages' ? t('messageRateLimit') : t('sendMessageError'));
       setMessages(current => [...current, data.message]);
       setDraft('');
       void loadMatches();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('sendMessageError'));
+      if (requestId === messageRequestId.current) {
+        setNotice(error instanceof Error ? error.message : t('sendMessageError'));
+      }
     } finally {
       setBusy(false);
     }
@@ -123,7 +128,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       ) : (
         <div className="space-y-3">
           {matches.map(match => (
-            <button type="button" key={match.id} onClick={() => { setMessages([]); setNotice(''); setSelected(match.id); }} className={`vow-motion-button w-full rounded-2xl border p-3 text-left ${selected === match.id ? 'border-sky-400/60 bg-sky-950/30' : 'border-white/10 bg-stone-950/60'}`}>
+            <button type="button" key={match.id} onClick={() => { messageRequestId.current += 1; setMessages([]); setNotice(''); setSelected(match.id); }} className={`vow-motion-button w-full rounded-2xl border p-3 text-left ${selected === match.id ? 'border-sky-400/60 bg-sky-950/30' : 'border-white/10 bg-stone-950/60'}`}>
               <span className="block text-sm font-semibold text-white">{match.displayName}, {match.age}</span>
               <span className="mt-1 block text-xs text-stone-400">{match.city}, {match.country}</span>
               <span className="mt-1 block truncate text-xs text-stone-500">{match.lastMessage || t('matchCreatedMessage')}</span>
