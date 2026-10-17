@@ -90,6 +90,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           </button>
 
           <button
+            data-testid="nav-chats"
             onClick={() => setActiveTab('chats')}
             aria-current={activeTab === 'chats' ? 'page' : undefined}
             className={`relative px-3 py-1 rounded-full text-xs font-bold transition-all ${
