@@ -18,6 +18,8 @@ The browser workflow captures the actual app UI at a 540 × 960 CSS viewport wit
 
 Regenerate it with `node scripts/generate-store-assets.mjs`.
 
+Run `npm run store-assets:validate` to verify required screenshot files, PNG format, screenshot dimensions/alpha channel, the 512 × 512 app icon, and the 1024 × 500 feature graphic. CI runs this validation on every pull request.
+
 ## Google Play checklist
 
 - [ ] Confirm every screenshot matches the final Android release, not just the web prototype.
