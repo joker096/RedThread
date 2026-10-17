@@ -839,7 +839,7 @@ export default function App() {
               <button
                 onClick={() => setActiveTab('tests')}
                 aria-current={activeTab === 'tests' ? 'page' : undefined}
-                className={`flex flex-col items-center gap-0.5 transition-colors ${
+                className={`vow-motion-button flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 transition-colors ${
                   activeTab === 'tests' ? 'text-rose-500 font-bold scale-110' : 'text-stone-400 hover:text-white'
                 }`}
                 title="Психологические тесты по полу"
@@ -866,7 +866,7 @@ export default function App() {
               <button
                 onClick={() => setActiveTab('safety')}
                 aria-current={activeTab === 'safety' ? 'page' : undefined}
-                className={`flex flex-col items-center gap-0.5 transition-colors ${
+                className={`vow-motion-button flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 transition-colors ${
                   activeTab === 'safety' ? 'text-rose-500 font-bold scale-110' : 'text-stone-400 hover:text-white'
                 }`}
                 title="Анти-бот и безопасность"
@@ -878,7 +878,7 @@ export default function App() {
               {currentGender === 'female' && (
                 <button
                   onClick={() => setIsLadyPremiumOpen(true)}
-                  className="flex flex-col items-center gap-0.5 text-amber-400 hover:text-amber-300 font-bold"
+                  className="vow-motion-button flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 text-amber-400 hover:text-amber-300 font-bold"
                   title="Lady VIP — демо-подписка"
                 >
                   <Crown className="w-5 h-5 fill-amber-400/20" />
@@ -975,7 +975,7 @@ export default function App() {
                   <button
                     onClick={() => setActiveTab('tests')}
                 aria-current={activeTab === 'tests' ? 'page' : undefined}
-                    className={`flex flex-col items-center gap-0.5 ${
+                    className={`vow-motion-button flex min-h-10 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 ${
                       activeTab === 'tests' ? 'text-rose-500 font-bold scale-105' : 'text-stone-400'
                     }`}
                   >
@@ -1000,7 +1000,7 @@ export default function App() {
                   <button
                     onClick={() => setActiveTab('safety')}
                 aria-current={activeTab === 'safety' ? 'page' : undefined}
-                    className={`flex flex-col items-center gap-0.5 ${
+                    className={`vow-motion-button flex min-h-10 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 ${
                       activeTab === 'safety' ? 'text-rose-500 font-bold scale-105' : 'text-stone-400'
                     }`}
                   >
@@ -1011,7 +1011,7 @@ export default function App() {
                   {currentGender === 'female' && (
                     <button
                       onClick={() => setIsLadyPremiumOpen(true)}
-                      className="flex flex-col items-center gap-0.5 text-amber-400 font-bold"
+                      className="vow-motion-button flex min-h-10 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 text-amber-400 font-bold"
                     >
                       <Crown className="w-4 h-4" />
                       <span className="text-[8px]">VIP</span>
