@@ -205,8 +205,11 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         return;
       }
       if (!response.ok) throw new Error(t('searchSetupError'));
-      const data = await response.json();
+      const data = await response.json().catch(() => null);
       if (requestId !== searchRequestId.current) return;
+      if (!data || typeof data !== 'object' || Array.isArray(data) || !Array.isArray(data.profiles)) {
+        throw new Error(t('searchSetupError'));
+      }
       const seenProfileIds = new Set<string>();
       const nextProfiles: ServerProfile[] = Array.isArray(data?.profiles)
         ? data.profiles
