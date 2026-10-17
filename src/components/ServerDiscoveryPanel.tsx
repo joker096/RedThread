@@ -56,7 +56,20 @@ const normalizeServerProfile = (value: unknown): ServerProfile | null => {
     country: typeof profile.country === 'string' ? profile.country.trim().slice(0, 100) : '',
     city: typeof profile.city === 'string' ? profile.city.trim().slice(0, 100) : '',
     bio: typeof profile.bio === 'string' ? profile.bio.trim().slice(0, 2000) : '',
+    occupation: typeof profile.occupation === 'string' ? profile.occupation.trim().slice(0, 100) : '',
+    education: typeof profile.education === 'string' ? profile.education.trim().slice(0, 100) : '',
     relationshipIntent: profile.relationshipIntent,
+    familyFormat: profile.familyFormat === 'marriage' || profile.familyFormat === 'cohabitation' || profile.familyFormat === 'open_to_both'
+      ? profile.familyFormat
+      : undefined,
+    hasChildren: typeof profile.hasChildren === 'boolean' || profile.hasChildren === null ? profile.hasChildren : undefined,
+    wantsChildren: profile.wantsChildren === 'yes' || profile.wantsChildren === 'no' ||
+      profile.wantsChildren === 'discuss' || profile.wantsChildren === 'unsure'
+      ? profile.wantsChildren
+      : undefined,
+    childrenLivingArrangement: typeof profile.childrenLivingArrangement === 'string'
+      ? profile.childrenLivingArrangement.trim().slice(0, 200)
+      : '',
     financialAlignment: score(profile.financialAlignment),
     compatibilityScore: score(profile.compatibilityScore) ?? undefined,
     photoUrls: Array.isArray(profile.photoUrls)
