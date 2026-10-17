@@ -118,7 +118,12 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       const photos = [...new Set(photoUrls.split(/\n|,/).map(value => value.trim()).filter(Boolean))]
         .filter(value => /^https?:\/\//i.test(value) || /^\/(?!\/)/.test(value))
         .slice(0, 6);
-      const languageList = [...new Set(languages.split(',').map(value => value.trim()).filter(Boolean))];
+      const languageList = [...new Set(languages.split(',').map(value => value.trim()).filter(Boolean))]
+        .join(', ')
+        .slice(0, 1000)
+        .split(',')
+        .map(value => value.trim())
+        .filter(Boolean);
       const response = await fetch('/api/profiles/me', {
         method: 'PATCH',
         credentials: 'include',
