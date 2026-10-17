@@ -91,7 +91,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const currentUserRequestId = useRef(0);
   const sessionEpoch = useRef(0);
   const sendInFlight = useRef(false);
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const messagesLogRef = useRef<HTMLDivElement | null>(null);
 
   const loadMatches = useCallback(async () => {
     const requestId = ++matchesRequestId.current;
@@ -264,14 +264,14 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
 
   useEffect(() => { if (selected) void loadMessages(selected); }, [selected, loadMessages]);
 
-  // Keep the newest message visible as the conversation loads or changes.
+  // Keep the newest message visible without moving the whole page.
   // Respect the user's reduced-motion preference when scrolling.
   useEffect(() => {
     if (!selected || messagesLoading) return;
-    const end = messagesEndRef.current;
-    if (!end) return;
+    const log = messagesLogRef.current;
+    if (!log) return;
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    end.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'end' });
+    log.scrollTo({ top: log.scrollHeight, behavior: reduceMotion ? 'auto' : 'smooth' });
   }, [selected, messages, messagesLoading]);
 
   const send = async () => {
@@ -367,7 +367,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
           {notice && !matchesFailed && (matches.length > 0 || selected) && <p role="status" aria-live="polite" aria-atomic="true" className="text-xs text-stone-300">{notice}</p>}
           {selected && (
             <div data-testid="real-match-chat" className="rounded-2xl border border-white/10 bg-stone-950/55 p-3.5 shadow-inner sm:p-4">
-              <div data-testid="server-match-messages" role="log" aria-live="polite" aria-label={t('serverChats')} aria-busy={messagesLoading} className="mb-4 max-h-72 space-y-2.5 overflow-y-auto overscroll-contain rounded-xl bg-black/10 p-1">
+              <div ref={messagesLogRef} data-testid="server-match-messages" role="log" aria-live="polite" aria-label={t('serverChats')} aria-busy={messagesLoading} className="mb-4 max-h-72 space-y-2.5 overflow-y-auto overscroll-contain rounded-xl bg-black/10 p-1">
                 {messagesLoading && <p role="status" className="px-2 py-3 text-xs text-stone-400">{t('loading')}</p>}
                 {messagesFailed && <div role="alert" className="rounded-xl border border-rose-500/20 bg-rose-950/20 p-3"><p className="text-xs text-stone-200">{notice || t('loadMessagesError')}</p><button type="button" onClick={() => void loadMessages(selected)} className="mt-2 min-h-10 rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300">{t('retry')}</button></div>}
                 {messages.map(message => (
@@ -377,7 +377,6 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                   </div>
                 ))}
                 {!messagesLoading && !messagesFailed && !messages.length && <p className="px-2 py-3 text-xs text-stone-500">{t('noMessagesYet')}</p>}
-                <div ref={messagesEndRef} aria-hidden="true" />
               </div>
               <textarea aria-label={t('writeMessage')} value={draft} onChange={e => setDrafts(current => ({ ...current, [selected]: e.target.value }))} onKeyDown={e => { if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229 || busy || !draft.trim()) return; e.preventDefault(); void send(); }} disabled={busy} maxLength={4000} rows={2} placeholder={t('writeMessage')} className="w-full resize-y rounded-xl border border-white/10 bg-stone-900/90 p-3.5 text-sm text-white outline-none transition placeholder:text-stone-500 focus:border-rose-400/60 focus:ring-2 focus:ring-rose-400/15 disabled:cursor-not-allowed disabled:opacity-60" />
               <button data-testid="server-match-send" type="button" onClick={() => void send()} disabled={busy || !draft.trim()} className="vow-motion-button mt-2 min-h-12 w-full rounded-xl bg-gradient-to-r from-rose-600 to-rose-700 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-rose-950/25 transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300 disabled:cursor-not-allowed disabled:opacity-40">{busy ? t('sendingMessage') : t('sendMessage')}</button>
