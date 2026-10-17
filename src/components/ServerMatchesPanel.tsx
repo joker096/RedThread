@@ -66,11 +66,14 @@ const normalizeUserId = (value: unknown): string | null => {
 
 const deduplicateById = <T extends { id: string }>(items: T[]): T[] => {
   const seen = new Set<string>();
-  return items.filter(item => {
-    if (seen.has(item.id)) return false;
+  const unique: T[] = [];
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (seen.has(item.id)) continue;
     seen.add(item.id);
-    return true;
-  });
+    unique.push(item);
+  }
+  return unique.reverse();
 };
 
 export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
