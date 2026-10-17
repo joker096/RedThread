@@ -57,6 +57,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const lastSearchKey = useRef<string | null>(null);
   const searchRequestId = useRef(0);
   const searchAbortController = useRef<AbortController | null>(null);
+  const sessionEpoch = useRef(0);
 
   useEffect(() => {
     if (!matchedProfile) return;
@@ -170,6 +171,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
 
   useEffect(() => {
     const refreshOnSession = () => {
+      sessionEpoch.current += 1;
       searchRequestId.current += 1;
       lastSearchKey.current = null;
       setAuthenticated(null);
@@ -190,6 +192,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
 
   const like = async (profile: ServerProfile) => {
     if (busy || likedIds.includes(profile.id)) return;
+    const actionEpoch = sessionEpoch.current;
     setBusy(true);
     try {
       const response = await fetch(`/api/likes/${encodeURIComponent(profile.id)}`, {
@@ -199,6 +202,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         body: JSON.stringify({})
       });
       const data = await response.json().catch(() => null);
+      if (actionEpoch !== sessionEpoch.current) return;
       if (response.status === 401) {
         setAuthenticated(false);
         setNotice(t('signInToLike'));
@@ -219,12 +223,13 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
     } catch (error) {
       setNotice(error instanceof Error ? error.message : t('sendLikeError'));
     } finally {
-      setBusy(false);
+      if (actionEpoch === sessionEpoch.current) setBusy(false);
     }
   };
 
   const pass = async (profile: ServerProfile) => {
     if (busy) return;
+    const actionEpoch = sessionEpoch.current;
     setBusy(true);
     try {
       const response = await fetch(`/api/passes/${encodeURIComponent(profile.id)}`, {
@@ -232,6 +237,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({})
       });
       const data = await response.json().catch(() => null);
+      if (actionEpoch !== sessionEpoch.current) return;
       if (response.status === 401) {
         setAuthenticated(false);
         setNotice(t('signInToPass'));
@@ -245,7 +251,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
     } catch (error) {
       setNotice(error instanceof Error ? error.message : t('passError'));
     } finally {
-      setBusy(false);
+      if (actionEpoch === sessionEpoch.current) setBusy(false);
     }
   };
 
