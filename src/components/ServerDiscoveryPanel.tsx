@@ -368,6 +368,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       if (!restoredProfile || (data.type !== 'like' && data.type !== 'pass')) {
         throw new Error(t('undoActionError'));
       }
+      if (actionEpoch !== sessionEpoch.current) return;
       setProfiles(current => [restoredProfile, ...current.filter(item => item.id !== restoredProfile.id)]);
       if (data.type === 'like') setLikedIds(current => current.filter(id => id !== restoredProfile.id));
       if (lastAction) setActionHistory(current => current.slice(0, -1));
