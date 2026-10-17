@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    branches: [main, "test/**"]
 
 concurrency:
   group: browser-e2e-${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -23,3 +23,19 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run build
       - run: npm run test:e2e
+      - name: Upload Play Store screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vow-google-play-phone-screenshots
+          path: store-assets/google-play/phone/*.png
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload Playwright failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vow-playwright-failure-evidence
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 14
