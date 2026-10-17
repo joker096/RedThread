@@ -80,6 +80,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const [notice, setNotice] = useState('');
   const messageRequestId = useRef(0);
   const matchesRequestId = useRef(0);
+  const currentUserRequestId = useRef(0);
 
   const loadMatches = useCallback(async () => {
     const requestId = ++matchesRequestId.current;
@@ -198,12 +199,56 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   }, [loadMatches]);
   useEffect(() => {
     let cancelled = false;
+    const requestId = ++currentUserRequestId.current;
     void fetch('/api/auth/me', { credentials: 'include' })
       .then(response => response.ok ? response.json() : null)
-      .then(data => { if (!cancelled) setCurrentUserId(data?.user?.id ?? null); })
-      .catch(() => { if (!cancelled) setCurrentUserId(null); });
+      .then(data => {
+        if (!cancelled && requestId === currentUserRequestId.current) {
+          setCurrentUserId(typeof data?.user?.id === 'string' ? data.user.id : null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled && requestId === currentUserRequestId.current) setCurrentUserId(null);
+      });
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    const refreshOnSessionChange = () => {
+      // Clear account-specific inbox state before loading data for the new session.
+      messageRequestId.current += 1;
+      matchesRequestId.current += 1;
+      currentUserRequestId.current += 1;
+      setMatches([]);
+      setSelected('');
+      setMessages([]);
+      setDrafts({});
+      setNotice('');
+      setAuthenticated(null);
+      setCurrentUserId(null);
+      setMatchesLoading(true);
+      setMessagesLoading(false);
+      setMatchesFailed(false);
+      setMessagesFailed(false);
+      setBusy(false);
+
+      const userRequestId = currentUserRequestId.current;
+      void fetch('/api/auth/me', { credentials: 'include' })
+        .then(response => response.ok ? response.json() : null)
+        .then(data => {
+          if (userRequestId === currentUserRequestId.current) {
+            setCurrentUserId(typeof data?.user?.id === 'string' ? data.user.id : null);
+          }
+        })
+        .catch(() => {
+          if (userRequestId === currentUserRequestId.current) setCurrentUserId(null);
+        });
+      void loadMatches();
+    };
+    window.addEventListener('vow:session-changed', refreshOnSessionChange);
+    return () => window.removeEventListener('vow:session-changed', refreshOnSessionChange);
+  }, [loadMatches]);
+
   useEffect(() => { if (selected) void loadMessages(selected); }, [selected, loadMessages]);
 
   const send = async () => {
