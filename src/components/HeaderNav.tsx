@@ -50,7 +50,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
         {/* NIT brand */}
         <div 
           className="flex items-center gap-1.5 select-none group shrink-0"
-          title="Vow — serious relationships"
+          title={t('brandTagline')}
         >
           <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-tr from-rose-600 via-red-600 to-amber-500 flex items-center justify-center text-white shadow-md shadow-rose-950/60 group-hover:scale-105 transition-transform">
             <Flame className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-white" />
@@ -65,6 +65,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
         {/* Center: Sleek Segmented Navigation (Desktop & Tablet) */}
         <nav aria-label={t('primaryNavigation')} className="hidden items-center gap-1 rounded-full border border-white/[0.07] bg-stone-900/90 p-1 lg:flex">
           <button
+            type="button"
             onClick={() => setActiveTab('discovery')}
             aria-current={activeTab === 'discovery' ? 'page' : undefined}
             className={`min-h-10 px-3 py-2 rounded-full text-xs font-bold transition-all ${
@@ -77,6 +78,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           </button>
 
           <button
+            type="button"
             data-testid="nav-tests"
             onClick={() => setActiveTab('tests')}
             aria-current={activeTab === 'tests' ? 'page' : undefined}
@@ -91,6 +93,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           </button>
 
           <button
+            type="button"
             data-testid="nav-chats"
             onClick={() => setActiveTab('chats')}
             aria-current={activeTab === 'chats' ? 'page' : undefined}
@@ -102,13 +105,14 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           >
             <span>{t('chats')}</span>
             {unreadChatsCount > 0 && (
-              <span aria-label={`${unreadChatsCount}`} className="ms-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-amber-400 px-1.5 text-[9px] font-black leading-none text-stone-950">
+              <span aria-label={`${unreadChatsCount} ${t('unreadChats')}`} className="ms-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-amber-400 px-1.5 text-[9px] font-black leading-none text-stone-950">
                 {unreadChatsCount}
               </span>
             )}
           </button>
 
           <button
+            type="button"
             onClick={() => setActiveTab('safety')}
             aria-current={activeTab === 'safety' ? 'page' : undefined}
             className={`min-h-10 px-3 py-2 rounded-full text-xs font-bold transition-all ${
@@ -152,6 +156,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           </select>
           {/* Binary Role Switcher */}
           <button
+            type="button"
             onClick={onToggleGender}
             className={`vow-motion-button flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-2 text-[11px] font-semibold transition-all ${
               currentGender === 'female'
@@ -166,6 +171,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
 
           {/* Demo filters only: registered-account discovery has its own connected filters. */}
           {showFilters && <button
+            type="button"
             data-testid="open-filters"
             onClick={onOpenFilters}
             className="vow-motion-button flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-stone-900 text-stone-300 transition-colors hover:border-rose-500/40 hover:text-white"
@@ -184,10 +190,10 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                   ? 'bg-amber-400 text-stone-950'
                   : 'border border-rose-500/30 bg-rose-950/50 text-rose-100 hover:bg-rose-900/60'
               }`}
-              aria-label={isLadyPremium ? 'VIP' : 'Lady VIP'}
+              aria-label={isLadyPremium ? t('vipLabel') : t('ladyVipLabel')}
             >
               <Crown className="h-3.5 w-3.5" />
-              <span>{isLadyPremium ? 'VIP' : 'Lady VIP'}</span>
+              <span>{isLadyPremium ? t('vipLabel') : t('ladyVipLabel')}</span>
             </button>
           )}
 
