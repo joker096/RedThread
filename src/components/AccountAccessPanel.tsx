@@ -47,7 +47,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       .then(async data => {
         if (!cancelled && data?.user) {
           if (data?.verificationRequired) {
-            setMessage('Аккаунт создан. Проверьте почту и перейдите по ссылке для подтверждения email.');
+            setMessage(t('authAccountCreatedVerification'));
             setPassword('');
             return;
           }
@@ -100,21 +100,21 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       const data = response.status === 204 ? null : await response.json().catch(() => null);
       if (!response.ok) {
         const errors: Record<string, string> = {
-          invalid_email: 'Укажите корректный email.',
-          password_must_be_12_to_128_characters: 'Пароль должен содержать от 12 до 128 символов.',
-          must_be_18_or_older_with_valid_birth_date: 'Регистрация доступна только совершеннолетним (18+).',
-          email_already_registered: 'Этот email уже зарегистрирован. Войдите в аккаунт.',
-          email_or_password_incorrect: 'Неверный email или пароль.',
-          email_verification_required: 'Сначала подтвердите адрес электронной почты. Можно отправить письмо повторно.',
-          email_delivery_not_configured: 'Отправка писем не настроена на сервере.',
-          verification_email_delivery_failed: 'Аккаунт создан, но письмо не доставлено. Запросите повторную отправку письма.',
+          invalid_email: t('authInvalidEmail'),
+          password_must_be_12_to_128_characters: t('authPasswordLengthError'),
+          must_be_18_or_older_with_valid_birth_date: t('authAdultRequired'),
+          email_already_registered: t('authEmailTaken'),
+          email_or_password_incorrect: t('authCredentialsInvalid'),
+          email_verification_required: t('authVerifyEmailFirst'),
+          email_delivery_not_configured: t('authEmailNotConfigured'),
+          verification_email_delivery_failed: t('authVerificationDeliveryFailed'),
           valid_country_and_city_required: 'Укажите страну и город.',
           invalid_gender: 'Выберите пол.',
           children_status_required: 'Обязательно укажите, есть ли у вас дети.',
           invalid_family_format: 'Выберите подходящий формат семьи.'
         };
         if (data?.error === 'email_verification_required' || data?.error === 'verification_email_delivery_failed') setCanResendVerification(true);
-        throw new Error(errors[data?.error] || 'Не удалось выполнить запрос. Проверьте данные и доступность API.');
+        throw new Error(errors[data?.error] || t('authRequestFailed'));
       }
       setUser(data.user);
       const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
@@ -123,7 +123,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       setPassword('');
       onAuthenticated();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Не удалось связаться с сервером.');
+      setMessage(error instanceof Error ? error.message : t('authConnectionFailed'));
     } finally {
       setBusy(false);
     }
@@ -139,7 +139,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       setMessage(data?.message || 'Если аккаунту требуется подтверждение, письмо будет отправлено.');
       setCanResendVerification(false);
     } catch {
-      setMessage('Не удалось запросить письмо. Попробуйте позже.');
+      setMessage(t('authResendFailed'));
     } finally { setBusy(false); }
   };
 
@@ -152,13 +152,13 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       const data = await response.json().catch(() => null);
       setMessage(data?.message || 'Если аккаунт существует, инструкции будут отправлены на email.');
     } catch {
-      setMessage('Не удалось запросить восстановление. Попробуйте позже.');
+      setMessage(t('authResetRequestFailed'));
     } finally { setBusy(false); }
   };
 
   const completePasswordReset = async () => {
     if (resetPassword.length < 12) {
-      setMessage('Новый пароль должен содержать не менее 12 символов.');
+      setMessage(t('authPasswordResetMinimum'));
       return;
     }
     setBusy(true);
@@ -168,24 +168,24 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         body: JSON.stringify({ token: resetToken, password: resetPassword })
       });
       const data = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(data?.error === 'invalid_or_expired_token' ? 'Ссылка недействительна или срок её действия истёк.' : 'Не удалось изменить пароль.');
+      if (!response.ok) throw new Error(data?.error === 'invalid_or_expired_token' ? t('authResetLinkInvalid') : t('authPasswordChangeFailed'));
       setShowReset(false);
       setResetToken('');
       setResetPassword('');
       setMode('login');
       setMessage(data?.message || 'Пароль изменён. Войдите с новым паролем.');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Не удалось изменить пароль.');
+      setMessage(error instanceof Error ? error.message : t('authPasswordChangeFailed'));
     } finally { setBusy(false); }
   };
 
   const deleteAccount = async () => {
     if (!showDeleteAccount || !deletePassword) {
       setShowDeleteAccount(true);
-      setDeleteNotice('Для подтверждения введите текущий пароль.');
+      setDeleteNotice(t('authDeletePasswordRequired'));
       return;
     }
-    const confirmed = window.confirm('Удалить аккаунт? Анкета станет невидимой, данные профиля будут обезличены, а действие нельзя будет отменить.');
+    const confirmed = window.confirm(t('authDeleteConfirm'));
     if (!confirmed) return;
     setBusy(true);
     setDeleteNotice('');
@@ -199,17 +199,17 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       const data = await response.json().catch(() => null);
       if (!response.ok) {
         const errors: Record<string, string> = {
-          password_confirmation_required: 'Введите текущий пароль.',
-          password_confirmation_failed: 'Пароль не подошёл. Аккаунт не удалён.'
+          password_confirmation_required: t('authDeletePasswordRequired'),
+          password_confirmation_failed: t('authDeletePasswordIncorrect')
         };
-        throw new Error(errors[data?.error] || 'Не удалось удалить аккаунт.');
+        throw new Error(errors[data?.error] || t('authDeleteFailed'));
       }
       setUser(null);
       window.dispatchEvent(new Event('vow:session-changed'));
       setBillingStatus(null);
       setDeletePassword('');
       setShowDeleteAccount(false);
-      setDeleteNotice('Аккаунт удалён, персональные поля обезличены.');
+      setDeleteNotice(t('authDeleteSuccess'));
       onAuthenticated();
     } catch (error) {
       setDeleteNotice(error instanceof Error ? error.message : 'Ошибка удаления аккаунта.');
@@ -222,14 +222,14 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
     setBusy(true);
     try {
       const response = await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-      if (!response.ok) throw new Error('Не удалось завершить сессию.');
+      if (!response.ok) throw new Error(t('authLogoutFailed'));
       setUser(null);
       window.dispatchEvent(new Event('vow:session-changed'));
       setBillingStatus(null);
-      setMessage('Вы вышли из аккаунта.');
+      setMessage(t('authLogoutSuccess'));
       onAuthenticated();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Не удалось выйти.');
+      setMessage(error instanceof Error ? error.message : t('authLogoutFailed'));
     } finally {
       setBusy(false);
     }
@@ -248,15 +248,15 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
             <p className="mt-1 text-xs text-stone-400">{user.email} · {user.city}, {user.country}</p>
           </div>
           {billingStatus && user.gender === 'female' && <div className={`rounded-xl border p-3 ${billingStatus.access === 'full' ? 'border-emerald-500/20 bg-emerald-950/20' : 'border-amber-500/20 bg-amber-950/20'}`}>
-            <p className="text-sm font-semibold text-white">{billingStatus.access === 'full' ? 'Полный доступ активен' : 'Пробный период завершён'}</p>
-            <p className="mt-1 text-xs leading-relaxed text-stone-300">{billingStatus.trialEndsAt && billingStatus.access === 'full' ? `Бесплатный доступ до ${formatDate(billingStatus.trialEndsAt, { dateStyle: 'medium', timeStyle: 'short' })}.` : billingStatus.access !== 'full' ? 'Для платных функций понадобится Premium. Платёжный провайдер ещё не подключён, поэтому списаний сейчас нет.' : 'Подписка активна.'}</p>
+            <p className="text-sm font-semibold text-white">{billingStatus.access === 'full' ? t('authBillingFullAccess') : t('authBillingTrialEnded')}</p>
+            <p className="mt-1 text-xs leading-relaxed text-stone-300">{billingStatus.trialEndsAt && billingStatus.access === 'full' ? t('authBillingFreeUntil').replace('{date}', formatDate(billingStatus.trialEndsAt, { dateStyle: 'medium', timeStyle: 'short' })) : billingStatus.access !== 'full' ? t('authBillingPremiumNotConfigured') : t('authBillingActive')}</p>
           </div>}
           <button type="button" onClick={() => void logout()} disabled={busy} className="rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-stone-200 disabled:opacity-50">{t('logout')}</button>
           <div className="rounded-xl border border-red-500/20 bg-red-950/20 p-3">
             <p className="text-sm font-semibold text-red-200">{t('deleteAccount')}</p>
             <p className="mt-1 text-xs leading-relaxed text-stone-400">{t('deleteAccountDetails')}</p>
             {showDeleteAccount && <label className="mt-3 block text-xs text-stone-300">{t('currentPassword')}<input type="password" value={deletePassword} onChange={e => setDeletePassword(e.target.value)} autoComplete="current-password" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>}
-            <button type="button" onClick={() => { if (!showDeleteAccount) { setShowDeleteAccount(true); setDeleteNotice('Введите пароль, затем нажмите ещё раз для подтверждения удаления.'); } else { void deleteAccount(); } }} disabled={busy || (showDeleteAccount && !deletePassword)} className="mt-3 w-full rounded-xl border border-red-500/30 px-4 py-2.5 text-xs font-semibold text-red-200 disabled:opacity-50">{busy ? t('processing') : showDeleteAccount ? t('confirmDelete') : t('deleteAccount')}</button>
+            <button type="button" onClick={() => { if (!showDeleteAccount) { setShowDeleteAccount(true); setDeleteNotice(t('authDeleteButtonPrompt')); } else { void deleteAccount(); } }} disabled={busy || (showDeleteAccount && !deletePassword)} className="mt-3 w-full rounded-xl border border-red-500/30 px-4 py-2.5 text-xs font-semibold text-red-200 disabled:opacity-50">{busy ? t('processing') : showDeleteAccount ? t('confirmDelete') : t('deleteAccount')}</button>
             {deleteNotice && <p role="status" className="mt-2 text-xs text-stone-300">{deleteNotice}</p>}
           </div>
         </div>
@@ -264,7 +264,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         <div className="space-y-3">
           <p className="text-sm text-stone-300">{t('resetPasswordDetails')}</p>
           <label className="block text-xs text-stone-300">{t('newPassword')}<input type="password" value={resetPassword} onChange={event => setResetPassword(event.target.value)} minLength={12} maxLength={128} autoComplete="new-password" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
-          <button type="button" onClick={() => void completePasswordReset()} disabled={busy || resetPassword.length < 12} className="w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-40">{busy ? 'Обрабатываем…' : 'Изменить пароль'}</button>
+          <button type="button" onClick={() => void completePasswordReset()} disabled={busy || resetPassword.length < 12} className="w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-40">{busy ? t('authResetBusy') : t('changePassword')}</button>
         </div>
       ) : (
         <>
@@ -284,14 +284,14 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
               <label className="block text-xs text-stone-300">{t('relationshipIntentLabel')}<select value={relationshipIntent} onChange={e => setRelationshipIntent(e.target.value as typeof relationshipIntent)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="marriage_family">{t('marriageFamilyOption')}</option><option value="family_without_marriage">{t('familyWithoutMarriageOption')}</option><option value="serious_relationship">{t('seriousRelationshipOption')}</option></select></label>
               <label className="block text-xs text-stone-300">{t('familyFormatLabel')}<select value={familyFormat} onChange={e => setFamilyFormat(e.target.value as typeof familyFormat)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="open_to_both">{t('openToMarriageAndLiving')}</option><option value="marriage">{t('officialMarriageOnly')}</option><option value="cohabitation">{t('livingTogetherOnly')}</option></select></label>
               <fieldset className="rounded-xl border border-white/10 bg-stone-950 p-3">
-                <legend className="px-1 text-xs font-semibold text-white">{t('hasChildrenQuestion')} Обязательный вопрос</legend>
+                <legend className="px-1 text-xs font-semibold text-white">{t('hasChildrenQuestion')} {t('authChildrenRequired')}</legend>
                 <p className="mb-2 text-[10px] leading-relaxed text-stone-400">Укажите правду. Информация важна для осознанного выбора обоих партнёров.</p>
                 <div className="grid grid-cols-2 gap-2">
                   <button type="button" onClick={() => {setHasChildren(true);setChildrenLivingArrangement('prefer_to_discuss');}} className={`rounded-lg border p-2 text-xs ${hasChildren === true ? 'border-rose-500 bg-rose-950 text-white' : 'border-white/10 text-stone-300'}`}>{t('yesChildren')}</button>
                   <button type="button" onClick={() => {setHasChildren(false);setChildrenLivingArrangement('not_applicable');}} className={`rounded-lg border p-2 text-xs ${hasChildren === false ? 'border-rose-500 bg-rose-950 text-white' : 'border-white/10 text-stone-300'}`}>{t('noChildrenAnswer')}</button>
                 </div>
-                {hasChildren === true && <label className="mt-3 block text-xs text-stone-300">Как организовано проживание детей<select value={childrenLivingArrangement} onChange={e => setChildrenLivingArrangement(e.target.value as typeof childrenLivingArrangement)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="with_me">Дети живут со мной</option><option value="shared_custody">Совместная опека / проживают по очереди</option><option value="with_other_parent">Дети живут с другим родителем</option><option value="prefer_to_discuss">Предпочитаю обсудить лично</option></select></label>}
-                <label className="mt-3 block text-xs text-stone-300">Хотите ли вы детей в будущем?<select value={wantsChildren} onChange={e => setWantsChildren(e.target.value as typeof wantsChildren)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="yes">Да</option><option value="no">Нет</option><option value="discuss">Готов(а) обсуждать с партнёром</option><option value="unsure">Пока не уверен(а)</option></select></label>
+                {hasChildren === true && <label className="mt-3 block text-xs text-stone-300">{t('authChildrenLivingPrompt')}<select value={childrenLivingArrangement} onChange={e => setChildrenLivingArrangement(e.target.value as typeof childrenLivingArrangement)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="with_me">{t('authChildrenWithMe')}</option><option value="shared_custody">{t('authChildrenSharedCustody')}</option><option value="with_other_parent">{t('authChildrenWithOtherParent')}</option><option value="prefer_to_discuss">{t('authChildrenPreferDiscuss')}</option></select></label>}
+                <label className="mt-3 block text-xs text-stone-300">{t('authChildrenFuturePrompt')}<select value={wantsChildren} onChange={e => setWantsChildren(e.target.value as typeof wantsChildren)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="yes">Да</option><option value="no">Нет</option><option value="discuss">{t('authChildrenDiscuss')}</option><option value="unsure">{t('authChildrenUnsure')}</option></select></label>
               </fieldset>
             </>}
             <label className="block text-xs text-stone-300">{t('email')}<input type="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
