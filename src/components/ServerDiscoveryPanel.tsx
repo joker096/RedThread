@@ -218,7 +218,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       const nextProfiles: ServerProfile[] = data.profiles
         .slice(0, 50)
         .map(normalizeServerProfile)
-        .filter((profile): profile is ServerProfile => {
+        .filter((profile: ServerProfile): profile is ServerProfile => {
           if (!profile || seenProfileIds.has(profile.id)) return false;
           seenProfileIds.add(profile.id);
           return true;
@@ -514,7 +514,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
           seenBlockedIds.add(id);
           return true;
         })
-        .map(item => ({ id: item.id.trim(), displayName: item.displayName.trim() }));
+        .map((item: { id: string; displayName: string }) => ({ id: item.id.trim(), displayName: item.displayName.trim() }));
       setBlockedProfiles(nextProfiles);
       setBlockedIds(nextProfiles.map(item => item.id));
       setBlockedProfilesOpen(true);
