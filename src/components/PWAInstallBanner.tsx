@@ -70,7 +70,7 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
 
   return (
     <div className="vow-install-banner w-full bg-gradient-to-r from-stone-950 via-rose-950/40 to-stone-950 border-b border-rose-900/30 px-3 py-1.5 text-left">
-      <div className="max-w-6xl mx-auto flex items-center justify-between gap-2 text-xs">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 text-xs">
         <div className="flex items-center gap-2 min-w-0">
           <div className="w-6 h-6 rounded-lg bg-rose-600 flex items-center justify-center text-white shrink-0 shadow-sm">
             <Smartphone className="w-3.5 h-3.5" />
@@ -83,10 +83,10 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
           <button
             onClick={() => setShowGuide(!showGuide)}
-            className="text-[11px] text-rose-300 hover:text-white px-2 py-0.5 rounded bg-stone-900 border border-white/5"
+            className="min-h-8 rounded-lg border border-white/5 bg-stone-900 px-2 py-1 text-[11px] text-rose-300 hover:text-white"
           >
             {showGuide ? 'Скрыть гид' : 'Как установить'}
           </button>
