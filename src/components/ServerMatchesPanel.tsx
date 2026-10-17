@@ -102,6 +102,19 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   }, [t]);
 
   useEffect(() => { void loadMatches(); }, [loadMatches]);
+  // Refresh the inbox when the user returns to the app so new mutual matches appear
+  // without requiring a manual refresh or a full page reload.
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void loadMatches();
+    };
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [loadMatches]);
   useEffect(() => {
     let cancelled = false;
     void fetch('/api/auth/me', { credentials: 'include' })
