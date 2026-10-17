@@ -104,6 +104,9 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
     setShowInviteModal(false);
     setShowDirectContactUnlocked(false);
     setShowPartnerServices(false);
+    setSelectedPlace('Уютная кофейня в центре');
+    setSelectedDay('Завтра');
+    setSelectedTime('19:00');
   }, [activeThreadId]);
 
   const activeThread = threads.find(t => t.id === activeThreadId) || threads[0];
