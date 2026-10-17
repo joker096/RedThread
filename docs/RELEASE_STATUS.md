@@ -9,6 +9,7 @@ This page is the single source of truth for implementation status. A merged PR o
 ## Verified in repository / CI
 
 - [x] Server-backed registration, login, session lookup and logout have integration coverage.
+- [x] The matches endpoint rejects a request made with the old session cookie after logout; added in [PR #25](https://github.com/joker096/RedThread/pull/25), with passing PR CI [run 39013345447](https://github.com/joker096/RedThread/actions/runs/39013345447).
 - [x] Like, reciprocal like, match creation, pass and undo flows have integration coverage.
 - [x] Block/report flows have integration coverage; blocking removes mutual likes and blocks access to the affected conversation.
 - [x] Like creation rejects targets blocked by either participant; the endpoint checks both directions of the block relationship.
