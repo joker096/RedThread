@@ -356,7 +356,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
 
       {/* Date Invite Modal */}
       {showInviteModal && (
-        <div className="vow-modal-backdrop fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-stone-950/80 p-2 backdrop-blur-sm sm:items-center sm:p-4">
+        <div className="vow-modal-backdrop fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-stone-950/80 p-2 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={event => { if (event.target === event.currentTarget) setShowInviteModal(false); }}>
           <div role="dialog" aria-modal="true" aria-labelledby="date-invite-title" className="my-auto max-h-[calc(100dvh-1rem)] w-full max-w-sm overflow-y-auto overscroll-contain rounded-3xl border border-rose-900/50 bg-stone-900 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] text-start shadow-2xl sm:p-5">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
