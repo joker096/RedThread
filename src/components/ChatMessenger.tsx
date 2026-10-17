@@ -126,7 +126,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
     setSendErrors(current => ({ ...current, [thread.id]: '' }));
     try {
       await onSendMessage(thread.id, messageText);
-      setDrafts(current => current[thread.id] === messageText
+      setDrafts(current => (current[thread.id] ?? '').trim().slice(0, 10000) === messageText
         ? { ...current, [thread.id]: '' }
         : current);
     } catch {
