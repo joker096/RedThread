@@ -394,7 +394,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
         </div>
 
         {/* Input Bar */}
-        <form onSubmit={handleSend} className="flex items-center gap-1.5 border-t border-white/5 bg-stone-950/70 p-2 sm:gap-2 sm:p-3">
+        <form onSubmit={handleSend} className="flex flex-wrap items-center gap-1.5 border-t border-white/5 bg-stone-950/70 p-2 sm:flex-nowrap sm:gap-2 sm:p-3">
           <button
             type="button"
             onClick={() => setShowInviteModal(true)}
@@ -421,7 +421,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             className="min-w-0 flex-1 rounded-xl border border-white/10 bg-stone-900 px-3 py-3 text-xs text-white placeholder-stone-500 focus:border-rose-500/60 focus:outline-none sm:px-4 sm:text-sm"
           />
 
-          {sendErrors[activeThread.id] && <p role="alert" className="max-w-36 text-xs text-rose-300">{sendErrors[activeThread.id]}</p>}
+          {sendErrors[activeThread.id] && <p role="alert" className="order-last basis-full px-1 text-xs text-rose-300 sm:order-none sm:basis-auto sm:max-w-36">{sendErrors[activeThread.id]}</p>}
           <button
             type="submit"
             disabled={!inputText.trim() || sendingThreadIds.has(activeThread.id)}
