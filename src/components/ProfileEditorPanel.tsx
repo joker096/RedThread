@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 
 type Profile = {
@@ -40,13 +40,17 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const [uploadBusy, setUploadBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [blockedProfiles, setBlockedProfiles] = useState<BlockedProfile[]>([]);
+  const profileLoadRequestId = useRef(0);
 
   const load = async () => {
+    const requestId = ++profileLoadRequestId.current;
     try {
       const response = await fetch('/api/profiles/me', { credentials: 'include' });
+      if (requestId !== profileLoadRequestId.current) return;
       if (response.status === 401) { setAuthenticated(false); return; }
       if (!response.ok) throw new Error(t('profileLoadError'));
       const data = await response.json();
+      if (requestId !== profileLoadRequestId.current) return;
       const rawProfile = data?.profile;
       if (!rawProfile || typeof rawProfile !== 'object' || Array.isArray(rawProfile) ||
           typeof rawProfile.id !== 'string' || !rawProfile.id.trim() ||
@@ -99,8 +103,10 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       setIsVisible(p.isVisible);
       setAuthenticated(true);
       const blocksResponse = await fetch('/api/blocks', { credentials: 'include' });
+      if (requestId !== profileLoadRequestId.current) return;
       if (blocksResponse.ok) {
         const blockData = await blocksResponse.json();
+        if (requestId !== profileLoadRequestId.current) return;
         const safeBlocks = Array.isArray(blockData?.blocks)
           ? blockData.blocks.filter((block: unknown): block is BlockedProfile => {
               if (!block || typeof block !== 'object' || Array.isArray(block)) return false;
@@ -118,10 +124,41 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
         })));
       }
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('profileLoadError'));
+      if (requestId === profileLoadRequestId.current) {
+        setNotice(error instanceof Error ? error.message : t('profileLoadError'));
+      }
     }
   };
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    void load();
+    const refreshOnSession = () => {
+      profileLoadRequestId.current += 1;
+      setProfile(null);
+      setDisplayName('');
+      setBio('');
+      setCountry('');
+      setCity('');
+      setOccupation('');
+      setEducation('');
+      setPhotoUrls('');
+      setLanguages('');
+      setRelationshipIntent('marriage_family');
+      setFamilyFormat('open_to_both');
+      setHasChildren(null);
+      setWantsChildren('discuss');
+      setChildrenLivingArrangement('not_applicable');
+      setIsVisible(true);
+      setAuthenticated(null);
+      setBlockedProfiles([]);
+      setNotice('');
+      void load();
+    };
+    window.addEventListener('vow:session-changed', refreshOnSession);
+    return () => {
+      window.removeEventListener('vow:session-changed', refreshOnSession);
+      profileLoadRequestId.current += 1;
+    };
+  }, []);
 
   const unblock = async (id: string) => {
     try {
