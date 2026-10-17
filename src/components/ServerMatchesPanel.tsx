@@ -294,7 +294,9 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         return;
       }
       if (!response.ok) throw new Error(data?.error === 'too_many_messages' ? t('messageRateLimit') : t('sendMessageError'));
-      setMessages(current => [...current, data.message]);
+      const sentMessage = normalizeServerMessage(data?.message);
+      if (!sentMessage) throw new Error(t('sendMessageError'));
+      setMessages(current => deduplicateById([...current, sentMessage]));
       setDrafts(current => ({ ...current, [matchId]: '' }));
       void loadMatches();
     } catch (error) {
