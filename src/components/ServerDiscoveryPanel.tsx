@@ -211,16 +211,14 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         throw new Error(t('searchSetupError'));
       }
       const seenProfileIds = new Set<string>();
-      const nextProfiles: ServerProfile[] = Array.isArray(data?.profiles)
-        ? data.profiles
-            .slice(0, 50)
-            .map(normalizeServerProfile)
-            .filter((profile): profile is ServerProfile => {
-              if (!profile || seenProfileIds.has(profile.id)) return false;
-              seenProfileIds.add(profile.id);
-              return true;
-            })
-        : [];
+      const nextProfiles: ServerProfile[] = data.profiles
+        .slice(0, 50)
+        .map(normalizeServerProfile)
+        .filter((profile): profile is ServerProfile => {
+          if (!profile || seenProfileIds.has(profile.id)) return false;
+          seenProfileIds.add(profile.id);
+          return true;
+        });
       setProfiles(nextProfiles);
       setAuthenticated(true);
       setSearchFailed(false);
