@@ -448,7 +448,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       {authenticated === false ? (
         <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-4">
           <p className="text-sm text-stone-200">{t('signInToSearch')}</p>
-          <button type="button" onClick={onOpenAccount} className="mt-3 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white">{t('login')}</button>
+          <button type="button" onClick={onOpenAccount} className="mt-3 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400">{t('login')}</button>
         </div>
       ) : (
         <>
@@ -462,10 +462,10 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
             <label className="text-xs text-stone-300">{t('children')}<select value={childrenFilter} onChange={e => setChildrenFilter(e.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="all">{t('notImportant')}</option><option value="false">{t('noChildren')}</option><option value="true">{t('hasChildren')}</option></select></label>
             <label className="text-xs text-stone-300">{t('financialMatch')}<select value={minFinancialAlignment} onChange={e => setMinFinancialAlignment(Number(e.target.value))} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="0">{t('doNotFilter')}</option><option value="33">{t('financialFrom33')}</option><option value="67">{t('financialFrom67')}</option><option value="100">{t('financialOnly100')}</option></select></label>
           </div>
-          <button type="button" onClick={() => void search()} disabled={busy} className="mb-2 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? t('searching') : t('search')}</button>
-          <button type="button" onClick={() => setSwipeMode(value => !value)} className="mb-3 w-full rounded-xl border border-emerald-500/30 px-4 py-2.5 text-xs font-semibold text-emerald-200">{swipeMode ? t('listMode') : t('swipeMode')}</button>
-          <button type="button" onClick={() => void undoPass()} disabled={busy} className="mb-3 w-full rounded-xl border border-amber-500/30 px-4 py-2.5 text-xs font-semibold text-amber-200 disabled:opacity-50">↶ {t('undoAction')}</button>
-          <button type="button" onClick={() => void toggleBlockedProfiles()} disabled={busy} aria-expanded={blockedProfilesOpen} className="mb-3 w-full rounded-xl border border-white/10 px-4 py-2.5 text-xs font-semibold text-stone-200 disabled:opacity-50">
+          <button type="button" onClick={() => void search()} disabled={busy} className="mb-2 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">{busy ? t('searching') : t('search')}</button>
+          <button type="button" onClick={() => setSwipeMode(value => !value)} className="mb-3 w-full rounded-xl border border-emerald-500/30 px-4 py-2.5 text-xs font-semibold text-emerald-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400">{swipeMode ? t('listMode') : t('swipeMode')}</button>
+          <button type="button" onClick={() => void undoPass()} disabled={busy} className="mb-3 w-full rounded-xl border border-amber-500/30 px-4 py-2.5 text-xs font-semibold text-amber-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">↶ {t('undoAction')}</button>
+          <button type="button" onClick={() => void toggleBlockedProfiles()} disabled={busy} aria-expanded={blockedProfilesOpen} className="mb-3 w-full rounded-xl border border-white/10 px-4 py-2.5 text-xs font-semibold text-stone-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">
             {blockedProfilesOpen ? t('hideBlockedProfiles') : t('manageBlockedProfiles')}
           </button>
           {blockedProfilesOpen && (
@@ -600,7 +600,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
             <button ref={matchDialogButtonRef} type="button" onClick={() => {
               setMatchedProfile(null);
               window.dispatchEvent(new CustomEvent('vow:match-created'));
-            }} className="vow-motion-button mt-5 w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white hover:bg-rose-500">{t('sendMessage')}</button>
+            }} className="vow-motion-button mt-5 w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white hover:bg-rose-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400">{t('sendMessage')}</button>
           </div>
         </div>
       )}
