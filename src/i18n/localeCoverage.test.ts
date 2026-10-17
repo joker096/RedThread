@@ -67,3 +67,9 @@ test('Georgian translations cover the core discovery and safety interface withou
     assert.ok(!georgian.missing.includes(key), `Georgian core key "${key}" should be translated`);
   }
 });
+test('account access copy stays in the locale catalog instead of hardcoded Cyrillic text', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const component = await readFile(new URL('../components/AccountAccessPanel.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(component, /[А-Яа-яЁё]/,
+    'AccountAccessPanel copy should use translation keys so locale changes apply consistently');
+});
