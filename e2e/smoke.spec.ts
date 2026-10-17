@@ -4,6 +4,7 @@ const lightThemeToggle = /switch to light theme|включить светлую 
 const darkThemeToggle = /switch to dark theme|включить тёмную тему|включить темную тему/i;
 const showDemoChats = /show demo conversations|показать демо-переписки/i;
 const hideDemoChats = /hide demo conversations|скрыть демо-переписки/i;
+const chatsNavigation = /^(?:chats|чаты)(?:\s+\d+)?$/i;
 
 test('theme toggle changes scheme and persists after reload', async ({ page }) => {
   await page.goto('/');
@@ -21,15 +22,19 @@ test('theme toggle changes scheme and persists after reload', async ({ page }) =
 
 test('demo conversations stay hidden until explicitly opened', async ({ page }) => {
   await page.goto('/');
-  await page.locator('button[title="Chats"]:visible, button[title="Чаты"]:visible').first().click({ force: true });
+  // Header navigation uses visible text rather than a title attribute. This
+  // selector works for both the desktop segmented nav and the mobile nav.
+  const chatsButton = page.getByRole('button', { name: chatsNavigation }).first();
+  await expect(chatsButton).toBeVisible();
+  await chatsButton.click();
 
   await expect(page.getByText(/prototype conversations are hidden|демонстрационные переписки скрыты/i)).toBeVisible();
   await expect(page.getByRole('button', { name: showDemoChats })).toBeVisible();
 
-  await page.getByRole('button', { name: showDemoChats }).click({ force: true });
+  await page.getByRole('button', { name: showDemoChats }).click();
   await expect(page.getByText(/local prototype data|локальные демонстрационные данные/i)).toBeVisible();
   await expect(page.getByRole('button', { name: hideDemoChats })).toBeVisible();
 
-  await page.getByRole('button', { name: hideDemoChats }).click({ force: true });
+  await page.getByRole('button', { name: hideDemoChats }).click();
   await expect(page.getByRole('button', { name: showDemoChats })).toBeVisible();
 });
