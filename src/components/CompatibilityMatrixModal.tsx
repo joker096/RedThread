@@ -76,7 +76,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
 
   return (
     <div className="vow-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg rounded-3xl bg-stone-900 border border-rose-900/50 shadow-2xl p-5 sm:p-6 text-left my-auto">
+      <div role="dialog" aria-modal="true" aria-labelledby="compatibility-matrix-title" className="relative w-full max-w-lg rounded-3xl bg-stone-900 border border-rose-900/50 shadow-2xl p-5 sm:p-6 text-left my-auto">
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -101,7 +101,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
 
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-xl font-heading font-black text-white">{profile.name}, {profile.age}</h2>
+              <h2 id="compatibility-matrix-title" className="text-xl font-heading font-black text-white">{profile.name}, {profile.age}</h2>
               <span className="text-xs text-rose-400 bg-rose-950/60 px-2 py-0.5 rounded-full border border-rose-800/40 font-bold">
                 {profile.city}
               </span>
