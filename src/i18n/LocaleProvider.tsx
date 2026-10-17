@@ -1542,7 +1542,7 @@ const messages = {
 export function getTranslationPlaceholderMismatches(locale: string) {
   const english = messages.en;
   const catalog = messages[locale as keyof typeof messages] as Partial<typeof messages.en> | undefined;
-  const placeholders = (value: string) => [...value.matchAll(/\\{([A-Za-z][\\w]*)\\}/g)]
+  const placeholders = (value: string) => [...value.matchAll(/\{([A-Za-z][\w]*)\}/g)]
     .map(match => match[1])
     .sort();
   return (Object.keys(english) as Array<keyof typeof english>).flatMap(key => {
@@ -1550,7 +1550,7 @@ export function getTranslationPlaceholderMismatches(locale: string) {
     if (typeof translated !== 'string') return [];
     const expected = placeholders(english[key]);
     const actual = placeholders(translated);
-    return expected.join('\\0') === actual.join('\\0') ? [] : [{ key, expected, actual }];
+    return expected.join('\0') === actual.join('\0') ? [] : [{ key, expected, actual }];
   });
 }
 
