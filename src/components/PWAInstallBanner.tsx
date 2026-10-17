@@ -85,7 +85,10 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
 
         <div className="flex shrink-0 flex-wrap items-center gap-1.5">
           <button
+            type="button"
             onClick={() => setShowGuide(!showGuide)}
+            aria-expanded={showGuide}
+            aria-controls="vow-install-guide"
             className="min-h-8 rounded-lg border border-white/5 bg-stone-900 px-2 py-1 text-[11px] text-rose-300 hover:text-white"
           >
             {showGuide ? 'Скрыть гид' : 'Как установить'}
@@ -126,10 +129,12 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
 
       {/* Guide tip dropdown / mini bar */}
       {showGuide && (
-        <div className="max-w-6xl mx-auto mt-1.5 pt-1.5 border-t border-white/5 text-[11px] text-stone-300 flex flex-wrap items-center justify-between gap-2 animate-in fade-in duration-150">
+        <div id="vow-install-guide" className="max-w-6xl mx-auto mt-1.5 pt-1.5 border-t border-white/5 text-[11px] text-stone-300 flex flex-wrap items-center justify-between gap-2 animate-in fade-in duration-150">
           <div className="flex items-center gap-1.5">
             <button
+              type="button"
               onClick={() => setActiveGuide('ios')}
+              aria-pressed={activeGuide === 'ios'}
               className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                 activeGuide === 'ios' ? 'bg-rose-600 text-white' : 'text-stone-400 bg-stone-900'
               }`}
@@ -137,7 +142,9 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
               iOS (iPhone)
             </button>
             <button
+              type="button"
               onClick={() => setActiveGuide('android')}
+              aria-pressed={activeGuide === 'android'}
               className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                 activeGuide === 'android' ? 'bg-rose-600 text-white' : 'text-stone-400 bg-stone-900'
               }`}
