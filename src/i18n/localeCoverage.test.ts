@@ -123,3 +123,19 @@ test('account access copy stays in the locale catalog instead of hardcoded Cyril
   assert.doesNotMatch(component, /[А-Яа-яЁё]/,
     'AccountAccessPanel copy should use translation keys so locale changes apply consistently');
 });
+
+
+test('Arabic catalog covers core discovery, safety, account and messaging UI', () => {
+  const arabic = getTranslationCoverage('ar');
+  assert.ok(arabic.translated >= 100, 'Arabic should translate a substantial core set of UI messages');
+  assert.ok(arabic.percentage > 0 && arabic.percentage < 100,
+    'Arabic must remain marked partial until the complete catalog is translated');
+  for (const key of [
+    'language', 'discovery', 'safety', 'like', 'pass', 'report', 'block',
+    'search', 'relationshipGoal', 'accountTitle', 'signIn', 'createAccount',
+    'email', 'password', 'chats', 'notificationCenter', 'authInvalidEmail',
+    'authDeleteConfirm', 'partialTranslationHelp'
+  ] as const) {
+    assert.ok(!arabic.missing.includes(key), `Arabic core key "${key}" should be translated`);
+  }
+});
