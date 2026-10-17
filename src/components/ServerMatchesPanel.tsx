@@ -69,6 +69,15 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         setNotice(t('loginToSeeMatches'));
         return;
       }
+      if (response.status === 404) {
+        // The match may have been blocked or closed while this chat was open.
+        messageRequestId.current += 1;
+        setMatches(current => current.filter(match => match.id !== matchId));
+        setSelected('');
+        setMessages([]);
+        setNotice(t('loadMessagesError'));
+        return;
+      }
       if (!response.ok) throw new Error(t('loadMessagesError'));
       const data = await response.json();
       if (requestId !== messageRequestId.current) return;
@@ -107,6 +116,15 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       });
       const data = await response.json().catch(() => null);
       if (requestId !== messageRequestId.current) return;
+      if (response.status === 404) {
+        // A block or closed match invalidates this conversation even if it was already open.
+        messageRequestId.current += 1;
+        setMatches(current => current.filter(match => match.id !== matchId));
+        setSelected('');
+        setMessages([]);
+        setNotice(t('sendMessageError'));
+        return;
+      }
       if (!response.ok) throw new Error(data?.error === 'too_many_messages' ? t('messageRateLimit') : t('sendMessageError'));
       setMessages(current => [...current, data.message]);
       setDrafts(current => ({ ...current, [matchId]: '' }));
