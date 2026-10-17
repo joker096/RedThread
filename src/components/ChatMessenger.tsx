@@ -48,6 +48,8 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
   const { t } = useLocale();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [sendError, setSendError] = useState('');
+  const sendingThreadIdsRef = useRef(new Set<string>());
+  const [sendingThreadIds, setSendingThreadIds] = useState<Set<string>>(new Set());
   const [showInviteModal, setShowInviteModal] = useState(false);
   const inviteDialogRef = useRef<HTMLDivElement | null>(null);
 
@@ -102,8 +104,10 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
     e.preventDefault();
     const thread = activeThread;
     const messageText = inputText.trim();
-    if (!messageText || !thread) return;
+    if (!messageText || !thread || sendingThreadIdsRef.current.has(thread.id)) return;
 
+    sendingThreadIdsRef.current.add(thread.id);
+    setSendingThreadIds(current => new Set(current).add(thread.id));
     setSendError('');
     try {
       await onSendMessage(thread.id, messageText);
@@ -113,6 +117,13 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
     } catch {
       // Keep the original draft so the user can retry without retyping.
       setSendError(t('sendMessageError'));
+    } finally {
+      sendingThreadIdsRef.current.delete(thread.id);
+      setSendingThreadIds(current => {
+        const next = new Set(current);
+        next.delete(thread.id);
+        return next;
+      });
     }
   };
 
@@ -411,7 +422,8 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
           {sendError && <p role="alert" className="max-w-36 text-xs text-rose-300">{sendError}</p>}
           <button
             type="submit"
-            disabled={!inputText.trim()}
+            disabled={!inputText.trim() || sendingThreadIds.has(activeThread.id)}
+            aria-busy={sendingThreadIds.has(activeThread.id)}
             className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-rose-600 text-white shadow-md transition-all hover:bg-rose-500 disabled:opacity-40"
             aria-label={t('chatSendMessage')}
           >
