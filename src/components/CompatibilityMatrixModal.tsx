@@ -36,6 +36,11 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
   const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    setChemistryStep(0);
+    setChemistryScoreBonus(0);
+  }, [isOpen, profile?.id]);
+
+  useEffect(() => {
     if (!isOpen || !profile) return;
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = dialogRef.current;
