@@ -457,7 +457,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                   ) : (
                     <>
                       <Volume2 className="w-3 h-3 text-rose-400" />
-                      <span>Голос ({currentProfile.voiceIntroSeconds} с)</span>
+                      <span>{t('voiceIntroLabel').replace('{seconds}', String(currentProfile.voiceIntroSeconds))}</span>
                     </>
                   )}
                 </button>
@@ -549,10 +549,11 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                         {t('profileResonance')}: {currentProfile.psychCards[activePsychCardIndex].matchBonus}%
                       </span>
                       <button
+                        type="button"
                         onClick={() => setActivePsychCardIndex((activePsychCardIndex + 1) % (currentProfile.psychCards?.length || 1))}
-                        className="text-stone-400 hover:text-white underline"
+                        className="min-h-8 px-2 text-stone-400 hover:text-white underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
                       >
-                        Далее →
+                        {t('nextPhoto')} →
                       </button>
                     </div>
                   </div>
