@@ -24,7 +24,19 @@ export const NotificationCenterPanel:React.FC=()=>{
    const data=await response.json().catch(()=>null);
    if(requestId!==refreshRequestId.current||actionEpoch!==sessionEpoch.current)return;
    if(!response.ok)throw new Error(t('notificationsLoadError'));
-   setItems(Array.isArray(data?.notifications)?data.notifications:[]);setUnread(Number(data?.unreadCount)||0);setAllowed(true);setReady(true);setNotice('');
+   const notifications: NotificationItem[] = Array.isArray(data?.notifications)
+    ? data.notifications.filter((item: unknown): item is NotificationItem => {
+       if (!item || typeof item !== 'object') return false;
+       const value = item as Partial<NotificationItem>;
+       return typeof value.id === 'string' &&
+        (value.type === 'new_match' || value.type === 'new_message') &&
+        value.metadata !== null && typeof value.metadata === 'object' && !Array.isArray(value.metadata) &&
+        typeof value.createdAt === 'string' &&
+        (value.readAt === null || typeof value.readAt === 'string');
+      })
+    : [];
+   const unreadCount = Number(data?.unreadCount);
+   setItems(notifications);setUnread(Number.isFinite(unreadCount) ? Math.max(0, Math.floor(unreadCount)) : 0);setAllowed(true);setReady(true);setNotice('');
   }catch{if(requestId===refreshRequestId.current&&actionEpoch===sessionEpoch.current){setNotice(t('notificationsLoadError'));setReady(true);}}
   finally{if(busyId===busyRequestId.current&&actionEpoch===sessionEpoch.current)setBusy(false);}
  },[t]);
