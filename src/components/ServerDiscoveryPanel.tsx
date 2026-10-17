@@ -383,9 +383,20 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                 aria-label={swipeMode ? t('swipeProfileAria').replace('{name}', profile.displayName) : undefined}
                 className={`vow-profile-card rounded-2xl border border-white/10 bg-stone-950/70 p-3 ${swipeMode ? 'touch-pan-y' : ''}`}>
                 {profile.photoUrls?.length ? (
-                  <div className="mb-3 flex gap-2 overflow-x-auto">
+                  <div className={swipeMode ? 'mb-4 grid grid-cols-4 gap-2' : 'mb-3 flex gap-2 overflow-x-auto'}>
                     {profile.photoUrls.slice(0, 6).map((url, index) => (
-                      <img key={url} src={url} alt={t('photoAlt').replace('{name}', profile.displayName).replace('{number}', String(index + 1))} loading="lazy" referrerPolicy="no-referrer" className="h-28 w-24 shrink-0 rounded-xl border border-white/10 bg-stone-900 object-cover" />
+                      <img
+                        key={url}
+                        src={url}
+                        alt={t('photoAlt').replace('{name}', profile.displayName).replace('{number}', String(index + 1))}
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        className={swipeMode
+                          ? index === 0
+                            ? 'col-span-4 h-[min(58vh,420px)] w-full rounded-2xl border border-white/10 bg-stone-900 object-cover'
+                            : 'h-20 w-full rounded-xl border border-white/10 bg-stone-900 object-cover'
+                          : 'h-28 w-24 shrink-0 rounded-xl border border-white/10 bg-stone-900 object-cover'}
+                      />
                     ))}
                   </div>
                 ) : (
@@ -413,10 +424,14 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                 {(profile.occupation || profile.education) && <p className="mt-2 text-xs text-stone-400">{[profile.occupation, profile.education].filter(Boolean).join(' · ')}</p>}
                 {profile.languages?.length ? <p className="mt-1 text-xs text-stone-400">{t('languages')}: {profile.languages.join(', ')}</p> : null}
                 <p className="mt-2 text-[10px] text-stone-500">{profile.relationshipIntent === 'marriage_family' ? t('profileMarriage') : t('profileSerious')}</p>
-                <button type="button" onClick={() => void like(profile)} disabled={likedIds.includes(profile.id)} className="vow-motion-button vow-like-button mt-3 w-full rounded-xl border border-rose-500/30 px-3 py-2.5 text-xs font-bold text-rose-200 disabled:opacity-50">{likedIds.includes(profile.id) ? t('liked') : t('like')}</button>
-                <button type="button" onClick={() => void pass(profile)} disabled={busy} className="vow-motion-button vow-pass-button mt-2 w-full rounded-xl border border-white/10 px-3 py-2.5 text-xs font-semibold text-stone-300 disabled:opacity-50">{t('pass')}</button>
-                <button type="button" onClick={() => void block(profile)} disabled={busy || blockedIds.includes(profile.id)} className="mt-2 w-full rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-400 disabled:opacity-50">{t('block')}</button>
-                <button type="button" onClick={() => { setReportTargetId(reportTargetId === profile.id ? null : profile.id); setReportDetails(''); }} className="mt-2 w-full rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-400">{t('report')}</button>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => void pass(profile)} disabled={busy} className="vow-motion-button vow-pass-button flex min-h-12 items-center justify-center rounded-xl border border-white/10 px-3 py-3 text-sm font-semibold text-stone-300 disabled:opacity-50">{t('pass')}</button>
+                  <button type="button" onClick={() => void like(profile)} disabled={likedIds.includes(profile.id)} className="vow-motion-button vow-like-button flex min-h-12 items-center justify-center rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-3 text-sm font-bold text-rose-200 disabled:opacity-50">{likedIds.includes(profile.id) ? t('liked') : t('like')}</button>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => void block(profile)} disabled={busy || blockedIds.includes(profile.id)} className="min-h-10 rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-400 disabled:opacity-50">{t('block')}</button>
+                  <button type="button" onClick={() => { setReportTargetId(reportTargetId === profile.id ? null : profile.id); setReportDetails(''); }} className="min-h-10 rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-400">{t('report')}</button>
+                </div>
                 {reportTargetId === profile.id && (
                   <div className="mt-2 space-y-2 rounded-xl border border-white/10 bg-stone-900 p-3">
                     <label className="block text-xs text-stone-300">{t('reportReason')}<select value={reportCategory} onChange={e => setReportCategory(e.target.value)} className="mt-1 w-full rounded-lg border border-white/10 bg-stone-950 p-2 text-xs text-white"><option value="fake_profile">{t('reportFake')}</option><option value="spam">{t('reportSpam')}</option><option value="harassment">{t('reportHarassment')}</option><option value="safety">{t('reportSafety')}</option><option value="children_misrepresentation">{t('reportChildren')}</option><option value="duplicate_profile">{t('reportDuplicate')}</option><option value="other">{t('reportOther')}</option></select></label>

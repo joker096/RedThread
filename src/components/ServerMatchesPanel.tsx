@@ -102,6 +102,19 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   }, [t]);
 
   useEffect(() => { void loadMatches(); }, [loadMatches]);
+  // Refresh the inbox when the user returns to the app so new mutual matches appear
+  // without requiring a manual refresh or a full page reload.
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void loadMatches();
+    };
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [loadMatches]);
   useEffect(() => {
     let cancelled = false;
     void fetch('/api/auth/me', { credentials: 'include' })
@@ -163,21 +176,21 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   };
 
   return (
-    <section className="mb-5 rounded-3xl border border-sky-500/20 bg-stone-900/80 p-4 sm:p-5">
-      <div className="mb-3">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-sky-300">{t('serverChats')}</p>
-        <h3 className="mt-1 text-lg font-bold text-white">{t('mutualMatches')}</h3>
-        <p className="mt-1 text-xs text-stone-400">{t('realMatchesOnly')}</p>
+    <section data-testid="server-matches-panel" className="mb-5 overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-stone-900 via-stone-900 to-sky-950/40 p-4 shadow-xl shadow-black/10 sm:p-5">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-sky-300">{t('serverChats')}</p>
+        <h3 className="mt-1 text-xl font-bold tracking-tight text-white">{t('mutualMatches')}</h3>
+        <p className="mt-1 max-w-sm text-xs leading-relaxed text-stone-400">{t('realMatchesOnly')}</p>
       </div>
       {authenticated === false ? (
-        <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-4">
+        <div className="rounded-2xl border border-white/10 bg-stone-950/50 p-4 shadow-inner">
           <p className="text-sm text-stone-200">{t('loginToSeeMatches')}</p>
           <button type="button" onClick={onOpenAccount} className="mt-3 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white">{t('login')}</button>
         </div>
       ) : (
         <div className="space-y-3">
           {matches.map(match => (
-            <button type="button" key={match.id} onClick={() => { messageRequestId.current += 1; setMessages([]); setNotice(''); setSelected(match.id); }} className={`vow-motion-button w-full rounded-2xl border p-3 text-left ${selected === match.id ? 'border-sky-400/60 bg-sky-950/30' : 'border-white/10 bg-stone-950/60'}`}>
+            <button data-testid="server-match-item" type="button" key={match.id} onClick={() => { messageRequestId.current += 1; setMessages([]); setNotice(''); setSelected(match.id); }} className={`vow-motion-button w-full rounded-2xl border p-3.5 text-left transition-colors ${selected === match.id ? 'border-sky-400/60 bg-sky-950/40 shadow-md shadow-sky-950/30' : 'border-white/10 bg-stone-950/45 hover:border-white/20 hover:bg-stone-950/70'}`}>
               <span className="block text-sm font-semibold text-white">{match.displayName}, {match.age}</span>
               <span className="mt-1 block text-xs text-stone-400">{match.city}, {match.country}</span>
               <span className="mt-1 block truncate text-xs text-stone-500">{match.lastMessage || t('matchCreatedMessage')}</span>
@@ -185,22 +198,22 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
           ))}
           {notice && <p role="status" className="text-xs text-stone-300">{notice}</p>}
           {selected && (
-            <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-3">
-              <div role="log" aria-live="polite" aria-label={t('serverChats')} className="mb-3 max-h-64 space-y-2 overflow-y-auto">
+            <div data-testid="real-match-chat" className="rounded-2xl border border-white/10 bg-stone-950/55 p-3.5 shadow-inner sm:p-4">
+              <div data-testid="server-match-messages" role="log" aria-live="polite" aria-label={t('serverChats')} className="mb-4 max-h-72 space-y-2.5 overflow-y-auto overscroll-contain rounded-xl bg-black/10 p-1">
                 {messages.map(message => (
-                  <div key={message.id} className={`max-w-[90%] rounded-xl px-3 py-2 text-xs ${message.senderId === currentUserId ? 'ml-auto bg-rose-700 text-white' : 'mr-auto bg-stone-800 text-stone-100'}`}>
+                  <div key={message.id} className={`max-w-[90%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed shadow-sm ${message.senderId === currentUserId ? 'ml-auto rounded-br-md bg-gradient-to-br from-rose-600 to-rose-700 text-white' : 'mr-auto rounded-bl-md border border-white/5 bg-stone-800 text-stone-100'}`}>
                     <p className="whitespace-pre-wrap break-words">{message.text}</p>
-                    <time className="mt-1 block text-[9px] text-stone-500">{formatDate(message.createdAt, { dateStyle: 'medium', timeStyle: 'short' })}</time>
+                    <time className={`mt-1 block text-[9px] ${message.senderId === currentUserId ? 'text-rose-100/70' : 'text-stone-500'}`}>{formatDate(message.createdAt, { dateStyle: 'medium', timeStyle: 'short' })}</time>
                   </div>
                 ))}
                 {!messages.length && <p className="text-xs text-stone-500">{t('noMessagesYet')}</p>}
               </div>
-              <textarea aria-label={t('writeMessage')} value={draft} onChange={e => setDrafts(current => ({ ...current, [selected]: e.target.value }))} maxLength={4000} rows={2} placeholder={t('writeMessage')} className="w-full resize-y rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white" />
-              <button type="button" onClick={() => void send()} disabled={busy || !draft.trim()} className="vow-motion-button mt-2 w-full rounded-xl bg-sky-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-40">{busy ? t('sendingMessage') : t('sendMessage')}</button>
-              <button type="button" onClick={() => void loadMessages(selected)} className="vow-motion-button mt-2 w-full rounded-xl border border-white/10 px-4 py-2 text-xs text-stone-300">{t('refreshMessages')}</button>
+              <textarea aria-label={t('writeMessage')} value={draft} onChange={e => setDrafts(current => ({ ...current, [selected]: e.target.value }))} maxLength={4000} rows={2} placeholder={t('writeMessage')} className="w-full resize-y rounded-xl border border-white/10 bg-stone-900/90 p-3.5 text-sm text-white outline-none transition placeholder:text-stone-500 focus:border-rose-400/60 focus:ring-2 focus:ring-rose-400/15" />
+              <button data-testid="server-match-send" type="button" onClick={() => void send()} disabled={busy || !draft.trim()} className="vow-motion-button mt-2 min-h-12 w-full rounded-xl bg-gradient-to-r from-rose-600 to-rose-700 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-rose-950/25 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">{busy ? t('sendingMessage') : t('sendMessage')}</button>
+              <button type="button" onClick={() => void loadMessages(selected)} className="vow-motion-button mt-2 min-h-11 w-full rounded-xl border border-white/10 px-4 py-2 text-xs font-semibold text-stone-300 transition hover:border-white/20 hover:bg-white/5">{t('refreshMessages')}</button>
             </div>
           )}
-          <button type="button" onClick={() => void loadMatches()} className="vow-motion-button w-full rounded-xl border border-white/10 px-4 py-2.5 text-xs font-semibold text-stone-300">{t('refreshMatches')}</button>
+          <button type="button" onClick={() => void loadMatches()} className="vow-motion-button min-h-11 w-full rounded-xl border border-white/10 px-4 py-2.5 text-xs font-semibold text-stone-300 transition hover:border-white/20 hover:bg-white/5">{t('refreshMatches')}</button>
         </div>
       )}
     </section>

@@ -212,7 +212,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
   const compatibility = calculateCompatibility(myAnswers, myIntent, myInterests, currentProfile);
 
   return (
-    <div className="w-full max-w-sm sm:max-w-md mx-auto flex flex-col items-center select-none">
+    <div className="vow-discovery-stage w-full max-w-sm sm:max-w-md mx-auto flex flex-col items-center select-none">
       {/* Top Micro-Bar: Compatibility score and rewarded demo */}
       <div className="w-full flex items-center justify-between px-2 mb-2 text-xs">
         <div className="flex items-center gap-1.5 text-stone-300">
@@ -236,7 +236,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
       </div>
 
       {/* Main Full-Bleed Card Container */}
-      <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} className="w-full relative rounded-3xl overflow-hidden bg-stone-900 border border-white/10 shadow-2xl transition-all">
+      <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} className="vow-profile-card vow-surface-enter w-full relative rounded-3xl overflow-hidden bg-stone-900 border border-white/10 shadow-2xl transition-all">
         {currentProfile.isSponsorAd ? (
           /* 100% ADAPTIVE NATIVE SPONSOR AD CARD */
           <div className="flex flex-col w-full text-left">
@@ -344,7 +344,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 onClick={() => onOpenCompatibilityMatrix(currentProfile)}
                 className="absolute top-6 left-3 z-20 cursor-pointer bg-stone-950/75 hover:bg-stone-950/90 border border-white/15 text-white px-2.5 py-1 rounded-2xl backdrop-blur-xl flex items-center gap-2 shadow-lg transition-all"
               >
-                <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-rose-600 to-amber-400 p-0.5 flex items-center justify-center font-black text-xs text-white">
+                <div className="vow-compatibility-orb w-7 h-7 rounded-full p-0.5 flex items-center justify-center font-black text-xs text-white">
                   <div className="w-full h-full rounded-full bg-stone-950 flex items-center justify-center">
                     <span className="text-[10px] font-black">{compatibility.overallScore}%</span>
                   </div>
@@ -511,7 +511,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 <button
                   onClick={handleUndo}
                   disabled={history.length === 0}
-                  className="w-10 h-10 rounded-full bg-stone-900 text-stone-300 disabled:text-stone-700 disabled:opacity-50 hover:bg-stone-800 flex items-center justify-center border border-white/10 transition-all"
+                  className="vow-motion-button w-10 h-10 rounded-full bg-stone-900 text-stone-300 disabled:text-stone-700 disabled:opacity-50 hover:bg-stone-800 flex items-center justify-center border border-white/10 transition-all"
                   title={t('undoAction')}
                   aria-label={t('undoAction')}
                 >
@@ -520,7 +520,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 {/* 1. Pass (Circle) */}
                 <button
                   onClick={handlePassCurrent}
-                  className="w-12 h-12 rounded-full bg-stone-900 hover:bg-stone-800 text-stone-400 hover:text-white flex items-center justify-center border border-white/10 transition-all hover:scale-110 active:scale-95 shadow-lg"
+                  className="vow-motion-button vow-pass-button w-12 h-12 rounded-full bg-stone-900 hover:bg-stone-800 text-stone-400 hover:text-white flex items-center justify-center border border-white/10 transition-all hover:scale-110 active:scale-95 shadow-lg"
                   title={t('pass')}
                   aria-label={t('pass')}
                 >
@@ -530,7 +530,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 {/* 2. Compatibility Test Matrix (Compatibility details) */}
                 <button
                   onClick={() => onOpenCompatibilityMatrix(currentProfile)}
-                  className="w-12 h-12 rounded-full bg-stone-900 hover:bg-rose-950/80 text-rose-400 flex items-center justify-center border border-rose-600/40 transition-all hover:scale-110 active:scale-95 shadow-lg shadow-rose-950/30"
+                  className="vow-motion-button w-12 h-12 rounded-full bg-stone-900 hover:bg-rose-950/80 text-rose-400 flex items-center justify-center border border-rose-600/40 transition-all hover:scale-110 active:scale-95 shadow-lg shadow-rose-950/30"
                   title={t('psychCompatibility')}
                   aria-label={t('compatibilityMatrix')}
                 >
@@ -540,7 +540,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 {/* 3. Superlike (Golden Star Circle) */}
                 <button
                   onClick={handleSuperLikeCurrent}
-                  className="w-12 h-12 rounded-full bg-gradient-to-tr from-amber-500 to-amber-600 text-stone-950 flex items-center justify-center font-bold shadow-lg shadow-amber-950/50 transition-all hover:scale-110 active:scale-95"
+                  className="vow-motion-button w-12 h-12 rounded-full bg-gradient-to-tr from-amber-500 to-amber-600 text-stone-950 flex items-center justify-center font-bold shadow-lg shadow-amber-950/50 transition-all hover:scale-110 active:scale-95"
                   title={t('superLike')}
                   aria-label={t('superLike')}
                 >
@@ -550,7 +550,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 {/* 4. Like / Connect (Glowing Scarlet Heart Circle) */}
                 <button
                   onClick={handleLikeCurrent}
-                  className="w-14 h-14 rounded-full bg-gradient-to-r from-rose-600 via-red-600 to-rose-700 hover:from-rose-500 hover:to-red-500 text-white flex items-center justify-center red-glow transition-all hover:scale-110 active:scale-95 shadow-xl shadow-rose-950/60"
+                  className="vow-motion-button vow-like-button w-14 h-14 rounded-full bg-gradient-to-r from-rose-600 via-red-600 to-rose-700 hover:from-rose-500 hover:to-red-500 text-white flex items-center justify-center red-glow transition-all hover:scale-110 active:scale-95 shadow-xl shadow-rose-950/60"
                   title={t('likeInvite')}
                   aria-label={t('like')}
                 >

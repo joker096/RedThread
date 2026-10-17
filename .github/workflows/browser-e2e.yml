@@ -1,0 +1,47 @@
+name: Browser E2E
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser-e2e-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npm run test:e2e
+      - name: Generate feature graphic
+        run: node scripts/generate-store-assets.mjs
+      # Store screenshots are versioned in the PR; keep this workflow read-only.
+      - name: Upload Play Store screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vow-google-play-phone-screenshots
+          path: |
+            store-assets/google-play/phone/*.png
+            store-assets/google-play/feature-graphic.png
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload Playwright failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vow-playwright-failure-evidence
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 14
