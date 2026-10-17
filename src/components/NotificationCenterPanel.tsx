@@ -32,8 +32,8 @@ export const NotificationCenterPanel:React.FC=()=>{
        return typeof value.id === 'string' && value.id.trim().length > 0 && value.id.trim().length <= 256 &&
         (value.type === 'new_match' || value.type === 'new_message') &&
         value.metadata !== null && typeof value.metadata === 'object' && !Array.isArray(value.metadata) &&
-        typeof value.createdAt === 'string' && value.createdAt.trim().length > 0 && Number.isFinite(Date.parse(value.createdAt)) &&
-        (value.readAt === null || (typeof value.readAt === 'string' && value.readAt.trim().length > 0 && Number.isFinite(Date.parse(value.readAt))));
+        typeof value.createdAt === 'string' && value.createdAt.trim().length > 0 && value.createdAt.length <= 100 && Number.isFinite(Date.parse(value.createdAt)) &&
+        (value.readAt === null || (typeof value.readAt === 'string' && value.readAt.trim().length > 0 && value.readAt.length <= 100 && Number.isFinite(Date.parse(value.readAt))));
       }).filter((notification) => {
        const id = notification.id.trim();
        if (seenNotificationIds.has(id)) return false;
@@ -41,7 +41,9 @@ export const NotificationCenterPanel:React.FC=()=>{
        return true;
       }).map(notification => ({
        ...notification,
-       id: notification.id.trim()
+       id: notification.id.trim(),
+       createdAt: notification.createdAt.trim(),
+       readAt: notification.readAt === null ? null : notification.readAt.trim()
       }))
     : [];
    const unreadCount = data?.unreadCount;
