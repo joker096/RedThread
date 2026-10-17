@@ -14,6 +14,8 @@ type BlockedProfile = { id: string; displayName: string; createdAt: string };
 
 const safeProfileText = (value: unknown, maxLength: number): string =>
   typeof value === 'string' ? value.slice(0, maxLength) : '';
+const safeProfileChoice = <T extends string>(value: unknown, allowed: readonly T[], fallback: T): T =>
+  typeof value === 'string' && (allowed as readonly string[]).includes(value) ? value as T : fallback;
 type Props = { onOpenAccount: () => void };
 
 export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
@@ -61,6 +63,13 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
         city: safeProfileText(rawProfile.city, 120),
         occupation: safeProfileText(rawProfile.occupation, 120),
         education: safeProfileText(rawProfile.education, 120),
+        relationshipIntent: safeProfileChoice(rawProfile.relationshipIntent, ['marriage_family', 'serious_relationship', 'family_without_marriage'] as const, 'marriage_family'),
+        familyFormat: safeProfileChoice(rawProfile.familyFormat, ['marriage', 'cohabitation', 'open_to_both'] as const, 'open_to_both'),
+        hasChildren: typeof rawProfile.hasChildren === 'boolean' ? rawProfile.hasChildren : null,
+        wantsChildren: safeProfileChoice(rawProfile.wantsChildren, ['yes', 'no', 'discuss', 'unsure'] as const, 'discuss'),
+        childrenLivingArrangement: safeProfileChoice(rawProfile.childrenLivingArrangement, ['with_me', 'shared_custody', 'with_other_parent', 'not_applicable', 'prefer_to_discuss'] as const, 'not_applicable'),
+        childrenDisclosureConfirmedAt: typeof rawProfile.childrenDisclosureConfirmedAt === 'string' && rawProfile.childrenDisclosureConfirmedAt.length <= 100 ? rawProfile.childrenDisclosureConfirmedAt : null,
+        isVisible: typeof rawProfile.isVisible === 'boolean' ? rawProfile.isVisible : true,
         photoUrls: Array.isArray(rawProfile.photoUrls)
           ? rawProfile.photoUrls.filter((value: unknown): value is string =>
               typeof value === 'string' &&
@@ -175,6 +184,13 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
         city: safeProfileText(savedProfile.city, 120),
         occupation: safeProfileText(savedProfile.occupation, 120),
         education: safeProfileText(savedProfile.education, 120),
+        relationshipIntent: safeProfileChoice(savedProfile.relationshipIntent, ['marriage_family', 'serious_relationship', 'family_without_marriage'] as const, 'marriage_family'),
+        familyFormat: safeProfileChoice(savedProfile.familyFormat, ['marriage', 'cohabitation', 'open_to_both'] as const, 'open_to_both'),
+        hasChildren: typeof savedProfile.hasChildren === 'boolean' ? savedProfile.hasChildren : null,
+        wantsChildren: safeProfileChoice(savedProfile.wantsChildren, ['yes', 'no', 'discuss', 'unsure'] as const, 'discuss'),
+        childrenLivingArrangement: safeProfileChoice(savedProfile.childrenLivingArrangement, ['with_me', 'shared_custody', 'with_other_parent', 'not_applicable', 'prefer_to_discuss'] as const, 'not_applicable'),
+        childrenDisclosureConfirmedAt: typeof savedProfile.childrenDisclosureConfirmedAt === 'string' && savedProfile.childrenDisclosureConfirmedAt.length <= 100 ? savedProfile.childrenDisclosureConfirmedAt : null,
+        isVisible: typeof savedProfile.isVisible === 'boolean' ? savedProfile.isVisible : true,
         photoUrls: Array.isArray(savedProfile.photoUrls)
           ? savedProfile.photoUrls.filter((value: unknown): value is string =>
               typeof value === 'string' &&
