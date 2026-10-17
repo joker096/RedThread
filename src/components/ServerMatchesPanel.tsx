@@ -90,6 +90,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const matchesRequestId = useRef(0);
   const currentUserRequestId = useRef(0);
   const sessionEpoch = useRef(0);
+  const sendInFlight = useRef(false);
 
   const loadMatches = useCallback(async () => {
     const requestId = ++matchesRequestId.current;
@@ -226,6 +227,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     const refreshOnSessionChange = () => {
       // Invalidate actions from the previous account, including their finally handlers.
       sessionEpoch.current += 1;
+      sendInFlight.current = false;
       messageRequestId.current += 1;
       matchesRequestId.current += 1;
       currentUserRequestId.current += 1;
@@ -266,7 +268,10 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     const matchId = selected;
     const requestId = messageRequestId.current;
     const actionEpoch = sessionEpoch.current;
-    if (!text || !matchId || busy) return;
+    // Lock synchronously so Enter + click (or two rapid key events) cannot
+    // start duplicate POST requests before React re-renders with busy=true.
+    if (!text || !matchId || busy || sendInFlight.current) return;
+    sendInFlight.current = true;
     setBusy(true);
     setNotice('');
     try {
@@ -312,7 +317,11 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         setNotice(error instanceof Error ? error.message : t('sendMessageError'));
       }
     } finally {
-      if (actionEpoch === sessionEpoch.current) setBusy(false);
+      // An older request must not unlock a send started in a newer session.
+      if (actionEpoch === sessionEpoch.current) {
+        sendInFlight.current = false;
+        setBusy(false);
+      }
     }
   };
 
