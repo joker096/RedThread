@@ -11,18 +11,20 @@ This page is the single source of truth for implementation status. A merged PR o
 - [x] Server-backed registration, login, session lookup and logout have integration coverage.
 - [x] Like, reciprocal like, match creation, pass and undo flows have integration coverage.
 - [x] Block/report flows have integration coverage; blocking removes mutual likes and blocks access to the affected conversation.
+- [x] Like creation rejects targets blocked by either participant; the endpoint checks both directions of the block relationship.
 - [x] Chat endpoints enforce match-participant authorization; outsider read/send attempts are tested in [PR #8](https://github.com/joker096/RedThread/pull/8).
 - [x] Discovery motion and mutual-match celebration are merged in [PR #9](https://github.com/joker096/RedThread/pull/9).
 - [x] CI passed for the PR #9 head: [run 38964426218](https://github.com/joker096/RedThread/actions/runs/38964426218).
-- [x] CI passed on main before the latest merge: [run 38964444843](https://github.com/joker096/RedThread/actions/runs/38964444843).
 - [x] Match-dialog Escape handling, keyboard focus trapping and focus restoration are merged in [PR #10](https://github.com/joker096/RedThread/pull/10); CI passed.
+- [x] Registration rejects missing, invalid or under-18 birth dates; the integration test is merged in [PR #12](https://github.com/joker096/RedThread/pull/12), and its CI run passed: [run 39007125366](https://github.com/joker096/RedThread/actions/runs/39007125366).
+- [x] Release status and launch blockers are tracked in this page and the [implementation roadmap](IMPLEMENTATION_ROADMAP.md), merged in [PR #11](https://github.com/joker096/RedThread/pull/11).
 
 ## Must be completed before public launch
 
 - [ ] Finish and verify the P0 acceptance criteria in [the implementation roadmap](IMPLEMENTATION_ROADMAP.md).
 - [x] Persistent prototype disclosure and separate demo/server discovery labels are present in the UI.
 - [ ] Audit every trust, verification, compatibility, online and advertising metric for a real source.
-- [ ] Validate registration, adult-only gating, consent/legal copy and account deletion against a clean disposable database. An under-18 registration integration test is pending CI/merge in [PR #12](https://github.com/joker096/RedThread/pull/12).
+- [ ] Validate registration, adult-only gating, consent/legal copy and account deletion against a clean disposable database. The age gate has an integration test, but the complete clean-database validation remains outstanding.
 - [ ] Complete browser-level, two-account end-to-end scenarios, including reload and failure/retry cases.
 - [ ] Verify production-like rate limiting, session/cookie settings, upload limits, moderation access and audit logging.
 - [ ] Document privacy/data retention, appeals and urgent-report response ownership.
