@@ -79,10 +79,10 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
   // Only configured, server-backed campaigns may produce analytics events.
   // Demo placements deliberately have no campaign ID and are never counted.
   const recordedImpressionCampaigns = useRef(new Set<string>());
-  const impressionRequests = useRef(new Map<string, Promise<void>>());
+  const impressionRequests = useRef(new Map<string, Promise<boolean>>());
 
-  const sendAdEvent = (campaignId: string, eventType: 'impression' | 'click') => {
-    if (!campaignId) return Promise.resolve();
+  const sendAdEvent = (campaignId: string, eventType: 'impression' | 'click'): Promise<boolean> => {
+    if (!campaignId) return Promise.resolve(false);
     return fetch('/api/ads/events', {
       method: 'POST',
       credentials: 'same-origin',
@@ -92,8 +92,9 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
         campaignId,
         eventType
       })
-    }).then(() => undefined).catch(() => {
+    }).then(response => response.ok).catch(() => {
       // Analytics must never interrupt discovery or opening the sponsor destination.
+      return false;
     });
   };
 
@@ -334,8 +335,11 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                     if (campaignId) {
                       // Do not block navigation on analytics; ensure the impression request
                       // is attempted first because the server requires it before a click.
-                      void (impressionRequests.current.get(campaignId) ?? Promise.resolve())
-                        .then(() => sendAdEvent(campaignId, 'click'));
+                      void (impressionRequests.current.get(campaignId) ?? Promise.resolve(false))
+                        .then(impressionRecorded => {
+                          if (impressionRecorded) return sendAdEvent(campaignId, 'click');
+                          return false;
+                        });
                     }
                   }}
                   disabled={!currentProfile.sponsorUrl}
