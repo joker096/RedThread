@@ -47,12 +47,11 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       .then(async data => {
         if (!cancelled && data?.user) {
           if (data?.verificationRequired) {
-        setMessage('Аккаунт создан. Проверьте почту и перейдите по ссылке для подтверждения email.');
-        setPassword('');
-        return;
-      }
-      setUser(data.user);
-      window.dispatchEvent(new Event('vow:session-changed'));
+            setMessage('Аккаунт создан. Проверьте почту и перейдите по ссылке для подтверждения email.');
+            setPassword('');
+            return;
+          }
+          setUser(data.user);
           window.dispatchEvent(new Event('vow:session-changed'));
           const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
           if (!cancelled) setBillingStatus(billing);
