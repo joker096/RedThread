@@ -19,10 +19,13 @@ const clickNav = async (page: import('@playwright/test').Page, title: RegExp) =>
 test('capture real Vow phone screens for store listing review', async ({ page }) => {
   await mkdir(output, { recursive: true });
   await page.setViewportSize({ width: 540, height: 960 });
+  await page.addInitScript(() => window.localStorage.setItem('nit-install-banner-dismissed', '1'));
   await page.goto('/');
   await page.evaluate(() => document.fonts.ready);
   await expect(page.getByText('Vow', { exact: false }).first()).toBeVisible();
 
+  await page.getByRole('button', { name: /open demo preview/i }).click({ force: true });
+  await expect(page.getByText(/demo profiles/i)).toBeVisible();
   await page.screenshot({ path: path.join(output, '01-discover.png'), fullPage: false, animations: 'disabled' });
 
   await clickNav(page, /^values test$|^тест ценностей$/i);
