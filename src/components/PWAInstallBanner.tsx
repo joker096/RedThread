@@ -48,6 +48,14 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
     const handleInstalled = () => {
       setInstalled(true);
       setInstallPrompt(null);
+      setIsInstalling(false);
+      setShowGuide(false);
+      setIsOpen(false);
+      try {
+        window.localStorage.setItem('nit-install-banner-dismissed', '1');
+      } catch {
+        // The installed state still updates when storage is unavailable.
+      }
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
