@@ -1055,7 +1055,17 @@ const messages = {
     authBillingActive: "订阅已激活。", authResetBusy: "正在处理…",
     authAccountCreatedVerification: "账户已创建。请查看邮箱中的验证链接。", authDeleteButtonPrompt: "请输入密码，然后再次点击以确认删除。"
   },
-  hi: { language:'भाषा', autoLanguage:'स्वचालित', discovery:'खोजें', tests:'मूल्य परीक्षण', chats:'चैट', safety:'सुरक्षा', filters:'प्रोफ़ाइल फ़िल्टर', login:'लॉग इन / पंजीकरण', country:'देश', city:'शहर', ageFrom:'न्यूनतम आयु', ageTo:'अधिकतम आयु', search:'प्रोफ़ाइल खोजें', searching:'खोज रहे हैं…', undoPass:'पिछला स्किप वापस लें', like:'पसंद करें', liked:'पसंद भेजी गई', pass:'प्रोफ़ाइल छोड़ें', block:'छिपाएँ और ब्लॉक करें', report:'रिपोर्ट करें', noPhotos:'कोई फ़ोटो नहीं', any:'कोई भी', anyCountry:'कोई भी देश', anyCity:'कोई भी शहर', relationshipGoal:'रिश्ते का उद्देश्य', marriageFamily:'विवाह और परिवार', familyWithoutMarriage:'विवाह पंजीकरण के बिना परिवार', seriousRelationship:'गंभीर रिश्ता', familyFormat:'परिवार का स्वरूप', children:'बच्चे', notImportant:'महत्वपूर्ण नहीं', noChildren:'बच्चे नहीं हैं', hasChildren:'बच्चे हैं', doNotFilter:'फ़िल्टर न करें', financialMatch:'वित्तीय अपेक्षाओं का मेल', sendReport:'रिपोर्ट भेजें', sending:'भेज रहे हैं…', cancel:'रद्द करें', save:'सहेजें', loading:'लोड हो रहा है…' },
+  hi: {
+    autoLanguage: "स्वचालित",
+    anyCity: "कोई भी शहर",
+    financialMatch: "वित्तीय अपेक्षाओं का मेल",
+    searching: "खोज रहे हैं…",
+    noPhotos: "कोई फ़ोटो नहीं जोड़ी गई",
+    sendReport: "रिपोर्ट भेजें",
+    cancel: "रद्द करें",
+    save: "सहेजें",
+    loading: "लोड हो रहा है…"
+  },
   ka: {
     compatibility: 'თავსებადობა',
     partialTranslationHelp: 'თარგმანის დასრულებამდე ინტერფეისის ზოგი ტექსტი შეიძლება ინგლისურად გამოჩნდეს',
