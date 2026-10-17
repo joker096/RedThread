@@ -26,7 +26,7 @@ type ServerProfile = {
 type ServerDiscoveryPanelProps = { onOpenAccount: () => void };
 
 const isSafeProfilePhotoUrl = (value: unknown): value is string => {
-  if (typeof value !== 'string' || !value.trim()) return false;
+  if (typeof value !== 'string' || !value.trim() || value.trim().length > 2048) return false;
   const url = value.trim();
   if (url.startsWith('/') && !url.startsWith('//')) return true;
   return /^https?:\/\//i.test(url);
@@ -35,8 +35,8 @@ const isSafeProfilePhotoUrl = (value: unknown): value is string => {
 const normalizeServerProfile = (value: unknown): ServerProfile | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const profile = value as Partial<ServerProfile>;
-  if (typeof profile.id !== 'string' || !profile.id.trim() ||
-      typeof profile.displayName !== 'string' || !profile.displayName.trim() ||
+  if (typeof profile.id !== 'string' || !profile.id.trim() || profile.id.trim().length > 256 ||
+      typeof profile.displayName !== 'string' || !profile.displayName.trim() || profile.displayName.trim().length > 100 ||
       typeof profile.age !== 'number' || !Number.isFinite(profile.age) || profile.age < 18 || profile.age > 120 ||
       (profile.gender !== 'female' && profile.gender !== 'male') ||
       !['marriage_family', 'serious_relationship', 'family_without_marriage'].includes(String(profile.relationshipIntent))) {
@@ -49,23 +49,34 @@ const normalizeServerProfile = (value: unknown): ServerProfile | null => {
       : null;
 
   return {
-    ...profile,
     id: profile.id.trim(),
     displayName: profile.displayName.trim(),
     age: Math.floor(profile.age),
-    country: typeof profile.country === 'string' ? profile.country : '',
-    city: typeof profile.city === 'string' ? profile.city : '',
-    bio: typeof profile.bio === 'string' ? profile.bio : '',
+    gender: profile.gender,
+    country: typeof profile.country === 'string' ? profile.country.trim().slice(0, 100) : '',
+    city: typeof profile.city === 'string' ? profile.city.trim().slice(0, 100) : '',
+    bio: typeof profile.bio === 'string' ? profile.bio.slice(0, 2000) : '',
     relationshipIntent: profile.relationshipIntent,
+    familyFormat: profile.familyFormat === 'marriage' || profile.familyFormat === 'cohabitation' || profile.familyFormat === 'open_to_both'
+      ? profile.familyFormat
+      : undefined,
+    hasChildren: typeof profile.hasChildren === 'boolean' ? profile.hasChildren : profile.hasChildren === null ? null : undefined,
+    wantsChildren: profile.wantsChildren === 'yes' || profile.wantsChildren === 'no' || profile.wantsChildren === 'discuss' || profile.wantsChildren === 'unsure'
+      ? profile.wantsChildren
+      : undefined,
+    childrenLivingArrangement: typeof profile.childrenLivingArrangement === 'string' ? profile.childrenLivingArrangement.slice(0, 200) : undefined,
+    occupation: typeof profile.occupation === 'string' ? profile.occupation.slice(0, 120) : undefined,
+    education: typeof profile.education === 'string' ? profile.education.slice(0, 120) : undefined,
     financialAlignment: score(profile.financialAlignment),
     compatibilityScore: score(profile.compatibilityScore) ?? undefined,
     photoUrls: Array.isArray(profile.photoUrls)
-      ? profile.photoUrls.filter(isSafeProfilePhotoUrl).map(url => url.trim())
+      ? profile.photoUrls.filter(isSafeProfilePhotoUrl).slice(0, 12).map(url => url.trim())
       : [],
     languages: Array.isArray(profile.languages)
-      ? profile.languages.filter((language): language is string => typeof language === 'string')
+      ? profile.languages.filter((language): language is string => typeof language === 'string' && language.trim().length > 0)
+          .slice(0, 20).map(language => language.trim().slice(0, 40))
       : []
-  } as ServerProfile;
+  };
 };
 
 export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOpenAccount }) => {
