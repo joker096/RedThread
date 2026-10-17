@@ -1,17 +1,5 @@
 import React from 'react';
-import { 
-  Heart, 
-  Crown, 
-  ShieldCheck, 
-  Smartphone, 
-  Monitor, 
-  Sparkles, 
-  SlidersHorizontal,
-  Flame,
-  MessageCircle,
-  Brain,
-  DollarSign
-} from 'lucide-react';
+import { SlidersHorizontal, Flame, MessageCircle, Brain } from 'lucide-react';
 import type { DeviceFrame, Gender } from '../types/index.ts';
 import { getTranslationCoverage, LANGUAGE_OPTIONS, useLocale } from '../i18n/LocaleProvider.tsx';
 
@@ -34,13 +22,11 @@ interface HeaderNavProps {
 
 export const HeaderNav: React.FC<HeaderNavProps> = ({
   currentGender,
-  isLadyPremium,
   deviceFrame,
   brandName,
   onOpenBrandModal,
   onToggleGender,
   onToggleDeviceFrame,
-  onOpenPremiumModal,
   onOpenBotScanner,
   onOpenAdManager,
   onOpenFilters,
