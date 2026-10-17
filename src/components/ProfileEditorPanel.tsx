@@ -116,7 +116,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
   };
 
   return (
-    <section className="vow-screen mb-5 rounded-3xl border border-amber-500/20 bg-stone-900/80 p-4 sm:p-5">
+    <section className="vow-screen mb-5 min-w-0 rounded-3xl border border-amber-500/20 bg-stone-900/80 p-3 sm:p-5">
       <p className="text-[10px] uppercase tracking-[0.2em] text-amber-300">Моя анкета</p>
       <h3 className="mt-1 text-lg font-bold text-white">Профиль для серьёзных отношений</h3>
       {authenticated === false ? (
@@ -129,7 +129,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
           {profile && <p className="text-xs text-stone-500">{profile.age} лет · {profile.gender === 'female' ? 'Женский' : 'Мужской'} · ID профиля доступен только серверу</p>}
           <label className="block text-xs text-stone-300">Имя<input value={displayName} onChange={e => setDisplayName(e.target.value)} maxLength={80} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
           <label className="block text-xs text-stone-300">О себе<textarea value={bio} onChange={e => setBio(e.target.value)} maxLength={2000} rows={4} placeholder="Что важно знать о вас и ваших намерениях?" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <label className="block text-xs text-stone-300">Страна<input value={country} onChange={e => setCountry(e.target.value)} maxLength={100} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
             <label className="block text-xs text-stone-300">Город<input value={city} onChange={e => setCity(e.target.value)} maxLength={120} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
             <label className="block text-xs text-stone-300">Профессия<input value={occupation} onChange={e => setOccupation(e.target.value)} maxLength={120} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
