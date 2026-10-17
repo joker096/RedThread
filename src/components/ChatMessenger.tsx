@@ -361,7 +361,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Coffee className="w-5 h-5 text-rose-500" />
-                <h4 className="font-heading text-base font-bold text-white">Пригласить на свидание</h4>
+                <h4 id="date-invite-title" className="font-heading text-base font-bold text-white">Пригласить на свидание</h4>
               </div>
               <button
                 onClick={() => setShowInviteModal(false)}
@@ -390,7 +390,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-2">
                 <div>
                   <label className="block text-stone-400 mb-1">День:</label>
                   <select
