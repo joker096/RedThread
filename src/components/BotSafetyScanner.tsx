@@ -67,7 +67,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
 
   return (
     <div className="vow-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg rounded-3xl bg-stone-900 border border-emerald-950/50 shadow-2xl p-5 sm:p-6 text-left my-auto">
+      <div role="dialog" aria-modal="true" aria-labelledby="bot-safety-title" className="relative w-full max-w-lg rounded-3xl bg-stone-900 border border-emerald-950/50 shadow-2xl p-5 sm:p-6 text-left my-auto">
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -84,7 +84,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-xl font-heading font-black text-white">Нейро-сканер безопасности</h2>
+              <h2 id="bot-safety-title" className="text-xl font-heading font-black text-white">Нейро-сканер безопасности</h2>
               <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
                 riskReport.isSafe
                   ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/30'
@@ -100,7 +100,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
         </div>
 
         {/* Scanner Radar Status Box */}
-        <div className="p-4 rounded-2xl bg-stone-950 border border-white/5 mb-5">
+        <div aria-busy={isScanning} className="p-4 rounded-2xl bg-stone-950 border border-white/5 mb-5">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <Activity className="w-4 h-4 text-emerald-400 animate-pulse" />
