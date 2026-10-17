@@ -14,6 +14,55 @@ type ServerMatch = {
 type ServerMessage = { id: string; senderId: string; text: string; createdAt: string };
 type Props = { onOpenAccount: () => void };
 
+const normalizeServerMatch = (value: unknown): ServerMatch | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const match = value as Partial<ServerMatch>;
+  if (typeof match.id !== 'string' || !match.id.trim() ||
+      typeof match.partnerId !== 'string' || !match.partnerId.trim() ||
+      typeof match.displayName !== 'string' || !match.displayName.trim() ||
+      typeof match.age !== 'number' || !Number.isFinite(match.age) || match.age < 18 || match.age > 120) {
+    return null;
+  }
+  return {
+    id: match.id.trim(),
+    partnerId: match.partnerId.trim(),
+    displayName: match.displayName.trim(),
+    age: Math.floor(match.age),
+    country: typeof match.country === 'string' ? match.country : '',
+    city: typeof match.city === 'string' ? match.city : '',
+    lastMessage: typeof match.lastMessage === 'string' ? match.lastMessage : null,
+    lastMessageAt: typeof match.lastMessageAt === 'string' && Number.isFinite(Date.parse(match.lastMessageAt))
+      ? match.lastMessageAt
+      : null
+  };
+};
+
+const normalizeServerMessage = (value: unknown): ServerMessage | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const message = value as Partial<ServerMessage>;
+  if (typeof message.id !== 'string' || !message.id.trim() ||
+      typeof message.senderId !== 'string' || !message.senderId.trim() ||
+      typeof message.text !== 'string' ||
+      typeof message.createdAt !== 'string' || !Number.isFinite(Date.parse(message.createdAt))) {
+    return null;
+  }
+  return {
+    id: message.id.trim(),
+    senderId: message.senderId.trim(),
+    text: message.text,
+    createdAt: message.createdAt
+  };
+};
+
+const deduplicateById = <T extends { id: string }>(items: T[]): T[] => {
+  const seen = new Set<string>();
+  return items.filter(item => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+};
+
 export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const { t, formatDate } = useLocale();
   const [matches, setMatches] = useState<ServerMatch[]>([]);
@@ -55,7 +104,11 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       if (!response.ok) throw new Error(t('loadMatchesError'));
       const data = await response.json();
       if (requestId !== matchesRequestId.current) return;
-      const nextMatches: ServerMatch[] = Array.isArray(data?.matches) ? data.matches : [];
+      const nextMatches = deduplicateById(
+        Array.isArray(data?.matches)
+          ? data.matches.map(normalizeServerMatch).filter((match): match is ServerMatch => match !== null)
+          : []
+      );
       setMatches(nextMatches);
       setAuthenticated(true);
       setMatchesFailed(false);
@@ -112,7 +165,12 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       if (!response.ok) throw new Error(t('loadMessagesError'));
       const data = await response.json();
       if (requestId !== messageRequestId.current) return;
-      setMessages(Array.isArray(data?.messages) ? data.messages : []);
+      const nextMessages = deduplicateById(
+        Array.isArray(data?.messages)
+          ? data.messages.map(normalizeServerMessage).filter((message): message is ServerMessage => message !== null)
+          : []
+      );
+      setMessages(nextMessages);
       setMessagesFailed(false);
     } catch (error) {
       if (requestId === messageRequestId.current) {
