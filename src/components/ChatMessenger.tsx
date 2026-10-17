@@ -266,7 +266,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             <button
               type="button"
               onClick={() => setShowPartnerServices(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-emerald-600/30 bg-emerald-950/30 text-emerald-200 font-semibold text-xs hover:bg-emerald-900/40 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+              className="flex min-h-11 items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-emerald-600/30 bg-emerald-950/30 text-emerald-200 font-semibold text-xs hover:bg-emerald-900/40 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
               title={t('chatPartnerServicesTitle')}
             >
               <HeartHandshake className="w-4 h-4" />
@@ -277,7 +277,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
               onClick={() => setShowInviteModal(true)}
               aria-haspopup="dialog"
               aria-expanded={showInviteModal}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 text-white font-semibold text-xs shadow-md shadow-rose-950 hover:from-rose-500 hover:to-red-500 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+              className="flex min-h-11 items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 text-white font-semibold text-xs shadow-md shadow-rose-950 hover:from-rose-500 hover:to-red-500 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
             >
               <Coffee className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">{t('chatPlanDate')}</span>
@@ -293,7 +293,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                   setShowDirectContactUnlocked(!showDirectContactUnlocked);
                 }
               }}
-              className={`p-2 rounded-xl border text-xs transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 ${
+              className={`flex min-h-11 min-w-11 items-center justify-center p-2 rounded-xl border text-xs transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 ${
                 isLadyPremium
                   ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
                   : 'bg-stone-800 border-white/5 text-stone-400 hover:text-white'
