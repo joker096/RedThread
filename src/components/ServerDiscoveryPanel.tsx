@@ -538,6 +538,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                         alt={t('photoAlt').replace('{name}', profile.displayName).replace('{number}', String(index + 1))}
                         loading="lazy"
                         decoding="async"
+                        draggable={false}
                         referrerPolicy="no-referrer"
                         className={swipeMode
                           ? index === 0
