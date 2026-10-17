@@ -25,6 +25,38 @@ type ServerProfile = {
 
 type ServerDiscoveryPanelProps = { onOpenAccount: () => void };
 
+const normalizeServerProfile = (value: unknown): ServerProfile | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const profile = value as Partial<ServerProfile>;
+  if (typeof profile.id !== 'string' || !profile.id.trim() ||
+      typeof profile.displayName !== 'string' || !profile.displayName.trim() ||
+      typeof profile.age !== 'number' || !Number.isFinite(profile.age) || profile.age < 18 ||
+      (profile.gender !== 'female' && profile.gender !== 'male') ||
+      !['marriage_family', 'serious_relationship', 'family_without_marriage'].includes(String(profile.relationshipIntent))) {
+    return null;
+  }
+
+  return {
+    ...profile,
+    id: profile.id.trim(),
+    displayName: profile.displayName.trim(),
+    age: Math.floor(profile.age),
+    country: typeof profile.country === 'string' ? profile.country : '',
+    city: typeof profile.city === 'string' ? profile.city : '',
+    bio: typeof profile.bio === 'string' ? profile.bio : '',
+    relationshipIntent: profile.relationshipIntent,
+    financialAlignment: typeof profile.financialAlignment === 'number' && Number.isFinite(profile.financialAlignment)
+      ? profile.financialAlignment
+      : null,
+    photoUrls: Array.isArray(profile.photoUrls)
+      ? profile.photoUrls.filter((url): url is string => typeof url === 'string' && url.trim().length > 0)
+      : [],
+    languages: Array.isArray(profile.languages)
+      ? profile.languages.filter((language): language is string => typeof language === 'string')
+      : []
+  } as ServerProfile;
+};
+
 export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOpenAccount }) => {
   const { t, formatNumber } = useLocale();
   const [profiles, setProfiles] = useState<ServerProfile[]>([]);
@@ -144,7 +176,9 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       if (!response.ok) throw new Error(t('searchSetupError'));
       const data = await response.json();
       if (requestId !== searchRequestId.current) return;
-      const nextProfiles: ServerProfile[] = Array.isArray(data?.profiles) ? data.profiles : [];
+      const nextProfiles: ServerProfile[] = Array.isArray(data?.profiles)
+        ? data.profiles.map(normalizeServerProfile).filter((profile): profile is ServerProfile => profile !== null)
+        : [];
       setProfiles(nextProfiles);
       setAuthenticated(true);
       setSearchFailed(false);
