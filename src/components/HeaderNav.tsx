@@ -1,5 +1,5 @@
 import React from 'react';
-import { SlidersHorizontal, Flame, MessageCircle, Brain } from 'lucide-react';
+import { SlidersHorizontal, Flame, MessageCircle, Brain, Crown } from 'lucide-react';
 import type { DeviceFrame, Gender } from '../types/index.ts';
 import { getTranslationCoverage, LANGUAGE_OPTIONS, useLocale } from '../i18n/LocaleProvider.tsx';
 
@@ -23,11 +23,13 @@ interface HeaderNavProps {
 
 export const HeaderNav: React.FC<HeaderNavProps> = ({
   currentGender,
+  isLadyPremium,
   deviceFrame,
   brandName,
   onOpenBrandModal,
   onToggleGender,
   onToggleDeviceFrame,
+  onOpenPremiumModal,
   onOpenBotScanner,
   onOpenAdManager,
   onOpenFilters,
@@ -156,6 +158,22 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           >
             <SlidersHorizontal className="w-3.5 h-3.5" />
           </button>}
+
+          {currentGender === 'female' && (
+            <button
+              type="button"
+              onClick={onOpenPremiumModal}
+              className={`vow-motion-button hidden min-h-10 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-bold lg:flex ${
+                isLadyPremium
+                  ? 'bg-amber-400 text-stone-950'
+                  : 'border border-rose-500/30 bg-rose-950/50 text-rose-100 hover:bg-rose-900/60'
+              }`}
+              aria-label={isLadyPremium ? 'VIP' : 'Lady VIP'}
+            >
+              <Crown className="h-3.5 w-3.5" />
+              <span>{isLadyPremium ? 'VIP' : 'Lady VIP'}</span>
+            </button>
+          )}
 
         </div>
       </div>
