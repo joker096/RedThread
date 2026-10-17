@@ -99,3 +99,21 @@ test('demo conversations stay hidden until explicitly opened', async ({ page }) 
   await page.getByRole('button', { name: hideDemoChats }).click();
   await expect(page.getByRole('button', { name: showDemoChats })).toBeVisible();
 });
+
+
+test('narrow phone viewport has no document-level horizontal overflow', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.goto('/');
+  await expect(page.getByText('Vow', { exact: false }).first()).toBeVisible();
+
+  const dimensions = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    document: document.documentElement.scrollWidth,
+    body: document.body.scrollWidth
+  }));
+
+  expect(
+    dimensions.document,
+    `document overflows at 320px: viewport=${dimensions.viewport}, document=${dimensions.document}, body=${dimensions.body}`
+  ).toBeLessThanOrEqual(dimensions.viewport);
+});
