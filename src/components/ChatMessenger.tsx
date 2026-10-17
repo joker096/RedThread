@@ -125,7 +125,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                     alt={thread.partnerProfile.name}
                     className="w-12 h-12 rounded-xl object-cover"
                   />
-                  <span className="absolute -bottom-1 -right-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-rose-600 text-white">
+                  <span className="absolute -bottom-1 -end-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-rose-600 text-white">
                     {thread.compatibilityScore}%
                   </span>
                 </span>
@@ -155,7 +155,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
               className="md:hidden p-1.5 rounded-lg bg-stone-800 text-stone-300 hover:text-white"
               aria-label="Назад к списку"
             >
-              <ArrowLeft className="w-4 h-4" />
+              <ArrowLeft className="vow-rtl-back-icon w-4 h-4" />
             </button>
 
             <div className="relative shrink-0">
@@ -164,7 +164,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                 alt={activeThread.partnerProfile.name}
                 className="w-11 h-11 rounded-xl object-cover ring-1 ring-rose-500/40 shrink-0"
               />
-              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-stone-900"></span>
+              <span className="absolute bottom-0 end-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-stone-900"></span>
             </div>
 
             <div className="text-start">
