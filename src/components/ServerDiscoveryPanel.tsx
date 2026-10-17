@@ -527,6 +527,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                   if (action === 'like') void like(profile);
                   else if (action === 'pass') void pass(profile);
                 }}
+                role={swipeMode ? 'group' : undefined}
                 aria-label={swipeMode ? t('swipeProfileAria').replace('{name}', profile.displayName) : undefined}
                 className={`vow-profile-card rounded-2xl border border-white/10 bg-stone-950/70 p-3 ${swipeMode ? 'touch-pan-y' : ''}`}>
                 {profile.photoUrls?.length ? (
