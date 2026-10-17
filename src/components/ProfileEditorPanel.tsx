@@ -65,12 +65,12 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
           : []
       } as Profile;
       setProfile(p);
-      setDisplayName(p.displayName || '');
-      setBio(p.bio || '');
-      setCountry(p.country || '');
-      setCity(p.city || '');
-      setOccupation(p.occupation || '');
-      setEducation(p.education || '');
+      setDisplayName((p.displayName || '').slice(0, 80));
+      setBio((p.bio || '').slice(0, 2000));
+      setCountry((p.country || '').slice(0, 100));
+      setCity((p.city || '').slice(0, 120));
+      setOccupation((p.occupation || '').slice(0, 120));
+      setEducation((p.education || '').slice(0, 120));
       setPhotoUrls((p.photoUrls || []).join('\n'));
       setLanguages((p.languages || []).join(', ').slice(0, 1000));
       setRelationshipIntent(p.relationshipIntent);
