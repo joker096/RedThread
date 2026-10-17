@@ -407,12 +407,13 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
           </button>
 
           <input
+            key={activeThread.id}
             type="text"
             value={inputText}
             onChange={e => {
               const threadId = activeThread.id;
               setDrafts(current => ({ ...current, [threadId]: e.target.value }));
-              setSendErrors(current => ({ ...current, [activeThread.id]: '' }));
+              setSendErrors(current => ({ ...current, [threadId]: '' }));
             }}
             placeholder={t('chatMessagePlaceholder')}
             aria-label={t('chatMessageLabel')}
