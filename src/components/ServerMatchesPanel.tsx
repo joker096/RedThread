@@ -19,7 +19,8 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const [matches, setMatches] = useState<ServerMatch[]>([]);
   const [selected, setSelected] = useState<string>('');
   const [messages, setMessages] = useState<ServerMessage[]>([]);
-  const [draft, setDraft] = useState('');
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const draft = selected ? (drafts[selected] || '') : '';
   const [busy, setBusy] = useState(false);
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -102,7 +103,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       if (requestId !== messageRequestId.current) return;
       if (!response.ok) throw new Error(data?.error === 'too_many_messages' ? t('messageRateLimit') : t('sendMessageError'));
       setMessages(current => [...current, data.message]);
-      setDraft('');
+      setDrafts(current => ({ ...current, [matchId]: '' }));
       void loadMatches();
     } catch (error) {
       if (requestId === messageRequestId.current) {
@@ -146,7 +147,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                 ))}
                 {!messages.length && <p className="text-xs text-stone-500">{t('noMessagesYet')}</p>}
               </div>
-              <textarea aria-label={t('writeMessage')} value={draft} onChange={e => setDraft(e.target.value)} maxLength={4000} rows={2} placeholder={t('writeMessage')} className="w-full resize-y rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white" />
+              <textarea aria-label={t('writeMessage')} value={draft} onChange={e => setDrafts(current => ({ ...current, [selected]: e.target.value }))} maxLength={4000} rows={2} placeholder={t('writeMessage')} className="w-full resize-y rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white" />
               <button type="button" onClick={() => void send()} disabled={busy || !draft.trim()} className="vow-motion-button mt-2 w-full rounded-xl bg-sky-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-40">{busy ? t('sendingMessage') : t('sendMessage')}</button>
               <button type="button" onClick={() => void loadMessages(selected)} className="vow-motion-button mt-2 w-full rounded-xl border border-white/10 px-4 py-2 text-xs text-stone-300">{t('refreshMessages')}</button>
             </div>
