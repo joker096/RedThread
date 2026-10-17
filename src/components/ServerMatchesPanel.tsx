@@ -30,7 +30,7 @@ const normalizeServerMatch = (value: unknown): ServerMatch | null => {
     age: Math.floor(match.age),
     country: typeof match.country === 'string' ? match.country.trim().slice(0, 100) : '',
     city: typeof match.city === 'string' ? match.city.trim().slice(0, 100) : '',
-    lastMessage: typeof match.lastMessage === 'string' && match.lastMessage.trim()
+    lastMessage: typeof match.lastMessage === 'string' && match.lastMessage.length <= 10000 && match.lastMessage.trim()
       ? match.lastMessage.trim().slice(0, 1000)
       : null,
     lastMessageAt: typeof match.lastMessageAt === 'string' && match.lastMessageAt.trim().length > 0 &&
