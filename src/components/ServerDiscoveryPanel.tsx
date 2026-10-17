@@ -365,7 +365,11 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       if (response.status === 409) throw new Error(t('undoMatchError'));
       if (!response.ok) throw new Error(t('undoActionError'));
       const restoredProfile = normalizeServerProfile(data?.profile);
-      if (!restoredProfile || (data.type !== 'like' && data.type !== 'pass')) {
+      if (
+        !restoredProfile ||
+        (data.type !== 'like' && data.type !== 'pass') ||
+        (lastAction && data.type !== lastAction.type)
+      ) {
         throw new Error(t('undoActionError'));
       }
       if (actionEpoch !== sessionEpoch.current) return;
