@@ -230,7 +230,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
           <div className="flex items-center gap-3">
             <button type="button"
               onClick={onBackToList}
-              className="md:hidden p-1.5 rounded-lg bg-stone-800 text-stone-300 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+              className="md:hidden flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-stone-800 text-stone-300 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
               aria-label={t('chatBackToList')}
             >
               <ArrowLeft className="vow-rtl-back-icon w-4 h-4" />
@@ -527,13 +527,13 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             <div className="flex gap-2">
               <button type="button"
                 onClick={() => setShowInviteModal(false)}
-                className="flex-1 py-2.5 rounded-xl bg-stone-800 text-stone-300 font-semibold text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+                className="min-h-11 flex-1 py-2.5 rounded-xl bg-stone-800 text-stone-300 font-semibold text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
               >
                 {t('cancel')}
               </button>
               <button type="button"
                 onClick={handleCreateInvite}
-                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+                className="min-h-11 flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
               >
                 {t('chatSendInvite')}
               </button>
