@@ -25,16 +25,28 @@ type ServerProfile = {
 
 type ServerDiscoveryPanelProps = { onOpenAccount: () => void };
 
+const isSafeProfilePhotoUrl = (value: unknown): value is string => {
+  if (typeof value !== 'string' || !value.trim()) return false;
+  const url = value.trim();
+  if (url.startsWith('/') && !url.startsWith('//')) return true;
+  return /^https?:\/\//i.test(url);
+};
+
 const normalizeServerProfile = (value: unknown): ServerProfile | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const profile = value as Partial<ServerProfile>;
   if (typeof profile.id !== 'string' || !profile.id.trim() ||
       typeof profile.displayName !== 'string' || !profile.displayName.trim() ||
-      typeof profile.age !== 'number' || !Number.isFinite(profile.age) || profile.age < 18 ||
+      typeof profile.age !== 'number' || !Number.isFinite(profile.age) || profile.age < 18 || profile.age > 120 ||
       (profile.gender !== 'female' && profile.gender !== 'male') ||
       !['marriage_family', 'serious_relationship', 'family_without_marriage'].includes(String(profile.relationshipIntent))) {
     return null;
   }
+
+  const score = (candidate: unknown): number | null =>
+    typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0 && candidate <= 100
+      ? candidate
+      : null;
 
   return {
     ...profile,
@@ -45,11 +57,10 @@ const normalizeServerProfile = (value: unknown): ServerProfile | null => {
     city: typeof profile.city === 'string' ? profile.city : '',
     bio: typeof profile.bio === 'string' ? profile.bio : '',
     relationshipIntent: profile.relationshipIntent,
-    financialAlignment: typeof profile.financialAlignment === 'number' && Number.isFinite(profile.financialAlignment)
-      ? profile.financialAlignment
-      : null,
+    financialAlignment: score(profile.financialAlignment),
+    compatibilityScore: score(profile.compatibilityScore) ?? undefined,
     photoUrls: Array.isArray(profile.photoUrls)
-      ? profile.photoUrls.filter((url): url is string => typeof url === 'string' && url.trim().length > 0)
+      ? profile.photoUrls.filter(isSafeProfilePhotoUrl).map(url => url.trim())
       : [],
     languages: Array.isArray(profile.languages)
       ? profile.languages.filter((language): language is string => typeof language === 'string')
