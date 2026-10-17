@@ -287,7 +287,11 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       }
       if (response.status === 402) throw new Error(data?.message || t('trialEndedLike'));
       if (!response.ok) throw new Error(t('sendLikeError'));
-      if (!data?.matched) setActionHistory(current => [...current, { type: 'like' as const, profile }].slice(-50));
+      if (!data || typeof data !== 'object' || Array.isArray(data) ||
+          (data.matched !== undefined && typeof data.matched !== 'boolean')) {
+        throw new Error(t('sendLikeError'));
+      }
+      if (!data.matched) setActionHistory(current => [...current, { type: 'like' as const, profile }].slice(-50));
       setLikedIds(current => current.includes(profile.id) ? current : [...current, profile.id]);
       setNotice(data?.matched
         ? t('mutualLikeOpenedChats').replace('{name}', profile.displayName)
