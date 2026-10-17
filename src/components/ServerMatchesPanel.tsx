@@ -125,8 +125,9 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       if (!data || typeof data !== 'object' || Array.isArray(data) || !Array.isArray(data.matches)) {
         throw new Error(t('loadMatchesError'));
       }
+      const rawMatches: unknown[] = data.matches;
       const nextMatches = deduplicateById(
-        data.matches.slice(-500).map(normalizeServerMatch).filter((match): match is ServerMatch => match !== null)
+        rawMatches.slice(-500).map(normalizeServerMatch).filter((match): match is ServerMatch => match !== null)
       );
       setMatches(nextMatches);
       setAuthenticated(true);
@@ -187,8 +188,9 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       if (!data || typeof data !== 'object' || Array.isArray(data) || !Array.isArray(data.messages)) {
         throw new Error(t('loadMessagesError'));
       }
+      const rawMessages: unknown[] = data.messages;
       const nextMessages = deduplicateById(
-        data.messages.slice(-1000).map(normalizeServerMessage).filter((message): message is ServerMessage => message !== null)
+        rawMessages.slice(-1000).map(normalizeServerMessage).filter((message): message is ServerMessage => message !== null)
       ).slice(-500);
       setMessages(nextMessages);
       setMessagesFailed(false);
