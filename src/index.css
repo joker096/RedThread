@@ -340,3 +340,84 @@ img {
 :root[data-theme="light"] .red-glow-subtle {
   box-shadow: 0 8px 28px -20px rgb(190 24 93 / 25%);
 }
+
+
+/* Vow signature polish: expressive editorial motion with an original rose/lilac palette. */
+:root {
+  --vow-rose: #fb7185;
+  --vow-coral: #ff8b78;
+  --vow-lilac: #b9a5ff;
+  --vow-cream: #fff4ec;
+  --vow-motion-gentle: cubic-bezier(.22, 1, .36, 1);
+}
+
+.vow-discovery-stage {
+  position: relative;
+  isolation: isolate;
+}
+
+.vow-discovery-stage::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 2% -8% 18%;
+  pointer-events: none;
+  opacity: .75;
+  background:
+    radial-gradient(ellipse at 15% 18%, rgb(251 113 133 / 13%), transparent 42%),
+    radial-gradient(ellipse at 88% 55%, rgb(185 165 255 / 12%), transparent 44%);
+  filter: blur(24px);
+}
+
+.vow-profile-card {
+  overflow: clip;
+  border-radius: 1.65rem;
+  box-shadow: 0 24px 70px -40px rgb(251 113 133 / 55%), 0 8px 24px -18px rgb(0 0 0 / 55%);
+  will-change: transform;
+}
+
+.vow-profile-card img {
+  transition: transform 720ms var(--vow-motion-gentle), filter 420ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .vow-profile-card:hover img { transform: scale(1.025); }
+}
+
+.vow-motion-button,
+.vow-like-button,
+.vow-pass-button {
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+.vow-like-button:active:not(:disabled) {
+  transform: scale(.94);
+  box-shadow: 0 0 0 7px rgb(251 113 133 / 10%);
+}
+
+.vow-surface-enter {
+  animation: vow-surface-enter 460ms var(--vow-motion-gentle) both;
+}
+
+@keyframes vow-surface-enter {
+  from { opacity: 0; transform: translateY(10px) scale(.99); filter: blur(3px); }
+  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+.vow-compatibility-orb {
+  background: conic-gradient(from 210deg, var(--vow-rose), var(--vow-coral), var(--vow-lilac), var(--vow-rose));
+  box-shadow: 0 0 0 5px rgb(251 113 133 / 8%), 0 8px 26px -12px rgb(251 113 133 / 70%);
+}
+
+:root[data-theme="light"] .vow-profile-card {
+  box-shadow: 0 24px 70px -42px rgb(190 24 93 / 34%), 0 8px 24px -18px rgb(68 44 52 / 18%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vow-profile-card img,
+  .vow-profile-card:hover img {
+    transform: none !important;
+    transition: none !important;
+  }
+}
