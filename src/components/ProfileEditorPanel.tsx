@@ -72,7 +72,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       setOccupation(p.occupation || '');
       setEducation(p.education || '');
       setPhotoUrls((p.photoUrls || []).join('\n'));
-      setLanguages((p.languages || []).join(', '));
+      setLanguages((p.languages || []).join(', ').slice(0, 1000));
       setRelationshipIntent(p.relationshipIntent);
       setFamilyFormat(p.familyFormat || 'open_to_both');
       setHasChildren(typeof p.hasChildren === 'boolean' ? p.hasChildren : null);
