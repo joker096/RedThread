@@ -187,8 +187,15 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       if (!response.ok) throw new Error(t('searchSetupError'));
       const data = await response.json();
       if (requestId !== searchRequestId.current) return;
+      const seenProfileIds = new Set<string>();
       const nextProfiles: ServerProfile[] = Array.isArray(data?.profiles)
-        ? data.profiles.map(normalizeServerProfile).filter((profile): profile is ServerProfile => profile !== null)
+        ? data.profiles
+            .map(normalizeServerProfile)
+            .filter((profile): profile is ServerProfile => {
+              if (!profile || seenProfileIds.has(profile.id)) return false;
+              seenProfileIds.add(profile.id);
+              return true;
+            })
         : [];
       setProfiles(nextProfiles);
       setAuthenticated(true);
