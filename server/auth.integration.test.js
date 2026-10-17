@@ -103,6 +103,35 @@ test('auth API supports registration, session lookup, logout and login', {
       const forbidden = await request(adminPath, { headers: { Cookie: firstCookie } });
       assert.equal(forbidden.status, 403);
     }
+
+    const forbiddenModerationAction = await request(`/api/admin/reports/${randomUUID()}/action`, {
+      method: 'POST',
+      headers: { Cookie: firstCookie },
+      body: JSON.stringify({ action: 'suspend_user', confirmed: true, reason: 'authorization regression test' })
+    });
+    assert.equal(forbiddenModerationAction.status, 403, 'ordinary users must not perform moderator actions');
+
+    const selfReport = await request('/api/reports', {
+      method: 'POST',
+      headers: { Cookie: firstCookie },
+      body: JSON.stringify({
+        reportedUserId: registered.user.id,
+        category: 'spam',
+        details: 'A user cannot report their own account'
+      })
+    });
+    assert.equal(selfReport.status, 400, 'users must not submit reports against themselves');
+
+    const invalidReportCategory = await request('/api/reports', {
+      method: 'POST',
+      headers: { Cookie: firstCookie },
+      body: JSON.stringify({
+        reportedUserId: randomUUID(),
+        category: 'make_admin',
+        details: 'Invalid category must be rejected before target lookup'
+      })
+    });
+    assert.equal(invalidReportCategory.status, 400, 'unknown report categories must be rejected');
     const markNotificationsRead = await request('/api/notifications/read-all', {
       method: 'POST',
       headers: { Cookie: firstCookie }
