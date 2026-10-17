@@ -149,7 +149,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
                 setNotice(data.reviewStatus==='approved'?'Фото прошло автоматическую предварительную проверку и загружено.': 'Фото загружено и ожидает проверки модератором. После одобрения оно станет доступно в поиске.');
               } catch(error){setNotice(error instanceof Error?error.message:'Ошибка загрузки фотографии.');}
               finally{setUploadBusy(false);}
-            }} className="mt-2 block w-full text-sm text-stone-300 file:mr-3 file:rounded-lg file:border-0 file:bg-rose-700 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white" />
+            }} className="mt-2 block w-full text-sm text-stone-300 file:me-3 file:rounded-lg file:border-0 file:bg-rose-700 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white" />
           </label>
           <label className="block text-xs text-stone-300">Загруженные фотографии (до 6 всего)<textarea value={photoUrls} readOnly rows={3} placeholder="Загрузите фото через форму выше" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white read-only:opacity-80" /></label>
           {photoUrls.split(/\n|,/).map(value => value.trim()).filter(Boolean).length > 0 && <button type="button" onClick={() => setPhotoUrls(current => current.split(/\n|,/).map(value => value.trim()).filter(Boolean).slice(0, -1).join("\n"))} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-stone-300">Убрать последнюю фотографию</button>}
