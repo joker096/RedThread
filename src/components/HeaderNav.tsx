@@ -63,11 +63,11 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
         </div>
 
         {/* Center: Sleek Segmented Navigation (Desktop & Tablet) */}
-        <nav aria-label={t('primaryNavigation')} className="hidden lg:flex items-center gap-1 rounded-full border border-white/[0.07] bg-stone-900/90 p-1">
+        <nav aria-label={t('primaryNavigation')} className="hidden items-center gap-1 rounded-full border border-white/[0.07] bg-stone-900/90 p-1 lg:flex">
           <button
             onClick={() => setActiveTab('discovery')}
             aria-current={activeTab === 'discovery' ? 'page' : undefined}
-            className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${
+            className={`min-h-10 px-3 py-2 rounded-full text-xs font-bold transition-all ${
               activeTab === 'discovery'
                 ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-sm'
                 : 'text-stone-400 hover:text-stone-200'
@@ -79,7 +79,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           <button
             onClick={() => setActiveTab('tests')}
             aria-current={activeTab === 'tests' ? 'page' : undefined}
-            className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition-all ${
+            className={`flex items-center gap-1 min-h-10 px-3 py-2 rounded-full text-xs font-bold transition-all ${
               activeTab === 'tests'
                 ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-sm'
                 : 'text-stone-400 hover:text-stone-200'
@@ -93,7 +93,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             data-testid="nav-chats"
             onClick={() => setActiveTab('chats')}
             aria-current={activeTab === 'chats' ? 'page' : undefined}
-            className={`relative px-3 py-1 rounded-full text-xs font-bold transition-all ${
+            className={`relative min-h-10 px-3 py-2 rounded-full text-xs font-bold transition-all ${
               activeTab === 'chats'
                 ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-sm'
                 : 'text-stone-400 hover:text-stone-200'
@@ -101,7 +101,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           >
             <span>{t('chats')}</span>
             {unreadChatsCount > 0 && (
-              <span className="ml-1 px-1.5 py-0.2 rounded-full text-[9px] bg-amber-400 text-stone-950 font-black">
+              <span aria-label={`${unreadChatsCount}`} className="ml-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-amber-400 px-1.5 text-[9px] font-black leading-none text-stone-950">
                 {unreadChatsCount}
               </span>
             )}
@@ -110,7 +110,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           <button
             onClick={() => setActiveTab('safety')}
             aria-current={activeTab === 'safety' ? 'page' : undefined}
-            className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${
+            className={`min-h-10 px-3 py-2 rounded-full text-xs font-bold transition-all ${
               activeTab === 'safety'
                 ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-sm'
                 : 'text-stone-400 hover:text-stone-200'
