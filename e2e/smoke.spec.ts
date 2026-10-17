@@ -21,7 +21,7 @@ test('theme toggle changes scheme and persists after reload', async ({ page }) =
 
 test('demo conversations stay hidden until explicitly opened', async ({ page }) => {
   await page.goto('/');
-  await page.locator('button[title="Chats"], button[title="Чаты"]').first().click({ force: true });
+  await page.locator('button[title="Chats"]:visible, button[title="Чаты"]:visible').first().click({ force: true });
 
   await expect(page.getByText(/prototype conversations are hidden|демонстрационные переписки скрыты/i)).toBeVisible();
   await expect(page.getByRole('button', { name: showDemoChats })).toBeVisible();
