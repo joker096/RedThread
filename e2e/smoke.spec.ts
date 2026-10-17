@@ -149,3 +149,13 @@ test('reduced-motion preference disables decorative motion', async ({ page }) =>
   expect(styles.transitionDuration.split(',').every(value => ['0s', '0.01ms'].includes(value.trim()))).toBe(true);
 });
 
+test('password reset token is removed from the address bar before the reset form is shown', async ({ page }) => {
+  const token = 'e2e-sensitive-reset-token';
+  await page.goto(`/?resetPassword=${token}`);
+
+  // The account panel is mounted on the Tests tab; its effect consumes and scrubs the one-time token.
+  await page.getByRole('button', { name: /tests|тесты/i }).first().click();
+  await expect(page.locator('input[autocomplete="new-password"]')).toBeVisible();
+  await expect.poll(() => page.url()).not.toContain(token);
+  await expect(page.locator('input[autocomplete="new-password"]')).toHaveAttribute('minlength', '12');
+});
