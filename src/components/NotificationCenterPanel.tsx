@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 type NotificationItem={id:string;type:'new_match'|'new_message';metadata:Record<string,unknown>;createdAt:string;readAt:string|null};
 export const NotificationCenterPanel:React.FC=()=>{
@@ -9,16 +9,20 @@ export const NotificationCenterPanel:React.FC=()=>{
  const [busy,setBusy]=useState(false);
  const [allowed,setAllowed]=useState(false);
  const [notice,setNotice]=useState('');
+ const refreshRequestId=useRef(0);
  const refresh=useCallback(async()=>{
+  const requestId=++refreshRequestId.current;
   setBusy(true);
   try{
    const response=await fetch('/api/notifications?limit=20',{credentials:'include'});
-   if(response.status===401){setAllowed(false);setReady(true);return;}
+   if(requestId!==refreshRequestId.current)return;
+   if(response.status===401){setAllowed(false);setReady(true);setItems([]);setUnread(0);setNotice('');return;}
    const data=await response.json().catch(()=>null);
+   if(requestId!==refreshRequestId.current)return;
    if(!response.ok)throw new Error(t('notificationsLoadError'));
-   setItems(data.notifications||[]);setUnread(Number(data.unreadCount)||0);setAllowed(true);setReady(true);setNotice('');
-  }catch{setNotice(t('notificationsLoadError'));setReady(true);}
-  finally{setBusy(false);}
+   setItems(Array.isArray(data?.notifications)?data.notifications:[]);setUnread(Number(data?.unreadCount)||0);setAllowed(true);setReady(true);setNotice('');
+  }catch{if(requestId===refreshRequestId.current){setNotice(t('notificationsLoadError'));setReady(true);}}
+  finally{if(requestId===refreshRequestId.current)setBusy(false);}
  },[t]);
  useEffect(()=>{void refresh();const refreshOnSession=()=>void refresh();window.addEventListener('focus',refreshOnSession);window.addEventListener('vow:session-changed',refreshOnSession);return()=>{window.removeEventListener('focus',refreshOnSession);window.removeEventListener('vow:session-changed',refreshOnSession);};},[refresh]);
  const markRead=async(id?:string)=>{
