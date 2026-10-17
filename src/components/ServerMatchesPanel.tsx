@@ -176,7 +176,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   };
 
   return (
-    <section data-testid="server-matches-panel" className="mb-5 overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-stone-900 via-stone-900 to-sky-950/40 p-4 shadow-xl shadow-black/10 sm:p-5">
+    <section data-testid="server-matches-panel" className="vow-screen mb-5 overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-stone-900 via-stone-900 to-sky-950/40 p-4 shadow-xl shadow-black/10 sm:p-5">
       <div className="mb-4 flex items-start justify-between gap-3">
         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-sky-300">{t('serverChats')}</p>
         <h3 className="mt-1 text-xl font-bold tracking-tight text-white">{t('mutualMatches')}</h3>
