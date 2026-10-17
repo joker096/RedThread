@@ -28,7 +28,7 @@ export const NotificationCenterPanel:React.FC=()=>{
    const seenNotificationIds = new Set<string>();
    const notifications: NotificationItem[] = Array.isArray(data?.notifications)
     ? data.notifications.slice(0, 20).filter((item: unknown): item is NotificationItem => {
-       if (!item || typeof item !== 'object') return false;
+       if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
        const value = item as Partial<NotificationItem>;
        return typeof value.id === 'string' && value.id.trim().length > 0 && value.id.trim().length <= 256 &&
         (value.type === 'new_match' || value.type === 'new_message') &&
