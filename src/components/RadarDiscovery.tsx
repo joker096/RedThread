@@ -74,6 +74,8 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
     wasSuperLiked: boolean;
   }>>([]);
   const touchStartX = useRef<number | null>(null);
+  // A sponsored placement is dismissed for this discovery session after one pass/swipe.
+  const dismissedSponsorAds = useRef(new Set<string>());
 
   const currentProfile = profiles[currentIndex];
   const profilePoolSignature = profiles.map(profile => profile.id).join('\u001f');
@@ -91,6 +93,10 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
       setIsPlayingAudio(false);
       return;
     }
+    if (profiles[currentIndex]?.isSponsorAd && dismissedSponsorAds.current.has(profiles[currentIndex].id)) {
+      setCurrentIndex(previous => Math.min(previous + 1, profiles.length));
+      return;
+    }
     if (profiles.length === 0) {
       setCurrentIndex(0);
       setHistory([]);
@@ -103,6 +109,9 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
   }, [profilePoolSignature, profiles.length, currentIndex]);
 
   const handleNext = (action: 'like' | 'superLike' | 'pass' | 'ad') => {
+    if (currentProfile?.isSponsorAd && action === 'ad') {
+      dismissedSponsorAds.current.add(currentProfile.id);
+    }
     if (currentProfile) setHistory(previous => [...previous, {
       index: currentIndex,
       profileId: currentProfile.id,
