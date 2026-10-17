@@ -74,7 +74,7 @@ const normalizeServerProfile = (value: unknown): ServerProfile | null => {
     financialAlignment: score(profile.financialAlignment),
     compatibilityScore: score(profile.compatibilityScore) ?? undefined,
     photoUrls: Array.isArray(profile.photoUrls)
-      ? profile.photoUrls.filter(isSafeProfilePhotoUrl).slice(0, 20).map(url => url.trim())
+      ? Array.from(new Set(profile.photoUrls.filter(isSafeProfilePhotoUrl).map(url => url.trim()))).slice(0, 20)
       : [],
     languages: Array.isArray(profile.languages)
       ? profile.languages
