@@ -22,8 +22,8 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
   const [displayName, setDisplayName] = useState('');
   const [birthDate, setBirthDate] = useState('');
   const [gender, setGender] = useState<'female' | 'male'>('female');
-  const [country, setCountry] = useState('Грузия');
-  const [city, setCity] = useState('Тбилиси');
+  const [country, setCountry] = useState('');
+  const [city, setCity] = useState('');
   const [relationshipIntent, setRelationshipIntent] = useState<'marriage_family' | 'serious_relationship' | 'family_without_marriage'>('marriage_family');
   const [familyFormat, setFamilyFormat] = useState<'marriage' | 'cohabitation' | 'open_to_both'>('open_to_both');
   const [hasChildren, setHasChildren] = useState<boolean | null>(null);
@@ -67,10 +67,10 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         body: JSON.stringify({ token: verificationToken })
       }).then(async response => {
         const data = await response.json().catch(() => null);
-        if (!response.ok) throw new Error('This verification link is invalid or has expired. Request a new one.');
-        setMessage(data?.message || 'Email verified. You can now sign in.');
+        if (!response.ok) throw new Error(t('authVerificationLinkInvalid'));
+        setMessage(t('authEmailVerified'));
         setMode('login');
-      }).catch(error => setMessage(error instanceof Error ? error.message : 'Email verification failed.'));
+      }).catch(error => setMessage(error instanceof Error ? error.message : t('authVerificationFailed')));
       params.delete('verifyEmail');
       window.history.replaceState({}, '', window.location.pathname + (params.size ? '?' + params.toString() : '') + window.location.hash);
     }
@@ -108,10 +108,10 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
           email_verification_required: t('authVerifyEmailFirst'),
           email_delivery_not_configured: t('authEmailNotConfigured'),
           verification_email_delivery_failed: t('authVerificationDeliveryFailed'),
-          valid_country_and_city_required: 'Укажите страну и город.',
-          invalid_gender: 'Выберите пол.',
-          children_status_required: 'Обязательно укажите, есть ли у вас дети.',
-          invalid_family_format: 'Выберите подходящий формат семьи.'
+          valid_country_and_city_required: t('authCountryCityRequired'),
+          invalid_gender: t('authGenderRequired'),
+          children_status_required: t('authChildrenStatusRequired'),
+          invalid_family_format: t('authFamilyFormatRequired')
         };
         if (data?.error === 'email_verification_required' || data?.error === 'verification_email_delivery_failed') setCanResendVerification(true);
         throw new Error(errors[data?.error] || t('authRequestFailed'));
@@ -119,7 +119,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       setUser(data.user);
       const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
       setBillingStatus(billing);
-      setMessage(mode === 'register' ? 'Аккаунт создан.' : 'Вы вошли в аккаунт.');
+      setMessage(mode === 'register' ? t('authAccountCreated') : t('authSignedIn'));
       setPassword('');
       onAuthenticated();
     } catch (error) {
@@ -136,7 +136,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email })
       });
       const data = await response.json().catch(() => null);
-      setMessage(data?.message || 'Если аккаунту требуется подтверждение, письмо будет отправлено.');
+      setMessage(t('authResendGeneric'));
       setCanResendVerification(false);
     } catch {
       setMessage(t('authResendFailed'));
@@ -150,7 +150,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email })
       });
       const data = await response.json().catch(() => null);
-      setMessage(data?.message || 'Если аккаунт существует, инструкции будут отправлены на email.');
+      setMessage(t('authResetGeneric'));
     } catch {
       setMessage(t('authResetRequestFailed'));
     } finally { setBusy(false); }
@@ -173,7 +173,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       setResetToken('');
       setResetPassword('');
       setMode('login');
-      setMessage(data?.message || 'Пароль изменён. Войдите с новым паролем.');
+      setMessage(t('authPasswordChanged'));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : t('authPasswordChangeFailed'));
     } finally { setBusy(false); }
@@ -212,7 +212,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       setDeleteNotice(t('authDeleteSuccess'));
       onAuthenticated();
     } catch (error) {
-      setDeleteNotice(error instanceof Error ? error.message : 'Ошибка удаления аккаунта.');
+      setDeleteNotice(error instanceof Error ? error.message : t('authDeleteGenericError'));
     } finally {
       setBusy(false);
     }
@@ -285,13 +285,13 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
               <label className="block text-xs text-stone-300">{t('familyFormatLabel')}<select value={familyFormat} onChange={e => setFamilyFormat(e.target.value as typeof familyFormat)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="open_to_both">{t('openToMarriageAndLiving')}</option><option value="marriage">{t('officialMarriageOnly')}</option><option value="cohabitation">{t('livingTogetherOnly')}</option></select></label>
               <fieldset className="rounded-xl border border-white/10 bg-stone-950 p-3">
                 <legend className="px-1 text-xs font-semibold text-white">{t('hasChildrenQuestion')} {t('authChildrenRequired')}</legend>
-                <p className="mb-2 text-[10px] leading-relaxed text-stone-400">Укажите правду. Информация важна для осознанного выбора обоих партнёров.</p>
+                <p className="mb-2 text-[10px] leading-relaxed text-stone-400">{t('authChildrenHonestyHelp')}</p>
                 <div className="grid grid-cols-2 gap-2">
                   <button type="button" onClick={() => {setHasChildren(true);setChildrenLivingArrangement('prefer_to_discuss');}} className={`rounded-lg border p-2 text-xs ${hasChildren === true ? 'border-rose-500 bg-rose-950 text-white' : 'border-white/10 text-stone-300'}`}>{t('yesChildren')}</button>
                   <button type="button" onClick={() => {setHasChildren(false);setChildrenLivingArrangement('not_applicable');}} className={`rounded-lg border p-2 text-xs ${hasChildren === false ? 'border-rose-500 bg-rose-950 text-white' : 'border-white/10 text-stone-300'}`}>{t('noChildrenAnswer')}</button>
                 </div>
                 {hasChildren === true && <label className="mt-3 block text-xs text-stone-300">{t('authChildrenLivingPrompt')}<select value={childrenLivingArrangement} onChange={e => setChildrenLivingArrangement(e.target.value as typeof childrenLivingArrangement)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="with_me">{t('authChildrenWithMe')}</option><option value="shared_custody">{t('authChildrenSharedCustody')}</option><option value="with_other_parent">{t('authChildrenWithOtherParent')}</option><option value="prefer_to_discuss">{t('authChildrenPreferDiscuss')}</option></select></label>}
-                <label className="mt-3 block text-xs text-stone-300">{t('authChildrenFuturePrompt')}<select value={wantsChildren} onChange={e => setWantsChildren(e.target.value as typeof wantsChildren)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="yes">Да</option><option value="no">Нет</option><option value="discuss">{t('authChildrenDiscuss')}</option><option value="unsure">{t('authChildrenUnsure')}</option></select></label>
+                <label className="mt-3 block text-xs text-stone-300">{t('authChildrenFuturePrompt')}<select value={wantsChildren} onChange={e => setWantsChildren(e.target.value as typeof wantsChildren)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="yes">{t('authYes')}</option><option value="no">{t('authNo')}</option><option value="discuss">{t('authChildrenDiscuss')}</option><option value="unsure">{t('authChildrenUnsure')}</option></select></label>
               </fieldset>
             </>}
             <label className="block text-xs text-stone-300">{t('email')}<input type="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
