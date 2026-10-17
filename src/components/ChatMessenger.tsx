@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { 
   Send, 
+  LoaderCircle,
   Clock, 
   Calendar, 
   Coffee, 
@@ -428,7 +429,10 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-rose-600 text-white shadow-md transition-all hover:bg-rose-500 disabled:opacity-40"
             aria-label={t('chatSendMessage')}
           >
-            <Send className="w-4 h-4" />
+            {sendingThreadIds.has(activeThread.id)
+              ? <LoaderCircle className="w-4 h-4 animate-spin" aria-hidden="true" />
+              : <Send className="w-4 h-4" />
+            }
           </button>
         </form>
       </div>
