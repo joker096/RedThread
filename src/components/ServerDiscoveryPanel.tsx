@@ -257,6 +257,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
 
   const undoPass = async () => {
     if (busy) return;
+    const actionEpoch = sessionEpoch.current;
     const lastAction = actionHistory[actionHistory.length - 1];
     setBusy(true);
     try {
@@ -265,6 +266,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
           method: 'DELETE', credentials: 'include',
           headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({})
         });
+        if (actionEpoch !== sessionEpoch.current) return;
         if (response.status === 401) {
           setAuthenticated(false);
           setNotice(t('signInToUndoLike'));
@@ -293,6 +295,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
             body: JSON.stringify({})
           });
       const data = await response.json().catch(() => null);
+      if (actionEpoch !== sessionEpoch.current) return;
       if (response.status === 401) {
         setAuthenticated(false);
         setNotice(t('signInToUndoAction'));
@@ -309,14 +312,15 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         ? t('undoLikeSuccess').replace('{name}', data.profile.displayName)
         : t('undoPassSuccess'));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('undoActionError'));
+      if (actionEpoch === sessionEpoch.current) setNotice(error instanceof Error ? error.message : t('undoActionError'));
     } finally {
-      setBusy(false);
+      if (actionEpoch === sessionEpoch.current) setBusy(false);
     }
   };
 
   const submitReport = async (profile: ServerProfile) => {
     if (busy) return;
+    const actionEpoch = sessionEpoch.current;
     setBusy(true);
     try {
       const response = await fetch('/api/reports', {
@@ -326,6 +330,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         body: JSON.stringify({ reportedUserId: profile.id, category: reportCategory, details: reportDetails.trim() })
       });
       const data = await response.json().catch(() => null);
+      if (actionEpoch !== sessionEpoch.current) return;
       if (response.status === 401) {
         setAuthenticated(false);
         setNotice(t('signInToReport'));
@@ -336,14 +341,15 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       setReportDetails('');
       setNotice(t('reportSuccess'));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('reportError'));
+      if (actionEpoch === sessionEpoch.current) setNotice(error instanceof Error ? error.message : t('reportError'));
     } finally {
-      setBusy(false);
+      if (actionEpoch === sessionEpoch.current) setBusy(false);
     }
   };
 
   const block = async (profile: ServerProfile) => {
     if (busy) return;
+    const actionEpoch = sessionEpoch.current;
     setBusy(true);
     try {
       const response = await fetch(`/api/blocks/${encodeURIComponent(profile.id)}`, {
@@ -352,6 +358,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({})
       });
+      if (actionEpoch !== sessionEpoch.current) return;
       if (response.status === 401) {
         setAuthenticated(false);
         setNotice(t('signInToBlock'));
@@ -364,9 +371,9 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       setProfiles(current => current.filter(item => item.id !== profile.id));
       setNotice(t('blockedProfileNotice').replace('{name}', profile.displayName));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('blockOperationError'));
+      if (actionEpoch === sessionEpoch.current) setNotice(error instanceof Error ? error.message : t('blockOperationError'));
     } finally {
-      setBusy(false);
+      if (actionEpoch === sessionEpoch.current) setBusy(false);
     }
   };
 
@@ -376,9 +383,11 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       return;
     }
     if (busy) return;
+    const actionEpoch = sessionEpoch.current;
     setBusy(true);
     try {
       const response = await fetch('/api/blocks', { credentials: 'include' });
+      if (actionEpoch !== sessionEpoch.current) return;
       if (response.status === 401) {
         setAuthenticated(false);
         setNotice(t('signInToBlock'));
@@ -386,6 +395,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       }
       if (!response.ok) throw new Error(t('blockedProfilesLoadError'));
       const data = await response.json();
+      if (actionEpoch !== sessionEpoch.current) return;
       const nextProfiles: Array<{ id: string; displayName: string }> = Array.isArray(data?.blocks)
         ? (data.blocks as unknown[]).filter((item: unknown): item is { id: string; displayName: string } =>
             Boolean(item && typeof item === 'object' &&
@@ -396,20 +406,22 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       setBlockedIds(nextProfiles.map(item => item.id));
       setBlockedProfilesOpen(true);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('blockedProfilesLoadError'));
+      if (actionEpoch === sessionEpoch.current) setNotice(error instanceof Error ? error.message : t('blockedProfilesLoadError'));
     } finally {
-      setBusy(false);
+      if (actionEpoch === sessionEpoch.current) setBusy(false);
     }
   };
 
   const unblock = async (profile: { id: string; displayName: string }) => {
     if (busy) return;
+    const actionEpoch = sessionEpoch.current;
     setBusy(true);
     try {
       const response = await fetch(`/api/blocks/${encodeURIComponent(profile.id)}`, {
         method: 'DELETE',
         credentials: 'include'
       });
+      if (actionEpoch !== sessionEpoch.current) return;
       if (response.status === 401) {
         setAuthenticated(false);
         setNotice(t('signInToBlock'));
@@ -420,9 +432,9 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       setBlockedIds(current => current.filter(id => id !== profile.id));
       setNotice(t('unblockSuccess').replace('{name}', profile.displayName));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('blockOperationError'));
+      if (actionEpoch === sessionEpoch.current) setNotice(error instanceof Error ? error.message : t('blockOperationError'));
     } finally {
-      setBusy(false);
+      if (actionEpoch === sessionEpoch.current) setBusy(false);
     }
   };
 
