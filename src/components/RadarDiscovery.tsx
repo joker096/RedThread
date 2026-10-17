@@ -236,7 +236,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
       </div>
 
       {/* Main Full-Bleed Card Container */}
-      <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} className="vow-profile-card w-full relative rounded-3xl overflow-hidden bg-stone-900 border border-white/10 shadow-2xl transition-all">
+      <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} className="vow-profile-card vow-surface-enter w-full relative rounded-3xl overflow-hidden bg-stone-900 border border-white/10 shadow-2xl transition-all">
         {currentProfile.isSponsorAd ? (
           /* 100% ADAPTIVE NATIVE SPONSOR AD CARD */
           <div className="flex flex-col w-full text-left">
