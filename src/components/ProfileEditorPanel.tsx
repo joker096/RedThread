@@ -158,7 +158,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
           <label className="block text-xs text-stone-300">Формат семьи<select value={familyFormat} onChange={e => setFamilyFormat(e.target.value as typeof familyFormat)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="open_to_both">Открыт(а) к обоим форматам</option><option value="marriage">Только официальный брак</option><option value="cohabitation">Совместная жизнь без брака</option></select></label>
           <fieldset className="rounded-xl border border-white/10 bg-stone-950 p-3">
             <legend className="px-1 text-xs font-semibold text-white">Есть ли у вас дети? Обязательно</legend>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-2">
               <button type="button" onClick={() => {setHasChildren(true);setChildrenLivingArrangement('prefer_to_discuss');}} className={`rounded-lg border p-2 text-xs ${hasChildren === true ? 'border-rose-500 bg-rose-950 text-white' : 'border-white/10 text-stone-300'}`}>Да</button>
               <button type="button" onClick={() => {setHasChildren(false);setChildrenLivingArrangement('not_applicable');}} className={`rounded-lg border p-2 text-xs ${hasChildren === false ? 'border-rose-500 bg-rose-950 text-white' : 'border-white/10 text-stone-300'}`}>Нет</button>
             </div>
