@@ -64,9 +64,9 @@ const normalizeServerProfile = (value: unknown): ServerProfile | null => {
     wantsChildren: profile.wantsChildren === 'yes' || profile.wantsChildren === 'no' || profile.wantsChildren === 'discuss' || profile.wantsChildren === 'unsure'
       ? profile.wantsChildren
       : undefined,
-    childrenLivingArrangement: typeof profile.childrenLivingArrangement === 'string' ? profile.childrenLivingArrangement.slice(0, 200) : undefined,
-    occupation: typeof profile.occupation === 'string' ? profile.occupation.slice(0, 120) : undefined,
-    education: typeof profile.education === 'string' ? profile.education.slice(0, 120) : undefined,
+    childrenLivingArrangement: typeof profile.childrenLivingArrangement === 'string' ? profile.childrenLivingArrangement.trim().slice(0, 200) : undefined,
+    occupation: typeof profile.occupation === 'string' ? profile.occupation.trim().slice(0, 120) : undefined,
+    education: typeof profile.education === 'string' ? profile.education.trim().slice(0, 120) : undefined,
     financialAlignment: score(profile.financialAlignment),
     compatibilityScore: score(profile.compatibilityScore) ?? undefined,
     photoUrls: Array.isArray(profile.photoUrls)
