@@ -296,7 +296,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
         )}
 
         {/* Messages Feed */}
-        <div role="log" aria-live="polite" aria-relevant="additions text" className="flex-1 overflow-y-auto p-4 space-y-3">
+        <div role="log" aria-label={t('chatMessages')} aria-live="polite" aria-relevant="additions text" aria-atomic="false" className="flex-1 overflow-y-auto p-4 space-y-3">
           {/* Compatibility recap chip */}
           <div className="flex justify-center mb-2">
             <div className="px-3 py-1 rounded-full bg-stone-950/80 border border-rose-900/30 text-[11px] text-stone-400 flex items-center gap-1.5">
@@ -421,8 +421,9 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
 
             <div className="space-y-3 mb-5 text-xs">
               <div>
-                <label className="block text-stone-400 mb-1">{t('chatPlaceFormat')}</label>
+                <label htmlFor="date-invite-place" className="block text-stone-400 mb-1">{t('chatPlaceFormat')}</label>
                 <select
+                  id="date-invite-place"
                   value={selectedPlace}
                   onChange={e => setSelectedPlace(e.target.value)}
                   className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs"
@@ -436,8 +437,9 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
 
               <div className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-2">
                 <div>
-                  <label className="block text-stone-400 mb-1">{t('chatDay')}</label>
+                  <label htmlFor="date-invite-day" className="block text-stone-400 mb-1">{t('chatDay')}</label>
                   <select
+                    id="date-invite-day"
                     value={selectedDay}
                     onChange={e => setSelectedDay(e.target.value)}
                     className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs"
@@ -449,8 +451,9 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-stone-400 mb-1">{t('chatTime')}</label>
+                  <label htmlFor="date-invite-time" className="block text-stone-400 mb-1">{t('chatTime')}</label>
                   <select
+                    id="date-invite-time"
                     value={selectedTime}
                     onChange={e => setSelectedTime(e.target.value)}
                     className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs"
