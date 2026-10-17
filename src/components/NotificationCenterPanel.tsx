@@ -29,7 +29,7 @@ export const NotificationCenterPanel:React.FC=()=>{
     ? data.notifications.filter((item: unknown): item is NotificationItem => {
        if (!item || typeof item !== 'object') return false;
        const value = item as Partial<NotificationItem>;
-       return typeof value.id === 'string' && value.id.trim().length > 0 &&
+       return typeof value.id === 'string' && value.id.trim().length > 0 && value.id.trim().length <= 256 &&
         (value.type === 'new_match' || value.type === 'new_message') &&
         value.metadata !== null && typeof value.metadata === 'object' && !Array.isArray(value.metadata) &&
         typeof value.createdAt === 'string' && value.createdAt.trim().length > 0 && Number.isFinite(Date.parse(value.createdAt)) &&
