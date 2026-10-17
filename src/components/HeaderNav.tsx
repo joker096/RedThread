@@ -15,6 +15,7 @@ interface HeaderNavProps {
   onOpenBotScanner: () => void;
   onOpenAdManager: () => void;
   onOpenFilters: () => void;
+  showFilters?: boolean;
   activeTab: 'discovery' | 'tests' | 'chats' | 'safety' | 'monetization';
   setActiveTab: (tab: 'discovery' | 'tests' | 'chats' | 'safety' | 'monetization') => void;
   unreadChatsCount: number;
@@ -30,6 +31,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   onOpenBotScanner,
   onOpenAdManager,
   onOpenFilters,
+  showFilters = true,
   activeTab,
   setActiveTab,
   unreadChatsCount
@@ -145,15 +147,15 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             <span>{currentGender === 'female' ? `${t('demoWoman')} ♀` : `${t('demoMan')} ♂`}</span>
           </button>
 
-          {/* Filter button */}
-          <button
+          {/* Demo filters only: registered-account discovery has its own connected filters. */}
+          {showFilters && <button
             onClick={onOpenFilters}
             className="vow-motion-button flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-stone-900 text-stone-300 transition-colors hover:border-rose-500/40 hover:text-white"
             title={t('filters')}
             aria-label={t('filters')}
           >
             <SlidersHorizontal className="w-3.5 h-3.5" />
-          </button>
+          </button>}
 
         </div>
       </div>
