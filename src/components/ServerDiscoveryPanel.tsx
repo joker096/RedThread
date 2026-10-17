@@ -340,8 +340,8 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       }
       if (!response.ok) throw new Error(t('blockedProfilesLoadError'));
       const data = await response.json();
-      const nextProfiles = Array.isArray(data?.blocks)
-        ? data.blocks.filter((item: unknown): item is { id: string; displayName: string } =>
+      const nextProfiles: Array<{ id: string; displayName: string }> = Array.isArray(data?.blocks)
+        ? (data.blocks as unknown[]).filter((item: unknown): item is { id: string; displayName: string } =>
             Boolean(item && typeof item === 'object' &&
               typeof (item as { id?: unknown }).id === 'string' &&
               typeof (item as { displayName?: unknown }).displayName === 'string'))
