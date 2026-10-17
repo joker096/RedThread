@@ -620,7 +620,9 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h4 className="font-semibold text-white">{profile.displayName}, {profile.age}</h4>
-                    <p className="mt-1 text-xs text-stone-400">{profile.city}, {profile.country}</p>
+                    {[profile.city, profile.country].filter(value => value.trim()).join(', ') && (
+                      <p className="mt-1 text-xs text-stone-400">{[profile.city, profile.country].filter(value => value.trim()).join(', ')}</p>
+                    )}
                   </div>
                   <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
                     {profile.compatibilityScore !== null && profile.compatibilityScore !== undefined && <span className="rounded-full border border-rose-500/30 px-2 py-1 text-[10px] text-rose-200">{t('compatibilityScore')} {profile.compatibilityScore}%</span>}
