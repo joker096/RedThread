@@ -123,7 +123,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       ) : (
         <div className="space-y-3">
           {matches.map(match => (
-            <button type="button" key={match.id} onClick={() => { setMessages([]); setNotice(''); setSelected(match.id); }} className={`w-full rounded-2xl border p-3 text-left ${selected === match.id ? 'border-sky-400/60 bg-sky-950/30' : 'border-white/10 bg-stone-950/60'}`}>
+            <button type="button" key={match.id} onClick={() => { setMessages([]); setNotice(''); setSelected(match.id); }} className={`vow-motion-button w-full rounded-2xl border p-3 text-left ${selected === match.id ? 'border-sky-400/60 bg-sky-950/30' : 'border-white/10 bg-stone-950/60'}`}>
               <span className="block text-sm font-semibold text-white">{match.displayName}, {match.age}</span>
               <span className="mt-1 block text-xs text-stone-400">{match.city}, {match.country}</span>
               <span className="mt-1 block truncate text-xs text-stone-500">{match.lastMessage || t('matchCreatedMessage')}</span>
@@ -142,11 +142,11 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                 {!messages.length && <p className="text-xs text-stone-500">{t('noMessagesYet')}</p>}
               </div>
               <textarea aria-label={t('writeMessage')} value={draft} onChange={e => setDraft(e.target.value)} maxLength={4000} rows={2} placeholder={t('writeMessage')} className="w-full resize-y rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white" />
-              <button type="button" onClick={() => void send()} disabled={busy || !draft.trim()} className="mt-2 w-full rounded-xl bg-sky-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-40">{busy ? t('sendingMessage') : t('sendMessage')}</button>
-              <button type="button" onClick={() => void loadMessages(selected)} className="mt-2 w-full rounded-xl border border-white/10 px-4 py-2 text-xs text-stone-300">{t('refreshMessages')}</button>
+              <button type="button" onClick={() => void send()} disabled={busy || !draft.trim()} className="vow-motion-button mt-2 w-full rounded-xl bg-sky-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-40">{busy ? t('sendingMessage') : t('sendMessage')}</button>
+              <button type="button" onClick={() => void loadMessages(selected)} className="vow-motion-button mt-2 w-full rounded-xl border border-white/10 px-4 py-2 text-xs text-stone-300">{t('refreshMessages')}</button>
             </div>
           )}
-          <button type="button" onClick={() => void loadMatches()} className="w-full rounded-xl border border-white/10 px-4 py-2.5 text-xs font-semibold text-stone-300">{t('refreshMatches')}</button>
+          <button type="button" onClick={() => void loadMatches()} className="vow-motion-button w-full rounded-xl border border-white/10 px-4 py-2.5 text-xs font-semibold text-stone-300">{t('refreshMatches')}</button>
         </div>
       )}
     </section>
