@@ -33,9 +33,9 @@ const normalizeServerMatch = (value: unknown): ServerMatch | null => {
     lastMessage: typeof match.lastMessage === 'string' && match.lastMessage.trim()
       ? match.lastMessage.trim().slice(0, 1000)
       : null,
-    lastMessageAt: typeof match.lastMessageAt === 'string' && match.lastMessageAt.length <= 100 &&
-      Number.isFinite(Date.parse(match.lastMessageAt))
-      ? match.lastMessageAt
+    lastMessageAt: typeof match.lastMessageAt === 'string' && match.lastMessageAt.trim().length > 0 &&
+      match.lastMessageAt.length <= 100 && Number.isFinite(Date.parse(match.lastMessageAt.trim()))
+      ? match.lastMessageAt.trim()
       : null
   };
 };
