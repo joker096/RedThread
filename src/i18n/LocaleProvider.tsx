@@ -220,7 +220,16 @@ const messages = {
     authDeleteGenericError: 'Could not delete the account.',
     authChildrenHonestyHelp: 'Please answer honestly. This information helps both partners make an informed choice.',
     authYes: 'Yes',
-    authNo: 'No'
+    authNo: 'No',
+    installBannerTitle: 'Add Vow to your home screen',
+    installBannerNote: 'Installation depends on your browser; push notifications are not available yet.',
+    installGuideShow: 'How to install',
+    installGuideHide: 'Hide guide',
+    installInstalled: 'Installed',
+    installButton: 'Install',
+    installDismiss: 'Dismiss install banner',
+    installIosInstructions: 'Tap {share} in Safari, then choose “Add to Home Screen”.',
+    installAndroidInstructions: 'In Chrome, open the ⋮ menu and choose “Install app”.'
   },
   ru: {
     compatibility: 'Совместимость', partialTranslationHelp: 'Пока перевод не завершён, часть интерфейса может отображаться на английском языке',
@@ -387,7 +396,16 @@ const messages = {
     authDeleteGenericError: 'Не удалось удалить аккаунт.',
     authChildrenHonestyHelp: 'Отвечайте честно. Эта информация помогает обоим партнёрам сделать осознанный выбор.',
     authYes: 'Да',
-    authNo: 'Нет'
+    authNo: 'Нет',
+    installBannerTitle: 'Добавьте Vow на главный экран',
+    installBannerNote: 'Установка зависит от браузера; push-уведомления пока недоступны.',
+    installGuideShow: 'Как установить',
+    installGuideHide: 'Скрыть инструкцию',
+    installInstalled: 'Установлено',
+    installButton: 'Установить',
+    installDismiss: 'Скрыть баннер установки',
+    installIosInstructions: 'Нажмите {share} в Safari и выберите «На экран „Домой“».',
+    installAndroidInstructions: 'В Chrome откройте меню ⋮ и выберите «Установить приложение».'
   },
   es: {
     compatibility: 'Compatibilidad',
