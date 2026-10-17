@@ -251,11 +251,11 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
   return (
     <div className="vow-discovery-stage w-full max-w-sm sm:max-w-md mx-auto flex flex-col items-center select-none">
       {/* Top Micro-Bar: Compatibility score and rewarded demo */}
-      <div className="w-full flex items-center justify-between px-2 mb-2 text-xs">
+      <div className="vow-discovery-toolbar w-full flex items-center justify-between px-2 mb-2 text-xs">
         <div className="flex items-center gap-1.5 text-stone-300">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
           <span className="text-[11px] font-semibold text-stone-400">
-            Совместимость: <strong className="text-white">{compatibility.overallScore}%</strong>
+            {t('compatibility')}: <strong className="text-white">{compatibility.overallScore}%</strong>
           </span>
         </div>
 
@@ -355,7 +355,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
           /* Profile card */
           <div className="flex flex-col w-full text-left">
             {/* Top Photo Frame */}
-            <div className="relative h-72 sm:h-80 w-full overflow-hidden bg-stone-950 select-none">
+            <div className="vow-profile-photo relative h-72 sm:h-80 w-full overflow-hidden bg-stone-950 select-none">
               <img
                 src={currentProfile.photos[photoIndex] || currentProfile.avatar}
                 alt={currentProfile.name}
@@ -452,7 +452,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
             </div>
 
             {/* Profile Info & Psychological Cards */}
-            <div className="p-3.5 sm:p-4 -mt-5 relative z-10 bg-gradient-to-t from-stone-950 via-stone-950 to-transparent pt-5">
+            <div className="vow-profile-details p-3.5 sm:p-4 -mt-5 relative z-10 bg-gradient-to-t from-stone-950 via-stone-950 to-transparent pt-5">
               {/* Name, Age, Location */}
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-baseline gap-2">
@@ -498,7 +498,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
 
               {/* Profile question cards */}
               {currentProfile.psychCards && currentProfile.psychCards.length > 0 && (
-                <div className="rounded-2xl bg-stone-900/95 border border-white/10 p-3 mb-3 shadow-inner">
+                <div className="vow-profile-prompt rounded-2xl bg-stone-900/95 border border-white/10 p-3 mb-3 shadow-inner">
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-[9px] uppercase font-bold tracking-wider text-rose-400 flex items-center gap-1">
                       <Sparkles className="w-2.5 h-2.5" />
@@ -558,7 +558,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
               </div>
 
               {/* Floating Circular Action Buttons (Profile action buttons) */}
-              <div className="flex items-center justify-center gap-3 sm:gap-4 pt-1">
+              <div className="vow-profile-actions flex items-center justify-center gap-3 sm:gap-4 pt-1">
                 <button
                   onClick={handleUndo}
                   disabled={history.length === 0}
