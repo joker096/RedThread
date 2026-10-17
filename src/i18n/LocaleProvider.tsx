@@ -240,6 +240,7 @@ const messages = {
     chatDirectContactVip: 'Exchange contacts (Lady VIP)',
     chatDateCountdown: 'Time left to plan your date:',
     chatPartnerContact: 'Partner contact:',
+    chatContactNotAvailable: 'Verified contact details have not been provided for this profile.',
     chatVipBenefit: 'Lady VIP benefit',
     chatFamilyCompatibility: 'Family-goal compatibility:',
     chatFirstDateInvite: 'First-date invitation',
