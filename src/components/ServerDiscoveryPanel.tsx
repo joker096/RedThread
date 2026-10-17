@@ -210,6 +210,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       const seenProfileIds = new Set<string>();
       const nextProfiles: ServerProfile[] = Array.isArray(data?.profiles)
         ? data.profiles
+            .slice(0, 50)
             .map(normalizeServerProfile)
             .filter((profile): profile is ServerProfile => {
               if (!profile || seenProfileIds.has(profile.id)) return false;
