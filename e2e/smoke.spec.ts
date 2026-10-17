@@ -26,6 +26,8 @@ test('demo conversations stay hidden until explicitly opened', async ({ page }) 
   await expect(chatsButton).toBeVisible();
   await chatsButton.click();
 
+  // The chats screen must expose the real, server-backed match inbox separately from opt-in demo data.
+  await expect(page.getByTestId('server-matches-panel')).toBeVisible();
   await expect(page.getByText(/prototype conversations are hidden|демонстрационные переписки скрыты/i)).toBeVisible();
   await expect(page.getByRole('button', { name: showDemoChats })).toBeVisible();
 
