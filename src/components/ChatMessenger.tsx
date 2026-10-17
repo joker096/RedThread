@@ -412,7 +412,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             type="text"
             value={inputText}
             onKeyDown={e => {
-              if (e.key === 'Enter' && e.nativeEvent.isComposing) {
+              if (e.key === 'Enter' && (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)) {
                 e.preventDefault();
               }
             }}
