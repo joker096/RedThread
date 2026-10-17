@@ -582,6 +582,14 @@ test('auth API supports registration, session lookup, logout and login', {
     const missingOrigin = await fetch(api + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
     assert.equal(missingOrigin.status, 403);
 
+    const deleteWithoutConfirmation = await request('/api/account', {
+      method: 'DELETE',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({})
+    });
+    assert.equal(deleteWithoutConfirmation.status, 400,
+      'account deletion must require explicit password confirmation');
+
     const deleteWrongPassword = await request('/api/account', {
       method: 'DELETE',
       headers: { Cookie: secondCookie },
@@ -598,6 +606,7 @@ test('auth API supports registration, session lookup, logout and login', {
 
     const deletedAccountMe = await request('/api/auth/me', { headers: { Cookie: secondCookie } });
     assert.equal(deletedAccountMe.status, 401);
+
   } finally {
     if (child.exitCode === null) {
       child.kill('SIGTERM');
