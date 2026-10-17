@@ -23,7 +23,7 @@ Regenerate it with `node scripts/generate-store-assets.mjs`.
 - [ ] Confirm every screenshot matches the final Android release, not just the web prototype.
 - [ ] Replace or remove any preview-only screens before publishing.
 - [ ] Check localized store listings and capture localized screenshots where needed.
-- [ ] Supply the 512 × 512 app icon (the Play Store listing icon is distinct from the launcher icon).
+- [ ] Review `app-icon-512.png` (512 × 512 PNG, generated from the existing Vow brand mark; confirm 32-bit/alpha requirements in Play Console).
 - [ ] Review the 1024 × 500 feature graphic.
 - [ ] Confirm current Play Console rules before upload.
 
