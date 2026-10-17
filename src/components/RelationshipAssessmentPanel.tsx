@@ -87,7 +87,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
   };
 
   return (
-    <section className="mb-5 rounded-3xl border border-rose-500/20 bg-stone-900/80 p-4 sm:p-5">
+    <section className="vow-screen mb-5 rounded-3xl border border-rose-500/20 bg-stone-900/80 p-4 sm:p-5">
       <div className="mb-2 flex items-start justify-between gap-3">
         <div>
           <p className="text-[10px] uppercase tracking-[0.2em] text-rose-300">{t('valuesTestEyebrow')}</p>
