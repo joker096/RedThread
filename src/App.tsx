@@ -818,22 +818,22 @@ export default function App() {
             />
 
             {/* Main Stage */}
-            <main className="flex-1 w-full max-w-xl mx-auto px-3 sm:px-4 py-3 sm:py-5 flex flex-col items-center pb-24">
+            <main className="flex-1 w-full max-w-xl mx-auto px-3 sm:px-4 py-3 sm:py-5 flex flex-col items-center pb-28">
               {renderMainContent()}
             </main>
 
             {/* Bottom navigation dock */}
-            <div role="navigation" aria-label="Основная навигация" className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 bg-stone-950/85 backdrop-blur-2xl border border-white/10 rounded-full px-5 py-2 flex items-center gap-5 sm:gap-6 shadow-2xl">
+            <div role="navigation" aria-label="Основная навигация" className="fixed bottom-[calc(env(safe-area-inset-bottom)+0.5rem)] left-1/2 z-30 flex w-[calc(100%-1rem)] max-w-md -translate-x-1/2 items-stretch justify-around gap-1 rounded-[1.6rem] border border-white/10 bg-stone-950/90 px-2 py-2 shadow-2xl backdrop-blur-2xl">
               <button
                 onClick={() => setActiveTab('discovery')}
                 aria-current={activeTab === 'discovery' ? 'page' : undefined}
-                className={`flex flex-col items-center gap-0.5 transition-colors ${
+                className={`vow-motion-button flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 transition-colors ${
                   activeTab === 'discovery' ? 'text-rose-500 font-bold scale-110' : 'text-stone-400 hover:text-white'
                 }`}
                 title="Радар пар"
               >
                 <Heart className={`w-5 h-5 ${activeTab === 'discovery' ? 'fill-rose-500' : ''}`} />
-                <span className="text-[9px]">{t('radar')}</span>
+                <span className="text-[10px] leading-tight">{t('radar')}</span>
               </button>
 
               <button
@@ -845,19 +845,19 @@ export default function App() {
                 title="Психологические тесты по полу"
               >
                 <Brain className="w-5 h-5" />
-                <span className="text-[9px]">{t('testsShort')}</span>
+                <span className="text-[10px] leading-tight">{t('testsShort')}</span>
               </button>
 
               <button
                 onClick={() => setActiveTab('chats')}
                 aria-current={activeTab === 'chats' ? 'page' : undefined}
-                className={`relative flex flex-col items-center gap-0.5 transition-colors ${
+                className={`vow-motion-button relative flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 transition-colors ${
                   activeTab === 'chats' ? 'text-rose-500 font-bold scale-110' : 'text-stone-400 hover:text-white'
                 }`}
                 title="Диалоги"
               >
                 <MessageCircle className="w-5 h-5" />
-                <span className="text-[9px]">{t('chatsShort')}</span>
+                <span className="text-[10px] leading-tight">{t('chatsShort')}</span>
                 {unreadCount > 0 && (
                   <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400"></span>
                 )}
@@ -872,7 +872,7 @@ export default function App() {
                 title="Анти-бот и безопасность"
               >
                 <ShieldCheck className="w-5 h-5" />
-                <span className="text-[9px]">{t('safetyShort')}</span>
+                <span className="text-[10px] leading-tight">{t('safetyShort')}</span>
               </button>
 
               {currentGender === 'female' && (
@@ -960,16 +960,16 @@ export default function App() {
                 </div>
 
                 {/* Mobile Bottom Dock inside phone */}
-                <div role="navigation" aria-label="Навигация приложения" className="absolute bottom-3 left-3 right-3 z-30 bg-stone-900/90 backdrop-blur-xl border border-white/10 rounded-full py-1.5 px-3 flex items-center justify-around shadow-2xl">
+                <div role="navigation" aria-label="Навигация приложения" className="absolute bottom-3 left-3 right-3 z-30 flex items-stretch justify-around gap-1 rounded-[1.4rem] border border-white/10 bg-stone-900/95 px-2 py-2 shadow-2xl backdrop-blur-xl">
                   <button
                     onClick={() => setActiveTab('discovery')}
                 aria-current={activeTab === 'discovery' ? 'page' : undefined}
-                    className={`flex flex-col items-center gap-0.5 ${
+                    className={`vow-motion-button flex min-h-10 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 ${
                       activeTab === 'discovery' ? 'text-rose-500 font-bold scale-105' : 'text-stone-400'
                     }`}
                   >
                     <Heart className={`w-4 h-4 ${activeTab === 'discovery' ? 'fill-rose-500' : ''}`} />
-                    <span className="text-[8px]">{t('radar')}</span>
+                    <span className="text-[9px] leading-tight">{t('radar')}</span>
                   </button>
 
                   <button
@@ -980,18 +980,18 @@ export default function App() {
                     }`}
                   >
                     <Brain className="w-4 h-4" />
-                    <span className="text-[8px]">{t('testsShort')}</span>
+                    <span className="text-[9px] leading-tight">{t('testsShort')}</span>
                   </button>
 
                   <button
                     onClick={() => setActiveTab('chats')}
                 aria-current={activeTab === 'chats' ? 'page' : undefined}
-                    className={`relative flex flex-col items-center gap-0.5 ${
+                    className={`vow-motion-button relative flex min-h-10 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 ${
                       activeTab === 'chats' ? 'text-rose-500 font-bold scale-105' : 'text-stone-400'
                     }`}
                   >
                     <MessageCircle className="w-4 h-4" />
-                    <span className="text-[8px]">{t('chatsShort')}</span>
+                    <span className="text-[9px] leading-tight">{t('chatsShort')}</span>
                     {unreadCount > 0 && (
                       <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400"></span>
                     )}
@@ -1005,7 +1005,7 @@ export default function App() {
                     }`}
                   >
                     <ShieldCheck className="w-4 h-4" />
-                    <span className="text-[8px]">{t('safetyShort')}</span>
+                    <span className="text-[9px] leading-tight">{t('safetyShort')}</span>
                   </button>
 
                   {currentGender === 'female' && (
