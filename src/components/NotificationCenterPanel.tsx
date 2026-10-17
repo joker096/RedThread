@@ -32,7 +32,7 @@ export const NotificationCenterPanel:React.FC=()=>{
         (value.type === 'new_match' || value.type === 'new_message') &&
         value.metadata !== null && typeof value.metadata === 'object' && !Array.isArray(value.metadata) &&
         typeof value.createdAt === 'string' && value.createdAt.trim().length > 0 && Number.isFinite(Date.parse(value.createdAt)) &&
-        (value.readAt === null || typeof value.readAt === 'string');
+        (value.readAt === null || (typeof value.readAt === 'string' && value.readAt.trim().length > 0 && Number.isFinite(Date.parse(value.readAt))));
       })
     : [];
    const unreadCount = Number(data?.unreadCount);
