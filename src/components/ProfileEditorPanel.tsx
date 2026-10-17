@@ -119,7 +119,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
 
   return (
     <section className="vow-screen mb-5 min-w-0 rounded-3xl border border-amber-500/20 bg-stone-900/80 p-3 sm:p-5">
-      <p className="text-[10px] uppercase tracking-[0.2em] text-amber-300">Моя анкета</p>
+      <p className="text-[10px] uppercase tracking-[0.2em] text-amber-300">{t('profileMyProfile')}</p>
       <h3 className="mt-1 text-lg font-bold text-white">{t('profileHeading')}</h3>
       {authenticated === false ? (
         <div className="mt-3 rounded-2xl border border-white/10 bg-stone-950/60 p-4">
@@ -128,7 +128,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
         </div>
       ) : (
         <div className="mt-3 space-y-3">
-          {profile && <p className="text-xs text-stone-500">{profile.age} лет · {profile.gender === 'female' ? t('profileGenderFemale') : t('profileGenderMale')} · {t('profileServerOnlyId')}</p>}
+          {profile && <p className="text-xs text-stone-500">{profile.age} {t('profileAgeSuffix')} · {profile.gender === 'female' ? t('profileGenderFemale') : t('profileGenderMale')} · {t('profileServerOnlyId')}</p>}
           <label className="block text-xs text-stone-300">{t('profileName')}<input value={displayName} onChange={e => setDisplayName(e.target.value)} maxLength={80} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
           <label className="block text-xs text-stone-300">{t('profileAbout')}<textarea value={bio} onChange={e => setBio(e.target.value)} maxLength={2000} rows={4} placeholder={t('profileBioPlaceholder')} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -165,7 +165,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
               <button type="button" onClick={() => {setHasChildren(false);setChildrenLivingArrangement('not_applicable');}} className={`rounded-lg border p-2 text-xs ${hasChildren === false ? 'border-rose-500 bg-rose-950 text-white' : 'border-white/10 text-stone-300'}`}>{t('no')}</button>
             </div>
             {hasChildren === true && <label className="mt-3 block text-xs text-stone-300">{t('profileChildrenLiving')}<select value={childrenLivingArrangement} onChange={e => setChildrenLivingArrangement(e.target.value as typeof childrenLivingArrangement)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="with_me">{t('profileChildrenWithMe')}</option><option value="shared_custody">{t('profileChildrenSharedCustody')}</option><option value="with_other_parent">{t('profileChildrenOtherParent')}</option><option value="prefer_to_discuss">{t('profileDiscussInPerson')}</option></select></label>}
-            <label className="mt-3 block text-xs text-stone-300">{t('profileWantChildren')}<select value={wantsChildren} onChange={e => setWantsChildren(e.target.value as typeof wantsChildren)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="yes">Да</option><option value="no">Нет</option><option value="discuss">{t('profileDiscussWithPartner')}</option><option value="unsure">{t('profileUnsure')}</option></select></label>
+            <label className="mt-3 block text-xs text-stone-300">{t('profileWantChildren')}<select value={wantsChildren} onChange={e => setWantsChildren(e.target.value as typeof wantsChildren)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="yes">{t('yes')}</option><option value="no">{t('no')}</option><option value="discuss">{t('profileDiscussWithPartner')}</option><option value="unsure">{t('profileUnsure')}</option></select></label>
             {profile?.childrenDisclosureConfirmedAt === null && <p className="mt-2 text-[10px] text-amber-300">{t('profileConfirmChildrenNotice')}</p>}
           </fieldset>
           <label className="flex items-center gap-3 rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-stone-200"><input type="checkbox" checked={isVisible} onChange={e => setIsVisible(e.target.checked)} className="h-4 w-4 accent-rose-500" />{t('profileShowInSearch')}</label>
