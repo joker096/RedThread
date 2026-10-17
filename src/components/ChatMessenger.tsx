@@ -483,7 +483,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                   id="date-invite-place"
                   value={selectedPlace}
                   onChange={e => setSelectedPlace(e.target.value)}
-                  className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs"
+                  className="min-h-11 w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
                 >
                   <option value="Уютная кофейня в центре">☕ {t('chatPlaceCafe')}</option>
                   <option value="Прогулка в городском парке">🌳 {t('chatPlacePark')}</option>
@@ -499,7 +499,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                     id="date-invite-day"
                     value={selectedDay}
                     onChange={e => setSelectedDay(e.target.value)}
-                    className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs"
+                    className="min-h-11 w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
                   >
                     <option value="Сегодня">{t('chatDayToday')}</option>
                     <option value="Завтра">{t('chatDayTomorrow')}</option>
@@ -513,7 +513,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                     id="date-invite-time"
                     value={selectedTime}
                     onChange={e => setSelectedTime(e.target.value)}
-                    className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs"
+                    className="min-h-11 w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
                   >
                     <option value="18:30">18:30</option>
                     <option value="19:00">19:00</option>
