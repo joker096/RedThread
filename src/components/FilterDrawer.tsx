@@ -56,6 +56,8 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
   useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
   useEffect(() => {
     if (!isOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeButtonRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
@@ -74,6 +76,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
     document.addEventListener('keydown', onKeyDown);
     return () => {
       document.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = previousOverflow;
       if (previousFocus?.isConnected) previousFocus.focus();
     };
   }, [isOpen]);
@@ -81,7 +84,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
 
   return (
     <div className="vow-filter-backdrop fixed inset-0 z-50 flex items-end justify-center bg-stone-950/80 p-2 backdrop-blur-sm animate-in fade-in duration-200 sm:items-center sm:p-4" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
-      <div role="dialog" aria-modal="true" aria-labelledby="discovery-filter-title" className="relative max-h-[calc(100dvh-1rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-t-3xl border border-rose-900/40 bg-stone-900 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] text-start shadow-2xl sm:max-h-[min(90dvh,52rem)] sm:rounded-3xl sm:p-6">
+      <div role="dialog" aria-modal="true" aria-labelledby="discovery-filter-title" aria-describedby="discovery-filter-description" className="relative max-h-[calc(100dvh-1rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-t-3xl border border-rose-900/40 bg-stone-900 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] text-start shadow-2xl sm:max-h-[min(90dvh,52rem)] sm:rounded-3xl sm:p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <SlidersHorizontal className="w-5 h-5 text-rose-500" />
@@ -98,7 +101,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
           </button>
         </div>
 
-        <p className="text-xs text-stone-400 mb-5">
+        <p id="discovery-filter-description" className="text-xs text-stone-400 mb-5">
           {t('filterDialogDescription')}
         </p>
 
@@ -119,6 +122,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
               step="5"
               value={minCompatibility}
               aria-label={t('minimumCompatibility')}
+              aria-valuetext={`${minCompatibility}%`}
               onChange={e => setMinCompatibility(Number(e.target.value))}
               className="w-full accent-rose-600 cursor-pointer"
             />
@@ -176,7 +180,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
 
           {/* Relationship Goal */}
           <div>
-            <label className="block text-stone-300 font-medium mb-1.5">{t('relationshipGoal')}</label>
+            <span className="mb-1.5 block text-stone-300 font-medium">{t('relationshipGoal')}</span>
             <div role="group" aria-label={t('relationshipGoal')} data-testid="relationship-intent-options" className="space-y-1.5">
               {[
                 { id: 'all', label: t('any') }, 
