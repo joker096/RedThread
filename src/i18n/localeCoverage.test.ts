@@ -111,9 +111,9 @@ test('Portuguese catalog covers core discovery, safety, account and messaging UI
 
 test('Georgian translations cover the core discovery and safety interface without claiming full localization', () => {
   const georgian = getTranslationCoverage('ka');
-  assert.ok(georgian.translated > 0, 'Georgian should provide real translated messages');
+  assert.ok(georgian.translated >= 100, 'Georgian should translate a substantial core set of UI messages');
   assert.ok(georgian.percentage < 100, 'Partial Georgian coverage must remain clearly partial');
-  for (const key of ['language', 'discovery', 'safety', 'like', 'report', 'block', 'search', 'relationshipGoal'] as const) {
+  for (const key of ['language', 'discovery', 'safety', 'like', 'report', 'block', 'search', 'relationshipGoal', 'accountTitle', 'signIn', 'createAccount', 'email', 'password', 'chats', 'notificationCenter', 'authInvalidEmail', 'authDeleteConfirm', 'partialTranslationHelp'] as const) {
     assert.ok(!georgian.missing.includes(key), `Georgian core key "${key}" should be translated`);
   }
 });
