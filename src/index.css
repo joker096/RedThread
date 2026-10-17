@@ -421,3 +421,100 @@ img {
     transition: none !important;
   }
 }
+
+/* Vow open-kit adaptation: original implementation using MIT-style swipe patterns,
+   adapted to the existing React/Vite app rather than importing another backend. */
+:root {
+  --vow-card-radius: 1.75rem;
+  --vow-panel-radius: 1.25rem;
+  --vow-control-radius: 0.95rem;
+  --vow-shadow-card: 0 26px 72px -42px rgb(251 113 133 / 48%), 0 14px 34px -28px rgb(0 0 0 / 72%);
+  --vow-focus-ring: 0 0 0 3px rgb(251 113 133 / 22%);
+}
+
+body {
+  background:
+    radial-gradient(ellipse at 50% -18rem, rgb(190 24 93 / 13%), transparent 38rem),
+    var(--vow-page, #0c0a09);
+  color: var(--vow-text, #f5f5f4);
+}
+
+:root[data-theme="light"] body {
+  background:
+    radial-gradient(ellipse at 50% -20rem, rgb(251 113 133 / 10%), transparent 42rem),
+    var(--vow-page, #fafaf9);
+}
+
+:where(button, a, input, select, textarea):focus-visible {
+  outline: 2px solid var(--vow-rose, #fb7185);
+  outline-offset: 3px;
+  box-shadow: var(--vow-focus-ring);
+}
+
+:where(button:not(:disabled)) {
+  cursor: pointer;
+}
+
+:where(input, select, textarea) {
+  border-radius: var(--vow-control-radius);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+:where(input, select, textarea):focus {
+  border-color: rgb(251 113 133 / 72%);
+  box-shadow: 0 0 0 3px rgb(251 113 133 / 12%);
+}
+
+.vow-profile-card {
+  border-radius: var(--vow-card-radius);
+  box-shadow: var(--vow-shadow-card);
+  isolation: isolate;
+}
+
+.vow-profile-card :where(button) {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.vow-surface-enter {
+  animation: vow-surface-enter 420ms var(--vow-motion-gentle, cubic-bezier(.22, 1, .36, 1)) both;
+}
+
+:where([role="dialog"], [aria-modal="true"]) {
+  overscroll-behavior: contain;
+}
+
+:where([role="navigation"]) button[aria-current="page"] {
+  background: rgb(251 113 133 / 10%);
+}
+
+:root[data-theme="light"] :where([role="navigation"]) button[aria-current="page"] {
+  background: rgb(190 24 93 / 8%);
+}
+
+@media (max-width: 639px) {
+  #root {
+    min-height: 100dvh;
+  }
+
+  .vow-profile-card {
+    border-radius: 1.45rem;
+  }
+
+  :where([role="navigation"]) {
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+}
+
+@media (min-width: 1024px) {
+  .vow-discovery-stage {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vow-surface-enter {
+    animation: none !important;
+  }
+}
+
