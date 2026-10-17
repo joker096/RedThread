@@ -19,6 +19,29 @@ test('theme toggle changes scheme and persists after reload', async ({ page }) =
   await expect(page.getByRole('button', { name: darkThemeToggle }).first()).toBeVisible();
 });
 
+test('real match inbox refreshes when the app window regains focus', async ({ page }) => {
+  let matchRequests = 0;
+  await page.route('**/api/matches', async route => {
+    matchRequests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ matches: [] })
+    });
+  });
+
+  await page.goto('/');
+  const chatsButton = page.locator('[data-testid="nav-chats"]:visible').first();
+  await expect(chatsButton).toBeVisible();
+  await chatsButton.click();
+  await expect(page.getByTestId('server-matches-panel')).toBeVisible();
+  await expect.poll(() => matchRequests).toBeGreaterThan(0);
+
+  const initialRequests = matchRequests;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect.poll(() => matchRequests).toBeGreaterThan(initialRequests);
+});
+
 test('demo conversations stay hidden until explicitly opened', async ({ page }) => {
   await page.goto('/');
   // Use a stable test id so the test does not depend on locale-specific labels.
