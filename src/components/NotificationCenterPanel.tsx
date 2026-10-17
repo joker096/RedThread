@@ -39,7 +39,10 @@ export const NotificationCenterPanel:React.FC=()=>{
        if (seenNotificationIds.has(id)) return false;
        seenNotificationIds.add(id);
        return true;
-      })
+      }).map(notification => ({
+       ...notification,
+       id: notification.id.trim()
+      }))
     : [];
    const unreadCount = data?.unreadCount;
    const safeUnreadCount = typeof unreadCount === 'number' && Number.isFinite(unreadCount) && unreadCount >= 0
