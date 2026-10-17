@@ -73,9 +73,9 @@ const normalizeServerProfile = (value: unknown): ServerProfile | null => {
       ? [...new Set(profile.photoUrls.slice(0, 48).filter(isSafeProfilePhotoUrl).map(url => url.trim()))].slice(0, 12)
       : [],
     languages: Array.isArray(profile.languages)
-      ? profile.languages.slice(0, 80)
+      ? [...new Set(profile.languages.slice(0, 80)
           .filter((language): language is string => typeof language === 'string' && language.trim().length > 0)
-          .slice(0, 20).map(language => language.trim().slice(0, 40))
+          .map(language => language.trim().slice(0, 40)))].slice(0, 20)
       : []
   };
 };
