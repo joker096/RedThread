@@ -323,11 +323,11 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
         </div>
 
         {/* Input Bar */}
-        <form onSubmit={handleSend} className="p-3 border-t border-white/5 bg-stone-950/70 flex items-center gap-2">
+        <form onSubmit={handleSend} className="flex items-center gap-1.5 border-t border-white/5 bg-stone-950/70 p-2 sm:gap-2 sm:p-3">
           <button
             type="button"
             onClick={() => setShowInviteModal(true)}
-            className="p-2.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-rose-400 transition-colors"
+            className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-stone-800 text-rose-400 transition-colors hover:bg-stone-700"
             title="Пригласить на встречу"
             aria-label="Пригласить на встречу"
           >
@@ -340,13 +340,13 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             onChange={e => setInputText(e.target.value)}
             placeholder="Напишите сообщение без пустых формальностей..."
             aria-label="Сообщение"
-            className="flex-1 bg-stone-900 border border-white/10 rounded-xl px-4 py-2.5 text-xs sm:text-sm text-white placeholder-stone-500 focus:outline-none focus:border-rose-500/60"
+            className="min-w-0 flex-1 rounded-xl border border-white/10 bg-stone-900 px-3 py-3 text-xs text-white placeholder-stone-500 focus:border-rose-500/60 focus:outline-none sm:px-4 sm:text-sm"
           />
 
           <button
             type="submit"
             disabled={!inputText.trim()}
-            className="p-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white transition-all shadow-md"
+            className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-rose-600 text-white shadow-md transition-all hover:bg-rose-500 disabled:opacity-40"
             aria-label="Отправить сообщение"
           >
             <Send className="w-4 h-4" />
