@@ -307,9 +307,22 @@ img {
   color: var(--vow-text) !important;
 }
 
-:root[data-theme="light"] button[class*="bg-gradient-to-r"][class~="text-white"],
-:root[data-theme="light"] [class*="bg-rose-600"][class~="text-white"],
-:root[data-theme="light"] [class*="bg-red-600"][class~="text-white"] {
+:root[data-theme="light"] button[class~="text-white"][class*="bg-gradient-to-r"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-rose-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-red-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-pink-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-emerald-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-green-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-teal-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-cyan-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-sky-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-blue-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-indigo-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-violet-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-purple-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-fuchsia-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-orange-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-amber-"] {
   color: #ffffff !important;
 }
 
