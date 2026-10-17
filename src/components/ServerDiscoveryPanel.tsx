@@ -30,7 +30,7 @@ const VALID_REPORT_CATEGORIES = ['fake_profile', 'spam', 'harassment', 'safety',
 const isSafeProfilePhotoUrl = (value: unknown): value is string => {
   if (typeof value !== 'string' || !value.trim()) return false;
   const url = value.trim();
-  if (url.length > 2048 || /[\u0000-\u001F\u007F]/.test(url)) return false;
+  if (url.length > 2048 || /[\u0000-\u001F\u007F]/.test(url) || url.includes('\\')) return false;
   if (url.startsWith('/') && !url.startsWith('//')) return true;
   return /^https?:\/\//i.test(url);
 };
