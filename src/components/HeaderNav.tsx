@@ -139,7 +139,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             aria-label={t('language')}
             title={activeTranslationCoverage < 100 ? `${t('language')} — ${t('partialTranslationHelp')}` : t('language')}
             aria-description={activeTranslationCoverage < 100 ? t('partialTranslationHelp') : undefined}
-            className="min-h-10 min-w-0 max-w-[76px] rounded-full border border-white/10 bg-stone-900 px-1.5 py-2 text-xs text-stone-200 min-[380px]:max-w-[88px] sm:max-w-[132px]"
+            className="h-10 w-[76px] min-w-0 max-w-[76px] shrink-0 rounded-full border border-white/10 bg-stone-900 px-1.5 py-2 text-xs text-stone-200 min-[380px]:w-[88px] min-[380px]:max-w-[88px] sm:w-[132px] sm:max-w-[132px]"
           >
             {LANGUAGE_OPTIONS.map(option => {
               const coverage = option.code === 'auto' ? 100 : getTranslationCoverage(option.code).percentage;
