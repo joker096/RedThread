@@ -204,6 +204,8 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                   <img
                     src={thread.partnerProfile.avatar}
                     alt={thread.partnerProfile.name}
+                    loading="lazy"
+                    decoding="async"
                     className="w-12 h-12 rounded-xl object-cover"
                   />
                   <span className="absolute -bottom-1 -end-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-rose-600 text-white">
@@ -243,6 +245,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
               <img
                 src={activeThread.partnerProfile.photos[0] || activeThread.partnerProfile.avatar}
                 alt={activeThread.partnerProfile.name}
+                decoding="async"
                 className="w-11 h-11 rounded-xl object-cover ring-1 ring-rose-500/40 shrink-0"
               />
               <span className="absolute bottom-0 end-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-stone-900"></span>
