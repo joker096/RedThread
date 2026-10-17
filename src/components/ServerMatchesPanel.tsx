@@ -43,6 +43,8 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         // Prevent older match-list requests from restoring an authenticated state.
         matchesRequestId.current += 1;
         messageRequestId.current += 1;
+        setMatchesLoading(false);
+        setMessagesLoading(false);
         setAuthenticated(false);
         setMatches([]);
         setSelected('');
@@ -86,6 +88,8 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         // Invalidate in-flight reads/sends before clearing a session-expired chat.
         messageRequestId.current += 1;
         matchesRequestId.current += 1;
+        setMessagesLoading(false);
+        setMatchesLoading(false);
         setAuthenticated(false);
         setMatches([]);
         setSelected('');
@@ -97,6 +101,8 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         // The match may have been blocked or closed while this chat was open.
         messageRequestId.current += 1;
         matchesRequestId.current += 1;
+        setMessagesLoading(false);
+        setMatchesLoading(false);
         setMatches(current => current.filter(match => match.id !== matchId));
         setSelected('');
         setMessages([]);
@@ -173,6 +179,8 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         // A block or closed match invalidates this conversation even if it was already open.
         messageRequestId.current += 1;
         matchesRequestId.current += 1;
+        setMessagesLoading(false);
+        setMatchesLoading(false);
         setMatches(current => current.filter(match => match.id !== matchId));
         setSelected('');
         setMessages([]);
@@ -216,7 +224,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
               <span className="mt-1 block truncate text-xs text-stone-500">{match.lastMessage || t('matchCreatedMessage')}</span>
             </button>
           ))}
-          {notice && !matchesFailed && <p role="status" aria-live="polite" aria-atomic="true" className="text-xs text-stone-300">{notice}</p>}
+          {notice && !matchesFailed && (matches.length > 0 || selected) && <p role="status" aria-live="polite" aria-atomic="true" className="text-xs text-stone-300">{notice}</p>}
           {selected && (
             <div data-testid="real-match-chat" className="rounded-2xl border border-white/10 bg-stone-950/55 p-3.5 shadow-inner sm:p-4">
               <div data-testid="server-match-messages" role="log" aria-live="polite" aria-label={t('serverChats')} aria-busy={messagesLoading} className="mb-4 max-h-72 space-y-2.5 overflow-y-auto overscroll-contain rounded-xl bg-black/10 p-1">
