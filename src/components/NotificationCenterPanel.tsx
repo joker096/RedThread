@@ -28,7 +28,7 @@ export const NotificationCenterPanel:React.FC=()=>{
   }catch{if(requestId===refreshRequestId.current&&actionEpoch===sessionEpoch.current){setNotice(t('notificationsLoadError'));setReady(true);}}
   finally{if(busyId===busyRequestId.current&&actionEpoch===sessionEpoch.current)setBusy(false);}
  },[t]);
- useEffect(()=>{void refresh();const refreshOnFocus=()=>void refresh();const refreshOnSession=()=>{sessionEpoch.current+=1;refreshRequestId.current+=1;busyRequestId.current+=1;void refresh();};window.addEventListener('focus',refreshOnFocus);window.addEventListener('vow:session-changed',refreshOnSession);return()=>{window.removeEventListener('focus',refreshOnFocus);window.removeEventListener('vow:session-changed',refreshOnSession);refreshRequestId.current+=1;busyRequestId.current+=1;sessionEpoch.current+=1;};},[refresh]);
+ useEffect(()=>{void refresh();const refreshOnFocus=()=>void refresh();const refreshOnSession=()=>{sessionEpoch.current+=1;refreshRequestId.current+=1;busyRequestId.current+=1;setAllowed(false);setReady(false);setItems([]);setUnread(0);setNotice('');void refresh();};window.addEventListener('focus',refreshOnFocus);window.addEventListener('vow:session-changed',refreshOnSession);return()=>{window.removeEventListener('focus',refreshOnFocus);window.removeEventListener('vow:session-changed',refreshOnSession);refreshRequestId.current+=1;busyRequestId.current+=1;sessionEpoch.current+=1;};},[refresh]);
  const markRead=async(id?:string)=>{
   if(busy)return;
   const actionEpoch=sessionEpoch.current;
