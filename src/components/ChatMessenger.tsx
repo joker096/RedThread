@@ -26,7 +26,7 @@ interface ChatMessengerProps {
   threads: ChatThread[];
   activeThreadId: string | null;
   onSelectThread: (threadId: string) => void;
-  onSendMessage: (threadId: string, text: string) => void;
+  onSendMessage: (threadId: string, text: string) => void | Promise<void>;
   onSendDateInvite: (threadId: string, place: string, day: string, time: string) => void;
   onAcceptDateInvite: (threadId: string, messageId: string) => void;
   isLadyPremium: boolean;
@@ -47,6 +47,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
 }) => {
   const { t } = useLocale();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [sendError, setSendError] = useState('');
   const [showInviteModal, setShowInviteModal] = useState(false);
   const inviteDialogRef = useRef<HTMLDivElement | null>(null);
 
@@ -97,11 +98,22 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
   const activeThread = threads.find(t => t.id === activeThreadId) || threads[0];
   const inputText = activeThread ? drafts[activeThread.id] ?? '' : '';
 
-  const handleSend = (e: React.FormEvent) => {
+  const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || !activeThread) return;
-    onSendMessage(activeThread.id, inputText.trim());
-    setDrafts(current => ({ ...current, [activeThread.id]: '' }));
+    const thread = activeThread;
+    const messageText = inputText.trim();
+    if (!messageText || !thread) return;
+
+    setSendError('');
+    try {
+      await onSendMessage(thread.id, messageText);
+      setDrafts(current => current[thread.id] === messageText
+        ? { ...current, [thread.id]: '' }
+        : current);
+    } catch {
+      // Keep the original draft so the user can retry without retyping.
+      setSendError(t('sendMessageError'));
+    }
   };
 
   const handleCreateInvite = () => {
@@ -389,12 +401,14 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             onChange={e => {
               const threadId = activeThread.id;
               setDrafts(current => ({ ...current, [threadId]: e.target.value }));
+              setSendError('');
             }}
             placeholder={t('chatMessagePlaceholder')}
             aria-label={t('chatMessageLabel')}
             className="min-w-0 flex-1 rounded-xl border border-white/10 bg-stone-900 px-3 py-3 text-xs text-white placeholder-stone-500 focus:border-rose-500/60 focus:outline-none sm:px-4 sm:text-sm"
           />
 
+          {sendError && <p role="alert" className="max-w-36 text-xs text-rose-300">{sendError}</p>}
           <button
             type="submit"
             disabled={!inputText.trim()}
