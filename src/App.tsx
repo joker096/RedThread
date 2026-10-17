@@ -42,6 +42,18 @@ import { GenderSpecificTests } from './components/GenderSpecificTests.tsx';
 
 export default function App() {
   const { t } = useLocale();
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    try {
+      return window.localStorage.getItem('vow-theme') === 'light' ? 'light' : 'dark';
+    } catch {
+      return 'dark';
+    }
+  });
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    try { window.localStorage.setItem('vow-theme', theme); } catch { /* Theme still applies for this session. */ }
+  }, [theme]);
   // Current user state
   const [currentUser, setCurrentUser] = useState<UserProfile>(initialCurrentUser);
   const [currentGender, setCurrentGender] = useState<Gender>('female');
@@ -828,6 +840,8 @@ export default function App() {
           <div className="w-full flex flex-col min-h-screen">
             {/* NIT header */}
             <HeaderNav
+              theme={theme}
+              onToggleTheme={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}
               currentGender={currentGender}
               isLadyPremium={isLadyPremium}
               deviceFrame={deviceFrame}
@@ -966,6 +980,8 @@ export default function App() {
 
                 {/* Minimal Header inside phone */}
                 <HeaderNav
+                  theme={theme}
+                  onToggleTheme={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}
                   currentGender={currentGender}
                   isLadyPremium={isLadyPremium}
                   deviceFrame={deviceFrame}

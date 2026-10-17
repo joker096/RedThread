@@ -1,9 +1,11 @@
 import React from 'react';
-import { SlidersHorizontal, Flame, MessageCircle, Brain, Crown } from 'lucide-react';
+import { SlidersHorizontal, Flame, MessageCircle, Brain, Crown, Sun, Moon } from 'lucide-react';
 import type { DeviceFrame, Gender } from '../types/index.ts';
 import { getTranslationCoverage, LANGUAGE_OPTIONS, useLocale } from '../i18n/LocaleProvider.tsx';
 
 interface HeaderNavProps {
+  theme: 'dark' | 'light';
+  onToggleTheme: () => void;
   currentGender: Gender;
   isLadyPremium: boolean;
   deviceFrame: DeviceFrame;
@@ -22,6 +24,8 @@ interface HeaderNavProps {
 }
 
 export const HeaderNav: React.FC<HeaderNavProps> = ({
+  theme,
+  onToggleTheme,
   currentGender,
   isLadyPremium,
   deviceFrame,
@@ -117,6 +121,15 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
 
         {/* Right: Quick Controls & Persona Toggle */}
         <div className="flex items-center gap-1 sm:gap-2">
+          <button
+            type="button"
+            onClick={onToggleTheme}
+            className="vow-motion-button flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-stone-900 text-stone-200 transition-colors hover:border-rose-500/40"
+            aria-label={theme === 'dark' ? t('switchToLightTheme') : t('switchToDarkTheme')}
+            title={theme === 'dark' ? t('switchToLightTheme') : t('switchToDarkTheme')}
+          >
+            {theme === 'dark' ? <Sun className="h-4 w-4" aria-hidden="true" /> : <Moon className="h-4 w-4" aria-hidden="true" />}
+          </button>
           <label className="sr-only" htmlFor="app-language">{t('language')}</label>
           <select
             id="app-language"
