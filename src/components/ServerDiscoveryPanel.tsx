@@ -574,7 +574,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                 </div>
                 <div className="mt-2 grid grid-cols-1 gap-2 min-[360px]:grid-cols-2">
                   <button type="button" onClick={() => void block(profile)} disabled={busy || blockedIds.includes(profile.id)} className="min-h-10 rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">{t('block')}</button>
-                  <button type="button" onClick={() => { setReportTargetId(reportTargetId === profile.id ? null : profile.id); setReportDetails(''); }} className="min-h-10 rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400">{t('report')}</button>
+                  <button type="button" onClick={() => { setReportTargetId(reportTargetId === profile.id ? null : profile.id); setReportCategory('fake_profile'); setReportDetails(''); }} className="min-h-10 rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400">{t('report')}</button>
                 </div>
                 {reportTargetId === profile.id && (
                   <div className="mt-2 space-y-2 rounded-xl border border-white/10 bg-stone-900 p-3">
