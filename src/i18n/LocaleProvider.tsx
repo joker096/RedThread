@@ -1316,6 +1316,10 @@ export function getTranslationCoverage(locale: string) {
 }
 
 const rtlLocales = new Set(['ar', 'he', 'fa', 'ur']);
+
+export function getTextDirection(locale: string): 'rtl' | 'ltr' {
+  return rtlLocales.has(locale) ? 'rtl' : 'ltr';
+}
 const availableTranslations = new Set(Object.keys(messages));
 const storageKey = 'vow-locale-preference-v1';
 
@@ -1356,7 +1360,7 @@ export const LocaleProvider: React.FC<React.PropsWithChildren> = ({ children }) 
   const locale = requestedLocale === 'auto' ? deviceLocale : requestedLocale;
   useEffect(() => {
     document.documentElement.lang = locale;
-    document.documentElement.dir = rtlLocales.has(locale) ? 'rtl' : 'ltr';
+    document.documentElement.dir = getTextDirection(locale);
     document.documentElement.dataset.locale = locale;
   }, [locale]);
 
