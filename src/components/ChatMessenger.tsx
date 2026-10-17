@@ -46,7 +46,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
   onBackToList
 }) => {
   const { t } = useLocale();
-  const [inputText, setInputText] = useState('');
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [showInviteModal, setShowInviteModal] = useState(false);
   const inviteDialogRef = useRef<HTMLDivElement | null>(null);
 
@@ -95,12 +95,13 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
   const [showPartnerServices, setShowPartnerServices] = useState(false);
 
   const activeThread = threads.find(t => t.id === activeThreadId) || threads[0];
+  const inputText = activeThread ? drafts[activeThread.id] ?? '' : '';
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() || !activeThread) return;
     onSendMessage(activeThread.id, inputText.trim());
-    setInputText('');
+    setDrafts(current => ({ ...current, [activeThread.id]: '' }));
   };
 
   const handleCreateInvite = () => {
@@ -385,7 +386,10 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
           <input
             type="text"
             value={inputText}
-            onChange={e => setInputText(e.target.value)}
+            onChange={e => {
+              const threadId = activeThread.id;
+              setDrafts(current => ({ ...current, [threadId]: e.target.value }));
+            }}
             placeholder={t('chatMessagePlaceholder')}
             aria-label={t('chatMessageLabel')}
             className="min-w-0 flex-1 rounded-xl border border-white/10 bg-stone-900 px-3 py-3 text-xs text-white placeholder-stone-500 focus:border-rose-500/60 focus:outline-none sm:px-4 sm:text-sm"
