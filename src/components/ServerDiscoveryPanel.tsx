@@ -77,11 +77,12 @@ const normalizeServerProfile = (value: unknown): ServerProfile | null => {
       ? Array.from(new Set(profile.photoUrls.filter(isSafeProfilePhotoUrl).map(url => url.trim()))).slice(0, 20)
       : [],
     languages: Array.isArray(profile.languages)
-      ? profile.languages
-          .filter((language): language is string => typeof language === 'string')
-          .map(language => language.trim().slice(0, 50))
-          .filter(Boolean)
-          .slice(0, 20)
+      ? Array.from(new Set(
+          profile.languages
+            .filter((language): language is string => typeof language === 'string')
+            .map(language => language.trim().slice(0, 50))
+            .filter(Boolean)
+        )).slice(0, 20)
       : []
   } as ServerProfile;
 };
