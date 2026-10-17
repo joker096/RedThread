@@ -498,7 +498,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
             </div>
           )}
           {busy && <p role="status" aria-live="polite" className="mb-3 rounded-xl border border-white/10 bg-stone-950/40 px-3 py-3 text-center text-xs text-stone-300">{t('searching')}</p>}
-          <div className={swipeMode ? 'mx-auto max-w-lg space-y-3' : 'space-y-3'}>
+          <div aria-busy={busy} className={swipeMode ? 'mx-auto max-w-lg space-y-3' : 'space-y-3'}>
             {profiles.slice(0, swipeMode ? 1 : profiles.length).map(profile => (
               <article key={profile.id}
                 onTouchStart={event => {
