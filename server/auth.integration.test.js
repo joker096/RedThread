@@ -413,6 +413,17 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(matchPayload.matched, true);
     assert.ok(matchPayload.match.id);
 
+    // Repeating the reciprocal like must return the existing match, not create a duplicate.
+    const repeatedReciprocalLike = await request(`/api/likes/${registered.user.id}`, {
+      method: 'POST',
+      headers: { Cookie: maleCookie }
+    });
+    assert.equal(repeatedReciprocalLike.status, 201);
+    const repeatedMatchPayload = await repeatedReciprocalLike.json();
+    assert.equal(repeatedMatchPayload.matched, true);
+    assert.equal(repeatedMatchPayload.match.id, matchPayload.match.id,
+      'repeated reciprocal likes must preserve the original match id');
+
     const cannotUndoMatchedLike = await request(`/api/likes/${maleRegistered.user.id}`, {
       method: 'DELETE',
       headers: { Cookie: secondCookie }
