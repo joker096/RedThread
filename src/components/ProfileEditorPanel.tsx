@@ -11,6 +11,9 @@ type Profile = {
   childrenLivingArrangement: 'with_me' | 'shared_custody' | 'with_other_parent' | 'not_applicable' | 'prefer_to_discuss';
 };
 type BlockedProfile = { id: string; displayName: string; createdAt: string };
+
+const safeProfileText = (value: unknown, maxLength: number): string =>
+  typeof value === 'string' ? value.slice(0, maxLength) : '';
 type Props = { onOpenAccount: () => void };
 
 export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
@@ -52,6 +55,12 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       }
       const p = {
         ...rawProfile,
+        displayName: safeProfileText(rawProfile.displayName, 80),
+        bio: safeProfileText(rawProfile.bio, 2000),
+        country: safeProfileText(rawProfile.country, 100),
+        city: safeProfileText(rawProfile.city, 120),
+        occupation: safeProfileText(rawProfile.occupation, 120),
+        education: safeProfileText(rawProfile.education, 120),
         photoUrls: Array.isArray(rawProfile.photoUrls)
           ? rawProfile.photoUrls.filter((value: unknown): value is string =>
               typeof value === 'string' &&
@@ -65,12 +74,12 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
           : []
       } as Profile;
       setProfile(p);
-      setDisplayName((p.displayName || '').slice(0, 80));
-      setBio((p.bio || '').slice(0, 2000));
-      setCountry((p.country || '').slice(0, 100));
-      setCity((p.city || '').slice(0, 120));
-      setOccupation((p.occupation || '').slice(0, 120));
-      setEducation((p.education || '').slice(0, 120));
+      setDisplayName(p.displayName);
+      setBio(p.bio);
+      setCountry(p.country);
+      setCity(p.city);
+      setOccupation(p.occupation);
+      setEducation(p.education);
       setPhotoUrls((p.photoUrls || []).join('\n'));
       setLanguages((p.languages || []).join(', ').slice(0, 1000));
       setRelationshipIntent(p.relationshipIntent);
