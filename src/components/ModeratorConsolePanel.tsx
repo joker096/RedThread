@@ -29,7 +29,7 @@ export const ModeratorConsolePanel:React.FC=()=>{
   }catch(e){if(requestId===refreshRequestId.current&&actionEpoch===sessionEpoch.current){setNotice(e instanceof Error?e.message:'Ошибка загрузки панели.');setReady(true);}}
   finally{if(requestId===refreshRequestId.current&&actionEpoch===sessionEpoch.current)setBusy(false);}
  },[]);
- useEffect(()=>{void refresh();const refreshOnSession=()=>{sessionEpoch.current+=1;refreshRequestId.current+=1;setAllowed(false);setReady(false);setNotice('');setBusy(false);void refresh();};window.addEventListener('focus',()=>void refresh());window.addEventListener('vow:session-changed',refreshOnSession);return()=>{window.removeEventListener('vow:session-changed',refreshOnSession);refreshRequestId.current+=1;sessionEpoch.current+=1;};},[refresh]);
+ useEffect(()=>{void refresh();const refreshOnFocus=()=>void refresh();const refreshOnSession=()=>{sessionEpoch.current+=1;refreshRequestId.current+=1;setAllowed(false);setReady(false);setNotice('');setBusy(false);void refresh();};window.addEventListener('focus',refreshOnFocus);window.addEventListener('vow:session-changed',refreshOnSession);return()=>{window.removeEventListener('focus',refreshOnFocus);window.removeEventListener('vow:session-changed',refreshOnSession);refreshRequestId.current+=1;sessionEpoch.current+=1;};},[refresh]);
  const act=async(url:string,payload?:Record<string,unknown>)=>{
   const actionEpoch=sessionEpoch.current;
   setBusy(true);setNotice('');
