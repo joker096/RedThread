@@ -26,13 +26,14 @@ export const NotificationCenterPanel:React.FC=()=>{
  },[t]);
  useEffect(()=>{void refresh();const refreshOnSession=()=>void refresh();window.addEventListener('focus',refreshOnSession);window.addEventListener('vow:session-changed',refreshOnSession);return()=>{window.removeEventListener('focus',refreshOnSession);window.removeEventListener('vow:session-changed',refreshOnSession);};},[refresh]);
  const markRead=async(id?:string)=>{
+  if(busy)return;
   setBusy(true);
   try{
    const response=await fetch(id?'/api/notifications/'+encodeURIComponent(id)+'/read':'/api/notifications/read-all',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:'{}'});
+   if(response.status===401){setAllowed(false);setReady(true);setItems([]);setUnread(0);setNotice('');setBusy(false);return;}
    if(!response.ok)throw new Error(t('notificationsMarkReadError'));
    await refresh();
-  }catch{setNotice(t('notificationsMarkReadError'));}
-  finally{setBusy(false);}
+  }catch{setNotice(t('notificationsMarkReadError'));setBusy(false);}
  };
  if(!ready||!allowed)return null;
  return <section role="region" aria-label={t('notificationCenter')} aria-busy={busy} className="vow-screen mb-5 rounded-3xl border border-sky-500/20 bg-stone-900/80 p-4 sm:p-5">
