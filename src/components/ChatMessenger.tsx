@@ -356,16 +356,18 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
 
       {/* Date Invite Modal */}
       {showInviteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-3xl bg-stone-900 border border-rose-900/50 p-5 shadow-2xl text-start">
+        <div className="vow-modal-backdrop fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-stone-950/80 p-2 backdrop-blur-sm sm:items-center sm:p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="date-invite-title" className="my-auto max-h-[calc(100dvh-1rem)] w-full max-w-sm overflow-y-auto overscroll-contain rounded-3xl border border-rose-900/50 bg-stone-900 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] text-start shadow-2xl sm:p-5">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Coffee className="w-5 h-5 text-rose-500" />
                 <h4 id="date-invite-title" className="font-heading text-base font-bold text-white">Пригласить на свидание</h4>
               </div>
               <button
+                type="button"
                 onClick={() => setShowInviteModal(false)}
-                className="text-stone-400 hover:text-white"
+                aria-label="Закрыть приглашение"
+                className="flex min-h-11 min-w-11 items-center justify-center rounded-full text-stone-400 hover:text-white"
               >
                 ✕
               </button>
