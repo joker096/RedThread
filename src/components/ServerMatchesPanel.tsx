@@ -117,8 +117,11 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         return;
       }
       if (!response.ok) throw new Error(t('loadMatchesError'));
-      const data = await response.json();
+      const data = await response.json().catch(() => null);
       if (requestId !== matchesRequestId.current) return;
+      if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        throw new Error(t('loadMatchesError'));
+      }
       const nextMatches = deduplicateById(
         Array.isArray(data?.matches)
           ? data.matches.slice(-500).map(normalizeServerMatch).filter((match): match is ServerMatch => match !== null)
