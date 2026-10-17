@@ -3,8 +3,15 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
 const output = path.resolve('store-assets/google-play/phone');
-const clickNav = async (page: import('@playwright/test').Page, name: RegExp) => {
-  const target = page.getByRole('button', { name }).first();
+const clickNav = async (page: import('@playwright/test').Page, title: RegExp) => {
+  const buttons = page.locator('button[title]');
+  const count = await buttons.count();
+  let target = buttons.nth(0);
+  for (let i = 0; i < count; i += 1) {
+    const candidate = buttons.nth(i);
+    const value = await candidate.getAttribute('title');
+    if (value && title.test(value)) { target = candidate; break; }
+  }
   await expect(target).toBeVisible();
   await target.click({ force: true });
 };
@@ -18,7 +25,7 @@ test('capture real Vow phone screens for store listing review', async ({ page })
 
   await page.screenshot({ path: path.join(output, '01-discover.png'), fullPage: false, animations: 'disabled' });
 
-  await clickNav(page, /^tests$|^тесты$|^compatibility$|^совместимость$/i);
+  await clickNav(page, /^tests$|^тесты$/i);
   await page.waitForTimeout(300);
   await page.screenshot({ path: path.join(output, '02-compatibility.png'), fullPage: false, animations: 'disabled' });
 
