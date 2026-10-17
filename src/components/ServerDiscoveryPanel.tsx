@@ -56,6 +56,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const touchStartX = useRef<number | null>(null);
   const lastSearchKey = useRef<string | null>(null);
   const searchRequestId = useRef(0);
+  const searchAbortController = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (!matchedProfile) return;
@@ -98,6 +99,9 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   }, [matchedProfile]);
 
   const search = useCallback(async () => {
+    searchAbortController.current?.abort();
+    const controller = new AbortController();
+    searchAbortController.current = controller;
     const requestId = ++searchRequestId.current;
     setBusy(true);
     setSearchFailed(false);
@@ -119,7 +123,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       setActionHistory([]);
     }
     try {
-      const response = await fetch(`/api/profiles/search?${searchKey}`, { credentials: 'include' });
+      const response = await fetch(`/api/profiles/search?${searchKey}`, { credentials: 'include', signal: controller.signal });
       if (requestId !== searchRequestId.current) return;
       if (response.status === 401) {
         setAuthenticated(false);
@@ -148,11 +152,21 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         setNotice(error instanceof Error ? error.message : t('connectionError'));
       }
     } finally {
-      if (requestId === searchRequestId.current) setBusy(false);
+      if (requestId === searchRequestId.current) {
+        setBusy(false);
+        if (searchAbortController.current === controller) searchAbortController.current = null;
+      }
     }
   }, [minAge, maxAge, minFinancialAlignment, country, city, intent, familyFormat, childrenFilter, t, formatNumber]);
 
-  useEffect(() => { void search(); }, [search]);
+  useEffect(() => {
+    void search();
+    return () => {
+      searchRequestId.current += 1;
+      searchAbortController.current?.abort();
+      searchAbortController.current = null;
+    };
+  }, [search]);
 
   useEffect(() => {
     const refreshOnSession = () => {
