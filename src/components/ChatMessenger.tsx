@@ -437,9 +437,10 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                 e.preventDefault();
               }
             }}
+            maxLength={4000}
             onChange={e => {
               const threadId = activeThread.id;
-              setDrafts(current => ({ ...current, [threadId]: e.target.value }));
+              setDrafts(current => ({ ...current, [threadId]: e.target.value.slice(0, 4000) }));
               setSendErrors(current => ({ ...current, [threadId]: '' }));
             }}
             placeholder={t('chatMessagePlaceholder')}
