@@ -83,15 +83,19 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
 
   const sendAdEvent = (campaignId: string, eventType: 'impression' | 'click'): Promise<boolean> => {
     if (!campaignId) return Promise.resolve(false);
+    let eventId: string;
+    try {
+      eventId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `vow-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    } catch {
+      eventId = `vow-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
     return fetch('/api/ads/events', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        eventId: crypto.randomUUID(),
-        campaignId,
-        eventType
-      })
+      body: JSON.stringify({ eventId, campaignId, eventType })
     }).then(response => response.ok).catch(() => {
       // Analytics must never interrupt discovery or opening the sponsor destination.
       return false;
