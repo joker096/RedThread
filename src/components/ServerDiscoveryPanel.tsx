@@ -25,6 +25,8 @@ type ServerProfile = {
 
 type ServerDiscoveryPanelProps = { onOpenAccount: () => void };
 
+const VALID_REPORT_CATEGORIES = ['fake_profile', 'spam', 'harassment', 'safety', 'children_misrepresentation', 'duplicate_profile', 'other'];
+
 const isSafeProfilePhotoUrl = (value: unknown): value is string => {
   if (typeof value !== 'string' || !value.trim()) return false;
   const url = value.trim();
@@ -414,8 +416,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
 
   const submitReport = async (profile: ServerProfile) => {
     if (busy) return;
-    const validReportCategories = ['fake_profile', 'spam', 'harassment', 'safety', 'children_misrepresentation', 'duplicate_profile', 'other'];
-    if (!validReportCategories.includes(reportCategory)) {
+    if (!VALID_REPORT_CATEGORIES.includes(reportCategory)) {
       setNotice(t('reportError'));
       return;
     }
