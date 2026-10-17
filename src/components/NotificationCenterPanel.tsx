@@ -41,8 +41,11 @@ export const NotificationCenterPanel:React.FC=()=>{
        return true;
       })
     : [];
-   const unreadCount = Number(data?.unreadCount);
-   setItems(notifications);setUnread(Number.isFinite(unreadCount) ? Math.max(0, Math.floor(unreadCount)) : 0);setAllowed(true);setReady(true);setNotice('');
+   const unreadCount = data?.unreadCount;
+   const safeUnreadCount = typeof unreadCount === 'number' && Number.isFinite(unreadCount)
+    ? Math.max(0, Math.floor(unreadCount))
+    : 0;
+   setItems(notifications);setUnread(safeUnreadCount);setAllowed(true);setReady(true);setNotice('');
   }catch{if(requestId===refreshRequestId.current&&actionEpoch===sessionEpoch.current){setNotice(t('notificationsLoadError'));setReady(true);}}
   finally{if(busyId===busyRequestId.current&&actionEpoch===sessionEpoch.current)setBusy(false);}
  },[t]);
