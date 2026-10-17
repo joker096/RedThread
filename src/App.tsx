@@ -1043,7 +1043,12 @@ export default function App() {
                     <MessageCircle className="w-4 h-4" />
                     <span className="text-[9px] leading-tight">{t('chatsShort')}</span>
                     {unreadCount > 0 && (
-                      <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400"></span>
+                      <span
+                        aria-label={`${t('chatsShort')}: ${unreadCount}`}
+                        className="absolute -top-1 -right-1 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-amber-400 px-1 text-[9px] font-black leading-none text-stone-950"
+                      >
+                        {unreadCount > 99 ? '99+' : unreadCount}
+                      </span>
                     )}
                   </button>
 
