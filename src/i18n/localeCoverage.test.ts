@@ -83,6 +83,32 @@ test('French catalog covers core discovery, safety, account and messaging UI', (
   }
 });
 
+test('German catalog covers core discovery, safety, account and messaging UI', () => {
+  const german = getTranslationCoverage('de');
+  assert.ok(german.translated >= 100, 'German should translate a substantial core set of UI messages');
+  assert.ok(german.percentage > 0 && german.percentage < 100, 'German must remain partial until complete');
+  for (const key of [
+    'language', 'discovery', 'safety', 'like', 'pass', 'report', 'block', 'search',
+    'relationshipGoal', 'accountTitle', 'signIn', 'createAccount', 'email', 'password',
+    'chats', 'notificationCenter', 'authInvalidEmail', 'authDeleteConfirm', 'partialTranslationHelp'
+  ] as const) {
+    assert.ok(!german.missing.includes(key), `German core key "${key}" should be translated`);
+  }
+});
+
+test('Portuguese catalog covers core discovery, safety, account and messaging UI', () => {
+  const portuguese = getTranslationCoverage('pt');
+  assert.ok(portuguese.translated >= 100, 'Portuguese should translate a substantial core set of UI messages');
+  assert.ok(portuguese.percentage > 0 && portuguese.percentage < 100, 'Portuguese must remain partial until complete');
+  for (const key of [
+    'language', 'discovery', 'safety', 'like', 'pass', 'report', 'block', 'search',
+    'relationshipGoal', 'accountTitle', 'signIn', 'createAccount', 'email', 'password',
+    'chats', 'notificationCenter', 'authInvalidEmail', 'authDeleteConfirm', 'partialTranslationHelp'
+  ] as const) {
+    assert.ok(!portuguese.missing.includes(key), `Portuguese core key "${key}" should be translated`);
+  }
+});
+
 test('Georgian translations cover the core discovery and safety interface without claiming full localization', () => {
   const georgian = getTranslationCoverage('ka');
   assert.ok(georgian.translated > 0, 'Georgian should provide real translated messages');
