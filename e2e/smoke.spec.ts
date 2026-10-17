@@ -154,7 +154,7 @@ test('password reset token is removed from the address bar before the reset form
   await page.goto(`/?resetPassword=${token}`);
 
   // The account panel is mounted on the Tests tab; its effect consumes and scrubs the one-time token.
-  await page.getByTestId('nav-tests').click();
+  await page.getByTestId('mobile-nav-tests').click();
   await expect(page.locator('input[autocomplete="new-password"]')).toBeVisible();
   await expect.poll(() => page.url()).not.toContain(token);
   await expect(page.locator('input[autocomplete="new-password"]')).toHaveAttribute('minlength', '12');
