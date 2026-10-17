@@ -138,7 +138,15 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
         };
         throw new Error(errors[data?.error] || t('profileSaveError'));
       }
-      setProfile(data.profile);
+      const savedProfile = data?.profile;
+      if (!savedProfile || typeof savedProfile !== 'object' || Array.isArray(savedProfile) ||
+          typeof savedProfile.id !== 'string' || !savedProfile.id.trim() ||
+          typeof savedProfile.displayName !== 'string' ||
+          typeof savedProfile.age !== 'number' || !Number.isFinite(savedProfile.age) ||
+          !['female', 'male'].includes(savedProfile.gender)) {
+        throw new Error(t('profileSaveError'));
+      }
+      setProfile(savedProfile);
       setNotice(t('profileSaved'));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : t('profileSaveError'));
