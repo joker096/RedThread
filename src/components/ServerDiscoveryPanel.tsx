@@ -134,11 +134,13 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       if (!response.ok) throw new Error(t('searchSetupError'));
       const data = await response.json();
       if (requestId !== searchRequestId.current) return;
-      setProfiles(data.profiles || []);
+      const nextProfiles: ServerProfile[] = Array.isArray(data?.profiles) ? data.profiles : [];
+      setProfiles(nextProfiles);
       setAuthenticated(true);
-      setNotice(data.profiles?.length ? `${t('registeredProfiles')}: ${formatNumber(data.profiles.length)}` : t('noProfilesForFilters'));
+      setNotice(nextProfiles.length ? `${t('registeredProfiles')}: ${formatNumber(nextProfiles.length)}` : t('noProfilesForFilters'));
     } catch (error) {
       if (requestId === searchRequestId.current) {
+        setProfiles([]);
         setNotice(error instanceof Error ? error.message : t('connectionError'));
       }
     } finally {
@@ -428,7 +430,15 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
             </section>
           )}
           {swipeMode && <p className="mb-3 text-[11px] text-stone-400">{t('swipeHint')}</p>}
-          {notice && <p role="status" className="mb-3 text-xs text-stone-300">{notice}</p>}
+          {notice && <p role="status" aria-live="polite" aria-atomic="true" className="mb-3 text-xs text-stone-300">{notice}</p>}
+          {!busy && authenticated === true && profiles.length === 0 && (
+            <div className="mb-3 rounded-2xl border border-white/10 bg-stone-950/60 p-4 text-center" aria-live="polite">
+              <p className="text-sm font-semibold text-stone-200">{t('noProfilesForFilters')}</p>
+              <p className="mt-1 text-xs leading-relaxed text-stone-400">{t('demoFilterHint')}</p>
+              <button type="button" onClick={() => void search()} className="mt-3 min-h-11 rounded-xl border border-emerald-500/30 px-4 py-2.5 text-sm font-semibold text-emerald-200 hover:bg-emerald-950/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">{t('retry')}</button>
+            </div>
+          )}
+          {busy && <p role="status" aria-live="polite" className="mb-3 rounded-xl border border-white/10 bg-stone-950/40 px-3 py-3 text-center text-xs text-stone-300">{t('searching')}</p>}
           <div className={swipeMode ? 'mx-auto max-w-lg space-y-3' : 'space-y-3'}>
             {profiles.slice(0, swipeMode ? 1 : profiles.length).map(profile => (
               <article key={profile.id}
