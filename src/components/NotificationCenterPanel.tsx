@@ -61,7 +61,12 @@ export const NotificationCenterPanel:React.FC=()=>{
    if(response.status===401){sessionEpoch.current+=1;refreshRequestId.current+=1;busyRequestId.current+=1;setBusy(false);setAllowed(false);setReady(true);setItems([]);setUnread(0);setNotice('');return;}
    if(!response.ok)throw new Error(t('notificationsMarkReadError'));
    await refresh();
-  }catch{if(actionEpoch===sessionEpoch.current){setNotice(t('notificationsMarkReadError'));if(busyId===busyRequestId.current)setBusy(false);}}
+  }catch{
+   if(actionEpoch===sessionEpoch.current){
+    setNotice(t('notificationsMarkReadError'));
+    if(busyId===busyRequestId.current)setBusy(false);
+   }
+  }
  };
  if(!ready||!allowed)return null;
  return <section role="region" aria-label={t('notificationCenter')} aria-busy={busy} className="vow-screen mb-5 rounded-3xl border border-sky-500/20 bg-stone-900/80 p-4 sm:p-5">
