@@ -98,6 +98,14 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
   const [showDirectContactUnlocked, setShowDirectContactUnlocked] = useState(false);
   const [showPartnerServices, setShowPartnerServices] = useState(false);
 
+  // Reset thread-specific UI when switching conversations to avoid carrying
+  // an invite or unlocked contact panel into a different chat.
+  useEffect(() => {
+    setShowInviteModal(false);
+    setShowDirectContactUnlocked(false);
+    setShowPartnerServices(false);
+  }, [activeThreadId]);
+
   const activeThread = threads.find(t => t.id === activeThreadId) || threads[0];
   const inputText = activeThread ? drafts[activeThread.id] ?? '' : '';
 
