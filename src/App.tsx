@@ -980,6 +980,8 @@ export default function App() {
 
                 {/* Minimal Header inside phone */}
                 <HeaderNav
+                  theme={theme}
+                  onToggleTheme={() => setTheme(value => value === 'dark' ? 'light' : 'dark')}
                   currentGender={currentGender}
                   isLadyPremium={isLadyPremium}
                   deviceFrame={deviceFrame}
