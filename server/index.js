@@ -3,6 +3,7 @@ import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { verifyStripeWebhookSignature } from './stripeWebhookSecurity.js';
+import { validateAdEventPayload, AD_IMPRESSION_CAP_24H } from './adEvents.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
 import express from 'express';
@@ -1879,6 +1880,69 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
     if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Moderation action failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'moderation_action_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.post('/api/ads/events', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  const validation = validateAdEventPayload(req.body);
+  if (!validation.ok) return res.status(400).json({ error: validation.error });
+
+  const user = req.authUser;
+  const hasPremium = Boolean(user.premium_lifetime) ||
+    (user.premium_until && new Date(user.premium_until).getTime() > Date.now());
+  if (hasPremium) return res.status(403).json({ error: 'ads_disabled_for_premium' });
+
+  const { eventId, campaignId, eventType } = validation.value;
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    // Serialize frequency checks per user/campaign so concurrent requests cannot bypass the cap.
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`${user.id}:${campaignId}`]);
+
+    const duplicate = await client.query('SELECT 1 FROM ad_events WHERE event_id = $1', [eventId]);
+    if (duplicate.rowCount) {
+      await client.query('COMMIT');
+      return res.json({ accepted: true, duplicate: true });
+    }
+
+    if (eventType === 'impression') {
+      const count = await client.query(
+        `SELECT COUNT(*)::int AS count FROM ad_events
+         WHERE user_id = $1 AND campaign_id = $2 AND event_type = 'impression'
+           AND created_at >= NOW() - INTERVAL '24 hours'`,
+        [user.id, campaignId]
+      );
+      if (count.rows[0].count >= AD_IMPRESSION_CAP_24H) {
+        await client.query('ROLLBACK');
+        return res.status(429).json({ error: 'ad_frequency_cap_reached', retryAfterSeconds: 86400 });
+      }
+    } else {
+      const impression = await client.query(
+        `SELECT 1 FROM ad_events
+         WHERE user_id = $1 AND campaign_id = $2 AND event_type = 'impression'
+           AND created_at >= NOW() - INTERVAL '24 hours'
+         LIMIT 1`,
+        [user.id, campaignId]
+      );
+      if (!impression.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'impression_required_before_click' });
+      }
+    }
+
+    await client.query(
+      'INSERT INTO ad_events (event_id, user_id, campaign_id, event_type) VALUES ($1, $2, $3, $4)',
+      [eventId, user.id, campaignId, eventType]
+    );
+    await client.query('COMMIT');
+    return res.status(201).json({ accepted: true, duplicate: false });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Ad event processing failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'ad_event_processing_failed' });
   } finally {
     client?.release();
   }
