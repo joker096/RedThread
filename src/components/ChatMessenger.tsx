@@ -190,7 +190,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
         {/* Chat Header */}
         <div className="p-3 sm:p-4 border-b border-white/5 flex flex-wrap items-center justify-between gap-2 bg-stone-950/40">
           <div className="flex items-center gap-3">
-            <button
+            <button type="button"
               onClick={onBackToList}
               className="md:hidden p-1.5 rounded-lg bg-stone-800 text-stone-300 hover:text-white"
               aria-label="Назад к списку"
@@ -235,7 +235,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
               <span className="hidden lg:inline">Для пары</span>
               <span className="lg:hidden">Услуги</span>
             </button>
-            <button
+            <button type="button"
               onClick={() => setShowInviteModal(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 text-white font-semibold text-xs shadow-md shadow-rose-950 hover:from-rose-500 hover:to-red-500 transition-all"
             >
@@ -245,7 +245,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             </button>
 
             {/* Direct contact unlock button */}
-            <button
+            <button type="button"
               onClick={() => {
                 if (!isLadyPremium) {
                   onOpenLadyPremium();
@@ -335,7 +335,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                           <span>Свидание подтверждено! До встречи!</span>
                         </div>
                       ) : (
-                        <button
+                        <button type="button"
                           onClick={() => onAcceptDateInvite(activeThread.id, msg.id)}
                           className="w-full py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
                         >
@@ -463,13 +463,13 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             </div>
 
             <div className="flex gap-2">
-              <button
+              <button type="button"
                 onClick={() => setShowInviteModal(false)}
                 className="flex-1 py-2.5 rounded-xl bg-stone-800 text-stone-300 font-semibold text-xs"
               >
                 Отмена
               </button>
-              <button
+              <button type="button"
                 onClick={handleCreateInvite}
                 className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs"
               >
