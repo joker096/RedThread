@@ -59,7 +59,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
         </div>
 
         {/* Center: Sleek Segmented Navigation (Desktop & Tablet) */}
-        <nav aria-label="Primary navigation" className="hidden lg:flex items-center gap-1 rounded-full border border-white/[0.07] bg-stone-900/90 p-1">
+        <nav aria-label={t('primaryNavigation')} className="hidden lg:flex items-center gap-1 rounded-full border border-white/[0.07] bg-stone-900/90 p-1">
           <button
             onClick={() => setActiveTab('discovery')}
             aria-current={activeTab === 'discovery' ? 'page' : undefined}
@@ -143,7 +143,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                 ? 'bg-rose-950/40 border-rose-500/40 text-rose-200'
                 : 'bg-blue-950/40 border-blue-500/40 text-blue-200'
             }`}
-            title="Демо-режим: переключить отображаемую анкету" aria-label="Демо-режим: переключить отображаемую анкету"
+            title={t('demoModeToggleHelp')} aria-label={t('demoModeToggleHelp')}
           >
             <span className={`w-1.5 h-1.5 rounded-full ${currentGender === 'female' ? 'bg-rose-500' : 'bg-blue-400'}`}></span>
             <span>{currentGender === 'female' ? `${t('demoWoman')} ♀` : `${t('demoMan')} ♂`}</span>
