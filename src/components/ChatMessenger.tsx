@@ -20,6 +20,7 @@ import {
 import type { ChatThread, Message, UserProfile } from '../types/index.ts';
 import { checkAntiChitChatDeadline } from '../utils/compatibility.ts';
 import { PartnerServicesMarketplace } from './PartnerServicesMarketplace.tsx';
+import { useLocale } from '../i18n/LocaleProvider';
 
 interface ChatMessengerProps {
   threads: ChatThread[];
@@ -44,6 +45,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
   onOpenLadyPremium,
   onBackToList
 }) => {
+  const { t } = useLocale();
   const [inputText, setInputText] = useState('');
   const [showInviteModal, setShowInviteModal] = useState(false);
   const inviteDialogRef = useRef<HTMLDivElement | null>(null);
@@ -111,9 +113,9 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
     return (
       <div className="flex flex-col items-center justify-center p-8 text-center min-h-[400px]">
         <Coffee className="w-12 h-12 text-rose-500 mb-3" />
-        <h3 className="font-heading text-lg font-bold text-white mb-1">У вас пока нет активных диалогов</h3>
+        <h3 className="font-heading text-lg font-bold text-white mb-1">{t('chatEmptyTitle')}</h3>
         <p className="text-xs text-stone-400 max-w-xs">
-          Перейдите в радар, выберите подходящую вторую половинку и отправьте симпатию!
+          {t('chatEmptyDescription')}
         </p>
       </div>
     );
@@ -127,19 +129,19 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
       <div className={`w-full md:w-80 border-e border-white/5 flex flex-col bg-stone-950/60 ${activeThreadId ? 'hidden md:flex' : 'flex'}`}>
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 p-3.5">
           <div className="flex items-center gap-2">
-            <h3 className="font-heading text-sm font-bold text-white">Диалоги</h3>
+            <h3 className="font-heading text-sm font-bold text-white">{t('chatThreads')}</h3>
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-600/30 text-rose-300 font-bold border border-rose-500/20">
-              {threads.length} пары
+              {threads.length} {t('chatMatches')}
             </span>
           </div>
-          <span className="text-[10px] text-stone-400">Правило 72 ч</span>
+          <span className="text-[10px] text-stone-400">{t('chat72HourRule')}</span>
         </div>
 
         {/* Anti-chit-chat notice banner */}
         <div className="p-2.5 mx-3 my-2 rounded-xl bg-rose-950/30 border border-rose-800/30 text-[11px] text-rose-200 flex items-start gap-2">
           <Clock className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
           <span>
-            <strong>Цель — живое свидание!</strong> Переписка ограничена 72 часами, чтобы избежать пустых разговоров.
+            <strong>{t('chatDateGoal')}</strong> {t('chat72HourNotice')}
           </span>
         </div>
 
@@ -193,7 +195,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             <button type="button"
               onClick={onBackToList}
               className="md:hidden p-1.5 rounded-lg bg-stone-800 text-stone-300 hover:text-white"
-              aria-label="Назад к списку"
+              aria-label={t('chatBackToList')}
             >
               <ArrowLeft className="vow-rtl-back-icon w-4 h-4" />
             </button>
@@ -214,7 +216,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                 </span>
                 <span className="text-[10px] text-emerald-400 bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-500/20 font-semibold flex items-center gap-0.5">
                   <ShieldCheck className="w-3 h-3" />
-                  Живой
+                  {t('chatOnline')}
                 </span>
               </div>
               <p className="text-[11px] text-stone-400">
@@ -229,19 +231,19 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
               type="button"
               onClick={() => setShowPartnerServices(true)}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-emerald-600/30 bg-emerald-950/30 text-emerald-200 font-semibold text-xs hover:bg-emerald-900/40 transition-colors"
-              title="Юристы и свадебные услуги после этапа совместимости"
+              title={t('chatPartnerServicesTitle')}
             >
               <HeartHandshake className="w-4 h-4" />
-              <span className="hidden lg:inline">Для пары</span>
-              <span className="lg:hidden">Услуги</span>
+              <span className="hidden lg:inline">{t('chatForCouple')}</span>
+              <span className="lg:hidden">{t('chatServices')}</span>
             </button>
             <button type="button"
               onClick={() => setShowInviteModal(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 text-white font-semibold text-xs shadow-md shadow-rose-950 hover:from-rose-500 hover:to-red-500 transition-all"
             >
               <Coffee className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Назначить свидание</span>
-              <span className="sm:hidden">Встреча</span>
+              <span className="hidden sm:inline">{t('chatPlanDate')}</span>
+              <span className="sm:hidden">{t('chatDateShort')}</span>
             </button>
 
             {/* Direct contact unlock button */}
@@ -258,7 +260,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                   ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
                   : 'bg-stone-800 border-white/5 text-stone-400 hover:text-white'
               }`}
-              title={isLadyPremium ? 'Прямой контакт открыт' : 'Обмен контактами (Lady VIP)'}
+              title={isLadyPremium ? t('chatDirectContactOpen') : t('chatDirectContactVip')}
             >
               <Phone className="w-4 h-4" />
             </button>
@@ -270,7 +272,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
           <div className="flex items-center gap-2">
             <Clock className="w-3.5 h-3.5 text-rose-500" />
             <span>
-              Таймер до свидания: <strong className="text-white font-mono">{antiChitChat.hoursLeft} ч</strong>
+              {t('chatDateCountdown')} <strong className="text-white font-mono">{antiChitChat.hoursLeft} ч</strong>
             </span>
           </div>
           <span className="text-[11px] text-rose-300 hidden sm:inline">
@@ -284,11 +286,11 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             <div className="flex items-center gap-2">
               <Crown className="w-4 h-4 text-amber-400" />
               <span>
-                <strong>Контакты партнера:</strong> Telegram: @{activeThread.partnerProfile.id.replace('user_', '')}_direct • Тел: +7 (926) 841-**-**
+                <strong>{t('chatPartnerContact')}</strong> Telegram: @{activeThread.partnerProfile.id.replace('user_', '')}_direct • Тел: +7 (926) 841-**-**
               </span>
             </div>
             <span className="text-[10px] bg-amber-500/20 px-2 py-0.5 rounded font-bold">
-              Lady VIP Преимущество
+              {t('chatVipBenefit')}
             </span>
           </div>
         )}
@@ -299,7 +301,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
           <div className="flex justify-center mb-2">
             <div className="px-3 py-1 rounded-full bg-stone-950/80 border border-rose-900/30 text-[11px] text-stone-400 flex items-center gap-1.5">
               <Sparkles className="w-3 h-3 text-rose-400" />
-              <span>Совместимость целей на семью: {activeThread.compatibilityScore}%</span>
+              <span>{t('chatFamilyCompatibility')} {activeThread.compatibilityScore}%</span>
             </div>
           </div>
 
@@ -315,7 +317,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                   <div className="max-w-sm rounded-2xl p-4 bg-gradient-to-br from-rose-950 via-stone-900 to-stone-950 border border-rose-600/50 text-white shadow-xl">
                     <div className="flex items-center gap-2 text-rose-400 text-xs font-bold uppercase tracking-wider mb-2">
                       <Coffee className="w-4 h-4" />
-                      <span>Приглашение на первое свидание</span>
+                      <span>{t('chatFirstDateInvite')}</span>
                     </div>
                     <div className="space-y-1.5 text-xs text-stone-200 mb-3">
                       <div className="flex items-center gap-2">
@@ -332,7 +334,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                       {msg.dateInviteDetails?.status === 'accepted' ? (
                         <div className="w-full py-2 rounded-xl bg-emerald-950/80 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center justify-center gap-1.5">
                           <Check className="w-4 h-4" />
-                          <span>Свидание подтверждено! До встречи!</span>
+                          <span>{t('chatDateConfirmed')}</span>
                         </div>
                       ) : (
                         <button type="button"
@@ -340,7 +342,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                           className="w-full py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
                         >
                           <Check className="w-4 h-4" />
-                          <span>Принять приглашение</span>
+                          <span>{t('chatAcceptInvite')}</span>
                         </button>
                       )}
                     </div>
@@ -368,8 +370,8 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             type="button"
             onClick={() => setShowInviteModal(true)}
             className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-stone-800 text-rose-400 transition-colors hover:bg-stone-700"
-            title="Пригласить на встречу"
-            aria-label="Пригласить на встречу"
+            title={t('chatInviteDate')}
+            aria-label={t('chatInviteDate')}
           >
             <Coffee className="w-4 h-4" />
           </button>
@@ -378,8 +380,8 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             type="text"
             value={inputText}
             onChange={e => setInputText(e.target.value)}
-            placeholder="Напишите сообщение без пустых формальностей..."
-            aria-label="Сообщение"
+            placeholder={t('chatMessagePlaceholder')}
+            aria-label={t('chatMessageLabel')}
             className="min-w-0 flex-1 rounded-xl border border-white/10 bg-stone-900 px-3 py-3 text-xs text-white placeholder-stone-500 focus:border-rose-500/60 focus:outline-none sm:px-4 sm:text-sm"
           />
 
@@ -387,7 +389,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             type="submit"
             disabled={!inputText.trim()}
             className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-rose-600 text-white shadow-md transition-all hover:bg-rose-500 disabled:opacity-40"
-            aria-label="Отправить сообщение"
+            aria-label={t('chatSendMessage')}
           >
             <Send className="w-4 h-4" />
           </button>
@@ -401,12 +403,12 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Coffee className="w-5 h-5 text-rose-500" />
-                <h4 id="date-invite-title" className="font-heading text-base font-bold text-white">Пригласить на свидание</h4>
+                <h4 id="date-invite-title" className="font-heading text-base font-bold text-white">{t('chatInviteDate')}</h4>
               </div>
               <button
                 type="button"
                 onClick={() => setShowInviteModal(false)}
-                aria-label="Закрыть приглашение"
+                aria-label={t('chatCloseInvite')}
                 className="flex min-h-11 min-w-11 items-center justify-center rounded-full text-stone-400 hover:text-white"
               >
                 ✕
@@ -414,12 +416,12 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             </div>
 
             <p className="text-xs text-stone-300 mb-4">
-              Выберите формат живой встречи, чтобы не тратить недели на виртуальную переписку:
+              {t('chatInviteDescription')}
             </p>
 
             <div className="space-y-3 mb-5 text-xs">
               <div>
-                <label className="block text-stone-400 mb-1">Место / Формат:</label>
+                <label className="block text-stone-400 mb-1">{t('chatPlaceFormat')}</label>
                 <select
                   value={selectedPlace}
                   onChange={e => setSelectedPlace(e.target.value)}
@@ -434,7 +436,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
 
               <div className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-2">
                 <div>
-                  <label className="block text-stone-400 mb-1">День:</label>
+                  <label className="block text-stone-400 mb-1">{t('chatDay')}</label>
                   <select
                     value={selectedDay}
                     onChange={e => setSelectedDay(e.target.value)}
@@ -447,7 +449,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-stone-400 mb-1">Время:</label>
+                  <label className="block text-stone-400 mb-1">{t('chatTime')}</label>
                   <select
                     value={selectedTime}
                     onChange={e => setSelectedTime(e.target.value)}
@@ -467,13 +469,13 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                 onClick={() => setShowInviteModal(false)}
                 className="flex-1 py-2.5 rounded-xl bg-stone-800 text-stone-300 font-semibold text-xs"
               >
-                Отмена
+                {t('cancel')}
               </button>
               <button type="button"
                 onClick={handleCreateInvite}
                 className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs"
               >
-                Отправить в чат
+                {t('chatSendInvite')}
               </button>
             </div>
           </div>
