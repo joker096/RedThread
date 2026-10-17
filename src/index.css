@@ -1039,7 +1039,7 @@ main article[class*="rounded-2xl"][class*="border"] {
   color: #292524;
 }
 
-@media (max-width: 360px) {
+@media (max-width: 380px) {\n  .vow-screen .grid.grid-cols-2 {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .vow-screen :where(button, input, select, textarea) {\n    min-width: 0;\n    max-width: 100%;\n  }\n\n  .vow-chat-layout [role="log"] {\n    padding: .75rem;\n  }\n}\n\n@media (max-width: 360px) {
   .vow-bottom-nav {
     gap: .15rem;
     padding-inline: .35rem;
