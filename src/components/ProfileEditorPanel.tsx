@@ -118,7 +118,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
   };
 
   return (
-    <section className="vow-screen mb-5 min-w-0 rounded-3xl border border-amber-500/20 bg-stone-900/80 p-3 sm:p-5">
+    <section aria-busy={busy || uploadBusy} className="vow-screen mb-5 min-w-0 rounded-3xl border border-amber-500/20 bg-stone-900/80 p-3 sm:p-5">
       <p className="text-[10px] uppercase tracking-[0.2em] text-amber-300">{t('profileMyProfile')}</p>
       <h3 className="mt-1 text-lg font-bold text-white">{t('profileHeading')}</h3>
       {authenticated === false ? (
@@ -181,7 +181,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
           </div>
         </div>
       )}
-      {notice && <p role="status" className="mt-3 text-xs text-stone-300">{notice}</p>}
+      {notice && <p role="status" aria-live="polite" className="mt-3 text-xs text-stone-300">{notice}</p>}
     </section>
   );
 };
