@@ -427,10 +427,10 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                   onChange={e => setSelectedPlace(e.target.value)}
                   className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs"
                 >
-                  <option value="Уютная кофейня в центре">☕ Уютная кофейня (30-40 минут)</option>
-                  <option value="Прогулка в городском парке">🌳 Прогулка в парке на свежем воздухе</option>
-                  <option value="Ужин в видовом ресторане">🍷 Спокойный ужин в ресторане</option>
-                  <option value="Короткий 10-мин видео-чай">📹 Быстрый видео-чай перед встречей</option>
+                  <option value="Уютная кофейня в центре">☕ {t('chatPlaceCafe')}</option>
+                  <option value="Прогулка в городском парке">🌳 {t('chatPlacePark')}</option>
+                  <option value="Ужин в видовом ресторане">🍷 {t('chatPlaceDinner')}</option>
+                  <option value="Короткий 10-мин видео-чай">📹 {t('chatPlaceVideo')}</option>
                 </select>
               </div>
 
@@ -442,10 +442,10 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                     onChange={e => setSelectedDay(e.target.value)}
                     className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs"
                   >
-                    <option value="Сегодня">Сегодня</option>
-                    <option value="Завтра">Завтра</option>
-                    <option value="В субботу">В субботу</option>
-                    <option value="В воскресенье">В воскресенье</option>
+                    <option value="Сегодня">{t('chatDayToday')}</option>
+                    <option value="Завтра">{t('chatDayTomorrow')}</option>
+                    <option value="В субботу">{t('chatDaySaturday')}</option>
+                    <option value="В воскресенье">{t('chatDaySunday')}</option>
                   </select>
                 </div>
                 <div>
