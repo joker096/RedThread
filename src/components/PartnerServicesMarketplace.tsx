@@ -64,6 +64,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
   const [country, setCountry] = useState<CountryCode>('GE');
   const [showProviderForm, setShowProviderForm] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [providerFormError, setProviderFormError] = useState('');
   const [providerType, setProviderType] = useState<'lawyer' | 'advocate' | 'wedding'>('lawyer');
   const [providerCountry, setProviderCountry] = useState<CountryCode>('GE');
   const [providerName, setProviderName] = useState('');
@@ -121,8 +122,19 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
   if (!isOpen) return null;
 
   const isLegal = category === 'legal';
-  const handleSubmitProvider = (e: React.FormEvent) => {
+  const handleSubmitProvider = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const name = providerName.trim();
+    const email = providerEmail.trim();
+    const details = practice.trim();
+    if (!name || !email || !details) {
+      setProviderFormError('Заполните имя или название, рабочий email и описание услуг без одних пробелов.');
+      return;
+    }
+    setProviderName(name);
+    setProviderEmail(email);
+    setPractice(details);
+    setProviderFormError('');
     setSubmitted(true);
   };
 
@@ -155,7 +167,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                 {Object.entries(countryNames).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
               </select>
             </div>
-            <button onClick={() => { setShowProviderForm(v => !v); setSubmitted(false); }} className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-500/40 bg-rose-600/10 px-4 py-3 text-xs font-bold text-rose-200 hover:bg-rose-600/20">
+            <button onClick={() => { setShowProviderForm(v => !v); setSubmitted(false); setProviderFormError(''); }} className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-500/40 bg-rose-600/10 px-4 py-3 text-xs font-bold text-rose-200 hover:bg-rose-600/20">
               <FileCheck2 className="w-4 h-4" /> Я предоставляю услуги
             </button>
           </div>
@@ -171,6 +183,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
             <form onSubmit={handleSubmitProvider} className="mb-6 rounded-2xl border border-rose-700/30 bg-stone-950/70 p-4 sm:p-5">
               <h3 className="font-bold text-white mb-1">Заявка поставщика услуг</h3>
               <p className="text-xs text-stone-400 mb-4">Заявка только демонстрирует будущий процесс. Не вводите паспортные данные и не прикрепляйте документы в прототипе.</p>
+              {providerFormError && <p role="alert" className="mb-3 rounded-xl border border-rose-700/40 bg-rose-950/30 p-3 text-xs text-rose-200">{providerFormError}</p>}
               {submitted ? (
                 <div role="status" aria-live="polite" className="rounded-xl border border-emerald-700/30 bg-emerald-950/30 p-4 text-sm text-emerald-200"><CheckCircle2 className="inline w-4 h-4 mr-2" />Демо-заявка проверена локально. Она не отправлена и документы не проверялись.</div>
               ) : (
@@ -178,9 +191,9 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                   <div className="grid sm:grid-cols-2 gap-3">
                     <div><label className="block text-xs text-stone-400 mb-1">Тип поставщика</label><select value={providerType} onChange={e => setProviderType(e.target.value as typeof providerType)} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white"><option value="lawyer">Юрист по семейному праву</option><option value="advocate">Адвокат (если статус предусмотрен законом страны)</option><option value="wedding">Свадебные услуги</option></select></div>
                     <div><label className="block text-xs text-stone-400 mb-1">Страна допуска / работы</label><select value={providerCountry} onChange={e => setProviderCountry(e.target.value as CountryCode)} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white">{Object.entries(countryNames).map(([code, name]) => <option key={code} value={code}>{name}</option>)}</select></div>
-                    <div><label className="block text-xs text-stone-400 mb-1">Имя / название организации</label><input required maxLength={160} value={providerName} onChange={e => setProviderName(e.target.value.slice(0, 160))} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white" placeholder="Имя специалиста или компании" /></div>
-                    <div><label className="block text-xs text-stone-400 mb-1">Рабочий email</label><input required type="email" maxLength={254} value={providerEmail} onChange={e => setProviderEmail(e.target.value.slice(0, 254))} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white" placeholder="name@example.com" /></div>
-                    <div className="sm:col-span-2"><label className="block text-xs text-stone-400 mb-1">{providerType === 'wedding' ? 'Услуги и регионы работы' : 'Специализация и правовая юрисдикция'}</label><input required maxLength={500} value={practice} onChange={e => setPractice(e.target.value.slice(0, 500))} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white" placeholder={providerType === 'wedding' ? 'Фото, видео, аренда платья, ведущий…' : 'Семейное право, брачные договоры, страна/регион…'} /></div>
+                    <div><label className="block text-xs text-stone-400 mb-1">Имя / название организации</label><input required maxLength={160} value={providerName} onChange={e => { setProviderName(e.target.value.slice(0, 160)); setProviderFormError(''); }} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white" placeholder="Имя специалиста или компании" /></div>
+                    <div><label className="block text-xs text-stone-400 mb-1">Рабочий email</label><input required type="email" maxLength={254} value={providerEmail} onChange={e => { setProviderEmail(e.target.value.slice(0, 254)); setProviderFormError(''); }} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white" placeholder="name@example.com" /></div>
+                    <div className="sm:col-span-2"><label className="block text-xs text-stone-400 mb-1">{providerType === 'wedding' ? 'Услуги и регионы работы' : 'Специализация и правовая юрисдикция'}</label><input required maxLength={500} value={practice} onChange={e => { setPractice(e.target.value.slice(0, 500)); setProviderFormError(''); }} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white" placeholder={providerType === 'wedding' ? 'Фото, видео, аренда платья, ведущий…' : 'Семейное право, брачные договоры, страна/регион…'} /></div>
                     {providerType !== 'wedding' && <div className="sm:col-span-2 rounded-xl border border-amber-700/30 bg-amber-950/20 p-3">
                       <p className="text-xs font-bold text-amber-200 flex items-center gap-2"><ShieldCheck className="w-4 h-4" /> Обязательная проверка юридического специалиста</p>
                       <ul className="list-disc pl-5 mt-2 space-y-1 text-xs text-stone-300">
