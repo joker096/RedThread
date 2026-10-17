@@ -17,9 +17,9 @@ type Props = { onOpenAccount: () => void };
 const normalizeServerMatch = (value: unknown): ServerMatch | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const match = value as Partial<ServerMatch>;
-  if (typeof match.id !== 'string' || !match.id.trim() ||
-      typeof match.partnerId !== 'string' || !match.partnerId.trim() ||
-      typeof match.displayName !== 'string' || !match.displayName.trim() ||
+  if (typeof match.id !== 'string' || !match.id.trim() || match.id.trim().length > 256 ||
+      typeof match.partnerId !== 'string' || !match.partnerId.trim() || match.partnerId.trim().length > 256 ||
+      typeof match.displayName !== 'string' || !match.displayName.trim() || match.displayName.trim().length > 100 ||
       typeof match.age !== 'number' || !Number.isFinite(match.age) || match.age < 18 || match.age > 120) {
     return null;
   }
