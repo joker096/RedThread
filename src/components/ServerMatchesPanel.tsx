@@ -163,7 +163,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   };
 
   return (
-    <section className="mb-5 rounded-3xl border border-sky-500/20 bg-stone-900/80 p-4 sm:p-5">
+    <section data-testid="server-matches-panel" className="mb-5 rounded-3xl border border-sky-500/20 bg-stone-900/80 p-4 sm:p-5">
       <div className="mb-3">
         <p className="text-[10px] uppercase tracking-[0.2em] text-sky-300">{t('serverChats')}</p>
         <h3 className="mt-1 text-lg font-bold text-white">{t('mutualMatches')}</h3>
@@ -177,7 +177,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       ) : (
         <div className="space-y-3">
           {matches.map(match => (
-            <button type="button" key={match.id} onClick={() => { messageRequestId.current += 1; setMessages([]); setNotice(''); setSelected(match.id); }} className={`vow-motion-button w-full rounded-2xl border p-3 text-left ${selected === match.id ? 'border-sky-400/60 bg-sky-950/30' : 'border-white/10 bg-stone-950/60'}`}>
+            <button data-testid="server-match-item" type="button" key={match.id} onClick={() => { messageRequestId.current += 1; setMessages([]); setNotice(''); setSelected(match.id); }} className={`vow-motion-button w-full rounded-2xl border p-3 text-left ${selected === match.id ? 'border-sky-400/60 bg-sky-950/30' : 'border-white/10 bg-stone-950/60'}`}>
               <span className="block text-sm font-semibold text-white">{match.displayName}, {match.age}</span>
               <span className="mt-1 block text-xs text-stone-400">{match.city}, {match.country}</span>
               <span className="mt-1 block truncate text-xs text-stone-500">{match.lastMessage || t('matchCreatedMessage')}</span>
@@ -186,7 +186,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
           {notice && <p role="status" className="text-xs text-stone-300">{notice}</p>}
           {selected && (
             <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-3">
-              <div role="log" aria-live="polite" aria-label={t('serverChats')} className="mb-3 max-h-64 space-y-2 overflow-y-auto">
+              <div data-testid="server-match-messages" role="log" aria-live="polite" aria-label={t('serverChats')} className="mb-3 max-h-64 space-y-2 overflow-y-auto">
                 {messages.map(message => (
                   <div key={message.id} className={`max-w-[90%] rounded-xl px-3 py-2 text-xs ${message.senderId === currentUserId ? 'ml-auto bg-rose-700 text-white' : 'mr-auto bg-stone-800 text-stone-100'}`}>
                     <p className="whitespace-pre-wrap break-words">{message.text}</p>
@@ -196,7 +196,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                 {!messages.length && <p className="text-xs text-stone-500">{t('noMessagesYet')}</p>}
               </div>
               <textarea aria-label={t('writeMessage')} value={draft} onChange={e => setDrafts(current => ({ ...current, [selected]: e.target.value }))} maxLength={4000} rows={2} placeholder={t('writeMessage')} className="w-full resize-y rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white" />
-              <button type="button" onClick={() => void send()} disabled={busy || !draft.trim()} className="vow-motion-button mt-2 w-full rounded-xl bg-sky-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-40">{busy ? t('sendingMessage') : t('sendMessage')}</button>
+              <button data-testid="server-match-send" type="button" onClick={() => void send()} disabled={busy || !draft.trim()} className="vow-motion-button mt-2 w-full rounded-xl bg-sky-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-40">{busy ? t('sendingMessage') : t('sendMessage')}</button>
               <button type="button" onClick={() => void loadMessages(selected)} className="vow-motion-button mt-2 w-full rounded-xl border border-white/10 px-4 py-2 text-xs text-stone-300">{t('refreshMessages')}</button>
             </div>
           )}
