@@ -42,7 +42,19 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       if (response.status === 401) { setAuthenticated(false); return; }
       if (!response.ok) throw new Error(t('profileLoadError'));
       const data = await response.json();
-      const p = data.profile as Profile;
+      const rawProfile = data?.profile;
+      if (!rawProfile || typeof rawProfile !== 'object' || Array.isArray(rawProfile) ||
+          typeof rawProfile.id !== 'string' || !rawProfile.id.trim() ||
+          typeof rawProfile.displayName !== 'string' ||
+          typeof rawProfile.age !== 'number' || !Number.isFinite(rawProfile.age) ||
+          !['female', 'male'].includes(rawProfile.gender)) {
+        throw new Error(t('profileLoadError'));
+      }
+      const p = {
+        ...rawProfile,
+        photoUrls: Array.isArray(rawProfile.photoUrls) ? rawProfile.photoUrls.filter((value: unknown): value is string => typeof value === 'string') : [],
+        languages: Array.isArray(rawProfile.languages) ? rawProfile.languages.filter((value: unknown): value is string => typeof value === 'string') : []
+      } as Profile;
       setProfile(p);
       setDisplayName(p.displayName || '');
       setBio(p.bio || '');
@@ -62,7 +74,16 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       const blocksResponse = await fetch('/api/blocks', { credentials: 'include' });
       if (blocksResponse.ok) {
         const blockData = await blocksResponse.json();
-        setBlockedProfiles(blockData.blocks || []);
+        const safeBlocks = Array.isArray(blockData?.blocks)
+          ? blockData.blocks.filter((block: unknown): block is BlockedProfile => {
+              if (!block || typeof block !== 'object' || Array.isArray(block)) return false;
+              const value = block as Partial<BlockedProfile>;
+              return typeof value.id === 'string' && value.id.trim().length > 0 &&
+                typeof value.displayName === 'string' &&
+                typeof value.createdAt === 'string' && Number.isFinite(Date.parse(value.createdAt));
+            })
+          : [];
+        setBlockedProfiles(safeBlocks);
       }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : t('profileLoadError'));
