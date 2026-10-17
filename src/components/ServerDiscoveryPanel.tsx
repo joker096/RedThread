@@ -493,6 +493,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       }
       const seenBlockedIds = new Set<string>();
       const nextProfiles: Array<{ id: string; displayName: string }> = data.blocks
+        .slice(0, 500)
         .filter((item: unknown): item is { id: string; displayName: string } => {
           if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
           const value = item as { id?: unknown; displayName?: unknown };
