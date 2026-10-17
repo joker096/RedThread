@@ -23,6 +23,9 @@ const normalizeServerMatch = (value: unknown): ServerMatch | null => {
       typeof match.age !== 'number' || !Number.isFinite(match.age) || match.age < 18 || match.age > 120) {
     return null;
   }
+  const lastMessage = typeof match.lastMessage === 'string'
+    ? match.lastMessage.trim().slice(0, 1000)
+    : '';
   return {
     id: match.id.trim(),
     partnerId: match.partnerId.trim(),
@@ -30,7 +33,7 @@ const normalizeServerMatch = (value: unknown): ServerMatch | null => {
     age: Math.floor(match.age),
     country: typeof match.country === 'string' ? match.country.trim().slice(0, 100) : '',
     city: typeof match.city === 'string' ? match.city.trim().slice(0, 100) : '',
-    lastMessage: typeof match.lastMessage === 'string' ? match.lastMessage.slice(0, 1000) : null,
+    lastMessage: lastMessage || null,
     lastMessageAt: typeof match.lastMessageAt === 'string' && match.lastMessageAt.length <= 100 &&
       Number.isFinite(Date.parse(match.lastMessageAt))
       ? match.lastMessageAt
