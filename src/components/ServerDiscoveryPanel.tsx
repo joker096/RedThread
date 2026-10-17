@@ -486,14 +486,24 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         return;
       }
       if (!response.ok) throw new Error(t('blockedProfilesLoadError'));
-      const data = await response.json();
+      const data = await response.json().catch(() => null);
       if (actionEpoch !== sessionEpoch.current) return;
-      const nextProfiles: Array<{ id: string; displayName: string }> = Array.isArray(data?.blocks)
-        ? (data.blocks as unknown[]).filter((item: unknown): item is { id: string; displayName: string } =>
-            Boolean(item && typeof item === 'object' &&
-              typeof (item as { id?: unknown }).id === 'string' &&
-              typeof (item as { displayName?: unknown }).displayName === 'string'))
-        : [];
+      if (!data || typeof data !== 'object' || Array.isArray(data) || !Array.isArray(data.blocks)) {
+        throw new Error(t('blockedProfilesLoadError'));
+      }
+      const seenBlockedIds = new Set<string>();
+      const nextProfiles: Array<{ id: string; displayName: string }> = data.blocks
+        .filter((item: unknown): item is { id: string; displayName: string } => {
+          if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+          const value = item as { id?: unknown; displayName?: unknown };
+          if (typeof value.id !== 'string' || !value.id.trim() || value.id.trim().length > 256 ||
+              typeof value.displayName !== 'string' || !value.displayName.trim() || value.displayName.trim().length > 100) return false;
+          const id = value.id.trim();
+          if (seenBlockedIds.has(id)) return false;
+          seenBlockedIds.add(id);
+          return true;
+        })
+        .map(item => ({ id: item.id.trim(), displayName: item.displayName.trim() }));
       setBlockedProfiles(nextProfiles);
       setBlockedIds(nextProfiles.map(item => item.id));
       setBlockedProfilesOpen(true);
