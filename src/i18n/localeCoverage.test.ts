@@ -58,3 +58,12 @@ test('unsupported advertised locales fall back honestly rather than claiming com
     }
   }
 });
+
+test('Georgian translations cover the core discovery and safety interface without claiming full localization', () => {
+  const georgian = getTranslationCoverage('ka');
+  assert.ok(georgian.translated > 0, 'Georgian should provide real translated messages');
+  assert.ok(georgian.percentage < 100, 'Partial Georgian coverage must remain clearly partial');
+  for (const key of ['language', 'discovery', 'safety', 'like', 'report', 'block', 'search', 'relationshipGoal'] as const) {
+    assert.ok(!georgian.missing.includes(key), `Georgian core key "${key}" should be translated`);
+  }
+});
