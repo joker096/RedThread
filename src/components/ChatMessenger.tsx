@@ -95,8 +95,8 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
       if (previousFocus?.isConnected) previousFocus.focus();
     };
   }, [showInviteModal]);
-  const [selectedPlace, setSelectedPlace] = useState('Уютная кофейня в центре');
-  const [selectedDay, setSelectedDay] = useState('Завтра');
+  const [selectedPlace, setSelectedPlace] = useState('cafe');
+  const [selectedDay, setSelectedDay] = useState('tomorrow');
   const [selectedTime, setSelectedTime] = useState('19:00');
   const [showDirectContactUnlocked, setShowDirectContactUnlocked] = useState(false);
   const [showPartnerServices, setShowPartnerServices] = useState(false);
@@ -107,8 +107,8 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
     setShowInviteModal(false);
     setShowDirectContactUnlocked(false);
     setShowPartnerServices(false);
-    setSelectedPlace('Уютная кофейня в центре');
-    setSelectedDay('Завтра');
+    setSelectedPlace('cafe');
+    setSelectedDay('tomorrow');
     setSelectedTime('19:00');
   }, [activeThreadId]);
 
@@ -144,7 +144,9 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
 
   const handleCreateInvite = () => {
     if (!activeThread) return;
-    onSendDateInvite(activeThread.id, selectedPlace, selectedDay, selectedTime);
+    const placeLabelKey = ({ cafe: 'chatPlaceCafe', park: 'chatPlacePark', dinner: 'chatPlaceDinner', video: 'chatPlaceVideo' } as const)[selectedPlace as 'cafe' | 'park' | 'dinner' | 'video'] ?? 'chatPlaceCafe';
+    const dayLabelKey = ({ today: 'chatDayToday', tomorrow: 'chatDayTomorrow', saturday: 'chatDaySaturday', sunday: 'chatDaySunday' } as const)[selectedDay as 'today' | 'tomorrow' | 'saturday' | 'sunday'] ?? 'chatDayTomorrow';
+    onSendDateInvite(activeThread.id, t(placeLabelKey), t(dayLabelKey), selectedTime);
     setShowInviteModal(false);
   };
 
@@ -497,10 +499,10 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                   onChange={e => setSelectedPlace(e.target.value)}
                   className="min-h-11 w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
                 >
-                  <option value="Уютная кофейня в центре">☕ {t('chatPlaceCafe')}</option>
-                  <option value="Прогулка в городском парке">🌳 {t('chatPlacePark')}</option>
-                  <option value="Ужин в видовом ресторане">🍷 {t('chatPlaceDinner')}</option>
-                  <option value="Короткий 10-мин видео-чай">📹 {t('chatPlaceVideo')}</option>
+                  <option value="cafe">☕ {t('chatPlaceCafe')}</option>
+                  <option value="park">🌳 {t('chatPlacePark')}</option>
+                  <option value="dinner">🍷 {t('chatPlaceDinner')}</option>
+                  <option value="video">📹 {t('chatPlaceVideo')}</option>
                 </select>
               </div>
 
@@ -513,10 +515,10 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                     onChange={e => setSelectedDay(e.target.value)}
                     className="min-h-11 w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
                   >
-                    <option value="Сегодня">{t('chatDayToday')}</option>
-                    <option value="Завтра">{t('chatDayTomorrow')}</option>
-                    <option value="В субботу">{t('chatDaySaturday')}</option>
-                    <option value="В воскресенье">{t('chatDaySunday')}</option>
+                    <option value="today">{t('chatDayToday')}</option>
+                    <option value="tomorrow">{t('chatDayTomorrow')}</option>
+                    <option value="saturday">{t('chatDaySaturday')}</option>
+                    <option value="sunday">{t('chatDaySunday')}</option>
                   </select>
                 </div>
                 <div>
