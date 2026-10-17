@@ -222,7 +222,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                     </span>
                     <span className="text-[10px] text-stone-400">{thread.lastMessageTime}</span>
                   </span>
-                  <span className="block text-xs text-stone-400 truncate mt-0.5">{thread.lastMessage}</span>
+                  <span dir="auto" className="block text-xs text-stone-400 truncate mt-0.5">{thread.lastMessage}</span>
                 </span>
               </button>
             );
@@ -399,6 +399,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                   </div>
                 ) : (
                   <div
+                    dir="auto"
                     className={`max-w-[85%] sm:max-w-[75%] break-words [overflow-wrap:anywhere] px-4 py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed ${
                       isMe
                         ? 'bg-rose-600 text-white rounded-br-none shadow-md shadow-rose-950/30'
@@ -408,7 +409,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                     {msg.text}
                   </div>
                 )}
-                <span className="text-[10px] text-stone-500 mt-1 px-1">{msg.timestamp}</span>
+                <time dir="auto" className="text-[10px] text-stone-500 mt-1 px-1">{msg.timestamp}</time>
               </div>
             );
           })}
@@ -431,6 +432,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
           <input
             key={activeThread.id}
             type="text"
+            dir="auto"
             value={inputText}
             onKeyDown={e => {
               if (e.key === 'Enter' && (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)) {
