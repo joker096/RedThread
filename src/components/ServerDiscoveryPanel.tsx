@@ -29,6 +29,9 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const { t, formatNumber } = useLocale();
   const [profiles, setProfiles] = useState<ServerProfile[]>([]);
   const [matchedProfile, setMatchedProfile] = useState<ServerProfile | null>(null);
+  const matchReturnFocus = useRef<HTMLElement | null>(null);
+  const matchDialogRef = useRef<HTMLDivElement | null>(null);
+  const matchDialogButtonRef = useRef<HTMLButtonElement | null>(null);
   const [country, setCountry] = useState('');
   const [city, setCity] = useState('');
   const [minAge, setMinAge] = useState(18);
@@ -50,6 +53,46 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const touchStartX = useRef<number | null>(null);
   const lastSearchKey = useRef<string | null>(null);
   const searchRequestId = useRef(0);
+
+  useEffect(() => {
+    if (!matchedProfile) return;
+    const dialog = matchDialogRef.current;
+    const previousFocus = matchReturnFocus.current;
+    matchDialogButtonRef.current?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setMatchedProfile(null);
+        return;
+      }
+      if (event.key !== 'Tab' || !dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      ));
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      if (previousFocus?.isConnected) previousFocus.focus();
+      matchReturnFocus.current = null;
+    };
+  }, [matchedProfile]);
 
   const search = useCallback(async () => {
     const requestId = ++searchRequestId.current;
@@ -126,7 +169,10 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       setNotice(data?.matched
         ? t('mutualLikeOpenedChats').replace('{name}', profile.displayName)
         : `${t('liked')}: «${profile.displayName}».`);
-      if (data?.matched) setMatchedProfile(profile);
+      if (data?.matched) {
+        matchReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        setMatchedProfile(profile);
+      }
       setProfiles(current => current.filter(item => item.id !== profile.id));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : t('sendLikeError'));
@@ -387,12 +433,12 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm" onClick={event => {
           if (event.target === event.currentTarget) setMatchedProfile(null);
         }}>
-          <div role="dialog" aria-modal="true" aria-label={t('mutualMatches')} className="w-full max-w-sm rounded-3xl border border-rose-400/30 bg-stone-950 p-6 text-center shadow-2xl shadow-rose-950/40">
+          <div ref={matchDialogRef} role="dialog" aria-modal="true" aria-label={t('mutualMatches')} tabIndex={-1} className="w-full max-w-sm rounded-3xl border border-rose-400/30 bg-stone-950 p-6 text-center shadow-2xl shadow-rose-950/40">
             <div className="vow-match-celebration mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full border border-rose-400/30 bg-rose-950/50 text-4xl text-rose-300" aria-hidden="true">♥</div>
             {matchedProfile.photoUrls?.[0] && <img src={matchedProfile.photoUrls[0]} alt="" className="mx-auto mb-4 h-20 w-20 rounded-full border border-rose-400/30 object-cover" />}
             <h3 className="text-xl font-bold text-white">{t('mutualMatches')}</h3>
             <p className="mt-3 text-sm leading-relaxed text-stone-300">{t('mutualLikeOpenedChats').replace('{name}', matchedProfile.displayName)}</p>
-            <button type="button" autoFocus onClick={() => {
+            <button ref={matchDialogButtonRef} type="button" onClick={() => {
               setMatchedProfile(null);
               window.dispatchEvent(new CustomEvent('vow:match-created'));
             }} className="vow-motion-button mt-5 w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white hover:bg-rose-500">{t('sendMessage')}</button>
