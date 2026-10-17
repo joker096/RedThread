@@ -546,7 +546,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                     <div className="mt-1.5 flex items-center justify-between text-[9px]">
                       <span className="text-emerald-400 font-bold flex items-center gap-1">
                         <CheckCircle2 className="w-2.5 h-2.5" />
-                        Резонанс: {currentProfile.psychCards[activePsychCardIndex].matchBonus}%
+                        {t('profileResonance')}: {currentProfile.psychCards[activePsychCardIndex].matchBonus}%
                       </span>
                       <button
                         onClick={() => setActivePsychCardIndex((activePsychCardIndex + 1) % (currentProfile.psychCards?.length || 1))}
