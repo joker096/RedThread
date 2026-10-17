@@ -101,6 +101,7 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
             </span>
           ) : installPrompt ? (
             <button
+              type="button"
               onClick={handleInstall}
               className="flex min-h-8 items-center gap-1 rounded-lg bg-rose-600 px-2.5 py-1 text-[11px] font-bold text-white shadow-sm hover:bg-rose-500"
             >
@@ -110,6 +111,7 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
           ) : null}
 
           <button
+            type="button"
             onClick={() => {
               setIsOpen(false);
               try {
