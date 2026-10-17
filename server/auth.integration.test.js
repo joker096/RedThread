@@ -566,6 +566,14 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(blockedMatchMessages.status, 404);
 
+    const blockedMatchSend = await request(`/api/matches/${matchPayload.match.id}/messages`, {
+      method: 'POST',
+      headers: { Cookie: maleCookie },
+      body: JSON.stringify({ text: 'This message must not be delivered after a block.' })
+    });
+    assert.equal(blockedMatchSend.status, 404,
+      'neither participant may send messages after the match is blocked');
+
     const wrongPassword = await request('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password: 'incorrect password' })
