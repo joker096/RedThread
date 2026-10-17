@@ -139,7 +139,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             aria-label={t('language')}
             title={activeTranslationCoverage < 100 ? `${t('language')} — ${t('partialTranslationHelp')}` : t('language')}
             aria-description={activeTranslationCoverage < 100 ? t('partialTranslationHelp') : undefined}
-            className="min-h-10 max-w-[88px] rounded-full border border-white/10 bg-stone-900 px-2 py-2 text-xs text-stone-200 sm:max-w-[132px]"
+            className="min-h-10 min-w-0 max-w-[76px] rounded-full border border-white/10 bg-stone-900 px-1.5 py-2 text-xs text-stone-200 min-[380px]:max-w-[88px] sm:max-w-[132px]"
           >
             {LANGUAGE_OPTIONS.map(option => {
               const coverage = option.code === 'auto' ? 100 : getTranslationCoverage(option.code).percentage;
@@ -160,7 +160,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             title={t('demoModeToggleHelp')} aria-label={t('demoModeToggleHelp')}
           >
             <span className={`w-1.5 h-1.5 rounded-full ${currentGender === 'female' ? 'bg-rose-500' : 'bg-blue-400'}`}></span>
-            <span>{currentGender === 'female' ? `${t('demoWoman')} ♀` : `${t('demoMan')} ♂`}</span>
+            <span className="hidden min-[380px]:inline">{currentGender === 'female' ? `${t('demoWoman')} ♀` : `${t('demoMan')} ♂`}</span>
           </button>
 
           {/* Demo filters only: registered-account discovery has its own connected filters. */}
