@@ -282,7 +282,8 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   }, [selected, messages, messagesLoading]);
 
   const send = async () => {
-    const text = draft.trim();
+    // Keep the request-side limit aligned with the composer maxLength.
+    const text = draft.trim().slice(0, 4000);
     const matchId = selected;
     const requestId = messageRequestId.current;
     const actionEpoch = sessionEpoch.current;
