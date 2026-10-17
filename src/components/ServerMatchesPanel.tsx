@@ -32,7 +32,11 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       const response = await fetch('/api/matches', { credentials: 'include' });
       if (response.status === 401) {
         setAuthenticated(false);
+        messageRequestId.current += 1;
         setMatches([]);
+        setSelected('');
+        setMessages([]);
+        setNotice(t('loginToSeeMatches'));
         return;
       }
       if (!response.ok) throw new Error(t('loadMatchesError'));
@@ -45,7 +49,6 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         messageRequestId.current += 1;
         setSelected('');
         setMessages([]);
-        setNotice('');
       }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : t('loadMatchesError'));
