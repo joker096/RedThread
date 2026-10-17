@@ -59,7 +59,15 @@ test('unsupported advertised locales fall back honestly rather than claiming com
   }
 });
 
-test('Polish catalog covers core discovery, safety, account and messaging UI', () => {\n  const polish = getTranslationCoverage('pl');\n  assert.ok(polish.translated >= 100, 'Polish should translate a substantial core set of UI messages');\n  assert.ok(polish.percentage > 0 && polish.percentage < 100, 'Polish must remain partial until complete');\n  for (const key of ['language','discovery','safety','like','pass','report','block','search','relationshipGoal','accountTitle','signIn','createAccount','email','password','chats','notificationCenter','authInvalidEmail','authDeleteConfirm','partialTranslationHelp'] as const) {\n    assert.ok(!polish.missing.includes(key), `Polish core key "${key}" should be translated`);\n  }\n});\n
+test('Polish catalog covers core discovery, safety, account and messaging UI', () => {
+  const polish = getTranslationCoverage('pl');
+  assert.ok(polish.translated >= 100, 'Polish should translate a substantial core set of UI messages');
+  assert.ok(polish.percentage > 0 && polish.percentage < 100, 'Polish must remain partial until complete');
+  for (const key of ['language','discovery','safety','like','pass','report','block','search','relationshipGoal','accountTitle','signIn','createAccount','email','password','chats','notificationCenter','authInvalidEmail','authDeleteConfirm','partialTranslationHelp'] as const) {
+    assert.ok(!polish.missing.includes(key), 'Polish core key ' + key + ' should be translated');
+  }
+});
+
 test('Spanish catalog covers core discovery, safety, account and messaging UI', () => {
   const spanish = getTranslationCoverage('es');
   assert.ok(spanish.translated >= 100, 'Spanish should translate a substantial core set of UI messages');
