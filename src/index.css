@@ -981,3 +981,58 @@ main article[class*="rounded-2xl"][class*="border"] {
     transition: none !important;
   }
 }
+
+
+/* Mobile dock and header controls stay legible in both themes. */
+.vow-bottom-nav {
+  border-color: var(--vow-line) !important;
+  box-shadow: 0 20px 50px -28px rgb(0 0 0 / 65%);
+}
+
+.vow-bottom-nav [aria-current="page"] {
+  background-color: var(--vow-accent-soft);
+}
+
+:root[data-theme="light"] .vow-bottom-nav {
+  background-color: rgb(255 255 255 / 94%) !important;
+  border-color: rgb(68 44 52 / 12%) !important;
+  box-shadow: 0 20px 50px -28px rgb(92 55 65 / 28%);
+}
+
+:root[data-theme="light"] .vow-bottom-nav button:not([aria-current="page"]) {
+  color: #78716c !important;
+}
+
+:root[data-theme="light"] .vow-app-header :where(button, select) {
+  background-color: #fff;
+  border-color: rgb(68 44 52 / 12%) !important;
+  color: #44403c;
+}
+
+:root[data-theme="light"] .vow-app-header nav {
+  background-color: rgb(255 255 255 / 94%) !important;
+  border-color: rgb(68 44 52 / 12%) !important;
+}
+
+:root[data-theme="light"] .vow-app-header nav button:not([aria-current="page"]) {
+  color: #78716c !important;
+}
+
+:root[data-theme="light"] .vow-app-header nav button[aria-current="page"] {
+  color: #fff !important;
+}
+
+:root[data-theme="light"] .vow-app-header > div > div:first-child span {
+  color: #292524;
+}
+
+@media (max-width: 360px) {
+  .vow-bottom-nav {
+    gap: .15rem;
+    padding-inline: .35rem;
+  }
+
+  .vow-bottom-nav button {
+    padding-inline: .15rem;
+  }
+}
