@@ -363,7 +363,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
               <button type="button" onClick={() => void loadMessages(selected)} disabled={busy || messagesLoading} className="vow-motion-button mt-2 min-h-11 w-full rounded-xl border border-white/10 px-4 py-2 text-xs font-semibold text-stone-300 transition hover:border-white/20 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50">{t('refreshMessages')}</button>
             </div>
           )}
-          <button type="button" onClick={() => void loadMatches()} className="vow-motion-button min-h-11 w-full rounded-xl border border-white/10 px-4 py-2.5 text-xs font-semibold text-stone-300 transition hover:border-white/20 hover:bg-white/5">{t('refreshMatches')}</button>
+          <button type="button" onClick={() => void loadMatches()} disabled={matchesLoading || busy} className="vow-motion-button min-h-11 w-full rounded-xl border border-white/10 px-4 py-2.5 text-xs font-semibold text-stone-300 transition hover:border-white/20 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50">{t('refreshMatches')}</button>
         </div>
       )}
     </section>
