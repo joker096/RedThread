@@ -74,6 +74,15 @@ test('Spanish catalog covers core discovery, safety, account and messaging UI', 
   }
 });
 
+test('French catalog covers core discovery, safety, account and messaging UI', () => {
+  const french = getTranslationCoverage('fr');
+  assert.ok(french.translated >= 100, 'French should translate a substantial core set of UI messages');
+  assert.ok(french.percentage > 0 && french.percentage < 100, 'French must remain marked partial until complete');
+  for (const key of ['language','discovery','safety','like','pass','report','block','search','relationshipGoal','accountTitle','signIn','createAccount','email','password','chats','notificationCenter','authInvalidEmail','authDeleteConfirm','partialTranslationHelp'] as const) {
+    assert.ok(!french.missing.includes(key), `French core key "${key}" should be translated`);
+  }
+});
+
 test('Georgian translations cover the core discovery and safety interface without claiming full localization', () => {
   const georgian = getTranslationCoverage('ka');
   assert.ok(georgian.translated > 0, 'Georgian should provide real translated messages');
