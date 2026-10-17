@@ -105,7 +105,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           >
             <span>{t('chats')}</span>
             {unreadChatsCount > 0 && (
-              <span aria-label={`${unreadChatsCount} ${t('unreadChats')}`} className="ms-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-amber-400 px-1.5 text-[9px] font-black leading-none text-stone-950">
+              <span aria-hidden="true" className="ms-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-amber-400 px-1.5 text-[9px] font-black leading-none text-stone-950">
                 {unreadChatsCount}
               </span>
             )}
