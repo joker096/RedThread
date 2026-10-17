@@ -166,6 +166,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
 
           {/* Demo filters only: registered-account discovery has its own connected filters. */}
           {showFilters && <button
+            data-testid="open-filters"
             onClick={onOpenFilters}
             className="vow-motion-button flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-stone-900 text-stone-300 transition-colors hover:border-rose-500/40 hover:text-white"
             title={t('filters')}
