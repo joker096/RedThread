@@ -146,7 +146,20 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
           !['female', 'male'].includes(savedProfile.gender)) {
         throw new Error(t('profileSaveError'));
       }
-      setProfile(savedProfile);
+      setProfile({
+        ...savedProfile,
+        photoUrls: Array.isArray(savedProfile.photoUrls)
+          ? savedProfile.photoUrls.filter((value: unknown): value is string =>
+              typeof value === 'string' &&
+              (/^https?:\/\//i.test(value.trim()) || /^\/(?!\/)/.test(value.trim()))
+            )
+          : [],
+        languages: Array.isArray(savedProfile.languages)
+          ? savedProfile.languages.filter((value: unknown): value is string =>
+              typeof value === 'string' && value.trim().length > 0
+            ).map((value: string) => value.trim())
+          : []
+      } as Profile);
       setNotice(t('profileSaved'));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : t('profileSaveError'));
