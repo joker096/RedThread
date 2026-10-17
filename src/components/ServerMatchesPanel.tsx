@@ -116,7 +116,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       if (requestId !== matchesRequestId.current) return;
       const nextMatches = deduplicateById(
         Array.isArray(data?.matches)
-          ? data.matches.map(normalizeServerMatch).filter((match): match is ServerMatch => match !== null)
+          ? data.matches.slice(-500).map(normalizeServerMatch).filter((match): match is ServerMatch => match !== null)
           : []
       );
       setMatches(nextMatches);
@@ -177,7 +177,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       if (requestId !== messageRequestId.current) return;
       const nextMessages = deduplicateById(
         Array.isArray(data?.messages)
-          ? data.messages.map(normalizeServerMessage).filter((message): message is ServerMessage => message !== null)
+          ? data.messages.slice(-1000).map(normalizeServerMessage).filter((message): message is ServerMessage => message !== null)
           : []
       ).slice(-500);
       setMessages(nextMessages);
