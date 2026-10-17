@@ -45,8 +45,8 @@ export const NotificationCenterPanel:React.FC=()=>{
       }))
     : [];
    const unreadCount = data?.unreadCount;
-   const safeUnreadCount = typeof unreadCount === 'number' && Number.isFinite(unreadCount) && unreadCount >= 0
-    ? Math.floor(unreadCount)
+   const safeUnreadCount = typeof unreadCount === 'number' && Number.isSafeInteger(unreadCount) && unreadCount >= 0
+    ? unreadCount
     : notifications.filter(notification => notification.readAt === null).length;
    setItems(notifications);setUnread(safeUnreadCount);setAllowed(true);setReady(true);setNotice('');
   }catch{if(requestId===refreshRequestId.current&&actionEpoch===sessionEpoch.current){setNotice(t('notificationsLoadError'));setReady(true);}}
