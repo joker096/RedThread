@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ASSESSMENT_QUESTIONS, type AssessmentAnswers } from '../utils/relationshipAssessment.ts';
 import { getLocalizedAssessmentQuestions } from '../utils/assessmentTranslations.ts';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
@@ -11,6 +11,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
   const [answers, setAnswers] = useState<AssessmentAnswers>(emptyAnswers);
   const [status, setStatus] = useState<'loading' | 'ready' | 'saving' | 'saved' | 'login' | 'error'>('loading');
   const [note, setNote] = useState('');
+  const answersEditedRef = useRef(false);
   const complete = useMemo(
     () => questions.every(question => Boolean(answers[question.id])),
     [answers, questions]
@@ -36,11 +37,15 @@ export const RelationshipAssessmentPanel: React.FC = () => {
       })
       .then(data => {
         if (cancelled) return;
-        if (data?.assessment?.answers) {
-          setAnswers(data.assessment.answers);
-          setStatus('saved');
-          setNote(t('loadedSavedAnswers'));
-        } else if (status !== 'ready') {
+        const savedAnswers = data?.assessment?.answers;
+        if (savedAnswers && typeof savedAnswers === 'object' && !Array.isArray(savedAnswers)) {
+          // Do not let a slow initial load overwrite edits made while it was in flight.
+          if (!answersEditedRef.current) {
+            setAnswers(savedAnswers as AssessmentAnswers);
+            setStatus('saved');
+            setNote(t('loadedSavedAnswers'));
+          }
+        } else {
           setStatus('ready');
         }
       })
@@ -58,6 +63,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
       setNote(t('answerEveryQuestion'));
       return;
     }
+    answersEditedRef.current = true;
     setStatus('saving');
     setNote('');
     try {
@@ -111,7 +117,10 @@ export const RelationshipAssessmentPanel: React.FC = () => {
                     name={question.id}
                     value={option.value}
                     checked={answers[question.id] === option.value}
-                    onChange={() => setAnswers(current => ({ ...current, [question.id]: option.value }))}
+                    onChange={() => {
+                      answersEditedRef.current = true;
+                      setAnswers(current => ({ ...current, [question.id]: option.value }));
+                    }}
                     className="mt-0.5 accent-rose-500"
                   />
                   <span>{option.label}</span>
