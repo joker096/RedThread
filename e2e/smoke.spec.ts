@@ -101,6 +101,37 @@ test('demo conversations stay hidden until explicitly opened', async ({ page }) 
 });
 
 
+test('language selector changes locale and persists on a narrow mobile viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.goto('/');
+
+  const languageSelector = page.locator('#app-language');
+  await expect(languageSelector).toBeVisible();
+  await languageSelector.selectOption('de');
+
+  await expect(page.locator('html')).toHaveAttribute('lang', 'de');
+  await expect(languageSelector).toHaveValue('de');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('vow-locale-preference-v1'))).toBe('de');
+
+  const dimensions = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    document: document.documentElement.scrollWidth,
+    body: document.body.scrollWidth
+  }));
+  expect(
+    dimensions.document,
+    `language selector causes horizontal overflow at 320px: ${JSON.stringify(dimensions)}`
+  ).toBeLessThanOrEqual(dimensions.viewport);
+
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'de');
+  await expect(page.locator('#app-language')).toHaveValue('de');
+
+  await page.locator('#app-language').selectOption('pt');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'pt');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('vow-locale-preference-v1'))).toBe('pt');
+});
+
 test('common phone viewports have no document-level horizontal overflow', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 720 });
   await page.goto('/');
