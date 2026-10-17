@@ -28,9 +28,9 @@ const normalizeServerMatch = (value: unknown): ServerMatch | null => {
     partnerId: match.partnerId.trim(),
     displayName: match.displayName.trim(),
     age: Math.floor(match.age),
-    country: typeof match.country === 'string' ? match.country : '',
-    city: typeof match.city === 'string' ? match.city : '',
-    lastMessage: typeof match.lastMessage === 'string' ? match.lastMessage : null,
+    country: typeof match.country === 'string' ? match.country.trim().slice(0, 100) : '',
+    city: typeof match.city === 'string' ? match.city.trim().slice(0, 100) : '',
+    lastMessage: typeof match.lastMessage === 'string' ? match.lastMessage.slice(0, 1000) : null,
     lastMessageAt: typeof match.lastMessageAt === 'string' && Number.isFinite(Date.parse(match.lastMessageAt))
       ? match.lastMessageAt
       : null
