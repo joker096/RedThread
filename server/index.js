@@ -1895,8 +1895,9 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
   if (hasPremium) return res.status(403).json({ error: 'ads_disabled_for_premium' });
 
   const { eventId, campaignId, eventType } = validation.value;
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
     // Serialize frequency checks per user/campaign so concurrent requests cannot bypass the cap.
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`${user.id}:${campaignId}`]);
@@ -1939,11 +1940,11 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
     await client.query('COMMIT');
     return res.status(201).json({ accepted: true, duplicate: false });
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Ad event processing failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'ad_event_processing_failed' });
   } finally {
-    client.release();
+    client?.release();
   }
 });
 
