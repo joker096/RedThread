@@ -101,28 +101,31 @@ test('demo conversations stay hidden until explicitly opened', async ({ page }) 
 });
 
 
-test('narrow phone viewport has no document-level horizontal overflow', async ({ page }) => {
+test('common phone viewports have no document-level horizontal overflow', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 720 });
   await page.goto('/');
   await expect(page.getByText('Vow', { exact: false }).first()).toBeVisible();
 
-  const dimensions = await page.evaluate(() => {
-    const viewport = document.documentElement.clientWidth;
-    const overflowing = Array.from(document.querySelectorAll('body *'))
-      .map(element => {
-        const rect = element.getBoundingClientRect();
-        return { tag: element.tagName, className: typeof element.className === 'string' ? element.className.slice(0, 120) : '', text: (element.textContent || '').trim().slice(0, 50), left: Math.round(rect.left), right: Math.round(rect.right), width: Math.round(rect.width) };
-      })
-      .filter(item => item.width > 0 && (item.left < -1 || item.right > viewport + 1))
-      .sort((a, b) => b.right - a.right)
-      .slice(0, 12);
-    return { viewport, document: document.documentElement.scrollWidth, body: document.body.scrollWidth, overflowing };
-  });
+  for (const width of [320, 360, 375, 390, 414, 430]) {
+    await page.setViewportSize({ width, height: 720 });
+    const dimensions = await page.evaluate(() => {
+      const viewport = document.documentElement.clientWidth;
+      const overflowing = Array.from(document.querySelectorAll('body *'))
+        .map(element => {
+          const rect = element.getBoundingClientRect();
+          return { tag: element.tagName, className: typeof element.className === 'string' ? element.className.slice(0, 120) : '', text: (element.textContent || '').trim().slice(0, 50), left: Math.round(rect.left), right: Math.round(rect.right), width: Math.round(rect.width) };
+        })
+        .filter(item => item.width > 0 && (item.left < -1 || item.right > viewport + 1))
+        .sort((a, b) => b.right - a.right)
+        .slice(0, 12);
+      return { viewport, document: document.documentElement.scrollWidth, body: document.body.scrollWidth, overflowing };
+    });
 
-  expect(
-    dimensions.document,
-    `document overflows at 320px: viewport=${dimensions.viewport}, document=${dimensions.document}, body=${dimensions.body}; elements=${JSON.stringify(dimensions.overflowing)}`
-  ).toBeLessThanOrEqual(dimensions.viewport);
+    expect(
+      dimensions.document,
+      `document overflows at ${width}px: viewport=${dimensions.viewport}, document=${dimensions.document}, body=${dimensions.body}; elements=${JSON.stringify(dimensions.overflowing)}`
+    ).toBeLessThanOrEqual(dimensions.viewport);
+  }
 });
 
 test('reduced-motion preference disables decorative motion', async ({ page }) => {
