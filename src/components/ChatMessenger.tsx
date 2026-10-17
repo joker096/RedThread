@@ -85,7 +85,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
     <div className="vow-chat-layout vow-screen w-full max-w-4xl mx-auto h-[75vh] min-h-[550px] flex rounded-3xl overflow-hidden bg-stone-900 border border-rose-950/40 shadow-2xl">
       {/* Threads sidebar (desktop / tablet) */}
       <div className={`w-full md:w-80 border-e border-white/5 flex flex-col bg-stone-950/60 ${activeThreadId ? 'hidden md:flex' : 'flex'}`}>
-        <div className="p-3.5 border-b border-white/5 flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 p-3.5">
           <div className="flex items-center gap-2">
             <h3 className="font-heading text-sm font-bold text-white">Диалоги</h3>
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-600/30 text-rose-300 font-bold border border-rose-500/20">
@@ -169,7 +169,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
 
             <div className="text-start">
               <div className="flex items-center gap-1.5">
-                <span className="font-heading font-bold text-white text-sm sm:text-base">
+                <span className="break-words font-heading text-sm font-bold text-white sm:text-base">
                   {activeThread.partnerProfile.name}, {activeThread.partnerProfile.age}
                 </span>
                 <span className="text-[10px] text-emerald-400 bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-500/20 font-semibold flex items-center gap-0.5">
