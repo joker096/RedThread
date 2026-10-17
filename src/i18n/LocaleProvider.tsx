@@ -1539,6 +1539,21 @@ const messages = {
 };
 
 
+export function getTranslationPlaceholderMismatches(locale: string) {
+  const english = messages.en;
+  const catalog = messages[locale as keyof typeof messages] as Partial<typeof messages.en> | undefined;
+  const placeholders = (value: string) => [...value.matchAll(/\\{([A-Za-z][\\w]*)\\}/g)]
+    .map(match => match[1])
+    .sort();
+  return (Object.keys(english) as Array<keyof typeof english>).flatMap(key => {
+    const translated = catalog?.[key];
+    if (typeof translated !== 'string') return [];
+    const expected = placeholders(english[key]);
+    const actual = placeholders(translated);
+    return expected.join('\\0') === actual.join('\\0') ? [] : [{ key, expected, actual }];
+  });
+}
+
 export function getTranslationCoverage(locale: string) {
   const englishKeys = Object.keys(messages.en) as Array<keyof typeof messages.en>;
   const catalog = messages[locale as keyof typeof messages] as Partial<typeof messages.en> | undefined;
