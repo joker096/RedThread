@@ -118,7 +118,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     const thread = activeThread;
-    const messageText = inputText.trim();
+    const messageText = inputText.trim().slice(0, 10000);
     if (!messageText || !thread || sendingThreadIdsRef.current.has(thread.id)) return;
 
     sendingThreadIdsRef.current.add(thread.id);
@@ -435,6 +435,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             key={activeThread.id}
             type="text"
             dir="auto"
+            maxLength={10000}
             value={inputText}
             onKeyDown={e => {
               if (e.key === 'Enter' && (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)) {
