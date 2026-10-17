@@ -336,7 +336,11 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
           {matches.map(match => (
             <button data-testid="server-match-item" type="button" key={match.id} aria-pressed={selected === match.id} onClick={() => { messageRequestId.current += 1; setMessages([]); setNotice(''); setSelected(match.id); }} className={`vow-motion-button w-full rounded-2xl border p-3.5 text-start transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300 ${selected === match.id ? 'border-sky-400/60 bg-sky-950/40 shadow-md shadow-sky-950/30' : 'border-white/10 bg-stone-950/45 hover:border-white/20 hover:bg-stone-950/70'}`}>
               <span className="block text-sm font-semibold text-white">{match.displayName}, {match.age}</span>
-              <span className="mt-1 block text-xs text-stone-400">{match.city}, {match.country}</span>
+              {(match.city || match.country) && (
+                <span className="mt-1 block text-xs text-stone-400">
+                  {[match.city, match.country].filter(Boolean).join(', ')}
+                </span>
+              )}
               <span className="mt-1 block truncate text-xs text-stone-500">{match.lastMessage || t('matchCreatedMessage')}</span>
             </button>
           ))}
