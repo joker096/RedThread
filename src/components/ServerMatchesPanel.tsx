@@ -40,8 +40,8 @@ const normalizeServerMatch = (value: unknown): ServerMatch | null => {
 const normalizeServerMessage = (value: unknown): ServerMessage | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const message = value as Partial<ServerMessage>;
-  if (typeof message.id !== 'string' || !message.id.trim() ||
-      typeof message.senderId !== 'string' || !message.senderId.trim() ||
+  if (typeof message.id !== 'string' || !message.id.trim() || message.id.trim().length > 256 ||
+      typeof message.senderId !== 'string' || !message.senderId.trim() || message.senderId.trim().length > 256 ||
       typeof message.text !== 'string' || message.text.length > 10000 ||
       typeof message.createdAt !== 'string' || !Number.isFinite(Date.parse(message.createdAt))) {
     return null;
