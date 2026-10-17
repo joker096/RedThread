@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getTranslationCoverage, LANGUAGE_OPTIONS } from './LocaleProvider.tsx';
+import { getTranslationCoverage, getTranslationPlaceholderMismatches, LANGUAGE_OPTIONS } from './LocaleProvider.tsx';
 
 test('English and Russian catalogs cover every defined message key', () => {
   assert.equal(getTranslationCoverage('en').percentage, 100);
@@ -107,6 +107,11 @@ test('Portuguese catalog covers core discovery, safety, account and messaging UI
   ] as const) {
     assert.ok(!portuguese.missing.includes(key), `Portuguese core key "${key}" should be translated`);
   }
+});
+
+test('Georgian translations preserve every English interpolation placeholder', () => {
+  const mismatches = getTranslationPlaceholderMismatches('ka');
+  assert.deepEqual(mismatches, [], JSON.stringify(mismatches, null, 2));
 });
 
 test('Georgian catalog covers every defined interface message', () => {
