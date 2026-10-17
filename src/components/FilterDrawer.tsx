@@ -191,7 +191,8 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
                   key={item.id}
                   type="button"
                   onClick={() => setIntentFilter(item.id)}
-                  className={`w-full text-start p-2.5 rounded-xl border transition-all text-xs flex items-center justify-between ${
+                  aria-pressed={intentFilter === item.id}
+                  className={`w-full text-start p-2.5 rounded-xl border transition-all text-xs flex items-center justify-between focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 ${
                     intentFilter === item.id
                       ? 'bg-rose-950/60 border-rose-500 text-white font-semibold'
                       : 'bg-stone-950/40 border-white/5 text-stone-400 hover:text-white'
@@ -239,7 +240,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
               onClose();
             }}
             type="button"
-            className="vow-motion-button min-h-11 flex-1 rounded-xl bg-stone-800 py-3 text-xs font-semibold text-stone-200"
+            className="vow-motion-button min-h-11 flex-1 rounded-xl bg-stone-800 py-3 text-xs font-semibold text-stone-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
           >
             {t('resetFilters')}
           </button>
@@ -249,7 +250,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
               onClose();
             }}
             type="button"
-            className="vow-motion-button min-h-11 flex-1 rounded-xl bg-rose-600 py-3 text-xs font-bold text-white shadow-lg shadow-rose-950 hover:bg-rose-500"
+            className="vow-motion-button min-h-11 flex-1 rounded-xl bg-rose-600 py-3 text-xs font-bold text-white shadow-lg shadow-rose-950 hover:bg-rose-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
           >
             {t('applyFilters')}
           </button>
