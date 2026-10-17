@@ -1514,7 +1514,7 @@ const messages = {
     authDeleteGenericError: "ანგარიშის წაშლა ვერ მოხერხდა. სცადეთ მოგვიანებით.",
     authChildrenHonestyHelp: "გთხოვთ, გულწრფელად უპასუხოთ — ეს ეხმარება თავსებადი პარტნიორის პოვნას.",
     authYes: "დიახ",
-    authNo: "არა",,
+    authNo: "არა",
     authResetBusy: "მუშავდება…"
   },
 };
