@@ -383,7 +383,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                 {messages.map(message => (
                   <div key={message.id} className={`max-w-[90%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed shadow-sm ${message.senderId === currentUserId ? 'ms-auto rounded-br-md bg-gradient-to-br from-rose-600 to-rose-700 text-white' : 'me-auto rounded-bl-md border border-white/5 bg-stone-800 text-stone-100'}`}>
                     <p dir="auto" className="whitespace-pre-wrap break-words">{message.text}</p>
-                    <time dateTime={message.createdAt} className={`mt-1 block text-[9px] ${message.senderId === currentUserId ? 'text-rose-100/70' : 'text-stone-500'}`}>{formatDate(message.createdAt, { dateStyle: 'medium', timeStyle: 'short' })}</time>
+                    <time dateTime={message.createdAt} className={`mt-1 block text-[10px] leading-4 ${message.senderId === currentUserId ? 'text-rose-100/85' : 'text-stone-400'}`}>{formatDate(message.createdAt, { dateStyle: 'medium', timeStyle: 'short' })}</time>
                   </div>
                 ))}
                 {!messagesLoading && !messagesFailed && !messages.length && <p className="px-2 py-3 text-xs text-stone-500">{t('noMessagesYet')}</p>}
