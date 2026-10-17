@@ -238,68 +238,72 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
       {/* Main Full-Bleed Card Container */}
       <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} className="vow-profile-card vow-surface-enter w-full relative rounded-3xl overflow-hidden bg-stone-900 border border-white/10 shadow-2xl transition-all">
         {currentProfile.isSponsorAd ? (
-          /* 100% ADAPTIVE NATIVE SPONSOR AD CARD */
-          <div className="flex flex-col w-full text-left">
-            <div className="relative w-full h-56 sm:h-64 overflow-hidden bg-stone-950">
+          /* Native sponsored placement: profile-feed styling, clearly disclosed and responsive. */
+          <article aria-label={t('sponsorFirstDate')} className="flex w-full flex-col text-left">
+            <div className="relative aspect-[4/3] max-h-[min(62vh,420px)] min-h-44 w-full overflow-hidden bg-stone-950 sm:aspect-[16/10]">
               <img
-                src={currentProfile.photos[0]}
+                src={currentProfile.photos[0] || currentProfile.avatar}
                 alt={currentProfile.name}
-                className="w-full h-full object-cover"
+                loading="lazy"
+                decoding="async"
+                className="h-full w-full object-cover"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-stone-950 via-stone-950/40 to-transparent"></div>
+              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-stone-950/85 via-stone-950/10 to-transparent" />
 
-              {/* Sponsor Adaptive Tag */}
-              <div className="absolute top-3 left-3 bg-amber-500 text-stone-950 text-[10px] sm:text-xs font-black px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full uppercase tracking-wider shadow-lg flex items-center gap-1">
-                <Award className="w-3.5 h-3.5 fill-stone-950" />
-                <span>{t('sponsorFirstDate')}</span>
+              <div className="absolute left-3 top-3 inline-flex max-w-[calc(100%-1.5rem)] items-center gap-1.5 rounded-full border border-white/15 bg-stone-950/85 px-2.5 py-1 text-[10px] font-bold text-white shadow-sm backdrop-blur-md sm:left-4 sm:top-4 sm:text-xs">
+                <Award aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-amber-300" />
+                <span className="truncate">{t('sponsorFirstDate')}</span>
               </div>
             </div>
 
-            <div className="p-4 sm:p-5 -mt-6 relative z-10 bg-gradient-to-t from-stone-950 via-stone-950 to-transparent pt-6">
-              <div className="flex items-center justify-between mb-1">
-                <h3 className="text-xl sm:text-2xl font-heading font-black text-white">
+            <div className="relative z-10 -mt-3 rounded-t-3xl bg-stone-900 px-4 pb-4 pt-4 sm:px-5 sm:pb-5">
+              <div className="mb-1 flex min-w-0 flex-wrap items-start justify-between gap-2">
+                <h3 className="min-w-0 flex-1 break-words text-lg font-heading font-black leading-tight text-white sm:text-xl">
                   {currentProfile.name}
                 </h3>
-                <span className="text-[11px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
-                  Партнер
+                <span className="shrink-0 rounded-full border border-amber-400/25 bg-amber-400/10 px-2.5 py-1 text-[10px] font-semibold text-amber-200">
+                  {t('partner')}
                 </span>
               </div>
 
-              <p className="text-xs text-rose-400 font-medium mb-2">
-                {currentProfile.city}
-              </p>
-
-              <p className="text-xs text-stone-300 leading-relaxed mb-4">
+              <p className="mb-2 text-xs font-medium text-stone-400">{currentProfile.city}</p>
+              <p className="mb-4 break-words text-sm leading-relaxed text-stone-300">
                 {currentProfile.bio}
               </p>
 
-              {/* Responsive Promo Offer Card */}
-              <div className="p-3 rounded-2xl bg-rose-950/40 border border-rose-800/40 mb-4">
-                <div className="text-xs font-bold text-white mb-0.5">{currentProfile.sponsorTitle}</div>
-                <div className="text-[11px] text-rose-300/90 leading-tight">{currentProfile.sponsorDescription}</div>
+              <div className="mb-4 rounded-2xl border border-white/[0.08] bg-stone-950/55 p-3 sm:p-4">
+                <div className="mb-1 break-words text-sm font-bold leading-snug text-white">
+                  {currentProfile.sponsorTitle}
+                </div>
+                <div className="break-words text-xs leading-relaxed text-stone-400">
+                  {currentProfile.sponsorDescription}
+                </div>
               </div>
 
-              {/* Responsive CTA Buttons */}
-              <div className="flex items-center gap-2 pt-1">
+              <div className="flex flex-col gap-2 min-[360px]:flex-row">
                 <button
+                  type="button"
                   onClick={handlePassCurrent}
-                  className="flex-1 py-2.5 sm:py-3 rounded-2xl bg-stone-800 hover:bg-stone-700 font-bold text-stone-300 text-xs transition-colors"
+                  className="min-h-11 w-full min-w-0 rounded-xl border border-white/10 bg-stone-800 px-4 py-2.5 text-sm font-semibold text-stone-200 transition-colors hover:bg-stone-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 min-[360px]:w-auto min-[360px]:shrink-0"
                 >
                   {t('skip')}
                 </button>
                 <button
+                  type="button"
                   onClick={() => {
+                    if (!currentProfile.sponsorUrl) return;
                     onAdClicked();
-                    window.open(currentProfile.sponsorUrl, '_blank');
+                    window.open(currentProfile.sponsorUrl, '_blank', 'noopener,noreferrer');
                   }}
-                  className="flex-2 py-2.5 sm:py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-rose-600 hover:from-amber-400 hover:to-rose-500 font-black text-stone-950 text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-rose-950/40 transition-all"
+                  disabled={!currentProfile.sponsorUrl}
+                  className="inline-flex min-h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-rose-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <span>{currentProfile.sponsorCta}</span>
-                  <ExternalLink className="w-3.5 h-3.5 stroke-[2.5]" />
+                  <span className="break-words">{currentProfile.sponsorCta}</span>
+                  <ExternalLink aria-hidden="true" className="h-4 w-4 shrink-0" />
                 </button>
               </div>
             </div>
-          </div>
+          </article>
         ) : (
           /* Profile card */
           <div className="flex flex-col w-full text-left">
