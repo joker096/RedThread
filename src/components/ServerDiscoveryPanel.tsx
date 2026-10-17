@@ -451,7 +451,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       {authenticated === false ? (
         <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-4">
           <p className="text-sm text-stone-200">{t('signInToSearch')}</p>
-          <button type="button" onClick={onOpenAccount} className="mt-3 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400">{t('login')}</button>
+          <button type="button" onClick={onOpenAccount} className="mt-3 min-h-11 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400">{t('login')}</button>
         </div>
       ) : (
         <>
@@ -466,8 +466,8 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
             <label className="text-xs text-stone-300">{t('financialMatch')}<select value={minFinancialAlignment} onChange={e => setMinFinancialAlignment(Number(e.target.value))} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"><option value="0">{t('doNotFilter')}</option><option value="33">{t('financialFrom33')}</option><option value="67">{t('financialFrom67')}</option><option value="100">{t('financialOnly100')}</option></select></label>
           </div>
           <button type="button" onClick={() => void search()} disabled={busy} className="mb-2 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">{busy ? t('searching') : t('search')}</button>
-          <button type="button" onClick={() => setSwipeMode(value => !value)} className="mb-3 w-full rounded-xl border border-emerald-500/30 px-4 py-2.5 text-xs font-semibold text-emerald-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400">{swipeMode ? t('listMode') : t('swipeMode')}</button>
-          <button type="button" onClick={() => void undoPass()} disabled={busy} className="mb-3 w-full rounded-xl border border-amber-500/30 px-4 py-2.5 text-xs font-semibold text-amber-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">↶ {t('undoAction')}</button>
+          <button type="button" onClick={() => setSwipeMode(value => !value)} className="mb-3 min-h-11 w-full rounded-xl border border-emerald-500/30 px-4 py-2.5 text-xs font-semibold text-emerald-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400">{swipeMode ? t('listMode') : t('swipeMode')}</button>
+          <button type="button" onClick={() => void undoPass()} disabled={busy} className="mb-3 min-h-11 w-full rounded-xl border border-amber-500/30 px-4 py-2.5 text-xs font-semibold text-amber-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">↶ {t('undoAction')}</button>
           <button type="button" onClick={() => void toggleBlockedProfiles()} disabled={busy} aria-expanded={blockedProfilesOpen} aria-controls="blocked-profiles-panel" className="mb-3 min-h-11 w-full rounded-xl border border-white/10 px-4 py-2.5 text-xs font-semibold text-stone-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">
             {blockedProfilesOpen ? t('hideBlockedProfiles') : t('manageBlockedProfiles')}
           </button>
@@ -481,7 +481,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                   {blockedProfiles.map(profile => (
                     <li key={profile.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/5 p-2">
                       <span className="min-w-0 truncate text-xs text-stone-200">{profile.displayName}</span>
-                      <button type="button" onClick={() => void unblock(profile)} disabled={busy} className="shrink-0 rounded-lg border border-emerald-500/30 px-3 py-2 text-xs font-semibold text-emerald-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">{t('unblock')}</button>
+                      <button type="button" onClick={() => void unblock(profile)} disabled={busy} className="min-h-11 min-w-11 shrink-0 rounded-lg border border-emerald-500/30 px-3 py-2 text-xs font-semibold text-emerald-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">{t('unblock')}</button>
                     </li>
                   ))}
                 </ul>
