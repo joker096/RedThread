@@ -71,7 +71,7 @@ export const LadyPremiumModal: React.FC<LadyPremiumModalProps> = ({ isOpen, onCl
 
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
+    <div className="vow-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
       <div className="relative w-full max-w-lg rounded-3xl bg-stone-900 border border-amber-500/40 shadow-2xl p-5 sm:p-6 text-left my-auto">
         <button onClick={onClose} className="absolute top-4 right-4 p-2 rounded-full bg-stone-800 text-stone-400 hover:text-white transition-colors" aria-label="Закрыть"><X className="w-5 h-5" /></button>
         <div className="flex items-center gap-3 mb-4">
