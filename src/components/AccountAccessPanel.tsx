@@ -13,6 +13,20 @@ type AccountUser = {
 
 type AccountAccessPanelProps = { onAuthenticated: () => void };
 
+const isAccountUser = (value: unknown): value is AccountUser => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.id === 'string' && candidate.id.trim().length > 0
+    && typeof candidate.email === 'string' && candidate.email.trim().length > 0
+    && typeof candidate.displayName === 'string' && candidate.displayName.trim().length > 0
+    && (candidate.gender === 'female' || candidate.gender === 'male')
+    && typeof candidate.country === 'string'
+    && typeof candidate.city === 'string'
+    && (candidate.relationshipIntent === 'marriage_family'
+      || candidate.relationshipIntent === 'serious_relationship'
+      || candidate.relationshipIntent === 'family_without_marriage');
+};
+
 export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthenticated }) => {
   const { formatDate, t } = useLocale();
   const [user, setUser] = useState<AccountUser | null>(null);
@@ -46,6 +60,10 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       .then(async response => response.ok ? response.json() : null)
       .then(async data => {
         if (!cancelled && data?.user) {
+          if (!isAccountUser(data.user)) {
+            setMessage(t('authRequestFailed'));
+            return;
+          }
           if (data?.verificationRequired) {
             setMessage(t('authAccountCreatedVerification'));
             setPassword('');
@@ -116,7 +134,11 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         if (data?.error === 'email_verification_required' || data?.error === 'verification_email_delivery_failed') setCanResendVerification(true);
         throw new Error(errors[data?.error] || t('authRequestFailed'));
       }
+      if (!isAccountUser(data?.user)) {
+        throw new Error(t('authRequestFailed'));
+      }
       setUser(data.user);
+      window.dispatchEvent(new Event('vow:session-changed'));
       const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
       setBillingStatus(billing);
       setMessage(mode === 'register' ? t('authAccountCreated') : t('authSignedIn'));
