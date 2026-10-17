@@ -76,7 +76,7 @@ test('expired session clears the match inbox instead of leaving stale chats visi
 
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect.poll(() => matchRequests).toBeGreaterThan(1);
-  await expect(page.getByText(/log in to see your matches|войдите, чтобы увидеть совпадения/i)).toBeVisible();
+  await expect(page.getByText(/sign in to see your matches|войдите, чтобы увидеть свои совпадения/i)).toBeVisible();
   await expect(page.getByTestId('server-match-item')).toHaveCount(0);
 });
 
