@@ -204,7 +204,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
               >
                 <span className="relative block">
                   <img
-                    src={thread.partnerProfile.avatar}
+                    src={thread.partnerProfile.avatar || thread.partnerProfile.photos?.[0] || ''}
                     alt={thread.partnerProfile.name}
                     loading="lazy"
                     decoding="async"
@@ -247,7 +247,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
 
             <div className="relative shrink-0">
               <img
-                src={activeThread.partnerProfile.photos[0] || activeThread.partnerProfile.avatar}
+                src={activeThread.partnerProfile.photos?.[0] || activeThread.partnerProfile.avatar || ''}
                 alt={activeThread.partnerProfile.name}
                 decoding="async"
                 width={44}
