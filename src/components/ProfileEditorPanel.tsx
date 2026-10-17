@@ -116,7 +116,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
   };
 
   return (
-    <section className="mb-5 rounded-3xl border border-amber-500/20 bg-stone-900/80 p-4 sm:p-5">
+    <section className="vow-screen mb-5 rounded-3xl border border-amber-500/20 bg-stone-900/80 p-4 sm:p-5">
       <p className="text-[10px] uppercase tracking-[0.2em] text-amber-300">Моя анкета</p>
       <h3 className="mt-1 text-lg font-bold text-white">Профиль для серьёзных отношений</h3>
       {authenticated === false ? (
