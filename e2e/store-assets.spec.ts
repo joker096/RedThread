@@ -25,7 +25,7 @@ test('capture real Vow phone screens for store listing review', async ({ page })
 
   await page.screenshot({ path: path.join(output, '01-discover.png'), fullPage: false, animations: 'disabled' });
 
-  await clickNav(page, /^tests$|^тесты$/i);
+  await clickNav(page, /^values test$|^тест ценностей$/i);
   await page.waitForTimeout(300);
   await page.screenshot({ path: path.join(output, '02-compatibility.png'), fullPage: false, animations: 'disabled' });
 
