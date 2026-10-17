@@ -44,6 +44,9 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
 }) => {
   const { t, locale, requestedLocale, setLocale } = useLocale();
   const activeTranslationCoverage = getTranslationCoverage(locale).percentage;
+  const safeUnreadChatsCount = Number.isFinite(unreadChatsCount) && unreadChatsCount > 0
+    ? Math.floor(unreadChatsCount)
+    : 0;
   return (
     <header className="vow-app-header sticky top-0 z-40 w-full border-b border-white/[0.07] bg-stone-950/90 px-3 py-2 backdrop-blur-2xl supports-[backdrop-filter]:bg-stone-950/75 sm:px-5">
       <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-2 sm:gap-4">
@@ -104,9 +107,9 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             }`}
           >
             <span>{t('chats')}</span>
-            {unreadChatsCount > 0 && (
+            {safeUnreadChatsCount > 0 && (
               <span aria-hidden="true" className="ms-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-amber-400 px-1.5 text-[9px] font-black leading-none text-stone-950">
-                {unreadChatsCount}
+                {safeUnreadChatsCount > 99 ? '99+' : safeUnreadChatsCount}
               </span>
             )}
           </button>
