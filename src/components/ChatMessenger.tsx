@@ -148,7 +148,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
       {/* Active chat window */}
       <div className={`flex-1 flex flex-col bg-stone-900/90 ${!activeThreadId ? 'hidden md:flex' : 'flex'}`}>
         {/* Chat Header */}
-        <div className="p-3 sm:p-4 border-b border-white/5 flex items-center justify-between bg-stone-950/40">
+        <div className="p-3 sm:p-4 border-b border-white/5 flex flex-wrap items-center justify-between gap-2 bg-stone-950/40">
           <div className="flex items-center gap-3">
             <button
               onClick={onBackToList}
@@ -307,7 +307,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                   </div>
                 ) : (
                   <div
-                    className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed ${
+                    className={`max-w-[85%] sm:max-w-[75%] break-words [overflow-wrap:anywhere] px-4 py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed ${
                       isMe
                         ? 'bg-rose-600 text-white rounded-br-none shadow-md shadow-rose-950/30'
                         : 'bg-stone-800 text-stone-200 rounded-bl-none border border-white/5'
