@@ -1515,7 +1515,26 @@ const messages = {
     authChildrenHonestyHelp: "გთხოვთ, გულწრფელად უპასუხოთ — ეს ეხმარება თავსებადი პარტნიორის პოვნას.",
     authYes: "დიახ",
     authNo: "არა",
-    authResetBusy: "მუშავდება…"
+    authResetBusy: "მუშავდება…",
+    demoModeToggleHelp: "დემო რეჟიმი: შეცვალეთ ნაჩვენები საცდელი პროფილი",
+    childrenNoWant: "შვილების ყოლას არ გეგმავს",
+    languages: "ენები",
+    finance: "ფინანსები",
+    serverProfilesTitle: "რეგისტრირებული ანგარიშების პროფილები",
+    reportReason: "მიზეზი",
+    reportComment: "კომენტარი (არასავალდებულო)",
+    reportSpam: "სპამი ან თაღლითობა",
+    reportHarassment: "შეურაცხყოფა ან შევიწროება",
+    reportChildren: "შვილების შესახებ არასწორი ინფორმაციის მითითება",
+    reportDuplicate: "დუბლირებული პროფილი",
+    swipeHint: "მოსაწონებლად გადაუსვით მარჯვნივ, გამოსატოვებლად — მარცხნივ. შეგიძლიათ ღილაკებიც გამოიყენოთ.",
+    languageAutoHelp: "გამოიყენეთ მოწყობილობის ენა, თუ ის ხელმისაწვდომია",
+    retry: "ხელახლა სცადეთ",
+    demoMan: "დემო მამაკაცი",
+    radar: "აღმოაჩინეთ",
+    testsShort: "ღირებულებები",
+    chatsShort: "ჩატები",
+    safetyShort: "უსაფრთხოება"
   },
 };
 
