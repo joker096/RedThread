@@ -53,7 +53,7 @@ const normalizeServerMessage = (value: unknown): ServerMessage | null => {
   return {
     id: message.id.trim(),
     senderId: message.senderId.trim(),
-    text: message.text,
+    text: message.text.trim(),
     createdAt: message.createdAt.trim()
   };
 };
