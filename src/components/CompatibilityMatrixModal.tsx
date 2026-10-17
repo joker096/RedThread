@@ -75,7 +75,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
+    <div className="vow-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
       <div className="relative w-full max-w-lg rounded-3xl bg-stone-900 border border-rose-900/50 shadow-2xl p-5 sm:p-6 text-left my-auto">
         {/* Close Button */}
         <button
