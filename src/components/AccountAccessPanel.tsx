@@ -236,7 +236,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
   };
 
   return (
-    <section className="vow-screen mb-5 min-w-0 rounded-3xl border border-white/10 bg-stone-900/80 p-3 sm:p-5">
+    <section aria-busy={busy} className="vow-screen mb-5 min-w-0 rounded-3xl border border-white/10 bg-stone-900/80 p-3 sm:p-5">
       <div className="mb-3">
         <p className="text-[10px] uppercase tracking-[0.2em] text-rose-300">{t('accountTitle')}</p>
         <h3 className="mt-1 text-lg font-bold text-white">{user ? t('signedIn') : mode === 'login' ? t('signIn') : t('createAccount')}</h3>
@@ -304,7 +304,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
           </div>
         </>
       )}
-      {message && <p role="status" className="mt-3 text-xs leading-relaxed text-stone-300">{message}</p>}
+      {message && <p role="status" aria-live="polite" className="mt-3 text-xs leading-relaxed text-stone-300">{message}</p>}
       <p className="mt-3 text-[10px] leading-relaxed text-stone-500">{t('authServerNotice')}</p>
     </section>
   );
