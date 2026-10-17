@@ -31,7 +31,8 @@ const normalizeServerMatch = (value: unknown): ServerMatch | null => {
     country: typeof match.country === 'string' ? match.country.trim().slice(0, 100) : '',
     city: typeof match.city === 'string' ? match.city.trim().slice(0, 100) : '',
     lastMessage: typeof match.lastMessage === 'string' ? match.lastMessage.slice(0, 1000) : null,
-    lastMessageAt: typeof match.lastMessageAt === 'string' && Number.isFinite(Date.parse(match.lastMessageAt))
+    lastMessageAt: typeof match.lastMessageAt === 'string' && match.lastMessageAt.length <= 100 &&
+      Number.isFinite(Date.parse(match.lastMessageAt))
       ? match.lastMessageAt
       : null
   };
@@ -43,7 +44,8 @@ const normalizeServerMessage = (value: unknown): ServerMessage | null => {
   if (typeof message.id !== 'string' || !message.id.trim() || message.id.trim().length > 256 ||
       typeof message.senderId !== 'string' || !message.senderId.trim() || message.senderId.trim().length > 256 ||
       typeof message.text !== 'string' || message.text.length > 10000 ||
-      typeof message.createdAt !== 'string' || !Number.isFinite(Date.parse(message.createdAt))) {
+      typeof message.createdAt !== 'string' || message.createdAt.length > 100 ||
+      !Number.isFinite(Date.parse(message.createdAt))) {
     return null;
   }
   return {
