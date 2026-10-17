@@ -82,9 +82,9 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
   const antiChitChat = checkAntiChitChatDeadline(activeThread.createdAt, activeThread.messages.length);
 
   return (
-    <div className="w-full max-w-4xl mx-auto h-[75vh] min-h-[550px] flex rounded-3xl overflow-hidden bg-stone-900 border border-rose-950/40 shadow-2xl">
+    <div className="vow-chat-layout w-full max-w-4xl mx-auto h-[75vh] min-h-[550px] flex rounded-3xl overflow-hidden bg-stone-900 border border-rose-950/40 shadow-2xl">
       {/* Threads sidebar (desktop / tablet) */}
-      <div className={`w-full md:w-80 border-r border-white/5 flex flex-col bg-stone-950/60 ${activeThreadId ? 'hidden md:flex' : 'flex'}`}>
+      <div className={`w-full md:w-80 border-e border-white/5 flex flex-col bg-stone-950/60 ${activeThreadId ? 'hidden md:flex' : 'flex'}`}>
         <div className="p-3.5 border-b border-white/5 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <h3 className="font-heading text-sm font-bold text-white">Диалоги</h3>
@@ -113,7 +113,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                 key={thread.id}
                 onClick={() => onSelectThread(thread.id)}
                 aria-pressed={isSelected}
-                className={`w-full text-left flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-rose-400 ${
+                className={`w-full text-start flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-rose-400 ${
                   isSelected
                     ? 'bg-rose-950/50 border border-rose-800/40 text-white'
                     : 'hover:bg-stone-900 text-stone-300'
@@ -130,7 +130,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                   </span>
                 </span>
 
-                <span className="flex-1 min-w-0 text-left block">
+                <span className="flex-1 min-w-0 text-start block">
                   <span className="flex items-center justify-between">
                     <span className="font-bold text-sm text-white truncate">
                       {thread.partnerProfile.name}
@@ -167,7 +167,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
               <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-stone-900"></span>
             </div>
 
-            <div className="text-left">
+            <div className="text-start">
               <div className="flex items-center gap-1.5">
                 <span className="font-heading font-bold text-white text-sm sm:text-base">
                   {activeThread.partnerProfile.name}, {activeThread.partnerProfile.age}
@@ -357,7 +357,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
       {/* Date Invite Modal */}
       {showInviteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-3xl bg-stone-900 border border-rose-900/50 p-5 shadow-2xl text-left">
+          <div className="w-full max-w-sm rounded-3xl bg-stone-900 border border-rose-900/50 p-5 shadow-2xl text-start">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Coffee className="w-5 h-5 text-rose-500" />
