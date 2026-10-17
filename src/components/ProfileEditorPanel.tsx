@@ -111,7 +111,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
                 Number.isFinite(Date.parse(value.createdAt.trim()));
             })
           : [];
-        setBlockedProfiles(safeBlocks.map(block => ({
+        setBlockedProfiles(safeBlocks.map((block: BlockedProfile) => ({
           id: block.id.trim(),
           displayName: block.displayName.trim(),
           createdAt: block.createdAt.trim()
