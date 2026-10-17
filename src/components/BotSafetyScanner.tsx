@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   ShieldCheck, 
   ShieldAlert, 
@@ -33,6 +33,14 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
   const [reportReason, setReportReason] = useState<string>('');
   const [reportSubmitted, setReportSubmitted] = useState(false);
   const [scanStep, setScanStep] = useState(3);
+  const timeoutIdsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  useEffect(() => {
+    return () => {
+      timeoutIdsRef.current.forEach(timeoutId => clearTimeout(timeoutId));
+      timeoutIdsRef.current = [];
+    };
+  }, [isOpen, targetProfile]);
 
   if (!isOpen || !targetProfile) return null;
 
@@ -47,11 +55,12 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
   const handleRunFreshScan = () => {
     setIsScanning(true);
     setScanStep(1);
-    setTimeout(() => setScanStep(2), 700);
-    setTimeout(() => {
+    timeoutIdsRef.current.push(setTimeout(() => setScanStep(2), 700));
+    timeoutIdsRef.current.push(setTimeout(() => {
       setScanStep(3);
       setIsScanning(false);
-    }, 1400);
+      timeoutIdsRef.current = [];
+    }, 1400));
   };
 
   const handleSendReport = (e: React.FormEvent) => {
@@ -59,10 +68,11 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
     if (!reportReason) return;
     onReportProfile(targetProfile.id, reportReason);
     setReportSubmitted(true);
-    setTimeout(() => {
+    timeoutIdsRef.current.push(setTimeout(() => {
       setReportSubmitted(false);
       onClose();
-    }, 1500);
+      timeoutIdsRef.current = [];
+    }, 1500));
   };
 
   return (
