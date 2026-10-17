@@ -356,7 +356,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                 {msg.isDateInvite ? (
                   <div className="max-w-sm rounded-2xl p-4 bg-gradient-to-br from-rose-950 via-stone-900 to-stone-950 border border-rose-600/50 text-white shadow-xl">
                     <div className="flex items-center gap-2 text-rose-400 text-xs font-bold uppercase tracking-wider mb-2">
-                      <Coffee className="w-4 h-4" />
+                      <Coffee className="w-4 h-4" aria-hidden="true" />
                       <span>{t('chatFirstDateInvite')}</span>
                     </div>
                     <div className="space-y-1.5 text-xs text-stone-200 mb-3">
@@ -447,7 +447,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
           >
             {sendingThreadIds.has(activeThread.id)
               ? <LoaderCircle className="w-4 h-4 animate-spin" aria-hidden="true" />
-              : <Send className="w-4 h-4" />
+              : <Send className="w-4 h-4" aria-hidden="true" />
             }
           </button>
         </form>
