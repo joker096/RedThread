@@ -15,19 +15,19 @@ export const NotificationCenterPanel:React.FC=()=>{
    const response=await fetch('/api/notifications?limit=20',{credentials:'include'});
    if(response.status===401){setAllowed(false);setReady(true);return;}
    const data=await response.json().catch(()=>null);
-   if(!response.ok)throw new Error('Не удалось загрузить уведомления.');
+   if(!response.ok)throw new Error(t('notificationsLoadError'));
    setItems(data.notifications||[]);setUnread(Number(data.unreadCount)||0);setAllowed(true);setReady(true);setNotice('');
-  }catch(error){setNotice(error instanceof Error?error.message:'Ошибка уведомлений.');setReady(true);}
+  }catch{setNotice(t('notificationsLoadError'));setReady(true);}
   finally{setBusy(false);}
  },[]);
  useEffect(()=>{void refresh();const refreshOnSession=()=>void refresh();window.addEventListener('focus',refreshOnSession);window.addEventListener('vow:session-changed',refreshOnSession);return()=>{window.removeEventListener('focus',refreshOnSession);window.removeEventListener('vow:session-changed',refreshOnSession);};},[refresh]);
  const markRead=async(id?:string)=>{
   setBusy(true);
   try{
-   const response=await fetch(id?'/api/notifications/'+encodeURIComponent(id)+'/read':'/api/notifications/read-all',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:id?'{}':'{}'});
-   if(!response.ok)throw new Error('Не удалось отметить уведомления прочитанными.');
+   const response=await fetch(id?'/api/notifications/'+encodeURIComponent(id)+'/read':'/api/notifications/read-all',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:'{}'});
+   if(!response.ok)throw new Error(t('notificationsMarkReadError'));
    await refresh();
-  }catch(error){setNotice(error instanceof Error?error.message:'Ошибка уведомлений.');}
+  }catch{setNotice(t('notificationsMarkReadError'));}
   finally{setBusy(false);}
  };
  if(!ready||!allowed)return null;
