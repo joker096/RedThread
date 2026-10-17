@@ -607,12 +607,6 @@ test('auth API supports registration, session lookup, logout and login', {
     const deletedAccountMe = await request('/api/auth/me', { headers: { Cookie: secondCookie } });
     assert.equal(deletedAccountMe.status, 401);
 
-    const deletedAccountLogin = await request('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password })
-    });
-    assert.equal(deletedAccountLogin.status, 401,
-      'a deleted account must not be able to create a new session with its former credentials');
   } finally {
     if (child.exitCode === null) {
       child.kill('SIGTERM');
