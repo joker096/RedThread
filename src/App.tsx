@@ -159,6 +159,8 @@ export default function App() {
   ]);
 
   const [activeChatThreadId, setActiveChatThreadId] = useState<string | null>('thread_alexander');
+  // Prototype conversations are opt-in so they cannot be mistaken for real matches.
+  const [showDemoChats, setShowDemoChats] = useState(false);
 
   // Demo-only persistence: keep the prototype usable across refreshes on this device.
   // Production accounts and cross-device sync must use an authenticated backend.
@@ -602,23 +604,51 @@ export default function App() {
       case 'chats':
         return (
           <>
-          <div role="status" className="mb-3 rounded-xl border border-amber-400/30 bg-amber-950/30 px-3 py-2 text-xs leading-relaxed text-amber-100">
-            <strong className="mr-1">DEMO / ДЕМО:</strong>
-            Sample conversation below is prototype data stored locally; it is not a live server conversation.
-            <span className="block mt-1 text-amber-200/80">Пример переписки ниже — демонстрационные данные прототипа, сохранённые локально, а не реальный диалог на сервере.</span>
-          </div>
-          <ServerMatchesPanel onOpenAccount={() => setActiveTab('tests')} />
-          <ChatMessenger
-            threads={chatThreads}
-            activeThreadId={activeChatThreadId}
-            onSelectThread={id => setActiveChatThreadId(id)}
-            onSendMessage={handleSendMessage}
-            onSendDateInvite={handleSendDateInvite}
-            onAcceptDateInvite={handleAcceptDateInvite}
-            isLadyPremium={isLadyPremium}
-            onOpenLadyPremium={() => setIsLadyPremiumOpen(true)}
-            onBackToList={() => setActiveChatThreadId(null)}
-          />
+            <ServerMatchesPanel onOpenAccount={() => setActiveTab('tests')} />
+            {!showDemoChats ? (
+              <section className="mx-auto mt-4 w-full max-w-md rounded-2xl border border-white/10 bg-stone-900 p-4 text-left">
+                <h3 className="font-semibold text-white">{t('demoChatsHiddenTitle')}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-stone-300">{t('demoChatsHiddenDescription')}</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveChatThreadId(null);
+                    setShowDemoChats(true);
+                  }}
+                  className="mt-4 min-h-11 w-full rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-2 text-sm font-semibold text-amber-100 transition hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+                >
+                  {t('showDemoChats')}
+                </button>
+              </section>
+            ) : (
+              <>
+                <div role="status" className="mb-3 mt-4 rounded-xl border border-amber-400/30 bg-amber-950/30 px-3 py-2 text-xs leading-relaxed text-amber-100">
+                  <strong className="mr-1">DEMO / ДЕМО:</strong>
+                  {t('demoChatsPrototypeNotice')}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDemoChats(false);
+                    setActiveChatThreadId(null);
+                  }}
+                  className="mb-3 min-h-11 rounded-xl border border-white/10 px-4 py-2 text-sm text-stone-300 transition hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
+                >
+                  {t('hideDemoChats')}
+                </button>
+                <ChatMessenger
+                  threads={chatThreads}
+                  activeThreadId={activeChatThreadId}
+                  onSelectThread={id => setActiveChatThreadId(id)}
+                  onSendMessage={handleSendMessage}
+                  onSendDateInvite={handleSendDateInvite}
+                  onAcceptDateInvite={handleAcceptDateInvite}
+                  isLadyPremium={isLadyPremium}
+                  onOpenLadyPremium={() => setIsLadyPremiumOpen(true)}
+                  onBackToList={() => setActiveChatThreadId(null)}
+                />
+              </>
+            )}
           </>
         );
 
