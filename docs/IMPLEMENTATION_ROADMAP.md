@@ -16,10 +16,10 @@ Priority: P0 · Do before public promotion
 
 - [x] Document server-backed entry points and demo-only flows.
 - [x] Document the ten-scenario screenshot acceptance matrix.
-- [ ] Make demo/preview mode unmistakable in the UI (persistent “Demo data” label; no fake verification claims).
+- [x] Make demo/preview mode unmistakable in the UI (persistent prototype disclosure plus separate demo/server discovery labels; continue the trust-label audit below).
 - [ ] Verify whether every chat send/read path is persisted on the server or only in local component state.
 - [ ] Audit all displayed trust labels, compatibility scores, ad counters and “online” indicators; label or remove values that are not backed by live data.
-- [ ] Keep a single source-of-truth release status page in docs.
+- [x] Keep a single source-of-truth release status page in [RELEASE_STATUS.md](RELEASE_STATUS.md).
 
 **Acceptance:** a tester can tell which data are examples and which came from the API; no screenshot can be mistaken for evidence of real verification, actual revenue, or live conversations.
 
