@@ -46,7 +46,7 @@ const normalizeServerProfile = (value: unknown): ServerProfile | null => {
 
   const score = (candidate: unknown): number | null =>
     typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0 && candidate <= 100
-      ? candidate
+      ? Math.round(candidate)
       : null;
 
   return {
