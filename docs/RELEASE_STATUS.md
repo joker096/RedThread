@@ -20,7 +20,8 @@ This page is the single source of truth for implementation status. A merged PR o
 ## Must be completed before public launch
 
 - [ ] Finish and verify the P0 acceptance criteria in [the implementation roadmap](IMPLEMENTATION_ROADMAP.md).
-- [ ] Make demo/preview data unmistakable and audit every trust, verification, compatibility, online and advertising metric for a real source.
+- [x] Persistent prototype disclosure and separate demo/server discovery labels are present in the UI.
+- [ ] Audit every trust, verification, compatibility, online and advertising metric for a real source.
 - [ ] Validate registration, adult-only gating, consent/legal copy and account deletion against a clean disposable database.
 - [ ] Complete browser-level, two-account end-to-end scenarios, including reload and failure/retry cases.
 - [ ] Verify production-like rate limiting, session/cookie settings, upload limits, moderation access and audit logging.
