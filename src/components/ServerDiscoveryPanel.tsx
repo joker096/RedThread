@@ -154,6 +154,26 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
 
   useEffect(() => { void search(); }, [search]);
 
+  useEffect(() => {
+    const refreshOnSession = () => {
+      searchRequestId.current += 1;
+      lastSearchKey.current = null;
+      setAuthenticated(null);
+      setProfiles([]);
+      setLikedIds([]);
+      setBlockedIds([]);
+      setBlockedProfiles([]);
+      setBlockedProfilesOpen(false);
+      setActionHistory([]);
+      setMatchedProfile(null);
+      setReportTargetId(null);
+      setReportDetails('');
+      void search();
+    };
+    window.addEventListener('vow:session-changed', refreshOnSession);
+    return () => window.removeEventListener('vow:session-changed', refreshOnSession);
+  }, [search]);
+
   const like = async (profile: ServerProfile) => {
     if (busy || likedIds.includes(profile.id)) return;
     setBusy(true);
@@ -518,7 +538,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                 <p className="mt-2 text-[10px] text-stone-500">{profile.relationshipIntent === 'marriage_family' ? t('profileMarriage') : t('profileSerious')}</p>
                 <div className="mt-4 grid grid-cols-1 gap-2 min-[360px]:grid-cols-2">
                   <button type="button" onClick={() => void pass(profile)} disabled={busy} className="vow-motion-button vow-pass-button flex min-h-12 items-center justify-center rounded-xl border border-white/10 px-3 py-3 text-sm font-semibold text-stone-300 disabled:opacity-50">{t('pass')}</button>
-                  <button type="button" onClick={() => void like(profile)} disabled={likedIds.includes(profile.id)} className="vow-motion-button vow-like-button flex min-h-12 items-center justify-center rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-3 text-sm font-bold text-rose-200 disabled:opacity-50">{likedIds.includes(profile.id) ? t('liked') : t('like')}</button>
+                  <button type="button" onClick={() => void like(profile)} disabled={busy || likedIds.includes(profile.id)} className="vow-motion-button vow-like-button flex min-h-12 items-center justify-center rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-3 text-sm font-bold text-rose-200 disabled:opacity-50">{likedIds.includes(profile.id) ? t('liked') : t('like')}</button>
                 </div>
                 <div className="mt-2 grid grid-cols-1 gap-2 min-[360px]:grid-cols-2">
                   <button type="button" onClick={() => void block(profile)} disabled={busy || blockedIds.includes(profile.id)} className="min-h-10 rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-400 disabled:opacity-50">{t('block')}</button>
