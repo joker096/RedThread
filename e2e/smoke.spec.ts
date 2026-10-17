@@ -230,3 +230,21 @@ test('RTL languages set document direction and remain usable on narrow phones', 
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
 });
+
+test('RTL filter drawer keeps relationship options aligned to the logical start', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 780 });
+  await page.goto('/');
+
+  await page.locator('#app-language').selectOption('ar');
+  await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+
+  await page.getByTestId('open-filters').click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+
+  const options = page.getByTestId('relationship-intent-options');
+  await expect(options).toBeVisible();
+  const firstOption = options.getByRole('button').first();
+  await expect(firstOption).toHaveCSS('text-align', 'start');
+  await expect(dialog).toHaveCSS('direction', 'rtl');
+});
