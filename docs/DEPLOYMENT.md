@@ -100,3 +100,14 @@ docker compose config --quiet
 ```
 
 Do not paste the rendered output of `docker compose config` into public issues or chat: environment expansion can expose credentials. If a check fails, retain sanitized logs and the candidate commit SHA for diagnosis.
+
+### Gate F — sponsored placement operations
+
+- [ ] If first-party ad event logging is enabled, configure the deployment scheduler to run `npm run ads:cleanup-events` at least once every 24 hours with the production `DATABASE_URL`; set `PGSSL=true` when required by the database provider.
+- [ ] Run the cleanup command once in staging, verify it exits successfully, and confirm only records older than 90 days are removed in bounded batches. Verify the scheduler's next run and alert on non-zero exit status or missed runs.
+- [ ] Verify a configured campaign records an impression only after an eligible non-premium authenticated session sees the placement; verify click logging is attempted only after the server accepts the impression.
+- [ ] Verify a demo sponsor without a server campaign ID creates no server ad events, premium sessions create no events, and rate/frequency caps are enforced.
+- [ ] Keep first-party app events separate from billable ad-provider reporting. Do not use these records as proof of valid provider impressions, clicks, invoices, or revenue.
+- [ ] Before selling placements, connect and test the provider's approved reporting/postback mechanism, document consent and privacy disclosures, and reconcile sample reports against the provider's authoritative dashboard.
+- [ ] If no campaign provider or scheduled cleanup is configured, document both as launch blockers; do not describe ad monetization as production-ready.
+
