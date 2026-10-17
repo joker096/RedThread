@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
-type NotificationItem={id:string;type:'new_match'|'new_message';metadata:Record<string,unknown>;createdAt:string;readAt:string|null};
+type NotificationItem={id:string;type:'new_match'|'new_message';createdAt:string;readAt:string|null};
 export const NotificationCenterPanel:React.FC=()=>{
  const {t,formatDate}=useLocale();
  const [items,setItems]=useState<NotificationItem[]>([]);
@@ -31,7 +31,6 @@ export const NotificationCenterPanel:React.FC=()=>{
        const value = item as Partial<NotificationItem>;
        return typeof value.id === 'string' && value.id.trim().length > 0 && value.id.trim().length <= 256 &&
         (value.type === 'new_match' || value.type === 'new_message') &&
-        value.metadata !== null && typeof value.metadata === 'object' && !Array.isArray(value.metadata) &&
         typeof value.createdAt === 'string' && value.createdAt.trim().length > 0 && Number.isFinite(Date.parse(value.createdAt)) &&
         (value.readAt === null || (typeof value.readAt === 'string' && value.readAt.trim().length > 0 && Number.isFinite(Date.parse(value.readAt))));
       }).filter((notification) => {
@@ -40,8 +39,10 @@ export const NotificationCenterPanel:React.FC=()=>{
        seenNotificationIds.add(id);
        return true;
       }).map(notification => ({
-       ...notification,
-       id: notification.id.trim()
+       id: notification.id.trim(),
+       type: notification.type,
+       createdAt: notification.createdAt,
+       readAt: notification.readAt
       }))
     : [];
    const unreadCount = data?.unreadCount;
