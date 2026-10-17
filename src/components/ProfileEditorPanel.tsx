@@ -167,7 +167,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
             <label className="block text-xs text-stone-300">{t('profileOccupation')}<input value={occupation} onChange={e => setOccupation(e.target.value)} maxLength={120} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
             <label className="block text-xs text-stone-300">{t('profileEducation')}<input value={education} onChange={e => setEducation(e.target.value)} maxLength={120} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
           </div>
-          <label className="block text-xs text-stone-300">{t('profileLanguages')}<input value={languages} onChange={e => setLanguages(e.target.value)} placeholder={t('profileLanguagesPlaceholder')} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
+          <label className="block text-xs text-stone-300">{t('profileLanguages')}<input value={languages} maxLength={1000} onChange={e => setLanguages(e.target.value.slice(0, 1000))} placeholder={t('profileLanguagesPlaceholder')} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
           <label className="block text-xs text-stone-300">{t('profileUploadPhoto')}
             <input type="file" accept="image/jpeg,image/png" disabled={uploadBusy || (photoUrls.split(/\n|,/).map(value => value.trim()).filter(Boolean).length >= 6)} onChange={async event => {
               const file=event.currentTarget.files?.[0]; event.currentTarget.value=''; if(!file)return;
