@@ -41,6 +41,8 @@ jobs:
       - run: npm run db:migrate
       - run: npm run lint
       - run: npm test
+      - name: Report translation coverage
+        run: npm run i18n:report
       - run: npm run build
       - name: Validate container configuration
         env:
