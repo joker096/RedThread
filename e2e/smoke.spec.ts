@@ -238,6 +238,7 @@ test('RTL filter drawer keeps relationship options aligned to the logical start'
   await page.locator('#app-language').selectOption('ar');
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
 
+  await page.getByTestId('open-demo-preview').click();
   await page.getByTestId('open-filters').click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
