@@ -1049,3 +1049,80 @@ main article[class*="rounded-2xl"][class*="border"] {
     padding-inline: .15rem;
   }
 }
+
+
+/* Final responsive pass: filter controls, dense headers, RTL and nested dialogs. */
+.vow-filter-backdrop [role="dialog"] {
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.vow-filter-backdrop [role="dialog"] :where(input, select, textarea, button) {
+  max-width: 100%;
+}
+
+.vow-modal-backdrop [role="dialog"],
+.vow-modal-backdrop > [role="dialog"] {
+  overscroll-behavior: contain;
+}
+
+.vow-modal-backdrop :where(img, svg) {
+  max-width: 100%;
+}
+
+:root[dir="rtl"] .vow-chat-layout,
+:root[dir="rtl"] .vow-discovery-stage {
+  direction: rtl;
+}
+
+:root[dir="rtl"] .vow-chat-layout [role="log"] {
+  text-align: start;
+}
+
+:root[dir="rtl"] .vow-profile-card {
+  text-align: start;
+}
+
+:root[dir="rtl"] .vow-filter-backdrop [role="dialog"] {
+  text-align: start;
+}
+
+@media (max-width: 380px) {
+  .vow-filter-backdrop [role="dialog"] .grid.grid-cols-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .vow-filter-backdrop [role="dialog"] {
+    padding-inline: .875rem;
+  }
+
+  .vow-modal-backdrop > :where(div, section, article) {
+    padding-inline: .875rem;
+  }
+
+  .vow-chat-layout {
+    border-radius: 1rem !important;
+  }
+
+  .vow-chat-layout :where(button) {
+    overflow-wrap: anywhere;
+  }
+
+  .vow-install-banner > div {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 340px) {
+  .vow-app-header > div {
+    gap: .375rem;
+  }
+
+  .vow-app-header :where(button, select) {
+    max-width: 100%;
+  }
+
+  .vow-profile-card :where(h2, h3, p, span) {
+    overflow-wrap: anywhere;
+  }
+}
