@@ -36,6 +36,12 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
   const timeoutIdsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   useEffect(() => {
+    timeoutIdsRef.current.forEach(timeoutId => clearTimeout(timeoutId));
+    timeoutIdsRef.current = [];
+    setIsScanning(false);
+    setScanStep(3);
+    setReportSubmitted(false);
+
     return () => {
       timeoutIdsRef.current.forEach(timeoutId => clearTimeout(timeoutId));
       timeoutIdsRef.current = [];
