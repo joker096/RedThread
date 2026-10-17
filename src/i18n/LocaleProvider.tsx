@@ -56,6 +56,7 @@ type MessageKey = keyof typeof messages.en;
 
 const messages = {
   en: {
+    brandTagline: 'Vow — serious relationships', unreadChats: 'unread chats', vipLabel: 'VIP', ladyVipLabel: 'Lady VIP',
     compatibility: 'Compatibility', partialTranslationHelp: 'Some interface text may appear in English until translation is complete',
     searchSetupError: 'Could not search profiles. Check server configuration and migrations.',
     noProfilesForFilters: 'No matching profiles yet. Try changing filters.',
@@ -336,6 +337,7 @@ const messages = {
     installAndroidInstructions: 'In Chrome, open the ⋮ menu and choose “Install app”.'
   },
   ru: {
+    brandTagline: 'Vow — серьёзные отношения', unreadChats: 'непрочитанных чатов', vipLabel: 'VIP', ladyVipLabel: 'Lady VIP',
     compatibility: 'Совместимость', partialTranslationHelp: 'Пока перевод не завершён, часть интерфейса может отображаться на английском языке',
     searchSetupError: 'Не удалось выполнить поиск. Проверьте настройки сервера и применённые миграции.',
     noProfilesForFilters: 'Подходящих анкет пока нет. Попробуйте изменить фильтры.',
