@@ -92,7 +92,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     setBusy(true);
     setNotice('');
     try {
-      const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/messages`,
+      const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/messages`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
