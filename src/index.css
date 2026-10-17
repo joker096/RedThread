@@ -243,3 +243,100 @@ img {
     transform: none !important;
   }
 }
+
+
+/* Vow theme tokens: the selected scheme is persisted by the app shell. */
+:root {
+  --vow-page: #0c0a09;
+  --vow-surface: #1c1917;
+  --vow-surface-raised: #292524;
+  --vow-text: #f5f5f4;
+  --vow-text-muted: #a8a29e;
+  --vow-border: rgb(255 255 255 / 10%);
+  --vow-field: #292524;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --vow-page: #fafaf9;
+  --vow-surface: #ffffff;
+  --vow-surface-raised: #f5f5f4;
+  --vow-text: #1c1917;
+  --vow-text-muted: #57534e;
+  --vow-border: rgb(41 37 36 / 14%);
+  --vow-field: #ffffff;
+  background: var(--vow-page);
+}
+
+:root[data-theme="light"] body {
+  color: var(--vow-text);
+  background: var(--vow-page);
+}
+
+:root[data-theme="light"] #root {
+  background: var(--vow-page);
+  color: var(--vow-text);
+}
+
+:root[data-theme="light"] [class*="bg-stone-950"] {
+  background-color: var(--vow-page) !important;
+}
+
+:root[data-theme="light"] [class*="bg-stone-900"] {
+  background-color: var(--vow-surface) !important;
+}
+
+:root[data-theme="light"] [class*="bg-stone-800"],
+:root[data-theme="light"] [class*="bg-stone-700"] {
+  background-color: var(--vow-surface-raised) !important;
+}
+
+:root[data-theme="light"] [class*="border-white/"],
+:root[data-theme="light"] [class*="border-stone-"] {
+  border-color: var(--vow-border) !important;
+}
+
+:root[data-theme="light"] [class~="text-stone-100"],
+:root[data-theme="light"] [class~="text-stone-200"],
+:root[data-theme="light"] [class~="text-stone-300"],
+:root[data-theme="light"] [class~="text-stone-400"] {
+  color: var(--vow-text-muted) !important;
+}
+
+:root[data-theme="light"] [class~="text-white"] {
+  color: var(--vow-text) !important;
+}
+
+:root[data-theme="light"] button[class*="bg-gradient-to-r"][class~="text-white"],
+:root[data-theme="light"] [class*="bg-rose-600"][class~="text-white"],
+:root[data-theme="light"] [class*="bg-red-600"][class~="text-white"] {
+  color: #ffffff !important;
+}
+
+:root[data-theme="light"] input,
+:root[data-theme="light"] select,
+:root[data-theme="light"] textarea {
+  color: var(--vow-text) !important;
+  background-color: var(--vow-field);
+  border-color: var(--vow-border);
+}
+
+:root[data-theme="light"] input::placeholder,
+:root[data-theme="light"] textarea::placeholder {
+  color: #78716c;
+}
+
+:root[data-theme="light"] .glass-dark {
+  background: rgb(255 255 255 / 92%);
+  border-color: var(--vow-border);
+}
+
+:root[data-theme="light"] .glass-red {
+  background: rgb(255 241 242 / 92%);
+  border-color: rgb(190 24 93 / 18%);
+}
+
+:root[data-theme="light"] .red-glow,
+:root[data-theme="light"] .red-glow-subtle {
+  box-shadow: 0 8px 28px -20px rgb(190 24 93 / 25%);
+}
