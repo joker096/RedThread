@@ -24,6 +24,7 @@ export const NotificationCenterPanel:React.FC=()=>{
    const data=await response.json().catch(()=>null);
    if(requestId!==refreshRequestId.current||actionEpoch!==sessionEpoch.current)return;
    if(!response.ok)throw new Error(t('notificationsLoadError'));
+   if(!data||typeof data!=='object'||Array.isArray(data)||!Array.isArray(data.notifications))throw new Error(t('notificationsLoadError'));
    const seenNotificationIds = new Set<string>();
    const notifications: NotificationItem[] = Array.isArray(data?.notifications)
     ? data.notifications.slice(0, 20).filter((item: unknown): item is NotificationItem => {
