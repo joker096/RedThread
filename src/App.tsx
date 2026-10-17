@@ -883,6 +883,7 @@ export default function App() {
               </button>
 
               <button
+                data-testid="mobile-nav-tests"
                 onClick={() => setActiveTab('tests')}
                 aria-current={activeTab === 'tests' ? 'page' : undefined}
                 className={`vow-motion-button flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 transition-colors ${
