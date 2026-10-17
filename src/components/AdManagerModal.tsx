@@ -74,7 +74,7 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
 
   return (
     <div className="vow-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg rounded-3xl bg-stone-900 border border-amber-500/30 shadow-2xl p-5 sm:p-6 text-left my-auto">
+      <div role="dialog" aria-modal="true" aria-labelledby="ad-manager-title" aria-describedby="ad-manager-description" className="relative w-full max-w-lg rounded-3xl bg-stone-900 border border-amber-500/30 shadow-2xl p-5 sm:p-6 text-left my-auto">
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -91,12 +91,12 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-xl font-heading font-black text-white">Монетизация & Реклама</h2>
+              <h2 id="ad-manager-title" className="text-xl font-heading font-black text-white">Монетизация & Реклама</h2>
               <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full">
                 Ad Revenue Engine
               </span>
             </div>
-            <p className="text-xs text-stone-400">
+            <p id="ad-manager-description" className="text-xs text-stone-400">
               Демонстрация монетизации. Реальная рекламная сеть не подключена.
             </p>
           </div>
@@ -133,11 +133,11 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
           {isPlayingVideo ? (
             <div className="p-4 rounded-2xl bg-stone-950 border border-amber-500 text-center animate-pulse">
               <div className="text-xs font-bold text-amber-300 mb-1">Демонстрация рекламного сценария — реальный ролик не подключён</div>
-              <div className="text-2xl font-mono font-black text-white">{countdown} сек</div>
+              <div role="status" aria-live="polite" aria-atomic="true" className="text-2xl font-mono font-black text-white">{countdown} сек</div>
               <div className="text-[10px] text-stone-400 mt-1">Не закрывайте окно до начисления бонуса...</div>
             </div>
           ) : rewardClaimed ? (
-            <div className="p-3 rounded-xl bg-emerald-950/80 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center justify-center gap-2">
+            <div role="status" aria-live="polite" className="p-3 rounded-xl bg-emerald-950/80 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center justify-center gap-2">
               <CheckCircle className="w-4 h-4" />
               <span>Демо-награда добавлена локально. Рекламная сеть не подключена.</span>
             </div>
