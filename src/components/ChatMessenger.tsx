@@ -191,7 +191,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                 key={thread.id}
                 onClick={() => onSelectThread(thread.id)}
                 aria-pressed={isSelected}
-                className={`w-full text-start flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-rose-400 ${
+                className={`min-h-11 w-full text-start flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-rose-400 ${
                   isSelected
                     ? 'bg-rose-950/50 border border-rose-800/40 text-white'
                     : 'hover:bg-stone-900 text-stone-300'
@@ -379,7 +379,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                       ) : (
                         <button type="button"
                           onClick={() => onAcceptDateInvite(activeThread.id, msg.id)}
-                          className="w-full py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+                          className="min-h-11 w-full py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
                         >
                           <Check className="w-4 h-4" />
                           <span>{t('chatAcceptInvite')}</span>
