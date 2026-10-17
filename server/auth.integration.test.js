@@ -138,6 +138,26 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(missingChildrenDisclosure.status, 400);
     assert.equal((await missingChildrenDisclosure.json()).error, 'children_status_required');
 
+    const underageRegistration = await request('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: `underage-${randomUUID()}@example.test`,
+        password,
+        displayName: 'Несовершеннолетний',
+        birthDate: '2010-01-01',
+        gender: 'female',
+        country: 'Грузия',
+        city: 'Тбилиси',
+        relationshipIntent: 'serious_relationship',
+        familyFormat: 'open_to_both',
+        hasChildren: false,
+        wantsChildren: 'discuss',
+        childrenLivingArrangement: 'not_applicable'
+      })
+    });
+    assert.equal(underageRegistration.status, 400);
+    assert.equal((await underageRegistration.json()).error, 'must_be_18_or_older_with_valid_birth_date');
+
     const duplicate = await request('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify({
