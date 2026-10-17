@@ -190,7 +190,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       ) : (
         <div className="space-y-3">
           {matches.map(match => (
-            <button data-testid="server-match-item" type="button" key={match.id} onClick={() => { messageRequestId.current += 1; setMessages([]); setNotice(''); setSelected(match.id); }} className={`vow-motion-button w-full rounded-2xl border p-3.5 text-left transition-colors ${selected === match.id ? 'border-sky-400/60 bg-sky-950/40 shadow-md shadow-sky-950/30' : 'border-white/10 bg-stone-950/45 hover:border-white/20 hover:bg-stone-950/70'}`}>
+            <button data-testid="server-match-item" type="button" key={match.id} onClick={() => { messageRequestId.current += 1; setMessages([]); setNotice(''); setSelected(match.id); }} className={`vow-motion-button w-full rounded-2xl border p-3.5 text-start transition-colors ${selected === match.id ? 'border-sky-400/60 bg-sky-950/40 shadow-md shadow-sky-950/30' : 'border-white/10 bg-stone-950/45 hover:border-white/20 hover:bg-stone-950/70'}`}>
               <span className="block text-sm font-semibold text-white">{match.displayName}, {match.age}</span>
               <span className="mt-1 block text-xs text-stone-400">{match.city}, {match.country}</span>
               <span className="mt-1 block truncate text-xs text-stone-500">{match.lastMessage || t('matchCreatedMessage')}</span>
@@ -201,7 +201,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
             <div data-testid="real-match-chat" className="rounded-2xl border border-white/10 bg-stone-950/55 p-3.5 shadow-inner sm:p-4">
               <div data-testid="server-match-messages" role="log" aria-live="polite" aria-label={t('serverChats')} className="mb-4 max-h-72 space-y-2.5 overflow-y-auto overscroll-contain rounded-xl bg-black/10 p-1">
                 {messages.map(message => (
-                  <div key={message.id} className={`max-w-[90%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed shadow-sm ${message.senderId === currentUserId ? 'ml-auto rounded-br-md bg-gradient-to-br from-rose-600 to-rose-700 text-white' : 'mr-auto rounded-bl-md border border-white/5 bg-stone-800 text-stone-100'}`}>
+                  <div key={message.id} className={`max-w-[90%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed shadow-sm ${message.senderId === currentUserId ? 'ms-auto rounded-br-md bg-gradient-to-br from-rose-600 to-rose-700 text-white' : 'me-auto rounded-bl-md border border-white/5 bg-stone-800 text-stone-100'}`}>
                     <p className="whitespace-pre-wrap break-words">{message.text}</p>
                     <time className={`mt-1 block text-[9px] ${message.senderId === currentUserId ? 'text-rose-100/70' : 'text-stone-500'}`}>{formatDate(message.createdAt, { dateStyle: 'medium', timeStyle: 'short' })}</time>
                   </div>
