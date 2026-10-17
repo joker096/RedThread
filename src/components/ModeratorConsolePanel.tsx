@@ -7,7 +7,11 @@ type PendingPhoto={id:string;userId:string;displayName:string;mimeType:string;wi
 export const ModeratorConsolePanel:React.FC=()=>{
  const [allowed,setAllowed]=useState(false),[ready,setReady]=useState(false),[busy,setBusy]=useState(false),[notice,setNotice]=useState('');
  const [screenings,setScreenings]=useState<Screening[]>([]),[reports,setReports]=useState<Report[]>([]),[audit,setAudit]=useState<AuditEntry[]>([]),[photos,setPhotos]=useState<PendingPhoto[]>([]);
+ const refreshRequestId=React.useRef(0);
+ const sessionEpoch=React.useRef(0);
  const refresh=useCallback(async()=>{
+  const requestId=++refreshRequestId.current;
+  const actionEpoch=sessionEpoch.current;
   setBusy(true);
   try{
    const responses=await Promise.all([
@@ -16,21 +20,27 @@ export const ModeratorConsolePanel:React.FC=()=>{
     fetch('/api/admin/audit-log?limit=30',{credentials:'include'}),
     fetch('/api/admin/photos',{credentials:'include'})
    ]);
+   if(requestId!==refreshRequestId.current||actionEpoch!==sessionEpoch.current)return;
    if(responses.some(r=>r.status===401||r.status===403)){setAllowed(false);setReady(true);return;}
    const data=await Promise.all(responses.map(async r=>{const d=await r.json().catch(()=>null);if(!r.ok)throw new Error('Не удалось загрузить данные модерации.');return d||{};}));
-   setScreenings(data[0].screenings||[]);setReports(data[1].reports||[]);setAudit(data[2].entries||[]);setPhotos(data[3].photos||[]);setAllowed(true);setReady(true);setNotice('');
-  }catch(e){setNotice(e instanceof Error?e.message:'Ошибка загрузки панели.');setReady(true);}
-  finally{setBusy(false);}
+   if(requestId!==refreshRequestId.current||actionEpoch!==sessionEpoch.current)return;
+   const safeArray=<T,>(value: unknown): T[] => Array.isArray(value) ? value : [];
+   setScreenings(safeArray<Screening>(data[0]?.screenings));setReports(safeArray<Report>(data[1]?.reports));setAudit(safeArray<AuditEntry>(data[2]?.entries));setPhotos(safeArray<PendingPhoto>(data[3]?.photos));setAllowed(true);setReady(true);setNotice('');
+  }catch(e){if(requestId===refreshRequestId.current&&actionEpoch===sessionEpoch.current){setNotice(e instanceof Error?e.message:'Ошибка загрузки панели.');setReady(true);}}
+  finally{if(requestId===refreshRequestId.current&&actionEpoch===sessionEpoch.current)setBusy(false);}
  },[]);
- useEffect(()=>{void refresh();const refreshOnSession=()=>void refresh();window.addEventListener('focus',refreshOnSession);window.addEventListener('vow:session-changed',refreshOnSession);return()=>{window.removeEventListener('focus',refreshOnSession);window.removeEventListener('vow:session-changed',refreshOnSession);};},[refresh]);
+ useEffect(()=>{void refresh();const refreshOnSession=()=>{sessionEpoch.current+=1;refreshRequestId.current+=1;setAllowed(false);setReady(false);setNotice('');setBusy(false);void refresh();};window.addEventListener('focus',()=>void refresh());window.addEventListener('vow:session-changed',refreshOnSession);return()=>{window.removeEventListener('vow:session-changed',refreshOnSession);refreshRequestId.current+=1;sessionEpoch.current+=1;};},[refresh]);
  const act=async(url:string,payload?:Record<string,unknown>)=>{
+  const actionEpoch=sessionEpoch.current;
   setBusy(true);setNotice('');
   try{
    const response=await fetch(url,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload||{})});
-   const data=await response.json().catch(()=>null);if(!response.ok)throw new Error(data?.error||'Действие не выполнено.');
+   const data=await response.json().catch(()=>null);
+   if(actionEpoch!==sessionEpoch.current)return;
+   if(!response.ok)throw new Error(data?.error||'Действие не выполнено.');
    setNotice('Действие сохранено в журнале модерации.');await refresh();
-  }catch(e){setNotice(e instanceof Error?e.message:'Ошибка модерации.');}
-  finally{setBusy(false);}
+  }catch(e){if(actionEpoch===sessionEpoch.current)setNotice(e instanceof Error?e.message:'Ошибка модерации.');}
+  finally{if(actionEpoch===sessionEpoch.current)setBusy(false);}
  };
  if(!ready||!allowed)return null;
  return <section aria-busy={busy} className="vow-screen mb-5 rounded-3xl border border-violet-500/30 bg-stone-900/90 p-4 sm:p-5">
