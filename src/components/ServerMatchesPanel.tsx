@@ -41,8 +41,11 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       setAuthenticated(true);
       setNotice(data.matches?.length ? '' : t('noMutualMatches'));
       if (selected && !(data.matches || []).some((match: ServerMatch) => match.id === selected)) {
+        // Invalidate any in-flight message request for a match that is no longer available.
+        messageRequestId.current += 1;
         setSelected('');
         setMessages([]);
+        setNotice('');
       }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : t('loadMatchesError'));
