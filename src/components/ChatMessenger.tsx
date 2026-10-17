@@ -411,6 +411,11 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             key={activeThread.id}
             type="text"
             value={inputText}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && e.nativeEvent.isComposing) {
+                e.preventDefault();
+              }
+            }}
             onChange={e => {
               const threadId = activeThread.id;
               setDrafts(current => ({ ...current, [threadId]: e.target.value }));
