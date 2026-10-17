@@ -5,7 +5,6 @@ import {
   SlidersHorizontal,
   MapPin, 
   ShieldCheck, 
-  Heart, 
   Sparkles,
   Check
 } from 'lucide-react';
@@ -119,6 +118,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
               max="95"
               step="5"
               value={minCompatibility}
+              aria-label={t('minimumCompatibility')}
               onChange={e => setMinCompatibility(Number(e.target.value))}
               className="w-full accent-rose-600 cursor-pointer"
             />
@@ -177,7 +177,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
           {/* Relationship Goal */}
           <div>
             <label className="block text-stone-300 font-medium mb-1.5">{t('relationshipGoal')}</label>
-            <div className="space-y-1.5">
+            <div role="group" aria-label={t('relationshipGoal')} className="space-y-1.5">
               {[
                 { id: 'all', label: t('any') }, 
                 { id: 'marriage_family', label: t('marriageFamily') }, 
