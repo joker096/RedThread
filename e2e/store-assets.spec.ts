@@ -4,7 +4,7 @@ import path from 'node:path';
 
 const output = path.resolve('store-assets/google-play/phone');
 const clickNav = async (page: import('@playwright/test').Page, title: RegExp) => {
-  const buttons = page.locator('button[title]');
+  const buttons = page.locator('button[title]:visible');
   const count = await buttons.count();
   let target = buttons.nth(0);
   for (let i = 0; i < count; i += 1) {
@@ -25,7 +25,7 @@ test('capture real Vow phone screens for store listing review', async ({ page })
   await expect(page.getByText('Vow', { exact: false }).first()).toBeVisible();
 
   await page.getByRole('button', { name: /open demo preview/i }).click({ force: true });
-  await expect(page.getByText(/demo profiles/i)).toBeVisible();
+  await expect(page.getByText(/demo preview.*not real people|демо-превью.*не реальные люди/i)).toBeVisible();
   await page.screenshot({ path: path.join(output, '01-discover.png'), fullPage: false, animations: 'disabled' });
 
   await clickNav(page, /^values test$|^тест ценностей$/i);
