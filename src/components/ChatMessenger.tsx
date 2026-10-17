@@ -293,7 +293,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                   setShowDirectContactUnlocked(!showDirectContactUnlocked);
                 }
               }}
-              className={`p-2 rounded-xl border text-xs transition-colors ${
+              className={`p-2 rounded-xl border text-xs transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 ${
                 isLadyPremium
                   ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
                   : 'bg-stone-800 border-white/5 text-stone-400 hover:text-white'
