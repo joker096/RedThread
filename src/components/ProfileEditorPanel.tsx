@@ -164,6 +164,12 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       }
       setProfile({
         ...savedProfile,
+        displayName: safeProfileText(savedProfile.displayName, 80),
+        bio: safeProfileText(savedProfile.bio, 2000),
+        country: safeProfileText(savedProfile.country, 100),
+        city: safeProfileText(savedProfile.city, 120),
+        occupation: safeProfileText(savedProfile.occupation, 120),
+        education: safeProfileText(savedProfile.education, 120),
         photoUrls: Array.isArray(savedProfile.photoUrls)
           ? savedProfile.photoUrls.filter((value: unknown): value is string =>
               typeof value === 'string' &&
