@@ -71,7 +71,7 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
   };
 
   return (
-    <div className="vow-install-banner w-full bg-gradient-to-r from-stone-950 via-rose-950/40 to-stone-950 border-b border-rose-900/30 px-3 py-1.5 text-left">
+    <div role="region" aria-label={t('installBannerTitle')} className="vow-install-banner w-full bg-gradient-to-r from-stone-950 via-rose-950/40 to-stone-950 border-b border-rose-900/30 px-3 py-1.5 text-left">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 text-xs">
         <div className="flex items-center gap-2 min-w-0">
           <div className="w-6 h-6 rounded-lg bg-rose-600 flex items-center justify-center text-white shrink-0 shadow-sm">
@@ -97,7 +97,7 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
           </button>
 
           {installed ? (
-            <span className="px-2 py-0.5 rounded text-[11px] bg-emerald-950 text-emerald-300 font-bold border border-emerald-500/30 flex items-center gap-1">
+            <span role="status" className="px-2 py-0.5 rounded text-[11px] bg-emerald-950 text-emerald-300 font-bold border border-emerald-500/30 flex items-center gap-1">
               <Check className="w-3 h-3" />
               <span>{t('installInstalled')}</span>
             </span>
