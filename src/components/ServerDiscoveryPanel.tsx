@@ -42,6 +42,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const [minFinancialAlignment, setMinFinancialAlignment] = useState(0);
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
+  const [searchFailed, setSearchFailed] = useState(false);
   const [notice, setNotice] = useState('');
   const [likedIds, setLikedIds] = useState<string[]>([]);
   const [blockedIds, setBlockedIds] = useState<string[]>([]);
@@ -99,6 +100,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const search = useCallback(async () => {
     const requestId = ++searchRequestId.current;
     setBusy(true);
+    setSearchFailed(false);
     setNotice('');
     const params = new URLSearchParams({
       minAge: String(minAge),
@@ -137,10 +139,12 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       const nextProfiles: ServerProfile[] = Array.isArray(data?.profiles) ? data.profiles : [];
       setProfiles(nextProfiles);
       setAuthenticated(true);
+      setSearchFailed(false);
       setNotice(nextProfiles.length ? `${t('registeredProfiles')}: ${formatNumber(nextProfiles.length)}` : t('noProfilesForFilters'));
     } catch (error) {
       if (requestId === searchRequestId.current) {
         setProfiles([]);
+        setSearchFailed(true);
         setNotice(error instanceof Error ? error.message : t('connectionError'));
       }
     } finally {
@@ -433,8 +437,8 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
           {notice && <p role="status" aria-live="polite" aria-atomic="true" className="mb-3 text-xs text-stone-300">{notice}</p>}
           {!busy && authenticated === true && profiles.length === 0 && (
             <div className="mb-3 rounded-2xl border border-white/10 bg-stone-950/60 p-4 text-center" aria-live="polite">
-              <p className="text-sm font-semibold text-stone-200">{t('noProfilesForFilters')}</p>
-              <p className="mt-1 text-xs leading-relaxed text-stone-400">{t('demoFilterHint')}</p>
+              <p className="text-sm font-semibold text-stone-200">{searchFailed ? (notice || t('connectionError')) : t('noProfilesForFilters')}</p>
+              {!searchFailed && <p className="mt-1 text-xs leading-relaxed text-stone-400">{t('demoFilterHint')}</p>}
               <button type="button" onClick={() => void search()} className="mt-3 min-h-11 rounded-xl border border-emerald-500/30 px-4 py-2.5 text-sm font-semibold text-emerald-200 hover:bg-emerald-950/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">{t('retry')}</button>
             </div>
           )}
