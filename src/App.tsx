@@ -895,6 +895,7 @@ export default function App() {
 
               <button
                 onClick={() => setActiveTab('chats')}
+                data-testid="nav-chats"
                 aria-current={activeTab === 'chats' ? 'page' : undefined}
                 className={`vow-motion-button relative flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 transition-colors ${
                   activeTab === 'chats' ? 'text-rose-500 font-bold scale-110' : 'text-stone-400 hover:text-white'
@@ -1033,6 +1034,7 @@ export default function App() {
 
                   <button
                     onClick={() => setActiveTab('chats')}
+                data-testid="nav-chats"
                 aria-current={activeTab === 'chats' ? 'page' : undefined}
                     className={`vow-motion-button relative flex min-h-10 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 ${
                       activeTab === 'chats' ? 'text-rose-500 font-bold scale-105' : 'text-stone-400'
