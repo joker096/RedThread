@@ -834,10 +834,6 @@ main article[class*="rounded-2xl"][class*="border"] {
   box-shadow: 0 32px 100px -48px rgb(68 44 52 / 40%);
 }
 
-:root[data-theme="light"] .vow-screen :where(.text-white) {
-  color: #292524 !important;
-}
-
 :root[data-theme="light"] .vow-screen :where([class*="bg-stone-950"]) {
   background-color: #f5f5f4 !important;
 }
