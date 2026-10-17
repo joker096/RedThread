@@ -1014,7 +1014,7 @@ export default function App() {
                     onClick={() => setActiveTab('discovery')}
                 aria-current={activeTab === 'discovery' ? 'page' : undefined}
                     className={`vow-motion-button flex min-h-10 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 ${
-                      activeTab === 'discovery' ? 'text-rose-500 font-bold scale-105' : 'text-stone-400'
+                      activeTab === 'discovery' ? 'bg-rose-500/10 text-rose-400 font-bold' : 'text-stone-400 hover:bg-white/5'
                     }`}
                   >
                     <Heart className={`w-4 h-4 ${activeTab === 'discovery' ? 'fill-rose-500' : ''}`} />
@@ -1025,7 +1025,7 @@ export default function App() {
                     onClick={() => setActiveTab('tests')}
                 aria-current={activeTab === 'tests' ? 'page' : undefined}
                     className={`vow-motion-button flex min-h-10 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 ${
-                      activeTab === 'tests' ? 'text-rose-500 font-bold scale-105' : 'text-stone-400'
+                      activeTab === 'tests' ? 'bg-rose-500/10 text-rose-400 font-bold' : 'text-stone-400 hover:bg-white/5'
                     }`}
                   >
                     <Brain className="w-4 h-4" />
@@ -1037,7 +1037,7 @@ export default function App() {
                 data-testid="nav-chats"
                 aria-current={activeTab === 'chats' ? 'page' : undefined}
                     className={`vow-motion-button relative flex min-h-10 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 ${
-                      activeTab === 'chats' ? 'text-rose-500 font-bold scale-105' : 'text-stone-400'
+                      activeTab === 'chats' ? 'bg-rose-500/10 text-rose-400 font-bold' : 'text-stone-400 hover:bg-white/5'
                     }`}
                   >
                     <MessageCircle className="w-4 h-4" />
@@ -1051,7 +1051,7 @@ export default function App() {
                     onClick={() => setActiveTab('safety')}
                 aria-current={activeTab === 'safety' ? 'page' : undefined}
                     className={`vow-motion-button flex min-h-10 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 ${
-                      activeTab === 'safety' ? 'text-rose-500 font-bold scale-105' : 'text-stone-400'
+                      activeTab === 'safety' ? 'bg-rose-500/10 text-rose-400 font-bold' : 'text-stone-400 hover:bg-white/5'
                     }`}
                   >
                     <ShieldCheck className="w-4 h-4" />
