@@ -62,6 +62,8 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/messages`, { credentials: 'include' });
       if (requestId !== messageRequestId.current) return;
       if (response.status === 401) {
+        // Expired sessions invalidate every in-flight request for this conversation.
+        messageRequestId.current += 1;
         setAuthenticated(false);
         setMatches([]);
         setSelected('');
@@ -116,6 +118,16 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       });
       const data = await response.json().catch(() => null);
       if (requestId !== messageRequestId.current) return;
+      if (response.status === 401) {
+        // A session can expire while a message is being sent; discard the stale chat.
+        messageRequestId.current += 1;
+        setAuthenticated(false);
+        setMatches([]);
+        setSelected('');
+        setMessages([]);
+        setNotice(t('loginToSeeMatches'));
+        return;
+      }
       if (response.status === 404) {
         // A block or closed match invalidates this conversation even if it was already open.
         messageRequestId.current += 1;
