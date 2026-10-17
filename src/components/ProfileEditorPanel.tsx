@@ -180,11 +180,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
                 if (typeof data?.photoUrl !== 'string' || !(/^https?:\/\//i.test(data.photoUrl.trim()) || /^\/(?!\/)/.test(data.photoUrl.trim()))) throw new Error(t('profilePhotoUploadError'));
                 setPhotoUrls(current => {
                   const existing = current.split(/\n|,/).map(value => value.trim()).filter(Boolean);
-                  if (existing.length >= 6) {
-                    setNotice(t('profilePhotoLimit'));
-                    return current;
-                  }
-                  return [...existing, data.photoUrl.trim()].join('\n');
+                  return existing.length >= 6 ? current : [...existing, data.photoUrl.trim()].join('\n');
                 });
                 setNotice(data.reviewStatus==='approved'?t('profilePhotoApproved'): t('profilePhotoPending'));
               } catch(error){setNotice(error instanceof Error?error.message:t('profilePhotoUploadError'));}
