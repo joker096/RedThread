@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   X, Scale, Camera, Video, Shirt, Music2, MapPin, ShieldCheck,
   FileCheck2, LockKeyhole, HeartHandshake, CalendarDays, BadgeCheck,
@@ -70,6 +70,49 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
   const [providerEmail, setProviderEmail] = useState('');
   const [practice, setPractice] = useState('');
   const [documentNote, setDocumentNote] = useState('');
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    const getFocusable = () => dialog
+      ? Array.from(dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+        )).filter(element => element.getAttribute('aria-hidden') !== 'true')
+      : [];
+    getFocusable()[0]?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = getFocusable();
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog?.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog?.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialog?.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, [isOpen, onClose]);
 
   const filtered = useMemo(() => providerExamples.filter(p =>
     (category === 'all' || p.category === category) && p.countries.includes(country)
@@ -84,8 +127,8 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
   };
 
   return (
-    <div className="fixed inset-0 z-[70] bg-stone-950/90 backdrop-blur-md overflow-y-auto p-2 sm:p-5" role="dialog" aria-modal="true" aria-labelledby="partner-services-title">
-      <div className="max-w-5xl mx-auto my-2 sm:my-6 rounded-3xl border border-rose-900/40 bg-stone-900 shadow-2xl overflow-hidden">
+    <div className="vow-modal-backdrop fixed inset-0 z-[70] bg-stone-950/90 backdrop-blur-md overflow-y-auto p-2 sm:p-5" role="dialog" aria-modal="true" aria-labelledby="partner-services-title">
+      <div ref={dialogRef} tabIndex={-1} className="max-w-5xl mx-auto my-2 sm:my-6 rounded-3xl border border-rose-900/40 bg-stone-900 shadow-2xl overflow-hidden">
         <div className="p-4 sm:p-6 border-b border-white/10 bg-gradient-to-r from-rose-950/70 to-stone-950">
           <div className="flex items-start justify-between gap-4">
             <div className="flex gap-3">
@@ -120,7 +163,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
           <div className="flex gap-2 overflow-x-auto pb-2 mb-5">
             {categories.map(item => {
               const Icon = item.icon;
-              return <button key={item.id} onClick={() => setCategory(item.id)} className={`shrink-0 inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition-colors ${category === item.id ? 'border-rose-500 bg-rose-600 text-white' : 'border-white/10 bg-stone-950 text-stone-300 hover:border-rose-700'}`}><Icon className="w-3.5 h-3.5" />{item.label}</button>;
+              return <button key={item.id} type="button" aria-pressed={category === item.id} onClick={() => setCategory(item.id)} className={`shrink-0 inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 ${category === item.id ? 'border-rose-500 bg-rose-600 text-white' : 'border-white/10 bg-stone-950 text-stone-300 hover:border-rose-700'}`}><Icon className="w-3.5 h-3.5" />{item.label}</button>;
             })}
           </div>
 
@@ -129,7 +172,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
               <h3 className="font-bold text-white mb-1">Заявка поставщика услуг</h3>
               <p className="text-xs text-stone-400 mb-4">Заявка только демонстрирует будущий процесс. Не вводите паспортные данные и не прикрепляйте документы в прототипе.</p>
               {submitted ? (
-                <div role="status" className="rounded-xl border border-emerald-700/30 bg-emerald-950/30 p-4 text-sm text-emerald-200"><CheckCircle2 className="inline w-4 h-4 mr-2" />Демо-заявка проверена локально. Она не отправлена и документы не проверялись.</div>
+                <div role="status" aria-live="polite" className="rounded-xl border border-emerald-700/30 bg-emerald-950/30 p-4 text-sm text-emerald-200"><CheckCircle2 className="inline w-4 h-4 mr-2" />Демо-заявка проверена локально. Она не отправлена и документы не проверялись.</div>
               ) : (
                 <>
                   <div className="grid sm:grid-cols-2 gap-3">

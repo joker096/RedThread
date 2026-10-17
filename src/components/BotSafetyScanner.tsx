@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   ShieldCheck, 
   ShieldAlert, 
@@ -33,6 +33,20 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
   const [reportReason, setReportReason] = useState<string>('');
   const [reportSubmitted, setReportSubmitted] = useState(false);
   const [scanStep, setScanStep] = useState(3);
+  const timeoutIdsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  useEffect(() => {
+    timeoutIdsRef.current.forEach(timeoutId => clearTimeout(timeoutId));
+    timeoutIdsRef.current = [];
+    setIsScanning(false);
+    setScanStep(3);
+    setReportSubmitted(false);
+
+    return () => {
+      timeoutIdsRef.current.forEach(timeoutId => clearTimeout(timeoutId));
+      timeoutIdsRef.current = [];
+    };
+  }, [isOpen, targetProfile]);
 
   if (!isOpen || !targetProfile) return null;
 
@@ -47,11 +61,12 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
   const handleRunFreshScan = () => {
     setIsScanning(true);
     setScanStep(1);
-    setTimeout(() => setScanStep(2), 700);
-    setTimeout(() => {
+    timeoutIdsRef.current.push(setTimeout(() => setScanStep(2), 700));
+    timeoutIdsRef.current.push(setTimeout(() => {
       setScanStep(3);
       setIsScanning(false);
-    }, 1400);
+      timeoutIdsRef.current = [];
+    }, 1400));
   };
 
   const handleSendReport = (e: React.FormEvent) => {
@@ -59,15 +74,16 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
     if (!reportReason) return;
     onReportProfile(targetProfile.id, reportReason);
     setReportSubmitted(true);
-    setTimeout(() => {
+    timeoutIdsRef.current.push(setTimeout(() => {
       setReportSubmitted(false);
       onClose();
-    }, 1500);
+      timeoutIdsRef.current = [];
+    }, 1500));
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg rounded-3xl bg-stone-900 border border-emerald-950/50 shadow-2xl p-5 sm:p-6 text-left my-auto">
+    <div className="vow-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
+      <div role="dialog" aria-modal="true" aria-labelledby="bot-safety-title" className="relative w-full max-w-lg rounded-3xl bg-stone-900 border border-emerald-950/50 shadow-2xl p-5 sm:p-6 text-left my-auto">
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -84,7 +100,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-xl font-heading font-black text-white">Нейро-сканер безопасности</h2>
+              <h2 id="bot-safety-title" className="text-xl font-heading font-black text-white">Нейро-сканер безопасности</h2>
               <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
                 riskReport.isSafe
                   ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/30'
@@ -100,7 +116,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
         </div>
 
         {/* Scanner Radar Status Box */}
-        <div className="p-4 rounded-2xl bg-stone-950 border border-white/5 mb-5">
+        <div aria-busy={isScanning} className="p-4 rounded-2xl bg-stone-950 border border-white/5 mb-5">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <Activity className="w-4 h-4 text-emerald-400 animate-pulse" />

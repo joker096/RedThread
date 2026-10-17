@@ -307,9 +307,22 @@ img {
   color: var(--vow-text) !important;
 }
 
-:root[data-theme="light"] button[class*="bg-gradient-to-r"][class~="text-white"],
-:root[data-theme="light"] [class*="bg-rose-600"][class~="text-white"],
-:root[data-theme="light"] [class*="bg-red-600"][class~="text-white"] {
+:root[data-theme="light"] button[class~="text-white"][class*="bg-gradient-to-r"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-rose-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-red-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-pink-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-emerald-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-green-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-teal-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-cyan-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-sky-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-blue-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-indigo-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-violet-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-purple-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-fuchsia-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-orange-"],
+:root[data-theme="light"] [class~="text-white"][class*="bg-amber-"] {
   color: #ffffff !important;
 }
 
@@ -529,4 +542,587 @@ body {
 /* Keep chat back navigation pointing toward the logical start in RTL locales. */
 [dir="rtl"] .vow-rtl-back-icon {
   transform: rotate(180deg);
+}
+
+/* Vow visual refresh inspired by modern dating-app design systems.
+   Original styling only: no third-party UI kit assets are copied. */
+:root {
+  --vow-accent: #f05b78;
+  --vow-accent-strong: #e84468;
+  --vow-accent-soft: rgb(240 91 120 / 13%);
+  --vow-focus: #fb7185;
+  --vow-card-radius: 1.5rem;
+  --vow-control-radius: 0.95rem;
+  --vow-shadow-card: 0 18px 48px -34px rgb(0 0 0 / 70%);
+  --vow-shadow-accent: 0 12px 32px -22px rgb(232 68 104 / 55%);
+}
+
+:root[data-theme="light"] {
+  --vow-accent: #d93661;
+  --vow-accent-strong: #c92b53;
+  --vow-accent-soft: rgb(217 54 97 / 9%);
+  --vow-focus: #be123c;
+  --vow-shadow-card: 0 16px 42px -34px rgb(68 35 43 / 30%);
+  --vow-shadow-accent: 0 12px 30px -22px rgb(201 43 83 / 36%);
+}
+
+/* A calmer, more editorial type hierarchy; preserve readable body typography. */
+h1, h2, h3, .font-heading {
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  letter-spacing: -0.035em;
+  text-wrap: pretty;
+}
+
+h1 { font-weight: 800; }
+h2, h3 { font-weight: 750; }
+
+body {
+  background-image: radial-gradient(ellipse at 50% -18%, rgb(190 24 93 / 10%), transparent 48%);
+  background-attachment: fixed;
+}
+
+:root[data-theme="light"] body {
+  background-image:
+    radial-gradient(ellipse at 50% -18%, rgb(217 54 97 / 6%), transparent 48%);
+}
+
+/* Consistent tactile controls without overriding semantic colors or disabled states. */
+button, [role="button"], select {
+  border-radius: var(--vow-control-radius);
+}
+
+button {
+  transition:
+    transform 150ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 180ms ease,
+    border-color 180ms ease,
+    background-color 180ms ease;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+:where(button, a, input, select, textarea):focus-visible {
+  outline-color: var(--vow-focus);
+}
+
+/* Profile surfaces and content panels feel related without flattening the UI. */
+.vow-profile-card {
+  border-radius: var(--vow-card-radius);
+  box-shadow: var(--vow-shadow-card);
+}
+
+main section[class*="rounded-2xl"][class*="border"],
+main article[class*="rounded-2xl"][class*="border"] {
+  box-shadow: var(--vow-shadow-card);
+}
+
+.vow-like-button:hover:not(:disabled) {
+  box-shadow: var(--vow-shadow-accent);
+}
+
+/* Mobile navigation is a compact dock, with a clear active state and safe-area spacing. */
+@media (max-width: 1023px) {
+  [role="navigation"][aria-label] {
+    padding: 0.45rem;
+    border-radius: 1.35rem;
+    box-shadow: 0 18px 48px -22px rgb(0 0 0 / 60%);
+  }
+
+  [role="navigation"][aria-label] button[aria-current="page"] {
+    background: var(--vow-accent-soft);
+    color: var(--vow-accent);
+  }
+}
+
+@media (min-width: 640px) {
+  main {
+    padding-top: 1.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button, [role="button"], select {
+    transition: none !important;
+  }
+  button:active:not(:disabled) {
+    transform: none !important;
+  }
+}
+
+
+
+/* Vow complete-screen design system: consistent surfaces, controls, spacing and mobile ergonomics. */
+:root {
+  --vow-accent: #fb7185;
+  --vow-accent-strong: #e11d48;
+  --vow-accent-soft: rgb(251 113 133 / 12%);
+  --vow-line: rgb(255 255 255 / 9%);
+  --vow-surface-shadow: 0 18px 48px -34px rgb(0 0 0 / 72%);
+  --vow-card-radius: 1.5rem;
+  --vow-control-radius: 0.95rem;
+}
+
+:root[data-theme="light"] {
+  --vow-line: rgb(68 44 52 / 12%);
+  --vow-surface-shadow: 0 18px 48px -34px rgb(92 55 65 / 26%);
+}
+
+#root {
+  isolation: isolate;
+}
+
+.vow-app-header {
+  border-color: var(--vow-line) !important;
+  box-shadow: 0 10px 35px -32px rgb(0 0 0 / 70%);
+}
+
+.vow-screen {
+  position: relative;
+  border-color: var(--vow-line) !important;
+  border-radius: var(--vow-card-radius) !important;
+  box-shadow: var(--vow-surface-shadow);
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.vow-screen > :first-child {
+  scroll-margin-top: 6rem;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .vow-screen:hover {
+    border-color: rgb(251 113 133 / 24%) !important;
+  }
+}
+
+.vow-chat-layout {
+  border-color: var(--vow-line) !important;
+  box-shadow: 0 26px 80px -54px rgb(251 113 133 / 35%), var(--vow-surface-shadow);
+}
+
+.vow-chat-layout :where(input, textarea) {
+  border-radius: 1.15rem;
+}
+
+.vow-chat-layout :where(button) {
+  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.vow-filter-backdrop {
+  background-color: rgb(12 10 9 / 72%) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+:where([role="dialog"], [aria-modal="true"]) {
+  border-color: var(--vow-line);
+  box-shadow: 0 30px 100px -45px rgb(0 0 0 / 85%);
+}
+
+:where(button:not(:disabled), [role="button"]:not([aria-disabled="true"])) {
+  transition: transform 150ms cubic-bezier(.2,.8,.2,1), filter 150ms ease, box-shadow 150ms ease;
+}
+
+:where(button:not(:disabled), [role="button"]:not([aria-disabled="true"])):active {
+  transform: scale(.985);
+}
+
+:where(button:disabled) {
+  opacity: .58;
+  cursor: not-allowed;
+}
+
+:where(input, select, textarea) {
+  border-color: var(--vow-line);
+}
+
+:where(input, select, textarea):focus {
+  border-color: rgb(251 113 133 / 68%) !important;
+}
+
+:where(section, article) :where(h1, h2, h3) {
+  text-wrap: balance;
+}
+
+:where(p) {
+  text-wrap: pretty;
+}
+
+:where(img) {
+  background-color: rgb(120 113 108 / 10%);
+}
+
+:where([role="navigation"]) {
+  padding-bottom: max(.5rem, env(safe-area-inset-bottom));
+}
+
+:root[data-theme="light"] .vow-screen {
+  background-color: rgb(255 255 255 / 92%);
+  color: var(--vow-text);
+}
+
+:root[data-theme="light"] .vow-chat-layout {
+  background-color: #fff;
+  color: var(--vow-text);
+}
+
+:root[data-theme="light"] .vow-app-header {
+  background-color: rgb(250 250 249 / 92%) !important;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop {
+  background-color: rgb(28 25 23 / 40%) !important;
+}
+
+:root[data-theme="light"] :where([role="dialog"], [aria-modal="true"]) {
+  background-color: #fff;
+  color: #1c1917;
+}
+
+@media (max-width: 640px) {
+  .vow-screen {
+    border-radius: 1.25rem !important;
+  }
+
+  .vow-chat-layout {
+    min-height: min(72dvh, 680px) !important;
+    height: min(78dvh, 760px) !important;
+    border-radius: 1.25rem !important;
+  }
+
+  .vow-chat-layout > * {
+    min-width: 0;
+  }
+
+  :where(section, article).vow-screen {
+    padding: 1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vow-screen,
+  .vow-chat-layout :where(button),
+  :where(button:not(:disabled), [role="button"]:not([aria-disabled="true"])) {
+    transition: none !important;
+  }
+}
+
+
+/* Cross-screen finishing pass: overlays, secondary flows, admin and install surfaces. */
+.vow-modal-backdrop {
+  background-color: rgb(12 10 9 / 78%) !important;
+  backdrop-filter: blur(14px) saturate(115%);
+  -webkit-backdrop-filter: blur(14px) saturate(115%);
+}
+
+.vow-modal-backdrop > :where(div, section, article) {
+  border-color: var(--vow-line) !important;
+  border-radius: var(--vow-card-radius);
+  box-shadow: 0 32px 100px -48px rgb(0 0 0 / 90%), 0 0 0 1px rgb(255 255 255 / 3%);
+}
+
+.vow-install-banner {
+  border-color: var(--vow-line) !important;
+  background-image: linear-gradient(110deg, rgb(28 25 23 / 98%), rgb(76 5 25 / 92%), rgb(28 25 23 / 98%)) !important;
+}
+
+:root[data-theme="light"] .vow-install-banner {
+  background-image: linear-gradient(110deg, #fff, #fff1f2, #fafaf9) !important;
+  color: #292524;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop {
+  background-color: rgb(28 25 23 / 42%) !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop > :where(div, section, article) {
+  background-color: #fff;
+  color: #292524;
+  border-color: rgb(68 44 52 / 12%) !important;
+  box-shadow: 0 32px 100px -48px rgb(68 44 52 / 40%);
+}
+
+:root[data-theme="light"] .vow-screen :where([class*="bg-stone-950"]) {
+  background-color: #f5f5f4 !important;
+}
+
+:root[data-theme="light"] .vow-screen :where([class*="bg-stone-900"]) {
+  background-color: #fff !important;
+}
+
+:root[data-theme="light"] .vow-screen :where([class*="border-white/"]) {
+  border-color: rgb(68 44 52 / 12%) !important;
+}
+
+:root[data-theme="light"] .vow-screen :where(.text-stone-300, .text-stone-400, .text-stone-500) {
+  color: #78716c !important;
+}
+
+@media (max-width: 640px) {
+  .vow-modal-backdrop {
+    align-items: flex-end;
+    padding: .5rem !important;
+  }
+
+  .vow-modal-backdrop > :where(div, section, article) {
+    width: 100%;
+    max-height: calc(100dvh - 1rem);
+    overflow-y: auto;
+    border-radius: 1.4rem 1.4rem 1rem 1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vow-modal-backdrop,
+  .vow-modal-backdrop > :where(div, section, article) {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: none;
+  }
+}
+
+
+/* Discovery screen polish: photo-led cards, readable profile details and thumb-friendly actions. */
+.vow-discovery-stage {
+  gap: .25rem;
+}
+
+.vow-discovery-toolbar {
+  min-height: 2.5rem;
+}
+
+.vow-profile-card {
+  border-color: var(--vow-line) !important;
+  border-radius: 1.65rem !important;
+  box-shadow: 0 28px 70px -42px rgb(0 0 0 / 85%), 0 0 0 1px rgb(255 255 255 / 2%);
+}
+
+.vow-profile-photo > img {
+  object-position: center 35%;
+}
+
+.vow-profile-details {
+  background-image: linear-gradient(to top, #0c0a09 72%, rgb(12 10 9 / 96%) 88%, transparent 100%) !important;
+}
+
+.vow-profile-prompt {
+  border-color: rgb(251 113 133 / 18%) !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 3%), 0 10px 24px -22px rgb(251 113 133 / 45%);
+}
+
+.vow-profile-actions {
+  padding-top: .35rem;
+  padding-bottom: .25rem;
+}
+
+.vow-profile-actions .vow-motion-button {
+  flex-shrink: 0;
+  outline-offset: 3px;
+}
+
+.vow-profile-actions .vow-pass-button,
+.vow-profile-actions .vow-like-button {
+  box-shadow: 0 8px 24px -16px rgb(0 0 0 / 90%);
+}
+
+.vow-profile-actions .vow-like-button {
+  box-shadow: 0 12px 30px -15px rgb(225 29 72 / 70%);
+}
+
+.vow-profile-actions .vow-motion-button:focus-visible {
+  outline: 2px solid var(--vow-focus);
+}
+
+:root[data-theme="light"] .vow-profile-card {
+  background-color: #fff !important;
+  border-color: rgb(68 44 52 / 12%) !important;
+  box-shadow: 0 28px 70px -42px rgb(92 55 65 / 25%), 0 0 0 1px rgb(68 44 52 / 4%);
+}
+
+:root[data-theme="light"] .vow-profile-details {
+  background-image: linear-gradient(to top, #fff 72%, rgb(255 255 255 / 97%) 88%, transparent 100%) !important;
+}
+
+:root[data-theme="light"] .vow-profile-details :where(.text-white) {
+  color: #292524 !important;
+}
+
+:root[data-theme="light"] .vow-profile-details :where(.text-stone-200, .text-stone-300) {
+  color: #57534e !important;
+}
+
+:root[data-theme="light"] .vow-profile-details :where(.bg-stone-900, .bg-stone-900\/95) {
+  background-color: #fafaf9 !important;
+}
+
+:root[data-theme="light"] .vow-profile-details :where(.border-white\/10) {
+  border-color: rgb(68 44 52 / 12%) !important;
+}
+
+:root[data-theme="light"] .vow-profile-details .vow-profile-prompt {
+  background-color: #fff7f8 !important;
+}
+
+:root[data-theme="light"] .vow-discovery-toolbar .text-white {
+  color: #292524 !important;
+}
+
+@media (max-width: 380px) {
+  .vow-profile-actions {
+    gap: .55rem;
+  }
+
+  .vow-profile-actions .vow-motion-button {
+    width: 2.7rem;
+    height: 2.7rem;
+  }
+
+  .vow-profile-actions .vow-like-button {
+    width: 3.15rem;
+    height: 3.15rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vow-profile-card,
+  .vow-profile-actions .vow-motion-button {
+    transition: none !important;
+  }
+}
+
+
+/* Mobile dock and header controls stay legible in both themes. */
+.vow-bottom-nav {
+  border-color: var(--vow-line) !important;
+  box-shadow: 0 20px 50px -28px rgb(0 0 0 / 65%);
+}
+
+.vow-bottom-nav [aria-current="page"] {
+  background-color: var(--vow-accent-soft);
+}
+
+:root[data-theme="light"] .vow-bottom-nav {
+  background-color: rgb(255 255 255 / 94%) !important;
+  border-color: rgb(68 44 52 / 12%) !important;
+  box-shadow: 0 20px 50px -28px rgb(92 55 65 / 28%);
+}
+
+:root[data-theme="light"] .vow-bottom-nav button:not([aria-current="page"]) {
+  color: #78716c !important;
+}
+
+:root[data-theme="light"] .vow-app-header :where(button, select) {
+  background-color: #fff;
+  border-color: rgb(68 44 52 / 12%) !important;
+  color: #44403c;
+}
+
+:root[data-theme="light"] .vow-app-header nav {
+  background-color: rgb(255 255 255 / 94%) !important;
+  border-color: rgb(68 44 52 / 12%) !important;
+}
+
+:root[data-theme="light"] .vow-app-header nav button:not([aria-current="page"]) {
+  color: #78716c !important;
+}
+
+:root[data-theme="light"] .vow-app-header nav button[aria-current="page"] {
+  color: #fff !important;
+}
+
+:root[data-theme="light"] .vow-app-header > div > div:first-child span {
+  color: #292524;
+}
+
+@media (max-width: 380px) {\n  .vow-screen .grid.grid-cols-2 {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .vow-screen :where(button, input, select, textarea) {\n    min-width: 0;\n    max-width: 100%;\n  }\n\n  .vow-chat-layout [role="log"] {\n    padding: .75rem;\n  }\n}\n\n@media (max-width: 360px) {
+  .vow-bottom-nav {
+    gap: .15rem;
+    padding-inline: .35rem;
+  }
+
+  .vow-bottom-nav button {
+    padding-inline: .15rem;
+  }
+}
+
+
+/* Final responsive pass: filter controls, dense headers, RTL and nested dialogs. */
+.vow-filter-backdrop [role="dialog"] {
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.vow-filter-backdrop [role="dialog"] :where(input, select, textarea, button) {
+  max-width: 100%;
+}
+
+.vow-modal-backdrop [role="dialog"],
+.vow-modal-backdrop > [role="dialog"] {
+  overscroll-behavior: contain;
+}
+
+.vow-modal-backdrop :where(img, svg) {
+  max-width: 100%;
+}
+
+:root[dir="rtl"] .vow-chat-layout,
+:root[dir="rtl"] .vow-discovery-stage {
+  direction: rtl;
+}
+
+:root[dir="rtl"] .vow-chat-layout [role="log"] {
+  text-align: start;
+}
+
+:root[dir="rtl"] .vow-profile-card {
+  text-align: start;
+}
+
+:root[dir="rtl"] .vow-filter-backdrop [role="dialog"] {
+  text-align: start;
+}
+
+@media (max-width: 380px) {
+  .vow-filter-backdrop [role="dialog"] .grid.grid-cols-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .vow-filter-backdrop [role="dialog"] {
+    padding-inline: .875rem;
+  }
+
+  .vow-modal-backdrop > :where(div, section, article) {
+    padding-inline: .875rem;
+  }
+
+  .vow-chat-layout {
+    border-radius: 1rem !important;
+  }
+
+  .vow-chat-layout :where(button) {
+    overflow-wrap: anywhere;
+  }
+
+  .vow-install-banner > div {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 340px) {
+  .vow-app-header > div {
+    gap: .375rem;
+  }
+
+  .vow-app-header :where(button, select) {
+    max-width: 100%;
+  }
+
+  .vow-profile-card :where(h2, h3, p, span) {
+    overflow-wrap: anywhere;
+  }
 }

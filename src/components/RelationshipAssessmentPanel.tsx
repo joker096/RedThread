@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ASSESSMENT_QUESTIONS, type AssessmentAnswers } from '../utils/relationshipAssessment.ts';
 import { getLocalizedAssessmentQuestions } from '../utils/assessmentTranslations.ts';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
@@ -11,6 +11,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
   const [answers, setAnswers] = useState<AssessmentAnswers>(emptyAnswers);
   const [status, setStatus] = useState<'loading' | 'ready' | 'saving' | 'saved' | 'login' | 'error'>('loading');
   const [note, setNote] = useState('');
+  const answersEditedRef = useRef(false);
   const complete = useMemo(
     () => questions.every(question => Boolean(answers[question.id])),
     [answers, questions]
@@ -36,11 +37,15 @@ export const RelationshipAssessmentPanel: React.FC = () => {
       })
       .then(data => {
         if (cancelled) return;
-        if (data?.assessment?.answers) {
-          setAnswers(data.assessment.answers);
-          setStatus('saved');
-          setNote(t('loadedSavedAnswers'));
-        } else if (status !== 'ready') {
+        const savedAnswers = data?.assessment?.answers;
+        if (savedAnswers && typeof savedAnswers === 'object' && !Array.isArray(savedAnswers)) {
+          // Do not let a slow initial load overwrite edits made while it was in flight.
+          if (!answersEditedRef.current) {
+            setAnswers(savedAnswers as AssessmentAnswers);
+            setStatus('saved');
+            setNote(t('loadedSavedAnswers'));
+          }
+        } else {
           setStatus('ready');
         }
       })
@@ -58,6 +63,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
       setNote(t('answerEveryQuestion'));
       return;
     }
+    answersEditedRef.current = true;
     setStatus('saving');
     setNote('');
     try {
@@ -87,7 +93,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
   };
 
   return (
-    <section className="mb-5 rounded-3xl border border-rose-500/20 bg-stone-900/80 p-4 sm:p-5">
+    <section aria-busy={status === 'loading' || status === 'saving'} className="vow-screen mb-5 rounded-3xl border border-rose-500/20 bg-stone-900/80 p-4 sm:p-5">
       <div className="mb-2 flex items-start justify-between gap-3">
         <div>
           <p className="text-[10px] uppercase tracking-[0.2em] text-rose-300">{t('valuesTestEyebrow')}</p>
@@ -111,7 +117,10 @@ export const RelationshipAssessmentPanel: React.FC = () => {
                     name={question.id}
                     value={option.value}
                     checked={answers[question.id] === option.value}
-                    onChange={() => setAnswers(current => ({ ...current, [question.id]: option.value }))}
+                    onChange={() => {
+                      answersEditedRef.current = true;
+                      setAnswers(current => ({ ...current, [question.id]: option.value }));
+                    }}
                     className="mt-0.5 accent-rose-500"
                   />
                   <span>{option.label}</span>
@@ -125,7 +134,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
         <button type="button" onClick={() => void save()} disabled={!complete || status === 'saving'} className="w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">
           {status === 'saving' ? t('savingAnswers') : t('saveAndUseTest')}
         </button>
-        {note && <p role="status" className="text-xs leading-relaxed text-stone-300">{note}</p>}
+        {note && <p role="status" aria-live="polite" className="text-xs leading-relaxed text-stone-300">{note}</p>}
         {status === 'saved' && <p className="text-[10px] text-emerald-300">{t('savedOnServer')}</p>}
       </div>
     </section>

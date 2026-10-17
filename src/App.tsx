@@ -869,7 +869,7 @@ export default function App() {
             </main>
 
             {/* Bottom navigation dock */}
-            <div role="navigation" aria-label={t('primaryNavigation')} className="fixed bottom-[calc(env(safe-area-inset-bottom)+0.5rem)] left-1/2 z-30 flex w-[calc(100%-1rem)] max-w-md -translate-x-1/2 items-stretch justify-around gap-1 rounded-[1.6rem] border border-white/10 bg-stone-950/90 px-2 py-2 shadow-2xl shadow-black/30 backdrop-blur-2xl lg:hidden">
+            <div role="navigation" aria-label={t('primaryNavigation')} className="vow-bottom-nav fixed bottom-[calc(env(safe-area-inset-bottom)+0.5rem)] left-1/2 z-30 flex w-[calc(100%-1rem)] max-w-md -translate-x-1/2 items-stretch justify-around gap-1 rounded-[1.6rem] border border-white/10 bg-stone-950/90 px-2 py-2 shadow-2xl shadow-black/30 backdrop-blur-2xl lg:hidden">
               <button
                 onClick={() => setActiveTab('discovery')}
                 aria-current={activeTab === 'discovery' ? 'page' : undefined}

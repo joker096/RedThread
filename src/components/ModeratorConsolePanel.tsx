@@ -7,7 +7,11 @@ type PendingPhoto={id:string;userId:string;displayName:string;mimeType:string;wi
 export const ModeratorConsolePanel:React.FC=()=>{
  const [allowed,setAllowed]=useState(false),[ready,setReady]=useState(false),[busy,setBusy]=useState(false),[notice,setNotice]=useState('');
  const [screenings,setScreenings]=useState<Screening[]>([]),[reports,setReports]=useState<Report[]>([]),[audit,setAudit]=useState<AuditEntry[]>([]),[photos,setPhotos]=useState<PendingPhoto[]>([]);
+ const refreshRequestId=React.useRef(0);
+ const sessionEpoch=React.useRef(0);
  const refresh=useCallback(async()=>{
+  const requestId=++refreshRequestId.current;
+  const actionEpoch=sessionEpoch.current;
   setBusy(true);
   try{
    const responses=await Promise.all([
@@ -16,28 +20,34 @@ export const ModeratorConsolePanel:React.FC=()=>{
     fetch('/api/admin/audit-log?limit=30',{credentials:'include'}),
     fetch('/api/admin/photos',{credentials:'include'})
    ]);
+   if(requestId!==refreshRequestId.current||actionEpoch!==sessionEpoch.current)return;
    if(responses.some(r=>r.status===401||r.status===403)){setAllowed(false);setReady(true);return;}
    const data=await Promise.all(responses.map(async r=>{const d=await r.json().catch(()=>null);if(!r.ok)throw new Error('Не удалось загрузить данные модерации.');return d||{};}));
-   setScreenings(data[0].screenings||[]);setReports(data[1].reports||[]);setAudit(data[2].entries||[]);setPhotos(data[3].photos||[]);setAllowed(true);setReady(true);setNotice('');
-  }catch(e){setNotice(e instanceof Error?e.message:'Ошибка загрузки панели.');setReady(true);}
-  finally{setBusy(false);}
+   if(requestId!==refreshRequestId.current||actionEpoch!==sessionEpoch.current)return;
+   const safeArray=<T,>(value: unknown): T[] => Array.isArray(value) ? value : [];
+   setScreenings(safeArray<Screening>(data[0]?.screenings));setReports(safeArray<Report>(data[1]?.reports));setAudit(safeArray<AuditEntry>(data[2]?.entries));setPhotos(safeArray<PendingPhoto>(data[3]?.photos));setAllowed(true);setReady(true);setNotice('');
+  }catch(e){if(requestId===refreshRequestId.current&&actionEpoch===sessionEpoch.current){setNotice(e instanceof Error?e.message:'Ошибка загрузки панели.');setReady(true);}}
+  finally{if(requestId===refreshRequestId.current&&actionEpoch===sessionEpoch.current)setBusy(false);}
  },[]);
- useEffect(()=>{void refresh();const refreshOnSession=()=>void refresh();window.addEventListener('focus',refreshOnSession);window.addEventListener('vow:session-changed',refreshOnSession);return()=>{window.removeEventListener('focus',refreshOnSession);window.removeEventListener('vow:session-changed',refreshOnSession);};},[refresh]);
+ useEffect(()=>{void refresh();const refreshOnFocus=()=>void refresh();const refreshOnSession=()=>{sessionEpoch.current+=1;refreshRequestId.current+=1;setAllowed(false);setReady(false);setNotice('');setBusy(false);void refresh();};window.addEventListener('focus',refreshOnFocus);window.addEventListener('vow:session-changed',refreshOnSession);return()=>{window.removeEventListener('focus',refreshOnFocus);window.removeEventListener('vow:session-changed',refreshOnSession);refreshRequestId.current+=1;sessionEpoch.current+=1;};},[refresh]);
  const act=async(url:string,payload?:Record<string,unknown>)=>{
+  const actionEpoch=sessionEpoch.current;
   setBusy(true);setNotice('');
   try{
    const response=await fetch(url,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload||{})});
-   const data=await response.json().catch(()=>null);if(!response.ok)throw new Error(data?.error||'Действие не выполнено.');
+   const data=await response.json().catch(()=>null);
+   if(actionEpoch!==sessionEpoch.current)return;
+   if(!response.ok)throw new Error(data?.error||'Действие не выполнено.');
    setNotice('Действие сохранено в журнале модерации.');await refresh();
-  }catch(e){setNotice(e instanceof Error?e.message:'Ошибка модерации.');}
-  finally{setBusy(false);}
+  }catch(e){if(actionEpoch===sessionEpoch.current)setNotice(e instanceof Error?e.message:'Ошибка модерации.');}
+  finally{if(actionEpoch===sessionEpoch.current)setBusy(false);}
  };
  if(!ready||!allowed)return null;
- return <section className="mb-5 rounded-3xl border border-violet-500/30 bg-stone-900/90 p-4 sm:p-5">
-  <div className="flex items-start justify-between gap-3"><div><p className="text-[10px] uppercase tracking-[0.2em] text-violet-300">Только модераторы</p><h3 className="mt-1 text-lg font-bold text-white">Панель безопасности Vow</h3><p className="mt-1 text-xs text-stone-400">Очередь проверок, жалобы и журнал решений.</p></div><button type="button" onClick={()=>void refresh()} disabled={busy} className="rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-200 disabled:opacity-50">Обновить</button></div>
-  {notice&&<p role="status" className="mt-3 rounded-xl bg-stone-950 p-3 text-xs text-stone-300">{notice}</p>}
+ return <section aria-busy={busy} className="vow-screen mb-5 rounded-3xl border border-violet-500/30 bg-stone-900/90 p-4 sm:p-5">
+  <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] uppercase tracking-[0.2em] text-violet-300">Только модераторы</p><h3 className="mt-1 text-lg font-bold text-white">Панель безопасности Vow</h3><p className="mt-1 text-xs text-stone-400">Очередь проверок, жалобы и журнал решений.</p></div><button type="button" onClick={()=>void refresh()} disabled={busy} className="rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-200 disabled:opacity-50">Обновить</button></div>
+  {notice&&<p role="status" aria-live="polite" className="mt-3 rounded-xl bg-stone-950 p-3 text-xs text-stone-300">{notice}</p>}
   <div className="mt-4 rounded-2xl border border-white/10 bg-stone-950/60 p-3"><h4 className="text-sm font-semibold text-white">Фотографии на проверке ({photos.length})</h4>
-   {!photos.length?<p className="mt-2 text-xs text-stone-500">Ожидающих фотографий нет.</p>:<div className="mt-2 grid gap-3 sm:grid-cols-2">{photos.map(photo=><div key={photo.id} className="rounded-xl border border-white/10 p-3"><img src={'/api/photos/'+encodeURIComponent(photo.id)} alt={'Фото анкеты '+photo.displayName} loading="lazy" referrerPolicy="no-referrer" className="mb-2 max-h-64 w-full rounded-lg object-contain bg-black" /><p className="text-xs text-stone-200">{photo.displayName}</p><p className="text-[10px] text-stone-500">{photo.width}×{photo.height} · {photo.mimeType}</p><div className="mt-2 flex gap-2"><button type="button" disabled={busy} onClick={()=>void act('/api/admin/photos/'+encodeURIComponent(photo.id)+'/review',{decision:'approve'})} className="rounded-lg bg-emerald-800 px-3 py-1.5 text-[10px] font-semibold text-white disabled:opacity-50">Одобрить</button><button type="button" disabled={busy} onClick={()=>void act('/api/admin/photos/'+encodeURIComponent(photo.id)+'/review',{decision:'reject'})} className="rounded-lg border border-red-500/30 px-3 py-1.5 text-[10px] text-red-200 disabled:opacity-50">Отклонить</button></div></div>)}</div>}
+   {!photos.length?<p className="mt-2 text-xs text-stone-500">Ожидающих фотографий нет.</p>:<div className="mt-2 grid min-w-0 gap-3 sm:grid-cols-2">{photos.map(photo=><div key={photo.id} className="min-w-0 rounded-xl border border-white/10 p-3"><img src={'/api/photos/'+encodeURIComponent(photo.id)} alt={'Фото анкеты '+photo.displayName} loading="lazy" referrerPolicy="no-referrer" className="mb-2 max-h-64 w-full rounded-lg object-contain bg-black" /><p className="text-xs text-stone-200">{photo.displayName}</p><p className="text-[10px] text-stone-500">{photo.width}×{photo.height} · {photo.mimeType}</p><div className="mt-2 flex flex-wrap gap-2"><button type="button" disabled={busy} onClick={()=>void act('/api/admin/photos/'+encodeURIComponent(photo.id)+'/review',{decision:'approve'})} className="rounded-lg bg-emerald-800 px-3 py-1.5 text-[10px] font-semibold text-white disabled:opacity-50">Одобрить</button><button type="button" disabled={busy} onClick={()=>void act('/api/admin/photos/'+encodeURIComponent(photo.id)+'/review',{decision:'reject'})} className="rounded-lg border border-red-500/30 px-3 py-1.5 text-[10px] text-red-200 disabled:opacity-50">Отклонить</button></div></div>)}</div>}
   </div>
   <div className="mt-4 grid gap-4 lg:grid-cols-2">
    <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-3"><h4 className="text-sm font-semibold text-white">Проверки безопасности ({screenings.length})</h4>

@@ -25,6 +25,49 @@ type ServerProfile = {
 
 type ServerDiscoveryPanelProps = { onOpenAccount: () => void };
 
+const isSafeProfilePhotoUrl = (value: unknown): value is string => {
+  if (typeof value !== 'string' || !value.trim()) return false;
+  const url = value.trim();
+  if (url.startsWith('/') && !url.startsWith('//')) return true;
+  return /^https?:\/\//i.test(url);
+};
+
+const normalizeServerProfile = (value: unknown): ServerProfile | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const profile = value as Partial<ServerProfile>;
+  if (typeof profile.id !== 'string' || !profile.id.trim() ||
+      typeof profile.displayName !== 'string' || !profile.displayName.trim() ||
+      typeof profile.age !== 'number' || !Number.isFinite(profile.age) || profile.age < 18 || profile.age > 120 ||
+      (profile.gender !== 'female' && profile.gender !== 'male') ||
+      !['marriage_family', 'serious_relationship', 'family_without_marriage'].includes(String(profile.relationshipIntent))) {
+    return null;
+  }
+
+  const score = (candidate: unknown): number | null =>
+    typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0 && candidate <= 100
+      ? candidate
+      : null;
+
+  return {
+    ...profile,
+    id: profile.id.trim(),
+    displayName: profile.displayName.trim(),
+    age: Math.floor(profile.age),
+    country: typeof profile.country === 'string' ? profile.country : '',
+    city: typeof profile.city === 'string' ? profile.city : '',
+    bio: typeof profile.bio === 'string' ? profile.bio : '',
+    relationshipIntent: profile.relationshipIntent,
+    financialAlignment: score(profile.financialAlignment),
+    compatibilityScore: score(profile.compatibilityScore) ?? undefined,
+    photoUrls: Array.isArray(profile.photoUrls)
+      ? profile.photoUrls.filter(isSafeProfilePhotoUrl).map(url => url.trim())
+      : [],
+    languages: Array.isArray(profile.languages)
+      ? profile.languages.filter((language): language is string => typeof language === 'string')
+      : []
+  } as ServerProfile;
+};
+
 export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOpenAccount }) => {
   const { t, formatNumber } = useLocale();
   const [profiles, setProfiles] = useState<ServerProfile[]>([]);
@@ -42,6 +85,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const [minFinancialAlignment, setMinFinancialAlignment] = useState(0);
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
+  const [searchFailed, setSearchFailed] = useState(false);
   const [notice, setNotice] = useState('');
   const [likedIds, setLikedIds] = useState<string[]>([]);
   const [blockedIds, setBlockedIds] = useState<string[]>([]);
@@ -55,6 +99,8 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const touchStartX = useRef<number | null>(null);
   const lastSearchKey = useRef<string | null>(null);
   const searchRequestId = useRef(0);
+  const searchAbortController = useRef<AbortController | null>(null);
+  const sessionEpoch = useRef(0);
 
   useEffect(() => {
     if (!matchedProfile) return;
@@ -79,7 +125,10 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       }
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
+      if (!dialog.contains(document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
       } else if (!event.shiftKey && document.activeElement === last) {
@@ -97,8 +146,12 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   }, [matchedProfile]);
 
   const search = useCallback(async () => {
+    searchAbortController.current?.abort();
+    const controller = new AbortController();
+    searchAbortController.current = controller;
     const requestId = ++searchRequestId.current;
     setBusy(true);
+    setSearchFailed(false);
     setNotice('');
     const params = new URLSearchParams({
       minAge: String(minAge),
@@ -117,7 +170,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       setActionHistory([]);
     }
     try {
-      const response = await fetch(`/api/profiles/search?${searchKey}`, { credentials: 'include' });
+      const response = await fetch(`/api/profiles/search?${searchKey}`, { credentials: 'include', signal: controller.signal });
       if (requestId !== searchRequestId.current) return;
       if (response.status === 401) {
         setAuthenticated(false);
@@ -134,22 +187,67 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       if (!response.ok) throw new Error(t('searchSetupError'));
       const data = await response.json();
       if (requestId !== searchRequestId.current) return;
-      setProfiles(data.profiles || []);
+      const seenProfileIds = new Set<string>();
+      const nextProfiles: ServerProfile[] = Array.isArray(data?.profiles)
+        ? data.profiles
+            .map(normalizeServerProfile)
+            .filter((profile): profile is ServerProfile => {
+              if (!profile || seenProfileIds.has(profile.id)) return false;
+              seenProfileIds.add(profile.id);
+              return true;
+            })
+        : [];
+      setProfiles(nextProfiles);
       setAuthenticated(true);
-      setNotice(data.profiles?.length ? `${t('registeredProfiles')}: ${formatNumber(data.profiles.length)}` : t('noProfilesForFilters'));
+      setSearchFailed(false);
+      setNotice(nextProfiles.length ? `${t('registeredProfiles')}: ${formatNumber(nextProfiles.length)}` : t('noProfilesForFilters'));
     } catch (error) {
       if (requestId === searchRequestId.current) {
+        setProfiles([]);
+        setSearchFailed(true);
         setNotice(error instanceof Error ? error.message : t('connectionError'));
       }
     } finally {
-      if (requestId === searchRequestId.current) setBusy(false);
+      if (requestId === searchRequestId.current) {
+        setBusy(false);
+        if (searchAbortController.current === controller) searchAbortController.current = null;
+      }
     }
-  }, [minAge, maxAge, minFinancialAlignment, country, city, intent, familyFormat, childrenFilter]);
+  }, [minAge, maxAge, minFinancialAlignment, country, city, intent, familyFormat, childrenFilter, t, formatNumber]);
 
-  useEffect(() => { void search(); }, [search]);
+  useEffect(() => {
+    void search();
+    return () => {
+      searchRequestId.current += 1;
+      searchAbortController.current?.abort();
+      searchAbortController.current = null;
+    };
+  }, [search]);
+
+  useEffect(() => {
+    const refreshOnSession = () => {
+      sessionEpoch.current += 1;
+      searchRequestId.current += 1;
+      lastSearchKey.current = null;
+      setAuthenticated(null);
+      setProfiles([]);
+      setLikedIds([]);
+      setBlockedIds([]);
+      setBlockedProfiles([]);
+      setBlockedProfilesOpen(false);
+      setActionHistory([]);
+      setMatchedProfile(null);
+      setReportTargetId(null);
+      setReportDetails('');
+      void search();
+    };
+    window.addEventListener('vow:session-changed', refreshOnSession);
+    return () => window.removeEventListener('vow:session-changed', refreshOnSession);
+  }, [search]);
 
   const like = async (profile: ServerProfile) => {
     if (busy || likedIds.includes(profile.id)) return;
+    const actionEpoch = sessionEpoch.current;
     setBusy(true);
     try {
       const response = await fetch(`/api/likes/${encodeURIComponent(profile.id)}`, {
@@ -159,6 +257,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         body: JSON.stringify({})
       });
       const data = await response.json().catch(() => null);
+      if (actionEpoch !== sessionEpoch.current) return;
       if (response.status === 401) {
         setAuthenticated(false);
         setNotice(t('signInToLike'));
@@ -177,14 +276,17 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       }
       setProfiles(current => current.filter(item => item.id !== profile.id));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('sendLikeError'));
+      if (actionEpoch === sessionEpoch.current) {
+        setNotice(error instanceof Error ? error.message : t('sendLikeError'));
+      }
     } finally {
-      setBusy(false);
+      if (actionEpoch === sessionEpoch.current) setBusy(false);
     }
   };
 
   const pass = async (profile: ServerProfile) => {
     if (busy) return;
+    const actionEpoch = sessionEpoch.current;
     setBusy(true);
     try {
       const response = await fetch(`/api/passes/${encodeURIComponent(profile.id)}`, {
@@ -192,6 +294,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({})
       });
       const data = await response.json().catch(() => null);
+      if (actionEpoch !== sessionEpoch.current) return;
       if (response.status === 401) {
         setAuthenticated(false);
         setNotice(t('signInToPass'));
@@ -203,14 +306,17 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       setProfiles(current => current.filter(item => item.id !== profile.id));
       setNotice(t('passedProfileNotice'));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('passError'));
+      if (actionEpoch === sessionEpoch.current) {
+        setNotice(error instanceof Error ? error.message : t('passError'));
+      }
     } finally {
-      setBusy(false);
+      if (actionEpoch === sessionEpoch.current) setBusy(false);
     }
   };
 
   const undoPass = async () => {
     if (busy) return;
+    const actionEpoch = sessionEpoch.current;
     const lastAction = actionHistory[actionHistory.length - 1];
     setBusy(true);
     try {
@@ -219,6 +325,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
           method: 'DELETE', credentials: 'include',
           headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({})
         });
+        if (actionEpoch !== sessionEpoch.current) return;
         if (response.status === 401) {
           setAuthenticated(false);
           setNotice(t('signInToUndoLike'));
@@ -247,6 +354,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
             body: JSON.stringify({})
           });
       const data = await response.json().catch(() => null);
+      if (actionEpoch !== sessionEpoch.current) return;
       if (response.status === 401) {
         setAuthenticated(false);
         setNotice(t('signInToUndoAction'));
@@ -255,22 +363,32 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       if (response.status === 402) throw new Error(data?.message || t('premiumUndoRequired'));
       if (response.status === 404) throw new Error(t('undoUnavailable'));
       if (response.status === 409) throw new Error(t('undoMatchError'));
-      if (!response.ok || !data?.profile) throw new Error(t('undoActionError'));
-      setProfiles(current => [data.profile as ServerProfile, ...current.filter(item => item.id !== data.profile.id)]);
-      if (data.type === 'like') setLikedIds(current => current.filter(id => id !== data.profile.id));
+      if (!response.ok) throw new Error(t('undoActionError'));
+      const restoredProfile = normalizeServerProfile(data?.profile);
+      if (
+        !restoredProfile ||
+        (data.type !== 'like' && data.type !== 'pass') ||
+        (lastAction && data.type !== lastAction.type)
+      ) {
+        throw new Error(t('undoActionError'));
+      }
+      if (actionEpoch !== sessionEpoch.current) return;
+      setProfiles(current => [restoredProfile, ...current.filter(item => item.id !== restoredProfile.id)]);
+      if (data.type === 'like') setLikedIds(current => current.filter(id => id !== restoredProfile.id));
       if (lastAction) setActionHistory(current => current.slice(0, -1));
       setNotice(data.type === 'like'
-        ? t('undoLikeSuccess').replace('{name}', data.profile.displayName)
+        ? t('undoLikeSuccess').replace('{name}', restoredProfile.displayName)
         : t('undoPassSuccess'));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('undoActionError'));
+      if (actionEpoch === sessionEpoch.current) setNotice(error instanceof Error ? error.message : t('undoActionError'));
     } finally {
-      setBusy(false);
+      if (actionEpoch === sessionEpoch.current) setBusy(false);
     }
   };
 
   const submitReport = async (profile: ServerProfile) => {
     if (busy) return;
+    const actionEpoch = sessionEpoch.current;
     setBusy(true);
     try {
       const response = await fetch('/api/reports', {
@@ -280,6 +398,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         body: JSON.stringify({ reportedUserId: profile.id, category: reportCategory, details: reportDetails.trim() })
       });
       const data = await response.json().catch(() => null);
+      if (actionEpoch !== sessionEpoch.current) return;
       if (response.status === 401) {
         setAuthenticated(false);
         setNotice(t('signInToReport'));
@@ -290,14 +409,15 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       setReportDetails('');
       setNotice(t('reportSuccess'));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('reportError'));
+      if (actionEpoch === sessionEpoch.current) setNotice(error instanceof Error ? error.message : t('reportError'));
     } finally {
-      setBusy(false);
+      if (actionEpoch === sessionEpoch.current) setBusy(false);
     }
   };
 
   const block = async (profile: ServerProfile) => {
     if (busy) return;
+    const actionEpoch = sessionEpoch.current;
     setBusy(true);
     try {
       const response = await fetch(`/api/blocks/${encodeURIComponent(profile.id)}`, {
@@ -306,6 +426,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({})
       });
+      if (actionEpoch !== sessionEpoch.current) return;
       if (response.status === 401) {
         setAuthenticated(false);
         setNotice(t('signInToBlock'));
@@ -318,9 +439,9 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       setProfiles(current => current.filter(item => item.id !== profile.id));
       setNotice(t('blockedProfileNotice').replace('{name}', profile.displayName));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('blockOperationError'));
+      if (actionEpoch === sessionEpoch.current) setNotice(error instanceof Error ? error.message : t('blockOperationError'));
     } finally {
-      setBusy(false);
+      if (actionEpoch === sessionEpoch.current) setBusy(false);
     }
   };
 
@@ -330,9 +451,11 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       return;
     }
     if (busy) return;
+    const actionEpoch = sessionEpoch.current;
     setBusy(true);
     try {
       const response = await fetch('/api/blocks', { credentials: 'include' });
+      if (actionEpoch !== sessionEpoch.current) return;
       if (response.status === 401) {
         setAuthenticated(false);
         setNotice(t('signInToBlock'));
@@ -340,6 +463,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       }
       if (!response.ok) throw new Error(t('blockedProfilesLoadError'));
       const data = await response.json();
+      if (actionEpoch !== sessionEpoch.current) return;
       const nextProfiles: Array<{ id: string; displayName: string }> = Array.isArray(data?.blocks)
         ? (data.blocks as unknown[]).filter((item: unknown): item is { id: string; displayName: string } =>
             Boolean(item && typeof item === 'object' &&
@@ -350,20 +474,22 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       setBlockedIds(nextProfiles.map(item => item.id));
       setBlockedProfilesOpen(true);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('blockedProfilesLoadError'));
+      if (actionEpoch === sessionEpoch.current) setNotice(error instanceof Error ? error.message : t('blockedProfilesLoadError'));
     } finally {
-      setBusy(false);
+      if (actionEpoch === sessionEpoch.current) setBusy(false);
     }
   };
 
   const unblock = async (profile: { id: string; displayName: string }) => {
     if (busy) return;
+    const actionEpoch = sessionEpoch.current;
     setBusy(true);
     try {
       const response = await fetch(`/api/blocks/${encodeURIComponent(profile.id)}`, {
         method: 'DELETE',
         credentials: 'include'
       });
+      if (actionEpoch !== sessionEpoch.current) return;
       if (response.status === 401) {
         setAuthenticated(false);
         setNotice(t('signInToBlock'));
@@ -374,14 +500,14 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       setBlockedIds(current => current.filter(id => id !== profile.id));
       setNotice(t('unblockSuccess').replace('{name}', profile.displayName));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('blockOperationError'));
+      if (actionEpoch === sessionEpoch.current) setNotice(error instanceof Error ? error.message : t('blockOperationError'));
     } finally {
-      setBusy(false);
+      if (actionEpoch === sessionEpoch.current) setBusy(false);
     }
   };
 
   return (
-    <section className="mb-5 rounded-3xl border border-emerald-500/20 bg-stone-900/80 p-4 sm:p-5">
+    <section aria-busy={busy} className="vow-screen mb-5 rounded-3xl border border-emerald-500/20 bg-stone-900/80 p-4 sm:p-5">
       <div className="mb-3">
         <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-300">{t('serverSearchEyebrow')}</p>
         <h3 className="mt-1 text-lg font-bold text-white">{t('serverProfilesTitle')}</h3>
@@ -390,28 +516,28 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       {authenticated === false ? (
         <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-4">
           <p className="text-sm text-stone-200">{t('signInToSearch')}</p>
-          <button type="button" onClick={onOpenAccount} className="mt-3 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white">{t('login')}</button>
+          <button type="button" onClick={onOpenAccount} className="mt-3 min-h-11 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400">{t('login')}</button>
         </div>
       ) : (
         <>
-          <div className="mb-4 grid grid-cols-2 gap-2">
-            <label className="text-xs text-stone-300">{t('country')}<input value={country} onChange={e => setCountry(e.target.value)} placeholder={t('anyCountry')} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white" /></label>
-            <label className="text-xs text-stone-300">{t('city')}<input value={city} onChange={e => setCity(e.target.value)} placeholder={t('anyCity')} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white" /></label>
-            <label className="text-xs text-stone-300">{t('ageFrom')}<input type="number" min="18" max={maxAge} value={minAge} onChange={e => setMinAge(Math.min(maxAge, Math.max(18, Number(e.target.value) || 18)))} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white" /></label>
-            <label className="text-xs text-stone-300">{t('ageTo')}<input type="number" min={minAge} max="120" value={maxAge} onChange={e => setMaxAge(Math.max(minAge, Math.min(120, Number(e.target.value) || minAge)))} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white" /></label>
-            <label className="text-xs text-stone-300">{t('relationshipGoal')}<select value={intent} onChange={e => setIntent(e.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="all">{t('any')}</option><option value="marriage_family">{t('marriageFamily')}</option><option value="family_without_marriage">{t('familyWithoutMarriage')}</option><option value="serious_relationship">{t('seriousRelationship')}</option></select></label>
-            <label className="text-xs text-stone-300">{t('familyFormat')}<select value={familyFormat} onChange={e => setFamilyFormat(e.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="all">{t('anyFormat')}</option><option value="marriage">{t('marriageOnly')}</option><option value="cohabitation">{t('cohabitation')}</option><option value="open_to_both">{t('openToBoth')}</option></select></label>
-            <label className="text-xs text-stone-300">{t('children')}<select value={childrenFilter} onChange={e => setChildrenFilter(e.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="all">{t('notImportant')}</option><option value="false">{t('noChildren')}</option><option value="true">{t('hasChildren')}</option></select></label>
-            <label className="text-xs text-stone-300">{t('financialMatch')}<select value={minFinancialAlignment} onChange={e => setMinFinancialAlignment(Number(e.target.value))} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white"><option value="0">{t('doNotFilter')}</option><option value="33">{t('financialFrom33')}</option><option value="67">{t('financialFrom67')}</option><option value="100">{t('financialOnly100')}</option></select></label>
+          <div className="mb-4 grid grid-cols-1 gap-2 min-[360px]:grid-cols-2">
+            <label className="text-xs text-stone-300">{t('country')}<input value={country} onChange={e => setCountry(e.target.value)} placeholder={t('anyCountry')} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400" /></label>
+            <label className="text-xs text-stone-300">{t('city')}<input value={city} onChange={e => setCity(e.target.value)} placeholder={t('anyCity')} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400" /></label>
+            <label className="text-xs text-stone-300">{t('ageFrom')}<input type="number" min="18" max={maxAge} value={minAge} onChange={e => setMinAge(Math.min(maxAge, Math.max(18, Number(e.target.value) || 18)))} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400" /></label>
+            <label className="text-xs text-stone-300">{t('ageTo')}<input type="number" min={minAge} max="120" value={maxAge} onChange={e => setMaxAge(Math.max(minAge, Math.min(120, Number(e.target.value) || minAge)))} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400" /></label>
+            <label className="text-xs text-stone-300">{t('relationshipGoal')}<select value={intent} onChange={e => setIntent(e.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"><option value="all">{t('any')}</option><option value="marriage_family">{t('marriageFamily')}</option><option value="family_without_marriage">{t('familyWithoutMarriage')}</option><option value="serious_relationship">{t('seriousRelationship')}</option></select></label>
+            <label className="text-xs text-stone-300">{t('familyFormat')}<select value={familyFormat} onChange={e => setFamilyFormat(e.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"><option value="all">{t('anyFormat')}</option><option value="marriage">{t('marriageOnly')}</option><option value="cohabitation">{t('cohabitation')}</option><option value="open_to_both">{t('openToBoth')}</option></select></label>
+            <label className="text-xs text-stone-300">{t('children')}<select value={childrenFilter} onChange={e => setChildrenFilter(e.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"><option value="all">{t('notImportant')}</option><option value="false">{t('noChildren')}</option><option value="true">{t('hasChildren')}</option></select></label>
+            <label className="text-xs text-stone-300">{t('financialMatch')}<select value={minFinancialAlignment} onChange={e => setMinFinancialAlignment(Number(e.target.value))} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"><option value="0">{t('doNotFilter')}</option><option value="33">{t('financialFrom33')}</option><option value="67">{t('financialFrom67')}</option><option value="100">{t('financialOnly100')}</option></select></label>
           </div>
-          <button type="button" onClick={() => void search()} disabled={busy} className="mb-2 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? t('searching') : t('search')}</button>
-          <button type="button" onClick={() => setSwipeMode(value => !value)} className="mb-3 w-full rounded-xl border border-emerald-500/30 px-4 py-2.5 text-xs font-semibold text-emerald-200">{swipeMode ? t('listMode') : t('swipeMode')}</button>
-          <button type="button" onClick={() => void undoPass()} disabled={busy} className="mb-3 w-full rounded-xl border border-amber-500/30 px-4 py-2.5 text-xs font-semibold text-amber-200 disabled:opacity-50">↶ {t('undoAction')}</button>
-          <button type="button" onClick={() => void toggleBlockedProfiles()} disabled={busy} aria-expanded={blockedProfilesOpen} className="mb-3 w-full rounded-xl border border-white/10 px-4 py-2.5 text-xs font-semibold text-stone-200 disabled:opacity-50">
+          <button type="button" onClick={() => void search()} disabled={busy} className="mb-2 min-h-11 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">{busy ? t('searching') : t('search')}</button>
+          <button type="button" onClick={() => setSwipeMode(value => !value)} aria-pressed={swipeMode} className="mb-3 min-h-11 w-full rounded-xl border border-emerald-500/30 px-4 py-2.5 text-xs font-semibold text-emerald-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400">{swipeMode ? t('listMode') : t('swipeMode')}</button>
+          <button type="button" onClick={() => void undoPass()} disabled={busy} className="mb-3 min-h-11 w-full rounded-xl border border-amber-500/30 px-4 py-2.5 text-xs font-semibold text-amber-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">↶ {t('undoAction')}</button>
+          <button type="button" onClick={() => void toggleBlockedProfiles()} disabled={busy} aria-expanded={blockedProfilesOpen} aria-controls="blocked-profiles-panel" className="mb-3 min-h-11 w-full rounded-xl border border-white/10 px-4 py-2.5 text-xs font-semibold text-stone-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">
             {blockedProfilesOpen ? t('hideBlockedProfiles') : t('manageBlockedProfiles')}
           </button>
           {blockedProfilesOpen && (
-            <section aria-label={t('blockedProfilesTitle')} className="mb-4 rounded-2xl border border-white/10 bg-stone-950/60 p-3">
+            <section id="blocked-profiles-panel" aria-label={t('blockedProfilesTitle')} className="mb-4 rounded-2xl border border-white/10 bg-stone-950/60 p-3">
               <h4 className="mb-2 text-sm font-semibold text-white">{t('blockedProfilesTitle')}</h4>
               {blockedProfiles.length === 0 ? (
                 <p className="text-xs text-stone-400">{t('blockedProfilesEmpty')}</p>
@@ -420,7 +546,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                   {blockedProfiles.map(profile => (
                     <li key={profile.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/5 p-2">
                       <span className="min-w-0 truncate text-xs text-stone-200">{profile.displayName}</span>
-                      <button type="button" onClick={() => void unblock(profile)} disabled={busy} className="shrink-0 rounded-lg border border-emerald-500/30 px-3 py-2 text-xs font-semibold text-emerald-200 disabled:opacity-50">{t('unblock')}</button>
+                      <button type="button" onClick={() => void unblock(profile)} disabled={busy} className="min-h-11 min-w-11 shrink-0 rounded-lg border border-emerald-500/30 px-3 py-2 text-xs font-semibold text-emerald-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">{t('unblock')}</button>
                     </li>
                   ))}
                 </ul>
@@ -428,8 +554,16 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
             </section>
           )}
           {swipeMode && <p className="mb-3 text-[11px] text-stone-400">{t('swipeHint')}</p>}
-          {notice && <p role="status" className="mb-3 text-xs text-stone-300">{notice}</p>}
-          <div className={swipeMode ? 'mx-auto max-w-lg space-y-3' : 'space-y-3'}>
+          {notice && <p role="status" aria-live="polite" aria-atomic="true" className="mb-3 text-xs text-stone-300">{notice}</p>}
+          {!busy && authenticated === true && profiles.length === 0 && (searchFailed || notice === t('noProfilesForFilters')) && (
+            <div className="mb-3 rounded-2xl border border-white/10 bg-stone-950/60 p-4 text-center" aria-live="polite">
+              <p className="text-sm font-semibold text-stone-200">{searchFailed ? (notice || t('connectionError')) : t('noProfilesForFilters')}</p>
+              {!searchFailed && <p className="mt-1 text-xs leading-relaxed text-stone-400">{t('demoFilterHint')}</p>}
+              <button type="button" onClick={() => void search()} className="mt-3 min-h-11 rounded-xl border border-emerald-500/30 px-4 py-2.5 text-sm font-semibold text-emerald-200 hover:bg-emerald-950/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">{t('retry')}</button>
+            </div>
+          )}
+          {busy && <p role="status" aria-live="polite" className="mb-3 rounded-xl border border-white/10 bg-stone-950/40 px-3 py-3 text-center text-xs text-stone-300">{t('searching')}</p>}
+          <div aria-busy={busy} className={swipeMode ? 'mx-auto max-w-lg space-y-3' : 'space-y-3'}>
             {profiles.slice(0, swipeMode ? 1 : profiles.length).map(profile => (
               <article key={profile.id}
                 onTouchStart={event => {
@@ -458,6 +592,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                   if (action === 'like') void like(profile);
                   else if (action === 'pass') void pass(profile);
                 }}
+                role={swipeMode ? 'group' : undefined}
                 aria-label={swipeMode ? t('swipeProfileAria').replace('{name}', profile.displayName) : undefined}
                 className={`vow-profile-card rounded-2xl border border-white/10 bg-stone-950/70 p-3 ${swipeMode ? 'touch-pan-y' : ''}`}>
                 {profile.photoUrls?.length ? (
@@ -468,6 +603,8 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                         src={url}
                         alt={t('photoAlt').replace('{name}', profile.displayName).replace('{number}', String(index + 1))}
                         loading="lazy"
+                        decoding="async"
+                        draggable={false}
                         referrerPolicy="no-referrer"
                         className={swipeMode
                           ? index === 0
@@ -502,19 +639,19 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                 {(profile.occupation || profile.education) && <p className="mt-2 text-xs text-stone-400">{[profile.occupation, profile.education].filter(Boolean).join(' · ')}</p>}
                 {profile.languages?.length ? <p className="mt-1 text-xs text-stone-400">{t('languages')}: {profile.languages.join(', ')}</p> : null}
                 <p className="mt-2 text-[10px] text-stone-500">{profile.relationshipIntent === 'marriage_family' ? t('profileMarriage') : t('profileSerious')}</p>
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                  <button type="button" onClick={() => void pass(profile)} disabled={busy} className="vow-motion-button vow-pass-button flex min-h-12 items-center justify-center rounded-xl border border-white/10 px-3 py-3 text-sm font-semibold text-stone-300 disabled:opacity-50">{t('pass')}</button>
-                  <button type="button" onClick={() => void like(profile)} disabled={likedIds.includes(profile.id)} className="vow-motion-button vow-like-button flex min-h-12 items-center justify-center rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-3 text-sm font-bold text-rose-200 disabled:opacity-50">{likedIds.includes(profile.id) ? t('liked') : t('like')}</button>
+                <div className="mt-4 grid grid-cols-1 gap-2 min-[360px]:grid-cols-2">
+                  <button type="button" onClick={() => void pass(profile)} disabled={busy} className="vow-motion-button vow-pass-button flex min-h-12 items-center justify-center rounded-xl border border-white/10 px-3 py-3 text-sm font-semibold text-stone-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">{t('pass')}</button>
+                  <button type="button" onClick={() => void like(profile)} disabled={busy || likedIds.includes(profile.id)} className="vow-motion-button vow-like-button flex min-h-12 items-center justify-center rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-3 text-sm font-bold text-rose-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">{likedIds.includes(profile.id) ? t('liked') : t('like')}</button>
                 </div>
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <button type="button" onClick={() => void block(profile)} disabled={busy || blockedIds.includes(profile.id)} className="min-h-10 rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-400 disabled:opacity-50">{t('block')}</button>
-                  <button type="button" onClick={() => { setReportTargetId(reportTargetId === profile.id ? null : profile.id); setReportDetails(''); }} className="min-h-10 rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-400">{t('report')}</button>
+                <div className="mt-2 grid grid-cols-1 gap-2 min-[360px]:grid-cols-2">
+                  <button type="button" onClick={() => void block(profile)} disabled={busy || blockedIds.includes(profile.id)} className="min-h-11 rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">{t('block')}</button>
+                  <button type="button" onClick={() => { setReportTargetId(reportTargetId === profile.id ? null : profile.id); setReportCategory('fake_profile'); setReportDetails(''); }} aria-expanded={reportTargetId === profile.id} aria-controls={`report-panel-${profile.id}`} className="min-h-11 rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400">{t('report')}</button>
                 </div>
                 {reportTargetId === profile.id && (
-                  <div className="mt-2 space-y-2 rounded-xl border border-white/10 bg-stone-900 p-3">
-                    <label className="block text-xs text-stone-300">{t('reportReason')}<select value={reportCategory} onChange={e => setReportCategory(e.target.value)} className="mt-1 w-full rounded-lg border border-white/10 bg-stone-950 p-2 text-xs text-white"><option value="fake_profile">{t('reportFake')}</option><option value="spam">{t('reportSpam')}</option><option value="harassment">{t('reportHarassment')}</option><option value="safety">{t('reportSafety')}</option><option value="children_misrepresentation">{t('reportChildren')}</option><option value="duplicate_profile">{t('reportDuplicate')}</option><option value="other">{t('reportOther')}</option></select></label>
-                    <label className="block text-xs text-stone-300">{t('reportComment')}<textarea value={reportDetails} onChange={e => setReportDetails(e.target.value)} maxLength={2000} rows={2} className="mt-1 w-full rounded-lg border border-white/10 bg-stone-950 p-2 text-xs text-white" /></label>
-                    <button type="button" onClick={() => void submitReport(profile)} disabled={busy} className="w-full rounded-lg bg-rose-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{busy ? t('sending') : t('sendReport')}</button>
+                  <div id={`report-panel-${profile.id}`} className="mt-2 space-y-2 rounded-xl border border-white/10 bg-stone-900 p-3">
+                    <label className="block text-xs text-stone-300">{t('reportReason')}<select value={reportCategory} onChange={e => setReportCategory(e.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-white/10 bg-stone-950 p-2 text-xs text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"><option value="fake_profile">{t('reportFake')}</option><option value="spam">{t('reportSpam')}</option><option value="harassment">{t('reportHarassment')}</option><option value="safety">{t('reportSafety')}</option><option value="children_misrepresentation">{t('reportChildren')}</option><option value="duplicate_profile">{t('reportDuplicate')}</option><option value="other">{t('reportOther')}</option></select></label>
+                    <label className="block text-xs text-stone-300">{t('reportComment')}<textarea value={reportDetails} onChange={e => setReportDetails(e.target.value)} maxLength={2000} rows={2} className="mt-1 min-h-11 w-full rounded-lg border border-white/10 bg-stone-950 p-2 text-xs text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400" /></label>
+                    <button type="button" onClick={() => void submitReport(profile)} disabled={busy} className="min-h-11 w-full rounded-lg bg-rose-700 px-3 py-2 text-xs font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">{busy ? t('sending') : t('sendReport')}</button>
                   </div>
                 )}
               </article>
@@ -528,13 +665,13 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         }}>
           <div ref={matchDialogRef} role="dialog" aria-modal="true" aria-label={t('mutualMatches')} tabIndex={-1} className="w-full max-w-sm rounded-3xl border border-rose-400/30 bg-stone-950 p-6 text-center shadow-2xl shadow-rose-950/40">
             <div className="vow-match-celebration mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full border border-rose-400/30 bg-rose-950/50 text-4xl text-rose-300" aria-hidden="true">♥</div>
-            {matchedProfile.photoUrls?.[0] && <img src={matchedProfile.photoUrls[0]} alt="" className="mx-auto mb-4 h-20 w-20 rounded-full border border-rose-400/30 object-cover" />}
+            {matchedProfile.photoUrls?.[0] && <img src={matchedProfile.photoUrls[0]} alt="" decoding="async" className="mx-auto mb-4 h-20 w-20 rounded-full border border-rose-400/30 object-cover" />}
             <h3 className="text-xl font-bold text-white">{t('mutualMatches')}</h3>
             <p className="mt-3 text-sm leading-relaxed text-stone-300">{t('mutualLikeOpenedChats').replace('{name}', matchedProfile.displayName)}</p>
             <button ref={matchDialogButtonRef} type="button" onClick={() => {
               setMatchedProfile(null);
               window.dispatchEvent(new CustomEvent('vow:match-created'));
-            }} className="vow-motion-button mt-5 w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white hover:bg-rose-500">{t('sendMessage')}</button>
+            }} className="vow-motion-button mt-5 w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white hover:bg-rose-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400">{t('sendMessage')}</button>
           </div>
         </div>
       )}

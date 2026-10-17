@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   X, 
   Sparkles, 
@@ -33,6 +33,54 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
 }) => {
   const [chemistryStep, setChemistryStep] = useState<number>(0);
   const [chemistryScoreBonus, setChemistryScoreBonus] = useState<number>(0);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setChemistryStep(0);
+    setChemistryScoreBonus(0);
+  }, [isOpen, profile?.id]);
+
+  useEffect(() => {
+    if (!isOpen || !profile) return;
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    const getFocusable = () => dialog
+      ? Array.from(dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+        )).filter(element => element.getAttribute('aria-hidden') !== 'true')
+      : [];
+    getFocusable()[0]?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = getFocusable();
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog?.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog?.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialog?.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, [isOpen, profile, onClose]);
 
   if (!isOpen || !profile) return null;
 
@@ -75,8 +123,8 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg rounded-3xl bg-stone-900 border border-rose-900/50 shadow-2xl p-5 sm:p-6 text-left my-auto">
+    <div className="vow-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="compatibility-matrix-title" tabIndex={-1} className="relative w-full max-w-lg rounded-3xl bg-stone-900 border border-rose-900/50 shadow-2xl p-5 sm:p-6 text-left my-auto">
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -101,7 +149,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
 
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-xl font-heading font-black text-white">{profile.name}, {profile.age}</h2>
+              <h2 id="compatibility-matrix-title" className="text-xl font-heading font-black text-white">{profile.name}, {profile.age}</h2>
               <span className="text-xs text-rose-400 bg-rose-950/60 px-2 py-0.5 rounded-full border border-rose-800/40 font-bold">
                 {profile.city}
               </span>

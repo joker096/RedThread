@@ -13,6 +13,20 @@ type AccountUser = {
 
 type AccountAccessPanelProps = { onAuthenticated: () => void };
 
+const isAccountUser = (value: unknown): value is AccountUser => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.id === 'string' && candidate.id.trim().length > 0
+    && typeof candidate.email === 'string' && candidate.email.trim().length > 0
+    && typeof candidate.displayName === 'string' && candidate.displayName.trim().length > 0
+    && (candidate.gender === 'female' || candidate.gender === 'male')
+    && typeof candidate.country === 'string'
+    && typeof candidate.city === 'string'
+    && (candidate.relationshipIntent === 'marriage_family'
+      || candidate.relationshipIntent === 'serious_relationship'
+      || candidate.relationshipIntent === 'family_without_marriage');
+};
+
 export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthenticated }) => {
   const { formatDate, t } = useLocale();
   const [user, setUser] = useState<AccountUser | null>(null);
@@ -46,6 +60,10 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       .then(async response => response.ok ? response.json() : null)
       .then(async data => {
         if (!cancelled && data?.user) {
+          if (!isAccountUser(data.user)) {
+            setMessage(t('authRequestFailed'));
+            return;
+          }
           if (data?.verificationRequired) {
             setMessage(t('authAccountCreatedVerification'));
             setPassword('');
@@ -116,7 +134,11 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         if (data?.error === 'email_verification_required' || data?.error === 'verification_email_delivery_failed') setCanResendVerification(true);
         throw new Error(errors[data?.error] || t('authRequestFailed'));
       }
+      if (!isAccountUser(data?.user)) {
+        throw new Error(t('authRequestFailed'));
+      }
       setUser(data.user);
+      window.dispatchEvent(new Event('vow:session-changed'));
       const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
       setBillingStatus(billing);
       setMessage(mode === 'register' ? t('authAccountCreated') : t('authSignedIn'));
@@ -236,7 +258,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
   };
 
   return (
-    <section className="mb-5 rounded-3xl border border-white/10 bg-stone-900/80 p-4 sm:p-5">
+    <section aria-busy={busy} className="vow-screen mb-5 min-w-0 rounded-3xl border border-white/10 bg-stone-900/80 p-3 sm:p-5">
       <div className="mb-3">
         <p className="text-[10px] uppercase tracking-[0.2em] text-rose-300">{t('accountTitle')}</p>
         <h3 className="mt-1 text-lg font-bold text-white">{user ? t('signedIn') : mode === 'login' ? t('signIn') : t('createAccount')}</h3>
@@ -277,7 +299,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
               <label className="block text-xs text-stone-300">{t('profileName')}<input value={displayName} onChange={e => setDisplayName(e.target.value)} minLength={2} maxLength={80} autoComplete="name" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
               <label className="block text-xs text-stone-300">{t('birthDate')}<input type="date" value={birthDate} onChange={e => setBirthDate(e.target.value)} max={new Date().toISOString().slice(0, 10)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
               <label className="block text-xs text-stone-300">{t('gender')}<select value={gender} onChange={e => setGender(e.target.value as 'female' | 'male')} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white"><option value="female">{t('female')}</option><option value="male">{t('male')}</option></select></label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <label className="block text-xs text-stone-300">{t('countryLabel')}<input value={country} onChange={e => setCountry(e.target.value)} maxLength={100} autoComplete="country-name" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
                 <label className="block text-xs text-stone-300">{t('cityLabel')}<input value={city} onChange={e => setCity(e.target.value)} maxLength={120} autoComplete="address-level2" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
               </div>
@@ -286,7 +308,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
               <fieldset className="rounded-xl border border-white/10 bg-stone-950 p-3">
                 <legend className="px-1 text-xs font-semibold text-white">{t('hasChildrenQuestion')} {t('authChildrenRequired')}</legend>
                 <p className="mb-2 text-[10px] leading-relaxed text-stone-400">{t('authChildrenHonestyHelp')}</p>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-2">
                   <button type="button" onClick={() => {setHasChildren(true);setChildrenLivingArrangement('prefer_to_discuss');}} className={`rounded-lg border p-2 text-xs ${hasChildren === true ? 'border-rose-500 bg-rose-950 text-white' : 'border-white/10 text-stone-300'}`}>{t('yesChildren')}</button>
                   <button type="button" onClick={() => {setHasChildren(false);setChildrenLivingArrangement('not_applicable');}} className={`rounded-lg border p-2 text-xs ${hasChildren === false ? 'border-rose-500 bg-rose-950 text-white' : 'border-white/10 text-stone-300'}`}>{t('noChildrenAnswer')}</button>
                 </div>
@@ -304,7 +326,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
           </div>
         </>
       )}
-      {message && <p role="status" className="mt-3 text-xs leading-relaxed text-stone-300">{message}</p>}
+      {message && <p role="status" aria-live="polite" className="mt-3 text-xs leading-relaxed text-stone-300">{message}</p>}
       <p className="mt-3 text-[10px] leading-relaxed text-stone-500">{t('authServerNotice')}</p>
     </section>
   );

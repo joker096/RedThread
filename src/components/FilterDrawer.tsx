@@ -56,6 +56,8 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
   useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
   useEffect(() => {
     if (!isOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeButtonRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
@@ -68,20 +70,29 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
       ));
       if (!focusable.length) { event.preventDefault(); return; }
       const first = focusable[0]; const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      if (!dialog.contains(document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener('keydown', onKeyDown);
     return () => {
       document.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = previousOverflow;
       if (previousFocus?.isConnected) previousFocus.focus();
     };
   }, [isOpen]);
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-950/80 p-2 backdrop-blur-sm animate-in fade-in duration-200 sm:items-center sm:p-4">
-      <div role="dialog" aria-modal="true" aria-labelledby="discovery-filter-title" className="relative max-h-[calc(100dvh-1rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-t-3xl border border-rose-900/40 bg-stone-900 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] text-start shadow-2xl sm:max-h-[min(90dvh,52rem)] sm:rounded-3xl sm:p-6">
+    <div className="vow-filter-backdrop fixed inset-0 z-50 flex items-end justify-center bg-stone-950/80 p-2 backdrop-blur-sm animate-in fade-in duration-200 sm:items-center sm:p-4" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+      <div role="dialog" aria-modal="true" aria-labelledby="discovery-filter-title" aria-describedby="discovery-filter-description" className="relative max-h-[calc(100dvh-1rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-t-3xl border border-rose-900/40 bg-stone-900 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] text-start shadow-2xl sm:max-h-[min(90dvh,52rem)] sm:rounded-3xl sm:p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <SlidersHorizontal className="w-5 h-5 text-rose-500" />
@@ -98,7 +109,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
           </button>
         </div>
 
-        <p className="text-xs text-stone-400 mb-5">
+        <p id="discovery-filter-description" className="text-xs text-stone-400 mb-5">
           {t('filterDialogDescription')}
         </p>
 
@@ -119,6 +130,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
               step="5"
               value={minCompatibility}
               aria-label={t('minimumCompatibility')}
+              aria-valuetext={`${minCompatibility}%`}
               onChange={e => setMinCompatibility(Number(e.target.value))}
               className="w-full accent-rose-600 cursor-pointer"
             />
@@ -161,7 +173,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
               <SlidersHorizontal className="w-4 h-4 text-rose-400" />
               <span>{t('ageRangeTitle')}</span>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2">
               <div>
                 <label className="mb-1 block text-stone-300" htmlFor="discovery-min-age">{t('ageFrom')}</label>
                 <input id="discovery-min-age" type="number" min="18" max={maxAge} value={minAge} onChange={e => setMinAge(Math.min(maxAge, Math.max(18, Number(e.target.value) || 18)))} className="w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-white" />
@@ -176,7 +188,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
 
           {/* Relationship Goal */}
           <div>
-            <label className="block text-stone-300 font-medium mb-1.5">{t('relationshipGoal')}</label>
+            <span className="mb-1.5 block text-stone-300 font-medium">{t('relationshipGoal')}</span>
             <div role="group" aria-label={t('relationshipGoal')} data-testid="relationship-intent-options" className="space-y-1.5">
               {[
                 { id: 'all', label: t('any') }, 
@@ -187,7 +199,8 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
                   key={item.id}
                   type="button"
                   onClick={() => setIntentFilter(item.id)}
-                  className={`w-full text-start p-2.5 rounded-xl border transition-all text-xs flex items-center justify-between ${
+                  aria-pressed={intentFilter === item.id}
+                  className={`w-full text-start p-2.5 rounded-xl border transition-all text-xs flex items-center justify-between focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 ${
                     intentFilter === item.id
                       ? 'bg-rose-950/60 border-rose-500 text-white font-semibold'
                       : 'bg-stone-950/40 border-white/5 text-stone-400 hover:text-white'
@@ -235,7 +248,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
               onClose();
             }}
             type="button"
-            className="vow-motion-button min-h-11 flex-1 rounded-xl bg-stone-800 py-3 text-xs font-semibold text-stone-200"
+            className="vow-motion-button min-h-11 flex-1 rounded-xl bg-stone-800 py-3 text-xs font-semibold text-stone-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
           >
             {t('resetFilters')}
           </button>
@@ -245,7 +258,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
               onClose();
             }}
             type="button"
-            className="vow-motion-button min-h-11 flex-1 rounded-xl bg-rose-600 py-3 text-xs font-bold text-white shadow-lg shadow-rose-950 hover:bg-rose-500"
+            className="vow-motion-button min-h-11 flex-1 rounded-xl bg-rose-600 py-3 text-xs font-bold text-white shadow-lg shadow-rose-950 hover:bg-rose-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
           >
             {t('applyFilters')}
           </button>

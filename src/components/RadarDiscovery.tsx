@@ -83,15 +83,19 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
 
   const sendAdEvent = (campaignId: string, eventType: 'impression' | 'click'): Promise<boolean> => {
     if (!campaignId) return Promise.resolve(false);
+    let eventId: string;
+    try {
+      eventId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `vow-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    } catch {
+      eventId = `vow-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
     return fetch('/api/ads/events', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        eventId: crypto.randomUUID(),
-        campaignId,
-        eventType
-      })
+      body: JSON.stringify({ eventId, campaignId, eventType })
     }).then(response => response.ok).catch(() => {
       // Analytics must never interrupt discovery or opening the sponsor destination.
       return false;
@@ -230,15 +234,17 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
         </p>
         {profiles.length > 0 && currentIndex >= profiles.length && (
           <button
+            type="button"
             onClick={() => { setHistory([]); setCurrentIndex(0); setPhotoIndex(0); setActivePsychCardIndex(0); setIsPlayingAudio(false); }}
-            className="mb-3 px-6 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-500 font-bold text-white text-xs"
+            className="mb-3 px-6 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-500 font-bold text-white text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
           >
             {t('restartViewing')}
           </button>
         )}
         <button
+          type="button"
           onClick={onOpenFilters}
-          className="px-6 py-2.5 rounded-full bg-rose-600 hover:bg-rose-500 font-bold text-white shadow-lg shadow-rose-950 text-xs"
+          className="px-6 py-2.5 rounded-full bg-rose-600 hover:bg-rose-500 font-bold text-white shadow-lg shadow-rose-950 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
         >
           {t('changeFilters')}
         </button>
@@ -251,17 +257,18 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
   return (
     <div className="vow-discovery-stage w-full max-w-sm sm:max-w-md mx-auto flex flex-col items-center select-none">
       {/* Top Micro-Bar: Compatibility score and rewarded demo */}
-      <div className="w-full flex items-center justify-between px-2 mb-2 text-xs">
+      <div className="vow-discovery-toolbar w-full flex items-center justify-between px-2 mb-2 text-xs">
         <div className="flex items-center gap-1.5 text-stone-300">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
           <span className="text-[11px] font-semibold text-stone-400">
-            Совместимость: <strong className="text-white">{compatibility.overallScore}%</strong>
+            {t('compatibility')}: <strong className="text-white">{compatibility.overallScore}%</strong>
           </span>
         </div>
 
         {/* Adaptive Rewarded Ad Pill */}
         {!isLadyPremium && (
           <button
+            type="button"
             onClick={onOpenAdManager}
             className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px] font-bold hover:bg-amber-500/25 transition-all"
             title={t('sponsorVideoHelp')}
@@ -355,7 +362,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
           /* Profile card */
           <div className="flex flex-col w-full text-left">
             {/* Top Photo Frame */}
-            <div className="relative h-72 sm:h-80 w-full overflow-hidden bg-stone-950 select-none">
+            <div className="vow-profile-photo relative h-72 sm:h-80 w-full overflow-hidden bg-stone-950 select-none">
               <img
                 src={currentProfile.photos[photoIndex] || currentProfile.avatar}
                 alt={currentProfile.name}
@@ -364,15 +371,21 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
 
               {/* Photo Tap Zones */}
               <div className="absolute inset-0 flex">
-                <div
-                  className="w-1/2 h-full cursor-pointer"
+                <button
+                  type="button"
+                  className="h-full w-1/2 cursor-pointer bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rose-400"
                   onClick={() => setPhotoIndex(prev => Math.max(0, prev - 1))}
                   title={t('previousPhoto')}
+                  aria-label={t('previousPhoto')}
+                  disabled={photoIndex === 0}
                 />
-                <div
-                  className="w-1/2 h-full cursor-pointer"
+                <button
+                  type="button"
+                  className="h-full w-1/2 cursor-pointer bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rose-400"
                   onClick={() => setPhotoIndex(prev => Math.min(currentProfile.photos.length - 1, prev + 1))}
                   title={t('nextPhoto')}
+                  aria-label={t('nextPhoto')}
+                  disabled={photoIndex >= currentProfile.photos.length - 1}
                 />
               </div>
 
@@ -391,9 +404,11 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
               )}
 
               {/* Compatibility badge (Top Left) */}
-              <div
+              <button
+                type="button"
                 onClick={() => onOpenCompatibilityMatrix(currentProfile)}
-                className="absolute top-6 left-3 z-20 cursor-pointer bg-stone-950/75 hover:bg-stone-950/90 border border-white/15 text-white px-2.5 py-1 rounded-2xl backdrop-blur-xl flex items-center gap-2 shadow-lg transition-all"
+                aria-label={t('compatibilityMatrix')}
+                className="absolute top-6 left-3 z-20 cursor-pointer bg-stone-950/75 hover:bg-stone-950/90 border border-white/15 text-white px-2.5 py-1 rounded-2xl backdrop-blur-xl flex items-center gap-2 shadow-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
               >
                 <div className="vow-compatibility-orb w-7 h-7 rounded-full p-0.5 flex items-center justify-center font-black text-xs text-white">
                   <div className="w-full h-full rounded-full bg-stone-950 flex items-center justify-center">
@@ -409,24 +424,29 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                     {compatibility.overallScore >= 85 ? t('highChemistry') : t('goodConnection')}
                   </div>
                 </div>
-              </div>
+              </button>
 
               {/* Verified Anti-Bot Badge (Top Right) */}
-              <div
+              <button
+                type="button"
                 onClick={() => onInspectBotSafety(currentProfile)}
-                className="absolute top-6 right-3 z-20 cursor-pointer bg-stone-950/75 hover:bg-stone-950/90 border border-emerald-500/30 text-emerald-400 px-2.5 py-1 rounded-2xl backdrop-blur-xl flex items-center gap-1 shadow-lg transition-colors"
+                className="absolute top-6 right-3 z-20 cursor-pointer bg-stone-950/75 hover:bg-stone-950/90 border border-emerald-500/30 text-emerald-400 px-2.5 py-1 rounded-2xl backdrop-blur-xl flex items-center gap-1 shadow-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
                 title={t('livenessVerification')}
+                aria-label={t('livenessVerification')}
               >
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
                 <span className="text-[10px] font-bold text-white">
                   {currentProfile.verification.isVerified ? t('verifiedDemo') : t('notVerified')}
                 </span>
-              </div>
+              </button>
 
               {/* Voice Intro Floating Button */}
               {currentProfile.voiceIntroSeconds && (
                 <button
+                  type="button"
                   onClick={toggleAudio}
+                  aria-pressed={isPlayingAudio}
+                  aria-label={t('voiceIntroLabel').replace('{seconds}', String(currentProfile.voiceIntroSeconds))}
                   className={`absolute bottom-3 left-3 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-full backdrop-blur-xl border text-[11px] font-semibold transition-all ${
                     isPlayingAudio
                       ? 'bg-rose-600 text-white border-rose-400 red-glow'
@@ -436,12 +456,12 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                   {isPlayingAudio ? (
                     <>
                       <VolumeX className="w-3 h-3 animate-pulse" />
-                      <span>Голос ({currentProfile.voiceIntroSeconds} с)</span>
+                      <span>{t('voiceIntroLabel').replace('{seconds}', String(currentProfile.voiceIntroSeconds))}</span>
                     </>
                   ) : (
                     <>
                       <Volume2 className="w-3 h-3 text-rose-400" />
-                      <span>Голос ({currentProfile.voiceIntroSeconds} с)</span>
+                      <span>{t('voiceIntroLabel').replace('{seconds}', String(currentProfile.voiceIntroSeconds))}</span>
                     </>
                   )}
                 </button>
@@ -452,7 +472,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
             </div>
 
             {/* Profile Info & Psychological Cards */}
-            <div className="p-3.5 sm:p-4 -mt-5 relative z-10 bg-gradient-to-t from-stone-950 via-stone-950 to-transparent pt-5">
+            <div className="vow-profile-details p-3.5 sm:p-4 -mt-5 relative z-10 bg-gradient-to-t from-stone-950 via-stone-950 to-transparent pt-5">
               {/* Name, Age, Location */}
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-baseline gap-2">
@@ -498,18 +518,21 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
 
               {/* Profile question cards */}
               {currentProfile.psychCards && currentProfile.psychCards.length > 0 && (
-                <div className="rounded-2xl bg-stone-900/95 border border-white/10 p-3 mb-3 shadow-inner">
+                <div className="vow-profile-prompt rounded-2xl bg-stone-900/95 border border-white/10 p-3 mb-3 shadow-inner">
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-[9px] uppercase font-bold tracking-wider text-rose-400 flex items-center gap-1">
                       <Sparkles className="w-2.5 h-2.5" />
-                      Вопрос профиля ({activePsychCardIndex + 1}/{currentProfile.psychCards.length})
+                      {t('profileQuestionCount').replace('{current}', String(activePsychCardIndex + 1)).replace('{total}', String(currentProfile.psychCards.length))}
                     </span>
                     <div className="flex gap-1">
                       {currentProfile.psychCards.map((_, i) => (
                         <button
                           key={i}
+                          type="button"
                           onClick={() => setActivePsychCardIndex(i)}
-                          className={`w-1.5 h-1.5 rounded-full transition-all ${
+                          aria-label={t('profileQuestionCount').replace('{current}', String(i + 1)).replace('{total}', String(currentProfile.psychCards?.length || 1))}
+                          aria-current={i === activePsychCardIndex ? 'step' : undefined}
+                          className={`min-h-3 min-w-3 rounded-full transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 ${
                             i === activePsychCardIndex ? 'bg-rose-500 w-3' : 'bg-stone-700'
                           }`}
                         />
@@ -527,13 +550,14 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                     <div className="mt-1.5 flex items-center justify-between text-[9px]">
                       <span className="text-emerald-400 font-bold flex items-center gap-1">
                         <CheckCircle2 className="w-2.5 h-2.5" />
-                        Резонанс: {currentProfile.psychCards[activePsychCardIndex].matchBonus}%
+                        {t('profileResonance')}: {currentProfile.psychCards[activePsychCardIndex].matchBonus}%
                       </span>
                       <button
+                        type="button"
                         onClick={() => setActivePsychCardIndex((activePsychCardIndex + 1) % (currentProfile.psychCards?.length || 1))}
-                        className="text-stone-400 hover:text-white underline"
+                        className="min-h-8 px-2 text-stone-400 hover:text-white underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
                       >
-                        Далее →
+                        {t('nextPhoto')} →
                       </button>
                     </div>
                   </div>
@@ -558,8 +582,9 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
               </div>
 
               {/* Floating Circular Action Buttons (Profile action buttons) */}
-              <div className="flex items-center justify-center gap-3 sm:gap-4 pt-1">
+              <div className="vow-profile-actions flex items-center justify-center gap-3 sm:gap-4 pt-1">
                 <button
+                  type="button"
                   onClick={handleUndo}
                   disabled={history.length === 0}
                   className="vow-motion-button w-10 h-10 rounded-full bg-stone-900 text-stone-300 disabled:text-stone-700 disabled:opacity-50 hover:bg-stone-800 flex items-center justify-center border border-white/10 transition-all"
@@ -570,6 +595,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 </button>
                 {/* 1. Pass (Circle) */}
                 <button
+                  type="button"
                   onClick={handlePassCurrent}
                   className="vow-motion-button vow-pass-button w-12 h-12 rounded-full bg-stone-900 hover:bg-stone-800 text-stone-400 hover:text-white flex items-center justify-center border border-white/10 transition-all hover:scale-110 active:scale-95 shadow-lg"
                   title={t('pass')}
@@ -580,6 +606,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
 
                 {/* 2. Compatibility Test Matrix (Compatibility details) */}
                 <button
+                  type="button"
                   onClick={() => onOpenCompatibilityMatrix(currentProfile)}
                   className="vow-motion-button w-12 h-12 rounded-full bg-stone-900 hover:bg-rose-950/80 text-rose-400 flex items-center justify-center border border-rose-600/40 transition-all hover:scale-110 active:scale-95 shadow-lg shadow-rose-950/30"
                   title={t('psychCompatibility')}
@@ -590,6 +617,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
 
                 {/* 3. Superlike (Golden Star Circle) */}
                 <button
+                  type="button"
                   onClick={handleSuperLikeCurrent}
                   className="vow-motion-button w-12 h-12 rounded-full bg-gradient-to-tr from-amber-500 to-amber-600 text-stone-950 flex items-center justify-center font-bold shadow-lg shadow-amber-950/50 transition-all hover:scale-110 active:scale-95"
                   title={t('superLike')}
@@ -600,6 +628,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
 
                 {/* 4. Like / Connect (Glowing Scarlet Heart Circle) */}
                 <button
+                  type="button"
                   onClick={handleLikeCurrent}
                   className="vow-motion-button vow-like-button w-14 h-14 rounded-full bg-gradient-to-r from-rose-600 via-red-600 to-rose-700 hover:from-rose-500 hover:to-red-500 text-white flex items-center justify-center red-glow transition-all hover:scale-110 active:scale-95 shadow-xl shadow-rose-950/60"
                   title={t('likeInvite')}
