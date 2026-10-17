@@ -52,8 +52,17 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       }
       const p = {
         ...rawProfile,
-        photoUrls: Array.isArray(rawProfile.photoUrls) ? rawProfile.photoUrls.filter((value: unknown): value is string => typeof value === 'string') : [],
-        languages: Array.isArray(rawProfile.languages) ? rawProfile.languages.filter((value: unknown): value is string => typeof value === 'string') : []
+        photoUrls: Array.isArray(rawProfile.photoUrls)
+          ? rawProfile.photoUrls.filter((value: unknown): value is string =>
+              typeof value === 'string' &&
+              ( /^https?:\/\//i.test(value.trim()) || /^\/(?!\/)/.test(value.trim()) )
+            )
+          : [],
+        languages: Array.isArray(rawProfile.languages)
+          ? rawProfile.languages.filter((value: unknown): value is string =>
+              typeof value === 'string' && value.trim().length > 0
+            ).map((value: string) => value.trim())
+          : []
       } as Profile;
       setProfile(p);
       setDisplayName(p.displayName || '');
