@@ -96,12 +96,17 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
           ? blockData.blocks.filter((block: unknown): block is BlockedProfile => {
               if (!block || typeof block !== 'object' || Array.isArray(block)) return false;
               const value = block as Partial<BlockedProfile>;
-              return typeof value.id === 'string' && value.id.trim().length > 0 &&
-                typeof value.displayName === 'string' &&
-                typeof value.createdAt === 'string' && Number.isFinite(Date.parse(value.createdAt));
+              return typeof value.id === 'string' && value.id.trim().length > 0 && value.id.trim().length <= 256 &&
+                typeof value.displayName === 'string' && value.displayName.trim().length > 0 && value.displayName.trim().length <= 100 &&
+                typeof value.createdAt === 'string' && value.createdAt.trim().length > 0 && value.createdAt.length <= 100 &&
+                Number.isFinite(Date.parse(value.createdAt.trim()));
             })
           : [];
-        setBlockedProfiles(safeBlocks);
+        setBlockedProfiles(safeBlocks.map(block => ({
+          id: block.id.trim(),
+          displayName: block.displayName.trim(),
+          createdAt: block.createdAt.trim()
+        })));
       }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : t('profileLoadError'));
