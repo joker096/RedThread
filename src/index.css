@@ -872,3 +872,112 @@ main article[class*="rounded-2xl"][class*="border"] {
     box-shadow: none;
   }
 }
+
+
+/* Discovery screen polish: photo-led cards, readable profile details and thumb-friendly actions. */
+.vow-discovery-stage {
+  gap: .25rem;
+}
+
+.vow-discovery-toolbar {
+  min-height: 2.5rem;
+}
+
+.vow-profile-card {
+  border-color: var(--vow-line) !important;
+  border-radius: 1.65rem !important;
+  box-shadow: 0 28px 70px -42px rgb(0 0 0 / 85%), 0 0 0 1px rgb(255 255 255 / 2%);
+}
+
+.vow-profile-photo > img {
+  object-position: center 35%;
+}
+
+.vow-profile-details {
+  background-image: linear-gradient(to top, #0c0a09 72%, rgb(12 10 9 / 96%) 88%, transparent 100%) !important;
+}
+
+.vow-profile-prompt {
+  border-color: rgb(251 113 133 / 18%) !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 3%), 0 10px 24px -22px rgb(251 113 133 / 45%);
+}
+
+.vow-profile-actions {
+  padding-top: .35rem;
+  padding-bottom: .25rem;
+}
+
+.vow-profile-actions .vow-motion-button {
+  flex-shrink: 0;
+  outline-offset: 3px;
+}
+
+.vow-profile-actions .vow-pass-button,
+.vow-profile-actions .vow-like-button {
+  box-shadow: 0 8px 24px -16px rgb(0 0 0 / 90%);
+}
+
+.vow-profile-actions .vow-like-button {
+  box-shadow: 0 12px 30px -15px rgb(225 29 72 / 70%);
+}
+
+.vow-profile-actions .vow-motion-button:focus-visible {
+  outline: 2px solid var(--vow-focus);
+}
+
+:root[data-theme="light"] .vow-profile-card {
+  background-color: #fff !important;
+  border-color: rgb(68 44 52 / 12%) !important;
+  box-shadow: 0 28px 70px -42px rgb(92 55 65 / 25%), 0 0 0 1px rgb(68 44 52 / 4%);
+}
+
+:root[data-theme="light"] .vow-profile-details {
+  background-image: linear-gradient(to top, #fff 72%, rgb(255 255 255 / 97%) 88%, transparent 100%) !important;
+}
+
+:root[data-theme="light"] .vow-profile-details :where(.text-white) {
+  color: #292524 !important;
+}
+
+:root[data-theme="light"] .vow-profile-details :where(.text-stone-200, .text-stone-300) {
+  color: #57534e !important;
+}
+
+:root[data-theme="light"] .vow-profile-details :where(.bg-stone-900, .bg-stone-900\/95) {
+  background-color: #fafaf9 !important;
+}
+
+:root[data-theme="light"] .vow-profile-details :where(.border-white\/10) {
+  border-color: rgb(68 44 52 / 12%) !important;
+}
+
+:root[data-theme="light"] .vow-profile-details .vow-profile-prompt {
+  background-color: #fff7f8 !important;
+}
+
+:root[data-theme="light"] .vow-discovery-toolbar .text-white {
+  color: #292524 !important;
+}
+
+@media (max-width: 380px) {
+  .vow-profile-actions {
+    gap: .55rem;
+  }
+
+  .vow-profile-actions .vow-motion-button {
+    width: 2.7rem;
+    height: 2.7rem;
+  }
+
+  .vow-profile-actions .vow-like-button {
+    width: 3.15rem;
+    height: 3.15rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vow-profile-card,
+  .vow-profile-actions .vow-motion-button {
+    transition: none !important;
+  }
+}
