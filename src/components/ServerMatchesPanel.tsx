@@ -181,12 +181,13 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         return;
       }
       if (!response.ok) throw new Error(t('loadMessagesError'));
-      const data = await response.json();
+      const data = await response.json().catch(() => null);
       if (requestId !== messageRequestId.current) return;
+      if (!data || typeof data !== 'object' || Array.isArray(data) || !Array.isArray(data.messages)) {
+        throw new Error(t('loadMessagesError'));
+      }
       const nextMessages = deduplicateById(
-        Array.isArray(data?.messages)
-          ? data.messages.slice(-1000).map(normalizeServerMessage).filter((message): message is ServerMessage => message !== null)
-          : []
+        data.messages.slice(-1000).map(normalizeServerMessage).filter((message): message is ServerMessage => message !== null)
       ).slice(-500);
       setMessages(nextMessages);
       setMessagesFailed(false);
