@@ -50,7 +50,7 @@ export const BrandNamingModal: React.FC<BrandNamingModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
-      <div className="relative w-full max-w-xl rounded-3xl bg-stone-900 border border-rose-900/40 shadow-2xl p-5 sm:p-6 text-left my-auto">
+      <div role="dialog" aria-modal="true" aria-labelledby="brand-naming-title" className="relative w-full max-w-xl rounded-3xl bg-stone-900 border border-rose-900/40 shadow-2xl p-5 sm:p-6 text-left my-auto">
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -66,7 +66,7 @@ export const BrandNamingModal: React.FC<BrandNamingModalProps> = ({
             <Sparkles className="w-6 h-6" />
           </div>
           <div>
-            <h2 className="text-xl font-heading font-black text-white">Продуманные названия бренда</h2>
+            <h2 id="brand-naming-title" className="text-xl font-heading font-black text-white">Продуманные названия бренда</h2>
             <p className="text-xs text-stone-400">
               Выберите концепцию — название и стиль приложения обновятся мгновенно
             </p>
@@ -88,8 +88,12 @@ export const BrandNamingModal: React.FC<BrandNamingModalProps> = ({
             return (
               <div
                 key={option.id}
+                role="button"
+                tabIndex={0}
+                aria-pressed={isSelected}
                 onClick={() => onSelectBrand(option.id)}
-                className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
+                onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelectBrand(option.id); } }}
+                className={`p-3.5 rounded-2xl border cursor-pointer transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 ${
                   isSelected
                     ? 'bg-rose-950/50 border-rose-500 ring-2 ring-rose-500/20 text-white shadow-lg'
                     : 'bg-stone-950/60 border-white/5 hover:border-white/20 text-stone-300'
