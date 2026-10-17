@@ -22,9 +22,8 @@ test('theme toggle changes scheme and persists after reload', async ({ page }) =
 
 test('demo conversations stay hidden until explicitly opened', async ({ page }) => {
   await page.goto('/');
-  // Header navigation uses visible text rather than a title attribute. This
-  // selector works for both the desktop segmented nav and the mobile nav.
-  const chatsButton = page.getByRole('button', { name: chatsNavigation }).first();
+  // Use a stable test id so the test does not depend on locale-specific labels.
+  const chatsButton = page.getByTestId('nav-chats').first();
   await expect(chatsButton).toBeVisible();
   await chatsButton.click();
 
