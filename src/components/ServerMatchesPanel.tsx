@@ -47,7 +47,7 @@ const normalizeServerMessage = (value: unknown): ServerMessage | null => {
       typeof message.senderId !== 'string' || !message.senderId.trim() || message.senderId.trim().length > 256 ||
       typeof message.text !== 'string' || !message.text.trim() || message.text.length > 10000 ||
       typeof message.createdAt !== 'string' || message.createdAt.length > 100 ||
-      !Number.isFinite(Date.parse(message.createdAt))) {
+      !Number.isFinite(Date.parse(message.createdAt.trim()))) {
     return null;
   }
   return {
