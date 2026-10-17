@@ -47,7 +47,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
 }) => {
   const { t } = useLocale();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [sendError, setSendError] = useState('');
+  const [sendErrors, setSendErrors] = useState<Record<string, string>>({});
   const sendingThreadIdsRef = useRef(new Set<string>());
   const [sendingThreadIds, setSendingThreadIds] = useState<Set<string>>(new Set());
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -108,7 +108,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
 
     sendingThreadIdsRef.current.add(thread.id);
     setSendingThreadIds(current => new Set(current).add(thread.id));
-    setSendError('');
+    setSendErrors(current => ({ ...current, [thread.id]: '' }));
     try {
       await onSendMessage(thread.id, messageText);
       setDrafts(current => current[thread.id] === messageText
@@ -116,7 +116,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
         : current);
     } catch {
       // Keep the original draft so the user can retry without retyping.
-      setSendError(t('sendMessageError'));
+      setSendErrors(current => ({ ...current, [thread.id]: t('sendMessageError') }));
     } finally {
       sendingThreadIdsRef.current.delete(thread.id);
       setSendingThreadIds(current => {
@@ -412,14 +412,14 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             onChange={e => {
               const threadId = activeThread.id;
               setDrafts(current => ({ ...current, [threadId]: e.target.value }));
-              setSendError('');
+              setSendErrors(current => ({ ...current, [activeThread.id]: '' }));
             }}
             placeholder={t('chatMessagePlaceholder')}
             aria-label={t('chatMessageLabel')}
             className="min-w-0 flex-1 rounded-xl border border-white/10 bg-stone-900 px-3 py-3 text-xs text-white placeholder-stone-500 focus:border-rose-500/60 focus:outline-none sm:px-4 sm:text-sm"
           />
 
-          {sendError && <p role="alert" className="max-w-36 text-xs text-rose-300">{sendError}</p>}
+          {sendErrors[activeThread.id] && <p role="alert" className="max-w-36 text-xs text-rose-300">{sendErrors[activeThread.id]}</p>}
           <button
             type="submit"
             disabled={!inputText.trim() || sendingThreadIds.has(activeThread.id)}
