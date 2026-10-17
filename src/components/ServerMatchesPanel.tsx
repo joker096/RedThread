@@ -26,11 +26,17 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
   const messageRequestId = useRef(0);
+  const matchesRequestId = useRef(0);
 
   const loadMatches = useCallback(async () => {
+    const requestId = ++matchesRequestId.current;
     try {
       const response = await fetch('/api/matches', { credentials: 'include' });
+      if (requestId !== matchesRequestId.current) return;
       if (response.status === 401) {
+        // Prevent older match-list requests from restoring an authenticated state.
+        matchesRequestId.current += 1;
+        messageRequestId.current += 1;
         setAuthenticated(false);
         messageRequestId.current += 1;
         setMatches([]);
@@ -41,6 +47,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       }
       if (!response.ok) throw new Error(t('loadMatchesError'));
       const data = await response.json();
+      if (requestId !== matchesRequestId.current) return;
       setMatches(data.matches || []);
       setAuthenticated(true);
       setNotice(data.matches?.length ? '' : t('noMutualMatches'));
@@ -51,7 +58,9 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         setMessages([]);
       }
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('loadMatchesError'));
+      if (requestId === matchesRequestId.current) {
+        setNotice(error instanceof Error ? error.message : t('loadMatchesError'));
+      }
     }
   }, [selected]);
 
@@ -64,6 +73,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       if (response.status === 401) {
         // Invalidate in-flight reads/sends before clearing a session-expired chat.
         messageRequestId.current += 1;
+        matchesRequestId.current += 1;
         setAuthenticated(false);
         setMatches([]);
         setSelected('');
@@ -74,6 +84,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       if (response.status === 404) {
         // The match may have been blocked or closed while this chat was open.
         messageRequestId.current += 1;
+        matchesRequestId.current += 1;
         setMatches(current => current.filter(match => match.id !== matchId));
         setSelected('');
         setMessages([]);
@@ -121,6 +132,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       if (response.status === 401) {
         // The session expired while sending; discard the conversation and stale requests.
         messageRequestId.current += 1;
+        matchesRequestId.current += 1;
         setAuthenticated(false);
         setMatches([]);
         setSelected('');
@@ -131,6 +143,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       if (response.status === 404) {
         // A block or closed match invalidates this conversation even if it was already open.
         messageRequestId.current += 1;
+        matchesRequestId.current += 1;
         setMatches(current => current.filter(match => match.id !== matchId));
         setSelected('');
         setMessages([]);
