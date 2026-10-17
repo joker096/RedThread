@@ -120,7 +120,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
           <div className="flex gap-2 overflow-x-auto pb-2 mb-5">
             {categories.map(item => {
               const Icon = item.icon;
-              return <button key={item.id} onClick={() => setCategory(item.id)} className={`shrink-0 inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition-colors ${category === item.id ? 'border-rose-500 bg-rose-600 text-white' : 'border-white/10 bg-stone-950 text-stone-300 hover:border-rose-700'}`}><Icon className="w-3.5 h-3.5" />{item.label}</button>;
+              return <button key={item.id} type="button" aria-pressed={category === item.id} onClick={() => setCategory(item.id)} className={`shrink-0 inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 ${category === item.id ? 'border-rose-500 bg-rose-600 text-white' : 'border-white/10 bg-stone-950 text-stone-300 hover:border-rose-700'}`}><Icon className="w-3.5 h-3.5" />{item.label}</button>;
             })}
           </div>
 
@@ -129,7 +129,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
               <h3 className="font-bold text-white mb-1">Заявка поставщика услуг</h3>
               <p className="text-xs text-stone-400 mb-4">Заявка только демонстрирует будущий процесс. Не вводите паспортные данные и не прикрепляйте документы в прототипе.</p>
               {submitted ? (
-                <div role="status" className="rounded-xl border border-emerald-700/30 bg-emerald-950/30 p-4 text-sm text-emerald-200"><CheckCircle2 className="inline w-4 h-4 mr-2" />Демо-заявка проверена локально. Она не отправлена и документы не проверялись.</div>
+                <div role="status" aria-live="polite" className="rounded-xl border border-emerald-700/30 bg-emerald-950/30 p-4 text-sm text-emerald-200"><CheckCircle2 className="inline w-4 h-4 mr-2" />Демо-заявка проверена локально. Она не отправлена и документы не проверялись.</div>
               ) : (
                 <>
                   <div className="grid sm:grid-cols-2 gap-3">
