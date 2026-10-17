@@ -203,7 +203,9 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         const data = await response.json().catch(() => null);
         setProfiles([]);
         setAuthenticated(true);
-        setNotice(data?.message || t('trialEndedSearch'));
+        setNotice(typeof data?.message === 'string' && data.message.trim()
+          ? data.message.trim().slice(0, 500)
+          : t('trialEndedSearch'));
         return;
       }
       if (!response.ok) throw new Error(t('searchSetupError'));
