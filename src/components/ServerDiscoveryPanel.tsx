@@ -35,8 +35,8 @@ const isSafeProfilePhotoUrl = (value: unknown): value is string => {
 const normalizeServerProfile = (value: unknown): ServerProfile | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const profile = value as Partial<ServerProfile>;
-  if (typeof profile.id !== 'string' || !profile.id.trim() ||
-      typeof profile.displayName !== 'string' || !profile.displayName.trim() ||
+  if (typeof profile.id !== 'string' || !profile.id.trim() || profile.id.trim().length > 256 ||
+      typeof profile.displayName !== 'string' || !profile.displayName.trim() || profile.displayName.trim().length > 100 ||
       typeof profile.age !== 'number' || !Number.isFinite(profile.age) || profile.age < 18 || profile.age > 120 ||
       (profile.gender !== 'female' && profile.gender !== 'male') ||
       !['marriage_family', 'serious_relationship', 'family_without_marriage'].includes(String(profile.relationshipIntent))) {
