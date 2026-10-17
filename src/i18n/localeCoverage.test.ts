@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getTextDirection, getTranslationCoverage, LANGUAGE_OPTIONS } from './LocaleProvider.tsx';
+import { getTextDirection, getTranslationCoverage, LANGUAGE_OPTIONS, normalizeLocalePreference } from './LocaleProvider.tsx';
 
 test('English and Russian catalogs cover every defined message key', () => {
   assert.equal(getTranslationCoverage('en').percentage, 100);
@@ -227,5 +227,14 @@ test('text direction is RTL only for locales with right-to-left scripts', () => 
   }
   for (const locale of ['en', 'ru', 'ka', 'vi', 'zh', 'hi', 'auto']) {
     assert.equal(getTextDirection(locale), 'ltr', `${locale} should use left-to-right layout`);
+  }
+});
+
+test('locale preferences accept supported values and safely fall back for invalid storage values', () => {
+  for (const locale of ['auto', 'en', 'ru', 'ar', 'he', 'fa', 'ur', 'ka', 'vi', 'zh']) {
+    assert.equal(normalizeLocalePreference(locale), locale);
+  }
+  for (const invalid of [null, undefined, '', 'xx', 'EN', 'en-US', 'rtl', 'undefined']) {
+    assert.equal(normalizeLocalePreference(invalid), 'auto', `${String(invalid)} should fall back to automatic language`);
   }
 });
