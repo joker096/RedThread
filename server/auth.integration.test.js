@@ -618,6 +618,16 @@ test('auth API supports registration, session lookup, logout and login', {
     const deletedAccountMe = await request('/api/auth/me', { headers: { Cookie: secondCookie } });
     assert.equal(deletedAccountMe.status, 401);
 
+    const deletedAccountMatches = await request('/api/matches', { headers: { Cookie: secondCookie } });
+    assert.equal(deletedAccountMatches.status, 401,
+      'a deleted account must not retain access to server matches');
+
+    const deletedAccountMessages = await request(`/api/matches/${matchPayload.match.id}/messages`, {
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(deletedAccountMessages.status, 401,
+      'a deleted account must not retain access to previously authorized conversations');
+
   } finally {
     if (child.exitCode === null) {
       child.kill('SIGTERM');
