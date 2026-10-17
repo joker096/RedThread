@@ -15,14 +15,14 @@ This page is the single source of truth for implementation status. A merged PR o
 - [x] Discovery motion and mutual-match celebration are merged in [PR #9](https://github.com/joker096/RedThread/pull/9).
 - [x] CI passed for the PR #9 head: [run 38964426218](https://github.com/joker096/RedThread/actions/runs/38964426218).
 - [x] CI passed on main before the latest merge: [run 38964444843](https://github.com/joker096/RedThread/actions/runs/38964444843).
-- [ ] Keyboard dismissal, focus trapping and focus restoration for the match dialog are awaiting CI/review in [PR #10](https://github.com/joker096/RedThread/pull/10).
+- [x] Match-dialog Escape handling, keyboard focus trapping and focus restoration are merged in [PR #10](https://github.com/joker096/RedThread/pull/10); CI passed.
 
 ## Must be completed before public launch
 
 - [ ] Finish and verify the P0 acceptance criteria in [the implementation roadmap](IMPLEMENTATION_ROADMAP.md).
 - [x] Persistent prototype disclosure and separate demo/server discovery labels are present in the UI.
 - [ ] Audit every trust, verification, compatibility, online and advertising metric for a real source.
-- [ ] Validate registration, adult-only gating, consent/legal copy and account deletion against a clean disposable database.
+- [ ] Validate registration, adult-only gating, consent/legal copy and account deletion against a clean disposable database. An under-18 registration integration test is pending CI/merge in [PR #12](https://github.com/joker096/RedThread/pull/12).
 - [ ] Complete browser-level, two-account end-to-end scenarios, including reload and failure/retry cases.
 - [ ] Verify production-like rate limiting, session/cookie settings, upload limits, moderation access and audit logging.
 - [ ] Document privacy/data retention, appeals and urgent-report response ownership.
