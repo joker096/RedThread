@@ -336,7 +336,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             <div className="flex items-center gap-2">
               <Crown className="w-4 h-4 text-amber-400" />
               <span>
-                <strong>{t('chatPartnerContact')}</strong> Telegram: @{activeThread.partnerProfile.id.replace('user_', '')}_direct • Тел: +7 (926) 841-**-**
+                <strong>{t('chatPartnerContact')}</strong> {t('chatContactNotAvailable')}
               </span>
             </div>
             <span className="text-[10px] bg-amber-500/20 px-2 py-0.5 rounded font-bold">
