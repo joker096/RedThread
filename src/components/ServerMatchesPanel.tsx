@@ -38,7 +38,6 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         matchesRequestId.current += 1;
         messageRequestId.current += 1;
         setAuthenticated(false);
-        messageRequestId.current += 1;
         setMatches([]);
         setSelected('');
         setMessages([]);
