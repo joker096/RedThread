@@ -13,7 +13,8 @@
     "dev:api": "node --watch server/index.js",
     "start:api": "node server/index.js",
     "db:migrate": "node scripts/migrate.js",
-    "i18n:report": "tsx scripts/i18n-report.ts"
+    "i18n:report": "tsx scripts/i18n-report.ts",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -39,6 +40,7 @@
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",
-    "@types/express": "^4.17.21"
+    "@types/express": "^4.17.21",
+    "@playwright/test": "^1.55.0"
   }
 }
