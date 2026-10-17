@@ -220,7 +220,7 @@ test('RTL languages set document direction and remain usable on narrow phones', 
   }
 
   // Exercise a real app screen under RTL, not only the root document attributes.
-  const chatsButton = page.locator('[data-testid="nav-chats"]:visible').first();
+  const chatsButton = page.locator('[data-testid="nav-chats"]:visible, [data-testid="mobile-nav-chats"]:visible').first();
   await expect(chatsButton).toBeVisible();
   await chatsButton.click();
   await expect(page.getByTestId('server-matches-panel')).toBeVisible();
