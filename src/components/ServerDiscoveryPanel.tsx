@@ -45,6 +45,8 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const [notice, setNotice] = useState('');
   const [likedIds, setLikedIds] = useState<string[]>([]);
   const [blockedIds, setBlockedIds] = useState<string[]>([]);
+  const [blockedProfiles, setBlockedProfiles] = useState<Array<{ id: string; displayName: string }>>([]);
+  const [blockedProfilesOpen, setBlockedProfilesOpen] = useState(false);
   const [actionHistory, setActionHistory] = useState<Array<{ type: 'like' | 'pass'; profile: ServerProfile }>>([]);
   const [reportTargetId, setReportTargetId] = useState<string | null>(null);
   const [reportCategory, setReportCategory] = useState('fake_profile');
@@ -322,6 +324,62 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
     }
   };
 
+  const toggleBlockedProfiles = async () => {
+    if (blockedProfilesOpen) {
+      setBlockedProfilesOpen(false);
+      return;
+    }
+    if (busy) return;
+    setBusy(true);
+    try {
+      const response = await fetch('/api/blocks', { credentials: 'include' });
+      if (response.status === 401) {
+        setAuthenticated(false);
+        setNotice(t('signInToBlock'));
+        return;
+      }
+      if (!response.ok) throw new Error(t('blockedProfilesLoadError'));
+      const data = await response.json();
+      const nextProfiles = Array.isArray(data?.blocks)
+        ? data.blocks.filter((item: unknown): item is { id: string; displayName: string } =>
+            Boolean(item && typeof item === 'object' &&
+              typeof (item as { id?: unknown }).id === 'string' &&
+              typeof (item as { displayName?: unknown }).displayName === 'string'))
+        : [];
+      setBlockedProfiles(nextProfiles);
+      setBlockedIds(nextProfiles.map(item => item.id));
+      setBlockedProfilesOpen(true);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : t('blockedProfilesLoadError'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const unblock = async (profile: { id: string; displayName: string }) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/blocks/${encodeURIComponent(profile.id)}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      if (response.status === 401) {
+        setAuthenticated(false);
+        setNotice(t('signInToBlock'));
+        return;
+      }
+      if (!response.ok) throw new Error(t('blockOperationError'));
+      setBlockedProfiles(current => current.filter(item => item.id !== profile.id));
+      setBlockedIds(current => current.filter(id => id !== profile.id));
+      setNotice(t('unblockSuccess').replace('{name}', profile.displayName));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : t('blockOperationError'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <section className="mb-5 rounded-3xl border border-emerald-500/20 bg-stone-900/80 p-4 sm:p-5">
       <div className="mb-3">
@@ -349,6 +407,26 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
           <button type="button" onClick={() => void search()} disabled={busy} className="mb-2 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? t('searching') : t('search')}</button>
           <button type="button" onClick={() => setSwipeMode(value => !value)} className="mb-3 w-full rounded-xl border border-emerald-500/30 px-4 py-2.5 text-xs font-semibold text-emerald-200">{swipeMode ? t('listMode') : t('swipeMode')}</button>
           <button type="button" onClick={() => void undoPass()} disabled={busy} className="mb-3 w-full rounded-xl border border-amber-500/30 px-4 py-2.5 text-xs font-semibold text-amber-200 disabled:opacity-50">↶ {t('undoAction')}</button>
+          <button type="button" onClick={() => void toggleBlockedProfiles()} disabled={busy} aria-expanded={blockedProfilesOpen} className="mb-3 w-full rounded-xl border border-white/10 px-4 py-2.5 text-xs font-semibold text-stone-200 disabled:opacity-50">
+            {blockedProfilesOpen ? t('hideBlockedProfiles') : t('manageBlockedProfiles')}
+          </button>
+          {blockedProfilesOpen && (
+            <section aria-label={t('blockedProfilesTitle')} className="mb-4 rounded-2xl border border-white/10 bg-stone-950/60 p-3">
+              <h4 className="mb-2 text-sm font-semibold text-white">{t('blockedProfilesTitle')}</h4>
+              {blockedProfiles.length === 0 ? (
+                <p className="text-xs text-stone-400">{t('blockedProfilesEmpty')}</p>
+              ) : (
+                <ul className="space-y-2">
+                  {blockedProfiles.map(profile => (
+                    <li key={profile.id} className="flex items-center justify-between gap-3 rounded-xl border border-white/5 p-2">
+                      <span className="min-w-0 truncate text-xs text-stone-200">{profile.displayName}</span>
+                      <button type="button" onClick={() => void unblock(profile)} disabled={busy} className="shrink-0 rounded-lg border border-emerald-500/30 px-3 py-2 text-xs font-semibold text-emerald-200 disabled:opacity-50">{t('unblock')}</button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
           {swipeMode && <p className="mb-3 text-[11px] text-stone-400">{t('swipeHint')}</p>}
           {notice && <p role="status" className="mb-3 text-xs text-stone-300">{notice}</p>}
           <div className={swipeMode ? 'mx-auto max-w-lg space-y-3' : 'space-y-3'}>
