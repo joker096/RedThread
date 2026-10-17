@@ -187,3 +187,19 @@ test('Korean catalog covers core discovery, safety, account and messaging UI', (
     assert.ok(!korean.missing.includes(key), `Korean core key "${key}" should be translated`);
   }
 });
+
+
+test('Chinese catalog covers core discovery, safety, account and messaging UI', () => {
+  const chinese = getTranslationCoverage('zh');
+  assert.ok(chinese.translated >= 100, 'Chinese should translate a substantial core set of UI messages');
+  assert.ok(chinese.percentage > 0 && chinese.percentage < 100,
+    'Chinese must remain marked partial until the complete catalog is translated');
+  for (const key of [
+    'language', 'discovery', 'safety', 'like', 'pass', 'report', 'block',
+    'search', 'relationshipGoal', 'accountTitle', 'signIn', 'createAccount',
+    'email', 'password', 'chats', 'notificationCenter', 'authInvalidEmail',
+    'authDeleteConfirm', 'partialTranslationHelp'
+  ] as const) {
+    assert.ok(!chinese.missing.includes(key), `Chinese core key "${key}" should be translated`);
+  }
+});
