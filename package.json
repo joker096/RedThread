@@ -15,6 +15,7 @@
     "db:migrate": "node scripts/migrate.js",
     "ads:cleanup-events": "node scripts/cleanup-ad-events.js",
     "i18n:report": "tsx scripts/i18n-report.ts",
+    "store-assets:validate": "node scripts/validate-store-assets.mjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {

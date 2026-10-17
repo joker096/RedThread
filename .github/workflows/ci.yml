@@ -36,6 +36,8 @@ jobs:
         with:
           node-version: 22
       - run: npm install --no-audit --no-fund
+      - name: Validate Google Play listing assets
+        run: npm run store-assets:validate
       - run: npm run db:migrate
       - run: npm run lint
       - run: npm test
