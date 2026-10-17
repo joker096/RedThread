@@ -92,6 +92,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const sessionEpoch = useRef(0);
   const sendInFlight = useRef(false);
   const messagesLogRef = useRef<HTMLDivElement | null>(null);
+  const shouldAutoScrollMessagesRef = useRef(true);
 
   const loadMatches = useCallback(async () => {
     const requestId = ++matchesRequestId.current;
@@ -264,10 +265,16 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
 
   useEffect(() => { if (selected) void loadMessages(selected); }, [selected, loadMessages]);
 
+  // Start each conversation at the latest message. Within a conversation,
+  // preserve the reader's position when they have scrolled up through history.
+  useEffect(() => {
+    shouldAutoScrollMessagesRef.current = true;
+  }, [selected]);
+
   // Keep the newest message visible without moving the whole page.
   // Respect the user's reduced-motion preference when scrolling.
   useEffect(() => {
-    if (!selected || messagesLoading) return;
+    if (!selected || messagesLoading || !shouldAutoScrollMessagesRef.current) return;
     const log = messagesLogRef.current;
     if (!log) return;
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -367,7 +374,10 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
           {notice && !matchesFailed && (matches.length > 0 || selected) && <p role="status" aria-live="polite" aria-atomic="true" className="text-xs text-stone-300">{notice}</p>}
           {selected && (
             <div data-testid="real-match-chat" className="rounded-2xl border border-white/10 bg-stone-950/55 p-3.5 shadow-inner sm:p-4">
-              <div ref={messagesLogRef} data-testid="server-match-messages" role="log" aria-live="polite" aria-relevant="additions text" aria-atomic="false" aria-label={t('serverChats')} aria-busy={messagesLoading} className="mb-4 max-h-72 space-y-2.5 overflow-y-auto overscroll-contain rounded-xl bg-black/10 p-1">
+              <div ref={messagesLogRef} onScroll={event => {
+                const log = event.currentTarget;
+                shouldAutoScrollMessagesRef.current = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+              }} data-testid="server-match-messages" role="log" aria-live="polite" aria-relevant="additions text" aria-atomic="false" aria-label={t('serverChats')} aria-busy={messagesLoading} className="mb-4 max-h-72 space-y-2.5 overflow-y-auto overscroll-contain rounded-xl bg-black/10 p-1">
                 {messagesLoading && <p role="status" className="px-2 py-3 text-xs text-stone-400">{t('loading')}</p>}
                 {messagesFailed && <div role="alert" className="rounded-xl border border-rose-500/20 bg-rose-950/20 p-3"><p className="text-xs text-stone-200">{notice || t('loadMessagesError')}</p><button type="button" onClick={() => void loadMessages(selected)} className="mt-2 min-h-10 rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300">{t('retry')}</button></div>}
                 {messages.map(message => (
