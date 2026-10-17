@@ -87,7 +87,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
   };
 
   return (
-    <section className="vow-screen mb-5 rounded-3xl border border-rose-500/20 bg-stone-900/80 p-4 sm:p-5">
+    <section aria-busy={status === 'loading' || status === 'saving'} className="vow-screen mb-5 rounded-3xl border border-rose-500/20 bg-stone-900/80 p-4 sm:p-5">
       <div className="mb-2 flex items-start justify-between gap-3">
         <div>
           <p className="text-[10px] uppercase tracking-[0.2em] text-rose-300">{t('valuesTestEyebrow')}</p>
@@ -125,7 +125,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
         <button type="button" onClick={() => void save()} disabled={!complete || status === 'saving'} className="w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">
           {status === 'saving' ? t('savingAnswers') : t('saveAndUseTest')}
         </button>
-        {note && <p role="status" className="text-xs leading-relaxed text-stone-300">{note}</p>}
+        {note && <p role="status" aria-live="polite" className="text-xs leading-relaxed text-stone-300">{note}</p>}
         {status === 'saved' && <p className="text-[10px] text-emerald-300">{t('savedOnServer')}</p>}
       </div>
     </section>
