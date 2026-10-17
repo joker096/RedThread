@@ -55,7 +55,7 @@ const normalizeServerProfile = (value: unknown): ServerProfile | null => {
     gender: profile.gender,
     country: typeof profile.country === 'string' ? profile.country.trim().slice(0, 100) : '',
     city: typeof profile.city === 'string' ? profile.city.trim().slice(0, 100) : '',
-    bio: typeof profile.bio === 'string' ? profile.bio.slice(0, 2000) : '',
+    bio: typeof profile.bio === 'string' ? profile.bio.trim().slice(0, 2000) : '',
     relationshipIntent: profile.relationshipIntent,
     familyFormat: profile.familyFormat === 'marriage' || profile.familyFormat === 'cohabitation' || profile.familyFormat === 'open_to_both'
       ? profile.familyFormat
