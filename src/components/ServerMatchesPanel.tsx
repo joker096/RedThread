@@ -173,7 +173,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         Array.isArray(data?.messages)
           ? data.messages.map(normalizeServerMessage).filter((message): message is ServerMessage => message !== null)
           : []
-      );
+      ).slice(-500);
       setMessages(nextMessages);
       setMessagesFailed(false);
     } catch (error) {
@@ -298,7 +298,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       if (!response.ok) throw new Error(data?.error === 'too_many_messages' ? t('messageRateLimit') : t('sendMessageError'));
       const sentMessage = normalizeServerMessage(data?.message);
       if (!sentMessage) throw new Error(t('sendMessageError'));
-      setMessages(current => deduplicateById([...current, sentMessage]));
+      setMessages(current => deduplicateById([...current, sentMessage]).slice(-500));
       setDrafts(current => ({ ...current, [matchId]: '' }));
       void loadMatches();
     } catch (error) {
