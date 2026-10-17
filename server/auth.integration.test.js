@@ -552,6 +552,15 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(afterBlockLike.status, 404);
 
+    // Blocking must work in both directions: the blocked account cannot create a new like either.
+    const reverseAfterBlockLike = await request(`/api/likes/${registered.user.id}`, {
+      method: 'POST',
+      headers: { Cookie: maleCookie },
+      body: JSON.stringify({})
+    });
+    assert.equal(reverseAfterBlockLike.status, 404,
+      'a user must not like an account that has blocked them');
+
     const blockedMatchMessages = await request(`/api/matches/${matchPayload.match.id}/messages`, {
       headers: { Cookie: secondCookie }
     });
