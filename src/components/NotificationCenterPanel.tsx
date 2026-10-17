@@ -24,6 +24,7 @@ export const NotificationCenterPanel:React.FC=()=>{
    const data=await response.json().catch(()=>null);
    if(requestId!==refreshRequestId.current||actionEpoch!==sessionEpoch.current)return;
    if(!response.ok)throw new Error(t('notificationsLoadError'));
+   const seenNotificationIds = new Set<string>();
    const notifications: NotificationItem[] = Array.isArray(data?.notifications)
     ? data.notifications.filter((item: unknown): item is NotificationItem => {
        if (!item || typeof item !== 'object') return false;
@@ -33,6 +34,11 @@ export const NotificationCenterPanel:React.FC=()=>{
         value.metadata !== null && typeof value.metadata === 'object' && !Array.isArray(value.metadata) &&
         typeof value.createdAt === 'string' && value.createdAt.trim().length > 0 && Number.isFinite(Date.parse(value.createdAt)) &&
         (value.readAt === null || (typeof value.readAt === 'string' && value.readAt.trim().length > 0 && Number.isFinite(Date.parse(value.readAt))));
+      }).filter((notification) => {
+       const id = notification.id.trim();
+       if (seenNotificationIds.has(id)) return false;
+       seenNotificationIds.add(id);
+       return true;
       })
     : [];
    const unreadCount = Number(data?.unreadCount);
