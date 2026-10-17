@@ -363,12 +363,14 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       if (response.status === 402) throw new Error(data?.message || t('premiumUndoRequired'));
       if (response.status === 404) throw new Error(t('undoUnavailable'));
       if (response.status === 409) throw new Error(t('undoMatchError'));
-      if (!response.ok || !data?.profile) throw new Error(t('undoActionError'));
-      setProfiles(current => [data.profile as ServerProfile, ...current.filter(item => item.id !== data.profile.id)]);
-      if (data.type === 'like') setLikedIds(current => current.filter(id => id !== data.profile.id));
+      if (!response.ok) throw new Error(t('undoActionError'));
+      const restoredProfile = normalizeServerProfile(data?.profile);
+      if (!restoredProfile) throw new Error(t('undoActionError'));
+      setProfiles(current => [restoredProfile, ...current.filter(item => item.id !== restoredProfile.id)]);
+      if (data.type === 'like') setLikedIds(current => current.filter(id => id !== restoredProfile.id));
       if (lastAction) setActionHistory(current => current.slice(0, -1));
       setNotice(data.type === 'like'
-        ? t('undoLikeSuccess').replace('{name}', data.profile.displayName)
+        ? t('undoLikeSuccess').replace('{name}', restoredProfile.displayName)
         : t('undoPassSuccess'));
     } catch (error) {
       if (actionEpoch === sessionEpoch.current) setNotice(error instanceof Error ? error.message : t('undoActionError'));
