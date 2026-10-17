@@ -365,7 +365,9 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       if (response.status === 409) throw new Error(t('undoMatchError'));
       if (!response.ok) throw new Error(t('undoActionError'));
       const restoredProfile = normalizeServerProfile(data?.profile);
-      if (!restoredProfile) throw new Error(t('undoActionError'));
+      if (!restoredProfile || (data.type !== 'like' && data.type !== 'pass')) {
+        throw new Error(t('undoActionError'));
+      }
       setProfiles(current => [restoredProfile, ...current.filter(item => item.id !== restoredProfile.id)]);
       if (data.type === 'like') setLikedIds(current => current.filter(id => id !== restoredProfile.id));
       if (lastAction) setActionHistory(current => current.slice(0, -1));
