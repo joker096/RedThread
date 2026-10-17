@@ -124,3 +124,28 @@ test('narrow phone viewport has no document-level horizontal overflow', async ({
     `document overflows at 320px: viewport=${dimensions.viewport}, document=${dimensions.document}, body=${dimensions.body}; elements=${JSON.stringify(dimensions.overflowing)}`
   ).toBeLessThanOrEqual(dimensions.viewport);
 });
+
+test('reduced-motion preference disables decorative motion', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/');
+
+  const styles = await page.evaluate(() => {
+    const probe = document.createElement('div');
+    probe.className = 'vow-profile-card vow-motion-button';
+    document.body.appendChild(probe);
+    const card = getComputedStyle(probe);
+    const button = getComputedStyle(probe);
+    return {
+      animationName: card.animationName,
+      animationDuration: card.animationDuration,
+      transitionDuration: button.transitionDuration,
+      reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches
+    };
+  });
+
+  expect(styles.reducedMotion).toBe(true);
+  expect(styles.animationName).toBe('none');
+  expect(styles.animationDuration.split(',').every(value => ['0s', '0.01ms'].includes(value.trim()))).toBe(true);
+  expect(styles.transitionDuration.split(',').every(value => ['0s', '0.01ms'].includes(value.trim()))).toBe(true);
+});
+
