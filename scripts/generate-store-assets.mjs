@@ -5,6 +5,9 @@ import sharp from 'sharp';
 const outputDir = path.resolve('store-assets/google-play');
 await mkdir(outputDir, { recursive: true });
 
+const iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="#0c0a09"/><circle cx="256" cy="256" r="178" fill="#991b1b"/><path d="M155 128c75 44 128 100 202 256" fill="none" stroke="#fecaca" stroke-width="24" stroke-linecap="round"/><path d="M357 128c-75 44-128 100-202 256" fill="none" stroke="#f43f5e" stroke-width="24" stroke-linecap="round"/><circle cx="256" cy="256" r="25" fill="#fff1f2"/></svg>';
+await sharp(Buffer.from(iconSvg)).png().toFile(path.join(outputDir, 'app-icon-512.png'));
+
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="500" viewBox="0 0 1024 500">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#160f1a"/><stop offset="55%" stop-color="#321522"/><stop offset="100%" stop-color="#671c32"/></linearGradient>
@@ -28,4 +31,4 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="500" v
 
 await writeFile(path.join(outputDir, 'feature-graphic.svg'), svg, 'utf8');
 await sharp(Buffer.from(svg)).flatten({ background: '#160f1a' }).png().toFile(path.join(outputDir, 'feature-graphic.png'));
-console.log('Generated store-assets/google-play/feature-graphic.png (1024x500)');
+console.log('Generated app-icon-512.png (512x512) and feature-graphic.png (1024x500)');
