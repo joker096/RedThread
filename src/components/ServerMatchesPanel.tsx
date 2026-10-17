@@ -119,13 +119,11 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       if (!response.ok) throw new Error(t('loadMatchesError'));
       const data = await response.json().catch(() => null);
       if (requestId !== matchesRequestId.current) return;
-      if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      if (!data || typeof data !== 'object' || Array.isArray(data) || !Array.isArray(data.matches)) {
         throw new Error(t('loadMatchesError'));
       }
       const nextMatches = deduplicateById(
-        Array.isArray(data?.matches)
-          ? data.matches.slice(-500).map(normalizeServerMatch).filter((match): match is ServerMatch => match !== null)
-          : []
+        data.matches.slice(-500).map(normalizeServerMatch).filter((match): match is ServerMatch => match !== null)
       );
       setMatches(nextMatches);
       setAuthenticated(true);
