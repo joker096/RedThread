@@ -40,6 +40,10 @@ jobs:
             echo "Store assets are unchanged; no commit needed."
           else
             git commit -m "docs: add generated Google Play preview assets"
+            # Another workflow or developer commit may update the PR branch while
+            # screenshots are being generated. Rebase this asset-only commit onto
+            # the latest branch before pushing to avoid a non-fast-forward failure.
+            git pull --rebase origin "${{ github.event.pull_request.head.ref }}"
             git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
           fi
       - name: Upload Play Store screenshots
