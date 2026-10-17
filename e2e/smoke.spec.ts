@@ -42,6 +42,44 @@ test('real match inbox refreshes when the app window regains focus', async ({ pa
   await expect.poll(() => matchRequests).toBeGreaterThan(initialRequests);
 });
 
+test('expired session clears the match inbox instead of leaving stale chats visible', async ({ page }) => {
+  let matchRequests = 0;
+  await page.route('**/api/matches', async route => {
+    matchRequests += 1;
+    if (matchRequests === 1) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          matches: [{
+            id: 'e2e-match-id',
+            partnerId: 'e2e-partner-id',
+            displayName: 'Тестовый матч',
+            age: 29,
+            country: 'Грузия',
+            city: 'Тбилиси',
+            lastMessage: 'Привет!',
+            lastMessageAt: new Date().toISOString()
+          }]
+        })
+      });
+      return;
+    }
+    await route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'unauthorized' }) });
+  });
+
+  await page.goto('/');
+  const chatsButton = page.locator('[data-testid="nav-chats"]:visible').first();
+  await expect(chatsButton).toBeVisible();
+  await chatsButton.click();
+  await expect(page.getByTestId('server-match-item')).toContainText('Тестовый матч');
+
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect.poll(() => matchRequests).toBeGreaterThan(1);
+  await expect(page.getByText(/log in to see your matches|войдите, чтобы увидеть совпадения/i)).toBeVisible();
+  await expect(page.getByTestId('server-match-item')).toHaveCount(0);
+});
+
 test('demo conversations stay hidden until explicitly opened', async ({ page }) => {
   await page.goto('/');
   // Use a stable test id so the test does not depend on locale-specific labels.
