@@ -57,6 +57,7 @@ type MessageKey = keyof typeof messages.en;
 const messages = {
   en: {
     brandTagline: 'Vow — serious relationships', unreadChats: 'unread chats', vipLabel: 'VIP', ladyVipLabel: 'Lady VIP',
+    voiceIntroLabel: 'Voice intro ({seconds} sec)', profileQuestionCount: 'Profile question ({current}/{total})', profileResonance: 'Resonance',
     compatibility: 'Compatibility', partialTranslationHelp: 'Some interface text may appear in English until translation is complete',
     searchSetupError: 'Could not search profiles. Check server configuration and migrations.',
     noProfilesForFilters: 'No matching profiles yet. Try changing filters.',
@@ -338,6 +339,7 @@ const messages = {
   },
   ru: {
     brandTagline: 'Vow — серьёзные отношения', unreadChats: 'непрочитанных чатов', vipLabel: 'VIP', ladyVipLabel: 'Lady VIP',
+    voiceIntroLabel: 'Голосовое приветствие ({seconds} с)', profileQuestionCount: 'Вопрос профиля ({current}/{total})', profileResonance: 'Резонанс',
     compatibility: 'Совместимость', partialTranslationHelp: 'Пока перевод не завершён, часть интерфейса может отображаться на английском языке',
     searchSetupError: 'Не удалось выполнить поиск. Проверьте настройки сервера и применённые миграции.',
     noProfilesForFilters: 'Подходящих анкет пока нет. Попробуйте изменить фильтры.',
