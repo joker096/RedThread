@@ -3209,3 +3209,71 @@ main article[class*="rounded-2xl"][class*="border"] {
   }
 }
 
+/* Discovery filter drawer: clear contrast and selection states in light mode. */
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] {
+  background: linear-gradient(155deg, #fff 0%, #fff8fb 100%) !important;
+  border-color: rgb(190 18 60 / 20%) !important;
+  color: #40333a;
+  box-shadow: 0 24px 70px rgb(57 24 39 / 22%);
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] :where(.text-white, .text-stone-100, .text-stone-200) {
+  color: #40333a !important;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] :where(.text-stone-300, .text-stone-400, .text-stone-500) {
+  color: #786770 !important;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] :where(input:not([type="range"]), select, textarea) {
+  color: #352b31 !important;
+  background-color: #fff !important;
+  border-color: rgb(91 55 69 / 18%) !important;
+  color-scheme: light;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] :where(input)::placeholder {
+  color: #8a7881 !important;
+  opacity: 1;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] :where(.bg-stone-950, .bg-stone-950\/50, .bg-stone-950\/40, .bg-stone-800) {
+  background-color: #f6f1f4 !important;
+  border-color: rgb(91 55 69 / 14%) !important;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] [aria-pressed="true"] {
+  background-color: #fff0f4 !important;
+  border-color: #be123c !important;
+  color: #881337 !important;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] [aria-pressed="false"] {
+  background-color: #fff !important;
+  border-color: rgb(91 55 69 / 15%) !important;
+  color: #594650 !important;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] [role="switch"] {
+  border: 1px solid rgb(91 55 69 / 18%);
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] :where(button, input, select, textarea):focus-visible {
+  outline: 2px solid #9f1239 !important;
+  outline-offset: 3px;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] button:disabled {
+  opacity: .55;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] input[type="range"] {
+  accent-color: #be123c;
+}
+
+@media (max-width: 420px) {
+  :root[data-theme="light"] .vow-filter-backdrop [role="dialog"] {
+    padding: 0.875rem !important;
+  }
+}
+
