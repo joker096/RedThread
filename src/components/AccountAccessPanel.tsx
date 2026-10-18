@@ -16,12 +16,12 @@ type AccountAccessPanelProps = { onAuthenticated: () => void };
 const isAccountUser = (value: unknown): value is AccountUser => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const candidate = value as Record<string, unknown>;
-  return typeof candidate.id === 'string' && candidate.id.trim().length > 0
-    && typeof candidate.email === 'string' && candidate.email.trim().length > 0
-    && typeof candidate.displayName === 'string' && candidate.displayName.trim().length > 0
+  return typeof candidate.id === 'string' && candidate.id.trim().length > 0 && candidate.id.trim().length <= 256
+    && typeof candidate.email === 'string' && candidate.email.trim().length > 0 && candidate.email.trim().length <= 254
+    && typeof candidate.displayName === 'string' && candidate.displayName.trim().length > 0 && candidate.displayName.trim().length <= 100
     && (candidate.gender === 'female' || candidate.gender === 'male')
-    && typeof candidate.country === 'string'
-    && typeof candidate.city === 'string'
+    && typeof candidate.country === 'string' && candidate.country.trim().length <= 100
+    && typeof candidate.city === 'string' && candidate.city.trim().length <= 100
     && (candidate.relationshipIntent === 'marriage_family'
       || candidate.relationshipIntent === 'serious_relationship'
       || candidate.relationshipIntent === 'family_without_marriage');
