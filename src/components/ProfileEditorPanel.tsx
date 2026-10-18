@@ -116,15 +116,20 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       if (blocksResponse.ok) {
         const blockData = await blocksResponse.json();
         if (requestId !== profileLoadRequestId.current) return;
+        const seenBlockedIds = new Set<string>();
         const safeBlocks = Array.isArray(blockData?.blocks)
           ? blockData.blocks.filter((block: unknown): block is BlockedProfile => {
               if (!block || typeof block !== 'object' || Array.isArray(block)) return false;
               const value = block as Partial<BlockedProfile>;
-              return typeof value.id === 'string' && value.id.trim().length > 0 && value.id.trim().length <= 256 &&
-                typeof value.displayName === 'string' && value.displayName.trim().length > 0 && value.displayName.trim().length <= 100 &&
-                typeof value.createdAt === 'string' && value.createdAt.trim().length > 0 && value.createdAt.length <= 100 &&
-                Number.isFinite(Date.parse(value.createdAt.trim()));
-            })
+              if (typeof value.id !== 'string' || !value.id.trim() || value.id.trim().length > 256 ||
+                  typeof value.displayName !== 'string' || !value.displayName.trim() || value.displayName.trim().length > 100 ||
+                  typeof value.createdAt !== 'string' || !value.createdAt.trim() || value.createdAt.length > 100 ||
+                  !Number.isFinite(Date.parse(value.createdAt.trim()))) return false;
+              const id = value.id.trim();
+              if (seenBlockedIds.has(id)) return false;
+              seenBlockedIds.add(id);
+              return true;
+            }).slice(0, 200)
           : [];
         setBlockedProfiles(safeBlocks.map((block: BlockedProfile) => ({
           id: block.id.trim(),
