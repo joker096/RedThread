@@ -1428,3 +1428,18 @@ main article[class*="rounded-2xl"][class*="border"] {
     padding-inline: 2rem;
   }
 }
+
+
+/* Keep white labels on saturated action buttons after light-mode text normalization. */
+:root[data-theme="light"] main button[class*="bg-emerald-"],
+:root[data-theme="light"] main button[class*="bg-amber-"],
+:root[data-theme="light"] main button[class*="bg-rose-"],
+:root[data-theme="light"] main button[class*="bg-red-"],
+:root[data-theme="light"] main button[class*="bg-blue-"],
+:root[data-theme="light"] .vow-screen button[class*="bg-emerald-"],
+:root[data-theme="light"] .vow-screen button[class*="bg-amber-"],
+:root[data-theme="light"] .vow-screen button[class*="bg-rose-"],
+:root[data-theme="light"] .vow-screen button[class*="bg-red-"],
+:root[data-theme="light"] .vow-screen button[class*="bg-blue-"] {
+  color: #fff !important;
+}
