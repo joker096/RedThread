@@ -437,7 +437,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reportedUserId: profile.id, category: reportCategory, details: reportDetails.trim() })
+        body: JSON.stringify({ reportedUserId: profile.id, category: reportCategory, details: reportDetails.trim().slice(0, 2000) })
       });
       const data = await response.json().catch(() => null);
       if (actionEpoch !== sessionEpoch.current) return;
