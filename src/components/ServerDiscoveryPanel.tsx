@@ -81,6 +81,7 @@ const normalizeServerProfile = (value: unknown): ServerProfile | null => {
     languages: Array.isArray(profile.languages)
       ? Array.from(new Map(
           profile.languages
+            .slice(0, 100)
             .filter((language): language is string => typeof language === 'string')
             .map(language => language.trim().slice(0, 50))
             .filter(Boolean)
