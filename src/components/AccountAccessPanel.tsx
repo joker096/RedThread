@@ -59,10 +59,14 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
   useEffect(() => {
     let cancelled = false;
     const initialSessionActionId = sessionActionIdRef.current;
+    const initialAuxiliaryRequestId = auxiliaryRequestIdRef.current;
     fetch('/api/auth/me', { credentials: 'include' })
       .then(async response => response.ok ? response.json() : null)
       .then(async data => {
-        if (!cancelled && initialSessionActionId === sessionActionIdRef.current && data?.user) {
+        if (!cancelled
+          && initialSessionActionId === sessionActionIdRef.current
+          && initialAuxiliaryRequestId === auxiliaryRequestIdRef.current
+          && data?.user) {
           if (!isAccountUser(data.user)) {
             setMessage(t('authRequestFailed'));
             return;
@@ -75,7 +79,9 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
           setUser(data.user);
           window.dispatchEvent(new Event('vow:session-changed'));
           const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
-          if (!cancelled && initialSessionActionId === sessionActionIdRef.current) setBillingStatus(billing);
+          if (!cancelled
+            && initialSessionActionId === sessionActionIdRef.current
+            && initialAuxiliaryRequestId === auxiliaryRequestIdRef.current) setBillingStatus(billing);
         }
       })
       .catch(() => {});
@@ -88,12 +94,12 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         body: JSON.stringify({ token: verificationToken })
       }).then(async response => {
         const data = await response.json().catch(() => null);
-        if (cancelled) return;
+        if (cancelled || initialAuxiliaryRequestId !== auxiliaryRequestIdRef.current) return;
         if (!response.ok) throw new Error(t('authVerificationLinkInvalid'));
         setMessage(t('authEmailVerified'));
         setMode('login');
       }).catch(error => {
-        if (cancelled) return;
+        if (cancelled || initialAuxiliaryRequestId !== auxiliaryRequestIdRef.current) return;
         setMessage(error instanceof Error ? error.message : t('authVerificationFailed'));
       });
       params.delete('verifyEmail');
