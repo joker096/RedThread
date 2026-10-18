@@ -3876,3 +3876,27 @@ main article[class*="rounded-2xl"][class*="border"] {
     padding-inline: .5rem;
   }
 }
+
+
+/* Discovery empty state: make the next step clear in light mode without changing its behavior. */
+:root[data-theme="light"] .vow-discovery-empty-state {
+  color: #40333a;
+}
+
+:root[data-theme="light"] .vow-discovery-empty-state :where(.text-white, .text-stone-100, .text-stone-200, .text-stone-300) {
+  color: #40333a !important;
+}
+
+:root[data-theme="light"] .vow-discovery-empty-state :where(.text-stone-400, .text-stone-500, .text-stone-600) {
+  color: #786770 !important;
+}
+
+:root[data-theme="light"] .vow-discovery-empty-state .bg-rose-950\/60 {
+  background-color: #fff0f4 !important;
+  border-color: rgb(190 18 60 / 20%) !important;
+}
+
+:root[data-theme="light"] .vow-discovery-empty-state :where(button):focus-visible {
+  outline: 2px solid #9f1239 !important;
+  outline-offset: 3px;
+}
