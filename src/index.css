@@ -2608,3 +2608,135 @@ main article[class*="rounded-2xl"][class*="border"] {
   }
 }
 
+/* Partner marketplace: distinguish demo listings, verification notes, and provider form in light mode. */
+:root[data-theme="light"] .vow-modal-backdrop[aria-labelledby="partner-services-title"] {
+  background-color: rgb(43 20 31 / 78%) !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop[aria-labelledby="partner-services-title"] > div {
+  background-color: #fff !important;
+  color: #342832;
+  border-color: rgb(190 18 60 / 20%) !important;
+  box-shadow: 0 28px 90px rgb(35 13 24 / 28%);
+}
+
+:root[data-theme="light"] .vow-modal-backdrop[aria-labelledby="partner-services-title"] > div > :first-child {
+  background-image: linear-gradient(110deg, #fff0f4, #fff9fa 72%) !important;
+  border-color: rgb(91 55 69 / 13%) !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop[aria-labelledby="partner-services-title"] :where(.text-white, .text-stone-100, .text-stone-200) {
+  color: #40333a !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop[aria-labelledby="partner-services-title"] :where(.text-stone-300) {
+  color: #62535a !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop[aria-labelledby="partner-services-title"] :where(.text-stone-400, .text-stone-500) {
+  color: #786770 !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop[aria-labelledby="partner-services-title"] :where(.bg-stone-950, .bg-stone-950\/70, .bg-stone-950\/60, .bg-stone-900) {
+  background-color: #fff7f9 !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop[aria-labelledby="partner-services-title"] :where(.border-white\/10, .border-white\/5) {
+  border-color: rgb(91 55 69 / 13%) !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop[aria-labelledby="partner-services-title"] article {
+  background-image: linear-gradient(155deg, #fff 0%, #fffafb 100%);
+  border-color: rgb(91 55 69 / 15%) !important;
+  box-shadow: 0 5px 18px rgb(57 24 39 / 4%);
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop[aria-labelledby="partner-services-title"] article:hover {
+  border-color: rgb(190 18 60 / 30%) !important;
+  box-shadow: 0 10px 28px rgb(57 24 39 / 8%);
+}
+
+:root[data-theme="light"] .vow-modal-backdrop[aria-labelledby="partner-services-title"] :where(.text-rose-200, .text-rose-300) {
+  color: #a51643 !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop[aria-labelledby="partner-services-title"] :where(.text-amber-200) {
+  color: #85500b !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop[aria-labelledby="partner-services-title"] :where(.bg-amber-950\/40, .bg-amber-950\/20) {
+  background-color: #fff5df !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop[aria-labelledby="partner-services-title"] :where(.bg-emerald-950\/30) {
+  background-color: #edf9f1 !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop[aria-labelledby="partner-services-title"] :where(.text-emerald-100, .text-emerald-200) {
+  color: #17633f !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop[aria-labelledby="partner-services-title"] :where(input, select, textarea) {
+  background-color: #fff !important;
+  color: #342832 !important;
+  border-color: rgb(91 55 69 / 20%) !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop[aria-labelledby="partner-services-title"] :where(input, select, textarea)::placeholder {
+  color: #9b8a92 !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop[aria-labelledby="partner-services-title"] :where(button):focus-visible,
+:root[data-theme="light"] .vow-modal-backdrop[aria-labelledby="partner-services-title"] :where(input, select, textarea):focus-visible {
+  outline: 2px solid #be123c !important;
+  outline-offset: 3px;
+}
+
+/* Ad manager: retain the gold reward hierarchy without low-contrast dark-theme text. */
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"][aria-labelledby="ad-manager-title"] {
+  background-color: #fff !important;
+  color: #342832;
+  border-color: rgb(180 83 9 / 28%) !important;
+  box-shadow: 0 24px 80px rgb(57 24 39 / 22%);
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"][aria-labelledby="ad-manager-title"] :where(.text-white, .text-stone-200, .text-stone-300) {
+  color: #40333a !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"][aria-labelledby="ad-manager-title"] :where(.text-stone-400, .text-stone-500) {
+  color: #786770 !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"][aria-labelledby="ad-manager-title"] :where(.bg-stone-950, .bg-stone-900, .bg-stone-800) {
+  background-color: #fff8ed !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"][aria-labelledby="ad-manager-title"] :where(.border-white\/5, .border-white\/10) {
+  border-color: rgb(91 55 69 / 13%) !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"][aria-labelledby="ad-manager-title"] :where(.text-amber-200, .text-amber-300, .text-amber-400) {
+  color: #89500a !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"][aria-labelledby="ad-manager-title"] :where(.text-rose-300, .text-rose-400) {
+  color: #a51643 !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"][aria-labelledby="ad-manager-title"] :where(.text-emerald-300, .text-emerald-400) {
+  color: #16734b !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"][aria-labelledby="ad-manager-title"] :where(button):focus-visible {
+  outline: 2px solid #a16207;
+  outline-offset: 3px;
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  :root[data-theme="light"] .vow-modal-backdrop[aria-labelledby="partner-services-title"] article:hover {
+    transform: translateY(-2px);
+  }
+}
+
