@@ -3821,3 +3821,58 @@ main article[class*="rounded-2xl"][class*="border"] {
   opacity: .55;
 }
 
+
+
+/* Global app header: retain the ruby identity while making controls readable in light mode. */
+:root[data-theme="light"] .vow-app-header {
+  color: #40333a;
+  background-color: rgb(255 250 251 / 94%) !important;
+  border-color: rgb(91 55 69 / 14%) !important;
+  box-shadow: 0 8px 28px rgb(57 24 39 / 5%);
+}
+
+:root[data-theme="light"] .vow-app-header nav {
+  background-color: #f7eff2 !important;
+  border-color: rgb(91 55 69 / 14%) !important;
+}
+
+:root[data-theme="light"] .vow-app-header nav button:not([aria-current="page"]) {
+  color: #6f5b65 !important;
+}
+
+:root[data-theme="light"] .vow-app-header nav button:not([aria-current="page"]):hover {
+  color: #9f1239 !important;
+  background-color: #fff !important;
+}
+
+:root[data-theme="light"] .vow-app-header :where(button, select) {
+  border-color: rgb(91 55 69 / 18%);
+}
+
+:root[data-theme="light"] .vow-app-header :where(select) {
+  color: #40333a !important;
+  background-color: #fff !important;
+  color-scheme: light;
+}
+
+:root[data-theme="light"] .vow-app-header :where(button.bg-stone-900) {
+  color: #51404a !important;
+  background-color: #fff !important;
+}
+
+:root[data-theme="light"] .vow-app-header :where(button):focus-visible,
+:root[data-theme="light"] .vow-app-header :where(select):focus-visible {
+  outline: 2px solid #9f1239 !important;
+  outline-offset: 3px;
+}
+
+:root[data-theme="light"] .vow-app-header :where(option) {
+  color: #40333a;
+  background-color: #fff;
+}
+
+@media (max-width: 420px) {
+  :root[data-theme="light"] .vow-app-header {
+    padding-inline: .5rem;
+  }
+}
