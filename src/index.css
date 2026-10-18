@@ -3540,3 +3540,57 @@ main article[class*="rounded-2xl"][class*="border"] {
   }
 }
 
+/* Ad manager: distinguish campaign metrics, rewarded-ad status and actions in light mode. */
+:root[data-theme="light"] .vow-ad-manager-modal {
+  background: linear-gradient(150deg, #fff 0%, #fffbeb 100%) !important;
+  border-color: rgb(180 83 9 / 22%) !important;
+  box-shadow: 0 24px 72px rgb(57 24 39 / 24%);
+  color: #40333a;
+}
+
+:root[data-theme="light"] .vow-ad-manager-modal :where(.text-white, .text-stone-100, .text-stone-200) {
+  color: #40333a !important;
+}
+
+:root[data-theme="light"] .vow-ad-manager-modal :where(.text-stone-300, .text-stone-400, .text-stone-500) {
+  color: #786770 !important;
+}
+
+:root[data-theme="light"] .vow-ad-manager-modal :where(.bg-stone-950, .bg-stone-950\/60, .bg-stone-950\/40, .bg-stone-800, .bg-stone-900) {
+  background-color: #f8f5f0 !important;
+  border-color: rgb(91 55 69 / 14%) !important;
+}
+
+:root[data-theme="light"] .vow-ad-manager-modal :where(.text-amber-200, .text-amber-300, .text-amber-400) {
+  color: #92400e !important;
+}
+
+:root[data-theme="light"] .vow-ad-manager-modal :where(.bg-amber-950\/50, .bg-amber-950\/30, .bg-amber-950\/20) {
+  background-color: #fff4d6 !important;
+  border-color: rgb(180 83 9 / 18%) !important;
+}
+
+:root[data-theme="light"] .vow-ad-manager-modal :where(.text-rose-200, .text-rose-300, .text-rose-400) {
+  color: #9f1239 !important;
+}
+
+:root[data-theme="light"] .vow-ad-manager-modal :where(.text-emerald-200, .text-emerald-300, .text-emerald-400) {
+  color: #047857 !important;
+}
+
+:root[data-theme="light"] .vow-ad-manager-modal :where(button):focus-visible {
+  outline: 2px solid #92400e !important;
+  outline-offset: 3px;
+}
+
+:root[data-theme="light"] .vow-ad-manager-modal :where(button):disabled {
+  opacity: .55;
+}
+
+@media (max-width: 420px) {
+  :root[data-theme="light"] .vow-ad-manager-modal {
+    padding: 1rem !important;
+    border-radius: 1.25rem !important;
+  }
+}
+
