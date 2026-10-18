@@ -33,11 +33,13 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
 }) => {
   const [chemistryStep, setChemistryStep] = useState<number>(0);
   const [chemistryScoreBonus, setChemistryScoreBonus] = useState<number>(0);
+  const [chemistryMatches, setChemistryMatches] = useState<number>(0);
   const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setChemistryStep(0);
     setChemistryScoreBonus(0);
+    setChemistryMatches(0);
   }, [isOpen, profile?.id]);
 
   useEffect(() => {
@@ -117,6 +119,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
 
   const handleBlitzAnswer = (isMatch: boolean) => {
     if (isMatch) {
+      setChemistryMatches(prev => prev + 1);
       setChemistryScoreBonus(prev => Math.min(5, prev + 2));
     }
     setChemistryStep(prev => prev + 1);
@@ -315,8 +318,8 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
             </div>
           ) : (
             <div className="p-2.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-200 flex items-center justify-between">
-              <span>Ответы совпали по этому мини-тесту. Это ориентир для разговора, а не научный прогноз отношений.</span>
-              <span className="text-[10px] font-bold text-white bg-rose-600 px-2 py-0.5 rounded-full">Ответы совпали</span>
+              <span>{chemistryMatches === blitzQuestions.length ? 'Все три ответа совпали. Это ориентир для разговора, а не научный прогноз отношений.' : `Совпало ответов: ${chemistryMatches} из ${blitzQuestions.length}. Обсудите различия спокойно — это не научный прогноз отношений.`}</span>
+              <span className="text-[10px] font-bold text-white bg-rose-600 px-2 py-0.5 rounded-full">{chemistryMatches}/{blitzQuestions.length}</span>
             </div>
           )}
         </div>
