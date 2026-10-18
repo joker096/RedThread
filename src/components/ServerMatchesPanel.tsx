@@ -136,6 +136,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       if (selected && !nextMatches.some(match => match.id === selected)) {
         // Invalidate any in-flight message request for a match that is no longer available.
         messageRequestId.current += 1;
+        setMessagesLoading(false);
         setSelected('');
         setMessages([]);
       }
