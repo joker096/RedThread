@@ -295,7 +295,8 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     if (!selected || messagesLoading || !shouldAutoScrollMessagesRef.current) return;
     const log = messagesLogRef.current;
     if (!log) return;
-    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const reduceMotion = typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     log.scrollTo({ top: log.scrollHeight, behavior: reduceMotion ? 'auto' : 'smooth' });
   }, [selected, messages, messagesLoading]);
 
