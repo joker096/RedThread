@@ -32,7 +32,13 @@ const isSafeProfilePhotoUrl = (value: unknown): value is string => {
   const url = value.trim();
   if (url.length > 2048 || /[\u0000-\u001F\u007F]/.test(url) || url.includes('\\')) return false;
   if (url.startsWith('/') && !url.startsWith('//')) return true;
-  return /^https?:\/\//i.test(url);
+  if (!/^https?:\/\//i.test(url)) return false;
+  try {
+    const parsed = new URL(url);
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && Boolean(parsed.hostname);
+  } catch {
+    return false;
+  }
 };
 
 const normalizeServerProfile = (value: unknown): ServerProfile | null => {
