@@ -190,12 +190,12 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       const photos = [...new Set(photoUrls.split(/\n|,/).map(value => value.trim()).filter(Boolean))]
         .filter(value => value.length <= 2048 && !/[\u0000-\u001F\u007F]/.test(value) && !value.includes('\\') && (/^https?:\/\//i.test(value) || /^\/(?!\/)/.test(value)))
         .slice(0, 6);
-      const languageList = [...new Set(languages.split(',').map(value => value.trim()).filter(Boolean))]
-        .join(', ')
-        .slice(0, 1000)
-        .split(',')
-        .map(value => value.trim())
-        .filter(Boolean);
+      const languageList = [...new Map(languages.split(',')
+        .slice(0, 100)
+        .filter(value => value.trim().length > 0)
+        .map(value => value.trim().slice(0, 50))
+        .filter(Boolean)
+        .map(value => [value.toLowerCase(), value] as const)).values()].slice(0, 20);
       const response = await fetch('/api/profiles/me', {
         method: 'PATCH',
         credentials: 'include',
