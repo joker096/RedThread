@@ -43,6 +43,8 @@ export const NotificationCenterPanel:React.FC=()=>{
        return true;
       }).map((notification: NotificationItem) => ({
        ...notification,
+       // Metadata is not rendered in this panel; don't retain arbitrary nested API payloads.
+       metadata: {},
        id: notification.id.trim(),
        createdAt: notification.createdAt.trim(),
        readAt: notification.readAt === null ? null : notification.readAt.trim()
