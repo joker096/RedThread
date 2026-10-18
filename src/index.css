@@ -3767,3 +3767,57 @@ main article[class*="rounded-2xl"][class*="border"] {
   }
 }
 
+/* Account access: make sign-in, registration and account settings consistent in light mode. */
+:root[data-theme="light"] .vow-account-access-panel {
+  color: #40333a;
+  background: linear-gradient(150deg, #fff 0%, #fff7f8 100%) !important;
+  border-color: rgb(190 18 60 / 18%) !important;
+}
+
+:root[data-theme="light"] .vow-account-access-panel :where(.text-white, .text-stone-100, .text-stone-200) {
+  color: #40333a !important;
+}
+
+:root[data-theme="light"] .vow-account-access-panel :where(.text-stone-300, .text-stone-400, .text-stone-500) {
+  color: #786770 !important;
+}
+
+:root[data-theme="light"] .vow-account-access-panel :where(.bg-stone-950, .bg-stone-950\/60, .bg-stone-800, .bg-stone-900) {
+  background-color: #f8f3f5 !important;
+  border-color: rgb(91 55 69 / 14%) !important;
+}
+
+:root[data-theme="light"] .vow-account-access-panel :where(input, select, textarea) {
+  color: #352b31 !important;
+  background-color: #fff !important;
+  border-color: rgb(91 55 69 / 20%) !important;
+  color-scheme: light;
+}
+
+:root[data-theme="light"] .vow-account-access-panel :where(input, select, textarea)::placeholder {
+  color: #8a7881 !important;
+  opacity: 1;
+}
+
+:root[data-theme="light"] .vow-account-access-panel :where(.text-rose-200, .text-rose-300, .text-rose-400) {
+  color: #9f1239 !important;
+}
+
+:root[data-theme="light"] .vow-account-access-panel :where(.text-amber-200, .text-amber-300, .text-amber-400) {
+  color: #92400e !important;
+}
+
+:root[data-theme="light"] .vow-account-access-panel :where(.bg-rose-950, .bg-rose-950\/70, .bg-rose-950\/50, .bg-rose-950\/30) {
+  background-color: #fff0f4 !important;
+  border-color: rgb(190 18 60 / 18%) !important;
+}
+
+:root[data-theme="light"] .vow-account-access-panel :where(button, input, select, textarea):focus-visible {
+  outline: 2px solid #9f1239 !important;
+  outline-offset: 3px;
+}
+
+:root[data-theme="light"] .vow-account-access-panel :where(button):disabled {
+  opacity: .55;
+}
+
