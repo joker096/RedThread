@@ -63,10 +63,10 @@ const normalizeServerProfile = (value: unknown): ServerProfile | null => {
       : null;
 
   return {
-    ...profile,
     id: profile.id.trim(),
     displayName: profile.displayName.trim(),
     age: Math.floor(profile.age),
+    gender: profile.gender,
     country: typeof profile.country === 'string' ? profile.country.trim().slice(0, 100) : '',
     city: typeof profile.city === 'string' ? profile.city.trim().slice(0, 100) : '',
     bio: typeof profile.bio === 'string' ? profile.bio.trim().slice(0, 2000) : '',
