@@ -2006,3 +2006,137 @@ main article[class*="rounded-2xl"][class*="border"] {
     border-radius: 1.5rem !important;
   }
 }
+
+
+/* Navigation and conversation surfaces: a coherent light-mode shell, without changing routes or actions. */
+:root[data-theme="light"] .vow-app-header {
+  background: rgb(255 253 253 / 94%) !important;
+  border-bottom-color: rgb(91 55 69 / 10%) !important;
+  box-shadow: 0 8px 28px -25px rgb(64 30 42 / 35%);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+:root[data-theme="light"] .vow-app-header nav {
+  background: #f8f1f3 !important;
+  border-color: rgb(91 55 69 / 9%) !important;
+}
+
+:root[data-theme="light"] .vow-app-header nav button[aria-current="page"] {
+  background: #be123c !important;
+  color: #fff !important;
+  box-shadow: 0 4px 12px -6px rgb(159 18 57 / 60%);
+}
+
+:root[data-theme="light"] .vow-app-header nav button:not([aria-current="page"]) {
+  color: #75636b !important;
+}
+
+:root[data-theme="light"] .vow-app-header nav button:not([aria-current="page"]):hover {
+  background: #fff !important;
+  color: #9f1239 !important;
+}
+
+:root[data-theme="light"] .vow-app-header :where(button, select) {
+  border-color: rgb(91 55 69 / 13%) !important;
+}
+
+:root[data-theme="light"] .vow-app-header :where(select, button:not([aria-current="page"])) {
+  color: #55444c;
+}
+
+:root[data-theme="light"] .vow-app-header select {
+  background-color: #fff !important;
+}
+
+:root[data-theme="light"] .vow-app-header > div > div:first-child span {
+  color: #29232a;
+}
+
+:root[data-theme="light"] .vow-chat-layout {
+  background: #fff !important;
+  border: 1px solid rgb(91 55 69 / 11%) !important;
+  border-radius: 1.75rem !important;
+  box-shadow: 0 24px 72px -48px rgb(84 35 53 / 32%) !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout > div:first-child {
+  background: #fff9fa !important;
+  border-inline-end-color: rgb(91 55 69 / 10%) !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout > div:last-child {
+  background: #fff !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout :where(.border-white\/5, .border-white\/10) {
+  border-color: rgb(91 55 69 / 10%) !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout :where(.bg-stone-950\/60, .bg-stone-950\/40, .bg-stone-950\/80, .bg-stone-900\/90, .bg-stone-900) {
+  background-color: #fff8f9 !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout :where(.bg-stone-800) {
+  background-color: #f4e9ed !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout :where(.text-white, .text-stone-200, .text-stone-300) {
+  color: #44343c !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout :where(.text-stone-400, .text-stone-500) {
+  color: #82737a !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout [aria-pressed="true"] {
+  background: #fff0f3 !important;
+  border-color: rgb(190 24 93 / 20%) !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout [role="log"] > div > div.bg-gradient-to-br {
+  background: #fff0f3 !important;
+  border-color: rgb(190 24 93 / 12%) !important;
+  color: #7f1237 !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout [role="log"] > div > div.bg-gradient-to-br :where(.text-white, .text-stone-200, .text-stone-300) {
+  color: #7f1237 !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout [role="log"] > div > div.bg-stone-800 {
+  background: #f5eff1 !important;
+  border-color: rgb(91 55 69 / 8%) !important;
+  color: #392730 !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout :where(input, textarea, select) {
+  background: #fff !important;
+  border-color: rgb(91 55 69 / 15%) !important;
+  color: #29232a !important;
+  border-radius: 1rem !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout :where(input, textarea, select)::placeholder {
+  color: #a09299 !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout :where(button):focus-visible {
+  outline-color: #be123c !important;
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  :root[data-theme="light"] .vow-chat-layout {
+    border-radius: 1.4rem !important;
+  }
+
+  :root[data-theme="light"] .vow-chat-layout > div:first-child {
+    border-radius: 1.4rem 1.4rem 0 0;
+  }
+
+  :root[data-theme="light"] .vow-chat-layout :where(button) {
+    min-height: 2.75rem;
+  }
+}
