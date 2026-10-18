@@ -35,6 +35,8 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
   const [chemistryScoreBonus, setChemistryScoreBonus] = useState<number>(0);
   const [chemistryMatches, setChemistryMatches] = useState<number>(0);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
 
   useEffect(() => {
     setChemistryStep(0);
@@ -56,7 +58,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== 'Tab') return;
@@ -82,7 +84,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
       document.removeEventListener('keydown', handleKeyDown);
       previouslyFocused?.focus();
     };
-  }, [isOpen, profile, onClose]);
+  }, [isOpen, profile?.id]);
 
   if (!isOpen || !profile) return null;
 
