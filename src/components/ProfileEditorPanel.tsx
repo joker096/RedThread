@@ -88,7 +88,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
               .filter((value: unknown): value is string => typeof value === 'string' && value.trim().length > 0)
               .map((value: string) => value.trim().slice(0, 50))
               .filter(Boolean)
-              .map((value: string) => [value.toLocaleLowerCase(), value] as const)).values()].slice(0, 20)
+              .map((value: string) => [value.toLowerCase(), value] as const)).values()].slice(0, 20)
           : []
       } as Profile;
       setProfile(p);
@@ -255,7 +255,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
               .filter((value: unknown): value is string => typeof value === 'string' && value.trim().length > 0)
               .map((value: string) => value.trim().slice(0, 50))
               .filter(Boolean)
-              .map((value: string) => [value.toLocaleLowerCase(), value] as const)).values()].slice(0, 20)
+              .map((value: string) => [value.toLowerCase(), value] as const)).values()].slice(0, 20)
           : []
       } as Profile);
       setNotice(t('profileSaved'));
