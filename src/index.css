@@ -2382,3 +2382,71 @@ main article[class*="rounded-2xl"][class*="border"] {
   background-color: #edf9f1 !important;
 }
 
+/* Account access and moderation: keep safety-critical actions clear in light theme. */
+:root[data-theme="light"] .vow-screen[aria-busy] {
+  color: #342832;
+}
+
+:root[data-theme="light"] .vow-screen[aria-busy] :where(.text-white, .text-stone-200, .text-stone-300) {
+  color: #40333a;
+}
+
+:root[data-theme="light"] .vow-screen[aria-busy] :where(.bg-stone-950, .bg-stone-950\/60, .bg-stone-900\/90, .bg-stone-900\/80) {
+  background-color: #fff !important;
+}
+
+:root[data-theme="light"] .vow-screen[aria-busy] :where(.border-white\/10, .border-white\/5) {
+  border-color: rgb(91 55 69 / 14%) !important;
+}
+
+:root[data-theme="light"] .vow-screen[aria-busy] :where(.text-stone-400, .text-stone-500) {
+  color: #786770;
+}
+
+:root[data-theme="light"] .vow-screen[aria-busy] :where(.text-rose-300, .text-rose-200, .text-rose-100) {
+  color: #a51643;
+}
+
+:root[data-theme="light"] .vow-screen[aria-busy] :where(.text-violet-300) {
+  color: #6d3aa5;
+}
+
+:root[data-theme="light"] .vow-screen[aria-busy] :where(.bg-emerald-800) {
+  background-color: #16734b;
+  color: #fff;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"] {
+  background-color: #fff !important;
+  color: #342832;
+  border-color: rgb(91 55 69 / 18%) !important;
+  box-shadow: 0 24px 80px rgb(57 24 39 / 24%);
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"] :where(.text-white, .text-stone-200, .text-stone-300) {
+  color: #40333a;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"] :where(.bg-stone-950, .bg-stone-900, .bg-stone-800) {
+  background-color: #fff6f8 !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"] :where(.border-white\/10) {
+  border-color: rgb(91 55 69 / 15%) !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"] :where(.text-stone-400, .text-stone-500) {
+  color: #786770;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"] :where(select, textarea, input:not([type="checkbox"])) {
+  color: #342832 !important;
+  background-color: #fff !important;
+  border-color: rgb(91 55 69 / 18%) !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"] :where(button):focus-visible {
+  outline: 2px solid #be123c;
+  outline-offset: 3px;
+}
+
