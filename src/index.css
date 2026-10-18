@@ -1358,3 +1358,73 @@ main article[class*="rounded-2xl"][class*="border"] {
     animation: none;
   }
 }
+
+
+/* Editorial typography and consistent light-mode surfaces across every feature screen. */
+:root[data-theme="light"] h1,
+:root[data-theme="light"] h2,
+:root[data-theme="light"] h3,
+:root[data-theme="light"] .font-heading {
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif !important;
+  letter-spacing: -.035em;
+}
+
+:root[data-theme="light"] main > * {
+  width: 100%;
+  min-width: 0;
+}
+
+:root[data-theme="light"] main :where([class*="bg-stone-950"], [class*="bg-stone-900"]) {
+  background-color: #fff !important;
+}
+
+:root[data-theme="light"] main :where([class*="border-white/"], [class*="border-stone-"]) {
+  border-color: rgb(91 55 69 / 11%) !important;
+}
+
+:root[data-theme="light"] main :where(.text-white) {
+  color: #29232a !important;
+}
+
+:root[data-theme="light"] main :where(.text-stone-200, .text-stone-300) {
+  color: #51454b !important;
+}
+
+:root[data-theme="light"] main :where(.text-stone-400, .text-stone-500) {
+  color: #81737a !important;
+}
+
+:root[data-theme="light"] main :where(input, select, textarea) {
+  background-color: #fff !important;
+  color: #29232a !important;
+  border-color: rgb(91 55 69 / 16%) !important;
+}
+
+:root[data-theme="light"] main :where(button[class*="bg-rose-"], button[class*="bg-red-"]) {
+  color: #fff;
+}
+
+:root[data-theme="light"] .vow-app-header .font-heading {
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: -.055em;
+}
+
+:root[data-theme="light"] .vow-app-header > div > div:first-child > div:first-child {
+  box-shadow: 0 5px 14px -7px rgb(190 24 93 / 70%);
+}
+
+:root[data-theme="light"] .vow-app-header :where(button, select) {
+  border-radius: 999px;
+}
+
+:root[data-theme="light"] [role="status"].bg-amber-950\/70 {
+  margin-inline: auto;
+  padding-block: .65rem;
+}
+
+@media (min-width: 1024px) {
+  :root[data-theme="light"] main {
+    padding-inline: 2rem;
+  }
+}
