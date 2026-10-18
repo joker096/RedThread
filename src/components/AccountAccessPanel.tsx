@@ -112,6 +112,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
   }, []);
 
   const submit = async () => {
+    auxiliaryRequestIdRef.current += 1;
     let activeActionId = ++sessionActionIdRef.current;
     const submittedMode = mode;
     setBusy(true);
@@ -240,6 +241,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
     }
     const confirmed = window.confirm(t('authDeleteConfirm'));
     if (!confirmed) return;
+    auxiliaryRequestIdRef.current += 1;
     const actionId = ++sessionActionIdRef.current;
     setBusy(true);
     setDeleteNotice('');
@@ -275,6 +277,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
   };
 
   const logout = async () => {
+    auxiliaryRequestIdRef.current += 1;
     const actionId = ++sessionActionIdRef.current;
     setBusy(true);
     try {
