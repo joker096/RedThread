@@ -152,6 +152,8 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       setChildrenLivingArrangement('not_applicable');
       setIsVisible(true);
       setAuthenticated(null);
+      setBusy(false);
+      setUploadBusy(false);
       setBlockedProfiles([]);
       setNotice('');
       void load();
@@ -164,17 +166,22 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
   }, []);
 
   const unblock = async (id: string) => {
+    const requestId = profileLoadRequestId.current;
     try {
       const response = await fetch(`/api/blocks/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'include' });
+      if (requestId !== profileLoadRequestId.current) return;
       if (!response.ok) throw new Error(t('profileUnblockError'));
       setBlockedProfiles(current => current.filter(profile => profile.id !== id));
       setNotice(t('profileUnblocked'));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('profileUnblockError'));
+      if (requestId === profileLoadRequestId.current) {
+        setNotice(error instanceof Error ? error.message : t('profileUnblockError'));
+      }
     }
   };
 
   const save = async () => {
+    const requestId = profileLoadRequestId.current;
     setBusy(true);
     setNotice('');
     try {
@@ -197,6 +204,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
         })
       });
       const data = await response.json().catch(() => null);
+      if (requestId !== profileLoadRequestId.current) return;
       if (response.status === 401) { setAuthenticated(false); return; }
       if (!response.ok) {
         const errors: Record<string, string> = {
@@ -248,9 +256,11 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       } as Profile);
       setNotice(t('profileSaved'));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('profileSaveError'));
+      if (requestId === profileLoadRequestId.current) {
+        setNotice(error instanceof Error ? error.message : t('profileSaveError'));
+      }
     } finally {
-      setBusy(false);
+      if (requestId === profileLoadRequestId.current) setBusy(false);
     }
   };
 
@@ -279,10 +289,12 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
             <input type="file" accept="image/jpeg,image/png" disabled={uploadBusy || (photoUrls.split(/\n|,/).map(value => value.trim()).filter(Boolean).length >= 6)} onChange={async event => {
               const file=event.currentTarget.files?.[0]; event.currentTarget.value=''; if(!file)return;
               if(!['image/jpeg','image/png'].includes(file.type)||file.size>8*1024*1024){setNotice(t('profileInvalidPhotoFile'));return;}
+              const requestId = profileLoadRequestId.current;
               setUploadBusy(true);setNotice('');
               try {
                 const response=await fetch('/api/photos',{method:'POST',credentials:'include',headers:{'Content-Type':file.type},body:file});
                 const data=await response.json().catch(()=>null);
+                if (requestId !== profileLoadRequestId.current) return;
                 if(!response.ok) throw new Error(data?.error==='photo_limit_reached'?t('profilePhotoLimit'):data?.error==='photo_storage_not_configured'?t('profilePhotoStorageError'):data?.error==='photo_rejected_by_automated_review'?t('profilePhotoRejected'):t('profilePhotoUploadError'));
                 if (typeof data?.photoUrl !== 'string' || !(/^https?:\/\//i.test(data.photoUrl.trim()) || /^\/(?!\/)/.test(data.photoUrl.trim()))) throw new Error(t('profilePhotoUploadError'));
                 setPhotoUrls(current => {
@@ -292,8 +304,8 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
                   return [...existing, uploadedUrl].join('\n');
                 });
                 setNotice(data.reviewStatus==='approved'?t('profilePhotoApproved'): t('profilePhotoPending'));
-              } catch(error){setNotice(error instanceof Error?error.message:t('profilePhotoUploadError'));}
-              finally{setUploadBusy(false);}
+              } catch(error){if(requestId===profileLoadRequestId.current)setNotice(error instanceof Error?error.message:t('profilePhotoUploadError'));}
+              finally{if(requestId===profileLoadRequestId.current)setUploadBusy(false);}
             }} className="mt-2 block w-full text-sm text-stone-300 file:me-3 file:rounded-lg file:border-0 file:bg-rose-700 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white" />
           </label>
           <label className="block text-xs text-stone-300">{t('profileUploadedPhotos')}<textarea value={photoUrls} readOnly rows={3} placeholder={t('profilePhotosPlaceholder')} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white read-only:opacity-80" /></label>
