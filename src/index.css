@@ -1443,3 +1443,185 @@ main article[class*="rounded-2xl"][class*="border"] {
 :root[data-theme="light"] .vow-screen button[class*="bg-blue-"] {
   color: #fff !important;
 }
+
+
+/* Reference-inspired discovery cards: let photography lead, keep trust and compatibility legible. */
+:root[data-theme="light"] .vow-discovery-stage {
+  max-width: 29rem;
+  gap: .25rem;
+}
+
+:root[data-theme="light"] .vow-discovery-toolbar {
+  padding-inline: .35rem;
+  color: #74616a;
+}
+
+:root[data-theme="light"] .vow-discovery-toolbar .text-white {
+  color: #9f1239 !important;
+}
+
+:root[data-theme="light"] .vow-profile-photo {
+  height: clamp(20rem, 55vh, 32rem);
+  background: #f5e8eb;
+}
+
+:root[data-theme="light"] .vow-profile-photo > img {
+  object-fit: cover;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-photo .text-white,
+:root[data-theme="light"] .vow-profile-card .vow-profile-photo [class*="text-white"],
+:root[data-theme="light"] .vow-profile-card .vow-profile-photo h2,
+:root[data-theme="light"] .vow-profile-card .vow-profile-photo span {
+  color: #fff !important;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-photo .vow-compatibility-orb {
+  color: #fff !important;
+  border: 1px solid rgb(255 255 255 / 70%);
+  box-shadow: 0 5px 18px rgb(36 12 21 / 25%);
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-photo .vow-compatibility-orb > div {
+  background: #9f1239 !important;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-photo :where([class*="bg-stone-950/"], [class*="bg-black/"]) {
+  background-color: rgb(38 19 27 / 76%) !important;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-details {
+  background: #fff !important;
+  background-image: none !important;
+  border-top: 1px solid rgb(91 55 69 / 8%);
+  color: #29232a;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-details h2,
+:root[data-theme="light"] .vow-profile-card .vow-profile-details h3,
+:root[data-theme="light"] .vow-profile-card .vow-profile-details .text-white {
+  color: #29232a !important;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-details .text-stone-200,
+:root[data-theme="light"] .vow-profile-card .vow-profile-details .text-stone-300 {
+  color: #51454b !important;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-details .text-stone-400,
+:root[data-theme="light"] .vow-profile-card .vow-profile-details .text-stone-500 {
+  color: #81737a !important;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-details .vow-profile-prompt {
+  background: #fff4f6 !important;
+  border-color: rgb(190 24 93 / 14%) !important;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-details .vow-profile-prompt .text-white {
+  color: #392730 !important;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-details [class*="bg-emerald-950"] {
+  background: #e9f8f0 !important;
+  color: #087f5b !important;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-actions button {
+  box-shadow: 0 5px 18px -10px rgb(84 35 53 / 35%);
+}
+
+/* Chat surfaces use a calm, warm canvas with distinct incoming and outgoing messages. */
+:root[data-theme="light"] .vow-chat-layout {
+  background: #fff !important;
+  border-color: rgb(91 55 69 / 12%) !important;
+  box-shadow: 0 24px 70px -48px rgb(84 35 53 / 30%);
+}
+
+:root[data-theme="light"] .vow-chat-layout > div:first-child {
+  background: #fff9f9 !important;
+  border-color: rgb(91 55 69 / 10%) !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout > div:last-child {
+  background: #fff !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout :where(.bg-stone-950\/60, .bg-stone-950\/70, .bg-stone-950\/80, .bg-stone-950\/40, .bg-stone-900\/90) {
+  background-color: #fff8f8 !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout :where(.text-white) {
+  color: #29232a !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout :where(.text-stone-200, .text-stone-300) {
+  color: #51454b !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout :where(.text-stone-400, .text-stone-500) {
+  color: #81737a !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout [role="log"] > div > div.bg-gradient-to-br {
+  background: #fff0f3 !important;
+  border-color: rgb(190 24 93 / 12%) !important;
+  color: #7f1237 !important;
+  box-shadow: none;
+}
+
+:root[data-theme="light"] .vow-chat-layout [role="log"] > div > div.bg-gradient-to-br :where(.text-white, .text-stone-200) {
+  color: #7f1237 !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout [role="log"] > div > div.bg-stone-800 {
+  background: #f6f0f2 !important;
+  border-color: rgb(91 55 69 / 8%) !important;
+  color: #392730 !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout form {
+  background: #fff !important;
+  border-color: rgb(91 55 69 / 10%) !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout :where(input, textarea, select) {
+  background: #fff !important;
+  border-color: rgb(91 55 69 / 16%) !important;
+  color: #29232a !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout :where(input, textarea, select)::placeholder {
+  color: #a0959a !important;
+}
+
+/* Match lists: selected conversations and loading states remain obvious without harsh dark blocks. */
+:root[data-theme="light"] [data-testid="server-matches-panel"] {
+  background: #fff !important;
+  border-color: rgb(91 55 69 / 10%) !important;
+  box-shadow: 0 20px 60px -45px rgb(84 35 53 / 24%);
+}
+
+:root[data-theme="light"] [data-testid="server-matches-panel"] :where(.text-sky-300) {
+  color: #9f1239 !important;
+}
+
+:root[data-theme="light"] [data-testid="server-matches-panel"] :where(.bg-sky-950\/40, .bg-sky-950\/30) {
+  background: #fff0f3 !important;
+}
+
+:root[data-theme="light"] [data-testid="server-matches-panel"] :where(.border-sky-400\/60) {
+  border-color: rgb(190 24 93 / 42%) !important;
+}
+
+@media (max-width: 640px) {
+  :root[data-theme="light"] .vow-profile-photo {
+    height: clamp(19rem, 52vh, 27rem);
+  }
+
+  :root[data-theme="light"] .vow-chat-layout {
+    min-height: min(36rem, calc(100dvh - 12rem));
+    height: min(76dvh, 48rem);
+    border-radius: 1.35rem !important;
+  }
+}
