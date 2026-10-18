@@ -3594,3 +3594,69 @@ main article[class*="rounded-2xl"][class*="border"] {
   }
 }
 
+/* Partner services marketplace: clarify demo providers, filters and inquiry forms in light mode. */
+:root[data-theme="light"] .vow-partner-services-marketplace {
+  background: #fff !important;
+  border-color: rgb(190 18 60 / 20%) !important;
+  box-shadow: 0 24px 72px rgb(57 24 39 / 24%);
+  color: #40333a;
+}
+
+:root[data-theme="light"] .vow-partner-services-marketplace :where(.text-white, .text-stone-100, .text-stone-200) {
+  color: #40333a !important;
+}
+
+:root[data-theme="light"] .vow-partner-services-marketplace :where(.text-stone-300, .text-stone-400, .text-stone-500) {
+  color: #786770 !important;
+}
+
+:root[data-theme="light"] .vow-partner-services-marketplace :where(.bg-stone-950, .bg-stone-950\/60, .bg-stone-950\/40, .bg-stone-800, .bg-stone-900) {
+  background-color: #f8f3f5 !important;
+  border-color: rgb(91 55 69 / 14%) !important;
+}
+
+:root[data-theme="light"] .vow-partner-services-marketplace :where(.bg-rose-950\/70, .bg-rose-950\/50, .bg-rose-950\/40, .bg-rose-950\/30, .bg-rose-950\/20) {
+  background-color: #fff0f4 !important;
+  border-color: rgb(190 18 60 / 18%) !important;
+}
+
+:root[data-theme="light"] .vow-partner-services-marketplace :where(.text-rose-200, .text-rose-300, .text-rose-400) {
+  color: #9f1239 !important;
+}
+
+:root[data-theme="light"] .vow-partner-services-marketplace :where(.bg-emerald-950\/30, .bg-emerald-950\/50) {
+  background-color: #e9f8ef !important;
+  border-color: rgb(4 120 87 / 18%) !important;
+}
+
+:root[data-theme="light"] .vow-partner-services-marketplace :where(.text-emerald-100, .text-emerald-200, .text-emerald-300, .text-emerald-400) {
+  color: #047857 !important;
+}
+
+:root[data-theme="light"] .vow-partner-services-marketplace :where(input, select, textarea) {
+  color: #352b31 !important;
+  background-color: #fff !important;
+  border-color: rgb(91 55 69 / 18%) !important;
+  color-scheme: light;
+}
+
+:root[data-theme="light"] .vow-partner-services-marketplace :where(input, select, textarea)::placeholder {
+  color: #8a7881 !important;
+  opacity: 1;
+}
+
+:root[data-theme="light"] .vow-partner-services-marketplace :where(button, input, select, textarea):focus-visible {
+  outline: 2px solid #9f1239 !important;
+  outline-offset: 3px;
+}
+
+:root[data-theme="light"] .vow-partner-services-marketplace :where(button):disabled {
+  opacity: .55;
+}
+
+@media (max-width: 420px) {
+  :root[data-theme="light"] .vow-partner-services-marketplace {
+    border-radius: 1.25rem !important;
+  }
+}
+
