@@ -64,7 +64,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
         displayName: safeProfileText(rawProfile.displayName, 80),
         bio: safeProfileText(rawProfile.bio, 2000),
         country: safeProfileText(rawProfile.country, 100),
-        city: safeProfileText(rawProfile.city, 120),
+        city: safeProfileText(rawProfile.city, 100),
         occupation: safeProfileText(rawProfile.occupation, 120),
         education: safeProfileText(rawProfile.education, 120),
         relationshipIntent: safeProfileChoice(rawProfile.relationshipIntent, ['marriage_family', 'serious_relationship', 'family_without_marriage'] as const, 'marriage_family'),
@@ -235,7 +235,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
         displayName: safeProfileText(savedProfile.displayName, 80).trim(),
         bio: safeProfileText(savedProfile.bio, 2000).trim(),
         country: safeProfileText(savedProfile.country, 100).trim(),
-        city: safeProfileText(savedProfile.city, 120).trim(),
+        city: safeProfileText(savedProfile.city, 100).trim(),
         occupation: safeProfileText(savedProfile.occupation, 120).trim(),
         education: safeProfileText(savedProfile.education, 120).trim(),
         relationshipIntent: safeProfileChoice(savedProfile.relationshipIntent, ['marriage_family', 'serious_relationship', 'family_without_marriage'] as const, 'marriage_family'),
@@ -292,7 +292,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
           <label className="block text-xs text-stone-300">{t('profileAbout')}<textarea value={bio} onChange={e => setBio(e.target.value)} maxLength={2000} rows={4} placeholder={t('profileBioPlaceholder')} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400" /></label>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <label className="block text-xs text-stone-300">{t('profileCountry')}<input value={country} onChange={e => setCountry(e.target.value)} maxLength={100} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400" /></label>
-            <label className="block text-xs text-stone-300">{t('profileCity')}<input value={city} onChange={e => setCity(e.target.value)} maxLength={120} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400" /></label>
+            <label className="block text-xs text-stone-300">{t('profileCity')}<input value={city} onChange={e => setCity(e.target.value)} maxLength={100} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400" /></label>
             <label className="block text-xs text-stone-300">{t('profileOccupation')}<input value={occupation} onChange={e => setOccupation(e.target.value)} maxLength={120} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400" /></label>
             <label className="block text-xs text-stone-300">{t('profileEducation')}<input value={education} onChange={e => setEducation(e.target.value)} maxLength={120} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400" /></label>
           </div>
