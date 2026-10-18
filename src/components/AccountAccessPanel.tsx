@@ -108,7 +108,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
   }, []);
 
   const submit = async () => {
-    let activeActionId = sessionActionIdRef.current;
+    let activeActionId = ++sessionActionIdRef.current;
     const submittedMode = mode;
     setBusy(true);
     setMessage('');
@@ -221,6 +221,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
     }
     const confirmed = window.confirm(t('authDeleteConfirm'));
     if (!confirmed) return;
+    const actionId = ++sessionActionIdRef.current;
     setBusy(true);
     setDeleteNotice('');
     try {
@@ -231,6 +232,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         body: JSON.stringify({ password: deletePassword })
       });
       const data = await response.json().catch(() => null);
+      if (sessionActionIdRef.current !== actionId) return;
       if (!response.ok) {
         const errors: Record<string, string> = {
           password_confirmation_required: t('authDeletePasswordRequired'),
@@ -238,7 +240,6 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         };
         throw new Error(errors[data?.error] || t('authDeleteFailed'));
       }
-      sessionActionIdRef.current += 1;
       setUser(null);
       window.dispatchEvent(new Event('vow:session-changed'));
       setBillingStatus(null);
@@ -247,27 +248,30 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       setDeleteNotice(t('authDeleteSuccess'));
       onAuthenticated();
     } catch (error) {
+      if (sessionActionIdRef.current !== actionId) return;
       setDeleteNotice(error instanceof Error ? error.message : t('authDeleteGenericError'));
     } finally {
-      setBusy(false);
+      if (sessionActionIdRef.current === actionId) setBusy(false);
     }
   };
 
   const logout = async () => {
+    const actionId = ++sessionActionIdRef.current;
     setBusy(true);
     try {
       const response = await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      if (sessionActionIdRef.current !== actionId) return;
       if (!response.ok) throw new Error(t('authLogoutFailed'));
-      sessionActionIdRef.current += 1;
       setUser(null);
       window.dispatchEvent(new Event('vow:session-changed'));
       setBillingStatus(null);
       setMessage(t('authLogoutSuccess'));
       onAuthenticated();
     } catch (error) {
+      if (sessionActionIdRef.current !== actionId) return;
       setMessage(error instanceof Error ? error.message : t('authLogoutFailed'));
     } finally {
-      setBusy(false);
+      if (sessionActionIdRef.current === actionId) setBusy(false);
     }
   };
 
