@@ -77,7 +77,10 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
         photoUrls: Array.isArray(rawProfile.photoUrls)
           ? rawProfile.photoUrls.filter((value: unknown): value is string =>
               typeof value === 'string' &&
-              ( /^https?:\/\//i.test(value.trim()) || /^\/(?!\/)/.test(value.trim()) )
+              value.trim().length <= 2048 &&
+              !/[\u0000-\u001F\u007F]/.test(value) &&
+              !value.includes('\\') &&
+              (/^https?:\/\//i.test(value.trim()) || /^\/(?!\/)/.test(value.trim()))
             )
           : [],
         languages: Array.isArray(rawProfile.languages)
@@ -176,7 +179,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
     setNotice('');
     try {
       const photos = [...new Set(photoUrls.split(/\n|,/).map(value => value.trim()).filter(Boolean))]
-        .filter(value => /^https?:\/\//i.test(value) || /^\/(?!\/)/.test(value))
+        .filter(value => value.length <= 2048 && !/[\u0000-\u001F\u007F]/.test(value) && !value.includes('\\') && (/^https?:\/\//i.test(value) || /^\/(?!\/)/.test(value)))
         .slice(0, 6);
       const languageList = [...new Set(languages.split(',').map(value => value.trim()).filter(Boolean))]
         .join(', ')
@@ -231,6 +234,9 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
         photoUrls: Array.isArray(savedProfile.photoUrls)
           ? savedProfile.photoUrls.filter((value: unknown): value is string =>
               typeof value === 'string' &&
+              value.trim().length <= 2048 &&
+              !/[\u0000-\u001F\u007F]/.test(value) &&
+              !value.includes('\\') &&
               (/^https?:\/\//i.test(value.trim()) || /^\/(?!\/)/.test(value.trim()))
             )
           : [],
