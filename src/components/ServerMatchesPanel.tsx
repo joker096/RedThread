@@ -110,6 +110,10 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         // Prevent older match-list requests from restoring an authenticated state.
         matchesRequestId.current += 1;
         messageRequestId.current += 1;
+        currentUserRequestId.current += 1;
+        sessionEpoch.current += 1;
+        sendInFlight.current = false;
+        setBusy(false);
         setMatchesLoading(false);
         setMessagesLoading(false);
         setAuthenticated(false);
@@ -162,6 +166,10 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         // Invalidate in-flight reads/sends before clearing a session-expired chat.
         messageRequestId.current += 1;
         matchesRequestId.current += 1;
+        currentUserRequestId.current += 1;
+        sessionEpoch.current += 1;
+        sendInFlight.current = false;
+        setBusy(false);
         setMessagesLoading(false);
         setMatchesLoading(false);
         setAuthenticated(false);
@@ -315,6 +323,10 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         // The session expired while sending; discard the conversation and stale requests.
         messageRequestId.current += 1;
         matchesRequestId.current += 1;
+        currentUserRequestId.current += 1;
+        sessionEpoch.current += 1;
+        sendInFlight.current = false;
+        setBusy(false);
         setAuthenticated(false);
         setMatches([]);
         setSelected('');
