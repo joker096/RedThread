@@ -3928,3 +3928,58 @@ main article[class*="rounded-2xl"][class*="border"] {
     animation: none !important;
   }
 }
+
+
+/* Filter drawer: keep location fields, slider labels and modal controls readable in light mode. */
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] {
+  color: #40333a;
+  background: linear-gradient(155deg, #fff 0%, #fff6f8 100%) !important;
+  border-color: rgb(190 18 60 / 20%) !important;
+  box-shadow: 0 24px 72px rgb(57 24 39 / 24%);
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] :where(.text-white, .text-stone-100, .text-stone-200, .text-stone-300) {
+  color: #40333a !important;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] :where(.text-stone-400, .text-stone-500, .text-stone-600) {
+  color: #786770 !important;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] :where(input:not([type="range"]), select, textarea) {
+  color: #352b31 !important;
+  background-color: #fff !important;
+  border-color: rgb(91 55 69 / 20%) !important;
+  color-scheme: light;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] :where(input, select, textarea)::placeholder {
+  color: #8a7881 !important;
+  opacity: 1;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] :where(.bg-stone-950, .bg-stone-950\/50, .bg-stone-800, .bg-stone-900) {
+  background-color: #f8f3f5 !important;
+  border-color: rgb(91 55 69 / 14%) !important;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] :where(.text-rose-400, .text-rose-500) {
+  color: #9f1239 !important;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] :where(button, input, select, textarea):focus-visible {
+  outline: 2px solid #9f1239 !important;
+  outline-offset: 3px;
+}
+
+@media (max-width: 420px) {
+  .vow-filter-backdrop [role="dialog"] :where(button, input, select) {
+    min-height: 2.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vow-filter-backdrop.animate-in {
+    animation: none !important;
+  }
+}
