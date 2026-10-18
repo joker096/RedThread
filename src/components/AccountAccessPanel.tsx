@@ -293,6 +293,9 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       setUser(null);
       window.dispatchEvent(new Event('vow:session-changed'));
       setBillingStatus(null);
+      setDeletePassword('');
+      setShowDeleteAccount(false);
+      setDeleteNotice('');
       setMessage(t('authLogoutSuccess'));
       onAuthenticated();
     } catch (error) {
