@@ -1897,3 +1897,112 @@ main article[class*="rounded-2xl"][class*="border"] {
     padding-bottom: max(1rem, env(safe-area-inset-bottom)) !important;
   }
 }
+
+
+/* Dating-kit card system: consistent profile photography, content rhythm and action hierarchy. */
+:root[data-theme="light"] .vow-profile-card {
+  overflow: hidden;
+  background: #fff !important;
+  border: 1px solid rgb(91 55 69 / 10%) !important;
+  border-radius: 1.75rem !important;
+  box-shadow: 0 24px 72px -48px rgb(84 35 53 / 34%), 0 2px 10px rgb(84 35 53 / 4%) !important;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-photo {
+  background: #f5ecef !important;
+  isolation: isolate;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-photo img {
+  transition: transform 420ms cubic-bezier(.2, .7, .2, 1);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-theme="light"] .vow-profile-card .vow-profile-photo:hover img {
+    transform: scale(1.025);
+  }
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-details {
+  background: #fff !important;
+  padding-top: 1.15rem;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-details :where(.bg-stone-950\/55, .bg-stone-950\/60, .bg-stone-900\/80, .bg-stone-800) {
+  background: #fff7f8 !important;
+  border-color: rgb(190 24 93 / 10%) !important;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-details :where(.text-stone-400, .text-stone-500) {
+  color: #82737a !important;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-details :where(.text-rose-200, .text-rose-300, .text-rose-400) {
+  color: #a51643 !important;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-actions {
+  gap: .75rem;
+  padding-top: .25rem;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-actions button {
+  min-height: 3rem;
+  border-radius: 999px !important;
+  font-size: .875rem;
+  font-weight: 700;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-actions button:focus-visible {
+  outline: 2px solid #be123c;
+  outline-offset: 3px;
+}
+
+:root[data-theme="light"] [data-testid="server-matches-panel"] {
+  border-radius: 1.75rem !important;
+  background: #fff !important;
+  border-color: rgb(91 55 69 / 10%) !important;
+  box-shadow: 0 22px 65px -48px rgb(84 35 53 / 30%) !important;
+}
+
+:root[data-theme="light"] [data-testid="server-matches-panel"] :where(.bg-stone-950\/50, .bg-stone-950\/55, .bg-stone-950\/40, .bg-black\/10) {
+  background: #fff7f8 !important;
+}
+
+:root[data-theme="light"] [data-testid="server-matches-panel"] :where(.text-white, .text-stone-200, .text-stone-300) {
+  color: #44343c !important;
+}
+
+:root[data-theme="light"] [data-testid="server-matches-panel"] :where(.border-white\/10, .border-white\/15) {
+  border-color: rgb(91 55 69 / 12%) !important;
+}
+
+:root[data-theme="light"] [data-testid="server-matches-panel"] textarea {
+  border-radius: 1rem !important;
+  background: #fff !important;
+  border-color: rgb(91 55 69 / 16%) !important;
+  color: #29232a !important;
+}
+
+:root[data-theme="light"] [data-testid="server-matches-panel"] button:focus-visible {
+  outline-color: #be123c !important;
+}
+
+@media (max-width: 640px) {
+  :root[data-theme="light"] .vow-profile-card {
+    border-radius: 1.5rem !important;
+  }
+
+  :root[data-theme="light"] .vow-profile-card .vow-profile-actions {
+    gap: .625rem;
+  }
+
+  :root[data-theme="light"] .vow-profile-card .vow-profile-actions button {
+    min-height: 3rem;
+    padding-inline: .9rem;
+  }
+
+  :root[data-theme="light"] [data-testid="server-matches-panel"] {
+    border-radius: 1.5rem !important;
+  }
+}
