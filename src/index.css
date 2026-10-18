@@ -3900,3 +3900,31 @@ main article[class*="rounded-2xl"][class*="border"] {
   outline: 2px solid #9f1239 !important;
   outline-offset: 3px;
 }
+
+
+/* PWA install banner: keep compact controls comfortable to tap on narrow phones. */
+@media (max-width: 420px) {
+  .vow-install-banner > div > :where(div:last-child) {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .vow-install-banner :where(button) {
+    min-height: 2.75rem;
+  }
+
+  .vow-install-banner :where(button[aria-pressed]) {
+    min-width: 4.25rem;
+    padding-inline: .75rem;
+  }
+
+  :root[data-theme="light"] .vow-install-banner :where(button) {
+    outline-offset: 3px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vow-install-banner .animate-in {
+    animation: none !important;
+  }
+}
