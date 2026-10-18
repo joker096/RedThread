@@ -1629,8 +1629,8 @@ main article[class*="rounded-2xl"][class*="border"] {
 
 /* Typography system inspired by the supplied Dating App UI Kit. */
 :root[data-theme="light"] {
-  --vow-font-ui: 'Inter', 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --vow-font-display: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+  --vow-font-ui: 'SK Modernist', 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --vow-font-display: 'SK Modernist', 'Plus Jakarta Sans', system-ui, sans-serif;
   --vow-type-xs: .75rem;
   --vow-type-sm: .8125rem;
   --vow-type-base: .9375rem;
@@ -1659,8 +1659,8 @@ main article[class*="rounded-2xl"][class*="border"] {
 :root[data-theme="light"] h4,
 :root[data-theme="light"] .font-heading {
   font-family: var(--vow-font-display) !important;
-  font-weight: 750;
-  letter-spacing: -.045em;
+  font-weight: 700;
+  letter-spacing: -.025em;
   line-height: var(--vow-leading-tight);
   text-wrap: balance;
 }
