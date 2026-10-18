@@ -2836,3 +2836,86 @@ main article[class*="rounded-2xl"][class*="border"] {
   }
 }
 
+/* Notification center: separate unread items clearly in the warm light palette. */
+:root[data-theme="light"] .vow-screen[role="region"] {
+  background: linear-gradient(145deg, #fff 0%, #fffafb 100%) !important;
+  border-color: rgb(91 55 69 / 14%) !important;
+  box-shadow: 0 10px 28px rgb(57 24 39 / 5%);
+  color: #40333a;
+}
+
+:root[data-theme="light"] .vow-screen[role="region"] :where(.text-white, .text-stone-100, .text-stone-200) {
+  color: #40333a !important;
+}
+
+:root[data-theme="light"] .vow-screen[role="region"] :where(.text-stone-300, .text-stone-400, .text-stone-500) {
+  color: #786770 !important;
+}
+
+:root[data-theme="light"] .vow-screen[role="region"] [role="listitem"] {
+  border-color: rgb(91 55 69 / 13%) !important;
+  background-color: #fff8fa !important;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+:root[data-theme="light"] .vow-screen[role="region"] [role="listitem"]:has(time) {
+  min-width: 0;
+}
+
+:root[data-theme="light"] .vow-screen[role="region"] [role="listitem]:has(.text-sky-300) {
+  background-color: #f0f7ff !important;
+  border-color: rgb(3 105 161 / 20%) !important;
+}
+
+:root[data-theme="light"] .vow-screen[role="region"] :where(.text-sky-300, .text-sky-400) {
+  color: #075985 !important;
+}
+
+:root[data-theme="light"] .vow-screen[role="region"] :where(.text-amber-200) {
+  color: #85500b !important;
+}
+
+:root[data-theme="light"] .vow-screen[role="region"] :where(button):focus-visible {
+  outline: 2px solid #0369a1 !important;
+  outline-offset: 3px;
+}
+
+:root[data-theme="light"] .vow-screen[role="region"] button:disabled {
+  opacity: .55;
+}
+
+/* Relationship values questionnaire: selected choices and completion status stay legible. */
+:root[data-theme="light"] .vow-screen:has(> div > fieldset) {
+  background: linear-gradient(145deg, #fff 0%, #fff8fa 100%) !important;
+  border-color: rgb(190 18 60 / 18%) !important;
+  box-shadow: 0 10px 28px rgb(57 24 39 / 5%);
+}
+
+:root[data-theme="light"] .vow-screen:has(> div > fieldset) :where(.text-white, .text-stone-100, .text-stone-200) {
+  color: #40333a !important;
+}
+
+:root[data-theme="light"] .vow-screen:has(> div > fieldset) :where(.text-stone-300, .text-stone-400) {
+  color: #786770 !important;
+}
+
+:root[data-theme="light"] .vow-screen:has(> div > fieldset) fieldset {
+  background-color: #fff !important;
+  border-color: rgb(91 55 69 / 14%) !important;
+}
+
+:root[data-theme="light"] .vow-screen:has(> div > fieldset) label:has(input[type="radio"]:checked) {
+  background-color: #fff0f4 !important;
+  border-color: rgb(190 18 60 / 42%) !important;
+  color: #7f1235 !important;
+}
+
+:root[data-theme="light"] .vow-screen:has(> div > fieldset) label:has(input[type="radio"]) {
+  min-height: 44px;
+}
+
+:root[data-theme="light"] .vow-screen:has(> div > fieldset) :where(button, input):focus-visible {
+  outline: 2px solid #be123c !important;
+  outline-offset: 3px;
+}
+
