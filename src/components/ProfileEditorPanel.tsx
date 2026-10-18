@@ -84,9 +84,11 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
             )
           : [],
         languages: Array.isArray(rawProfile.languages)
-          ? rawProfile.languages.filter((value: unknown): value is string =>
-              typeof value === 'string' && value.trim().length > 0
-            ).map((value: string) => value.trim())
+          ? [...new Map(rawProfile.languages.slice(0, 100)
+              .filter((value: unknown): value is string => typeof value === 'string' && value.trim().length > 0)
+              .map((value: string) => value.trim().slice(0, 50))
+              .filter(Boolean)
+              .map((value: string) => [value.toLocaleLowerCase(), value] as const)).values()].slice(0, 20)
           : []
       } as Profile;
       setProfile(p);
@@ -249,9 +251,11 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
             )
           : [],
         languages: Array.isArray(savedProfile.languages)
-          ? savedProfile.languages.filter((value: unknown): value is string =>
-              typeof value === 'string' && value.trim().length > 0
-            ).map((value: string) => value.trim())
+          ? [...new Map(savedProfile.languages.slice(0, 100)
+              .filter((value: unknown): value is string => typeof value === 'string' && value.trim().length > 0)
+              .map((value: string) => value.trim().slice(0, 50))
+              .filter(Boolean)
+              .map((value: string) => [value.toLocaleLowerCase(), value] as const)).values()].slice(0, 20)
           : []
       } as Profile);
       setNotice(t('profileSaved'));
