@@ -337,8 +337,8 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       ) : (
         <>
           <div className="mb-3 grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => { setMode('login'); setMessage(''); }} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${mode === 'login' ? 'border-rose-500 bg-rose-950/50 text-white' : 'border-white/10 text-stone-400'}`}>{t('signIn')}</button>
-            <button type="button" onClick={() => { setMode('register'); setMessage(''); }} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${mode === 'register' ? 'border-rose-500 bg-rose-950/50 text-white' : 'border-white/10 text-stone-400'}`}>{t('register')}</button>
+            <button type="button" onClick={() => { setMode('login'); setMessage(''); setCanResendVerification(false); }} disabled={busy} className={`rounded-xl border px-3 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${mode === 'login' ? 'border-rose-500 bg-rose-950/50 text-white' : 'border-white/10 text-stone-400'}`}>{t('signIn')}</button>
+            <button type="button" onClick={() => { setMode('register'); setMessage(''); setCanResendVerification(false); }} disabled={busy} className={`rounded-xl border px-3 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${mode === 'register' ? 'border-rose-500 bg-rose-950/50 text-white' : 'border-white/10 text-stone-400'}`}>{t('register')}</button>
           </div>
           <div className="space-y-3">
             {mode === 'register' && <>
