@@ -64,6 +64,18 @@ const normalizeUserId = (value: unknown): string | null => {
   return id && id.length <= 256 ? id : null;
 };
 
+const deduplicateByPartner = (items: ServerMatch[]): ServerMatch[] => {
+  const seen = new Set<string>();
+  const unique: ServerMatch[] = [];
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const match = items[index];
+    if (seen.has(match.partnerId)) continue;
+    seen.add(match.partnerId);
+    unique.push(match);
+  }
+  return unique.reverse();
+};
+
 const deduplicateById = <T extends { id: string }>(items: T[]): T[] => {
   const seen = new Set<string>();
   const unique: T[] = [];
@@ -130,9 +142,9 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         throw new Error(t('loadMatchesError'));
       }
       const rawMatches: unknown[] = data.matches;
-      const nextMatches = deduplicateById(
+      const nextMatches = deduplicateByPartner(deduplicateById(
         rawMatches.slice(-500).map(normalizeServerMatch).filter((match): match is ServerMatch => match !== null)
-      );
+      ));
       setMatches(nextMatches);
       setAuthenticated(true);
       setMatchesFailed(false);
