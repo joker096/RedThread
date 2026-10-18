@@ -1625,3 +1625,179 @@ main article[class*="rounded-2xl"][class*="border"] {
     border-radius: 1.35rem !important;
   }
 }
+
+
+/* Typography system inspired by the supplied Dating App UI Kit. */
+:root[data-theme="light"] {
+  --vow-font-ui: 'Inter', 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --vow-font-display: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+  --vow-type-xs: .75rem;
+  --vow-type-sm: .8125rem;
+  --vow-type-base: .9375rem;
+  --vow-type-lg: 1.0625rem;
+  --vow-type-title: clamp(1.45rem, 2.7vw, 2rem);
+  --vow-type-display: clamp(1.9rem, 4vw, 2.65rem);
+  --vow-leading-body: 1.55;
+  --vow-leading-tight: 1.15;
+}
+
+:root[data-theme="light"] body,
+:root[data-theme="light"] button,
+:root[data-theme="light"] input,
+:root[data-theme="light"] select,
+:root[data-theme="light"] textarea {
+  font-family: var(--vow-font-ui);
+  font-size: var(--vow-type-base);
+  line-height: var(--vow-leading-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+:root[data-theme="light"] h1,
+:root[data-theme="light"] h2,
+:root[data-theme="light"] h3,
+:root[data-theme="light"] h4,
+:root[data-theme="light"] .font-heading {
+  font-family: var(--vow-font-display) !important;
+  font-weight: 750;
+  letter-spacing: -.045em;
+  line-height: var(--vow-leading-tight);
+  text-wrap: balance;
+}
+
+:root[data-theme="light"] main h1 {
+  font-size: var(--vow-type-display);
+}
+
+:root[data-theme="light"] main h2 {
+  font-size: var(--vow-type-title);
+}
+
+:root[data-theme="light"] main h3 {
+  font-size: clamp(1.05rem, 1.6vw, 1.25rem);
+}
+
+:root[data-theme="light"] main p {
+  line-height: var(--vow-leading-body);
+}
+
+:root[data-theme="light"] main :where(.text-xs) {
+  font-size: var(--vow-type-xs) !important;
+  line-height: 1.45;
+}
+
+:root[data-theme="light"] main :where(.text-sm) {
+  font-size: var(--vow-type-sm) !important;
+  line-height: 1.5;
+}
+
+:root[data-theme="light"] main :where(.text-base) {
+  font-size: var(--vow-type-base) !important;
+  line-height: var(--vow-leading-body);
+}
+
+:root[data-theme="light"] main :where(.text-lg) {
+  font-size: var(--vow-type-lg) !important;
+  line-height: 1.4;
+}
+
+:root[data-theme="light"] main :where(.text-2xl) {
+  font-size: clamp(1.35rem, 2.4vw, 1.75rem) !important;
+  line-height: 1.2;
+}
+
+:root[data-theme="light"] main :where(.text-3xl, .text-4xl) {
+  font-size: clamp(1.6rem, 3.2vw, 2.25rem) !important;
+  line-height: 1.12;
+}
+
+:root[data-theme="light"] .vow-app-header {
+  font-family: var(--vow-font-ui);
+  min-height: 4.5rem;
+}
+
+:root[data-theme="light"] .vow-app-header nav button {
+  font-size: .8125rem;
+  font-weight: 650;
+  letter-spacing: -.01em;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-details h2 {
+  font-size: clamp(1.45rem, 3vw, 1.85rem) !important;
+  line-height: 1.12;
+  letter-spacing: -.045em;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-details p {
+  font-size: .875rem;
+  line-height: 1.55;
+}
+
+:root[data-theme="light"] .vow-profile-card :where(.vow-profile-prompt, [data-testid*="compatibility"]) {
+  font-size: .875rem;
+  line-height: 1.5;
+}
+
+:root[data-theme="light"] .vow-chat-layout {
+  font-size: .875rem;
+}
+
+:root[data-theme="light"] .vow-chat-layout [role="log"] {
+  font-size: .875rem;
+  line-height: 1.55;
+}
+
+:root[data-theme="light"] .vow-chat-layout :where(input, textarea) {
+  font-size: 1rem !important;
+  line-height: 1.45;
+}
+
+:root[data-theme="light"] main :where(button, input, select, textarea) {
+  min-height: 2.75rem;
+}
+
+:root[data-theme="light"] main textarea {
+  min-height: 6rem;
+}
+
+:root[data-theme="light"] main :where(label) {
+  font-size: .8125rem;
+  font-weight: 650;
+  line-height: 1.4;
+  color: #63545b;
+}
+
+:root[data-theme="light"] main :where(.tracking-widest, .uppercase) {
+  letter-spacing: .075em;
+}
+
+:root[data-theme="light"] main :where(button) {
+  font-weight: 650;
+}
+
+@media (max-width: 640px) {
+  :root[data-theme="light"] {
+    --vow-type-base: .9375rem;
+    --vow-type-title: 1.45rem;
+    --vow-type-display: 1.85rem;
+  }
+
+  :root[data-theme="light"] .vow-app-header nav button {
+    font-size: .75rem;
+  }
+
+  :root[data-theme="light"] main :where(.text-xs) {
+    font-size: .75rem !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="light"] *,
+  :root[data-theme="light"] *::before,
+  :root[data-theme="light"] *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
