@@ -74,7 +74,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
           setUser(data.user);
           window.dispatchEvent(new Event('vow:session-changed'));
           const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
-          if (!cancelled && initialSessionActionId === sessionActionId.current) setBillingStatus(billing);
+          if (!cancelled && initialSessionActionId === sessionActionIdRef.current) setBillingStatus(billing);
         }
       })
       .catch(() => {});
@@ -231,7 +231,6 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         throw new Error(errors[data?.error] || t('authDeleteFailed'));
       }
       sessionActionIdRef.current += 1;
-      sessionActionIdRef.current += 1;
       setUser(null);
       window.dispatchEvent(new Event('vow:session-changed'));
       setBillingStatus(null);
@@ -251,6 +250,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
     try {
       const response = await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
       if (!response.ok) throw new Error(t('authLogoutFailed'));
+      sessionActionIdRef.current += 1;
       setUser(null);
       window.dispatchEvent(new Event('vow:session-changed'));
       setBillingStatus(null);
