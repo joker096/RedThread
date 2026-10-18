@@ -54,6 +54,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
   const [resetToken, setResetToken] = useState('');
   const [resetPassword, setResetPassword] = useState('');
   const sessionActionIdRef = useRef(0);
+  const auxiliaryRequestIdRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -104,7 +105,10 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       params.delete('resetPassword');
       window.history.replaceState({}, '', window.location.pathname + (params.size ? '?' + params.toString() : '') + window.location.hash);
     }
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      auxiliaryRequestIdRef.current += 1;
+    };
   }, []);
 
   const submit = async () => {
@@ -164,30 +168,40 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
   };
 
   const resendVerification = async () => {
+    const requestId = ++auxiliaryRequestIdRef.current;
     setBusy(true);
     try {
       const response = await fetch('/api/auth/email-verification/resend', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email })
       });
-      const data = await response.json().catch(() => null);
+      await response.json().catch(() => null);
+      if (requestId !== auxiliaryRequestIdRef.current) return;
       setMessage(t('authResendGeneric'));
       setCanResendVerification(false);
     } catch {
+      if (requestId !== auxiliaryRequestIdRef.current) return;
       setMessage(t('authResendFailed'));
-    } finally { setBusy(false); }
+    } finally {
+      if (requestId === auxiliaryRequestIdRef.current) setBusy(false);
+    }
   };
 
   const requestPasswordReset = async () => {
+    const requestId = ++auxiliaryRequestIdRef.current;
     setBusy(true);
     try {
       const response = await fetch('/api/auth/password-reset/request', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email })
       });
-      const data = await response.json().catch(() => null);
+      await response.json().catch(() => null);
+      if (requestId !== auxiliaryRequestIdRef.current) return;
       setMessage(t('authResetGeneric'));
     } catch {
+      if (requestId !== auxiliaryRequestIdRef.current) return;
       setMessage(t('authResetRequestFailed'));
-    } finally { setBusy(false); }
+    } finally {
+      if (requestId === auxiliaryRequestIdRef.current) setBusy(false);
+    }
   };
 
   const completePasswordReset = async () => {
@@ -195,6 +209,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       setMessage(t('authPasswordResetMinimum'));
       return;
     }
+    const requestId = ++auxiliaryRequestIdRef.current;
     setBusy(true);
     try {
       const response = await fetch('/api/auth/password-reset/complete', {
@@ -202,6 +217,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         body: JSON.stringify({ token: resetToken, password: resetPassword })
       });
       const data = await response.json().catch(() => null);
+      if (requestId !== auxiliaryRequestIdRef.current) return;
       if (!response.ok) throw new Error(data?.error === 'invalid_or_expired_token' ? t('authResetLinkInvalid') : t('authPasswordChangeFailed'));
       setShowReset(false);
       setResetToken('');
@@ -209,8 +225,11 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       setMode('login');
       setMessage(t('authPasswordChanged'));
     } catch (error) {
+      if (requestId !== auxiliaryRequestIdRef.current) return;
       setMessage(error instanceof Error ? error.message : t('authPasswordChangeFailed'));
-    } finally { setBusy(false); }
+    } finally {
+      if (requestId === auxiliaryRequestIdRef.current) setBusy(false);
+    }
   };
 
   const deleteAccount = async () => {
