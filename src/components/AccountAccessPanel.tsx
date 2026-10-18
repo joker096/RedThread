@@ -322,12 +322,12 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
             <p className="text-sm font-semibold text-white">{billingStatus.access === 'full' ? t('authBillingFullAccess') : t('authBillingTrialEnded')}</p>
             <p className="mt-1 text-xs leading-relaxed text-stone-300">{billingStatus.trialEndsAt && billingStatus.access === 'full' ? t('authBillingFreeUntil').replace('{date}', formatDate(billingStatus.trialEndsAt, { dateStyle: 'medium', timeStyle: 'short' })) : billingStatus.access !== 'full' ? t('authBillingPremiumNotConfigured') : t('authBillingActive')}</p>
           </div>}
-          <button type="button" onClick={() => void logout()} disabled={busy} className="rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-stone-200 disabled:opacity-50">{t('logout')}</button>
+          <button type="button" onClick={() => void logout()} disabled={busy} className="rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-stone-200 disabled:cursor-not-allowed disabled:opacity-50">{t('logout')}</button>
           <div className="rounded-xl border border-red-500/20 bg-red-950/20 p-3">
             <p className="text-sm font-semibold text-red-200">{t('deleteAccount')}</p>
             <p className="mt-1 text-xs leading-relaxed text-stone-400">{t('deleteAccountDetails')}</p>
             {showDeleteAccount && <label className="mt-3 block text-xs text-stone-300">{t('currentPassword')}<input type="password" value={deletePassword} onChange={e => setDeletePassword(e.target.value)} disabled={busy} autoComplete="current-password" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50" /></label>}
-            <button type="button" onClick={() => { if (!showDeleteAccount) { setShowDeleteAccount(true); setDeleteNotice(t('authDeleteButtonPrompt')); } else { void deleteAccount(); } }} disabled={busy || (showDeleteAccount && !deletePassword)} className="mt-3 w-full rounded-xl border border-red-500/30 px-4 py-2.5 text-xs font-semibold text-red-200 disabled:opacity-50">{busy ? t('processing') : showDeleteAccount ? t('confirmDelete') : t('deleteAccount')}</button>
+            <button type="button" onClick={() => { if (!showDeleteAccount) { setShowDeleteAccount(true); setDeleteNotice(t('authDeleteButtonPrompt')); } else { void deleteAccount(); } }} disabled={busy || (showDeleteAccount && !deletePassword)} className="mt-3 w-full rounded-xl border border-red-500/30 px-4 py-2.5 text-xs font-semibold text-red-200 disabled:cursor-not-allowed disabled:opacity-50">{busy ? t('processing') : showDeleteAccount ? t('confirmDelete') : t('deleteAccount')}</button>
             {deleteNotice && <p role="status" className="mt-2 text-xs text-stone-300">{deleteNotice}</p>}
           </div>
         </div>
