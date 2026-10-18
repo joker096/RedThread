@@ -1634,7 +1634,7 @@ main article[class*="rounded-2xl"][class*="border"] {
   src: url('https://db.onlinewebfonts.com/t/97386c1d7bdb684478ab36ec4e1129c8.woff2') format('woff2'),
        url('https://db.onlinewebfonts.com/t/97386c1d7bdb684478ab36ec4e1129c8.woff') format('woff');
   font-style: normal;
-  font-weight: 400 500;
+  font-weight: 400;
   font-display: swap;
 }
 @font-face {
@@ -1642,7 +1642,7 @@ main article[class*="rounded-2xl"][class*="border"] {
   src: url('https://db.onlinewebfonts.com/t/258f8afb45329bdad2477f0f91c3487f.woff2') format('woff2'),
        url('https://db.onlinewebfonts.com/t/258f8afb45329bdad2477f0f91c3487f.woff') format('woff');
   font-style: normal;
-  font-weight: 600 900;
+  font-weight: 700;
   font-display: swap;
 }
 
