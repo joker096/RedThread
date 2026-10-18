@@ -2740,3 +2740,99 @@ main article[class*="rounded-2xl"][class*="border"] {
   }
 }
 
+/* Gender-specific assessment: make the test runner and question choices readable in light mode. */
+:root[data-theme="light"] .vow-screen > .fixed.inset-0.z-50 {
+  background-color: rgb(43 20 31 / 78%) !important;
+  padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom));
+}
+
+:root[data-theme="light"] .vow-screen > .fixed.inset-0.z-50 > .w-full.max-w-md {
+  background-color: #fff !important;
+  color: #342832;
+  border-color: rgb(190 18 60 / 20%) !important;
+  box-shadow: 0 24px 80px rgb(35 13 24 / 28%);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+:root[data-theme="light"] .vow-screen > .fixed.inset-0.z-50 :where(.text-white, .text-stone-200) {
+  color: #40333a !important;
+}
+
+:root[data-theme="light"] .vow-screen > .fixed.inset-0.z-50 :where(.text-stone-300, .text-stone-400) {
+  color: #786770 !important;
+}
+
+:root[data-theme="light"] .vow-screen > .fixed.inset-0.z-50 :where(.bg-stone-950, .bg-stone-800) {
+  background-color: #fff7f9 !important;
+}
+
+:root[data-theme="light"] .vow-screen > .fixed.inset-0.z-50 :where(.border-white\/10) {
+  border-color: rgb(91 55 69 / 15%) !important;
+}
+
+:root[data-theme="light"] .vow-screen > .fixed.inset-0.z-50 button.w-full {
+  min-height: 44px;
+  border-color: rgb(91 55 69 / 15%) !important;
+  text-align: start;
+}
+
+:root[data-theme="light"] .vow-screen > .fixed.inset-0.z-50 button.w-full:hover {
+  background-color: #fff0f4 !important;
+  border-color: rgb(190 18 60 / 32%) !important;
+}
+
+:root[data-theme="light"] .vow-screen > .fixed.inset-0.z-50 :where(button):focus-visible {
+  outline: 2px solid #be123c !important;
+  outline-offset: 3px;
+}
+
+/* Assessment catalog cards and identity summary use consistent paper-like surfaces. */
+:root[data-theme="light"] .vow-screen > .p-4.sm\:p-5.rounded-3xl.bg-stone-900\/90 {
+  background: linear-gradient(145deg, #fff 0%, #fff8fa 100%) !important;
+  border-color: rgb(91 55 69 / 14%) !important;
+  box-shadow: 0 12px 34px rgb(57 24 39 / 7%);
+}
+
+:root[data-theme="light"] .vow-screen > .p-4.sm\:p-5.rounded-3xl.bg-stone-900\/90 :where(.text-white, .text-stone-200) {
+  color: #40333a !important;
+}
+
+:root[data-theme="light"] .vow-screen > .p-4.sm\:p-5.rounded-3xl.bg-stone-900\/90 :where(.text-stone-300) {
+  color: #62535a !important;
+}
+
+:root[data-theme="light"] .vow-screen > .p-4.sm\:p-5.rounded-3xl.bg-stone-900\/90 :where(.text-stone-400) {
+  color: #786770 !important;
+}
+
+:root[data-theme="light"] .vow-screen > .p-4.sm\:p-5.rounded-3xl.bg-stone-900\/90 :where(.bg-stone-950\/80) {
+  background-color: #fff0f4 !important;
+}
+
+:root[data-theme="light"] .vow-screen > .p-4.sm\:p-5.rounded-3xl.bg-stone-900\/90 :where(.border-white\/10, .border-white\/5) {
+  border-color: rgb(91 55 69 / 13%) !important;
+}
+
+:root[data-theme="light"] .vow-screen > .p-4.sm\:p-5.rounded-3xl.bg-stone-900\/90 :where(.text-rose-300, .text-rose-400) {
+  color: #a51643 !important;
+}
+
+:root[data-theme="light"] .vow-screen > .p-4.sm\:p-5.rounded-3xl.bg-stone-900\/90 :where(.text-emerald-300, .text-emerald-400) {
+  color: #16734b !important;
+}
+
+@media (max-width: 420px) {
+  :root[data-theme="light"] .vow-screen > .fixed.inset-0.z-50 {
+    align-items: flex-start;
+    padding-inline: .75rem;
+  }
+
+  :root[data-theme="light"] .vow-screen > .fixed.inset-0.z-50 > .w-full.max-w-md {
+    margin-block: auto;
+    border-radius: 1.25rem;
+    padding: 1rem;
+  }
+}
+
