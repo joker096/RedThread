@@ -246,13 +246,17 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
         childrenDisclosureConfirmedAt: typeof savedProfile.childrenDisclosureConfirmedAt === 'string' && savedProfile.childrenDisclosureConfirmedAt.length <= 100 ? savedProfile.childrenDisclosureConfirmedAt : null,
         isVisible: typeof savedProfile.isVisible === 'boolean' ? savedProfile.isVisible : true,
         photoUrls: Array.isArray(savedProfile.photoUrls)
-          ? savedProfile.photoUrls.filter((value: unknown): value is string =>
-              typeof value === 'string' &&
-              value.trim().length <= 2048 &&
-              !/[\u0000-\u001F\u007F]/.test(value) &&
-              !value.includes('\\') &&
-              (/^https?:\/\//i.test(value.trim()) || /^\/(?!\/)/.test(value.trim()))
-            )
+          ? Array.from(new Set(savedProfile.photoUrls
+              .slice(0, 100)
+              .filter((value: unknown): value is string =>
+                typeof value === 'string' &&
+                value.trim().length > 0 &&
+                value.trim().length <= 2048 &&
+                !/[\u0000-\u001F\u007F]/.test(value) &&
+                !value.includes('\\') &&
+                (/^https?:\/\//i.test(value.trim()) || /^\/(?!\/)/.test(value.trim()))
+              )
+              .map((value: string) => value.trim()))).slice(0, 6)
           : [],
         languages: Array.isArray(savedProfile.languages)
           ? [...new Map(savedProfile.languages.slice(0, 100)
