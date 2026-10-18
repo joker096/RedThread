@@ -2231,3 +2231,76 @@ main article[class*="rounded-2xl"][class*="border"] {
   }
 }
 
+/* Assessment and notification panels: bring everyday account flows into the same warm light theme. */
+:root[data-theme="light"] :where(.vow-screen[aria-label], .vow-screen) {
+  color: #44343c;
+}
+
+:root[data-theme="light"] .vow-screen:has(fieldset) {
+  background: #fffdfd !important;
+  border-color: rgb(112 63 82 / 13%) !important;
+  box-shadow: 0 14px 38px -30px rgb(78 31 49 / 28%);
+}
+
+:root[data-theme="light"] .vow-screen:has(fieldset) fieldset {
+  background: #fff7f8 !important;
+  border-color: rgb(112 63 82 / 12%) !important;
+}
+
+:root[data-theme="light"] .vow-screen:has(fieldset) legend {
+  color: #a51643 !important;
+}
+
+:root[data-theme="light"] .vow-screen:has(fieldset) label {
+  background: #fff !important;
+  border-color: rgb(112 63 82 / 12%) !important;
+  color: #51454b !important;
+}
+
+:root[data-theme="light"] .vow-screen:has(fieldset) label:has(input:checked) {
+  background: #fff0f3 !important;
+  border-color: #be123c !important;
+  color: #861337 !important;
+}
+
+:root[data-theme="light"] .vow-screen:has(fieldset) input[type="radio"] {
+  accent-color: #be123c;
+}
+
+:root[data-theme="light"] .vow-screen[aria-label] :where(h2, h3, h4) {
+  color: #29232a;
+}
+
+:root[data-theme="light"] .vow-screen[aria-label] :where(.text-white) {
+  color: #29232a !important;
+}
+
+:root[data-theme="light"] .vow-screen[aria-label] :where(.text-stone-100, .text-stone-200, .text-stone-300) {
+  color: #51454b !important;
+}
+
+:root[data-theme="light"] .vow-screen[aria-label] :where(.text-stone-400, .text-stone-500) {
+  color: #82737a !important;
+}
+
+:root[data-theme="light"] .vow-screen[aria-label] :where(.bg-stone-950\/80, .bg-stone-950\/60, .bg-stone-950\/40, .bg-stone-900\/80) {
+  background-color: #fff7f8 !important;
+}
+
+:root[data-theme="light"] .vow-screen[aria-label] :where(.border-white\/5, .border-white\/10) {
+  border-color: rgb(91 55 69 / 13%) !important;
+}
+
+:root[data-theme="light"] .vow-screen[aria-label] :where(.text-sky-200, .text-sky-300) {
+  color: #a51643 !important;
+}
+
+:root[data-theme="light"] .vow-screen[aria-label] :where(.bg-sky-950\/20, .bg-sky-950\/30) {
+  background-color: #fff0f3 !important;
+}
+
+:root[data-theme="light"] .vow-screen[aria-label] :where(button):focus-visible {
+  outline-color: #be123c !important;
+  outline-offset: 3px;
+}
+
