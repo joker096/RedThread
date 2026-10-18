@@ -1820,3 +1820,80 @@ main article[class*="rounded-2xl"][class*="border"] {
     transition-duration: .01ms !important;
   }
 }
+
+
+/* Reference-kit polish: filter sheet follows the same warm, minimal light surfaces. */
+:root[data-theme="light"] .vow-filter-backdrop {
+  background: rgb(37 24 30 / 48%) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] {
+  color: #29232a;
+  background: #fffdfd !important;
+  border: 1px solid rgb(112 63 82 / 12%) !important;
+  border-radius: 1.75rem !important;
+  box-shadow: 0 28px 90px -30px rgb(50 20 32 / 36%) !important;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] :where(h1, h2, h3, h4, .font-heading) {
+  color: #2b2026 !important;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] :where(p, label, span, legend) {
+  color: #65565d;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] :where(input:not([type="range"]), select, textarea) {
+  color: #29232a !important;
+  background: #fff !important;
+  border: 1px solid rgb(91 55 69 / 17%) !important;
+  border-radius: .9rem !important;
+  box-shadow: inset 0 1px 2px rgb(64 30 42 / 3%);
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] :where(input, select, textarea)::placeholder {
+  color: #a09299 !important;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] :where(input, select, textarea):focus-visible {
+  outline: 2px solid #be123c !important;
+  outline-offset: 2px;
+  border-color: #be123c !important;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] :where(.bg-stone-950\/50, .bg-stone-950\/60, .bg-stone-950\/80, .bg-stone-800) {
+  background: #fff6f7 !important;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] :where(.text-white, .text-stone-200, .text-stone-300) {
+  color: #44343c !important;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] :where(.text-stone-400, .text-stone-500, .text-stone-600) {
+  color: #82737a !important;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] :where(.border-white\/5, .border-white\/10, .border-rose-900\/40) {
+  border-color: rgb(91 55 69 / 12%) !important;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] input[type="range"] {
+  accent-color: #be123c;
+}
+
+:root[data-theme="light"] .vow-filter-backdrop [role="dialog"] button {
+  border-radius: 999px;
+}
+
+@media (max-width: 640px) {
+  :root[data-theme="light"] .vow-filter-backdrop {
+    padding: .5rem !important;
+  }
+
+  :root[data-theme="light"] .vow-filter-backdrop [role="dialog"] {
+    border-radius: 1.5rem 1.5rem .75rem .75rem !important;
+    padding-bottom: max(1rem, env(safe-area-inset-bottom)) !important;
+  }
+}
