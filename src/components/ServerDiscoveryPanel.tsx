@@ -27,6 +27,11 @@ type ServerDiscoveryPanelProps = { onOpenAccount: () => void };
 
 const VALID_REPORT_CATEGORIES = ['fake_profile', 'spam', 'harassment', 'safety', 'children_misrepresentation', 'duplicate_profile', 'other'];
 
+const safeApiMessage = (value: unknown): string | null =>
+  typeof value === 'string' && value.trim().length > 0
+    ? value.trim().slice(0, 500)
+    : null;
+
 const isSafeProfilePhotoUrl = (value: unknown): value is string => {
   if (typeof value !== 'string' || !value.trim()) return false;
   const url = value.trim();
@@ -297,7 +302,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         setNotice(t('signInToLike'));
         return;
       }
-      if (response.status === 402) throw new Error(data?.message || t('trialEndedLike'));
+      if (response.status === 402) throw new Error(safeApiMessage(data?.message) || t('trialEndedLike'));
       if (!response.ok) throw new Error(t('sendLikeError'));
       if (!data || typeof data !== 'object' || Array.isArray(data) ||
           (data.matched !== undefined && typeof data.matched !== 'boolean')) {
@@ -338,7 +343,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         setNotice(t('signInToPass'));
         return;
       }
-      if (response.status === 402) throw new Error(data?.message || t('trialEndedPass'));
+      if (response.status === 402) throw new Error(safeApiMessage(data?.message) || t('trialEndedPass'));
       if (!response.ok) throw new Error(t('passError'));
       setActionHistory(current => [...current, { type: 'pass' as const, profile }].slice(-50));
       setProfiles(current => current.filter(item => item.id !== profile.id));
@@ -398,7 +403,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         setNotice(t('signInToUndoAction'));
         return;
       }
-      if (response.status === 402) throw new Error(data?.message || t('premiumUndoRequired'));
+      if (response.status === 402) throw new Error(safeApiMessage(data?.message) || t('premiumUndoRequired'));
       if (response.status === 404) throw new Error(t('undoUnavailable'));
       if (response.status === 409) throw new Error(t('undoMatchError'));
       if (!response.ok) throw new Error(t('undoActionError'));
