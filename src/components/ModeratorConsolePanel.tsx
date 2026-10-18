@@ -43,7 +43,7 @@ export const ModeratorConsolePanel:React.FC=()=>{
   finally{if(actionEpoch===sessionEpoch.current)setBusy(false);}
  };
  if(!ready||!allowed)return null;
- return <section aria-busy={busy} className="vow-screen mb-5 rounded-3xl border border-violet-500/30 bg-stone-900/90 p-4 sm:p-5">
+ return <section aria-busy={busy} className="vow-screen vow-moderator-console mb-5 rounded-3xl border border-violet-500/30 bg-stone-900/90 p-4 sm:p-5">
   <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] uppercase tracking-[0.2em] text-violet-300">Только модераторы</p><h3 className="mt-1 text-lg font-bold text-white">Панель безопасности Vow</h3><p className="mt-1 text-xs text-stone-400">Очередь проверок, жалобы и журнал решений.</p></div><button type="button" onClick={()=>void refresh()} disabled={busy} className="rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-200 disabled:opacity-50">Обновить</button></div>
   {notice&&<p role="status" aria-live="polite" className="mt-3 rounded-xl bg-stone-950 p-3 text-xs text-stone-300">{notice}</p>}
   <div className="mt-4 rounded-2xl border border-white/10 bg-stone-950/60 p-3"><h4 className="text-sm font-semibold text-white">Фотографии на проверке ({photos.length})</h4>
