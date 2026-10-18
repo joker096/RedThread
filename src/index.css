@@ -3431,3 +3431,57 @@ main article[class*="rounded-2xl"][class*="border"] {
   }
 }
 
+/* Compatibility matrix: keep scores, comparison rows and chemistry quiz readable in light mode. */
+:root[data-theme="light"] .vow-compatibility-matrix-modal {
+  background: linear-gradient(150deg, #fff 0%, #fff8fa 100%) !important;
+  border-color: rgb(190 18 60 / 22%) !important;
+  box-shadow: 0 24px 72px rgb(57 24 39 / 24%);
+  color: #40333a;
+}
+
+:root[data-theme="light"] .vow-compatibility-matrix-modal :where(.text-white, .text-stone-100, .text-stone-200) {
+  color: #40333a !important;
+}
+
+:root[data-theme="light"] .vow-compatibility-matrix-modal :where(.text-stone-300, .text-stone-400, .text-stone-500) {
+  color: #786770 !important;
+}
+
+:root[data-theme="light"] .vow-compatibility-matrix-modal :where(.bg-stone-950, .bg-stone-950\/60, .bg-stone-950\/40, .bg-stone-800, .bg-stone-900) {
+  background-color: #f8f3f5 !important;
+  border-color: rgb(91 55 69 / 14%) !important;
+}
+
+:root[data-theme="light"] .vow-compatibility-matrix-modal :where(.bg-rose-950\/50, .bg-rose-950\/40, .bg-rose-950\/30, .bg-rose-950\/80) {
+  background-color: #fff0f4 !important;
+  border-color: rgb(190 18 60 / 18%) !important;
+}
+
+:root[data-theme="light"] .vow-compatibility-matrix-modal :where(.text-rose-200, .text-rose-300, .text-rose-400) {
+  color: #9f1239 !important;
+}
+
+:root[data-theme="light"] .vow-compatibility-matrix-modal :where(.text-emerald-200, .text-emerald-300, .text-emerald-400) {
+  color: #047857 !important;
+}
+
+:root[data-theme="light"] .vow-compatibility-matrix-modal :where(.bg-emerald-950\/60, .bg-emerald-950\/30) {
+  background-color: #e9f8ef !important;
+}
+
+:root[data-theme="light"] .vow-compatibility-matrix-modal :where(button):focus-visible {
+  outline: 2px solid #9f1239 !important;
+  outline-offset: 3px;
+}
+
+:root[data-theme="light"] .vow-compatibility-matrix-modal :where(button):disabled {
+  opacity: .55;
+}
+
+@media (max-width: 420px) {
+  :root[data-theme="light"] .vow-compatibility-matrix-modal {
+    padding: 1rem !important;
+    border-radius: 1.25rem !important;
+  }
+}
+
