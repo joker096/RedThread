@@ -232,12 +232,12 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       }
       setProfile({
         ...savedProfile,
-        displayName: safeProfileText(savedProfile.displayName, 80),
-        bio: safeProfileText(savedProfile.bio, 2000),
-        country: safeProfileText(savedProfile.country, 100),
-        city: safeProfileText(savedProfile.city, 120),
-        occupation: safeProfileText(savedProfile.occupation, 120),
-        education: safeProfileText(savedProfile.education, 120),
+        displayName: safeProfileText(savedProfile.displayName, 80).trim(),
+        bio: safeProfileText(savedProfile.bio, 2000).trim(),
+        country: safeProfileText(savedProfile.country, 100).trim(),
+        city: safeProfileText(savedProfile.city, 120).trim(),
+        occupation: safeProfileText(savedProfile.occupation, 120).trim(),
+        education: safeProfileText(savedProfile.education, 120).trim(),
         relationshipIntent: safeProfileChoice(savedProfile.relationshipIntent, ['marriage_family', 'serious_relationship', 'family_without_marriage'] as const, 'marriage_family'),
         familyFormat: safeProfileChoice(savedProfile.familyFormat, ['marriage', 'cohabitation', 'open_to_both'] as const, 'open_to_both'),
         hasChildren: typeof savedProfile.hasChildren === 'boolean' ? savedProfile.hasChildren : null,
