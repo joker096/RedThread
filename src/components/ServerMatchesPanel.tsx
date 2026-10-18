@@ -389,7 +389,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                 <div ref={messagesLogRef} onScroll={event => {
                   const log = event.currentTarget;
                   shouldAutoScrollMessagesRef.current = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
-                }} data-testid="server-match-messages" role="log" aria-live="polite" aria-relevant="additions text" aria-atomic="false" aria-label={`${t('serverChats')}: ${matches.find(match => match.id === selected)?.displayName ?? ''} ` .trim()} aria-busy={messagesLoading} className="max-h-60 space-y-2.5 overflow-y-auto overscroll-contain rounded-xl bg-black/10 p-1 sm:max-h-80">
+                }} data-testid="server-match-messages" role="log" aria-live="polite" aria-relevant="additions text" aria-atomic="false" aria-label={`${t('serverChats')}: ${matches.find(match => match.id === selected)?.displayName ?? ''}`} aria-busy={messagesLoading} className="max-h-60 space-y-2.5 overflow-y-auto overscroll-contain rounded-xl bg-black/10 p-1 sm:max-h-80">
                   {messages.map(message => (
                     <div key={message.id} className={`max-w-[90%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed shadow-sm ${message.senderId === currentUserId ? 'ms-auto rounded-br-md bg-gradient-to-br from-rose-600 to-rose-700 text-white' : 'me-auto rounded-bl-md border border-white/5 bg-stone-800 text-stone-100'}`}>
                       <p dir="auto" className="whitespace-pre-wrap break-words">{message.text}</p>
