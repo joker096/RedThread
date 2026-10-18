@@ -3983,3 +3983,27 @@ main article[class*="rounded-2xl"][class*="border"] {
     animation: none !important;
   }
 }
+
+
+/* Profile editor: make common form controls easier to use on touch screens. */
+@media (max-width: 420px) {
+  .vow-profile-editor-panel :where(button, select, input:not([type="checkbox"]):not([type="file"])) {
+    min-height: 2.75rem;
+  }
+
+  .vow-profile-editor-panel :where(input[type="file"])::file-selector-button {
+    min-height: 2.75rem;
+    margin-inline-end: .75rem;
+    padding-inline: .875rem;
+  }
+
+  .vow-profile-editor-panel :where(textarea) {
+    line-height: 1.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vow-profile-editor-panel .animate-in {
+    animation: none !important;
+  }
+}
