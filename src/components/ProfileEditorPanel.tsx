@@ -286,7 +286,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
   };
 
   return (
-    <section aria-busy={busy || uploadBusy} className="vow-screen mb-5 min-w-0 rounded-3xl border border-amber-500/20 bg-stone-900/80 p-3 sm:p-5">
+    <section aria-busy={busy || uploadBusy} className="vow-screen vow-profile-editor-panel mb-5 min-w-0 rounded-3xl border border-amber-500/20 bg-stone-900/80 p-3 sm:p-5">
       <p className="text-[10px] uppercase tracking-[0.2em] text-amber-300">{t('profileMyProfile')}</p>
       <h3 className="mt-1 text-lg font-bold text-white">{t('profileHeading')}</h3>
       {authenticated === false ? (
