@@ -2304,3 +2304,81 @@ main article[class*="rounded-2xl"][class*="border"] {
   outline-offset: 3px;
 }
 
+/* Profile editing and discovery cards: make the primary daily workflow calm and readable. */
+:root[data-theme="light"] .vow-screen :where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea) {
+  background-color: #fff !important;
+  color: #29232a !important;
+  border-color: rgb(91 55 69 / 16%) !important;
+  border-radius: .85rem;
+}
+
+:root[data-theme="light"] .vow-screen :where(input, select, textarea)::placeholder {
+  color: #9b8a92 !important;
+  opacity: 1;
+}
+
+:root[data-theme="light"] .vow-screen :where(input[type="file"]) {
+  color: #65565d !important;
+}
+
+:root[data-theme="light"] .vow-screen :where(input[type="file"])::file-selector-button {
+  background: #881337;
+  color: #fff;
+  border: 0;
+  border-radius: .65rem;
+  padding: .55rem .8rem;
+  margin-inline-end: .75rem;
+  font-weight: 650;
+}
+
+:root[data-theme="light"] .vow-screen :where(label.block, label.flex) {
+  color: #62535a;
+}
+
+:root[data-theme="light"] .vow-screen :where(fieldset, .rounded-2xl.border, .rounded-xl.border) {
+  border-color: rgb(91 55 69 / 13%);
+}
+
+:root[data-theme="light"] .vow-screen :where(button):focus-visible,
+:root[data-theme="light"] .vow-screen :where(input, select, textarea):focus-visible {
+  outline-color: #be123c !important;
+  outline-offset: 3px;
+}
+
+:root[data-theme="light"] .vow-screen :where(button:disabled) {
+  cursor: not-allowed;
+  filter: saturate(.65);
+}
+
+:root[data-theme="light"] .vow-screen :where(.vow-like-button) {
+  background-color: #fff0f3 !important;
+  color: #a51643 !important;
+  border-color: rgb(190 18 60 / 24%) !important;
+}
+
+:root[data-theme="light"] .vow-screen :where(.vow-pass-button) {
+  background-color: #fff !important;
+  color: #6e5b63 !important;
+  border-color: rgb(91 55 69 / 14%) !important;
+}
+
+:root[data-theme="light"] .vow-screen :where(.vow-like-button:hover) {
+  background-color: #ffe3ea !important;
+}
+
+:root[data-theme="light"] .vow-screen :where(.vow-pass-button:hover) {
+  background-color: #fff5f7 !important;
+}
+
+:root[data-theme="light"] .vow-screen :where(.text-emerald-200, .text-emerald-300, .text-emerald-400) {
+  color: #16734b !important;
+}
+
+:root[data-theme="light"] .vow-screen :where(.text-amber-200, .text-amber-300) {
+  color: #8a4b08 !important;
+}
+
+:root[data-theme="light"] .vow-screen :where(.bg-emerald-950\/80, .bg-emerald-950\/60, .bg-emerald-950\/40, .bg-emerald-950\/30) {
+  background-color: #edf9f1 !important;
+}
+
