@@ -3660,3 +3660,64 @@ main article[class*="rounded-2xl"][class*="border"] {
   }
 }
 
+/* Bot-safety scanner: keep verification signals and reporting controls legible in light mode. */
+:root[data-theme="light"] .vow-bot-safety-scanner {
+  color: #352b31;
+  background: linear-gradient(155deg, #fff 0%, #f0fdf7 100%) !important;
+  border-color: rgb(4 120 87 / 22%) !important;
+  box-shadow: 0 24px 72px rgb(20 50 42 / 24%);
+}
+
+:root[data-theme="light"] .vow-bot-safety-scanner :where(.text-white, .text-stone-100, .text-stone-200) {
+  color: #352b31 !important;
+}
+
+:root[data-theme="light"] .vow-bot-safety-scanner :where(.text-stone-300, .text-stone-400, .text-stone-500) {
+  color: #6b5b63 !important;
+}
+
+:root[data-theme="light"] .vow-bot-safety-scanner :where(.bg-stone-950, .bg-stone-950\/60, .bg-stone-800, .bg-stone-900) {
+  background-color: #f2f7f4 !important;
+  border-color: rgb(53 82 68 / 16%) !important;
+}
+
+:root[data-theme="light"] .vow-bot-safety-scanner :where(.text-emerald-100, .text-emerald-200, .text-emerald-300, .text-emerald-400, .text-teal-300) {
+  color: #047857 !important;
+}
+
+:root[data-theme="light"] .vow-bot-safety-scanner :where(.bg-emerald-950\/50, .bg-emerald-950\/40, .bg-emerald-950\/30, .bg-emerald-950\/20, .bg-teal-950\/40) {
+  background-color: #e8f8ef !important;
+  border-color: rgb(4 120 87 / 18%) !important;
+}
+
+:root[data-theme="light"] .vow-bot-safety-scanner :where(.text-rose-200, .text-rose-300, .text-rose-400) {
+  color: #9f1239 !important;
+}
+
+:root[data-theme="light"] .vow-bot-safety-scanner :where(.text-amber-200, .text-amber-300, .text-amber-400) {
+  color: #92400e !important;
+}
+
+:root[data-theme="light"] .vow-bot-safety-scanner :where(textarea, select, input) {
+  color: #352b31 !important;
+  background-color: #fff !important;
+  border-color: rgb(53 82 68 / 20%) !important;
+  color-scheme: light;
+}
+
+:root[data-theme="light"] .vow-bot-safety-scanner :where(button, textarea, select, input):focus-visible {
+  outline: 2px solid #047857 !important;
+  outline-offset: 3px;
+}
+
+:root[data-theme="light"] .vow-bot-safety-scanner :where(button):disabled {
+  opacity: .55;
+}
+
+@media (max-width: 420px) {
+  :root[data-theme="light"] .vow-bot-safety-scanner {
+    padding: 1rem !important;
+    border-radius: 1.25rem !important;
+  }
+}
+
