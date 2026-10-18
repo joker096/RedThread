@@ -284,11 +284,11 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
   };
 
   return (
-    <div className="vow-screen w-full max-w-md mx-auto text-left">
+    <div className="vow-gender-specific-tests vow-screen w-full max-w-md mx-auto text-left">
       {/* Active Test Modal / Runner */}
       {activeTest && (
         <div className="fixed inset-0 z-50 bg-stone-950/80 backdrop-blur-xl flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-stone-900 border border-white/10 rounded-3xl p-5 shadow-2xl">
+          <div className="vow-gender-test-runner w-full max-w-md bg-stone-900 border border-white/10 rounded-3xl p-5 shadow-2xl">
             <div className="flex items-center justify-between mb-3">
               <span className="text-[10px] uppercase font-bold text-rose-400 tracking-wider">
                 Вопрос {currentQuestionIndex + 1} из {activeTest.questions.length}
