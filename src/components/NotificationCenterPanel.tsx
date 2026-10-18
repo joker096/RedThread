@@ -11,6 +11,7 @@ export const NotificationCenterPanel:React.FC=()=>{
  const [notice,setNotice]=useState('');
  const refreshRequestId=useRef(0);
  const busyRequestId=useRef(0);
+ const markReadInFlight=useRef(false);
  const sessionEpoch=useRef(0);
  const refresh=useCallback(async()=>{
   const requestId=++refreshRequestId.current;
@@ -55,9 +56,10 @@ export const NotificationCenterPanel:React.FC=()=>{
   }catch{if(requestId===refreshRequestId.current&&actionEpoch===sessionEpoch.current){setNotice(t('notificationsLoadError'));setReady(true);}}
   finally{if(busyId===busyRequestId.current&&actionEpoch===sessionEpoch.current)setBusy(false);}
  },[t]);
- useEffect(()=>{void refresh();const refreshOnFocus=()=>void refresh();const refreshOnSession=()=>{sessionEpoch.current+=1;refreshRequestId.current+=1;busyRequestId.current+=1;setAllowed(false);setReady(false);setItems([]);setUnread(0);setNotice('');void refresh();};window.addEventListener('focus',refreshOnFocus);window.addEventListener('vow:session-changed',refreshOnSession);return()=>{window.removeEventListener('focus',refreshOnFocus);window.removeEventListener('vow:session-changed',refreshOnSession);refreshRequestId.current+=1;busyRequestId.current+=1;sessionEpoch.current+=1;};},[refresh]);
+ useEffect(()=>{void refresh();const refreshOnFocus=()=>void refresh();const refreshOnSession=()=>{sessionEpoch.current+=1;refreshRequestId.current+=1;busyRequestId.current+=1;markReadInFlight.current=false;setAllowed(false);setReady(false);setItems([]);setUnread(0);setNotice('');void refresh();};window.addEventListener('focus',refreshOnFocus);window.addEventListener('vow:session-changed',refreshOnSession);return()=>{window.removeEventListener('focus',refreshOnFocus);window.removeEventListener('vow:session-changed',refreshOnSession);refreshRequestId.current+=1;busyRequestId.current+=1;sessionEpoch.current+=1;};},[refresh]);
  const markRead=async(id?:string)=>{
-  if(busy)return;
+  if(busy||markReadInFlight.current)return;
+  markReadInFlight.current=true;
   const actionEpoch=sessionEpoch.current;
   const busyId=++busyRequestId.current;
   setBusy(true);
@@ -72,6 +74,8 @@ export const NotificationCenterPanel:React.FC=()=>{
     setNotice(t('notificationsMarkReadError'));
     if(busyId===busyRequestId.current)setBusy(false);
    }
+  }finally{
+   if(actionEpoch===sessionEpoch.current)markReadInFlight.current=false;
   }
  };
  if (!ready) return null;
