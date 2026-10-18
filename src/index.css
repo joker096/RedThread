@@ -2919,3 +2919,80 @@ main article[class*="rounded-2xl"][class*="border"] {
   outline-offset: 3px;
 }
 
+/* Server discovery: keep search controls and empty/error states comfortable in light mode. */
+:root[data-theme="light"] .vow-server-discovery-panel {
+  background: linear-gradient(145deg, #fff 0%, #fbfffc 100%) !important;
+  border-color: rgb(4 120 87 / 17%) !important;
+  box-shadow: 0 10px 28px rgb(25 66 48 / 5%);
+  color: #40333a;
+}
+
+:root[data-theme="light"] .vow-server-discovery-panel :where(.text-white, .text-stone-100, .text-stone-200) {
+  color: #40333a !important;
+}
+
+:root[data-theme="light"] .vow-server-discovery-panel :where(.text-stone-300, .text-stone-400, .text-stone-500) {
+  color: #786770 !important;
+}
+
+:root[data-theme="light"] .vow-server-discovery-panel :where(input, select, textarea) {
+  color: #352b31 !important;
+  background-color: #fff !important;
+  border-color: rgb(91 55 69 / 19%) !important;
+  color-scheme: light;
+}
+
+:root[data-theme="light"] .vow-server-discovery-panel :where(input, select, textarea)::placeholder {
+  color: #8a7881 !important;
+  opacity: 1;
+}
+
+:root[data-theme="light"] .vow-server-discovery-panel :where(button):focus-visible,
+:root[data-theme="light"] .vow-server-discovery-panel :where(input, select):focus-visible {
+  outline: 2px solid #047857 !important;
+  outline-offset: 3px;
+}
+
+:root[data-theme="light"] .vow-server-discovery-panel :where(.bg-stone-950\/60, .bg-stone-950\/50, .bg-stone-950\/40) {
+  background-color: #f6faf7 !important;
+  border-color: rgb(91 55 69 / 13%) !important;
+}
+
+:root[data-theme="light"] .vow-server-discovery-panel :where(.text-emerald-200, .text-emerald-300) {
+  color: #066548 !important;
+}
+
+:root[data-theme="light"] .vow-server-discovery-panel :where(.text-amber-200) {
+  color: #85500b !important;
+}
+
+:root[data-theme="light"] .vow-server-discovery-panel .vow-match-dialog {
+  background: linear-gradient(160deg, #fff 0%, #fff4f7 100%) !important;
+  border-color: rgb(190 18 60 / 22%) !important;
+  box-shadow: 0 24px 80px rgb(57 24 39 / 25%);
+  color: #40333a;
+}
+
+:root[data-theme="light"] .vow-server-discovery-panel .vow-match-dialog :where(.text-white, .text-stone-100) {
+  color: #40333a !important;
+}
+
+:root[data-theme="light"] .vow-server-discovery-panel .vow-match-dialog .vow-match-celebration {
+  background: #fff0f4 !important;
+  border-color: rgb(190 18 60 / 24%) !important;
+  color: #be123c !important;
+}
+
+:root[data-theme="light"] .vow-server-discovery-panel .vow-match-dialog .text-stone-300 {
+  color: #6f5963 !important;
+}
+
+@media (max-width: 420px) {
+  :root[data-theme="light"] .vow-server-discovery-panel {
+    padding: 0.875rem !important;
+  }
+  :root[data-theme="light"] .vow-server-discovery-panel .vow-match-dialog {
+    padding: 1.25rem !important;
+  }
+}
+
