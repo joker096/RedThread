@@ -13,6 +13,17 @@ type AccountUser = {
 
 type AccountAccessPanelProps = { onAuthenticated: () => void };
 
+type BillingStatus = { access: string; trialEndsAt: string | null; premiumUntil: string | null; paymentConfigured: boolean };
+
+const isBillingStatus = (value: unknown): value is BillingStatus => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  const validDate = (date: unknown) => date === null || (typeof date === 'string' && date.length > 0 && date.length <= 100 && Number.isFinite(Date.parse(date)));
+  return typeof candidate.access === 'string' && candidate.access.length > 0 && candidate.access.length <= 50
+    && validDate(candidate.trialEndsAt) && validDate(candidate.premiumUntil)
+    && typeof candidate.paymentConfigured === 'boolean';
+};
+
 const isAccountUser = (value: unknown): value is AccountUser => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const candidate = value as Record<string, unknown>;
@@ -43,7 +54,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
   const [hasChildren, setHasChildren] = useState<boolean | null>(null);
   const [wantsChildren, setWantsChildren] = useState<'yes' | 'no' | 'discuss' | 'unsure'>('discuss');
   const [childrenLivingArrangement, setChildrenLivingArrangement] = useState<'with_me' | 'shared_custody' | 'with_other_parent' | 'not_applicable' | 'prefer_to_discuss'>('not_applicable');
-  const [billingStatus, setBillingStatus] = useState<{access:string;trialEndsAt:string|null;premiumUntil:string|null;paymentConfigured:boolean}|null>(null);
+  const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null);
   const [deletePassword, setDeletePassword] = useState('');
   const [deleteNotice, setDeleteNotice] = useState('');
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
@@ -81,7 +92,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
           const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
           if (!cancelled
             && initialSessionActionId === sessionActionIdRef.current
-            && initialAuxiliaryRequestId === auxiliaryRequestIdRef.current) setBillingStatus(billing);
+            && initialAuxiliaryRequestId === auxiliaryRequestIdRef.current) setBillingStatus(isBillingStatus(billing) ? billing : null);
         }
       })
       .catch(() => {});
@@ -162,7 +173,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       window.dispatchEvent(new Event('vow:session-changed'));
       const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
       if (sessionActionIdRef.current !== activeActionId) return;
-      setBillingStatus(billing);
+      setBillingStatus(isBillingStatus(billing) ? billing : null);
       setMessage(submittedMode === 'register' ? t('authAccountCreated') : t('authSignedIn'));
       setPassword('');
       onAuthenticated();
