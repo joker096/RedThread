@@ -60,8 +60,10 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
         throw new Error(t('profileLoadError'));
       }
       const p = {
-        ...rawProfile,
-        displayName: safeProfileText(rawProfile.displayName, 80),
+        id: rawProfile.id.trim(),
+        displayName: safeProfileText(rawProfile.displayName, 80).trim(),
+        age: rawProfile.age,
+        gender: rawProfile.gender,
         bio: safeProfileText(rawProfile.bio, 2000),
         country: safeProfileText(rawProfile.country, 100),
         city: safeProfileText(rawProfile.city, 100),
@@ -236,8 +238,10 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
         throw new Error(t('profileSaveError'));
       }
       setProfile({
-        ...savedProfile,
+        id: savedProfile.id.trim(),
         displayName: safeProfileText(savedProfile.displayName, 80).trim(),
+        age: savedProfile.age,
+        gender: savedProfile.gender,
         bio: safeProfileText(savedProfile.bio, 2000).trim(),
         country: safeProfileText(savedProfile.country, 100).trim(),
         city: safeProfileText(savedProfile.city, 100).trim(),
