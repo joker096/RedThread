@@ -24,18 +24,27 @@ const isBillingStatus = (value: unknown): value is BillingStatus => {
     && typeof candidate.paymentConfigured === 'boolean';
 };
 
-const isAccountUser = (value: unknown): value is AccountUser => {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+const normalizeAccountUser = (value: unknown): AccountUser | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const candidate = value as Record<string, unknown>;
-  return typeof candidate.id === 'string' && candidate.id.trim().length > 0 && candidate.id.trim().length <= 256
-    && typeof candidate.email === 'string' && candidate.email.trim().length > 0 && candidate.email.trim().length <= 254
-    && typeof candidate.displayName === 'string' && candidate.displayName.trim().length > 0 && candidate.displayName.trim().length <= 100
-    && (candidate.gender === 'female' || candidate.gender === 'male')
-    && typeof candidate.country === 'string' && candidate.country.trim().length <= 100
-    && typeof candidate.city === 'string' && candidate.city.trim().length <= 100
-    && (candidate.relationshipIntent === 'marriage_family'
-      || candidate.relationshipIntent === 'serious_relationship'
-      || candidate.relationshipIntent === 'family_without_marriage');
+  if (typeof candidate.id !== 'string' || !candidate.id.trim() || candidate.id.trim().length > 256
+    || typeof candidate.email !== 'string' || !candidate.email.trim() || candidate.email.trim().length > 254
+    || typeof candidate.displayName !== 'string' || !candidate.displayName.trim() || candidate.displayName.trim().length > 100
+    || (candidate.gender !== 'female' && candidate.gender !== 'male')
+    || typeof candidate.country !== 'string' || candidate.country.trim().length > 100
+    || typeof candidate.city !== 'string' || candidate.city.trim().length > 100
+    || (candidate.relationshipIntent !== 'marriage_family'
+      && candidate.relationshipIntent !== 'serious_relationship'
+      && candidate.relationshipIntent !== 'family_without_marriage')) return null;
+  return {
+    id: candidate.id.trim(),
+    email: candidate.email.trim(),
+    displayName: candidate.displayName.trim(),
+    gender: candidate.gender,
+    country: candidate.country.trim(),
+    city: candidate.city.trim(),
+    relationshipIntent: candidate.relationshipIntent
+  };
 };
 
 export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthenticated }) => {
@@ -78,7 +87,8 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
           && initialSessionActionId === sessionActionIdRef.current
           && initialAuxiliaryRequestId === auxiliaryRequestIdRef.current
           && data?.user) {
-          if (!isAccountUser(data.user)) {
+          const accountUser = normalizeAccountUser(data.user);
+          if (!accountUser) {
             setMessage(t('authRequestFailed'));
             return;
           }
@@ -87,7 +97,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
             setPassword('');
             return;
           }
-          setUser(data.user);
+          setUser(accountUser);
           window.dispatchEvent(new Event('vow:session-changed'));
           const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
           if (!cancelled
@@ -165,11 +175,12 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         if (data?.error === 'email_verification_required' || data?.error === 'verification_email_delivery_failed') setCanResendVerification(true);
         throw new Error(errors[data?.error] || t('authRequestFailed'));
       }
-      if (!isAccountUser(data?.user)) {
+      const accountUser = normalizeAccountUser(data?.user);
+      if (!accountUser) {
         throw new Error(t('authRequestFailed'));
       }
       activeActionId = ++sessionActionIdRef.current;
-      setUser(data.user);
+      setUser(accountUser);
       window.dispatchEvent(new Event('vow:session-changed'));
       const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
       if (sessionActionIdRef.current !== activeActionId) return;
