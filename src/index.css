@@ -2862,7 +2862,7 @@ main article[class*="rounded-2xl"][class*="border"] {
   min-width: 0;
 }
 
-:root[data-theme="light"] .vow-screen[role="region"] [role="listitem]:has(.text-sky-300) {
+:root[data-theme="light"] .vow-screen[role="region"] [role="listitem"]:has(.text-sky-300) {
   background-color: #f0f7ff !important;
   border-color: rgb(3 105 161 / 20%) !important;
 }
