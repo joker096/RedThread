@@ -2535,3 +2535,76 @@ main article[class*="rounded-2xl"][class*="border"] {
   }
 }
 
+/* Premium, compatibility, and messaging surfaces in light mode. */
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"][aria-labelledby="premium-modal-title"] {
+  border-color: rgb(217 119 6 / 30%) !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"][aria-labelledby="premium-modal-title"] :where(.text-amber-200, .text-amber-300, .text-amber-400) {
+  color: #92520b !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"][aria-labelledby="premium-modal-title"] :where(.border-amber-500\/30, .border-amber-500\/40) {
+  border-color: rgb(180 83 9 / 25%) !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"][aria-labelledby="premium-modal-title"] :where(.bg-stone-800) {
+  background-color: #fff0d5 !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"][aria-labelledby="compatibility-matrix-title"] {
+  border-color: rgb(190 18 60 / 24%) !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout {
+  background-color: #fff !important;
+  color: #342832;
+  border-color: rgb(190 18 60 / 15%) !important;
+  box-shadow: 0 18px 50px rgb(57 24 39 / 9%);
+}
+
+:root[data-theme="light"] .vow-chat-layout :where(.bg-stone-950\/60, .bg-stone-950\/50, .bg-stone-950\/40, .bg-stone-900, .bg-stone-800) {
+  background-color: #fff7f9 !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout :where(.text-white, .text-stone-100, .text-stone-200, .text-stone-300) {
+  color: #40333a;
+}
+
+:root[data-theme="light"] .vow-chat-layout :where(.text-stone-400, .text-stone-500) {
+  color: #786770;
+}
+
+:root[data-theme="light"] .vow-chat-layout :where(.border-white\/5, .border-white\/10) {
+  border-color: rgb(91 55 69 / 12%) !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout :where(textarea, input:not([type="checkbox"])) {
+  background-color: #fff !important;
+  color: #342832 !important;
+  border-color: rgb(91 55 69 / 18%) !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout :where(.text-rose-200, .text-rose-300) {
+  color: #a51643 !important;
+}
+
+:root[data-theme="light"] .vow-chat-layout :where(button):focus-visible {
+  outline: 2px solid #be123c;
+  outline-offset: 3px;
+}
+
+@media (max-width: 767px) {
+  :root[data-theme="light"] .vow-chat-layout {
+    height: min(78dvh, 760px);
+    min-height: 440px;
+  }
+}
+
+@media (max-width: 380px) {
+  :root[data-theme="light"] .vow-chat-layout {
+    border-radius: 1.1rem;
+    min-height: 400px;
+  }
+}
+
