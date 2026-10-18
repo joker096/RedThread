@@ -2140,3 +2140,94 @@ main article[class*="rounded-2xl"][class*="border"] {
     min-height: 2.75rem;
   }
 }
+
+/* Modal family: premium, compatibility and date-invite dialogs share one accessible light surface. */
+:root[data-theme="light"] .vow-modal-backdrop {
+  background: rgb(37 24 30 / 48%) !important;
+  backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"] {
+  color: #44343c;
+  background: #fffdfd !important;
+  border: 1px solid rgb(112 63 82 / 13%) !important;
+  border-radius: 1.65rem !important;
+  box-shadow: 0 28px 90px -32px rgb(50 20 32 / 38%), 0 2px 10px rgb(84 35 53 / 4%) !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"] :where(h1, h2, h3, h4, .font-heading) {
+  color: #29232a;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"] :where(.text-white) {
+  color: #29232a !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"] :where(.text-stone-200, .text-stone-300) {
+  color: #51454b !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"] :where(.text-stone-400, .text-stone-500) {
+  color: #82737a !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"] :where(.bg-stone-950, .bg-stone-950\/80, .bg-stone-950\/60, .bg-stone-950\/50, .bg-stone-950\/40, .bg-stone-900, .bg-stone-900\/80, .bg-stone-800) {
+  background-color: #fff5f7 !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"] :where(.border-white\/5, .border-white\/10, .border-white\/15, .border-rose-900\/50, .border-rose-800\/40) {
+  border-color: rgb(91 55 69 / 12%) !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"] :where(.text-rose-200, .text-rose-300, .text-rose-400) {
+  color: #a51643 !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"] :where(.text-amber-200, .text-amber-300, .text-amber-400) {
+  color: #8a4b08 !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"] :where(.bg-rose-950\/60, .bg-rose-950\/40, .bg-rose-950\/30, .bg-red-950\/40, .bg-amber-950\/40, .bg-amber-950\/30) {
+  background-color: #fff0f3 !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"] :where(input, select, textarea) {
+  background: #fff !important;
+  color: #29232a !important;
+  border-color: rgb(91 55 69 / 16%) !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"] :where(button, input, select, textarea):focus-visible {
+  outline-color: #be123c !important;
+  outline-offset: 3px;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"] [aria-pressed="true"] {
+  background: #fff0f3 !important;
+  color: #861337 !important;
+  border-color: #be123c !important;
+  box-shadow: 0 5px 16px -10px rgb(159 18 57 / 45%);
+}
+
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"] [role="progressbar"],
+:root[data-theme="light"] .vow-modal-backdrop [role="dialog"] .h-2.rounded-full {
+  background-color: #f2e7eb;
+}
+
+@media (max-width: 640px) {
+  :root[data-theme="light"] .vow-modal-backdrop {
+    align-items: flex-end;
+    padding: .5rem !important;
+    padding-bottom: max(.5rem, env(safe-area-inset-bottom)) !important;
+  }
+
+  :root[data-theme="light"] .vow-modal-backdrop [role="dialog"] {
+    max-height: calc(100dvh - 1rem - env(safe-area-inset-bottom));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-radius: 1.5rem 1.5rem 1rem 1rem !important;
+    padding-bottom: max(1.25rem, env(safe-area-inset-bottom)) !important;
+  }
+}
+
