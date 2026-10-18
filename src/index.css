@@ -1141,3 +1141,220 @@ main article[class*="rounded-2xl"][class*="border"] {
     overflow-wrap: anywhere;
   }
 }
+
+
+/* Vow visual refresh — reference-inspired light surfaces, editorial spacing and ruby accents. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --vow-text: #29232a;
+  --vow-line: rgb(91 55 69 / 12%);
+  --vow-card-radius: 1.65rem;
+  --vow-accent-soft: #fff0f3;
+  --vow-focus: #be123c;
+  background: #fffaf9;
+}
+
+:root[data-theme="light"] body {
+  color: #29232a;
+  background:
+    radial-gradient(ellipse at 50% -18rem, rgb(255 228 235 / 72%), transparent 42rem),
+    #fffaf9;
+}
+
+:root[data-theme="light"] #root {
+  background: transparent;
+}
+
+:root[data-theme="light"] #root > .min-h-screen.bg-stone-950 {
+  background: transparent !important;
+  color: #29232a !important;
+}
+
+:root[data-theme="light"] .vow-app-header {
+  background: rgb(255 250 249 / 88%) !important;
+  border-color: rgb(91 55 69 / 9%) !important;
+  box-shadow: 0 8px 30px -26px rgb(84 35 53 / 28%);
+}
+
+:root[data-theme="light"] .vow-app-header > div {
+  max-width: 76rem;
+}
+
+:root[data-theme="light"] .vow-app-header nav {
+  background: rgb(255 255 255 / 88%) !important;
+  border-color: rgb(91 55 69 / 10%) !important;
+  box-shadow: 0 5px 20px -18px rgb(84 35 53 / 35%);
+}
+
+:root[data-theme="light"] .vow-app-header nav button[aria-current="page"] {
+  background: #9f1239 !important;
+  color: #fff !important;
+  box-shadow: 0 6px 16px -8px rgb(159 18 57 / 55%);
+}
+
+:root[data-theme="light"] .vow-app-header button:hover {
+  border-color: rgb(190 24 93 / 28%) !important;
+}
+
+:root[data-theme="light"] .vow-app-header > div > div:first-child span {
+  color: #3d2730;
+}
+
+:root[data-theme="light"] .vow-app-header > div > div:first-child span.text-rose-500 {
+  color: #be123c !important;
+}
+
+:root[data-theme="light"] .vow-bottom-nav {
+  background: rgb(255 255 255 / 94%) !important;
+  border-color: rgb(91 55 69 / 10%) !important;
+  box-shadow: 0 18px 48px -28px rgb(84 35 53 / 35%);
+}
+
+:root[data-theme="light"] .vow-bottom-nav [aria-current="page"] {
+  background: #fff0f3 !important;
+  color: #9f1239 !important;
+}
+
+:root[data-theme="light"] main {
+  max-width: 64rem;
+}
+
+:root[data-theme="light"] .vow-screen {
+  background: rgb(255 255 255 / 90%) !important;
+  border-color: rgb(91 55 69 / 10%) !important;
+  border-radius: 1.75rem !important;
+  box-shadow: 0 20px 65px -48px rgb(84 35 53 / 24%);
+  color: #29232a;
+}
+
+:root[data-theme="light"] .vow-screen :where(.text-white) {
+  color: #29232a !important;
+}
+
+:root[data-theme="light"] .vow-screen :where(.text-stone-200, .text-stone-300) {
+  color: #51454b !important;
+}
+
+:root[data-theme="light"] .vow-screen :where(.text-stone-400, .text-stone-500) {
+  color: #81737a !important;
+}
+
+:root[data-theme="light"] .vow-screen :where([class*="bg-stone-950"], [class*="bg-stone-900"]) {
+  background-color: #fff8f8 !important;
+}
+
+:root[data-theme="light"] .vow-screen :where([class*="border-white/"], [class*="border-stone-"]) {
+  border-color: rgb(91 55 69 / 11%) !important;
+}
+
+:root[data-theme="light"] .vow-screen :where(input, select, textarea) {
+  background-color: #fff !important;
+  color: #29232a !important;
+  border-color: rgb(91 55 69 / 16%) !important;
+  border-radius: .9rem;
+}
+
+:root[data-theme="light"] .vow-screen :where(input, select, textarea)::placeholder {
+  color: #a0959a !important;
+}
+
+:root[data-theme="light"] .vow-screen button[class*="bg-rose-"],
+:root[data-theme="light"] .vow-screen button[class*="bg-red-"] {
+  box-shadow: 0 8px 20px -12px rgb(190 24 93 / 55%);
+}
+
+:root[data-theme="light"] .vow-profile-card {
+  overflow: hidden;
+  background: #fff !important;
+  border: 1px solid rgb(91 55 69 / 10%) !important;
+  border-radius: 1.8rem !important;
+  box-shadow: 0 22px 60px -42px rgb(84 35 53 / 28%);
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-details {
+  background-image: linear-gradient(to top, #fff 74%, rgb(255 255 255 / 97%) 88%, transparent 100%) !important;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-profile-prompt {
+  background: #fff4f6 !important;
+  border-color: rgb(190 24 93 / 13%) !important;
+  border-radius: 1rem;
+}
+
+:root[data-theme="light"] .vow-profile-card :where(.text-rose-200, .text-rose-300) {
+  color: #a30f3c !important;
+}
+
+:root[data-theme="light"] .vow-profile-card :where(.text-emerald-200, .text-emerald-300) {
+  color: #087f5b !important;
+}
+
+:root[data-theme="light"] .vow-profile-card :where(.bg-rose-950\/50, .bg-rose-950\/30, .bg-rose-500\/10) {
+  background-color: #fff0f3 !important;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-like-button {
+  background: #be123c !important;
+  border-color: #be123c !important;
+  color: #fff !important;
+}
+
+:root[data-theme="light"] .vow-profile-card .vow-pass-button {
+  background: #fff !important;
+  color: #63545b !important;
+  border-color: rgb(91 55 69 / 16%) !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop {
+  background: rgb(54 24 36 / 36%) !important;
+}
+
+:root[data-theme="light"] .vow-install-banner {
+  border-color: rgb(190 24 93 / 12%) !important;
+  box-shadow: 0 16px 45px -30px rgb(84 35 53 / 22%);
+}
+
+:root[data-theme="light"] [role="status"].bg-amber-950\/70 {
+  background: #fff4e5 !important;
+  color: #854d0e !important;
+  border-color: rgb(180 83 9 / 12%) !important;
+}
+
+:root[data-theme="light"] [role="status"].bg-amber-950\/70 button {
+  border-color: rgb(180 83 9 / 20%) !important;
+  color: #854d0e !important;
+}
+
+:root[data-theme="light"] :where(.shadow-2xl, .shadow-xl) {
+  --tw-shadow-color: rgb(84 35 53 / 12%);
+}
+
+:root[data-theme="light"] :where(button, a, input, select, textarea):focus-visible {
+  outline-color: #be123c;
+}
+
+@media (min-width: 1024px) {
+  :root[data-theme="light"] main {
+    padding-top: 2rem;
+  }
+}
+
+@media (max-width: 640px) {
+  :root[data-theme="light"] .vow-screen {
+    border-radius: 1.3rem !important;
+  }
+
+  :root[data-theme="light"] .vow-profile-card {
+    border-radius: 1.4rem !important;
+  }
+
+  :root[data-theme="light"] main {
+    padding-inline: .85rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="light"] .vow-profile-card {
+    animation: none;
+  }
+}
