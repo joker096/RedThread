@@ -2450,3 +2450,88 @@ main article[class*="rounded-2xl"][class*="border"] {
   outline-offset: 3px;
 }
 
+/* Final responsive polish: app header, install banner, and service/ad dialogs. */
+:root[data-theme="light"] .vow-app-header {
+  background-color: rgb(255 255 255 / 94%) !important;
+  border-color: rgb(91 55 69 / 12%) !important;
+  box-shadow: 0 8px 28px rgb(57 24 39 / 5%);
+}
+
+:root[data-theme="light"] .vow-app-header :where(.text-white, .text-stone-200, .text-stone-300) {
+  color: #40333a;
+}
+
+:root[data-theme="light"] .vow-app-header :where(.text-stone-400, .text-stone-500) {
+  color: #786770;
+}
+
+:root[data-theme="light"] .vow-app-header :where(.bg-stone-900, .bg-stone-950, .bg-stone-800) {
+  background-color: #fff6f8 !important;
+}
+
+:root[data-theme="light"] .vow-app-header :where(.border-white\/10, .border-white\/\[0\.07\]) {
+  border-color: rgb(91 55 69 / 14%) !important;
+}
+
+:root[data-theme="light"] .vow-install-banner {
+  background: linear-gradient(100deg, #fff7f8, #fff 55%, #fff4f6) !important;
+  border-color: rgb(190 18 60 / 16%) !important;
+  color: #40333a;
+}
+
+:root[data-theme="light"] .vow-install-banner :where(.text-white, .text-stone-200, .text-stone-300) {
+  color: #40333a;
+}
+
+:root[data-theme="light"] .vow-install-banner :where(.text-stone-400, .text-stone-500) {
+  color: #786770;
+}
+
+:root[data-theme="light"] .vow-install-banner :where(.bg-stone-900) {
+  background-color: #f6e9ed !important;
+}
+
+:root[data-theme="light"] .vow-install-banner :where(button):focus-visible {
+  outline: 2px solid #be123c;
+  outline-offset: 3px;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop[role="dialog"] {
+  background-color: rgb(255 247 249 / 96%) !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop[role="dialog"] > :where(div) {
+  background-color: #fff !important;
+  border-color: rgb(91 55 69 / 15%) !important;
+}
+
+:root[data-theme="light"] .vow-modal-backdrop[role="dialog"] :where(.bg-gradient-to-r) {
+  background-image: linear-gradient(100deg, #fff0f4, #fff9fa) !important;
+}
+
+@media (max-width: 420px) {
+  :root[data-theme="light"] .vow-app-header {
+    padding-inline: .625rem;
+  }
+
+  :root[data-theme="light"] .vow-install-banner {
+    padding-inline: .625rem;
+  }
+
+  :root[data-theme="light"] .vow-modal-backdrop [role="dialog"] {
+    max-height: calc(100dvh - 1rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vow-app-header,
+  .vow-install-banner {
+    scroll-behavior: auto;
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
