@@ -163,7 +163,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
   const antiChitChat = checkAntiChitChatDeadline(activeThread.createdAt, activeThread.messages.length);
 
   return (
-    <div className="vow-chat-layout vow-screen w-full max-w-4xl mx-auto h-[75vh] min-h-[550px] flex rounded-3xl overflow-hidden bg-stone-900 border border-rose-950/40 shadow-2xl">
+    <div className="vow-chat-layout vow-chat-messenger vow-screen w-full max-w-4xl mx-auto h-[75vh] min-h-[550px] flex rounded-3xl overflow-hidden bg-stone-900 border border-rose-950/40 shadow-2xl">
       {/* Threads sidebar (desktop / tablet) */}
       <div className={`w-full md:w-80 border-e border-white/5 flex flex-col bg-stone-950/60 ${activeThreadId ? 'hidden md:flex' : 'flex'}`}>
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 p-3.5">
