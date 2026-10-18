@@ -49,7 +49,7 @@ export const NotificationCenterPanel:React.FC=()=>{
       }))
     : [];
    const unreadCount = data?.unreadCount;
-   const safeUnreadCount = typeof unreadCount === 'number' && Number.isSafeInteger(unreadCount) && unreadCount >= 0
+   const safeUnreadCount = typeof unreadCount === 'number' && Number.isSafeInteger(unreadCount) && unreadCount >= 0 && unreadCount <= 1_000_000
     ? unreadCount
     : notifications.filter(notification => notification.readAt === null).length;
    setItems(notifications);setUnread(safeUnreadCount);setAllowed(true);setReady(true);setNotice('');
