@@ -331,7 +331,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       ) : showReset ? (
         <div className="space-y-3">
           <p className="text-sm text-stone-300">{t('resetPasswordDetails')}</p>
-          <label className="block text-xs text-stone-300">{t('newPassword')}<input type="password" value={resetPassword} onChange={event => setResetPassword(event.target.value)} minLength={12} maxLength={128} autoComplete="new-password" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white" /></label>
+          <label className="block text-xs text-stone-300">{t('newPassword')}<input type="password" value={resetPassword} onChange={event => setResetPassword(event.target.value)} disabled={busy} minLength={12} maxLength={128} autoComplete="new-password" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50" /></label>
           <button type="button" onClick={() => void completePasswordReset()} disabled={busy || resetPassword.length < 12} className="w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-40">{busy ? t('authResetBusy') : t('changePassword')}</button>
         </div>
       ) : (
