@@ -2996,3 +2996,86 @@ main article[class*="rounded-2xl"][class*="border"] {
   }
 }
 
+/* Profile editor: clarify form hierarchy, upload controls and family preference choices. */
+:root[data-theme="light"] .vow-profile-editor-panel {
+  background: linear-gradient(145deg, #fff 0%, #fffaf3 100%) !important;
+  border-color: rgb(180 83 9 / 16%) !important;
+  box-shadow: 0 10px 28px rgb(57 24 39 / 5%);
+  color: #40333a;
+}
+
+:root[data-theme="light"] .vow-profile-editor-panel :where(.text-white, .text-stone-100, .text-stone-200) {
+  color: #40333a !important;
+}
+
+:root[data-theme="light"] .vow-profile-editor-panel :where(.text-stone-300, .text-stone-400, .text-stone-500) {
+  color: #786770 !important;
+}
+
+:root[data-theme="light"] .vow-profile-editor-panel :where(input:not([type="checkbox"]):not([type="file"]), select, textarea) {
+  color: #352b31 !important;
+  background-color: #fff !important;
+  border-color: rgb(91 55 69 / 18%) !important;
+  color-scheme: light;
+}
+
+:root[data-theme="light"] .vow-profile-editor-panel :where(input, textarea)::placeholder {
+  color: #8a7881 !important;
+  opacity: 1;
+}
+
+:root[data-theme="light"] .vow-profile-editor-panel :where(input[type="file"]) {
+  color: #594650 !important;
+}
+
+:root[data-theme="light"] .vow-profile-editor-panel :where(input[type="file"])::file-selector-button {
+  cursor: pointer;
+}
+
+:root[data-theme="light"] .vow-profile-editor-panel :where(input[type="file"])::file-selector-button {
+  background-color: #9f1239;
+  color: #fff;
+}
+
+:root[data-theme="light"] .vow-profile-editor-panel :where(fieldset, .rounded-2xl.border, .rounded-xl.border) {
+  border-color: rgb(91 55 69 / 15%) !important;
+}
+
+:root[data-theme="light"] .vow-profile-editor-panel :where(fieldset, .bg-stone-950\/60, .bg-stone-950\/40) {
+  background-color: #fffaf7 !important;
+}
+
+:root[data-theme="light"] .vow-profile-editor-panel :where(button, input, select, textarea):focus-visible {
+  outline: 2px solid #9a3412 !important;
+  outline-offset: 3px;
+}
+
+:root[data-theme="light"] .vow-profile-editor-panel button:disabled {
+  opacity: .55;
+}
+
+:root[data-theme="light"] .vow-profile-editor-panel label:has(input[type="checkbox"]) {
+  background-color: #fff !important;
+  border-color: rgb(91 55 69 / 16%) !important;
+}
+
+:root[data-theme="light"] .vow-profile-editor-panel label:has(input[type="checkbox"]) input {
+  accent-color: #be123c;
+}
+
+:root[data-theme="light"] .vow-profile-editor-panel fieldset button {
+  min-height: 44px;
+}
+
+:root[data-theme="light"] .vow-profile-editor-panel fieldset button[class*="bg-rose-950"] {
+  background-color: #fff0f4 !important;
+  border-color: rgb(190 18 60 / 40%) !important;
+  color: #881337 !important;
+}
+
+@media (max-width: 420px) {
+  :root[data-theme="light"] .vow-profile-editor-panel {
+    padding: 0.875rem !important;
+  }
+}
+
