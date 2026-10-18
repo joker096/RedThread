@@ -711,7 +711,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm" onClick={event => {
           if (event.target === event.currentTarget) setMatchedProfile(null);
         }}>
-          <div ref={matchDialogRef} role="dialog" aria-modal="true" aria-label={t('mutualMatches')} tabIndex={-1} className="w-full max-w-sm rounded-3xl border border-rose-400/30 bg-stone-950 p-6 text-center shadow-2xl shadow-rose-950/40">
+          <div ref={matchDialogRef} role="dialog" aria-modal="true" aria-label={`${t('mutualMatches')}: ${matchedProfile.displayName}`} tabIndex={-1} className="w-full max-w-sm rounded-3xl border border-rose-400/30 bg-stone-950 p-6 text-center shadow-2xl shadow-rose-950/40">
             <div className="vow-match-celebration mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full border border-rose-400/30 bg-rose-950/50 text-4xl text-rose-300" aria-hidden="true">♥</div>
             {matchedProfile.photoUrls?.[0] && <img src={matchedProfile.photoUrls[0]} alt="" decoding="async" className="mx-auto mb-4 h-20 w-20 rounded-full border border-rose-400/30 object-cover" />}
             <h3 className="text-xl font-bold text-white">{t('mutualMatches')}</h3>
