@@ -85,7 +85,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
                 !value.includes('\\') &&
                 (/^https?:\/\//i.test(value.trim()) || /^\/(?!\/)/.test(value.trim()))
               )
-              .map((value: string) => value.trim()))).slice(0, 20)
+              .map((value: string) => value.trim()))).slice(0, 6)
           : [],
         languages: Array.isArray(rawProfile.languages)
           ? [...new Map(rawProfile.languages.slice(0, 100)
