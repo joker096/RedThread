@@ -39,11 +39,19 @@ export const RelationshipAssessmentPanel: React.FC = () => {
         if (cancelled) return;
         const savedAnswers = data?.assessment?.answers;
         if (savedAnswers && typeof savedAnswers === 'object' && !Array.isArray(savedAnswers)) {
+          // Accept only known questions and options; the API response is untrusted input.
+          const safeAnswers: AssessmentAnswers = {};
+          for (const question of questions) {
+            const value = savedAnswers[question.id];
+            if (typeof value === 'string' && question.options.some(option => option.value === value)) {
+              safeAnswers[question.id] = value;
+            }
+          }
           // Do not let a slow initial load overwrite edits made while it was in flight.
           if (!answersEditedRef.current) {
-            setAnswers(savedAnswers as AssessmentAnswers);
-            setStatus('saved');
-            setNote(t('loadedSavedAnswers'));
+            setAnswers(safeAnswers);
+            setStatus(questions.every(question => Boolean(safeAnswers[question.id])) ? 'saved' : 'ready');
+            setNote(Object.keys(safeAnswers).length > 0 ? t('loadedSavedAnswers') : '');
           }
         } else {
           setStatus('ready');
