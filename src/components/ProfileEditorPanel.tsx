@@ -308,7 +308,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
                 const data=await response.json().catch(()=>null);
                 if (requestId !== profileLoadRequestId.current) return;
                 if(!response.ok) throw new Error(data?.error==='photo_limit_reached'?t('profilePhotoLimit'):data?.error==='photo_storage_not_configured'?t('profilePhotoStorageError'):data?.error==='photo_rejected_by_automated_review'?t('profilePhotoRejected'):t('profilePhotoUploadError'));
-                if (typeof data?.photoUrl !== 'string' || !(/^https?:\/\//i.test(data.photoUrl.trim()) || /^\/(?!\/)/.test(data.photoUrl.trim()))) throw new Error(t('profilePhotoUploadError'));
+                if (typeof data?.photoUrl !== 'string' || data.photoUrl.trim().length === 0 || data.photoUrl.trim().length > 2048 || /[\u0000-\u001F\u007F]/.test(data.photoUrl) || data.photoUrl.includes('\\') || !(/^https?:\/\//i.test(data.photoUrl.trim()) || /^\/(?!\/)/.test(data.photoUrl.trim()))) throw new Error(t('profilePhotoUploadError'));
                 setPhotoUrls(current => {
                   const existing = [...new Set(current.split(/\n|,/).map(value => value.trim()).filter(Boolean))];
                   const uploadedUrl = data.photoUrl.trim();
