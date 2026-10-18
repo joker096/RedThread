@@ -53,9 +53,9 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       if (requestId !== profileLoadRequestId.current) return;
       const rawProfile = data?.profile;
       if (!rawProfile || typeof rawProfile !== 'object' || Array.isArray(rawProfile) ||
-          typeof rawProfile.id !== 'string' || !rawProfile.id.trim() ||
-          typeof rawProfile.displayName !== 'string' ||
-          typeof rawProfile.age !== 'number' || !Number.isFinite(rawProfile.age) ||
+          typeof rawProfile.id !== 'string' || !rawProfile.id.trim() || rawProfile.id.trim().length > 256 ||
+          typeof rawProfile.displayName !== 'string' || !rawProfile.displayName.trim() || rawProfile.displayName.trim().length > 80 ||
+          typeof rawProfile.age !== 'number' || !Number.isFinite(rawProfile.age) || rawProfile.age < 18 || rawProfile.age > 120 ||
           !['female', 'male'].includes(rawProfile.gender)) {
         throw new Error(t('profileLoadError'));
       }
@@ -218,9 +218,9 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       }
       const savedProfile = data?.profile;
       if (!savedProfile || typeof savedProfile !== 'object' || Array.isArray(savedProfile) ||
-          typeof savedProfile.id !== 'string' || !savedProfile.id.trim() ||
-          typeof savedProfile.displayName !== 'string' ||
-          typeof savedProfile.age !== 'number' || !Number.isFinite(savedProfile.age) ||
+          typeof savedProfile.id !== 'string' || !savedProfile.id.trim() || savedProfile.id.trim().length > 256 ||
+          typeof savedProfile.displayName !== 'string' || !savedProfile.displayName.trim() || savedProfile.displayName.trim().length > 80 ||
+          typeof savedProfile.age !== 'number' || !Number.isFinite(savedProfile.age) || savedProfile.age < 18 || savedProfile.age > 120 ||
           !['female', 'male'].includes(savedProfile.gender)) {
         throw new Error(t('profileSaveError'));
       }
