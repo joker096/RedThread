@@ -3359,3 +3359,75 @@ main article[class*="rounded-2xl"][class*="border"] {
   }
 }
 
+/* Premium modal: make plan comparison, payment status and notices clear in light mode. */
+:root[data-theme="light"] .vow-lady-premium-modal {
+  background: linear-gradient(145deg, #fff 0%, #fffbeb 100%) !important;
+  border-color: rgb(180 83 9 / 25%) !important;
+  box-shadow: 0 24px 72px rgb(57 24 39 / 24%);
+  color: #40333a;
+}
+
+:root[data-theme="light"] .vow-lady-premium-modal :where(.text-white, .text-stone-100, .text-stone-200) {
+  color: #40333a !important;
+}
+
+:root[data-theme="light"] .vow-lady-premium-modal :where(.text-stone-300, .text-stone-400, .text-stone-500) {
+  color: #786770 !important;
+}
+
+:root[data-theme="light"] .vow-lady-premium-modal :where(.bg-stone-950, .bg-stone-950\/60, .bg-stone-950\/40, .bg-stone-800) {
+  background-color: #f8f5f0 !important;
+  border-color: rgb(91 55 69 / 14%) !important;
+}
+
+:root[data-theme="light"] .vow-lady-premium-modal :where(.bg-rose-950\/40, .bg-rose-950\/30) {
+  background-color: #fff0f4 !important;
+  border-color: rgb(190 18 60 / 18%) !important;
+}
+
+:root[data-theme="light"] .vow-lady-premium-modal :where(.text-rose-300, .text-rose-200) {
+  color: #9f1239 !important;
+}
+
+:root[data-theme="light"] .vow-lady-premium-modal :where(.text-amber-200, .text-amber-300) {
+  color: #92400e !important;
+}
+
+:root[data-theme="light"] .vow-lady-premium-modal [aria-pressed="true"] {
+  background-color: #fff1c2 !important;
+  border-color: #b45309 !important;
+  color: #78350f !important;
+}
+
+:root[data-theme="light"] .vow-lady-premium-modal [aria-pressed="false"] {
+  background-color: #fff !important;
+  border-color: rgb(91 55 69 / 15%) !important;
+  color: #594650 !important;
+}
+
+:root[data-theme="light"] .vow-lady-premium-modal :where(button):focus-visible {
+  outline: 2px solid #92400e !important;
+  outline-offset: 3px;
+}
+
+:root[data-theme="light"] .vow-lady-premium-modal :where(button):disabled {
+  opacity: .55;
+}
+
+:root[data-theme="light"] .vow-lady-premium-modal [role="status"] {
+  color: #78350f !important;
+}
+
+@media (max-width: 420px) {
+  :root[data-theme="light"] .vow-lady-premium-modal {
+    padding: 1rem !important;
+    border-radius: 1.25rem !important;
+  }
+  :root[data-theme="light"] .vow-lady-premium-modal .grid.grid-cols-3 {
+    gap: 0.375rem;
+  }
+  :root[data-theme="light"] .vow-lady-premium-modal .grid.grid-cols-3 button {
+    padding: 0.625rem 0.375rem;
+  }
+}
+
