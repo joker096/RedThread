@@ -44,9 +44,11 @@ export default function App() {
   const { t } = useLocale();
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     try {
-      return window.localStorage.getItem('vow-theme') === 'light' ? 'light' : 'dark';
+      const savedTheme = window.localStorage.getItem('vow-theme');
+      // The reference-inspired light interface is the default; respect an explicit user choice.
+      return savedTheme === 'dark' ? 'dark' : 'light';
     } catch {
-      return 'dark';
+      return 'light';
     }
   });
   useEffect(() => {
