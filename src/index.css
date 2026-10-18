@@ -4007,3 +4007,61 @@ main article[class*="rounded-2xl"][class*="border"] {
     animation: none !important;
   }
 }
+
+
+/* Relationship assessment: preserve readable contrast for every answer state in light mode. */
+:root[data-theme="light"] .vow-relationship-assessment {
+  color: #40333a;
+  background: linear-gradient(145deg, #fff 0%, #fff7fa 100%) !important;
+  border-color: rgb(190 18 60 / 18%) !important;
+}
+
+:root[data-theme="light"] .vow-relationship-assessment :where(.text-white, .text-stone-100, .text-stone-200) {
+  color: #40333a !important;
+}
+
+:root[data-theme="light"] .vow-relationship-assessment :where(.text-stone-300, .text-stone-400, .text-stone-500) {
+  color: #786770 !important;
+}
+
+:root[data-theme="light"] .vow-relationship-assessment :where(fieldset, .bg-stone-950\/60) {
+  background-color: #fff !important;
+  border-color: rgb(91 55 69 / 15%) !important;
+}
+
+:root[data-theme="light"] .vow-relationship-assessment label:has(input[type="radio"]) {
+  border-color: rgb(91 55 69 / 15%) !important;
+  color: #594650 !important;
+}
+
+:root[data-theme="light"] .vow-relationship-assessment label:has(input[type="radio"]:checked) {
+  background-color: #fff0f4 !important;
+  border-color: rgb(190 18 60 / 48%) !important;
+  color: #881337 !important;
+}
+
+:root[data-theme="light"] .vow-relationship-assessment input[type="radio"] {
+  accent-color: #be123c;
+}
+
+:root[data-theme="light"] .vow-relationship-assessment :where(button, input):focus-visible {
+  outline: 2px solid #9f1239 !important;
+  outline-offset: 3px;
+}
+
+:root[data-theme="light"] .vow-relationship-assessment button:disabled {
+  opacity: .55;
+}
+
+@media (max-width: 420px) {
+  .vow-relationship-assessment label:has(input[type="radio"]) {
+    min-height: 2.75rem;
+    align-items: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vow-relationship-assessment label {
+    transition: none !important;
+  }
+}
