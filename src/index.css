@@ -3485,3 +3485,58 @@ main article[class*="rounded-2xl"][class*="border"] {
   }
 }
 
+/* Relationship assessment tests: align cards and the question runner with the light palette. */
+:root[data-theme="light"] .vow-gender-specific-tests :where(.bg-stone-900, .bg-stone-900\/90) {
+  background-color: #fff !important;
+  border-color: rgb(91 55 69 / 14%) !important;
+  box-shadow: 0 12px 32px rgb(57 24 39 / 7%);
+}
+
+:root[data-theme="light"] .vow-gender-specific-tests :where(.text-white, .text-stone-100, .text-stone-200) {
+  color: #40333a !important;
+}
+
+:root[data-theme="light"] .vow-gender-specific-tests :where(.text-stone-300, .text-stone-400, .text-stone-500) {
+  color: #786770 !important;
+}
+
+:root[data-theme="light"] .vow-gender-specific-tests :where(.bg-stone-950, .bg-stone-950\/60, .bg-stone-800) {
+  background-color: #f8f3f5 !important;
+  border-color: rgb(91 55 69 / 14%) !important;
+}
+
+:root[data-theme="light"] .vow-gender-specific-tests :where(.text-rose-200, .text-rose-300, .text-rose-400) {
+  color: #9f1239 !important;
+}
+
+:root[data-theme="light"] .vow-gender-specific-tests :where(.text-amber-200, .text-amber-300, .text-amber-400) {
+  color: #92400e !important;
+}
+
+:root[data-theme="light"] .vow-gender-specific-tests :where(.text-emerald-200, .text-emerald-300, .text-emerald-400) {
+  color: #047857 !important;
+}
+
+:root[data-theme="light"] .vow-gender-test-runner {
+  background: #fff !important;
+  border-color: rgb(190 18 60 / 20%) !important;
+  box-shadow: 0 24px 72px rgb(57 24 39 / 28%);
+}
+
+:root[data-theme="light"] .vow-gender-specific-tests :where(button):focus-visible {
+  outline: 2px solid #9f1239 !important;
+  outline-offset: 3px;
+}
+
+:root[data-theme="light"] .vow-gender-specific-tests :where(button):hover {
+  border-color: rgb(190 18 60 / 40%);
+}
+
+@media (max-width: 420px) {
+  :root[data-theme="light"] .vow-gender-test-runner {
+    padding: 1rem !important;
+    max-height: calc(100dvh - 2rem);
+    overflow-y: auto;
+  }
+}
+
