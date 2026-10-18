@@ -21,7 +21,7 @@ export const NotificationCenterPanel:React.FC=()=>{
   try{
    const response=await fetch('/api/notifications?limit=20',{credentials:'include'});
    if(requestId!==refreshRequestId.current||actionEpoch!==sessionEpoch.current)return;
-   if(response.status===401){sessionEpoch.current+=1;refreshRequestId.current+=1;busyRequestId.current+=1;setBusy(false);setAllowed(false);setReady(true);setItems([]);setUnread(0);setNotice('');return;}
+   if(response.status===401){sessionEpoch.current+=1;refreshRequestId.current+=1;busyRequestId.current+=1;markReadInFlight.current=false;setBusy(false);setAllowed(false);setReady(true);setItems([]);setUnread(0);setNotice('');return;}
    const data=await response.json().catch(()=>null);
    if(requestId!==refreshRequestId.current||actionEpoch!==sessionEpoch.current)return;
    if(!response.ok)throw new Error(t('notificationsLoadError'));
@@ -66,7 +66,7 @@ export const NotificationCenterPanel:React.FC=()=>{
   try{
    const response=await fetch(id?'/api/notifications/'+encodeURIComponent(id)+'/read':'/api/notifications/read-all',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:'{}'});
    if(actionEpoch!==sessionEpoch.current)return;
-   if(response.status===401){sessionEpoch.current+=1;refreshRequestId.current+=1;busyRequestId.current+=1;setBusy(false);setAllowed(false);setReady(true);setItems([]);setUnread(0);setNotice('');return;}
+   if(response.status===401){sessionEpoch.current+=1;refreshRequestId.current+=1;busyRequestId.current+=1;markReadInFlight.current=false;setBusy(false);setAllowed(false);setReady(true);setItems([]);setUnread(0);setNotice('');return;}
    if(!response.ok)throw new Error(t('notificationsMarkReadError'));
    await refresh();
   }catch{
