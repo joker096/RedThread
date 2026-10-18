@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 
 type AccountUser = {
@@ -53,13 +53,15 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
   const [showReset, setShowReset] = useState(false);
   const [resetToken, setResetToken] = useState('');
   const [resetPassword, setResetPassword] = useState('');
+  const sessionActionIdRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
+    const initialSessionActionId = sessionActionIdRef.current;
     fetch('/api/auth/me', { credentials: 'include' })
       .then(async response => response.ok ? response.json() : null)
       .then(async data => {
-        if (!cancelled && data?.user) {
+        if (!cancelled && initialSessionActionId === sessionActionIdRef.current && data?.user) {
           if (!isAccountUser(data.user)) {
             setMessage(t('authRequestFailed'));
             return;
@@ -72,7 +74,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
           setUser(data.user);
           window.dispatchEvent(new Event('vow:session-changed'));
           const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
-          if (!cancelled) setBillingStatus(billing);
+          if (!cancelled && initialSessionActionId === sessionActionId.current) setBillingStatus(billing);
         }
       })
       .catch(() => {});
@@ -137,9 +139,11 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       if (!isAccountUser(data?.user)) {
         throw new Error(t('authRequestFailed'));
       }
+      const sessionActionId = ++sessionActionIdRef.current;
       setUser(data.user);
       window.dispatchEvent(new Event('vow:session-changed'));
       const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
+      if (sessionActionIdRef.current !== sessionActionId) return;
       setBillingStatus(billing);
       setMessage(mode === 'register' ? t('authAccountCreated') : t('authSignedIn'));
       setPassword('');
@@ -226,6 +230,8 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         };
         throw new Error(errors[data?.error] || t('authDeleteFailed'));
       }
+      sessionActionIdRef.current += 1;
+      sessionActionIdRef.current += 1;
       setUser(null);
       window.dispatchEvent(new Event('vow:session-changed'));
       setBillingStatus(null);
