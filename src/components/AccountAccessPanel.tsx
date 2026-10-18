@@ -108,20 +108,23 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
   }, []);
 
   const submit = async () => {
+    let activeActionId = sessionActionIdRef.current;
+    const submittedMode = mode;
     setBusy(true);
     setMessage('');
     setCanResendVerification(false);
     try {
-      const body = mode === 'login'
+      const body = submittedMode === 'login'
         ? { email, password }
         : { email, password, displayName, birthDate, gender, country, city, relationshipIntent, familyFormat, hasChildren, wantsChildren, childrenLivingArrangement };
-      const response = await fetch(mode === 'login' ? '/api/auth/login' : '/api/auth/register', {
+      const response = await fetch(submittedMode === 'login' ? '/api/auth/login' : '/api/auth/register', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
       const data = response.status === 204 ? null : await response.json().catch(() => null);
+      if (sessionActionIdRef.current !== activeActionId) return;
       if (!response.ok) {
         const errors: Record<string, string> = {
           invalid_email: t('authInvalidEmail'),
@@ -143,19 +146,20 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       if (!isAccountUser(data?.user)) {
         throw new Error(t('authRequestFailed'));
       }
-      const sessionActionId = ++sessionActionIdRef.current;
+      activeActionId = ++sessionActionIdRef.current;
       setUser(data.user);
       window.dispatchEvent(new Event('vow:session-changed'));
       const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
-      if (sessionActionIdRef.current !== sessionActionId) return;
+      if (sessionActionIdRef.current !== activeActionId) return;
       setBillingStatus(billing);
-      setMessage(mode === 'register' ? t('authAccountCreated') : t('authSignedIn'));
+      setMessage(submittedMode === 'register' ? t('authAccountCreated') : t('authSignedIn'));
       setPassword('');
       onAuthenticated();
     } catch (error) {
+      if (sessionActionIdRef.current !== activeActionId) return;
       setMessage(error instanceof Error ? error.message : t('authConnectionFailed'));
     } finally {
-      setBusy(false);
+      if (sessionActionIdRef.current === activeActionId) setBusy(false);
     }
   };
 
