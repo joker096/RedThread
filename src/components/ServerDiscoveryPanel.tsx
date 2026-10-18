@@ -201,6 +201,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       }
       if (response.status === 402) {
         const data = await response.json().catch(() => null);
+        if (requestId !== searchRequestId.current) return;
         setProfiles([]);
         setAuthenticated(true);
         setNotice(typeof data?.message === 'string' && data.message.trim()
