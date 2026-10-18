@@ -453,7 +453,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             type="submit"
             disabled={!inputText.trim() || sendingThreadIds.has(activeThread.id)}
             aria-busy={sendingThreadIds.has(activeThread.id)}
-            className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-rose-600 text-white shadow-md transition-all hover:bg-rose-500 disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+            className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-rose-600 text-white shadow-md transition-all hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
             aria-label={t('chatSendMessage')}
           >
             {sendingThreadIds.has(activeThread.id)
