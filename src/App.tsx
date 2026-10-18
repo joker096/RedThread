@@ -229,20 +229,30 @@ export default function App() {
   // Paid status comes from the authenticated backend, never from local demo storage.
   useEffect(() => {
     let active = true;
+    let latestRequestId = 0;
     const refreshPremiumStatus = async () => {
+      const requestId = ++latestRequestId;
       try {
         const response = await fetch('/api/billing/status', { credentials: 'include' });
-        if (!response.ok) { if (active) setIsLadyPremium(false); return; }
+        if (!response.ok) {
+          if (active && requestId === latestRequestId) setIsLadyPremium(false);
+          return;
+        }
         const data = await response.json();
-        if (active) setIsLadyPremium(Boolean(data?.premiumActive));
+        if (active && requestId === latestRequestId) setIsLadyPremium(Boolean(data?.premiumActive));
       } catch {
-        if (active) setIsLadyPremium(false);
+        if (active && requestId === latestRequestId) setIsLadyPremium(false);
       }
     };
     void refreshPremiumStatus();
     window.addEventListener('focus', refreshPremiumStatus);
     window.addEventListener('vow:session-changed', refreshPremiumStatus);
-    return () => { active = false; window.removeEventListener('focus', refreshPremiumStatus); window.removeEventListener('vow:session-changed', refreshPremiumStatus); };
+    return () => {
+      active = false;
+      latestRequestId += 1;
+      window.removeEventListener('focus', refreshPremiumStatus);
+      window.removeEventListener('vow:session-changed', refreshPremiumStatus);
+    };
   }, []);
 
   // A confirmed mutual server match should take the user straight to real chats.
