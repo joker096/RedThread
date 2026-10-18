@@ -87,10 +87,14 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         body: JSON.stringify({ token: verificationToken })
       }).then(async response => {
         const data = await response.json().catch(() => null);
+        if (cancelled) return;
         if (!response.ok) throw new Error(t('authVerificationLinkInvalid'));
         setMessage(t('authEmailVerified'));
         setMode('login');
-      }).catch(error => setMessage(error instanceof Error ? error.message : t('authVerificationFailed')));
+      }).catch(error => {
+        if (cancelled) return;
+        setMessage(error instanceof Error ? error.message : t('authVerificationFailed'));
+      });
       params.delete('verifyEmail');
       window.history.replaceState({}, '', window.location.pathname + (params.size ? '?' + params.toString() : '') + window.location.hash);
     }
