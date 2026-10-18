@@ -220,7 +220,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
 
   if (!currentProfile) {
     return (
-      <div className="flex flex-col items-center justify-center p-8 text-center min-h-[420px] w-full">
+      <div className="vow-discovery-empty-state flex flex-col items-center justify-center p-8 text-center min-h-[420px] w-full">
         <div className="w-16 h-16 rounded-full bg-rose-950/60 flex items-center justify-center text-rose-400 mb-4 border border-rose-800/40">
           <Heart className="w-8 h-8" />
         </div>
