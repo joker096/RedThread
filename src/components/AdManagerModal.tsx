@@ -130,6 +130,7 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="ad-manager-title" aria-describedby="ad-manager-description" tabIndex={-1} className="vow-ad-manager-modal relative w-full max-w-lg rounded-3xl bg-stone-900 border border-amber-500/30 shadow-2xl p-5 sm:p-6 text-left my-auto">
         {/* Close Button */}
         <button
+          type="button"
           onClick={onClose}
           className="absolute top-4 right-4 flex min-h-11 min-w-11 items-center justify-center rounded-full bg-stone-800 text-stone-400 hover:text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
           aria-label="Закрыть"
@@ -196,6 +197,7 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
             </div>
           ) : (
             <button
+              type="button"
               onClick={startRewardedSimulation}
               className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-rose-600 hover:from-amber-400 hover:to-rose-500 font-bold text-stone-950 text-xs flex items-center justify-center gap-2 shadow-lg transition-all"
             >
@@ -271,6 +273,7 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
         </div>
 
         <button
+          type="button"
           onClick={onClose}
           className="w-full py-3 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 font-semibold text-xs transition-colors"
         >
