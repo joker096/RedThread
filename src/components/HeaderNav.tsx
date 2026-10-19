@@ -71,7 +71,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             type="button"
             onClick={() => setActiveTab('discovery')}
             aria-current={activeTab === 'discovery' ? 'page' : undefined}
-            className={`min-h-10 px-3 py-2 rounded-full text-xs font-bold transition-all ${
+            className={`min-h-10 px-3 py-2 rounded-full text-xs font-bold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 ${
               activeTab === 'discovery'
                 ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-sm'
                 : 'text-stone-400 hover:text-stone-200'
@@ -85,7 +85,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             data-testid="nav-tests"
             onClick={() => setActiveTab('tests')}
             aria-current={activeTab === 'tests' ? 'page' : undefined}
-            className={`flex items-center gap-1 min-h-10 px-3 py-2 rounded-full text-xs font-bold transition-all ${
+            className={`flex items-center gap-1 min-h-10 px-3 py-2 rounded-full text-xs font-bold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 ${
               activeTab === 'tests'
                 ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-sm'
                 : 'text-stone-400 hover:text-stone-200'
@@ -100,7 +100,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             data-testid="nav-chats"
             onClick={() => setActiveTab('chats')}
             aria-current={activeTab === 'chats' ? 'page' : undefined}
-            className={`relative min-h-10 px-3 py-2 rounded-full text-xs font-bold transition-all ${
+            className={`relative min-h-10 px-3 py-2 rounded-full text-xs font-bold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 ${
               activeTab === 'chats'
                 ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-sm'
                 : 'text-stone-400 hover:text-stone-200'
