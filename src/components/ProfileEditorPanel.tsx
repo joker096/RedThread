@@ -214,6 +214,32 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
     try {
       const response = await fetch(`/api/blocks/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'include' });
       if (requestId !== profileLoadRequestId.current) return;
+      if (response.status === 401) {
+        profileLoadRequestId.current += 1;
+        setAuthenticated(false);
+        setProfile(null);
+        setDisplayName('');
+        setBio('');
+        setCountry('');
+        setCity('');
+        setOccupation('');
+        setEducation('');
+        setPhotoUrls('');
+        setLanguages('');
+        setRelationshipIntent('marriage_family');
+        setFamilyFormat('open_to_both');
+        setHasChildren(null);
+        setWantsChildren('discuss');
+        setChildrenLivingArrangement('not_applicable');
+        setIsVisible(true);
+        setBlockedProfiles([]);
+        unblockingIdsRef.current.clear();
+        setUnblockingIds(new Set());
+        setBusy(false);
+        setUploadBusy(false);
+        setNotice('');
+        return;
+      }
       if (!response.ok) throw new Error(t('profileUnblockError'));
       setBlockedProfiles(current => current.filter(profile => profile.id !== id));
       setNotice(t('profileUnblocked'));
