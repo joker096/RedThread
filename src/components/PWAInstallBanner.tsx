@@ -78,10 +78,13 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
     setIsInstalling(true);
     try {
       await promptEvent.prompt();
-      await promptEvent.userChoice;
+      const choice = await promptEvent.userChoice;
       // The app is considered installed only after the browser confirms it.
       // The appinstalled event handler owns that state transition.
       setInstallPrompt(null);
+      if (choice.outcome === 'dismissed') {
+        setShowGuide(true);
+      }
     } catch {
       // Some browsers reject the install prompt; keep the guide available.
       setShowGuide(true);
