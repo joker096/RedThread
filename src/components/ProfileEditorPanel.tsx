@@ -258,7 +258,32 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       });
       const data = await response.json().catch(() => null);
       if (requestId !== profileLoadRequestId.current) return;
-      if (response.status === 401) { setAuthenticated(false); return; }
+      if (response.status === 401) {
+        profileLoadRequestId.current += 1;
+        setAuthenticated(false);
+        setProfile(null);
+        setDisplayName('');
+        setBio('');
+        setCountry('');
+        setCity('');
+        setOccupation('');
+        setEducation('');
+        setPhotoUrls('');
+        setLanguages('');
+        setRelationshipIntent('marriage_family');
+        setFamilyFormat('open_to_both');
+        setHasChildren(null);
+        setWantsChildren('discuss');
+        setChildrenLivingArrangement('not_applicable');
+        setIsVisible(true);
+        setBlockedProfiles([]);
+        unblockingIdsRef.current.clear();
+        setUnblockingIds(new Set());
+        setBusy(false);
+        setUploadBusy(false);
+        setNotice('');
+        return;
+      }
       if (!response.ok) {
         const errors: Record<string, string> = {
           children_status_required: t('profileChildrenRequired'),
