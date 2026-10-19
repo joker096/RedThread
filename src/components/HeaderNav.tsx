@@ -59,7 +59,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           title={t('brandTagline')}
         >
           <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-tr from-rose-600 via-red-600 to-amber-500 flex items-center justify-center text-white shadow-md shadow-rose-950/60 group-hover:scale-105 transition-transform">
-            <Flame className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-white" />
+            <Flame className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-white" aria-hidden="true" />
           </div>
           <div className="flex items-baseline gap-1">
             <span className="font-heading font-black tracking-tight text-sm sm:text-base text-white">
@@ -94,7 +94,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                 : 'text-stone-400 hover:text-stone-200'
             }`}
           >
-            <Brain className="w-3.5 h-3.5 text-rose-400" />
+            <Brain className="w-3.5 h-3.5 text-rose-400" aria-hidden="true" />
             <span>{t('tests')}</span>
           </button>
 
@@ -187,7 +187,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             title={t('filters')}
             aria-label={t('filters')}
           >
-            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <SlidersHorizontal className="w-3.5 h-3.5" aria-hidden="true" />
           </button>}
 
           {currentGender === 'female' && (
@@ -201,7 +201,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
               }`}
               aria-label={isLadyPremium ? t('vipLabel') : t('ladyVipLabel')}
             >
-              <Crown className="h-3.5 w-3.5" />
+              <Crown className="h-3.5 w-3.5" aria-hidden="true" />
               <span>{isLadyPremium ? t('vipLabel') : t('ladyVipLabel')}</span>
             </button>
           )}
