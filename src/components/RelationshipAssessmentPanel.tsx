@@ -64,7 +64,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
         }
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [questions, t]);
 
   const save = async () => {
     if (!complete) {
