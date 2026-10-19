@@ -172,8 +172,9 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                 : 'bg-blue-950/40 border-blue-500/40 text-blue-200'
             }`}
             title={t('demoModeToggleHelp')} aria-label={t('demoModeToggleHelp')}
+            aria-pressed={currentGender === 'female'}
           >
-            <span className={`w-1.5 h-1.5 rounded-full ${currentGender === 'female' ? 'bg-rose-500' : 'bg-blue-400'}`}></span>
+            <span aria-hidden="true" className={`w-1.5 h-1.5 rounded-full ${currentGender === 'female' ? 'bg-rose-500' : 'bg-blue-400'}`}></span>
             <span className="hidden min-[380px]:inline">{currentGender === 'female' ? `${t('demoWoman')} ♀` : `${t('demoMan')} ♂`}</span>
           </button>
 
