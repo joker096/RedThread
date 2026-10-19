@@ -35,6 +35,9 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
   const [rewardClaimed, setRewardClaimed] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -57,7 +60,7 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== 'Tab') return;
@@ -81,11 +84,13 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
     document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      previouslyFocused?.focus();
+      if (previouslyFocused?.isConnected && previouslyFocused.getClientRects().length > 0 && !previouslyFocused.closest('[aria-hidden="true"], [hidden], [inert]')) {
+        previouslyFocused.focus();
+      }
       if (timerRef.current) clearInterval(timerRef.current);
       timerRef.current = null;
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -115,7 +120,7 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 p-2 rounded-full bg-stone-800 text-stone-400 hover:text-white transition-colors"
+          className="absolute top-4 right-4 flex min-h-11 min-w-11 items-center justify-center rounded-full bg-stone-800 text-stone-400 hover:text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
           aria-label="Закрыть"
         >
           <X className="w-5 h-5" />
