@@ -144,17 +144,17 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
         <div className="p-4 sm:p-6 border-b border-white/10 bg-gradient-to-r from-rose-950/70 to-stone-950">
           <div className="flex items-start justify-between gap-4">
             <div className="flex gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-rose-600/20 text-rose-300 flex items-center justify-center"><HeartHandshake className="w-6 h-6" /></div>
+              <div className="w-12 h-12 rounded-2xl bg-rose-600/20 text-rose-300 flex items-center justify-center"><HeartHandshake className="w-6 h-6" aria-hidden="true" /></div>
               <div>
                 <p className="text-[10px] uppercase tracking-[0.18em] text-rose-300 font-bold">Следующий этап для пары</p>
                 <h2 id="partner-services-title" className="text-xl sm:text-2xl font-black text-white">Планирование свадьбы и юридические услуги</h2>
                 <p className="text-xs sm:text-sm text-stone-300 mt-1">Для пары: {coupleNames} · индекс совместимости {compatibilityScore}%</p>
               </div>
             </div>
-            <button type="button" onClick={onClose} className="flex min-h-11 min-w-11 items-center justify-center rounded-xl bg-white/5 text-stone-300 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" aria-label="Закрыть"><X className="w-5 h-5" /></button>
+            <button type="button" onClick={onClose} className="flex min-h-11 min-w-11 items-center justify-center rounded-xl bg-white/5 text-stone-300 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" aria-label="Закрыть"><X className="w-5 h-5" aria-hidden="true" /></button>
           </div>
           <div className="mt-4 flex gap-2 rounded-xl border border-emerald-700/30 bg-emerald-950/30 p-3 text-xs text-emerald-100">
-            <LockKeyhole className="w-4 h-4 shrink-0 mt-0.5" />
+            <LockKeyhole className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
             <p>Раздел появляется только внутри взаимного совпадения после этапа совместимости. Сейчас это демонстрация каталога: исполнители, цены, документы и оплата не подключены.</p>
           </div>
         </div>
@@ -168,14 +168,14 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
               </select>
             </div>
             <button type="button" onClick={() => { setShowProviderForm(v => !v); setSubmitted(false); }} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-rose-500/40 bg-rose-600/10 px-4 py-3 text-xs font-bold text-rose-200 hover:bg-rose-600/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">
-              <FileCheck2 className="w-4 h-4" /> Я предоставляю услуги
+              <FileCheck2 className="w-4 h-4" aria-hidden="true" /> Я предоставляю услуги
             </button>
           </div>
 
           <div className="flex gap-2 overflow-x-auto pb-2 mb-5">
             {categories.map(item => {
               const Icon = item.icon;
-              return <button key={item.id} type="button" aria-pressed={category === item.id} onClick={() => setCategory(item.id)} className={`shrink-0 inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 ${category === item.id ? 'border-rose-500 bg-rose-600 text-white' : 'border-white/10 bg-stone-950 text-stone-300 hover:border-rose-700'}`}><Icon className="w-3.5 h-3.5" />{item.label}</button>;
+              return <button key={item.id} type="button" aria-pressed={category === item.id} onClick={() => setCategory(item.id)} className={`shrink-0 inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 ${category === item.id ? 'border-rose-500 bg-rose-600 text-white' : 'border-white/10 bg-stone-950 text-stone-300 hover:border-rose-700'}`}><Icon className="w-3.5 h-3.5" aria-hidden="true" />{item.label}</button>;
             })}
           </div>
 
@@ -184,7 +184,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
               <h3 className="font-bold text-white mb-1">Заявка поставщика услуг</h3>
               <p className="text-xs text-stone-400 mb-4">Заявка только демонстрирует будущий процесс. Не вводите паспортные данные и не прикрепляйте документы в прототипе.</p>
               {submitted ? (
-                <div role="status" aria-live="polite" className="rounded-xl border border-emerald-700/30 bg-emerald-950/30 p-4 text-sm text-emerald-200"><CheckCircle2 className="inline w-4 h-4 mr-2" />Демо-заявка проверена локально. Она не отправлена и документы не проверялись.</div>
+                <div role="status" aria-live="polite" className="rounded-xl border border-emerald-700/30 bg-emerald-950/30 p-4 text-sm text-emerald-200"><CheckCircle2 className="inline w-4 h-4 mr-2" aria-hidden="true" />Демо-заявка проверена локально. Она не отправлена и документы не проверялись.</div>
               ) : (
                 <>
                   <div className="grid sm:grid-cols-2 gap-3">
@@ -194,7 +194,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                     <div><label className="block text-xs text-stone-400 mb-1" htmlFor="provider-email">Рабочий email</label><input id="provider-email" required type="email" maxLength={254} autoComplete="email" value={providerEmail} onChange={e => setProviderEmail(e.target.value)} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white" placeholder="name@example.com" /></div>
                     <div className="sm:col-span-2"><label className="block text-xs text-stone-400 mb-1" htmlFor="provider-practice">{providerType === 'wedding' ? 'Услуги и регионы работы' : 'Специализация и правовая юрисдикция'}</label><input id="provider-practice" required maxLength={500} value={practice} onChange={e => setPractice(e.target.value)} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white" placeholder={providerType === 'wedding' ? 'Фото, видео, аренда платья, ведущий…' : 'Семейное право, брачные договоры, страна/регион…'} /></div>
                     {providerType !== 'wedding' && <div className="sm:col-span-2 rounded-xl border border-amber-700/30 bg-amber-950/20 p-3">
-                      <p className="text-xs font-bold text-amber-200 flex items-center gap-2"><ShieldCheck className="w-4 h-4" /> Обязательная проверка юридического специалиста</p>
+                      <p className="text-xs font-bold text-amber-200 flex items-center gap-2"><ShieldCheck className="w-4 h-4" aria-hidden="true" /> Обязательная проверка юридического специалиста</p>
                       <ul className="list-disc pl-5 mt-2 space-y-1 text-xs text-stone-300">
                         <li>Удостоверение личности представителя и подтверждение личности организации.</li>
                         <li>Диплом о юридическом образовании и проверка учебного заведения.</li>
@@ -213,10 +213,10 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
 
           {category === 'legal' && (
             <div className="mb-5 rounded-2xl border border-sky-700/30 bg-sky-950/20 p-4">
-              <div className="flex gap-2 items-start"><Scale className="w-5 h-5 text-sky-300 shrink-0" /><div><h3 className="font-bold text-white">Брачный договор — по законам конкретной страны</h3><p className="text-xs text-stone-300 mt-1">Пара выбирает страну применимого права и место заключения брака. Сервис должен направлять запрос только специалистам, допущенным к соответствующей практике. Наличие диплома само по себе не подтверждает право оказывать регулируемые услуги.</p></div></div>
+              <div className="flex gap-2 items-start"><Scale className="w-5 h-5 text-sky-300 shrink-0" aria-hidden="true" /><div><h3 className="font-bold text-white">Брачный договор — по законам конкретной страны</h3><p className="text-xs text-stone-300 mt-1">Пара выбирает страну применимого права и место заключения брака. Сервис должен направлять запрос только специалистам, допущенным к соответствующей практике. Наличие диплома само по себе не подтверждает право оказывать регулируемые услуги.</p></div></div>
               <div className="grid sm:grid-cols-3 gap-2 mt-3 text-[11px] text-stone-300">
-                <div className="rounded-xl bg-stone-950/70 p-3"><BadgeCheck className="w-4 h-4 text-emerald-300 mb-1" /><strong className="block text-white">Проверенный статус</strong>Ручная проверка по официальному реестру</div>
-                <div className="rounded-xl bg-stone-950/70 p-3"><FileCheck2 className="w-4 h-4 text-emerald-300 mb-1" /><strong className="block text-white">Правовая юрисдикция</strong>Страна, регион и виды документов</div>
+                <div className="rounded-xl bg-stone-950/70 p-3"><BadgeCheck className="w-4 h-4 text-emerald-300 mb-1" aria-hidden="true" /><strong className="block text-white">Проверенный статус</strong>Ручная проверка по официальному реестру</div>
+                <div className="rounded-xl bg-stone-950/70 p-3"><FileCheck2 className="w-4 h-4 text-emerald-300 mb-1" aria-hidden="true" /><strong className="block text-white">Правовая юрисдикция</strong>Страна, регион и виды документов</div>
                 <div className="rounded-xl bg-stone-950/70 p-3"><LockKeyhole className="w-4 h-4 text-emerald-300 mb-1" /><strong className="block text-white">Конфиденциальность</strong>Документы пары — только специалисту после согласия</div>
               </div>
             </div>
@@ -238,11 +238,11 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
 
           <div className="mt-5 grid md:grid-cols-2 gap-3">
             <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-4">
-              <div className="flex items-center gap-2 text-white font-bold text-sm"><Wallet className="w-4 h-4 text-rose-300" /> Как сервис сможет зарабатывать</div>
+              <div className="flex items-center gap-2 text-white font-bold text-sm"><Wallet className="w-4 h-4 text-rose-300" aria-hidden="true" /> Как сервис сможет зарабатывать</div>
               <ul className="mt-2 list-disc pl-5 space-y-1 text-xs text-stone-300"><li>Платная подписка поставщика за профиль и инструменты заявок.</li><li>Комиссия с бронирования/заказа — только по договору и после подключения платежей.</li><li>Платное продвижение с явной маркировкой рекламы, без влияния на юридическую проверку.</li></ul>
             </div>
             <div className="rounded-2xl border border-amber-700/30 bg-amber-950/20 p-4">
-              <div className="flex items-center gap-2 text-amber-200 font-bold text-sm"><AlertTriangle className="w-4 h-4" /> До запуска обязательно</div>
+              <div className="flex items-center gap-2 text-amber-200 font-bold text-sm"><AlertTriangle className="w-4 h-4" aria-hidden="true" /> До запуска обязательно</div>
               <p className="text-xs text-stone-300 mt-2">Проверка документов администратором, безопасное хранилище, журнал проверок, сроки повторной проверки, жалобы и блокировка профиля. Оплата, договоры и передача документов в этом прототипе не работают.</p>
             </div>
           </div>
