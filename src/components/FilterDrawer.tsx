@@ -102,7 +102,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
             onClick={onClose}
             ref={closeButtonRef}
             type="button"
-            className="vow-motion-button flex min-h-11 min-w-11 items-center justify-center rounded-full bg-stone-800 text-stone-300 hover:text-white"
+            className="vow-motion-button flex min-h-11 min-w-11 items-center justify-center rounded-full bg-stone-800 text-stone-300 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
             aria-label={t('closeFilterDialog')}
           >
             <X className="w-4 h-4" />
@@ -132,7 +132,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
               aria-label={t('minimumCompatibility')}
               aria-valuetext={`${minCompatibility}%`}
               onChange={e => setMinCompatibility(Number(e.target.value))}
-              className="w-full accent-rose-600 cursor-pointer"
+              className="w-full accent-rose-600 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-rose-300"
             />
             <div className="flex justify-between text-[10px] text-stone-500 mt-1">
               <span>{t('compatibilityAll')}</span>
@@ -156,7 +156,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
                 onChange={e => setSelectedCountry(e.target.value.slice(0, 100).trimStart() || 'all')}
                 placeholder={t('countryPlaceholder')}
                 autoComplete="country-name"
-                className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs placeholder:text-stone-600"
+                className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs placeholder:text-stone-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
               />
             </div>
             <div>
@@ -165,7 +165,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
               <p className="text-[10px] text-stone-500 mt-1">{t('locationAnyCityHelp')}</p>
             </div>
             {(selectedCountry !== 'all' || selectedCity !== 'all') && (
-              <button type="button" onClick={() => { setSelectedCountry('all'); setSelectedCity('all'); }} className="text-[11px] text-rose-300 hover:text-rose-200 underline underline-offset-2">{t('clearLocation')}</button>
+              <button type="button" onClick={() => { setSelectedCountry('all'); setSelectedCity('all'); }} className="min-h-11 rounded-md text-[11px] text-rose-300 hover:text-rose-200 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">{t('clearLocation')}</button>
             )}
           </div>
 
@@ -177,7 +177,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
             <div className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2">
               <div>
                 <label className="mb-1 block text-stone-300" htmlFor="discovery-min-age">{t('ageFrom')}</label>
-                <input id="discovery-min-age" type="number" min="18" max={maxAge} value={minAge} onChange={e => setMinAge(Math.min(maxAge, Math.max(18, Number(e.target.value) || 18)))} className="w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-white" />
+                <input id="discovery-min-age" type="number" min="18" max={maxAge} value={minAge} onChange={e => setMinAge(Math.min(maxAge, Math.max(18, Number(e.target.value) || 18)))} className="w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" />
               </div>
               <div>
                 <label className="mb-1 block text-stone-300" htmlFor="discovery-max-age">{t('ageTo')}</label>
@@ -229,7 +229,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
               aria-checked={onlyVerified}
               aria-label={t('verifiedFilterTitle')}
               onClick={() => setOnlyVerified(!onlyVerified)}
-              className={`w-11 h-6 rounded-full transition-colors relative p-0.5 ${
+              className={`w-11 h-6 rounded-full transition-colors relative p-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 ${
                 onlyVerified ? 'bg-emerald-500' : 'bg-stone-800'
               }`}
             >
