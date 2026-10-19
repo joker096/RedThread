@@ -84,7 +84,7 @@ export const NotificationCenterPanel:React.FC=()=>{
  if (!allowed) {
   if (!notice) return null;
   return <section role="region" aria-label={t('notificationCenter')} className="vow-screen vow-notification-center mb-5 rounded-3xl border border-amber-500/20 bg-stone-900/80 p-4 sm:p-5">
-   <p role="alert" aria-live="assertive" className="text-xs text-amber-200">{notice}</p>
+   <p role="alert" aria-live="assertive" aria-atomic="true" className="text-xs text-amber-200">{notice}</p>
    <button type="button" disabled={busy} onClick={() => void refresh()} className="mt-3 min-h-11 rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:cursor-not-allowed disabled:opacity-50">{t('retry')}</button>
   </section>;
  }
