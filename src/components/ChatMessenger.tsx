@@ -302,6 +302,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             <button type="button"
               onClick={() => setShowInviteModal(true)}
               aria-haspopup="dialog"
+              aria-controls="date-invite-dialog"
               aria-expanded={showInviteModal}
               className="flex min-h-11 items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 text-white font-semibold text-xs shadow-md shadow-rose-950 hover:from-rose-500 hover:to-red-500 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
             >
@@ -439,6 +440,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             title={t('chatInviteDate')}
             aria-label={t('chatInviteDate')}
             aria-haspopup="dialog"
+            aria-controls="date-invite-dialog"
             aria-expanded={showInviteModal}
           >
             <Coffee className="w-4 h-4" />
@@ -483,7 +485,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
       {/* Date Invite Modal */}
       {showInviteModal && (
         <div className="vow-modal-backdrop fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-stone-950/80 p-2 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={event => { if (event.target === event.currentTarget) setShowInviteModal(false); }}>
-          <div ref={inviteDialogRef} role="dialog" aria-modal="true" aria-labelledby="date-invite-title" tabIndex={-1} className="my-auto max-h-[calc(100dvh-1rem)] w-full max-w-sm overflow-y-auto overscroll-contain rounded-3xl border border-rose-900/50 bg-stone-900 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] text-start shadow-2xl sm:p-5">
+          <div id="date-invite-dialog" ref={inviteDialogRef} role="dialog" aria-modal="true" aria-labelledby="date-invite-title" tabIndex={-1} className="my-auto max-h-[calc(100dvh-1rem)] w-full max-w-sm overflow-y-auto overscroll-contain rounded-3xl border border-rose-900/50 bg-stone-900 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] text-start shadow-2xl sm:p-5">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Coffee className="w-5 h-5 text-rose-500" />
