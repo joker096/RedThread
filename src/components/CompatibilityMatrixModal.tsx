@@ -48,12 +48,21 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
     if (!isOpen || !profile) return;
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = dialogRef.current;
+    const isAvailable = (element: HTMLElement) => {
+      const style = window.getComputedStyle(element);
+      return element.isConnected
+        && element.getClientRects().length > 0
+        && style.visibility !== 'hidden'
+        && style.display !== 'none'
+        && !element.matches(':disabled')
+        && !element.closest('[aria-hidden="true"], [hidden], [inert]');
+    };
     const getFocusable = () => dialog
       ? Array.from(dialog.querySelectorAll<HTMLElement>(
           'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
-        )).filter(element => element.tabIndex >= 0 && element.getClientRects().length > 0 && !element.matches(':disabled') && !element.closest('[aria-hidden="true"], [hidden], [inert]'))
+        )).filter(element => element.tabIndex >= 0 && isAvailable(element))
       : [];
-    getFocusable()[0]?.focus();
+    (getFocusable()[0] ?? dialog)?.focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -82,7 +91,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
     document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      if (previouslyFocused?.isConnected && previouslyFocused.getClientRects().length > 0 && !previouslyFocused.matches(':disabled') && !previouslyFocused.closest('[aria-hidden="true"], [hidden], [inert]')) {
+      if (previouslyFocused && isAvailable(previouslyFocused)) {
         previouslyFocused.focus();
       }
     };
