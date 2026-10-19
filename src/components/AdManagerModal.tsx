@@ -50,10 +50,19 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
 
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = dialogRef.current;
+    const isAvailable = (element: HTMLElement) => {
+      const style = window.getComputedStyle(element);
+      return element.isConnected
+        && element.getClientRects().length > 0
+        && style.visibility !== 'hidden'
+        && style.display !== 'none'
+        && !element.matches(':disabled')
+        && !element.closest('[aria-hidden="true"], [hidden], [inert]');
+    };
     const getFocusable = () => dialog
       ? Array.from(dialog.querySelectorAll<HTMLElement>(
           'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
-        )).filter(element => element.getAttribute('aria-hidden') !== 'true')
+        )).filter(element => element.tabIndex >= 0 && isAvailable(element))
       : [];
     getFocusable()[0]?.focus();
 
