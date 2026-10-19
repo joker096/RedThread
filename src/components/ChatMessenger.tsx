@@ -58,10 +58,21 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
     if (!showInviteModal) return;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = inviteDialogRef.current;
-    const getFocusable = () => dialog?.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-    ) ?? [];
-    getFocusable()[0]?.focus();
+    const isAvailable = (element: HTMLElement) => {
+      const style = window.getComputedStyle(element);
+      return element.isConnected
+        && element.getClientRects().length > 0
+        && style.visibility !== 'hidden'
+        && style.display !== 'none'
+        && !element.matches(':disabled')
+        && !element.closest('[aria-hidden="true"], [hidden], [inert]');
+    };
+    const getFocusable = () => dialog
+      ? Array.from(dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+        )).filter(element => element.tabIndex >= 0 && isAvailable(element))
+      : [];
+    (getFocusable()[0] ?? dialog)?.focus();
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -92,7 +103,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
     document.addEventListener('keydown', onKeyDown);
     return () => {
       document.removeEventListener('keydown', onKeyDown);
-      if (previousFocus?.isConnected) previousFocus.focus();
+      if (previousFocus && isAvailable(previousFocus)) previousFocus.focus();
     };
   }, [showInviteModal]);
   const [selectedPlace, setSelectedPlace] = useState('Уютная кофейня в центре');
@@ -467,7 +478,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
       {/* Date Invite Modal */}
       {showInviteModal && (
         <div className="vow-modal-backdrop fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-stone-950/80 p-2 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={event => { if (event.target === event.currentTarget) setShowInviteModal(false); }}>
-          <div ref={inviteDialogRef} role="dialog" aria-modal="true" aria-labelledby="date-invite-title" className="my-auto max-h-[calc(100dvh-1rem)] w-full max-w-sm overflow-y-auto overscroll-contain rounded-3xl border border-rose-900/50 bg-stone-900 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] text-start shadow-2xl sm:p-5">
+          <div ref={inviteDialogRef} role="dialog" aria-modal="true" aria-labelledby="date-invite-title" tabIndex={-1} className="my-auto max-h-[calc(100dvh-1rem)] w-full max-w-sm overflow-y-auto overscroll-contain rounded-3xl border border-rose-900/50 bg-stone-900 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] text-start shadow-2xl sm:p-5">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Coffee className="w-5 h-5 text-rose-500" />
