@@ -71,6 +71,9 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
   const [practice, setPractice] = useState('');
   const [documentNote, setDocumentNote] = useState('');
   const dialogRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -95,7 +98,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== 'Tab') return;
@@ -121,7 +124,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
       document.removeEventListener('keydown', handleKeyDown);
       if (previouslyFocused && isAvailable(previouslyFocused)) previouslyFocused.focus();
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   const filtered = useMemo(() => providerExamples.filter(p =>
     (category === 'all' || p.category === category) && p.countries.includes(country)
