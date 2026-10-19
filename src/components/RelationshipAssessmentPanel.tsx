@@ -107,7 +107,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
           <p className="text-[10px] uppercase tracking-[0.2em] text-rose-300">{t('valuesTestEyebrow')}</p>
           <h3 className="mt-1 text-lg font-bold text-white">{t('compatibilityImportant')}</h3>
         </div>
-        <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-stone-400">{Object.keys(answers).length}/{questions.length}</span>
+        <span role="status" aria-live="polite" aria-label={`${t('compatibilityImportant')}: ${Object.keys(answers).length} / ${questions.length}`} className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-stone-400">{Object.keys(answers).length}/{questions.length}</span>
       </div>
       <p className="mb-4 text-xs leading-relaxed text-stone-400">
         {t('valuesTestDescription')}
