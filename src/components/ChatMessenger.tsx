@@ -202,7 +202,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
         {/* Thread list */}
         <div className="flex-1 overflow-y-auto space-y-1 p-2">
           {threads.map(thread => {
-            const isSelected = thread.id === activeThread.id;
+            const isSelected = hasValidActiveThread && thread.id === activeThread.id;
             return (
               <button
                 type="button"
