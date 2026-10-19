@@ -359,7 +359,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
               </div>
             </div>
           ) : (
-            <div className="p-2.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-200 flex items-center justify-between">
+            <div role="status" aria-live="polite" aria-atomic="true" className="p-2.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-200 flex items-center justify-between">
               <span>{chemistryMatches === blitzQuestions.length ? 'Все три ответа совпали. Это ориентир для разговора, а не научный прогноз отношений.' : `Совпало ответов: ${chemistryMatches} из ${blitzQuestions.length}. Обсудите различия спокойно — это не научный прогноз отношений.`}</span>
               <span className="text-[10px] font-bold text-white bg-rose-600 px-2 py-0.5 rounded-full">{chemistryMatches}/{blitzQuestions.length}</span>
             </div>
