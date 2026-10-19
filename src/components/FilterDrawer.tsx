@@ -161,7 +161,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
             </div>
             <div>
               <label className="block text-stone-300 font-medium mb-1.5" htmlFor="discovery-city">{t('cityLabel')}</label>
-              <input id="discovery-city" type="text" maxLength={100} value={selectedCity === 'all' ? '' : selectedCity} onChange={e => setSelectedCity(e.target.value.slice(0, 100).trimStart() || 'all')} placeholder={t('cityPlaceholder')} autoComplete="address-level2" className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs placeholder:text-stone-600" />
+              <input id="discovery-city" type="text" maxLength={100} value={selectedCity === 'all' ? '' : selectedCity} onChange={e => setSelectedCity(e.target.value.slice(0, 100).trimStart() || 'all')} placeholder={t('cityPlaceholder')} autoComplete="address-level2" className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs placeholder:text-stone-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" />
               <p className="text-[10px] text-stone-500 mt-1">{t('locationAnyCityHelp')}</p>
             </div>
             {(selectedCountry !== 'all' || selectedCity !== 'all') && (
