@@ -61,6 +61,12 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
         setEducation('');
         setPhotoUrls('');
         setLanguages('');
+        setRelationshipIntent('marriage_family');
+        setFamilyFormat('open_to_both');
+        setHasChildren(null);
+        setWantsChildren('discuss');
+        setChildrenLivingArrangement('not_applicable');
+        setIsVisible(true);
         setBlockedProfiles([]);
         unblockingIdsRef.current.clear();
         setUnblockingIds(new Set());
