@@ -66,8 +66,16 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
       const dialog = closeButtonRef.current?.closest('[role="dialog"]');
       if (!dialog) return;
       const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      ));
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+      )).filter(element => {
+        const style = window.getComputedStyle(element);
+        return element.tabIndex >= 0
+          && element.isConnected
+          && element.getClientRects().length > 0
+          && style.visibility !== 'hidden'
+          && style.display !== 'none'
+          && !element.closest('[aria-hidden="true"], [hidden], [inert]');
+      });
       if (!focusable.length) { event.preventDefault(); return; }
       const first = focusable[0]; const last = focusable[focusable.length - 1];
       if (!dialog.contains(document.activeElement)) {
