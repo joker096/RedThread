@@ -100,6 +100,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             data-testid="nav-chats"
             onClick={() => setActiveTab('chats')}
             aria-current={activeTab === 'chats' ? 'page' : undefined}
+            aria-label={safeUnreadChatsCount > 0 ? `${t('chats')} (${safeUnreadChatsCount})` : t('chats')}
             className={`relative min-h-10 px-3 py-2 rounded-full text-xs font-bold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 ${
               activeTab === 'chats'
                 ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-sm'
