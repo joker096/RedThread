@@ -290,6 +290,8 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             <button
               type="button"
               onClick={() => setShowPartnerServices(true)}
+              aria-haspopup="dialog"
+              aria-expanded={showPartnerServices}
               className="flex min-h-11 items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-emerald-600/30 bg-emerald-950/30 text-emerald-200 font-semibold text-xs hover:bg-emerald-900/40 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
               title={t('chatPartnerServicesTitle')}
             >
