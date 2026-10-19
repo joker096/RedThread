@@ -129,6 +129,8 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         setMatchesLoading(false);
         setMessagesLoading(false);
         setAuthenticated(false);
+        setCurrentUserId(null);
+        setDrafts({});
         setMatches([]);
         setSelected('');
         setMessages([]);
@@ -185,6 +187,8 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         setMessagesLoading(false);
         setMatchesLoading(false);
         setAuthenticated(false);
+        setCurrentUserId(null);
+        setDrafts({});
         setMatches([]);
         setSelected('');
         setMessages([]);
@@ -341,6 +345,8 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         sendInFlight.current = false;
         setBusy(false);
         setAuthenticated(false);
+        setCurrentUserId(null);
+        setDrafts({});
         setMatches([]);
         setSelected('');
         setMessages([]);
