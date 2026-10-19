@@ -51,7 +51,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
     const getFocusable = () => dialog
       ? Array.from(dialog.querySelectorAll<HTMLElement>(
           'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
-        )).filter(element => element.tabIndex >= 0 && !element.matches(':disabled') && !element.closest('[aria-hidden="true"], [hidden], [inert]'))
+        )).filter(element => element.tabIndex >= 0 && element.getClientRects().length > 0 && !element.matches(':disabled') && !element.closest('[aria-hidden="true"], [hidden], [inert]'))
       : [];
     getFocusable()[0]?.focus();
 
@@ -82,7 +82,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
     document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      if (previouslyFocused?.isConnected && !previouslyFocused.matches(':disabled') && !previouslyFocused.closest('[aria-hidden="true"], [hidden], [inert]')) {
+      if (previouslyFocused?.isConnected && previouslyFocused.getClientRects().length > 0 && !previouslyFocused.matches(':disabled') && !previouslyFocused.closest('[aria-hidden="true"], [hidden], [inert]')) {
         previouslyFocused.focus();
       }
     };
