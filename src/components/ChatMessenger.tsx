@@ -276,7 +276,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                   {activeThread.partnerProfile.name}, {activeThread.partnerProfile.age}
                 </span>
                 <span className="text-[10px] text-emerald-400 bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-500/20 font-semibold flex items-center gap-0.5">
-                  <ShieldCheck className="w-3 h-3" />
+                  <ShieldCheck className="w-3 h-3" aria-hidden="true" />
                   {t('chatOnline')}
                 </span>
               </div>
@@ -369,7 +369,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
           {/* Compatibility recap chip */}
           <div className="flex justify-center mb-2">
             <div className="px-3 py-1 rounded-full bg-stone-950/80 border border-rose-900/30 text-[11px] text-stone-400 flex items-center gap-1.5">
-              <Sparkles className="w-3 h-3 text-rose-400" />
+              <Sparkles className="w-3 h-3 text-rose-400" aria-hidden="true" />
               <span>{t('chatFamilyCompatibility')} {activeThread.compatibilityScore}%</span>
             </div>
           </div>
@@ -390,11 +390,11 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                     </div>
                     <div className="space-y-1.5 text-xs text-stone-200 mb-3">
                       <div className="flex items-center gap-2">
-                        <MapPin className="w-3.5 h-3.5 text-rose-400" />
+                        <MapPin className="w-3.5 h-3.5 text-rose-400" aria-hidden="true" />
                         <span>{msg.dateInviteDetails?.place}</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Calendar className="w-3.5 h-3.5 text-rose-400" />
+                        <Calendar className="w-3.5 h-3.5 text-rose-400" aria-hidden="true" />
                         <span>{msg.dateInviteDetails?.day}, {msg.dateInviteDetails?.time}</span>
                       </div>
                     </div>
