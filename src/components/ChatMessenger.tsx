@@ -132,7 +132,8 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     const thread = activeThread;
-    const messageText = inputText.trim();
+    const draftText = inputText;
+    const messageText = draftText.trim();
     if (!messageText || !thread || sendingThreadIdsRef.current.has(thread.id)) return;
 
     sendingThreadIdsRef.current.add(thread.id);
@@ -140,7 +141,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
     setSendErrors(current => ({ ...current, [thread.id]: '' }));
     try {
       await onSendMessage(thread.id, messageText);
-      setDrafts(current => current[thread.id] === messageText
+      setDrafts(current => current[thread.id] === draftText
         ? { ...current, [thread.id]: '' }
         : current);
     } catch {
