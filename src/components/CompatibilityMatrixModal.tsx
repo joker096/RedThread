@@ -330,13 +330,15 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
 
           {chemistryStep < blitzQuestions.length ? (
             <div>
-              <p className="text-stone-200 mb-2 font-medium">
+              <p id="chemistry-question" className="text-stone-200 mb-2 font-medium">
                 {blitzQuestions[chemistryStep].q}
               </p>
               <div className="space-y-1.5">
                 {blitzQuestions[chemistryStep].options.map((opt, idx) => (
                   <button
                     key={idx}
+                    type="button"
+                    aria-describedby="chemistry-question"
                     onClick={() => handleBlitzAnswer(opt.match)}
                     className="w-full min-h-11 text-left p-3 rounded-xl bg-stone-900 hover:bg-rose-950/60 hover:border-rose-500/40 border border-white/5 text-stone-300 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 transition-all text-[11px]"
                   >
