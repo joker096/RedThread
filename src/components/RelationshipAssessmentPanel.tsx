@@ -119,7 +119,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
             <p className="mb-3 text-sm font-medium text-stone-100">{question.prompt}</p>
             <div className="space-y-2">
               {question.options.map(option => (
-                <label key={option.value} className={`flex cursor-pointer items-start gap-2 rounded-xl border p-2.5 text-xs transition-colors ${answers[question.id] === option.value ? 'border-rose-500/60 bg-rose-950/40 text-white' : 'border-white/5 text-stone-300 hover:border-white/20'}`}>
+                <label key={option.value} className={`flex min-h-11 cursor-pointer items-start gap-2 rounded-xl border p-3 text-xs transition-colors focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-rose-400 ${answers[question.id] === option.value ? 'border-rose-500/60 bg-rose-950/40 text-white' : 'border-white/5 text-stone-300 hover:border-white/20'}`}>
                   <input
                     type="radio"
                     name={question.id}
@@ -139,7 +139,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
         ))}
       </div>
       <div className="mt-4 flex flex-col gap-2">
-        <button type="button" onClick={() => void save()} disabled={!complete || status === 'saving'} className="w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">
+        <button type="button" onClick={() => void save()} disabled={!complete || status === 'saving'} className="w-full min-h-11 rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 disabled:cursor-not-allowed disabled:opacity-40">
           {status === 'saving' ? t('savingAnswers') : t('saveAndUseTest')}
         </button>
         {note && <p role="status" aria-live="polite" className="text-xs leading-relaxed text-stone-300">{note}</p>}
