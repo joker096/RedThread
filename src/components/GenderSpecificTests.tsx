@@ -294,6 +294,7 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
                 Вопрос {currentQuestionIndex + 1} из {activeTest.questions.length}
               </span>
               <button
+                  type="button"
                 onClick={() => setActiveTestId(null)}
                 className="text-stone-400 hover:text-white text-xs px-2 py-1 rounded-lg bg-stone-800"
               >
@@ -315,6 +316,7 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
             <div className="space-y-2.5 mb-2">
               {activeTest.questions[currentQuestionIndex].options.map((opt, idx) => (
                 <button
+                  type="button"
                   key={idx}
                   onClick={() => handleSelectOption(activeTest.questions[currentQuestionIndex].id, opt.score, opt.trait)}
                   className="w-full p-3.5 rounded-2xl bg-stone-950 border border-white/10 hover:border-rose-500/50 hover:bg-rose-950/20 text-left transition-all group"
@@ -422,6 +424,7 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
                     </span>
                   ) : (
                     <button
+                  type="button"
                       onClick={() => handleStartTest(test.id)}
                       className="px-3 py-1 rounded-full bg-rose-600 hover:bg-rose-500 text-white font-bold text-[11px] transition-colors shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
                     >
@@ -438,6 +441,7 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
                   <div className="p-2.5 rounded-xl bg-stone-900 border border-white/5 flex items-center justify-between text-[10px]">
                     <span className="text-stone-300 font-medium">{resultData.trait}</span>
                     <button
+                  type="button"
                       onClick={() => handleStartTest(test.id)}
                       className="text-stone-400 hover:text-white flex items-center gap-1 underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
                     >
