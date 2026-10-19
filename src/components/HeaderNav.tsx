@@ -51,8 +51,11 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
     <header className="vow-app-header sticky top-0 z-40 w-full border-b border-white/[0.07] bg-stone-950/90 px-3 py-2 backdrop-blur-2xl supports-[backdrop-filter]:bg-stone-950/75 sm:px-5">
       <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-2 sm:gap-4">
         {/* NIT brand */}
-        <div 
-          className="flex items-center gap-1.5 select-none group shrink-0"
+        <button
+          type="button"
+          onClick={onOpenBrandModal}
+          aria-label={brandName}
+          className="flex items-center gap-1.5 select-none group shrink-0 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400"
           title={t('brandTagline')}
         >
           <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-tr from-rose-600 via-red-600 to-amber-500 flex items-center justify-center text-white shadow-md shadow-rose-950/60 group-hover:scale-105 transition-transform">
@@ -63,7 +66,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
               Vow<span className="text-rose-500">.</span>
             </span>
           </div>
-        </div>
+        </button>
 
         {/* Center: Sleek Segmented Navigation (Desktop & Tablet) */}
         <nav aria-label={t('primaryNavigation')} className="hidden items-center gap-1 rounded-full border border-white/[0.07] bg-stone-900/90 p-1 lg:flex">
