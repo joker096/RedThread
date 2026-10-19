@@ -49,7 +49,25 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
     try {
       const response = await fetch('/api/profiles/me', { credentials: 'include' });
       if (requestId !== profileLoadRequestId.current) return;
-      if (response.status === 401) { setAuthenticated(false); return; }
+      if (response.status === 401) {
+        profileLoadRequestId.current += 1;
+        setAuthenticated(false);
+        setProfile(null);
+        setDisplayName('');
+        setBio('');
+        setCountry('');
+        setCity('');
+        setOccupation('');
+        setEducation('');
+        setPhotoUrls('');
+        setLanguages('');
+        setBlockedProfiles([]);
+        unblockingIdsRef.current.clear();
+        setUnblockingIds(new Set());
+        setBusy(false);
+        setUploadBusy(false);
+        return;
+      }
       if (!response.ok) throw new Error(t('profileLoadError'));
       const data = await response.json();
       if (requestId !== profileLoadRequestId.current) return;
