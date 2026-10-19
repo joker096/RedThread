@@ -168,7 +168,14 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
         {/* Big Overall Score Indicator */}
         <div className="p-4 rounded-2xl bg-gradient-to-r from-rose-950/60 via-red-950/40 to-stone-950 border border-rose-600/30 mb-5 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-rose-600 to-red-500 text-white flex flex-col items-center justify-center font-black shadow-lg shadow-rose-950">
+            <div
+              role="meter"
+              aria-label="Общий индекс совместимости"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={displayScore}
+              className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-rose-600 to-red-500 text-white flex flex-col items-center justify-center font-black shadow-lg shadow-rose-950"
+            >
               <span className="text-xl leading-none">{displayScore}%</span>
               <span className="text-[9px] uppercase tracking-tighter opacity-80 mt-0.5">Индекс</span>
             </div>
