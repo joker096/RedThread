@@ -164,7 +164,7 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
               type="button"
               onClick={() => setActiveGuide('ios')}
               aria-pressed={activeGuide === 'ios'}
-              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+              className={`px-2 py-0.5 rounded text-[10px] font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 ${
                 activeGuide === 'ios' ? 'bg-rose-600 text-white' : 'text-stone-400 bg-stone-900'
               }`}
             >
@@ -174,7 +174,7 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
               type="button"
               onClick={() => setActiveGuide('android')}
               aria-pressed={activeGuide === 'android'}
-              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+              className={`px-2 py-0.5 rounded text-[10px] font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 ${
                 activeGuide === 'android' ? 'bg-rose-600 text-white' : 'text-stone-400 bg-stone-900'
               }`}
             >
