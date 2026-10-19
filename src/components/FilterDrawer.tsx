@@ -59,6 +59,15 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const isAvailable = (element: HTMLElement) => {
+      const style = window.getComputedStyle(element);
+      return element.isConnected
+        && element.getClientRects().length > 0
+        && style.visibility !== 'hidden'
+        && style.display !== 'none'
+        && !element.matches(':disabled')
+        && !element.closest('[aria-hidden="true"], [hidden], [inert]');
+    };
     closeButtonRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); onCloseRef.current(); return; }
@@ -93,7 +102,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
     return () => {
       document.removeEventListener('keydown', onKeyDown);
       document.body.style.overflow = previousOverflow;
-      if (previousFocus?.isConnected) previousFocus.focus();
+      if (previousFocus && isAvailable(previousFocus)) previousFocus.focus();
     };
   }, [isOpen]);
   if (!isOpen) return null;
