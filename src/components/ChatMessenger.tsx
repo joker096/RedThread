@@ -124,6 +124,9 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
   }, [activeThreadId]);
 
   const activeThread = threads.find(t => t.id === activeThreadId) || threads[0];
+  // A stale selected ID can survive after a thread is removed from the list.
+  // In that case, keep mobile users on the thread list instead of hiding it.
+  const hasValidActiveThread = Boolean(activeThreadId && activeThread?.id === activeThreadId);
   const inputText = activeThread ? drafts[activeThread.id] ?? '' : '';
 
   const handleSend = async (e: React.FormEvent) => {
@@ -176,7 +179,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
   return (
     <div className="vow-chat-layout vow-chat-messenger vow-screen w-full max-w-4xl mx-auto h-[75vh] min-h-[550px] flex rounded-3xl overflow-hidden bg-stone-900 border border-rose-950/40 shadow-2xl">
       {/* Threads sidebar (desktop / tablet) */}
-      <div className={`w-full md:w-80 border-e border-white/5 flex flex-col bg-stone-950/60 ${activeThreadId ? 'hidden md:flex' : 'flex'}`}>
+      <div className={`w-full md:w-80 border-e border-white/5 flex flex-col bg-stone-950/60 ${hasValidActiveThread ? 'hidden md:flex' : 'flex'}`}>
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 p-3.5">
           <div className="flex items-center gap-2">
             <h3 className="font-heading text-sm font-bold text-white">{t('chatThreads')}</h3>
@@ -242,7 +245,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
       </div>
 
       {/* Active chat window */}
-      <div className={`flex-1 flex flex-col bg-stone-900/90 ${!activeThreadId ? 'hidden md:flex' : 'flex'}`}>
+      <div className={`flex-1 flex flex-col bg-stone-900/90 ${!hasValidActiveThread ? 'hidden md:flex' : 'flex'}`}>
         {/* Chat Header */}
         <div className="p-3 sm:p-4 border-b border-white/5 flex flex-wrap items-center justify-between gap-2 bg-stone-950/40">
           <div className="flex items-center gap-3">
