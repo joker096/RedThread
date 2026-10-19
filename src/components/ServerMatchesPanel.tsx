@@ -155,6 +155,11 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         // Invalidate any in-flight message request for a match that is no longer available.
         messageRequestId.current += 1;
         setMessagesLoading(false);
+        setDrafts(current => {
+          const next = { ...current };
+          delete next[selected];
+          return next;
+        });
         setSelected('');
         setMessages([]);
       }
@@ -202,6 +207,11 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         setMessagesLoading(false);
         setMatchesLoading(false);
         setMatches(current => current.filter(match => match.id !== matchId));
+        setDrafts(current => {
+          const next = { ...current };
+          delete next[matchId];
+          return next;
+        });
         setSelected('');
         setMessages([]);
         setNotice(t('loadMessagesError'));
@@ -360,6 +370,11 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         setMessagesLoading(false);
         setMatchesLoading(false);
         setMatches(current => current.filter(match => match.id !== matchId));
+        setDrafts(current => {
+          const next = { ...current };
+          delete next[matchId];
+          return next;
+        });
         setSelected('');
         setMessages([]);
         setNotice(t('sendMessageError'));
