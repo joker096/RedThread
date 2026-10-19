@@ -474,7 +474,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
           </div>
         </div>
       )}
-      {notice && <p role="status" aria-live="polite" className="mt-3 text-xs text-stone-300">{notice}</p>}
+      {notice && <p role="status" aria-live="polite" aria-atomic="true" className="mt-3 text-xs text-stone-300">{notice}</p>}
     </section>
   );
 };
