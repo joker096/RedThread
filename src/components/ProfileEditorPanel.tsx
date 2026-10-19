@@ -381,6 +381,32 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
                 const response=await fetch('/api/photos',{method:'POST',credentials:'include',headers:{'Content-Type':file.type},body:file});
                 const data=await response.json().catch(()=>null);
                 if (requestId !== profileLoadRequestId.current) return;
+                if (response.status === 401) {
+                  profileLoadRequestId.current += 1;
+                  setAuthenticated(false);
+                  setProfile(null);
+                  setDisplayName('');
+                  setBio('');
+                  setCountry('');
+                  setCity('');
+                  setOccupation('');
+                  setEducation('');
+                  setPhotoUrls('');
+                  setLanguages('');
+                  setRelationshipIntent('marriage_family');
+                  setFamilyFormat('open_to_both');
+                  setHasChildren(null);
+                  setWantsChildren('discuss');
+                  setChildrenLivingArrangement('not_applicable');
+                  setIsVisible(true);
+                  setBlockedProfiles([]);
+                  unblockingIdsRef.current.clear();
+                  setUnblockingIds(new Set());
+                  setBusy(false);
+                  setUploadBusy(false);
+                  setNotice('');
+                  return;
+                }
                 if(!response.ok) throw new Error(data?.error==='photo_limit_reached'?t('profilePhotoLimit'):data?.error==='photo_storage_not_configured'?t('profilePhotoStorageError'):data?.error==='photo_rejected_by_automated_review'?t('profilePhotoRejected'):t('profilePhotoUploadError'));
                 if (typeof data?.photoUrl !== 'string' || data.photoUrl.trim().length === 0 || data.photoUrl.trim().length > 2048 || /[\u0000-\u001F\u007F]/.test(data.photoUrl) || data.photoUrl.includes('\\') || !(/^https?:\/\//i.test(data.photoUrl.trim()) || /^\/(?!\/)/.test(data.photoUrl.trim()))) throw new Error(t('profilePhotoUploadError'));
                 setPhotoUrls(current => {
