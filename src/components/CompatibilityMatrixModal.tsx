@@ -323,7 +323,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
               <Sparkles className="w-3.5 h-3.5 text-amber-400" />
               <span>Экспресс-тест на химию (30 секунд)</span>
             </span>
-            <span className="text-[10px] text-stone-400">
+            <span role="status" aria-live="polite" aria-atomic="true" className="text-[10px] text-stone-400">
               {chemistryStep < blitzQuestions.length ? `Вопрос ${chemistryStep + 1} из 3` : 'Тест пройден!'}
             </span>
           </div>
