@@ -125,6 +125,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
                     name={question.id}
                     value={option.value}
                     checked={answers[question.id] === option.value}
+                    disabled={status === 'saving'}
                     onChange={() => {
                       answersEditedRef.current = true;
                       setAnswers(current => ({ ...current, [question.id]: option.value }));
