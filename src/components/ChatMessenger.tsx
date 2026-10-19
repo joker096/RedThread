@@ -166,7 +166,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
   if (!activeThread) {
     return (
       <div className="flex flex-col items-center justify-center p-8 text-center min-h-[400px]">
-        <Coffee className="w-12 h-12 text-rose-500 mb-3" />
+        <Coffee className="w-12 h-12 text-rose-500 mb-3" aria-hidden="true" />
         <h3 className="font-heading text-lg font-bold text-white mb-1">{t('chatEmptyTitle')}</h3>
         <p className="text-xs text-stone-400 max-w-xs">
           {t('chatEmptyDescription')}
@@ -193,7 +193,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
 
         {/* Anti-chit-chat notice banner */}
         <div className="p-2.5 mx-3 my-2 rounded-xl bg-rose-950/30 border border-rose-800/30 text-[11px] text-rose-200 flex items-start gap-2">
-          <Clock className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+          <Clock className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" aria-hidden="true" />
           <span>
             <strong>{t('chatDateGoal')}</strong> {t('chat72HourNotice')}
           </span>
@@ -255,7 +255,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
               className="md:hidden flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-stone-800 text-stone-300 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
               aria-label={t('chatBackToList')}
             >
-              <ArrowLeft className="vow-rtl-back-icon w-4 h-4" />
+              <ArrowLeft className="vow-rtl-back-icon w-4 h-4" aria-hidden="true" />
             </button>
 
             <div className="relative shrink-0">
@@ -297,7 +297,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
               className="flex min-h-11 items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-emerald-600/30 bg-emerald-950/30 text-emerald-200 font-semibold text-xs hover:bg-emerald-900/40 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
               title={t('chatPartnerServicesTitle')}
             >
-              <HeartHandshake className="w-4 h-4" />
+              <HeartHandshake className="w-4 h-4" aria-hidden="true" />
               <span className="hidden lg:inline">{t('chatForCouple')}</span>
               <span className="lg:hidden">{t('chatServices')}</span>
             </button>
@@ -308,7 +308,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
               aria-expanded={showInviteModal}
               className="flex min-h-11 items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 text-white font-semibold text-xs shadow-md shadow-rose-950 hover:from-rose-500 hover:to-red-500 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
             >
-              <Coffee className="w-3.5 h-3.5" />
+              <Coffee className="w-3.5 h-3.5" aria-hidden="true" />
               <span className="hidden sm:inline">{t('chatPlanDate')}</span>
               <span className="sm:hidden">{t('chatDateShort')}</span>
             </button>
@@ -331,7 +331,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
               aria-label={isLadyPremium ? t('chatDirectContactOpen') : t('chatDirectContactVip')}
               aria-pressed={isLadyPremium ? showDirectContactUnlocked : undefined}
             >
-              <Phone className="w-4 h-4" />
+              <Phone className="w-4 h-4" aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -339,7 +339,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
         {/* Anti-chit-chat 72-hour countdown warning bar */}
         <div className="px-4 py-2 bg-stone-950/80 border-b border-rose-950/30 flex items-center justify-between text-xs text-stone-300">
           <div className="flex items-center gap-2">
-            <Clock className="w-3.5 h-3.5 text-rose-500" />
+            <Clock className="w-3.5 h-3.5 text-rose-500" aria-hidden="true" />
             <span>
               {t('chatDateCountdown')} <strong className="text-white font-mono">{antiChitChat.hoursLeft} ч</strong>
             </span>
@@ -353,7 +353,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
         {showDirectContactUnlocked && isLadyPremium && (
           <div className="p-3 mx-4 my-2 rounded-2xl bg-amber-950/30 border border-amber-500/40 text-xs text-amber-200 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Crown className="w-4 h-4 text-amber-400" />
+              <Crown className="w-4 h-4 text-amber-400" aria-hidden="true" />
               <span>
                 <strong>{t('chatPartnerContact')}</strong> Telegram: @{activeThread.partnerProfile.id.replace('user_', '')}_direct • Тел: +7 (926) 841-**-**
               </span>
@@ -402,7 +402,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                     <div className="flex items-center gap-2">
                       {msg.dateInviteDetails?.status === 'accepted' ? (
                         <div className="w-full py-2 rounded-xl bg-emerald-950/80 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center justify-center gap-1.5">
-                          <Check className="w-4 h-4" />
+                          <Check className="w-4 h-4" aria-hidden="true" />
                           <span>{t('chatDateConfirmed')}</span>
                         </div>
                       ) : (
@@ -445,7 +445,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             aria-controls="date-invite-dialog"
             aria-expanded={showInviteModal}
           >
-            <Coffee className="w-4 h-4" />
+            <Coffee className="w-4 h-4" aria-hidden="true" />
           </button>
 
           <input
@@ -492,7 +492,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
           <div id="date-invite-dialog" ref={inviteDialogRef} role="dialog" aria-modal="true" aria-labelledby="date-invite-title" aria-describedby="date-invite-description" tabIndex={-1} className="my-auto max-h-[calc(100dvh-1rem)] w-full max-w-sm overflow-y-auto overscroll-contain rounded-3xl border border-rose-900/50 bg-stone-900 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] text-start shadow-2xl sm:p-5">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <Coffee className="w-5 h-5 text-rose-500" />
+                <Coffee className="w-5 h-5 text-rose-500" aria-hidden="true" />
                 <h4 id="date-invite-title" className="font-heading text-base font-bold text-white">{t('chatInviteDate')}</h4>
               </div>
               <button
