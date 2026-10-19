@@ -411,7 +411,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                           onClick={() => onAcceptDateInvite(activeThread.id, msg.id)}
                           className="min-h-11 w-full py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
                         >
-                          <Check className="w-4 h-4" />
+                          <Check className="w-4 h-4" aria-hidden="true" />
                           <span>{t('chatAcceptInvite')}</span>
                         </button>
                       )}
