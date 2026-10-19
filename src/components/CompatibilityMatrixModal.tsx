@@ -200,6 +200,11 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
               </div>
               <div className="h-2 rounded-full bg-stone-800 overflow-hidden">
                 <div
+                  role="progressbar"
+                  aria-label="Семья и дети"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={compatibility.familyGoalsMatch}
                   className="h-full bg-gradient-to-r from-rose-600 to-red-500 rounded-full transition-all duration-500"
                   style={{ width: `${compatibility.familyGoalsMatch}%` }}
                 ></div>
@@ -214,6 +219,11 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
               </div>
               <div className="h-2 rounded-full bg-stone-800 overflow-hidden">
                 <div
+                  role="progressbar"
+                  aria-label="Жизненные ценности и бюджет"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={compatibility.valuesMatch}
                   className="h-full bg-gradient-to-r from-rose-600 to-red-500 rounded-full transition-all duration-500"
                   style={{ width: `${compatibility.valuesMatch}%` }}
                 ></div>
@@ -228,6 +238,11 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
               </div>
               <div className="h-2 rounded-full bg-stone-800 overflow-hidden">
                 <div
+                  role="progressbar"
+                  aria-label="Зрелость в конфликтах"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={compatibility.communicationMatch}
                   className="h-full bg-gradient-to-r from-rose-600 to-red-500 rounded-full transition-all duration-500"
                   style={{ width: `${compatibility.communicationMatch}%` }}
                 ></div>
@@ -242,6 +257,11 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
               </div>
               <div className="h-2 rounded-full bg-stone-800 overflow-hidden">
                 <div
+                  role="progressbar"
+                  aria-label="Образ жизни и совместный отдых"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={compatibility.lifestyleMatch}
                   className="h-full bg-gradient-to-r from-rose-600 to-red-500 rounded-full transition-all duration-500"
                   style={{ width: `${compatibility.lifestyleMatch}%` }}
                 ></div>
