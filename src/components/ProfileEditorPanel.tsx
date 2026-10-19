@@ -41,6 +41,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const [notice, setNotice] = useState('');
   const [blockedProfiles, setBlockedProfiles] = useState<BlockedProfile[]>([]);
   const [unblockingIds, setUnblockingIds] = useState<Set<string>>(() => new Set());
+  const unblockingIdsRef = useRef<Set<string>>(new Set());
   const profileLoadRequestId = useRef(0);
 
   const load = async () => {
@@ -169,6 +170,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       setBusy(false);
       setUploadBusy(false);
       setBlockedProfiles([]);
+      unblockingIdsRef.current.clear();
       setUnblockingIds(new Set());
       setNotice('');
       void load();
@@ -181,8 +183,9 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
   }, []);
 
   const unblock = async (id: string) => {
-    if (unblockingIds.has(id)) return;
+    if (unblockingIdsRef.current.has(id)) return;
     const requestId = profileLoadRequestId.current;
+    unblockingIdsRef.current.add(id);
     setUnblockingIds(current => new Set(current).add(id));
     try {
       const response = await fetch(`/api/blocks/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'include' });
@@ -195,6 +198,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
         setNotice(error instanceof Error ? error.message : t('profileUnblockError'));
       }
     } finally {
+      unblockingIdsRef.current.delete(id);
       if (requestId === profileLoadRequestId.current) {
         setUnblockingIds(current => {
           const next = new Set(current);
