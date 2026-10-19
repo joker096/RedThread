@@ -217,7 +217,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
               <div className="grid sm:grid-cols-3 gap-2 mt-3 text-[11px] text-stone-300">
                 <div className="rounded-xl bg-stone-950/70 p-3"><BadgeCheck className="w-4 h-4 text-emerald-300 mb-1" aria-hidden="true" /><strong className="block text-white">Проверенный статус</strong>Ручная проверка по официальному реестру</div>
                 <div className="rounded-xl bg-stone-950/70 p-3"><FileCheck2 className="w-4 h-4 text-emerald-300 mb-1" aria-hidden="true" /><strong className="block text-white">Правовая юрисдикция</strong>Страна, регион и виды документов</div>
-                <div className="rounded-xl bg-stone-950/70 p-3"><LockKeyhole className="w-4 h-4 text-emerald-300 mb-1" /><strong className="block text-white">Конфиденциальность</strong>Документы пары — только специалисту после согласия</div>
+                <div className="rounded-xl bg-stone-950/70 p-3"><LockKeyhole className="w-4 h-4 text-emerald-300 mb-1" aria-hidden="true" /><strong className="block text-white">Конфиденциальность</strong>Документы пары — только специалисту после согласия</div>
               </div>
             </div>
           )}
@@ -226,11 +226,11 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
             {filtered.map(provider => {
               const Icon = categories.find(c => c.id === provider.category)?.icon || HeartHandshake;
               return <article key={provider.id} className="rounded-2xl border border-white/10 bg-stone-950/60 p-4">
-                <div className="flex items-start justify-between gap-2"><div className="w-10 h-10 rounded-xl bg-rose-600/15 text-rose-300 flex items-center justify-center"><Icon className="w-5 h-5" /></div><span className="text-[9px] rounded-full border border-amber-700/40 bg-amber-950/40 px-2 py-1 text-amber-200">{provider.verificationLabel}</span></div>
+                <div className="flex items-start justify-between gap-2"><div className="w-10 h-10 rounded-xl bg-rose-600/15 text-rose-300 flex items-center justify-center"><Icon className="w-5 h-5" aria-hidden="true" /></div><span className="text-[9px] rounded-full border border-amber-700/40 bg-amber-950/40 px-2 py-1 text-amber-200">{provider.verificationLabel}</span></div>
                 <h3 className="mt-3 font-bold text-white">{provider.title}</h3>
                 <p className="text-xs text-stone-400 mt-1">{provider.name}</p>
                 <p className="text-xs text-stone-300 mt-3 leading-relaxed">{provider.description}</p>
-                <div className="mt-4 flex items-center justify-between gap-2 border-t border-white/5 pt-3"><span className="text-xs font-semibold text-stone-200">{provider.price}</span><button type="button" onClick={() => { setShowProviderForm(false); setCategory(provider.category); }} className="inline-flex min-h-11 items-center gap-1 rounded-lg px-2 text-xs font-bold text-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">Условия <ChevronRight className="w-3.5 h-3.5" /></button></div>
+                <div className="mt-4 flex items-center justify-between gap-2 border-t border-white/5 pt-3"><span className="text-xs font-semibold text-stone-200">{provider.price}</span><button type="button" onClick={() => { setShowProviderForm(false); setCategory(provider.category); }} className="inline-flex min-h-11 items-center gap-1 rounded-lg px-2 text-xs font-bold text-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">Условия <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" /></button></div>
               </article>;
             })}
           </div>
