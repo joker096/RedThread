@@ -40,6 +40,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const [uploadBusy, setUploadBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [blockedProfiles, setBlockedProfiles] = useState<BlockedProfile[]>([]);
+  const [unblockingIds, setUnblockingIds] = useState<Set<string>>(() => new Set());
   const profileLoadRequestId = useRef(0);
 
   const load = async () => {
@@ -168,6 +169,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       setBusy(false);
       setUploadBusy(false);
       setBlockedProfiles([]);
+      setUnblockingIds(new Set());
       setNotice('');
       void load();
     };
@@ -179,7 +181,9 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
   }, []);
 
   const unblock = async (id: string) => {
+    if (unblockingIds.has(id)) return;
     const requestId = profileLoadRequestId.current;
+    setUnblockingIds(current => new Set(current).add(id));
     try {
       const response = await fetch(`/api/blocks/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'include' });
       if (requestId !== profileLoadRequestId.current) return;
@@ -189,6 +193,14 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
     } catch (error) {
       if (requestId === profileLoadRequestId.current) {
         setNotice(error instanceof Error ? error.message : t('profileUnblockError'));
+      }
+    } finally {
+      if (requestId === profileLoadRequestId.current) {
+        setUnblockingIds(current => {
+          const next = new Set(current);
+          next.delete(id);
+          return next;
+        });
       }
     }
   };
@@ -351,7 +363,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
             {!blockedProfiles.length ? <p className="mt-2 text-xs text-stone-500">{t('profileBlockListEmpty')}</p> : blockedProfiles.map(blocked => (
               <div key={blocked.id} className="mt-2 flex items-center justify-between gap-3 rounded-xl border border-white/10 p-2">
                 <span className="truncate text-xs text-stone-300">{blocked.displayName}</span>
-                <button type="button" aria-label={`${t('profileUnblock')}: ${blocked.displayName}`} onClick={() => void unblock(blocked.id)} className="shrink-0 rounded-lg border border-white/10 px-2 py-1.5 text-[10px] text-stone-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400">{t('profileUnblock')}</button>
+                <button type="button" aria-label={`${t('profileUnblock')}: ${blocked.displayName}`} onClick={() => void unblock(blocked.id)} disabled={unblockingIds.has(blocked.id)} className="shrink-0 rounded-lg border border-white/10 px-2 py-1.5 text-[10px] text-stone-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:cursor-not-allowed disabled:opacity-50">{t('profileUnblock')}</button>
               </div>
             ))}
           </div>
