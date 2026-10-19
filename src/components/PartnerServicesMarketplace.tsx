@@ -133,8 +133,21 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
   if (!isOpen) return null;
 
   const isLegal = category === 'legal';
-  const handleSubmitProvider = (e: React.FormEvent) => {
+  const handleSubmitProvider = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const form = e.currentTarget;
+    const nameInput = form.querySelector<HTMLInputElement>('#provider-name');
+    const practiceInput = form.querySelector<HTMLInputElement>('#provider-practice');
+    if (!nameInput || !practiceInput) return;
+
+    const trimmedName = nameInput.value.trim();
+    const trimmedPractice = practiceInput.value.trim();
+    nameInput.setCustomValidity(trimmedName ? '' : 'Введите имя специалиста или название организации.');
+    practiceInput.setCustomValidity(trimmedPractice ? '' : 'Укажите специализацию или услуги и регионы работы.');
+    if (!form.reportValidity()) return;
+
+    setProviderName(trimmedName);
+    setPractice(trimmedPractice);
     setSubmitted(true);
   };
 
@@ -190,9 +203,9 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                   <div className="grid sm:grid-cols-2 gap-3">
                     <div><label className="block text-xs text-stone-400 mb-1" htmlFor="provider-type">Тип поставщика</label><select id="provider-type" value={providerType} onChange={e => setProviderType(e.target.value as typeof providerType)} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white"><option value="lawyer">Юрист по семейному праву</option><option value="advocate">Адвокат (если статус предусмотрен законом страны)</option><option value="wedding">Свадебные услуги</option></select></div>
                     <div><label className="block text-xs text-stone-400 mb-1" htmlFor="provider-country">Страна допуска / работы</label><select id="provider-country" value={providerCountry} onChange={e => setProviderCountry(e.target.value as CountryCode)} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white">{Object.entries(countryNames).map(([code, name]) => <option key={code} value={code}>{name}</option>)}</select></div>
-                    <div><label className="block text-xs text-stone-400 mb-1" htmlFor="provider-name">Имя / название организации</label><input id="provider-name" required maxLength={120} autoComplete="organization" value={providerName} onChange={e => setProviderName(e.target.value)} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white" placeholder="Имя специалиста или компании" /></div>
+                    <div><label className="block text-xs text-stone-400 mb-1" htmlFor="provider-name">Имя / название организации</label><input id="provider-name" required maxLength={120} autoComplete="organization" value={providerName} onChange={e => { e.target.setCustomValidity(''); setProviderName(e.target.value); }} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white" placeholder="Имя специалиста или компании" /></div>
                     <div><label className="block text-xs text-stone-400 mb-1" htmlFor="provider-email">Рабочий email</label><input id="provider-email" required type="email" maxLength={254} autoComplete="email" value={providerEmail} onChange={e => setProviderEmail(e.target.value)} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white" placeholder="name@example.com" /></div>
-                    <div className="sm:col-span-2"><label className="block text-xs text-stone-400 mb-1" htmlFor="provider-practice">{providerType === 'wedding' ? 'Услуги и регионы работы' : 'Специализация и правовая юрисдикция'}</label><input id="provider-practice" required maxLength={500} value={practice} onChange={e => setPractice(e.target.value)} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white" placeholder={providerType === 'wedding' ? 'Фото, видео, аренда платья, ведущий…' : 'Семейное право, брачные договоры, страна/регион…'} /></div>
+                    <div className="sm:col-span-2"><label className="block text-xs text-stone-400 mb-1" htmlFor="provider-practice">{providerType === 'wedding' ? 'Услуги и регионы работы' : 'Специализация и правовая юрисдикция'}</label><input id="provider-practice" required maxLength={500} value={practice} onChange={e => { e.target.setCustomValidity(''); setPractice(e.target.value); }} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white" placeholder={providerType === 'wedding' ? 'Фото, видео, аренда платья, ведущий…' : 'Семейное право, брачные договоры, страна/регион…'} /></div>
                     {providerType !== 'wedding' && <div className="sm:col-span-2 rounded-xl border border-amber-700/30 bg-amber-950/20 p-3">
                       <p className="text-xs font-bold text-amber-200 flex items-center gap-2"><ShieldCheck className="w-4 h-4" aria-hidden="true" /> Обязательная проверка юридического специалиста</p>
                       <ul className="list-disc pl-5 mt-2 space-y-1 text-xs text-stone-300">
