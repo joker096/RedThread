@@ -124,6 +124,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
               <span className="font-bold text-rose-400 text-sm">{minCompatibility}%+</span>
             </div>
             <input
+              name="filter-min-compatibility"
               type="range"
               min="50"
               max="95"
@@ -150,6 +151,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
               <label className="block text-stone-300 font-medium mb-1.5" htmlFor="discovery-country">{t('countryLabel')}</label>
               <input
                 id="discovery-country"
+                name="filter-country"
                 type="text"
                 value={selectedCountry === 'all' ? '' : selectedCountry}
                 onChange={e => setSelectedCountry(e.target.value.trimStart() || 'all')}
@@ -160,7 +162,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
             </div>
             <div>
               <label className="block text-stone-300 font-medium mb-1.5" htmlFor="discovery-city">{t('cityLabel')}</label>
-              <input id="discovery-city" type="text" value={selectedCity === 'all' ? '' : selectedCity} onChange={e => setSelectedCity(e.target.value.trimStart() || 'all')} placeholder={t('cityPlaceholder')} autoComplete="address-level2" className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs placeholder:text-stone-600" />
+              <input id="discovery-city" name="filter-city" type="text" value={selectedCity === 'all' ? '' : selectedCity} onChange={e => setSelectedCity(e.target.value.trimStart() || 'all')} placeholder={t('cityPlaceholder')} autoComplete="address-level2" className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs placeholder:text-stone-600" />
               <p className="text-[10px] text-stone-500 mt-1">{t('locationAnyCityHelp')}</p>
             </div>
             {(selectedCountry !== 'all' || selectedCity !== 'all') && (
@@ -176,11 +178,11 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
             <div className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2">
               <div>
                 <label className="mb-1 block text-stone-300" htmlFor="discovery-min-age">{t('ageFrom')}</label>
-                <input id="discovery-min-age" type="number" min="18" max={maxAge} value={minAge} onChange={e => setMinAge(Math.min(maxAge, Math.max(18, Number(e.target.value) || 18)))} className="w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" />
+                <input id="discovery-min-age" name="filter-age-from" type="number" min="18" max={maxAge} value={minAge} onChange={e => setMinAge(Math.min(maxAge, Math.max(18, Number(e.target.value) || 18)))} className="w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" />
               </div>
               <div>
                 <label className="mb-1 block text-stone-300" htmlFor="discovery-max-age">{t('ageTo')}</label>
-                <input id="discovery-max-age" type="number" min={minAge} max="120" value={maxAge} onChange={e => setMaxAge(Math.max(minAge, Math.min(120, Number(e.target.value) || minAge)))} className="w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" />
+                <input id="discovery-max-age" name="filter-age-to" type="number" min={minAge} max="120" value={maxAge} onChange={e => setMaxAge(Math.max(minAge, Math.min(120, Number(e.target.value) || minAge)))} className="w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" />
               </div>
             </div>
             <p className="mt-1 text-[10px] text-stone-500">{t('adultRangeHelp')}</p>
