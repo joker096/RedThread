@@ -133,7 +133,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
         ))}
       </div>
       <div className="mt-4 flex flex-col gap-2">
-        <button type="button" onClick={() => void save()} disabled={!complete || status === 'saving'} className="w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">
+        <button type="button" onClick={() => void save()} disabled={!complete || status === 'saving'} className="w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 disabled:cursor-not-allowed disabled:opacity-40">
           {status === 'saving' ? t('savingAnswers') : t('saveAndUseTest')}
         </button>
         {note && <p role="status" aria-live="polite" aria-atomic="true" className="text-xs leading-relaxed text-stone-300">{note}</p>}
