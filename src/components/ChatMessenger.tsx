@@ -219,7 +219,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                 <span className="relative block">
                   <img
                     src={thread.partnerProfile.avatar}
-                    alt={thread.partnerProfile.name}
+                    alt=""
                     loading="lazy"
                     decoding="async"
                     width={48}
