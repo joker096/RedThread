@@ -468,7 +468,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
             {!blockedProfiles.length ? <p className="mt-2 text-xs text-stone-500">{t('profileBlockListEmpty')}</p> : blockedProfiles.map(blocked => (
               <div key={blocked.id} className="mt-2 flex items-center justify-between gap-3 rounded-xl border border-white/10 p-2">
                 <span className="truncate text-xs text-stone-300">{blocked.displayName}</span>
-                <button type="button" aria-label={`${t('profileUnblock')}: ${blocked.displayName}`} onClick={() => void unblock(blocked.id)} disabled={unblockingIds.has(blocked.id)} className="shrink-0 rounded-lg border border-white/10 px-2 py-1.5 text-[10px] text-stone-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:cursor-not-allowed disabled:opacity-50">{t('profileUnblock')}</button>
+                <button type="button" aria-label={`${t('profileUnblock')}: ${blocked.displayName}`} onClick={() => void unblock(blocked.id)} disabled={unblockingIds.has(blocked.id)} className="min-h-11 shrink-0 rounded-lg border border-white/10 px-3 py-2 text-xs text-stone-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:cursor-not-allowed disabled:opacity-50">{t('profileUnblock')}</button>
               </div>
             ))}
           </div>
