@@ -381,7 +381,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
           {selected && (
             <div data-testid="real-match-chat" className="rounded-2xl border border-white/10 bg-stone-950/55 p-3.5 shadow-inner sm:p-4">
               <div className="mb-4">
-                {messagesLoading && <p role="status" className="px-2 py-3 text-xs text-stone-400">{t('loading')}</p>}
+                {messagesLoading && <p role="status" aria-live="polite" aria-atomic="true" className="px-2 py-3 text-xs text-stone-400">{t('loading')}</p>}
                 {messagesFailed && <div role="alert" className="mb-2 rounded-xl border border-rose-500/20 bg-rose-950/20 p-3"><p className="text-xs text-stone-200">{notice || t('loadMessagesError')}</p><button type="button" onClick={() => void loadMessages(selected)} className="mt-2 min-h-10 rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300">{t('retry')}</button></div>}
                 <div ref={messagesLogRef} onScroll={event => {
                   const log = event.currentTarget;
