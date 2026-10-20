@@ -139,7 +139,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
   };
 
   return (
-    <div className="vow-modal-backdrop fixed inset-0 z-[70] bg-stone-950/90 backdrop-blur-md overflow-y-auto p-2 sm:p-5" role="dialog" aria-modal="true" aria-labelledby="partner-services-title">
+    <div className="vow-modal-backdrop fixed inset-0 z-[70] bg-stone-950/90 backdrop-blur-md overflow-y-auto p-2 sm:p-5" role="dialog" aria-modal="true" aria-labelledby="partner-services-title" aria-describedby="partner-services-description">
       <div ref={dialogRef} tabIndex={-1} className="max-w-5xl mx-auto my-2 sm:my-6 rounded-3xl border border-rose-900/40 bg-stone-900 shadow-2xl overflow-hidden">
         <div className="p-4 sm:p-6 border-b border-white/10 bg-gradient-to-r from-rose-950/70 to-stone-950">
           <div className="flex items-start justify-between gap-4">
@@ -148,7 +148,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
               <div>
                 <p className="text-[10px] uppercase tracking-[0.18em] text-rose-300 font-bold">Следующий этап для пары</p>
                 <h2 id="partner-services-title" className="text-xl sm:text-2xl font-black text-white">Планирование свадьбы и юридические услуги</h2>
-                <p className="text-xs sm:text-sm text-stone-300 mt-1">Для пары: {coupleNames} · индекс совместимости {compatibilityScore}%</p>
+                <p id="partner-services-description" className="text-xs sm:text-sm text-stone-300 mt-1">Для пары: {coupleNames} · индекс совместимости {compatibilityScore}%</p>
               </div>
             </div>
             <button type="button" onClick={onClose} className="p-2 rounded-xl bg-white/5 text-stone-300 hover:text-white" aria-label="Закрыть"><X className="w-5 h-5" /></button>
