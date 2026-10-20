@@ -574,7 +574,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
               <button type="button" onClick={() => void search()} className="mt-3 min-h-11 rounded-xl border border-emerald-500/30 px-4 py-2.5 text-sm font-semibold text-emerald-200 hover:bg-emerald-950/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">{t('retry')}</button>
             </div>
           )}
-          {busy && <p role="status" aria-live="polite" className="mb-3 rounded-xl border border-white/10 bg-stone-950/40 px-3 py-3 text-center text-xs text-stone-300">{t('searching')}</p>}
+          {busy && <p role="status" aria-live="polite" aria-atomic="true" className="mb-3 rounded-xl border border-white/10 bg-stone-950/40 px-3 py-3 text-center text-xs text-stone-300">{t('searching')}</p>}
           <div aria-busy={busy} className={swipeMode ? 'mx-auto max-w-lg space-y-3' : 'space-y-3'}>
             {profiles.slice(0, swipeMode ? 1 : profiles.length).map(profile => (
               <article key={profile.id}
