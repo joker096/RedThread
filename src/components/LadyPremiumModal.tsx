@@ -73,7 +73,7 @@ export const LadyPremiumModal: React.FC<LadyPremiumModalProps> = ({ isOpen, onCl
   return (
     <div className="vow-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
       <div role="dialog" aria-modal="true" aria-labelledby="premium-modal-title" aria-describedby="premium-modal-description" aria-busy={checkoutBusy || portalBusy} className="relative w-full max-w-lg rounded-3xl bg-stone-900 border border-amber-500/40 shadow-2xl p-5 sm:p-6 text-left my-auto">
-        <button onClick={onClose} className="absolute top-4 right-4 p-2 rounded-full bg-stone-800 text-stone-400 hover:text-white transition-colors" aria-label="Закрыть"><X className="w-5 h-5" /></button>
+        <button type="button" onClick={onClose} className="absolute top-4 right-4 p-2 rounded-full bg-stone-800 text-stone-400 hover:text-white transition-colors" aria-label="Закрыть"><X className="w-5 h-5" /></button>
         <div className="flex items-center gap-3 mb-4">
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-500 via-amber-400 to-yellow-300 text-stone-950 flex items-center justify-center shadow-lg shadow-amber-950/50"><Crown className="w-7 h-7 fill-stone-950" /></div>
           <div>
