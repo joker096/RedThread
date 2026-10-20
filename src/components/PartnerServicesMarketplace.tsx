@@ -151,7 +151,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                 <p className="text-xs sm:text-sm text-stone-300 mt-1">Для пары: {coupleNames} · индекс совместимости {compatibilityScore}%</p>
               </div>
             </div>
-            <button onClick={onClose} className="p-2 rounded-xl bg-white/5 text-stone-300 hover:text-white" aria-label="Закрыть"><X className="w-5 h-5" /></button>
+            <button type="button" onClick={onClose} className="p-2 rounded-xl bg-white/5 text-stone-300 hover:text-white" aria-label="Закрыть"><X className="w-5 h-5" /></button>
           </div>
           <div className="mt-4 flex gap-2 rounded-xl border border-emerald-700/30 bg-emerald-950/30 p-3 text-xs text-emerald-100">
             <LockKeyhole className="w-4 h-4 shrink-0 mt-0.5" />
@@ -167,7 +167,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                 {Object.entries(countryNames).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
               </select>
             </div>
-            <button onClick={() => { setShowProviderForm(v => !v); setSubmitted(false); setProviderFormError(''); }} className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-500/40 bg-rose-600/10 px-4 py-3 text-xs font-bold text-rose-200 hover:bg-rose-600/20">
+            <button type="button" onClick={() => { setShowProviderForm(v => !v); setSubmitted(false); setProviderFormError(''); }} className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-500/40 bg-rose-600/10 px-4 py-3 text-xs font-bold text-rose-200 hover:bg-rose-600/20">
               <FileCheck2 className="w-4 h-4" /> Я предоставляю услуги
             </button>
           </div>
