@@ -86,6 +86,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
       <div role="dialog" aria-modal="true" aria-labelledby="bot-safety-title" className="relative w-full max-w-lg rounded-3xl bg-stone-900 border border-emerald-950/50 shadow-2xl p-5 sm:p-6 text-left my-auto">
         {/* Close Button */}
         <button
+          type="button"
           onClick={onClose}
           className="absolute top-4 right-4 p-2 rounded-full bg-stone-800 text-stone-400 hover:text-white transition-colors"
           aria-label="Закрыть"
@@ -251,6 +252,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
         {/* Actions */}
         <div className="flex items-center gap-3">
           <button
+            type="button"
             onClick={handleRunFreshScan}
             disabled={isScanning}
             className="flex-1 py-3 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 font-semibold text-xs transition-colors flex items-center justify-center gap-1.5"
@@ -260,6 +262,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
           </button>
 
           <button
+            type="button"
             onClick={onClose}
             className="flex-1 py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-colors"
           >
