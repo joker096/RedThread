@@ -359,7 +359,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       {authenticated === false ? (
         <div className="rounded-2xl border border-white/10 bg-stone-950/50 p-4 shadow-inner">
           <p className="text-sm text-stone-200">{t('loginToSeeMatches')}</p>
-          <button type="button" onClick={onOpenAccount} className="mt-3 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white">{t('login')}</button>
+          <button type="button" onClick={onOpenAccount} className="mt-3 min-h-11 min-w-11 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">{t('login')}</button>
         </div>
       ) : (
         <div className="space-y-3">
