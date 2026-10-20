@@ -522,6 +522,7 @@ const messages = {
     chatDirectContactVip: 'Обмен контактами (Lady VIP)',
     chatDateCountdown: 'Время на организацию свидания:',
     chatPartnerContact: 'Контакты партнёра:',
+    chatContactNotAvailable: 'Для этого профиля не указаны подтверждённые контактные данные.',
     chatVipBenefit: 'Преимущество Lady VIP',
     chatFamilyCompatibility: 'Совместимость семейных целей:',
     chatFirstDateInvite: 'Приглашение на первое свидание',
