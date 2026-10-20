@@ -452,6 +452,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
           <input
             key={activeThread.id}
             type="text"
+            name="chat-message"
             enterKeyHint="send"
             autoCapitalize="sentences"
             autoComplete="off"
@@ -518,6 +519,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                 <label htmlFor="date-invite-place" className="block text-stone-400 mb-1">{t('chatPlaceFormat')}</label>
                 <select
                   id="date-invite-place"
+                  name="date-invite-place"
                   value={selectedPlace}
                   onChange={e => setSelectedPlace(e.target.value)}
                   className="min-h-11 w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
@@ -534,6 +536,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                   <label htmlFor="date-invite-day" className="block text-stone-400 mb-1">{t('chatDay')}</label>
                   <select
                     id="date-invite-day"
+                    name="date-invite-day"
                     value={selectedDay}
                     onChange={e => setSelectedDay(e.target.value)}
                     className="min-h-11 w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
@@ -548,6 +551,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                   <label htmlFor="date-invite-time" className="block text-stone-400 mb-1">{t('chatTime')}</label>
                   <select
                     id="date-invite-time"
+                    name="date-invite-time"
                     value={selectedTime}
                     onChange={e => setSelectedTime(e.target.value)}
                     className="min-h-11 w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
