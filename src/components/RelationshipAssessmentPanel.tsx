@@ -107,8 +107,10 @@ export const RelationshipAssessmentPanel: React.FC = () => {
       <div className="space-y-4">
         {questions.map((question, index) => (
           <fieldset key={question.id} disabled={status === 'saving'} className="rounded-2xl border border-white/5 bg-stone-950/60 p-3 disabled:opacity-70">
-            <legend className="px-1 text-[10px] uppercase tracking-wider text-rose-300">{index + 1}. {question.category}</legend>
-            <p className="mb-3 text-sm font-medium text-stone-100">{question.prompt}</p>
+            <legend className="max-w-full px-1 text-[10px] uppercase tracking-wider text-rose-300">
+              <span className="block">{index + 1}. {question.category}</span>
+              <span className="mt-1 block text-sm font-medium normal-case tracking-normal text-stone-100">{question.prompt}</span>
+            </legend>
             <div className="space-y-2">
               {question.options.map(option => (
                 <label key={option.value} className={`flex cursor-pointer items-start gap-2 rounded-xl border p-2.5 text-xs transition-colors ${answers[question.id] === option.value ? 'border-rose-500/60 bg-rose-950/40 text-white' : 'border-white/5 text-stone-300 hover:border-white/20'}`}>
