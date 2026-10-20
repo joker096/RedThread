@@ -151,7 +151,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                 <p id="partner-services-description" className="text-xs sm:text-sm text-stone-300 mt-1">Для пары: {coupleNames} · индекс совместимости {compatibilityScore}%</p>
               </div>
             </div>
-            <button type="button" onClick={onClose} className="p-2 rounded-xl bg-white/5 text-stone-300 hover:text-white" aria-label="Закрыть"><X className="w-5 h-5" /></button>
+            <button type="button" onClick={onClose} className="p-2 rounded-xl bg-white/5 text-stone-300 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" aria-label="Закрыть"><X className="w-5 h-5" /></button>
           </div>
           <div className="mt-4 flex gap-2 rounded-xl border border-emerald-700/30 bg-emerald-950/30 p-3 text-xs text-emerald-100">
             <LockKeyhole className="w-4 h-4 shrink-0 mt-0.5" />
@@ -167,7 +167,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                 {Object.entries(countryNames).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
               </select>
             </div>
-            <button type="button" onClick={() => { setShowProviderForm(v => !v); setSubmitted(false); setProviderFormError(''); }} className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-500/40 bg-rose-600/10 px-4 py-3 text-xs font-bold text-rose-200 hover:bg-rose-600/20">
+            <button type="button" onClick={() => { setShowProviderForm(v => !v); setSubmitted(false); setProviderFormError(''); }} className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-500/40 bg-rose-600/10 px-4 py-3 text-xs font-bold text-rose-200 hover:bg-rose-600/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">
               <FileCheck2 className="w-4 h-4" /> Я предоставляю услуги
             </button>
           </div>
@@ -206,7 +206,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                       <input id="provider-document-note" name="provider-document-note" maxLength={300} value={documentNote} onChange={e => setDocumentNote(e.target.value.slice(0, 300))} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white" placeholder="Реестр, номер лицензии или диплома" />
                     </div>}
                   </div>
-                  <button type="submit" className="mt-4 inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white hover:bg-rose-500"><FileCheck2 className="w-4 h-4" /> Проверить форму (демо)</button>
+                  <button type="submit" className="mt-4 inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white hover:bg-rose-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"><FileCheck2 className="w-4 h-4" /> Проверить форму (демо)</button>
                 </>
               )}
             </form>
@@ -231,7 +231,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                 <h3 className="mt-3 font-bold text-white">{provider.title}</h3>
                 <p className="text-xs text-stone-400 mt-1">{provider.name}</p>
                 <p className="text-xs text-stone-300 mt-3 leading-relaxed">{provider.description}</p>
-                <div className="mt-4 flex items-center justify-between gap-2 border-t border-white/5 pt-3"><span className="text-xs font-semibold text-stone-200">{provider.price}</span><button type="button" onClick={() => { setShowProviderForm(false); setCategory(provider.category); }} className="inline-flex items-center gap-1 text-xs font-bold text-rose-300">Условия <ChevronRight className="w-3.5 h-3.5" /></button></div>
+                <div className="mt-4 flex items-center justify-between gap-2 border-t border-white/5 pt-3"><span className="text-xs font-semibold text-stone-200">{provider.price}</span><button type="button" onClick={() => { setShowProviderForm(false); setCategory(provider.category); }} className="inline-flex items-center gap-1 text-xs font-bold text-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">Условия <ChevronRight className="w-3.5 h-3.5" /></button></div>
               </article>;
             })}
           </div>
