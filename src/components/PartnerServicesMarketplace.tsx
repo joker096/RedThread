@@ -234,7 +234,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
             </div>
           )}
 
-          <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">Найдено: {filtered.length} {filtered.length % 10 === 1 && filtered.length % 100 !== 11 ? 'демонстрационная услуга' : filtered.length % 10 >= 2 && filtered.length % 10 <= 4 && (filtered.length % 100 < 12 || filtered.length % 100 > 14) ? 'демонстрационные услуги' : 'демонстрационных услуг'}</p>
+          <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">{filtered.length === 0 ? 'По выбранным фильтрам демонстрационных услуг нет' : `Найдено: ${filtered.length} ${filtered.length % 10 === 1 && filtered.length % 100 !== 11 ? 'демонстрационная услуга' : filtered.length % 10 >= 2 && filtered.length % 10 <= 4 && (filtered.length % 100 < 12 || filtered.length % 100 > 14) ? 'демонстрационные услуги' : 'демонстрационных услуг'}`}</p>
           <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
             {filtered.map(provider => {
               const Icon = categories.find(c => c.id === provider.category)?.icon || HeartHandshake;
