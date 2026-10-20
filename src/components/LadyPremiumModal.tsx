@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Crown, Check, Sparkles, ShieldCheck, Heart, X, Zap, ArrowRight } from 'lucide-react';
 
 interface LadyPremiumModalProps { isOpen: boolean; onClose: () => void; }
@@ -13,6 +13,46 @@ export const LadyPremiumModal: React.FC<LadyPremiumModalProps> = ({ isOpen, onCl
   const [premiumActive, setPremiumActive] = useState(false);
   const [premiumLifetime, setPremiumLifetime] = useState(false);
   const [portalBusy, setPortalBusy] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    const focusableSelector = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusableElements = () => Array.from(dialog?.querySelectorAll<HTMLElement>(focusableSelector) ?? []);
+    focusableElements()[0]?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const elements = focusableElements();
+      if (!elements.length) {
+        event.preventDefault();
+        dialog?.focus();
+        return;
+      }
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog?.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialog?.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    dialog?.addEventListener('keydown', handleKeyDown);
+    return () => {
+      dialog?.removeEventListener('keydown', handleKeyDown);
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+    };
+  }, [isOpen, onClose]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -72,7 +112,7 @@ export const LadyPremiumModal: React.FC<LadyPremiumModalProps> = ({ isOpen, onCl
   if (!isOpen) return null;
   return (
     <div className="vow-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
-      <div role="dialog" aria-modal="true" aria-labelledby="premium-modal-title" aria-describedby="premium-modal-description" aria-busy={checkoutBusy || portalBusy} className="relative w-full max-w-lg rounded-3xl bg-stone-900 border border-amber-500/40 shadow-2xl p-5 sm:p-6 text-left my-auto">
+      <div ref={dialogRef} role="dialog" tabIndex={-1} aria-modal="true" aria-labelledby="premium-modal-title" aria-describedby="premium-modal-description" aria-busy={checkoutBusy || portalBusy} className="relative w-full max-w-lg rounded-3xl bg-stone-900 border border-amber-500/40 shadow-2xl p-5 sm:p-6 text-left my-auto">
         <button type="button" onClick={onClose} className="absolute top-4 right-4 p-2 rounded-full bg-stone-800 text-stone-400 hover:text-white transition-colors" aria-label="Закрыть"><X className="w-5 h-5" /></button>
         <div className="flex items-center gap-3 mb-4">
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-500 via-amber-400 to-yellow-300 text-stone-950 flex items-center justify-center shadow-lg shadow-amber-950/50"><Crown className="w-7 h-7 fill-stone-950" /></div>
