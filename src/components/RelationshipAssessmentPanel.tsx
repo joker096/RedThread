@@ -134,7 +134,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
         <button type="button" onClick={() => void save()} disabled={!complete || status === 'saving'} className="w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">
           {status === 'saving' ? t('savingAnswers') : t('saveAndUseTest')}
         </button>
-        {note && <p role="status" aria-live="polite" className="text-xs leading-relaxed text-stone-300">{note}</p>}
+        {note && <p role="status" aria-live="polite" aria-atomic="true" className="text-xs leading-relaxed text-stone-300">{note}</p>}
         {status === 'saved' && <p className="text-[10px] text-emerald-300">{t('savedOnServer')}</p>}
       </div>
     </section>
