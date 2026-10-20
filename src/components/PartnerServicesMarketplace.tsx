@@ -214,8 +214,8 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                         <li>Действующая лицензия, членство в палате/реестре или статус адвоката — если этого требует выбранная страна.</li>
                         <li>Номер и ссылка на официальный реестр, специализация, страны и виды услуг, которые специалист вправе оказывать.</li>
                       </ul>
-                      <label className="block text-xs text-stone-400 mt-3 mb-1">Ссылка на официальный реестр / номер документа (не загружайте файл в демо)</label>
-                      <input maxLength={500} autoCapitalize="none" autoCorrect="off" spellCheck={false} value={documentNote} onChange={e => setDocumentNote(e.target.value)} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" placeholder="Реестр, номер лицензии или диплома" />
+                      <label htmlFor="provider-document-note" className="block text-xs text-stone-400 mt-3 mb-1">Ссылка на официальный реестр / номер документа (не загружайте файл в демо)</label>
+                      <input id="provider-document-note" maxLength={500} autoCapitalize="none" autoCorrect="off" spellCheck={false} value={documentNote} onChange={e => setDocumentNote(e.target.value)} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" placeholder="Реестр, номер лицензии или диплома" />
                     </div>}
                   </div>
                   <button type="submit" className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white hover:bg-rose-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"><FileCheck2 className="w-4 h-4" aria-hidden="true" /> Проверить форму (демо)</button>
