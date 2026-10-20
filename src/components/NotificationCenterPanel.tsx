@@ -33,12 +33,12 @@ export const NotificationCenterPanel:React.FC=()=>{
         (value.type === 'new_match' || value.type === 'new_message') &&
         typeof value.createdAt === 'string' && value.createdAt.trim().length > 0 && value.createdAt.length <= 100 && Number.isFinite(Date.parse(value.createdAt)) &&
         (value.readAt === null || (typeof value.readAt === 'string' && value.readAt.trim().length > 0 && value.readAt.length <= 100 && Number.isFinite(Date.parse(value.readAt))));
-      }).filter((notification) => {
+      }).filter((notification: NotificationItem) => {
        const id = notification.id.trim();
        if (seenNotificationIds.has(id)) return false;
        seenNotificationIds.add(id);
        return true;
-      }).map(notification => ({
+      }).map((notification: NotificationItem) => ({
        id: notification.id.trim(),
        type: notification.type,
        createdAt: notification.createdAt,

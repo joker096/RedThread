@@ -120,9 +120,9 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       if (!response.ok) throw new Error(t('loadMatchesError'));
       const data = await response.json();
       if (requestId !== matchesRequestId.current) return;
-      const nextMatches = deduplicateById(
+      const nextMatches = deduplicateById<ServerMatch>(
         Array.isArray(data?.matches)
-          ? data.matches.slice(-500).map(normalizeServerMatch).filter((match): match is ServerMatch => match !== null)
+          ? data.matches.slice(-500).map((value: unknown) => normalizeServerMatch(value)).filter((match: ServerMatch | null): match is ServerMatch => match !== null)
           : []
       );
       setMatches(nextMatches);
@@ -183,9 +183,9 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       if (!response.ok) throw new Error(t('loadMessagesError'));
       const data = await response.json();
       if (requestId !== messageRequestId.current) return;
-      const nextMessages = deduplicateById(
+      const nextMessages = deduplicateById<ServerMessage>(
         Array.isArray(data?.messages)
-          ? data.messages.slice(-1000).map(normalizeServerMessage).filter((message): message is ServerMessage => message !== null)
+          ? data.messages.slice(-1000).map((value: unknown) => normalizeServerMessage(value)).filter((message: ServerMessage | null): message is ServerMessage => message !== null)
           : []
       ).slice(-500);
       setMessages(nextMessages);
