@@ -83,7 +83,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
 
   return (
     <div className="vow-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
-      <div role="dialog" aria-modal="true" aria-labelledby="bot-safety-title" className="relative w-full max-w-lg rounded-3xl bg-stone-900 border border-emerald-950/50 shadow-2xl p-5 sm:p-6 text-left my-auto">
+      <div role="dialog" aria-modal="true" aria-labelledby="bot-safety-title" aria-describedby="bot-safety-description" className="relative w-full max-w-lg rounded-3xl bg-stone-900 border border-emerald-950/50 shadow-2xl p-5 sm:p-6 text-left my-auto">
         {/* Close Button */}
         <button
           type="button"
@@ -110,7 +110,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
                 {riskReport.isSafe ? 'Низкий риск (демо)' : 'Есть признаки риска'}
               </span>
             </div>
-            <p className="text-xs text-stone-400">
+            <p id="bot-safety-description" className="text-xs text-stone-400">
               Демо-оценка текста анкеты {targetProfile.name}; биометрическая проверка не подключена
             </p>
           </div>
