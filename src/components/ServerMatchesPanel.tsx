@@ -363,7 +363,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         </div>
       ) : (
         <div className="space-y-3">
-          {matchesLoading && <p role="status" aria-live="polite" className="rounded-xl border border-white/10 bg-stone-950/40 px-3 py-3 text-center text-xs text-stone-300">{t('loading')}</p>}
+          {matchesLoading && <p role="status" aria-live="polite" aria-atomic="true" className="rounded-xl border border-white/10 bg-stone-950/40 px-3 py-3 text-center text-xs text-stone-300">{t('loading')}</p>}
           {!matchesLoading && matchesFailed && <div className="rounded-xl border border-rose-500/20 bg-rose-950/20 p-3" role="alert"><p className="text-xs text-stone-200">{notice || t('loadMatchesError')}</p><button type="button" onClick={() => void loadMatches()} className="mt-2 min-h-11 rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300">{t('retry')}</button></div>}
           {!matchesLoading && !matchesFailed && matches.length === 0 && <div className="rounded-xl border border-white/10 bg-stone-950/40 p-4 text-center"><p className="text-sm text-stone-200">{t('noMutualMatches')}</p></div>}
           {matches.map(match => (
