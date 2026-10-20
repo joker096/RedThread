@@ -306,7 +306,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
                   <button type="button"
                     key={idx}
                     onClick={() => handleBlitzAnswer(opt.match)}
-                    className="w-full text-left p-2 rounded-xl bg-stone-900 hover:bg-rose-950/60 hover:border-rose-500/40 border border-white/5 text-stone-300 hover:text-white transition-all text-[11px]"
+                    className="w-full text-left p-2 rounded-xl bg-stone-900 hover:bg-rose-950/60 hover:border-rose-500/40 border border-white/5 text-stone-300 hover:text-white transition-all text-[11px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
                   >
                     {opt.label}
                   </button>
@@ -325,7 +325,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
         <div className="flex items-center gap-3">
           <button type="button"
             onClick={onClose}
-            className="flex-1 py-3 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 font-semibold text-xs transition-colors"
+            className="flex-1 py-3 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 font-semibold text-xs transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
           >
             Закрыть
           </button>
@@ -334,7 +334,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
               onStartChat(profile);
               onClose();
             }}
-            className="flex-2 py-3 rounded-xl bg-gradient-to-r from-rose-600 via-red-600 to-rose-700 hover:from-rose-500 hover:to-red-500 font-bold text-white text-xs flex items-center justify-center gap-2 red-glow transition-all"
+            className="flex-2 py-3 rounded-xl bg-gradient-to-r from-rose-600 via-red-600 to-rose-700 hover:from-rose-500 hover:to-red-500 font-bold text-white text-xs flex items-center justify-center gap-2 red-glow transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
           >
             <Heart className="w-4 h-4 fill-white" />
             <span>{profile.likedByCandidate ? 'Взаимная симпатия — открыть чат' : 'Отправить симпатию'}</span>
