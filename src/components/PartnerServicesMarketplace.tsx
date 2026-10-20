@@ -175,7 +175,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
           <div className="flex flex-col sm:flex-row gap-3 sm:items-end sm:justify-between mb-4">
             <div>
               <label className="block text-xs text-stone-400 mb-1.5" htmlFor="service-country">Страна, для которой ищете услуги</label>
-              <select id="service-country" value={country} onChange={e => setCountry(e.target.value as CountryCode)} className="w-full sm:w-64 min-h-11 rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">
+              <select id="service-country" name="service-country" autoComplete="country-name" value={country} onChange={e => setCountry(e.target.value as CountryCode)} className="w-full sm:w-64 min-h-11 rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">
                 {Object.entries(countryNames).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
               </select>
             </div>
