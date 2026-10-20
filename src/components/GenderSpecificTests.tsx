@@ -476,7 +476,7 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
                     <button
                       type="button"
                       onClick={() => handleStartTest(test.id)}
-                      className="px-3 py-1 rounded-full bg-rose-600 hover:bg-rose-500 text-white font-bold text-[11px] transition-colors shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
+                      className="min-h-11 min-w-11 px-3 py-1 rounded-full bg-rose-600 hover:bg-rose-500 text-white font-bold text-[11px] transition-colors shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
                     >
                       Пройти
                     </button>
@@ -493,7 +493,7 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
                     <button
                       type="button"
                       onClick={() => handleStartTest(test.id)}
-                      className="text-stone-400 hover:text-white flex items-center gap-1 underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
+                      className="min-h-11 min-w-11 px-2 text-stone-400 hover:text-white flex items-center justify-center gap-1 underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
                     >
                       <RotateCcw className="w-3 h-3" />
                       <span>Пересдать</span>
