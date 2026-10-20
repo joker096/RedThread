@@ -128,7 +128,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
         {/* Close Button */}
         <button type="button"
           onClick={onClose}
-          className="absolute top-4 right-4 p-2 rounded-full bg-stone-800 text-stone-400 hover:text-white hover:bg-stone-700 transition-colors"
+          className="absolute top-4 right-4 rounded-full bg-stone-800 p-2 text-stone-400 transition-colors hover:bg-stone-700 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
           aria-label="Закрыть"
         >
           <X className="w-5 h-5" />
