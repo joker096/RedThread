@@ -126,7 +126,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
     <div className="vow-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="compatibility-matrix-title" tabIndex={-1} className="relative w-full max-w-lg rounded-3xl bg-stone-900 border border-rose-900/50 shadow-2xl p-5 sm:p-6 text-left my-auto">
         {/* Close Button */}
-        <button
+        <button type="button"
           onClick={onClose}
           className="absolute top-4 right-4 p-2 rounded-full bg-stone-800 text-stone-400 hover:text-white hover:bg-stone-700 transition-colors"
           aria-label="Закрыть"
@@ -303,7 +303,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
               </p>
               <div className="space-y-1.5">
                 {blitzQuestions[chemistryStep].options.map((opt, idx) => (
-                  <button
+                  <button type="button"
                     key={idx}
                     onClick={() => handleBlitzAnswer(opt.match)}
                     className="w-full text-left p-2 rounded-xl bg-stone-900 hover:bg-rose-950/60 hover:border-rose-500/40 border border-white/5 text-stone-300 hover:text-white transition-all text-[11px]"
@@ -323,13 +323,13 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
 
         {/* Modal Action Footer */}
         <div className="flex items-center gap-3">
-          <button
+          <button type="button"
             onClick={onClose}
             className="flex-1 py-3 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 font-semibold text-xs transition-colors"
           >
             Закрыть
           </button>
-          <button
+          <button type="button"
             onClick={() => {
               onStartChat(profile);
               onClose();
