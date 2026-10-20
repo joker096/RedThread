@@ -123,7 +123,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
                       answersEditedRef.current = true;
                       setAnswers(current => ({ ...current, [question.id]: option.value }));
                     }}
-                    className="mt-0.5 accent-rose-500"
+                    className="mt-0.5 accent-rose-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
                   />
                   <span>{option.label}</span>
                 </label>
