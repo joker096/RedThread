@@ -92,7 +92,7 @@ export const BrandNamingModal: React.FC<BrandNamingModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
-      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="brand-naming-title" className="relative w-full max-w-xl rounded-3xl bg-stone-900 border border-rose-900/40 shadow-2xl p-5 sm:p-6 text-left my-auto">
+      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="brand-naming-title" aria-describedby="brand-naming-description" className="relative w-full max-w-xl rounded-3xl bg-stone-900 border border-rose-900/40 shadow-2xl p-5 sm:p-6 text-left my-auto">
         {/* Close Button */}
         <button
           type="button"
@@ -110,7 +110,7 @@ export const BrandNamingModal: React.FC<BrandNamingModalProps> = ({
           </div>
           <div>
             <h2 id="brand-naming-title" className="text-xl font-heading font-black text-white">Продуманные названия бренда</h2>
-            <p className="text-xs text-stone-400">
+            <p id="brand-naming-description" className="text-xs text-stone-400">
               Выберите концепцию — название и стиль приложения обновятся мгновенно
             </p>
           </div>
