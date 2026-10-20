@@ -97,7 +97,7 @@ export const BrandNamingModal: React.FC<BrandNamingModalProps> = ({
         <button
           type="button"
           onClick={onClose}
-          className="absolute top-4 right-4 p-2 rounded-full bg-stone-800 text-stone-400 hover:text-white transition-colors"
+          className="absolute top-4 right-4 p-2 rounded-full bg-stone-800 text-stone-400 hover:text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
           aria-label="Закрыть"
         >
           <X className="w-5 h-5" />
@@ -174,7 +174,7 @@ export const BrandNamingModal: React.FC<BrandNamingModalProps> = ({
         <button
           type="button"
           onClick={onClose}
-          className="w-full py-3 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-colors shadow-lg shadow-rose-950"
+          className="w-full py-3 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-colors shadow-lg shadow-rose-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
         >
           Применить выбранное название
         </button>
