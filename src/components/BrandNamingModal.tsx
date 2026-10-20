@@ -95,6 +95,7 @@ export const BrandNamingModal: React.FC<BrandNamingModalProps> = ({
       <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="brand-naming-title" className="relative w-full max-w-xl rounded-3xl bg-stone-900 border border-rose-900/40 shadow-2xl p-5 sm:p-6 text-left my-auto">
         {/* Close Button */}
         <button
+          type="button"
           onClick={onClose}
           className="absolute top-4 right-4 p-2 rounded-full bg-stone-800 text-stone-400 hover:text-white transition-colors"
           aria-label="Закрыть"
@@ -171,6 +172,7 @@ export const BrandNamingModal: React.FC<BrandNamingModalProps> = ({
 
         {/* Footer */}
         <button
+          type="button"
           onClick={onClose}
           className="w-full py-3 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-colors shadow-lg shadow-rose-950"
         >
