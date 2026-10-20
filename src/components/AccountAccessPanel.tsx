@@ -326,7 +326,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
           </div>
         </>
       )}
-      {message && <p role="status" aria-live="polite" className="mt-3 text-xs leading-relaxed text-stone-300">{message}</p>}
+      {message && <p role="status" aria-live="polite" aria-atomic="true" className="mt-3 text-xs leading-relaxed text-stone-300">{message}</p>}
       <p className="mt-3 text-[10px] leading-relaxed text-stone-500">{t('authServerNotice')}</p>
     </section>
   );
