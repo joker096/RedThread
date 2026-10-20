@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   Brain, 
   CheckCircle2, 
@@ -255,6 +255,56 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
   });
 
   const activeTest = tests.find(t => t.id === activeTestId);
+  const testDialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!activeTestId) return;
+
+    const dialog = testDialogRef.current;
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const getFocusable = () => dialog
+      ? Array.from(dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )).filter(element => element.getAttribute('aria-hidden') !== 'true')
+      : [];
+
+    getFocusable()[0]?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setActiveTestId(null);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const focusable = getFocusable();
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog?.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog?.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialog?.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, [activeTestId]);
+
 
   const handleStartTest = (testId: string) => {
     setActiveTestId(testId);
@@ -288,7 +338,7 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
       {/* Active Test Modal / Runner */}
       {activeTest && (
         <div className="fixed inset-0 z-50 bg-stone-950/80 backdrop-blur-xl flex items-center justify-center p-4">
-          <div role="dialog" aria-modal="true" aria-labelledby="active-test-question-title" tabIndex={-1} className="w-full max-w-md bg-stone-900 border border-white/10 rounded-3xl p-5 shadow-2xl">
+          <div ref={testDialogRef} role="dialog" aria-modal="true" aria-labelledby="active-test-question-title" tabIndex={-1} className="w-full max-w-md bg-stone-900 border border-white/10 rounded-3xl p-5 shadow-2xl">
             <div className="flex items-center justify-between mb-3">
               <span className="text-[10px] uppercase font-bold text-rose-400 tracking-wider">
                 Вопрос {currentQuestionIndex + 1} из {activeTest.questions.length}
