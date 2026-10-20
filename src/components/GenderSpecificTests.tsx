@@ -288,12 +288,13 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
       {/* Active Test Modal / Runner */}
       {activeTest && (
         <div className="fixed inset-0 z-50 bg-stone-950/80 backdrop-blur-xl flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-stone-900 border border-white/10 rounded-3xl p-5 shadow-2xl">
+          <div role="dialog" aria-modal="true" aria-labelledby="active-test-question-title" tabIndex={-1} className="w-full max-w-md bg-stone-900 border border-white/10 rounded-3xl p-5 shadow-2xl">
             <div className="flex items-center justify-between mb-3">
               <span className="text-[10px] uppercase font-bold text-rose-400 tracking-wider">
                 Вопрос {currentQuestionIndex + 1} из {activeTest.questions.length}
               </span>
               <button
+                type="button"
                 onClick={() => setActiveTestId(null)}
                 className="text-stone-400 hover:text-white text-xs px-2 py-1 rounded-lg bg-stone-800"
               >
@@ -308,13 +309,14 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
               />
             </div>
 
-            <h3 className="font-heading font-black text-white text-base mb-4 leading-snug">
+            <h3 id="active-test-question-title" className="font-heading font-black text-white text-base mb-4 leading-snug">
               {activeTest.questions[currentQuestionIndex].text}
             </h3>
 
             <div className="space-y-2.5 mb-2">
               {activeTest.questions[currentQuestionIndex].options.map((opt, idx) => (
                 <button
+                  type="button"
                   key={idx}
                   onClick={() => handleSelectOption(activeTest.questions[currentQuestionIndex].id, opt.score, opt.trait)}
                   className="w-full p-3.5 rounded-2xl bg-stone-950 border border-white/10 hover:border-rose-500/50 hover:bg-rose-950/20 text-left transition-all group"
