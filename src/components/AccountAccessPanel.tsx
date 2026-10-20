@@ -75,6 +75,9 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
   const [resetPassword, setResetPassword] = useState('');
   const sessionActionIdRef = useRef(0);
   const auxiliaryRequestIdRef = useRef(0);
+  const latestBirthDate = new Date();
+  latestBirthDate.setFullYear(latestBirthDate.getFullYear() - 18);
+  const latestBirthDateInputValue = new Date(latestBirthDate.getTime() - latestBirthDate.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
 
   useEffect(() => {
     let cancelled = false;
@@ -368,7 +371,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
           <div className="space-y-3">
             {mode === 'register' && <>
               <label className="block text-xs text-stone-300">{t('profileName')}<input value={displayName} onChange={e => setDisplayName(e.target.value)} disabled={busy} required minLength={2} maxLength={80} autoComplete="name" autoCapitalize="words" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 disabled:cursor-not-allowed disabled:opacity-50" /></label>
-              <label className="block text-xs text-stone-300">{t('birthDate')}<input type="date" value={birthDate} onChange={e => setBirthDate(e.target.value)} disabled={busy} required autoComplete="bday" max={new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 10)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 disabled:cursor-not-allowed disabled:opacity-50" /></label>
+              <label className="block text-xs text-stone-300">{t('birthDate')}<input type="date" value={birthDate} onChange={e => setBirthDate(e.target.value)} disabled={busy} required autoComplete="bday" max={latestBirthDateInputValue} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 disabled:cursor-not-allowed disabled:opacity-50" /></label>
               <label className="block text-xs text-stone-300">{t('gender')}<select value={gender} onChange={e => setGender(e.target.value as 'female' | 'male')} disabled={busy} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 disabled:cursor-not-allowed disabled:opacity-50"><option value="female">{t('female')}</option><option value="male">{t('male')}</option></select></label>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <label className="block text-xs text-stone-300">{t('countryLabel')}<input value={country} onChange={e => setCountry(e.target.value)} disabled={busy} required maxLength={100} autoComplete="country-name" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 disabled:cursor-not-allowed disabled:opacity-50" /></label>
