@@ -346,7 +346,7 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
               <button
                 type="button"
                 onClick={() => setActiveTestId(null)}
-                className="text-stone-400 hover:text-white text-xs px-2 py-1 rounded-lg bg-stone-800"
+                className="text-stone-400 hover:text-white text-xs px-2 py-1 rounded-lg bg-stone-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
               >
                 Закрыть
               </button>
@@ -369,7 +369,7 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
                   type="button"
                   key={idx}
                   onClick={() => handleSelectOption(activeTest.questions[currentQuestionIndex].id, opt.score, opt.trait)}
-                  className="w-full p-3.5 rounded-2xl bg-stone-950 border border-white/10 hover:border-rose-500/50 hover:bg-rose-950/20 text-left transition-all group"
+                  className="w-full p-3.5 rounded-2xl bg-stone-950 border border-white/10 hover:border-rose-500/50 hover:bg-rose-950/20 text-left transition-all group focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
                 >
                   <div className="text-xs font-semibold text-stone-200 group-hover:text-white mb-1">
                     {opt.label}
