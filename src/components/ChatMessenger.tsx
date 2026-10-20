@@ -454,6 +454,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             type="text"
             enterKeyHint="send"
             autoCapitalize="sentences"
+            autoComplete="off"
             value={inputText}
             onKeyDown={e => {
               if (e.key === 'Enter' && (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)) {
