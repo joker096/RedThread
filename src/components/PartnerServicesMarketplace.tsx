@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  X, Scale, Camera, Video, Shirt, Music2, MapPin, ShieldCheck,
-  FileCheck2, LockKeyhole, HeartHandshake, CalendarDays, BadgeCheck,
-  ChevronRight, Info, Upload, Wallet, CheckCircle2, AlertTriangle
+  X, Scale, Camera, Shirt, Music2, MapPin, ShieldCheck,
+  FileCheck2, LockKeyhole, HeartHandshake, BadgeCheck,
+  ChevronRight, Wallet, CheckCircle2, AlertTriangle
 } from 'lucide-react';
 
 type ServiceCategory = 'all' | 'legal' | 'dress' | 'photo' | 'host' | 'venue' | 'beauty';
@@ -132,7 +132,6 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
 
   if (!isOpen) return null;
 
-  const isLegal = category === 'legal';
   const handleSubmitProvider = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.currentTarget;
