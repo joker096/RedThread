@@ -383,7 +383,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       {authenticated === false ? (
         <div className="mt-3 rounded-2xl border border-white/10 bg-stone-950/60 p-4">
           <p className="text-sm text-stone-300">{t('profileLoginPrompt')}</p>
-          <button type="button" onClick={onOpenAccount} className="mt-3 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white">{t('profileLoginButton')}</button>
+          <button type="button" onClick={onOpenAccount} className="mt-3 min-h-11 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">{t('profileLoginButton')}</button>
         </div>
       ) : (
         <div className="mt-3 space-y-3">
@@ -446,7 +446,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
               finally{if(requestId===profileLoadRequestId.current)setUploadBusy(false);}
             }} className="mt-2 block w-full text-sm text-stone-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 file:me-3 file:rounded-lg file:border-0 file:bg-rose-700 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white" />
           </label>
-          <label className="block text-xs text-stone-300">{t('profileUploadedPhotos')}<textarea value={photoUrls} readOnly rows={3} placeholder={t('profilePhotosPlaceholder')} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white read-only:opacity-80" /></label>
+          <label className="block text-xs text-stone-300">{t('profileUploadedPhotos')}<textarea value={photoUrls} readOnly rows={3} placeholder={t('profilePhotosPlaceholder')} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white read-only:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" /></label>
           {photoUrls.split(/\n|,/).map(value => value.trim()).filter(Boolean).length > 0 && <button type="button" disabled={busy || uploadBusy} onClick={() => setPhotoUrls(current => current.split(/\n|,/).map(value => value.trim()).filter(Boolean).slice(0, -1).join("\n"))} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-stone-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:cursor-not-allowed disabled:opacity-50" >{t('profileRemoveLastPhoto')}</button>}
           <p className="text-[10px] leading-relaxed text-stone-500">{t('profilePhotoPrivacyNote')}</p>
           <label className="block text-xs text-stone-300">{t('profileRelationshipGoal')}<select value={relationshipIntent} onChange={e => setRelationshipIntent(e.target.value as typeof relationshipIntent)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"><option value="marriage_family">{t('profileGoalMarriage')}</option><option value="family_without_marriage">{t('profileGoalFamilyNoMarriage')}</option><option value="serious_relationship">{t('profileGoalSerious')}</option></select></label>
