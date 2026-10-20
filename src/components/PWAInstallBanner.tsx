@@ -111,7 +111,7 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
             onClick={() => setShowGuide(!showGuide)}
             aria-expanded={showGuide}
             aria-controls="vow-install-guide"
-            className="min-h-8 rounded-lg border border-white/5 bg-stone-900 px-2 py-1 text-[11px] text-rose-300 hover:text-white"
+            className="min-h-8 rounded-lg border border-white/5 bg-stone-900 px-2 py-1 text-[11px] text-rose-300 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
           >
             {showGuide ? t('installGuideHide') : t('installGuideShow')}
           </button>
@@ -127,7 +127,7 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
               onClick={handleInstall}
               disabled={isInstalling}
               aria-busy={isInstalling}
-              className="flex min-h-8 items-center gap-1 rounded-lg bg-rose-600 px-2.5 py-1 text-[11px] font-bold text-white shadow-sm hover:bg-rose-500 disabled:cursor-wait disabled:opacity-60"
+              className="flex min-h-8 items-center gap-1 rounded-lg bg-rose-600 px-2.5 py-1 text-[11px] font-bold text-white shadow-sm hover:bg-rose-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 disabled:cursor-wait disabled:opacity-60"
             >
               <Download className="w-3 h-3" />
               <span>{t('installButton')}</span>
@@ -145,7 +145,7 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
               }
               if (onDismiss) onDismiss();
             }}
-            className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-stone-500 hover:text-stone-300"
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-stone-500 hover:text-stone-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
             aria-label={t('installDismiss')}
           >
             <X className="w-3.5 h-3.5" />
@@ -161,7 +161,7 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
               type="button"
               onClick={() => setActiveGuide('ios')}
               aria-pressed={activeGuide === 'ios'}
-              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+              className={`px-2 py-0.5 rounded text-[10px] font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 ${
                 activeGuide === 'ios' ? 'bg-rose-600 text-white' : 'text-stone-400 bg-stone-900'
               }`}
             >
