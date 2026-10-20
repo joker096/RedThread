@@ -106,7 +106,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
       </p>
       <div className="space-y-4">
         {questions.map((question, index) => (
-          <fieldset key={question.id} className="rounded-2xl border border-white/5 bg-stone-950/60 p-3">
+          <fieldset key={question.id} disabled={status === 'saving'} className="rounded-2xl border border-white/5 bg-stone-950/60 p-3 disabled:opacity-70">
             <legend className="px-1 text-[10px] uppercase tracking-wider text-rose-300">{index + 1}. {question.category}</legend>
             <p className="mb-3 text-sm font-medium text-stone-100">{question.prompt}</p>
             <div className="space-y-2">
