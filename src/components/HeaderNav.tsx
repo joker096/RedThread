@@ -74,7 +74,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             type="button"
             onClick={() => setActiveTab('discovery')}
             aria-current={activeTab === 'discovery' ? 'page' : undefined}
-            className={`min-h-10 px-3 py-2 rounded-full text-xs font-bold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 ${
+            className={`min-h-11 px-3 py-2 rounded-full text-xs font-bold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 ${
               activeTab === 'discovery'
                 ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-sm'
                 : 'text-stone-400 hover:text-stone-200'
@@ -88,7 +88,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             data-testid="nav-tests"
             onClick={() => setActiveTab('tests')}
             aria-current={activeTab === 'tests' ? 'page' : undefined}
-            className={`flex items-center gap-1 min-h-10 px-3 py-2 rounded-full text-xs font-bold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 ${
+            className={`flex items-center gap-1 min-h-11 px-3 py-2 rounded-full text-xs font-bold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 ${
               activeTab === 'tests'
                 ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-sm'
                 : 'text-stone-400 hover:text-stone-200'
@@ -104,7 +104,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             onClick={() => setActiveTab('chats')}
             aria-current={activeTab === 'chats' ? 'page' : undefined}
             aria-label={safeUnreadChatsCount > 0 ? `${t('chats')} (${safeUnreadChatsCount})` : t('chats')}
-            className={`relative min-h-10 px-3 py-2 rounded-full text-xs font-bold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 ${
+            className={`relative min-h-11 px-3 py-2 rounded-full text-xs font-bold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 ${
               activeTab === 'chats'
                 ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-sm'
                 : 'text-stone-400 hover:text-stone-200'
@@ -122,7 +122,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             type="button"
             onClick={() => setActiveTab('safety')}
             aria-current={activeTab === 'safety' ? 'page' : undefined}
-            className={`min-h-10 px-3 py-2 rounded-full text-xs font-bold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 ${
+            className={`min-h-11 px-3 py-2 rounded-full text-xs font-bold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 ${
               activeTab === 'safety'
                 ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-sm'
                 : 'text-stone-400 hover:text-stone-200'
@@ -137,7 +137,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           <button
             type="button"
             onClick={onToggleTheme}
-            className="vow-motion-button flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-stone-900 text-stone-200 transition-colors hover:border-rose-500/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400"
+            className="vow-motion-button flex min-h-11 min-w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-stone-900 text-stone-200 transition-colors hover:border-rose-500/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400"
             aria-label={theme === 'dark' ? t('switchToLightTheme') : t('switchToDarkTheme')}
             aria-pressed={theme === 'dark'}
             title={theme === 'dark' ? t('switchToLightTheme') : t('switchToDarkTheme')}
@@ -166,7 +166,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           <button
             type="button"
             onClick={onToggleGender}
-            className={`vow-motion-button flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-2 text-[11px] font-semibold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 ${
+            className={`vow-motion-button flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-2 text-[11px] font-semibold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 ${
               currentGender === 'female'
                 ? 'bg-rose-950/40 border-rose-500/40 text-rose-200'
                 : 'bg-blue-950/40 border-blue-500/40 text-blue-200'
@@ -183,7 +183,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             type="button"
             data-testid="open-filters"
             onClick={onOpenFilters}
-            className="vow-motion-button flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-stone-900 text-stone-300 transition-colors hover:border-rose-500/40 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400"
+            className="vow-motion-button flex min-h-11 min-w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-stone-900 text-stone-300 transition-colors hover:border-rose-500/40 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400"
             title={t('filters')}
             aria-label={t('filters')}
           >
@@ -194,7 +194,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             <button
               type="button"
               onClick={onOpenPremiumModal}
-              className={`vow-motion-button hidden min-h-10 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 lg:flex ${
+              className={`vow-motion-button hidden min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 lg:flex ${
                 isLadyPremium
                   ? 'bg-amber-400 text-stone-950'
                   : 'border border-rose-500/30 bg-rose-950/50 text-rose-100 hover:bg-rose-900/60'
