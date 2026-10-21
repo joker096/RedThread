@@ -315,7 +315,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                   setShowDirectContactUnlocked(!showDirectContactUnlocked);
                 }
               }}
-              className={`flex min-h-11 min-w-11 items-center justify-center p-2 rounded-xl border text-xs transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 ${
+              className={`flex min-h-11 min-w-11 items-center justify-center p-2 rounded-xl border text-xs transition-colors focus-visible:border-sky-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 ${
                 isLadyPremium
                   ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
                   : 'bg-stone-800 border-white/5 text-stone-400 hover:text-white'
