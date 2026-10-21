@@ -252,7 +252,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
           <div className="flex items-center gap-3">
             <button type="button"
               onClick={onBackToList}
-              className="md:hidden flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-stone-800 text-stone-300 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+              className="md:hidden flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-transparent bg-stone-800 text-stone-300 hover:text-white focus-visible:border-sky-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
               aria-label={t('chatBackToList')}
             >
               <ArrowLeft className="vow-rtl-back-icon w-4 h-4" />
