@@ -88,7 +88,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
         <button
           type="button"
           onClick={onClose}
-          className="absolute top-4 right-4 p-2 rounded-full bg-stone-800 text-stone-400 hover:text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+          className="absolute right-4 top-4 flex min-h-11 min-w-11 items-center justify-center rounded-full bg-stone-800 text-stone-400 transition-colors hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
           aria-label="Закрыть"
         >
           <X className="w-5 h-5" />
