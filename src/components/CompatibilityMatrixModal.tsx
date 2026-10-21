@@ -78,7 +78,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
     document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      previouslyFocused?.focus();
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
     };
   }, [isOpen, profile, onClose]);
 
