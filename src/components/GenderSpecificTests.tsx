@@ -352,14 +352,14 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
               </button>
             </div>
 
-            <div className="w-full bg-stone-800 h-1.5 rounded-full mb-4 overflow-hidden">
+            <div role="progressbar" aria-label="Прогресс теста" aria-valuemin={0} aria-valuemax={activeTest.questions.length} aria-valuenow={currentQuestionIndex + 1} className="w-full bg-stone-800 h-1.5 rounded-full mb-4 overflow-hidden">
               <div
                 className="bg-gradient-to-r from-rose-600 to-amber-500 h-full transition-all duration-300"
                 style={{ width: `${((currentQuestionIndex + 1) / activeTest.questions.length) * 100}%` }}
               />
             </div>
 
-            <h3 id="active-test-question-title" className="font-heading font-black text-white text-base mb-4 leading-snug">
+            <h3 id="active-test-question-title" aria-live="polite" aria-atomic="true" className="font-heading font-black text-white text-base mb-4 leading-snug">
               {activeTest.questions[currentQuestionIndex].text}
             </h3>
 
