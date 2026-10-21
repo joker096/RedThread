@@ -221,7 +221,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
               <div>
                 <span className="text-white font-medium">{t('verifiedFilterTitle')}</span>
-                <p className="text-[10px] leading-relaxed text-stone-400">{t('verifiedFilterDescription')}</p>
+                <p id="verified-filter-description" className="text-[10px] leading-relaxed text-stone-400">{t('verifiedFilterDescription')}</p>
               </div>
             </div>
             <button
@@ -229,6 +229,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
               role="switch"
               aria-checked={onlyVerified}
               aria-label={t('verifiedFilterTitle')}
+              aria-describedby="verified-filter-description"
               onClick={() => setOnlyVerified(!onlyVerified)}
               className={`relative min-h-11 min-w-11 rounded-full p-0.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 ${
                 onlyVerified ? 'bg-emerald-500' : 'bg-stone-800'
