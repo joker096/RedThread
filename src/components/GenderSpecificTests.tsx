@@ -346,7 +346,7 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
               <button
                 type="button"
                 onClick={() => setActiveTestId(null)}
-                className="text-stone-400 hover:text-white text-xs px-2 py-1 rounded-lg bg-stone-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
+                className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-stone-800 px-3 py-2 text-xs text-stone-400 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
               >
                 Закрыть
               </button>
