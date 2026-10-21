@@ -634,10 +634,15 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                     )}
                     {collapsedPhotoProfileId !== profile.id && (
                       <>
-                        <img
-                          key={profile.photoUrls[selectedPhoto?.profileId === profile.id ? selectedPhoto.index : 0]}
-                          src={profile.photoUrls[selectedPhoto?.profileId === profile.id ? selectedPhoto.index : 0]}
-                          alt={t('photoAlt').replace('{name}', profile.displayName).replace('{number}', String((selectedPhoto?.profileId === profile.id ? selectedPhoto.index : 0) + 1))}
+                        {(() => {
+                          const selectedIndex = selectedPhoto?.profileId === profile.id && selectedPhoto.index < profile.photoUrls.length
+                            ? selectedPhoto.index
+                            : 0;
+                          return (
+                            <img
+                          key={profile.photoUrls[selectedIndex]}
+                          src={profile.photoUrls[selectedIndex]}
+                          alt={t('photoAlt').replace('{name}', profile.displayName).replace('{number}', String(selectedIndex + 1))}
                           loading="lazy"
                           decoding="async"
                           draggable={false}
@@ -646,10 +651,12 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                             ? 'h-[min(42vh,320px)] w-full rounded-2xl border border-white/10 bg-stone-900 object-contain'
                             : 'h-44 w-full rounded-xl border border-white/10 bg-stone-900 object-contain'}
                         />
+                          );
+                        })()}
                         {profile.photoUrls.length > 1 && (
                           <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label={t('profileUploadedPhotos')}>
                             {profile.photoUrls.map((url, index) => {
-                              const isSelected = (selectedPhoto?.profileId === profile.id ? selectedPhoto.index : 0) === index;
+                              const isSelected = (selectedPhoto?.profileId === profile.id && selectedPhoto.index < profile.photoUrls.length ? selectedPhoto.index : 0) === index;
                               return (
                                 <button
                                   key={url}
