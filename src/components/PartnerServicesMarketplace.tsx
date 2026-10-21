@@ -167,7 +167,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                 {Object.entries(countryNames).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
               </select>
             </div>
-            <button type="button" onClick={() => { setShowProviderForm(v => !v); setSubmitted(false); setProviderFormError(''); }} className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-500/40 bg-rose-600/10 px-4 py-3 text-xs font-bold text-rose-200 hover:bg-rose-600/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">
+            <button type="button" aria-expanded={showProviderForm} aria-controls="partner-provider-form" onClick={() => { setShowProviderForm(v => !v); setSubmitted(false); setProviderFormError(''); }} className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-500/40 bg-rose-600/10 px-4 py-3 text-xs font-bold text-rose-200 hover:bg-rose-600/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">
               <FileCheck2 className="w-4 h-4" /> Я предоставляю услуги
             </button>
           </div>
@@ -180,7 +180,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
           </div>
 
           {showProviderForm && (
-            <form onSubmit={handleSubmitProvider} className="mb-6 rounded-2xl border border-rose-700/30 bg-stone-950/70 p-4 sm:p-5">
+            <form id="partner-provider-form" onSubmit={handleSubmitProvider} className="mb-6 rounded-2xl border border-rose-700/30 bg-stone-950/70 p-4 sm:p-5">
               <h3 className="font-bold text-white mb-1">Заявка поставщика услуг</h3>
               <p className="text-xs text-stone-400 mb-4">Заявка только демонстрирует будущий процесс. Не вводите паспортные данные и не прикрепляйте документы в прототипе.</p>
               {providerFormError && <p role="alert" className="mb-3 rounded-xl border border-rose-700/40 bg-rose-950/30 p-3 text-xs text-rose-200">{providerFormError}</p>}
