@@ -136,7 +136,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           <button
             type="button"
             onClick={onToggleTheme}
-            className="vow-motion-button focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-stone-900 text-stone-200 transition-colors hover:border-rose-500/40"
+            className="vow-motion-button focus-visible:border-rose-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-stone-900 text-stone-200 transition-colors hover:border-rose-500/40"
             aria-label={theme === 'dark' ? t('switchToLightTheme') : t('switchToDarkTheme')}
             title={theme === 'dark' ? t('switchToLightTheme') : t('switchToDarkTheme')}
           >
