@@ -496,7 +496,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                 type="button"
                 onClick={() => setShowInviteModal(false)}
                 aria-label={t('chatCloseInvite')}
-                className="flex min-h-11 min-w-11 items-center justify-center rounded-full text-stone-400 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+                className="flex min-h-11 min-w-11 items-center justify-center rounded-full border border-transparent text-stone-400 hover:text-white focus-visible:border-sky-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
               >
                 ✕
               </button>
@@ -560,13 +560,13 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             <div className="flex gap-2">
               <button type="button"
                 onClick={() => setShowInviteModal(false)}
-                className="min-h-11 flex-1 py-2.5 rounded-xl bg-stone-800 text-stone-300 font-semibold text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+                className="min-h-11 flex-1 py-2.5 rounded-xl border border-transparent bg-stone-800 text-stone-300 font-semibold text-xs focus-visible:border-sky-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
               >
                 {t('cancel')}
               </button>
               <button type="button"
                 onClick={handleCreateInvite}
-                className="min-h-11 flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+                className="min-h-11 flex-1 py-2.5 rounded-xl border border-transparent bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs focus-visible:border-sky-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
               >
                 {t('chatSendInvite')}
               </button>
