@@ -209,7 +209,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                 key={thread.id}
                 onClick={() => onSelectThread(thread.id)}
                 aria-pressed={isSelected}
-                className={`min-h-11 w-full text-start flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 ${
+                className={`min-h-11 w-full text-start flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all focus-visible:outline focus-visible:border-rose-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 ${
                   isSelected
                     ? 'bg-rose-950/50 border border-rose-800/40 text-white'
                     : 'hover:bg-stone-900 text-stone-300'
