@@ -281,6 +281,8 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
           ) : (
             <form onSubmit={handleSendReport} className="flex gap-2">
               <select
+                aria-label="Причина жалобы"
+                required
                 value={reportReason}
                 onChange={e => setReportReason(e.target.value)}
                 className="flex-1 bg-stone-900 border border-white/10 rounded-xl p-2 text-xs text-stone-200"
