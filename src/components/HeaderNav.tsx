@@ -169,7 +169,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                 ? 'bg-rose-950/40 border-rose-500/40 text-rose-200'
                 : 'bg-blue-950/40 border-blue-500/40 text-blue-200'
             }`}
-            title={t('demoModeToggleHelp')} aria-label={t('demoModeToggleHelp')}
+            title={t('demoModeToggleHelp')} aria-label={t('demoModeToggleHelp')} aria-pressed={currentGender === 'female'}
           >
             <span className={`focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 w-1.5 h-1.5 rounded-full ${currentGender === 'female' ? 'bg-rose-500' : 'bg-blue-400'}`}></span>
             <span className="hidden min-[380px]:inline">{currentGender === 'female' ? `${t('demoWoman')} ♀` : `${t('demoMan')} ♂`}</span>
