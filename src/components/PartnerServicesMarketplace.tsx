@@ -167,7 +167,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                 {Object.entries(countryNames).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
               </select>
             </div>
-            <button type="button" aria-expanded={showProviderForm} aria-controls="partner-provider-form" onClick={() => { setShowProviderForm(v => !v); setSubmitted(false); setProviderFormError(''); }} className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-500/40 bg-rose-600/10 px-4 py-3 text-xs font-bold text-rose-200 hover:bg-rose-600/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">
+            <button type="button" aria-expanded={showProviderForm} aria-controls="partner-provider-form" onClick={() => { setShowProviderForm(v => !v); setSubmitted(false); setProviderFormError(''); }} className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-500/40 bg-rose-600/10 px-4 py-3 text-xs font-bold text-rose-200 hover:bg-rose-600/20 focus-visible:border-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">
               <FileCheck2 className="w-4 h-4" /> Я предоставляю услуги
             </button>
           </div>
