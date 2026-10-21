@@ -154,6 +154,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
                 id="discovery-country"
                 name="filter-country"
                 type="text"
+                maxLength={120}
                 value={selectedCountry === 'all' ? '' : selectedCountry}
                 onChange={e => setSelectedCountry(e.target.value.trimStart() || 'all')}
                 placeholder={t('countryPlaceholder')}
