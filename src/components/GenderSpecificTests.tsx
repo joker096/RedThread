@@ -259,6 +259,13 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
 
   useEffect(() => {
     if (!activeTestId) return;
+    testDialogRef.current
+      ?.querySelector<HTMLButtonElement>('[data-test-answer="true"]')
+      ?.focus();
+  }, [activeTestId, currentQuestionIndex]);
+
+  useEffect(() => {
+    if (!activeTestId) return;
 
     const dialog = testDialogRef.current;
     const previouslyFocused = document.activeElement instanceof HTMLElement
@@ -368,6 +375,7 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
                 <button
                   type="button"
                   key={idx}
+                  data-test-answer="true"
                   onClick={() => handleSelectOption(activeTest.questions[currentQuestionIndex].id, opt.score, opt.trait)}
                   className="w-full p-3.5 rounded-2xl bg-stone-950 border border-white/10 hover:border-rose-500/50 hover:bg-rose-950/20 text-left transition-all group focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
                 >
