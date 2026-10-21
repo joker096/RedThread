@@ -285,7 +285,8 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
         )).filter(element => !element.closest('[aria-hidden="true"], [hidden], [inert]'))
       : [];
 
-    getFocusable()[0]?.focus();
+    const initialAnswer = dialog?.querySelector<HTMLButtonElement>('[data-test-answer="true"]');
+    (initialAnswer ?? getFocusable()[0])?.focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
