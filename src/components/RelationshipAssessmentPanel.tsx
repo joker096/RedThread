@@ -44,6 +44,10 @@ export const RelationshipAssessmentPanel: React.FC = () => {
             setAnswers(savedAnswers);
             setStatus('saved');
             setNote(t('loadedSavedAnswers'));
+          } else {
+            // A valid response arrived after the user started editing. Keep their
+            // answers and only clear the initial loading state; don't interrupt a save.
+            setStatus(current => current === 'loading' ? 'ready' : current);
           }
         } else {
           // Ignore stale, partial, or unexpected server data rather than counting
