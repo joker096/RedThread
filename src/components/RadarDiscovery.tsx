@@ -587,7 +587,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                   type="button"
                   onClick={handleUndo}
                   disabled={history.length === 0}
-                  className="vow-motion-button w-10 h-10 rounded-full bg-stone-900 text-stone-300 disabled:text-stone-700 disabled:opacity-50 hover:bg-stone-800 flex items-center justify-center border border-white/10 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 focus-visible:ring-offset-2 focus-visible:ring-offset-stone-950"
+                  className="vow-motion-button h-11 w-11 min-h-11 min-w-11 rounded-full bg-stone-900 text-stone-300 disabled:text-stone-700 disabled:opacity-50 hover:bg-stone-800 flex items-center justify-center border border-white/10 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 focus-visible:ring-offset-2 focus-visible:ring-offset-stone-950"
                   title={t('undoAction')}
                   aria-label={t('undoAction')}
                 >
