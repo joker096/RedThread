@@ -635,22 +635,23 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                     {collapsedPhotoProfileId !== profile.id && (
                       <>
                         {(() => {
-                          const selectedIndex = selectedPhoto?.profileId === profile.id && selectedPhoto.index < profile.photoUrls.length
+                          const photoUrls = profile.photoUrls ?? [];
+                          const selectedIndex = selectedPhoto?.profileId === profile.id && selectedPhoto.index < photoUrls.length
                             ? selectedPhoto.index
                             : 0;
                           return (
                             <img
-                          key={profile.photoUrls[selectedIndex]}
-                          src={profile.photoUrls[selectedIndex]}
-                          alt={t('photoAlt').replace('{name}', profile.displayName).replace('{number}', String(selectedIndex + 1))}
-                          loading="lazy"
-                          decoding="async"
-                          draggable={false}
-                          referrerPolicy="no-referrer"
-                          className={swipeMode
-                            ? 'h-[min(42vh,320px)] w-full rounded-2xl border border-white/10 bg-stone-900 object-contain'
-                            : 'h-44 w-full rounded-xl border border-white/10 bg-stone-900 object-contain'}
-                        />
+                              key={photoUrls[selectedIndex]}
+                              src={photoUrls[selectedIndex]}
+                              alt={t('photoAlt').replace('{name}', profile.displayName).replace('{number}', String(selectedIndex + 1))}
+                              loading="lazy"
+                              decoding="async"
+                              draggable={false}
+                              referrerPolicy="no-referrer"
+                              className={swipeMode
+                                ? 'h-[min(42vh,320px)] w-full rounded-2xl border border-white/10 bg-stone-900 object-contain'
+                                : 'h-44 w-full rounded-xl border border-white/10 bg-stone-900 object-contain'}
+                            />
                           );
                         })()}
                         {profile.photoUrls.length > 1 && (
