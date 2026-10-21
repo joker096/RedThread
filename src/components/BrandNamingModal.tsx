@@ -52,9 +52,9 @@ export const BrandNamingModal: React.FC<BrandNamingModalProps> = ({
     if (!isOpen) return;
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = dialogRef.current;
-    const getFocusable = () => dialog?.querySelectorAll<HTMLElement>(
+    const getFocusable = () => Array.from(dialog?.querySelectorAll<HTMLElement>(
       'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-    ) ?? [];
+    ) ?? []).filter(element => !element.closest('[aria-hidden="true"], [hidden], [inert]'));
     getFocusable()[0]?.focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {
