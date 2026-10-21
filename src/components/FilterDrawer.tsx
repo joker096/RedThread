@@ -202,7 +202,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
                   type="button"
                   onClick={() => setIntentFilter(item.id)}
                   aria-pressed={intentFilter === item.id}
-                  className={`w-full text-start p-2.5 rounded-xl border transition-all text-xs flex items-center justify-between focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 ${
+                  className={`flex min-h-11 w-full items-center justify-between rounded-xl border px-3 py-2 text-start text-xs transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 ${
                     intentFilter === item.id
                       ? 'bg-rose-950/60 border-rose-500 text-white font-semibold'
                       : 'bg-stone-950/40 border-white/5 text-stone-400 hover:text-white'
