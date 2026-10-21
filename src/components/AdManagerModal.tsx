@@ -35,6 +35,16 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
   const [rewardClaimed, setRewardClaimed] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  const onWatchRewardedAdRef = useRef(onWatchRewardedAd);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    onWatchRewardedAdRef.current = onWatchRewardedAd;
+  }, [onWatchRewardedAd]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -57,7 +67,7 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== 'Tab') return;
@@ -81,11 +91,11 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
     document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      previouslyFocused?.focus();
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
       if (timerRef.current) clearInterval(timerRef.current);
       timerRef.current = null;
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -104,7 +114,7 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
         timerRef.current = null;
         setIsPlayingVideo(false);
         setRewardClaimed(true);
-        onWatchRewardedAd();
+        onWatchRewardedAdRef.current();
       }
     }, 1000);
   };
