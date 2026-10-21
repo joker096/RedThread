@@ -225,7 +225,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                     height={48}
                     className="w-12 h-12 rounded-xl object-cover"
                   />
-                  <span className="absolute -bottom-1 -end-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-rose-600 text-white">
+                  <span role="img" aria-label={`${t('compatibility')}: ${thread.compatibilityScore}%`} className="absolute -bottom-1 -end-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-rose-600 text-white">
                     {thread.compatibilityScore}%
                   </span>
                 </span>
