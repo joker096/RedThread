@@ -522,7 +522,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   };
 
   return (
-    <section aria-busy={busy} className="vow-screen mb-5 rounded-3xl border border-emerald-500/20 bg-stone-900/80 p-4 sm:p-5">
+    <section className="vow-screen mb-5 rounded-3xl border border-emerald-500/20 bg-stone-900/80 p-4 sm:p-5">
       <div className="mb-3">
         <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-300">{t('serverSearchEyebrow')}</p>
         <h3 className="mt-1 text-lg font-bold text-white">{t('serverProfilesTitle')}</h3>
