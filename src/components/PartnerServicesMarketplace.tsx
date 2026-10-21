@@ -237,7 +237,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                 <h3 className="mt-3 font-bold text-white">{provider.title}</h3>
                 <p className="text-xs text-stone-400 mt-1">{provider.name}</p>
                 <p className="text-xs text-stone-300 mt-3 leading-relaxed">{provider.description}</p>
-                <div className="mt-4 flex items-center justify-between gap-2 border-t border-white/5 pt-3"><span className="text-xs font-semibold text-stone-200">{provider.price}</span><button type="button" aria-label={`Условия: ${provider.title}`} onClick={() => { setShowProviderForm(false); setCategory(provider.category); }} className="inline-flex min-h-11 items-center gap-1 rounded-md border border-transparent px-2 text-xs font-bold text-rose-300 focus-visible:border-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">Условия <ChevronRight className="w-3.5 h-3.5" /></button></div>
+                <div className="mt-4 flex items-center justify-between gap-2 border-t border-white/5 pt-3"><span className="text-xs font-semibold text-stone-200">{provider.price}</span><button type="button" aria-label={`Показать похожие услуги: ${provider.title}`} onClick={() => { setShowProviderForm(false); setCategory(provider.category); }} className="inline-flex min-h-11 items-center gap-1 rounded-md border border-transparent px-2 text-xs font-bold text-rose-300 focus-visible:border-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">Похожие услуги <ChevronRight className="w-3.5 h-3.5" /></button></div>
               </article>;
             })}
           </div>
