@@ -270,7 +270,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
           <button
             type="button"
             onClick={onOpenAdManager}
-            className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px] font-bold hover:bg-amber-500/25 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-stone-950"
+            className="flex min-h-11 items-center justify-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/15 px-3 py-2 text-[10px] font-bold text-amber-300 transition-all hover:bg-amber-500/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-stone-950"
             title={t('sponsorVideoHelp')}
           >
             <Gift className="w-3 h-3 text-amber-400" />
