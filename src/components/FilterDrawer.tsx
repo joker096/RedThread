@@ -63,12 +63,12 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); onCloseRef.current(); return; }
       if (event.key !== 'Tab') return;
-      const dialog = closeButtonRef.current?.closest('[role="dialog"]');
+      const dialog = closeButtonRef.current?.closest<HTMLElement>('[role="dialog"]');
       if (!dialog) return;
       const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
         'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
       )).filter(element => !element.closest('[aria-hidden="true"], [hidden], [inert]'));
-      if (!focusable.length) { event.preventDefault(); return; }
+      if (!focusable.length) { event.preventDefault(); dialog.focus(); return; }
       const first = focusable[0]; const last = focusable[focusable.length - 1];
       if (!dialog.contains(document.activeElement)) {
         event.preventDefault();
@@ -92,7 +92,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
 
   return (
     <div className="vow-filter-backdrop fixed inset-0 z-50 flex items-end justify-center bg-stone-950/80 p-2 backdrop-blur-sm animate-in fade-in duration-200 sm:items-center sm:p-4" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
-      <div role="dialog" aria-modal="true" aria-labelledby="discovery-filter-title" aria-describedby="discovery-filter-description" className="relative max-h-[calc(100dvh-1rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-t-3xl border border-rose-900/40 bg-stone-900 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] text-start shadow-2xl sm:max-h-[min(90dvh,52rem)] sm:rounded-3xl sm:p-6">
+      <div role="dialog" tabIndex={-1} aria-modal="true" aria-labelledby="discovery-filter-title" aria-describedby="discovery-filter-description" className="relative max-h-[calc(100dvh-1rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-t-3xl border border-rose-900/40 bg-stone-900 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] text-start shadow-2xl sm:max-h-[min(90dvh,52rem)] sm:rounded-3xl sm:p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <SlidersHorizontal className="w-5 h-5 text-rose-500" />
