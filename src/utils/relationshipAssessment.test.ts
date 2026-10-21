@@ -17,6 +17,33 @@ test('assessment requires a valid answer to every declared question', () => {
   assert.equal(validateAssessmentAnswers({}), false);
 });
 
+test('assessment validator rejects non-object and malformed payloads', () => {
+  for (const value of [null, undefined, [], 'answers', 42, true]) {
+    assert.equal(validateAssessmentAnswers(value), false, `expected rejection for ${String(value)}`);
+  }
+});
+
+test('assessment validator rejects missing, extra, empty, and unknown answers', () => {
+  const firstQuestion = ASSESSMENT_QUESTIONS[0];
+  const incomplete = { ...answers };
+  delete incomplete[firstQuestion.id];
+
+  assert.equal(validateAssessmentAnswers(incomplete), false);
+  assert.equal(validateAssessmentAnswers({ ...answers, unexpectedAnswer: 'yes' }), false);
+  assert.equal(validateAssessmentAnswers({ ...answers, [firstQuestion.id]: '' }), false);
+  assert.equal(validateAssessmentAnswers({ ...answers, [firstQuestion.id]: 'not-an-option' }), false);
+});
+
+test('assessment validator checks every answer against its question options', () => {
+  for (const question of ASSESSMENT_QUESTIONS) {
+    assert.equal(
+      validateAssessmentAnswers({ ...answers, [question.id]: '__invalid_option__' }),
+      false,
+      `expected invalid option to be rejected for ${question.id}`
+    );
+  }
+});
+
 test('identical answers produce full preference alignment', () => {
   const result = calculateAssessmentCompatibility(answers, { ...answers });
   assert.equal(result.score, 100);
