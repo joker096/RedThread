@@ -103,7 +103,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
               ? `${t('chats')}, ${safeUnreadChatsCount} ${t('unreadChats')}`
               : t('chats')}
             aria-current={activeTab === 'chats' ? 'page' : undefined}
-            className={`focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 relative min-h-10 px-3 py-2 rounded-full text-xs font-bold transition-all ${
+            className={`focus-visible:border-rose-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 relative min-h-10 px-3 py-2 rounded-full text-xs font-bold transition-all ${
               activeTab === 'chats'
                 ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-sm'
                 : 'text-stone-400 hover:text-stone-200'
