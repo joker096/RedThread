@@ -111,7 +111,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
     document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      previouslyFocused?.focus();
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
     };
   }, [isOpen, onClose]);
 
