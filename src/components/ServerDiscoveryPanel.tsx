@@ -109,6 +109,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const [reportDetails, setReportDetails] = useState('');
   const [swipeMode, setSwipeMode] = useState(false);
   const touchStartX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
   const lastSearchKey = useRef<string | null>(null);
   const searchRequestId = useRef(0);
   const searchAbortController = useRef<AbortController | null>(null);
@@ -581,11 +582,14 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                 onTouchStart={event => {
                   if (swipeMode && !(event.target as HTMLElement).closest('button, input, select, textarea')) {
                     touchStartX.current = event.changedTouches[0]?.clientX ?? null;
+                    touchStartY.current = event.changedTouches[0]?.clientY ?? null;
                     event.currentTarget.style.transition = 'none';
                   }
                 }}
                 onTouchMove={event => {
                   if (!swipeMode || touchStartX.current === null || (event.target as HTMLElement).closest('button, input, select, textarea')) return;
+                  const currentY = event.changedTouches[0]?.clientY;
+                  if (currentY !== undefined && touchStartY.current !== null && Math.abs(currentY - touchStartY.current) > Math.abs((event.changedTouches[0]?.clientX ?? touchStartX.current) - touchStartX.current)) return;
                   const currentX = event.changedTouches[0]?.clientX;
                   if (currentX === undefined) return;
                   const delta = currentX - touchStartX.current;
@@ -594,13 +598,20 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                 }}
                 onTouchEnd={event => {
                   const start = touchStartX.current;
+                  const startY = touchStartY.current;
                   touchStartX.current = null;
+                  touchStartY.current = null;
                   event.currentTarget.style.transition = '';
                   event.currentTarget.style.transform = '';
                   if (!swipeMode || (event.target as HTMLElement).closest('button, input, select, textarea') || start === null) return;
-                  const endX = event.changedTouches[0]?.clientX;
-                  if (endX === undefined) return;
-                  const action = getSwipeActionFromDelta(endX - start);
+                  const touch = event.changedTouches[0];
+                  const endX = touch?.clientX;
+                  const endY = touch?.clientY;
+                  if (endX === undefined || endY === undefined || startY === null) return;
+                  const deltaX = endX - start;
+                  const deltaY = endY - startY;
+                  if (Math.abs(deltaY) >= Math.abs(deltaX)) return;
+                  const action = getSwipeActionFromDelta(deltaX);
                   if (action === 'like') void like(profile);
                   else if (action === 'pass') void pass(profile);
                 }}
