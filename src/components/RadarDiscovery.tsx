@@ -77,6 +77,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
     wasSuperLiked: boolean;
   }>>([]);
   const touchStartX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
   const photoTouchStart = useRef<{ x: number; y: number } | null>(null);
   // A sponsored placement is dismissed for this discovery session after one pass/swipe.
   const dismissedSponsorAds = useRef(new Set<string>());
@@ -204,13 +205,19 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
 
   const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
     touchStartX.current = event.touches[0]?.clientX ?? null;
+    touchStartY.current = event.touches[0]?.clientY ?? null;
   };
 
   const handleTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
     const start = touchStartX.current;
+    const startY = touchStartY.current;
     touchStartX.current = null;
-    const end = event.changedTouches[0]?.clientX;
+    touchStartY.current = null;
+    const touch = event.changedTouches[0];
+    const end = touch?.clientX;
+    const endY = touch?.clientY;
     if (start === null || end === undefined) return;
+    if (startY !== null && endY !== undefined && Math.abs(endY - startY) > Math.abs(end - start)) return;
     const action = getSwipeActionFromDelta(end - start);
     if (currentProfile?.isSponsorAd) {
       if (action !== 'none') { onPass(currentProfile); handleNext('ad'); }
@@ -368,7 +375,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
           /* Profile card */
           <div className="flex flex-col w-full text-left">
             {/* Top Photo Frame */}
-            <div onTouchStart={event => { const touch = event.touches[0]; photoTouchStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null; }} onTouchEnd={event => { const start = photoTouchStart.current; photoTouchStart.current = null; const touch = event.changedTouches[0]; if (!start || !touch) return; const dx = touch.clientX - start.x; const dy = touch.clientY - start.y; if (Math.abs(dy) >= 48 && Math.abs(dy) > Math.abs(dx)) { setPhotoCollapsed(dy < 0); event.stopPropagation(); return; } if (currentProfile.photos.length > 1 && Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy)) { setPhotoIndex(p => Math.max(0, Math.min(currentProfile.photos.length - 1, p + (dx < 0 ? 1 : -1)))); event.stopPropagation(); } }} className={"vow-profile-photo relative w-full overflow-hidden bg-stone-950 select-none transition-[height] duration-300 " + (photoCollapsed ? "h-16 sm:h-20" : "h-72 sm:h-80")}>
+            <div onTouchStart={event => { const touch = event.touches[0]; photoTouchStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null; }} onTouchEnd={event => { const start = photoTouchStart.current; photoTouchStart.current = null; const touch = event.changedTouches[0]; if (!start || !touch) return; const dx = touch.clientX - start.x; const dy = touch.clientY - start.y; if (Math.abs(dy) >= 48 && Math.abs(dy) > Math.abs(dx)) { setPhotoCollapsed(dy < 0); event.stopPropagation(); return; }  }} className={"vow-profile-photo relative w-full overflow-hidden bg-stone-950 select-none transition-[height] duration-300 " + (photoCollapsed ? "h-16 sm:h-20" : "h-72 sm:h-80")}>
               <img
                 src={currentProfile.photos[photoIndex] || currentProfile.avatar}
                 alt={currentProfile.name}
