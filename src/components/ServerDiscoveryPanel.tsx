@@ -648,7 +648,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                         />
                         {profile.photoUrls.length > 1 && (
                           <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label={t('profileUploadedPhotos')}>
-                            {profile.photoUrls.slice(0, 6).map((url, index) => {
+                            {profile.photoUrls.map((url, index) => {
                               const isSelected = (selectedPhoto?.profileId === profile.id ? selectedPhoto.index : 0) === index;
                               return (
                                 <button
