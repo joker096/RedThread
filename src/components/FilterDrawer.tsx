@@ -180,11 +180,11 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
             <div className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2">
               <div>
                 <label className="mb-1 block text-stone-300" htmlFor="discovery-min-age">{t('ageFrom')}</label>
-                <input id="discovery-min-age" name="filter-age-from" type="number" min="18" max={maxAge} value={minAge} onChange={e => setMinAge(Math.min(maxAge, Math.max(18, Number(e.target.value) || 18)))} className="w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" />
+                <input id="discovery-min-age" name="filter-age-from" type="number" min="18" max={maxAge} value={minAge} onChange={e => setMinAge(Math.min(maxAge, Math.max(18, Number(e.target.value) || 18)))} className="w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-white focus:border-rose-500/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" />
               </div>
               <div>
                 <label className="mb-1 block text-stone-300" htmlFor="discovery-max-age">{t('ageTo')}</label>
-                <input id="discovery-max-age" name="filter-age-to" type="number" min={minAge} max="120" value={maxAge} onChange={e => setMaxAge(Math.max(minAge, Math.min(120, Number(e.target.value) || minAge)))} className="w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" />
+                <input id="discovery-max-age" name="filter-age-to" type="number" min={minAge} max="120" value={maxAge} onChange={e => setMaxAge(Math.max(minAge, Math.min(120, Number(e.target.value) || minAge)))} className="w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-white focus:border-rose-500/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" />
               </div>
             </div>
             <p className="mt-1 text-[10px] text-stone-500">{t('adultRangeHelp')}</p>
