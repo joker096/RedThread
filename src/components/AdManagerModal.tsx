@@ -116,7 +116,7 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
         <button
           type="button"
           onClick={onClose}
-          className="absolute top-4 right-4 p-2 rounded-full bg-stone-800 text-stone-400 hover:text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
+          className="absolute top-4 right-4 flex min-h-11 min-w-11 items-center justify-center rounded-full bg-stone-800 text-stone-400 hover:text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
           aria-label="Закрыть"
         >
           <X className="w-5 h-5" />
