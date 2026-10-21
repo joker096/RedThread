@@ -129,7 +129,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       if (event.key !== 'Tab' || !dialog) return;
       const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
         'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      ));
+      )).filter(element => !element.closest('[aria-hidden="true"], [hidden], [inert]'));
       if (!focusable.length) {
         event.preventDefault();
         dialog.focus();
