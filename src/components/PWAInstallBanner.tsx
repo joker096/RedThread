@@ -179,7 +179,7 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
             </button>
           </div>
 
-          <div className="text-[11px] text-stone-300">
+          <div role="status" aria-live="polite" aria-atomic="true" className="text-[11px] text-stone-300">
             {activeGuide === 'ios' ? (
               <span>{t('installIosInstructions').split('{share}')[0]}<Share className="w-3 h-3 inline text-blue-400" />{t('installIosInstructions').split('{share}')[1]}</span>
             ) : (
