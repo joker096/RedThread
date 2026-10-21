@@ -151,7 +151,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                 <p id="partner-services-description" className="text-xs sm:text-sm text-stone-300 mt-1">Для пары: {coupleNames} · индекс совместимости {compatibilityScore}%</p>
               </div>
             </div>
-            <button type="button" onClick={onClose} className="p-2 rounded-xl bg-white/5 text-stone-300 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" aria-label="Закрыть"><X className="w-5 h-5" /></button>
+            <button type="button" onClick={onClose} className="flex min-h-11 min-w-11 items-center justify-center rounded-xl bg-white/5 text-stone-300 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" aria-label="Закрыть"><X className="w-5 h-5" /></button>
           </div>
           <div className="mt-4 flex gap-2 rounded-xl border border-emerald-700/30 bg-emerald-950/30 p-3 text-xs text-emerald-100">
             <LockKeyhole className="w-4 h-4 shrink-0 mt-0.5" />
