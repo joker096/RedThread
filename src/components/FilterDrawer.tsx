@@ -180,7 +180,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
             <div className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2">
               <div>
                 <label className="mb-1 block text-stone-300" htmlFor="discovery-min-age">{t('ageFrom')}</label>
-                <input id="discovery-min-age" name="filter-age-from" type="number" min="18" max={maxAge} value={minAge} onChange={e => setMinAge(Math.min(maxAge, Math.max(18, Number(e.target.value) || 18)))} className="w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" />
+                <input id="discovery-min-age" name="filter-age-from" type="number" min="18" max={maxAge} value={minAge} onChange={e => setMinAge(Math.min(maxAge, Math.max(18, Number(e.target.value) || 18)))} className="w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-white focus:border-rose-500/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" />
               </div>
               <div>
                 <label className="mb-1 block text-stone-300" htmlFor="discovery-max-age">{t('ageTo')}</label>
