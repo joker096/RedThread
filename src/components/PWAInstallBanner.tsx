@@ -154,8 +154,7 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
       </div>
 
       {/* Guide tip dropdown / mini bar */}
-      {showGuide && (
-        <div id="vow-install-guide" className="max-w-6xl mx-auto mt-1.5 pt-1.5 border-t border-white/5 text-[11px] text-stone-300 flex flex-wrap items-center justify-between gap-2 animate-in fade-in duration-150">
+      <div id="vow-install-guide" hidden={!showGuide} className="max-w-6xl mx-auto mt-1.5 pt-1.5 border-t border-white/5 text-[11px] text-stone-300 flex flex-wrap items-center justify-between gap-2 animate-in fade-in duration-150">
           <div className="flex items-center gap-1.5">
             <button
               type="button"
@@ -186,8 +185,7 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
               <span>{t('installAndroidInstructions')}</span>
             )}
           </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 };
