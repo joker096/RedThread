@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ASSESSMENT_QUESTIONS, type AssessmentAnswers } from '../utils/relationshipAssessment.ts';
+import { ASSESSMENT_QUESTIONS, type AssessmentAnswers, validateAssessmentAnswers } from '../utils/relationshipAssessment.ts';
 import { getLocalizedAssessmentQuestions } from '../utils/assessmentTranslations.ts';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 
@@ -37,15 +37,17 @@ export const RelationshipAssessmentPanel: React.FC = () => {
       })
       .then(data => {
         if (cancelled) return;
-        const savedAnswers = data?.assessment?.answers;
-        if (savedAnswers && typeof savedAnswers === 'object' && !Array.isArray(savedAnswers)) {
+        const savedAnswers: unknown = data?.assessment?.answers;
+        if (validateAssessmentAnswers(savedAnswers)) {
           // Do not let a slow initial load overwrite edits made while it was in flight.
           if (!answersEditedRef.current) {
-            setAnswers(savedAnswers as AssessmentAnswers);
+            setAnswers(savedAnswers);
             setStatus('saved');
             setNote(t('loadedSavedAnswers'));
           }
         } else {
+          // Ignore stale, partial, or unexpected server data rather than counting
+          // unknown fields as completed answers or presenting invalid choices.
           setStatus('ready');
         }
       })
