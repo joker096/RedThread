@@ -52,6 +52,8 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
   const [sendingThreadIds, setSendingThreadIds] = useState<Set<string>>(new Set());
   const [showInviteModal, setShowInviteModal] = useState(false);
   const inviteDialogRef = useRef<HTMLDivElement | null>(null);
+  const messagesLogRef = useRef<HTMLDivElement | null>(null);
+  const shouldAutoScrollMessagesRef = useRef(true);
 
   useEffect(() => {
     if (!showInviteModal) return;
@@ -113,6 +115,18 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
 
   const activeThread = threads.find(t => t.id === activeThreadId) || threads[0];
   const inputText = activeThread ? drafts[activeThread.id] ?? '' : '';
+
+  useEffect(() => {
+    shouldAutoScrollMessagesRef.current = true;
+  }, [activeThread?.id]);
+
+  useEffect(() => {
+    if (!activeThread || !shouldAutoScrollMessagesRef.current) return;
+    const log = messagesLogRef.current;
+    if (!log) return;
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    log.scrollTo({ top: log.scrollHeight, behavior: reduceMotion ? 'auto' : 'smooth' });
+  }, [activeThread?.id, activeThread?.messages]);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -342,7 +356,10 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
         )}
 
         {/* Messages Feed */}
-        <div role="log" aria-label={t('chatThreads')} aria-live="polite" aria-relevant="additions text" aria-atomic="false" className="flex-1 overflow-y-auto p-4 space-y-3">
+        <div ref={messagesLogRef} onScroll={event => {
+          const log = event.currentTarget;
+          shouldAutoScrollMessagesRef.current = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+        }} role="log" aria-label={t('chatThreads')} aria-live="polite" aria-relevant="additions text" aria-atomic="false" className="flex-1 overflow-y-auto p-4 space-y-3">
           {/* Compatibility recap chip */}
           <div className="flex justify-center mb-2">
             <div className="px-3 py-1 rounded-full bg-stone-950/80 border border-rose-900/30 text-[11px] text-stone-400 flex items-center gap-1.5">
