@@ -59,9 +59,9 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
     if (!showInviteModal) return;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = inviteDialogRef.current;
-    const getFocusable = () => dialog?.querySelectorAll<HTMLElement>(
+    const getFocusable = () => Array.from(dialog?.querySelectorAll<HTMLElement>(
       'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-    ) ?? [];
+    ) ?? []).filter(element => !element.closest('[aria-hidden="true"], [hidden], [inert]'));
     getFocusable()[0]?.focus();
 
     const onKeyDown = (event: KeyboardEvent) => {
