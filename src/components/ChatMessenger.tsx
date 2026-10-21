@@ -436,7 +436,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
           <button
             type="button"
             onClick={() => setShowInviteModal(true)}
-            className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-stone-800 text-rose-400 transition-colors hover:bg-stone-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+            className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl border border-transparent bg-stone-800 text-rose-400 transition-colors hover:bg-stone-700 focus-visible:border-sky-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
             title={t('chatInviteDate')}
             aria-label={t('chatInviteDate')}
             aria-haspopup="dialog"
