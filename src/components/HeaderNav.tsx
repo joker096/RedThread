@@ -191,7 +191,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             <button
               type="button"
               onClick={onOpenPremiumModal}
-              className={`focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 vow-motion-button hidden min-h-10 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-bold lg:flex ${
+              className={`focus-visible:border-rose-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 vow-motion-button hidden min-h-10 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-bold lg:flex ${
                 isLadyPremium
                   ? 'bg-amber-400 text-stone-950'
                   : 'border border-rose-500/30 bg-rose-950/50 text-rose-100 hover:bg-rose-900/60'
