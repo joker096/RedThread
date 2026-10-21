@@ -369,25 +369,27 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 className="w-full h-full object-cover transition-transform duration-500"
               />
 
-              {/* Photo Tap Zones */}
-              <div className="absolute inset-0 flex">
-                <button
-                  type="button"
-                  className="h-full w-1/2 cursor-pointer bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rose-400"
-                  onClick={() => setPhotoIndex(prev => Math.max(0, prev - 1))}
-                  title={t('previousPhoto')}
-                  aria-label={t('previousPhoto')}
-                  disabled={photoIndex === 0}
-                />
-                <button
-                  type="button"
-                  className="h-full w-1/2 cursor-pointer bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rose-400"
-                  onClick={() => setPhotoIndex(prev => Math.min(currentProfile.photos.length - 1, prev + 1))}
-                  title={t('nextPhoto')}
-                  aria-label={t('nextPhoto')}
-                  disabled={photoIndex >= currentProfile.photos.length - 1}
-                />
-              </div>
+              {/* Photo navigation is only interactive when there are multiple photos. */}
+              {currentProfile.photos.length > 1 && (
+                <div className="absolute inset-0 flex">
+                  <button
+                    type="button"
+                    className="h-full w-1/2 cursor-pointer bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rose-400"
+                    onClick={() => setPhotoIndex(prev => Math.max(0, prev - 1))}
+                    title={t('previousPhoto')}
+                    aria-label={t('previousPhoto')}
+                    disabled={photoIndex === 0}
+                  />
+                  <button
+                    type="button"
+                    className="h-full w-1/2 cursor-pointer bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rose-400"
+                    onClick={() => setPhotoIndex(prev => Math.min(currentProfile.photos.length - 1, prev + 1))}
+                    title={t('nextPhoto')}
+                    aria-label={t('nextPhoto')}
+                    disabled={photoIndex >= currentProfile.photos.length - 1}
+                  />
+                </div>
+              )}
 
               {/* Stories / Photo Dots */}
               {currentProfile.photos.length > 1 && (
