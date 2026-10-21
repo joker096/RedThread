@@ -108,6 +108,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const [reportCategory, setReportCategory] = useState('fake_profile');
   const [reportDetails, setReportDetails] = useState('');
   const [swipeMode, setSwipeMode] = useState(false);
+  const [selectedPhoto, setSelectedPhoto] = useState<{ profileId: string; index: number } | null>(null);
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
   const lastSearchKey = useRef<string | null>(null);
@@ -619,23 +620,38 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                 aria-label={swipeMode ? t('swipeProfileAria').replace('{name}', profile.displayName) : undefined}
                 className={`vow-profile-card rounded-2xl border border-white/10 bg-stone-950/70 p-3 ${swipeMode ? 'touch-pan-y' : ''}`}>
                 {profile.photoUrls?.length ? (
-                  <div className={swipeMode ? 'mb-4 grid grid-cols-4 gap-2' : 'mb-3 flex gap-2 overflow-x-auto'}>
-                    {profile.photoUrls.slice(0, 6).map((url, index) => (
-                      <img
-                        key={url}
-                        src={url}
-                        alt={t('photoAlt').replace('{name}', profile.displayName).replace('{number}', String(index + 1))}
-                        loading="lazy"
-                        decoding="async"
-                        draggable={false}
-                        referrerPolicy="no-referrer"
-                        className={swipeMode
-                          ? index === 0
-                            ? 'col-span-4 h-[min(58vh,420px)] w-full rounded-2xl border border-white/10 bg-stone-900 object-cover'
-                            : 'h-20 w-full rounded-xl border border-white/10 bg-stone-900 object-cover'
-                          : 'h-28 w-24 shrink-0 rounded-xl border border-white/10 bg-stone-900 object-cover'}
-                      />
-                    ))}
+                  <div className="mb-4 space-y-2.5">
+                    <img
+                      key={profile.photoUrls[selectedPhoto?.profileId === profile.id ? selectedPhoto.index : 0]}
+                      src={profile.photoUrls[selectedPhoto?.profileId === profile.id ? selectedPhoto.index : 0]}
+                      alt={t('photoAlt').replace('{name}', profile.displayName).replace('{number}', String((selectedPhoto?.profileId === profile.id ? selectedPhoto.index : 0) + 1))}
+                      loading="lazy"
+                      decoding="async"
+                      draggable={false}
+                      referrerPolicy="no-referrer"
+                      className={swipeMode
+                        ? 'h-[min(42vh,320px)] w-full rounded-2xl border border-white/10 bg-stone-900 object-contain'
+                        : 'h-44 w-full rounded-xl border border-white/10 bg-stone-900 object-contain'}
+                    />
+                    {profile.photoUrls.length > 1 && (
+                      <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label={t('profilePhotos')}>
+                        {profile.photoUrls.slice(0, 6).map((url, index) => {
+                          const isSelected = (selectedPhoto?.profileId === profile.id ? selectedPhoto.index : 0) === index;
+                          return (
+                            <button
+                              key={url}
+                              type="button"
+                              onClick={() => setSelectedPhoto({ profileId: profile.id, index })}
+                              aria-label={t('photoAlt').replace('{name}', profile.displayName).replace('{number}', String(index + 1))}
+                              aria-pressed={isSelected}
+                              className={'min-h-14 min-w-14 h-14 w-14 shrink-0 overflow-hidden rounded-lg border-2 bg-stone-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 ' + (isSelected ? 'border-rose-400' : 'border-white/15')}
+                            >
+                              <img src={url} alt="" loading="lazy" decoding="async" draggable={false} referrerPolicy="no-referrer" className="h-full w-full object-cover" />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="mb-3 flex h-20 items-center justify-center rounded-xl border border-dashed border-white/10 text-xs text-stone-500">{t('noPhotos')}</div>
