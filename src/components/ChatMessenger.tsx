@@ -397,7 +397,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
 
                     <div className="flex items-center gap-2">
                       {msg.dateInviteDetails?.status === 'accepted' ? (
-                        <div className="w-full py-2 rounded-xl bg-emerald-950/80 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center justify-center gap-1.5">
+                        <div role="status" aria-live="polite" aria-atomic="true" className="w-full py-2 rounded-xl bg-emerald-950/80 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center justify-center gap-1.5">
                           <Check className="w-4 h-4" />
                           <span>{t('chatDateConfirmed')}</span>
                         </div>
