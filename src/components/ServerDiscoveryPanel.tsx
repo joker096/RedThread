@@ -663,6 +663,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                                   key={url}
                                   type="button"
                                   onClick={() => setSelectedPhoto({ profileId: profile.id, index })}
+                                  aria-current={isSelected ? "true" : undefined}
                                   aria-label={t('photoAlt').replace('{name}', profile.displayName).replace('{number}', String(index + 1))}
                                   aria-pressed={isSelected}
                                   className={'min-h-14 min-w-14 h-14 w-14 shrink-0 overflow-hidden rounded-lg border-2 bg-stone-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 ' + (isSelected ? 'border-rose-400' : 'border-white/15')}
