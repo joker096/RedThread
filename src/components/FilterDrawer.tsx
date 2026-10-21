@@ -63,7 +63,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); onCloseRef.current(); return; }
       if (event.key !== 'Tab') return;
-      const dialog = closeButtonRef.current?.closest('[role="dialog"]');
+      const dialog = closeButtonRef.current?.closest<HTMLElement>('[role="dialog"]');
       if (!dialog) return;
       const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
         'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
