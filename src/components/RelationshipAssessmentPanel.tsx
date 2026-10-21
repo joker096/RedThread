@@ -113,7 +113,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
             </legend>
             <div className="space-y-2">
               {question.options.map(option => (
-                <label key={option.value} className={`flex cursor-pointer items-start gap-2 rounded-xl border p-2.5 text-xs transition-colors ${answers[question.id] === option.value ? 'border-rose-500/60 bg-rose-950/40 text-white' : 'border-white/5 text-stone-300 hover:border-white/20'}`}>
+                <label key={option.value} className={`flex min-h-11 cursor-pointer items-start gap-2 rounded-xl border p-2.5 text-xs transition-colors ${answers[question.id] === option.value ? 'border-rose-500/60 bg-rose-950/40 text-white' : 'border-white/5 text-stone-300 hover:border-white/20'}`}>
                   <input
                     type="radio"
                     name={question.id}
