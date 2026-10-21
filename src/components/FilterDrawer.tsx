@@ -131,11 +131,12 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
               step="5"
               value={minCompatibility}
               aria-label={t('minimumCompatibility')}
+              aria-describedby="compatibility-range-help"
               aria-valuetext={`${minCompatibility}%`}
               onChange={e => setMinCompatibility(Number(e.target.value))}
               className="w-full cursor-pointer accent-rose-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-rose-300"
             />
-            <div className="flex justify-between text-[10px] text-stone-500 mt-1">
+            <div id="compatibility-range-help" className="flex justify-between text-[10px] text-stone-500 mt-1">
               <span>{t('compatibilityAll')}</span>
               <span>{t('compatibilityIdeal')}</span>
             </div>
