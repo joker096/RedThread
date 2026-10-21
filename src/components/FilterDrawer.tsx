@@ -159,7 +159,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
                 onChange={e => setSelectedCountry(e.target.value.trimStart() || 'all')}
                 placeholder={t('countryPlaceholder')}
                 autoComplete="country-name"
-                className="w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-xs text-white placeholder:text-stone-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
+                className="w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-xs text-white placeholder:text-stone-600 focus:border-rose-500/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
               />
             </div>
             <div>
