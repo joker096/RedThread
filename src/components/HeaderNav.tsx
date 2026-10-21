@@ -183,6 +183,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             className="vow-motion-button flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-stone-900 text-stone-300 transition-colors hover:border-rose-500/40 hover:text-white focus-visible:border-rose-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
             title={t('filters')}
             aria-label={t('filters')}
+            aria-haspopup="dialog"
           >
             <SlidersHorizontal className="w-3.5 h-3.5" />
           </button>}
