@@ -164,7 +164,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           <button
             type="button"
             onClick={onToggleGender}
-            className={`focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 vow-motion-button flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-2 text-[11px] font-semibold transition-all ${
+            className={`focus-visible:border-rose-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 vow-motion-button flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-2 text-[11px] font-semibold transition-all ${
               currentGender === 'female'
                 ? 'bg-rose-950/40 border-rose-500/40 text-rose-200'
                 : 'bg-blue-950/40 border-blue-500/40 text-blue-200'
