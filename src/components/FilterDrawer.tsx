@@ -253,7 +253,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
               onClose();
             }}
             type="button"
-            className="vow-motion-button min-h-11 flex-1 rounded-xl bg-stone-800 py-3 text-xs font-semibold text-stone-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
+            className="vow-motion-button min-h-11 flex-1 rounded-xl bg-stone-800 py-3 text-xs font-semibold text-stone-200 focus-visible:border focus-visible:border-rose-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
           >
             {t('resetFilters')}
           </button>
