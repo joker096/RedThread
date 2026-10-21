@@ -34,6 +34,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
   const [reportSubmitted, setReportSubmitted] = useState(false);
   const [scanStep, setScanStep] = useState(3);
   const timeoutIdsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     timeoutIdsRef.current.forEach(timeoutId => clearTimeout(timeoutId));
@@ -47,6 +48,58 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
       timeoutIdsRef.current = [];
     };
   }, [isOpen, targetProfile]);
+
+  useEffect(() => {
+    if (!isOpen || !targetProfile) return;
+
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const dialog = dialogRef.current;
+    const getFocusableElements = () => Array.from(
+      dialog?.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      ) ?? []
+    ).filter(element =>
+      !element.closest('[aria-hidden="true"], [hidden], [inert]') &&
+      element.getAttribute('aria-hidden') !== 'true' &&
+      element.getClientRects().length > 0
+    );
+
+    getFocusableElements()[0]?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+
+      if (event.key !== 'Tab') return;
+      const focusable = getFocusableElements();
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog?.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog?.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialog?.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+    };
+  }, [isOpen, targetProfile, onClose]);
 
   if (!isOpen || !targetProfile) return null;
 
@@ -83,7 +136,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
 
   return (
     <div className="vow-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
-      <div role="dialog" aria-modal="true" aria-labelledby="bot-safety-title" aria-describedby="bot-safety-description" className="relative w-full max-w-lg rounded-3xl bg-stone-900 border border-emerald-950/50 shadow-2xl p-5 sm:p-6 text-left my-auto">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="bot-safety-title" aria-describedby="bot-safety-description" tabIndex={-1} className="relative w-full max-w-lg rounded-3xl bg-stone-900 border border-emerald-950/50 shadow-2xl p-5 sm:p-6 text-left my-auto">
         {/* Close Button */}
         <button
           type="button"
