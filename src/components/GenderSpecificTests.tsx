@@ -256,6 +256,7 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
 
   const activeTest = tests.find(t => t.id === activeTestId);
   const testDialogRef = useRef<HTMLDivElement>(null);
+  const pendingCompletedTestIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!activeTestId) return;
@@ -263,6 +264,13 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
       ?.querySelector<HTMLButtonElement>('[data-test-answer="true"]')
       ?.focus();
   }, [activeTestId, currentQuestionIndex]);
+
+  useEffect(() => {
+    if (activeTestId || !pendingCompletedTestIdRef.current) return;
+    const completedTestId = pendingCompletedTestIdRef.current;
+    pendingCompletedTestIdRef.current = null;
+    document.querySelector<HTMLElement>(`[data-test-result="${completedTestId}"]`)?.focus();
+  }, [activeTestId, completedTests]);
 
   useEffect(() => {
     if (!activeTestId) return;
@@ -329,6 +337,7 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
       // Calculate final score
       const totalScore = Object.values(updatedAnswers).reduce((a, b) => a + b, 0);
       const avgScore = Math.round(totalScore / activeTest.questions.length);
+      pendingCompletedTestIdRef.current = activeTest.id;
       setCompletedTests(prev => ({
         ...prev,
         [activeTest.id]: {
@@ -477,7 +486,7 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
                   </div>
 
                   {isCompleted ? (
-                    <span className="text-[11px] font-black text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-950/60 border border-emerald-500/30">
+                    <span data-test-result={test.id} tabIndex={-1} className="text-[11px] font-black text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-950/60 border border-emerald-500/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">
                       {resultData.score}%
                     </span>
                   ) : (
