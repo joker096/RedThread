@@ -80,7 +80,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
     const getFocusable = () => dialog
       ? Array.from(dialog.querySelectorAll<HTMLElement>(
           'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
-        )).filter(element => element.getAttribute('aria-hidden') !== 'true')
+        )).filter(element => !element.closest('[aria-hidden="true"], [hidden], [inert]'))
       : [];
     getFocusable()[0]?.focus();
 
