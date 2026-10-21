@@ -109,6 +109,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const [reportDetails, setReportDetails] = useState('');
   const [swipeMode, setSwipeMode] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<{ profileId: string; index: number } | null>(null);
+  const [collapsedPhotoProfileId, setCollapsedPhotoProfileId] = useState<string | null>(null);
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
   const lastSearchKey = useRef<string | null>(null);
@@ -621,36 +622,50 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                 className={`vow-profile-card rounded-2xl border border-white/10 bg-stone-950/70 p-3 ${swipeMode ? 'touch-pan-y' : ''}`}>
                 {profile.photoUrls?.length ? (
                   <div className="mb-4 space-y-2.5">
-                    <img
-                      key={profile.photoUrls[selectedPhoto?.profileId === profile.id ? selectedPhoto.index : 0]}
-                      src={profile.photoUrls[selectedPhoto?.profileId === profile.id ? selectedPhoto.index : 0]}
-                      alt={t('photoAlt').replace('{name}', profile.displayName).replace('{number}', String((selectedPhoto?.profileId === profile.id ? selectedPhoto.index : 0) + 1))}
-                      loading="lazy"
-                      decoding="async"
-                      draggable={false}
-                      referrerPolicy="no-referrer"
-                      className={swipeMode
-                        ? 'h-[min(42vh,320px)] w-full rounded-2xl border border-white/10 bg-stone-900 object-contain'
-                        : 'h-44 w-full rounded-xl border border-white/10 bg-stone-900 object-contain'}
-                    />
-                    {profile.photoUrls.length > 1 && (
-                      <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label={t('profileUploadedPhotos')}>
-                        {profile.photoUrls.slice(0, 6).map((url, index) => {
-                          const isSelected = (selectedPhoto?.profileId === profile.id ? selectedPhoto.index : 0) === index;
-                          return (
-                            <button
-                              key={url}
-                              type="button"
-                              onClick={() => setSelectedPhoto({ profileId: profile.id, index })}
-                              aria-label={t('photoAlt').replace('{name}', profile.displayName).replace('{number}', String(index + 1))}
-                              aria-pressed={isSelected}
-                              className={'min-h-14 min-w-14 h-14 w-14 shrink-0 overflow-hidden rounded-lg border-2 bg-stone-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 ' + (isSelected ? 'border-rose-400' : 'border-white/15')}
-                            >
-                              <img src={url} alt="" loading="lazy" decoding="async" draggable={false} referrerPolicy="no-referrer" className="h-full w-full object-cover" />
-                            </button>
-                          );
-                        })}
-                      </div>
+                    {swipeMode && (
+                      <button
+                        type="button"
+                        onClick={() => setCollapsedPhotoProfileId(current => current === profile.id ? null : profile.id)}
+                        aria-expanded={collapsedPhotoProfileId !== profile.id}
+                        className="flex min-h-11 w-full items-center justify-center rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-stone-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+                      >
+                        {collapsedPhotoProfileId === profile.id ? t('expandPhoto') : t('collapsePhoto')}
+                      </button>
+                    )}
+                    {collapsedPhotoProfileId !== profile.id && (
+                      <>
+                        <img
+                          key={profile.photoUrls[selectedPhoto?.profileId === profile.id ? selectedPhoto.index : 0]}
+                          src={profile.photoUrls[selectedPhoto?.profileId === profile.id ? selectedPhoto.index : 0]}
+                          alt={t('photoAlt').replace('{name}', profile.displayName).replace('{number}', String((selectedPhoto?.profileId === profile.id ? selectedPhoto.index : 0) + 1))}
+                          loading="lazy"
+                          decoding="async"
+                          draggable={false}
+                          referrerPolicy="no-referrer"
+                          className={swipeMode
+                            ? 'h-[min(42vh,320px)] w-full rounded-2xl border border-white/10 bg-stone-900 object-contain'
+                            : 'h-44 w-full rounded-xl border border-white/10 bg-stone-900 object-contain'}
+                        />
+                        {profile.photoUrls.length > 1 && (
+                          <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label={t('profileUploadedPhotos')}>
+                            {profile.photoUrls.slice(0, 6).map((url, index) => {
+                              const isSelected = (selectedPhoto?.profileId === profile.id ? selectedPhoto.index : 0) === index;
+                              return (
+                                <button
+                                  key={url}
+                                  type="button"
+                                  onClick={() => setSelectedPhoto({ profileId: profile.id, index })}
+                                  aria-label={t('photoAlt').replace('{name}', profile.displayName).replace('{number}', String(index + 1))}
+                                  aria-pressed={isSelected}
+                                  className={'min-h-14 min-w-14 h-14 w-14 shrink-0 overflow-hidden rounded-lg border-2 bg-stone-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 ' + (isSelected ? 'border-rose-400' : 'border-white/15')}
+                                >
+                                  <img src={url} alt="" loading="lazy" decoding="async" draggable={false} referrerPolicy="no-referrer" className="h-full w-full object-cover" />
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 ) : (
