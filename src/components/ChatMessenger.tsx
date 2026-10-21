@@ -403,6 +403,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                         </div>
                       ) : msg.dateInviteDetails?.status === 'pending' && !isMe ? (
                         <button type="button"
+                          aria-label={t('chatAcceptInvite')}
                           onClick={() => onAcceptDateInvite(activeThread.id, msg.id)}
                           className="min-h-11 w-full py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
                         >
