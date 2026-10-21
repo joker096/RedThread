@@ -235,7 +235,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
               </article>;
             })}
           </div>
-          {filtered.length === 0 && <div className="rounded-2xl border border-white/10 p-8 text-center text-sm text-stone-400">Для выбранной страны и категории пока нет демонстрационных карточек.</div>}
+          {filtered.length === 0 && <div role="status" aria-live="polite" aria-atomic="true" className="rounded-2xl border border-white/10 p-8 text-center text-sm text-stone-400">Для выбранной страны и категории пока нет демонстрационных карточек.</div>}
 
           <div className="mt-5 grid md:grid-cols-2 gap-3">
             <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-4">
