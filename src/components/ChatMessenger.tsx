@@ -254,17 +254,12 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
                 height={44}
                 className="w-11 h-11 rounded-xl object-cover ring-1 ring-rose-500/40 shrink-0"
               />
-              <span className="absolute bottom-0 end-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-stone-900"></span>
             </div>
 
             <div className="text-start">
               <div className="flex items-center gap-1.5">
                 <span className="break-words font-heading text-sm font-bold text-white sm:text-base">
                   {activeThread.partnerProfile.name}, {activeThread.partnerProfile.age}
-                </span>
-                <span className="text-[10px] text-emerald-400 bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-500/20 font-semibold flex items-center gap-0.5">
-                  <ShieldCheck className="w-3 h-3" />
-                  {t('chatOnline')}
                 </span>
               </div>
               <p className="text-[11px] text-stone-400">
