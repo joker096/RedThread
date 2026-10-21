@@ -301,7 +301,7 @@ export const GenderSpecificTests: React.FC<GenderSpecificTestsProps> = ({
     document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      previouslyFocused?.focus();
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
     };
   }, [activeTestId]);
 
