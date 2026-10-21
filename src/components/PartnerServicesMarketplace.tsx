@@ -211,7 +211,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                       <input id="provider-document-note" name="provider-document-note" maxLength={300} value={documentNote} onChange={e => setDocumentNote(e.target.value.slice(0, 300))} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white focus-visible:border-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" placeholder="Реестр, номер лицензии или диплома" />
                     </div>}
                   </div>
-                  <button type="submit" className="mt-4 inline-flex items-center gap-2 rounded-xl border border-transparent bg-rose-600 px-4 py-3 text-sm font-bold text-white hover:bg-rose-500 focus-visible:border-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"><FileCheck2 className="w-4 h-4" /> Проверить форму (демо)</button>
+                  <button type="submit" className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl border border-transparent bg-rose-600 px-4 py-3 text-sm font-bold text-white hover:bg-rose-500 focus-visible:border-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"><FileCheck2 className="w-4 h-4" /> Проверить форму (демо)</button>
                 </>
               )}
             </form>
