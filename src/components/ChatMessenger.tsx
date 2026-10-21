@@ -359,7 +359,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
         <div ref={messagesLogRef} onScroll={event => {
           const log = event.currentTarget;
           shouldAutoScrollMessagesRef.current = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
-        }} role="log" aria-label={t('chatThreads')} aria-live="polite" aria-relevant="additions text" aria-atomic="false" className="flex-1 overflow-y-auto p-4 space-y-3">
+        }} role="log" aria-label={t('chatMessages')} aria-live="polite" aria-relevant="additions text" aria-atomic="false" className="flex-1 overflow-y-auto p-4 space-y-3">
           {/* Compatibility recap chip */}
           <div className="flex justify-center mb-2">
             <div className="px-3 py-1 rounded-full bg-stone-950/80 border border-rose-900/30 text-[11px] text-stone-400 flex items-center gap-1.5">
