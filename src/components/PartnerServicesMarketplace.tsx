@@ -223,6 +223,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
             </div>
           )}
 
+          <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">Найдено демонстрационных карточек: {filtered.length}</p>
           <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
             {filtered.map(provider => {
               const Icon = categories.find(c => c.id === provider.category)?.icon || HeartHandshake;
