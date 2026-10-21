@@ -6,7 +6,6 @@ import {
   Calendar, 
   Coffee, 
   Phone, 
-  ShieldCheck, 
   Sparkles, 
   Crown, 
   Check, 
