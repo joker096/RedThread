@@ -20,7 +20,8 @@ export const LadyPremiumModal: React.FC<LadyPremiumModalProps> = ({ isOpen, onCl
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = dialogRef.current;
     const focusableSelector = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-    const focusableElements = () => Array.from(dialog?.querySelectorAll<HTMLElement>(focusableSelector) ?? []);
+    const focusableElements = () => Array.from(dialog?.querySelectorAll<HTMLElement>(focusableSelector) ?? [])
+      .filter(element => !element.closest('[aria-hidden="true"], [hidden], [inert]'));
     focusableElements()[0]?.focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {
