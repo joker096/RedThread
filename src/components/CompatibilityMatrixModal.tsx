@@ -312,7 +312,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
                   <button type="button"
                     key={idx}
                     onClick={() => handleBlitzAnswer(opt.match)}
-                    className="w-full text-left p-2 rounded-xl bg-stone-900 hover:bg-rose-950/60 hover:border-rose-500/40 border border-white/5 text-stone-300 hover:text-white transition-all text-[11px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
+                    className="w-full min-h-11 text-left p-2 rounded-xl bg-stone-900 hover:bg-rose-950/60 hover:border-rose-500/40 border border-white/5 text-stone-300 hover:text-white transition-all text-[11px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
                   >
                     {opt.label}
                   </button>
