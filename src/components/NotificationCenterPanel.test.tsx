@@ -65,3 +65,13 @@ test('caps notification input to the first twenty items and rejects oversized fi
     { ...valid('n4'), readAt: '2026-10-22T12:00:00Z'.padEnd(101, ' ') }
   ]), [valid('n2')]);
 });
+
+
+test('accepts the maximum notification identifier length and valid read timestamps', () => {
+  const id = 'n'.repeat(256);
+  const createdAt = '2026-10-22T12:00:00Z';
+  const readAt = '2026-10-22T12:30:00Z';
+  assert.deepEqual(normalizeNotifications([{ id, type: 'new_match', createdAt, readAt }]), [
+    { id, type: 'new_match', createdAt, readAt }
+  ]);
+});
