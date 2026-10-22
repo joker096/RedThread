@@ -159,12 +159,12 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
                 onChange={e => setSelectedCountry(e.target.value.trimStart() || 'all')}
                 placeholder={t('countryPlaceholder')}
                 autoComplete="country-name"
-                className="w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-xs text-white placeholder:text-stone-600 focus:border-rose-500/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
+                className="min-h-11 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-xs text-white placeholder:text-stone-600 focus:border-rose-500/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
               />
             </div>
             <div>
               <label className="block text-stone-300 font-medium mb-1.5" htmlFor="discovery-city">{t('cityLabel')}</label>
-              <input id="discovery-city" name="filter-city" type="text" maxLength={120} value={selectedCity === 'all' ? '' : selectedCity} onChange={e => setSelectedCity(e.target.value.trimStart() || 'all')} placeholder={t('cityPlaceholder')} autoComplete="address-level2" className="w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs placeholder:text-stone-600 focus:border-rose-500/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" />
+              <input id="discovery-city" name="filter-city" type="text" maxLength={120} value={selectedCity === 'all' ? '' : selectedCity} onChange={e => setSelectedCity(e.target.value.trimStart() || 'all')} placeholder={t('cityPlaceholder')} autoComplete="address-level2" className="min-h-11 w-full bg-stone-950 border border-white/10 rounded-xl p-2.5 text-white text-xs placeholder:text-stone-600 focus:border-rose-500/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" />
               <p className="text-[10px] text-stone-500 mt-1">{t('locationAnyCityHelp')}</p>
             </div>
             {(selectedCountry !== 'all' || selectedCity !== 'all') && (
@@ -180,7 +180,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
             <div className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2">
               <div>
                 <label className="mb-1 block text-stone-300" htmlFor="discovery-min-age">{t('ageFrom')}</label>
-                <input id="discovery-min-age" name="filter-age-from" type="number" min="18" max={maxAge} value={minAge} onChange={e => setMinAge(Math.min(maxAge, Math.max(18, Number(e.target.value) || 18)))} className="w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-white focus:border-rose-500/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" />
+                <input id="discovery-min-age" name="filter-age-from" type="number" min="18" max={maxAge} value={minAge} onChange={e => setMinAge(Math.min(maxAge, Math.max(18, Number(e.target.value) || 18)))} className="min-h-11 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-white focus:border-rose-500/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" />
               </div>
               <div>
                 <label className="mb-1 block text-stone-300" htmlFor="discovery-max-age">{t('ageTo')}</label>
