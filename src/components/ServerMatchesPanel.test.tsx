@@ -89,7 +89,7 @@ test('rejects empty and whitespace-only message timestamps', () => {
     text: 'Hello',
     createdAt: '2026-10-22T12:00:00Z'
   };
-  for (const createdAt of ['', '   ', '\\t\\n']) {
+  for (const createdAt of ['', '   ', '\t\n']) {
     assert.equal(normalizeServerMessage({ ...valid, createdAt }), null, 'message timestamp must not be blank');
   }
 });
@@ -102,7 +102,7 @@ test('treats empty and whitespace-only match message timestamps as absent', () =
     age: 30,
     lastMessageAt: '2026-10-22T12:00:00Z'
   };
-  for (const lastMessageAt of ['', '   ', '\\t\\n']) {
+  for (const lastMessageAt of ['', '   ', '\t\n']) {
     assert.equal(normalizeServerMatch({ ...valid, lastMessageAt })?.lastMessageAt, null);
   }
 });
