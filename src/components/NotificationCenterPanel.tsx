@@ -1,6 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 type NotificationItem={id:string;type:'new_match'|'new_message';createdAt:string;readAt:string|null};
+
+export const normalizeUnreadCount = (value: unknown, fallback: number): number => {
+ const safeFallback = Number.isSafeInteger(fallback) && fallback >= 0 ? Math.min(fallback, 1_000_000) : 0;
+ return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= 1_000_000
+  ? value
+  : safeFallback;
+};
 export const NotificationCenterPanel:React.FC=()=>{
  const {t,formatDate}=useLocale();
  const [items,setItems]=useState<NotificationItem[]>([]);
@@ -45,10 +52,10 @@ export const NotificationCenterPanel:React.FC=()=>{
        readAt: notification.readAt
       }))
     : [];
-   const unreadCount = data?.unreadCount;
-   const safeUnreadCount = typeof unreadCount === 'number' && Number.isSafeInteger(unreadCount) && unreadCount >= 0
-    ? unreadCount
-    : notifications.filter(notification => notification.readAt === null).length;
+   const safeUnreadCount = normalizeUnreadCount(
+    data?.unreadCount,
+    notifications.filter(notification => notification.readAt === null).length
+   );
    setItems(notifications);setUnread(safeUnreadCount);setAllowed(true);setReady(true);setNotice('');
   }catch{if(requestId===refreshRequestId.current&&actionEpoch===sessionEpoch.current){setNotice(t('notificationsLoadError'));setReady(true);}}
   finally{if(busyId===busyRequestId.current&&actionEpoch===sessionEpoch.current)setBusy(false);}
