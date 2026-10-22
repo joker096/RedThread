@@ -2,6 +2,29 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 type NotificationItem={id:string;type:'new_match'|'new_message';createdAt:string;readAt:string|null};
 
+export const normalizeNotifications = (value: unknown): NotificationItem[] => {
+ if (!Array.isArray(value)) return [];
+ const seenNotificationIds = new Set<string>();
+ return value.slice(0, 20).filter((item: unknown): item is NotificationItem => {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+  const notification = item as Partial<NotificationItem>;
+  return typeof notification.id === 'string' && notification.id.trim().length > 0 && notification.id.trim().length <= 256 &&
+   (notification.type === 'new_match' || notification.type === 'new_message') &&
+   typeof notification.createdAt === 'string' && notification.createdAt.trim().length > 0 && notification.createdAt.length <= 100 && Number.isFinite(Date.parse(notification.createdAt)) &&
+   (notification.readAt === null || (typeof notification.readAt === 'string' && notification.readAt.trim().length > 0 && notification.readAt.length <= 100 && Number.isFinite(Date.parse(notification.readAt))));
+ }).filter((notification: NotificationItem) => {
+  const id = notification.id.trim();
+  if (seenNotificationIds.has(id)) return false;
+  seenNotificationIds.add(id);
+  return true;
+ }).map((notification: NotificationItem) => ({
+  id: notification.id.trim(),
+  type: notification.type,
+  createdAt: notification.createdAt,
+  readAt: notification.readAt
+ }));
+};
+
 export const normalizeUnreadCount = (value: unknown, fallback: number): number => {
  const safeFallback = Number.isSafeInteger(fallback) && fallback >= 0 ? Math.min(fallback, 1_000_000) : 0;
  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= 1_000_000
@@ -31,27 +54,7 @@ export const NotificationCenterPanel:React.FC=()=>{
    const data=await response.json().catch(()=>null);
    if(requestId!==refreshRequestId.current||actionEpoch!==sessionEpoch.current)return;
    if(!response.ok)throw new Error(t('notificationsLoadError'));
-   const seenNotificationIds = new Set<string>();
-   const notifications: NotificationItem[] = Array.isArray(data?.notifications)
-    ? data.notifications.slice(0, 20).filter((item: unknown): item is NotificationItem => {
-       if (!item || typeof item !== 'object') return false;
-       const value = item as Partial<NotificationItem>;
-       return typeof value.id === 'string' && value.id.trim().length > 0 && value.id.trim().length <= 256 &&
-        (value.type === 'new_match' || value.type === 'new_message') &&
-        typeof value.createdAt === 'string' && value.createdAt.trim().length > 0 && value.createdAt.length <= 100 && Number.isFinite(Date.parse(value.createdAt)) &&
-        (value.readAt === null || (typeof value.readAt === 'string' && value.readAt.trim().length > 0 && value.readAt.length <= 100 && Number.isFinite(Date.parse(value.readAt))));
-      }).filter((notification: NotificationItem) => {
-       const id = notification.id.trim();
-       if (seenNotificationIds.has(id)) return false;
-       seenNotificationIds.add(id);
-       return true;
-      }).map((notification: NotificationItem) => ({
-       id: notification.id.trim(),
-       type: notification.type,
-       createdAt: notification.createdAt,
-       readAt: notification.readAt
-      }))
-    : [];
+   const notifications = normalizeNotifications(data?.notifications);
    const safeUnreadCount = normalizeUnreadCount(
     data?.unreadCount,
     notifications.filter(notification => notification.readAt === null).length
