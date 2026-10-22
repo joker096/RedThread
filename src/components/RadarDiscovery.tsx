@@ -573,7 +573,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                       <button
                         type="button"
                         onClick={() => setActivePsychCardIndex((activePsychCardIndex + 1) % (currentProfile.psychCards?.length || 1))}
-                        className="min-h-8 px-2 text-stone-400 hover:text-white underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
+                        className="inline-flex min-h-11 items-center px-2 text-stone-400 hover:text-white underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
                       >
                         {t('nextPhoto')} →
                       </button>
