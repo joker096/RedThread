@@ -85,3 +85,16 @@ test('rejects malformed billing status response fields', () => {
     assert.equal(isBillingStatus(invalid), false);
   }
 });
+
+test('rejects empty, whitespace-only, and overlong billing timestamps', () => {
+  const valid = {
+    access: 'full',
+    trialEndsAt: null,
+    premiumUntil: null,
+    paymentConfigured: true
+  };
+  for (const timestamp of ['', '   ', 'not-a-date', '2026-10-30T12:00:00.000Z'.padEnd(41, ' ')]) {
+    assert.equal(isBillingStatus({ ...valid, trialEndsAt: timestamp }), false, `should reject ${JSON.stringify(timestamp)}`);
+    assert.equal(isBillingStatus({ ...valid, premiumUntil: timestamp }), false, `should reject ${JSON.stringify(timestamp)}`);
+  }
+});
