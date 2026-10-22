@@ -50,6 +50,15 @@ test('normalizes message payloads and rejects malformed messages', () => {
   assert.equal(normalizeServerMessage({ id: '1', senderId: '2', text: 'hello', createdAt: 'bad-date' }), null);
 });
 
+test('enforces message identifier and timestamp length limits', () => {
+  const base = { id: 'm'.repeat(256), senderId: 'u'.repeat(256), text: 'hello', createdAt: '2026-10-22T12:00:00Z' };
+  assert.equal(normalizeServerMessage(base)?.id, 'm'.repeat(256));
+  assert.equal(normalizeServerMessage(base)?.senderId, 'u'.repeat(256));
+  assert.equal(normalizeServerMessage({ ...base, id: 'm'.repeat(257) }), null);
+  assert.equal(normalizeServerMessage({ ...base, senderId: 'u'.repeat(257) }), null);
+  assert.equal(normalizeServerMessage({ ...base, createdAt: '2026-10-22T12:00:00Z'.padEnd(101, ' ') }), null);
+});
+
 test('normalizes user identifiers and preserves only the first item per id', () => {
   assert.equal(normalizeUserId(' user-1 '), 'user-1');
   assert.equal(normalizeUserId('   '), null);
