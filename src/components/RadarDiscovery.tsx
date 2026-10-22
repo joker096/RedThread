@@ -550,7 +550,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                           onClick={() => setActivePsychCardIndex(i)}
                           aria-label={t('profileQuestionCount').replace('{current}', String(i + 1)).replace('{total}', String(currentProfile.psychCards?.length || 1))}
                           aria-current={i === activePsychCardIndex ? 'step' : undefined}
-                          className="flex min-h-6 min-w-6 shrink-0 items-center justify-center rounded-full transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
+                          className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
                         >
                           <span className={`block h-3 rounded-full ${i === activePsychCardIndex ? 'w-3 bg-rose-500' : 'w-2 bg-stone-700'}`} />
                         </button>
