@@ -114,3 +114,15 @@ test('rejects account responses missing required identity and intent fields', ()
     assert.equal(isAccountUser({ ...validUser(), [field]: null }), false, `${field} must not be null`);
   }
 });
+
+
+test('rejects primitive account payloads and non-string enum fields', () => {
+  for (const value of [undefined, true, false, 0, 1, 'account', Symbol('account')]) {
+    assert.equal(isAccountUser(value), false, `should reject primitive payload ${typeof value}`);
+  }
+  for (const field of ['gender', 'relationshipIntent'] as const) {
+    for (const value of [null, 42, {}, []]) {
+      assert.equal(isAccountUser({ ...validUser(), [field]: value }), false, `${field} should reject malformed enum values`);
+    }
+  }
+});
