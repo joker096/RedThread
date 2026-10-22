@@ -292,7 +292,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         <>
           <div className="mb-3 grid grid-cols-2 gap-2">
             <button type="button" aria-pressed={mode === 'login'} onClick={() => { setMode('login'); setMessage(''); }} className={`focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 min-h-11 rounded-xl border px-3 py-2 text-xs font-semibold ${mode === 'login' ? 'border-rose-500 bg-rose-950/50 text-white' : 'border-white/10 text-stone-400'}`}>{t('signIn')}</button>
-            <button type="button" aria-pressed={mode === 'register'} onClick={() => { setMode('register'); setMessage(''); }} className={`focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 rounded-xl border px-3 py-2 text-xs font-semibold ${mode === 'register' ? 'border-rose-500 bg-rose-950/50 text-white' : 'border-white/10 text-stone-400'}`}>{t('register')}</button>
+            <button type="button" aria-pressed={mode === 'register'} onClick={() => { setMode('register'); setMessage(''); }} className={`focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 min-h-11 rounded-xl border px-3 py-2 text-xs font-semibold ${mode === 'register' ? 'border-rose-500 bg-rose-950/50 text-white' : 'border-white/10 text-stone-400'}`}>{t('register')}</button>
           </div>
           <div className="space-y-3">
             {mode === 'register' && <>
