@@ -463,7 +463,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                   onClick={toggleAudio}
                   aria-pressed={isPlayingAudio}
                   aria-label={t('voiceIntroLabel').replace('{seconds}', String(currentProfile.voiceIntroSeconds))}
-                  className={`absolute bottom-3 left-3 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-full backdrop-blur-xl border text-[11px] font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 focus-visible:ring-offset-2 focus-visible:ring-offset-stone-950 ${
+                  className={`absolute bottom-3 left-3 z-20 flex min-h-11 items-center gap-1.5 px-3 py-1 rounded-full backdrop-blur-xl border text-[11px] font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 focus-visible:ring-offset-2 focus-visible:ring-offset-stone-950 ${
                     isPlayingAudio
                       ? 'bg-rose-600 text-white border-rose-400 red-glow'
                       : 'bg-stone-950/75 hover:bg-stone-900 text-stone-200 border-white/20'
