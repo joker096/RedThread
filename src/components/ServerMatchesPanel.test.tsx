@@ -14,7 +14,7 @@ test('normalizes bounded match fields and safely handles optional location/messa
     lastMessageAt: '2026-10-22T12:00:00Z'
   }), {
     id: 'match-1', partnerId: 'user-2', displayName: 'Alex', age: 32,
-    country: 'Country '.repeat(20).trim().slice(0, 100), city: 'City',
+    country: ' Country '.repeat(20).trim().slice(0, 100), city: 'City',
     lastMessage: 'Hello', lastMessageAt: '2026-10-22T12:00:00Z'
   });
   assert.deepEqual(normalizeServerMatch({
