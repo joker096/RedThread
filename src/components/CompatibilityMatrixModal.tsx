@@ -331,7 +331,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
         <div className="flex items-center gap-3">
           <button type="button"
             onClick={onClose}
-            className="flex-1 py-3 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 font-semibold text-xs transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
+            className="flex-1 min-h-11 py-3 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 font-semibold text-xs transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
           >
             Закрыть
           </button>
@@ -340,7 +340,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
               onStartChat(profile);
               onClose();
             }}
-            className="flex-2 py-3 rounded-xl bg-gradient-to-r from-rose-600 via-red-600 to-rose-700 hover:from-rose-500 hover:to-red-500 font-bold text-white text-xs flex items-center justify-center gap-2 red-glow transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
+            className="flex-2 min-h-11 py-3 rounded-xl bg-gradient-to-r from-rose-600 via-red-600 to-rose-700 hover:from-rose-500 hover:to-red-500 font-bold text-white text-xs flex items-center justify-center gap-2 red-glow transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
           >
             <Heart className="w-4 h-4 fill-white" />
             <span>{profile.likedByCandidate ? 'Взаимная симпатия — открыть чат' : 'Отправить симпатию'}</span>
