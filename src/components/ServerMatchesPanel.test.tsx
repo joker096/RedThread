@@ -34,7 +34,20 @@ test('rejects malformed matches and invalid age or oversized required fields', (
     assert.equal(normalizeServerMatch({ ...base, age }), null);
   }
   assert.equal(normalizeServerMatch({ ...base, id: ' '.repeat(257) }), null);
+  assert.equal(normalizeServerMatch({ ...base, partnerId: 'p'.repeat(257) }), null);
   assert.equal(normalizeServerMatch({ ...base, displayName: 'x'.repeat(101) }), null);
+});
+
+test('bounds optional match location and last-message fields', () => {
+  const match = normalizeServerMatch({
+    id: 'match-1', partnerId: 'user-1', displayName: 'Alex', age: 25,
+    country: 'C'.repeat(150), city: 'T'.repeat(150),
+    lastMessage: 'x'.repeat(1200), lastMessageAt: '2026-10-22T12:00:00Z'.padEnd(101, ' ')
+  });
+  assert.equal(match?.country.length, 100);
+  assert.equal(match?.city.length, 100);
+  assert.equal(match?.lastMessage?.length, 1000);
+  assert.equal(match?.lastMessageAt, null);
 });
 
 test('normalizes message payloads and rejects malformed messages', () => {
