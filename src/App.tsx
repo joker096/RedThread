@@ -1015,7 +1015,7 @@ export default function App() {
                   <button
                     onClick={() => setActiveTab('discovery')}
                 aria-current={activeTab === 'discovery' ? 'page' : undefined}
-                    className={`vow-motion-button flex min-h-10 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 ${
+                    className={`vow-motion-button flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 ${
                       activeTab === 'discovery' ? 'bg-rose-500/10 text-rose-400 font-bold' : 'text-stone-400 hover:bg-white/5'
                     }`}
                   >
@@ -1026,7 +1026,7 @@ export default function App() {
                   <button
                     onClick={() => setActiveTab('tests')}
                 aria-current={activeTab === 'tests' ? 'page' : undefined}
-                    className={`vow-motion-button flex min-h-10 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 ${
+                    className={`vow-motion-button flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 ${
                       activeTab === 'tests' ? 'bg-rose-500/10 text-rose-400 font-bold' : 'text-stone-400 hover:bg-white/5'
                     }`}
                   >
@@ -1038,7 +1038,7 @@ export default function App() {
                     onClick={() => setActiveTab('chats')}
                 data-testid="nav-chats"
                 aria-current={activeTab === 'chats' ? 'page' : undefined}
-                    className={`vow-motion-button relative flex min-h-10 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 ${
+                    className={`vow-motion-button relative flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 ${
                       activeTab === 'chats' ? 'bg-rose-500/10 text-rose-400 font-bold' : 'text-stone-400 hover:bg-white/5'
                     }`}
                   >
@@ -1057,7 +1057,7 @@ export default function App() {
                   <button
                     onClick={() => setActiveTab('safety')}
                 aria-current={activeTab === 'safety' ? 'page' : undefined}
-                    className={`vow-motion-button flex min-h-10 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 ${
+                    className={`vow-motion-button flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 ${
                       activeTab === 'safety' ? 'bg-rose-500/10 text-rose-400 font-bold' : 'text-stone-400 hover:bg-white/5'
                     }`}
                   >
@@ -1068,7 +1068,7 @@ export default function App() {
                   {currentGender === 'female' && (
                     <button
                       onClick={() => setIsLadyPremiumOpen(true)}
-                      className="vow-motion-button flex min-h-10 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 text-amber-400 font-bold"
+                      className="vow-motion-button flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 text-amber-400 font-bold"
                     >
                       <Crown className="w-4 h-4" />
                       <span className="text-[8px]">VIP</span>
