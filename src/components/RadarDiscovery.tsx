@@ -424,7 +424,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 type="button"
                 onClick={() => onOpenCompatibilityMatrix(currentProfile)}
                 aria-label={t('compatibilityMatrix')}
-                className="absolute top-6 left-3 z-20 cursor-pointer bg-stone-950/75 hover:bg-stone-950/90 border border-white/15 text-white px-2.5 py-1 rounded-2xl backdrop-blur-xl flex items-center gap-2 shadow-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
+                className="absolute top-6 left-3 z-20 inline-flex min-h-11 items-center cursor-pointer bg-stone-950/75 hover:bg-stone-950/90 border border-white/15 text-white px-3 py-1 rounded-2xl backdrop-blur-xl gap-2 shadow-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
               >
                 <div className="vow-compatibility-orb w-7 h-7 rounded-full p-0.5 flex items-center justify-center font-black text-xs text-white">
                   <div className="w-full h-full rounded-full bg-stone-950 flex items-center justify-center">
