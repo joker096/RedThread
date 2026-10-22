@@ -310,7 +310,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
             type="button"
             onClick={handleRunFreshScan}
             disabled={isScanning}
-            className="flex-1 py-3 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 font-semibold text-xs transition-colors flex items-center justify-center gap-1.5"
+            className="flex-1 min-h-11 py-3 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 font-semibold text-xs transition-colors flex items-center justify-center gap-1.5"
           >
             <ScanFace className="w-4 h-4 text-emerald-400" />
             <span>{isScanning ? 'Сканирование...' : 'Повторить экспресс-скан'}</span>
@@ -319,7 +319,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-colors"
+            className="flex-1 min-h-11 py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-colors"
           >
             Понятно, закрыть
           </button>
