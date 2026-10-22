@@ -98,3 +98,11 @@ test('rejects empty, whitespace-only, and overlong billing timestamps', () => {
     assert.equal(isBillingStatus({ ...valid, premiumUntil: timestamp }), false, `should reject ${JSON.stringify(timestamp)}`);
   }
 });
+
+test('rejects blank required account identity fields after trimming', () => {
+  for (const field of ['id', 'email', 'displayName'] as const) {
+    for (const value of ['', '   ', '\t\n']) {
+      assert.equal(isAccountUser({ ...validUser(), [field]: value }), false, field + ' should reject blank whitespace');
+    }
+  }
+});
