@@ -134,7 +134,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
               aria-describedby="compatibility-range-help"
               aria-valuetext={`${minCompatibility}%`}
               onChange={e => setMinCompatibility(Number(e.target.value))}
-              className="w-full cursor-pointer accent-rose-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-rose-300"
+              className="min-h-11 w-full cursor-pointer accent-rose-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-rose-300"
             />
             <div id="compatibility-range-help" className="flex justify-between text-[10px] text-stone-500 mt-1">
               <span>{t('compatibilityAll')}</span>
@@ -184,7 +184,7 @@ export const FilterDrawer: React.FC<FilterDrawerProps> = ({
               </div>
               <div>
                 <label className="mb-1 block text-stone-300" htmlFor="discovery-max-age">{t('ageTo')}</label>
-                <input id="discovery-max-age" name="filter-age-to" type="number" min={minAge} max="120" value={maxAge} onChange={e => setMaxAge(Math.max(minAge, Math.min(120, Number(e.target.value) || minAge)))} className="w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-white focus:border-rose-500/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" />
+                <input id="discovery-max-age" name="filter-age-to" type="number" min={minAge} max="120" value={maxAge} onChange={e => setMaxAge(Math.max(minAge, Math.min(120, Number(e.target.value) || minAge)))} className="min-h-11 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-white focus:border-rose-500/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" />
               </div>
             </div>
             <p className="mt-1 text-[10px] text-stone-500">{t('adultRangeHelp')}</p>
