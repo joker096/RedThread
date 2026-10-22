@@ -86,3 +86,13 @@ test('rejects empty or whitespace-only notification timestamps', () => {
     { ...valid, readAt: '   ' }
   ]), []);
 });
+
+test('rejects notification timestamps made of tabs and line breaks', () => {
+  const valid = { id: 'timestamp-control-whitespace', type: 'new_message', createdAt: '2026-10-22T12:00:00Z', readAt: null };
+  for (const timestamp of ['\t\n', '\n\t']) {
+    assert.deepEqual(normalizeNotifications([
+      { ...valid, createdAt: timestamp },
+      { ...valid, readAt: timestamp }
+    ]), []);
+  }
+});
