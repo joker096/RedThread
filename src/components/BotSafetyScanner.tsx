@@ -296,7 +296,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
               <button
                 type="submit"
                 disabled={!reportReason}
-                className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white font-bold text-xs transition-colors"
+                className="min-h-11 px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white font-bold text-xs transition-colors"
               >
                 Отправить
               </button>
