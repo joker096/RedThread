@@ -106,3 +106,11 @@ test('rejects blank required account identity fields after trimming', () => {
     }
   }
 });
+
+
+test('rejects account responses missing required identity and intent fields', () => {
+  for (const field of ['id', 'email', 'displayName', 'gender', 'relationshipIntent'] as const) {
+    assert.equal(isAccountUser({ ...validUser(), [field]: undefined }), false, `${field} is required`);
+    assert.equal(isAccountUser({ ...validUser(), [field]: null }), false, `${field} must not be null`);
+  }
+});
