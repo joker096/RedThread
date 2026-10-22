@@ -946,7 +946,7 @@ export default function App() {
               </strong>
               <button
                 onClick={() => setDeviceFrame('responsive')}
-                className="ml-2 text-rose-400 hover:underline"
+                className="ml-2 min-h-11 px-2 text-rose-400 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
               >
                 Веб-режим
               </button>
