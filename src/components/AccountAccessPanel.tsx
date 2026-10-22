@@ -11,6 +11,13 @@ type AccountUser = {
   relationshipIntent: 'marriage_family' | 'serious_relationship' | 'family_without_marriage';
 };
 
+type BillingStatus = {
+  access: 'full' | 'premium_required';
+  trialEndsAt: string | null;
+  premiumUntil: string | null;
+  paymentConfigured: boolean;
+};
+
 type AccountAccessPanelProps = { onAuthenticated: () => void };
 
 export const isAccountUser = (value: unknown): value is AccountUser => {
@@ -32,6 +39,18 @@ export const isAccountUser = (value: unknown): value is AccountUser => {
       || candidate.relationshipIntent === 'family_without_marriage');
 };
 
+export const isBillingStatus = (value: unknown): value is BillingStatus => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  const isOptionalDate = (item: unknown): item is string | null =>
+    item === null || (typeof item === 'string' && item.length <= 40 && Number.isFinite(Date.parse(item)));
+
+  return (candidate.access === 'full' || candidate.access === 'premium_required')
+    && isOptionalDate(candidate.trialEndsAt)
+    && isOptionalDate(candidate.premiumUntil)
+    && typeof candidate.paymentConfigured === 'boolean';
+};
+
 export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthenticated }) => {
   const { formatDate, t } = useLocale();
   const [user, setUser] = useState<AccountUser | null>(null);
@@ -48,7 +67,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
   const [hasChildren, setHasChildren] = useState<boolean | null>(null);
   const [wantsChildren, setWantsChildren] = useState<'yes' | 'no' | 'discuss' | 'unsure'>('discuss');
   const [childrenLivingArrangement, setChildrenLivingArrangement] = useState<'with_me' | 'shared_custody' | 'with_other_parent' | 'not_applicable' | 'prefer_to_discuss'>('not_applicable');
-  const [billingStatus, setBillingStatus] = useState<{access:string;trialEndsAt:string|null;premiumUntil:string|null;paymentConfigured:boolean}|null>(null);
+  const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null);
   const [deletePassword, setDeletePassword] = useState('');
   const [deleteNotice, setDeleteNotice] = useState('');
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
@@ -77,7 +96,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
           setUser(data.user);
           window.dispatchEvent(new Event('vow:session-changed'));
           const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
-          if (!cancelled) setBillingStatus(billing);
+          if (!cancelled) setBillingStatus(isBillingStatus(billing) ? billing : null);
         }
       })
       .catch(() => {});
@@ -145,7 +164,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       setUser(data.user);
       window.dispatchEvent(new Event('vow:session-changed'));
       const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
-      setBillingStatus(billing);
+      setBillingStatus(isBillingStatus(billing) ? billing : null);
       setMessage(mode === 'register' ? t('authAccountCreated') : t('authSignedIn'));
       setPassword('');
       onAuthenticated();
@@ -203,7 +222,9 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       setMessage(t('authPasswordChanged'));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : t('authPasswordChangeFailed'));
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   };
 
   const deleteAccount = async () => {
