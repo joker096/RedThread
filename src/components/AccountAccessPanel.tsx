@@ -13,7 +13,7 @@ type AccountUser = {
 
 type AccountAccessPanelProps = { onAuthenticated: () => void };
 
-const isAccountUser = (value: unknown): value is AccountUser => {
+export const isAccountUser = (value: unknown): value is AccountUser => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const candidate = value as Record<string, unknown>;
   const isBoundedString = (item: unknown, maxLength: number, required = false): item is string =>
