@@ -126,3 +126,13 @@ test('rejects primitive account payloads and non-string enum fields', () => {
     }
   }
 });
+
+
+test('accepts empty optional location strings and ignores additional response fields', () => {
+  assert.equal(isAccountUser({
+    ...validUser(),
+    country: '',
+    city: '',
+    serverMetadata: { source: 'api' }
+  }), true);
+});
