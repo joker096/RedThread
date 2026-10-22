@@ -142,3 +142,10 @@ test('accepts each empty optional location field independently', () => {
   assert.equal(isAccountUser({ ...validUser(), country: '' }), true);
   assert.equal(isAccountUser({ ...validUser(), city: '' }), true);
 });
+
+
+test('rejects account responses with missing location field values', () => {
+  for (const field of ['country', 'city'] as const) {
+    assert.equal(isAccountUser({ ...validUser(), [field]: undefined }), false, `${field} must be present`);
+  }
+});
