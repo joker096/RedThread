@@ -154,7 +154,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       {authenticated === false ? (
         <div className="mt-3 rounded-2xl border border-white/10 bg-stone-950/60 p-4">
           <p className="text-sm text-stone-300">{t('profileLoginPrompt')}</p>
-          <button type="button" onClick={onOpenAccount} className="mt-3 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400">{t('profileLoginButton')}</button>
+          <button type="button" onClick={onOpenAccount} className="mt-3 min-h-11 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400">{t('profileLoginButton')}</button>
         </div>
       ) : (
         <div className="mt-3 space-y-3">
