@@ -193,7 +193,7 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
             <button
               type="button"
               onClick={startRewardedSimulation}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-rose-600 hover:from-amber-400 hover:to-rose-500 font-bold text-stone-950 text-xs flex items-center justify-center gap-2 shadow-lg transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
+              className="w-full min-h-11 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-rose-600 hover:from-amber-400 hover:to-rose-500 font-bold text-stone-950 text-xs flex items-center justify-center gap-2 shadow-lg transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
             >
               <Play className="w-4 h-4 fill-stone-950" />
               <span>Протестировать просмотр ролика (Получить Буст)</span>
@@ -269,7 +269,7 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
         <button
           type="button"
           onClick={onClose}
-          className="w-full py-3 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 font-semibold text-xs transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
+          className="w-full min-h-11 py-3 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 font-semibold text-xs transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
         >
           Закрыть панель
         </button>
