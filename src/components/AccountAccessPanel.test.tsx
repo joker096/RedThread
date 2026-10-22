@@ -35,6 +35,15 @@ test('rejects account responses with oversized identity and location fields', ()
   }
 });
 
+test('rejects non-string identity and location fields', () => {
+  for (const field of ['id', 'email', 'displayName', 'country', 'city'] as const) {
+    for (const value of [null, 42, {}, []]) {
+      const user = { ...validUser(), [field]: value };
+      assert.equal(isAccountUser(user), false, `${field} should reject ${String(value)}`);
+    }
+  }
+});
+
 test('rejects missing required values and invalid enum values', () => {
   assert.equal(isAccountUser({ ...validUser(), displayName: '   ' }), false);
   assert.equal(isAccountUser({ ...validUser(), gender: 'other' }), false);
