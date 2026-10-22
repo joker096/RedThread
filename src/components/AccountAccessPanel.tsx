@@ -16,12 +16,17 @@ type AccountAccessPanelProps = { onAuthenticated: () => void };
 const isAccountUser = (value: unknown): value is AccountUser => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const candidate = value as Record<string, unknown>;
-  return typeof candidate.id === 'string' && candidate.id.trim().length > 0
-    && typeof candidate.email === 'string' && candidate.email.trim().length > 0
-    && typeof candidate.displayName === 'string' && candidate.displayName.trim().length > 0
+  const isBoundedString = (item: unknown, maxLength: number, required = false): item is string =>
+    typeof item === 'string'
+    && item.length <= maxLength
+    && (!required || item.trim().length > 0);
+
+  return isBoundedString(candidate.id, 256, true)
+    && isBoundedString(candidate.email, 254, true)
+    && isBoundedString(candidate.displayName, 100, true)
     && (candidate.gender === 'female' || candidate.gender === 'male')
-    && typeof candidate.country === 'string'
-    && typeof candidate.city === 'string'
+    && isBoundedString(candidate.country, 100)
+    && isBoundedString(candidate.city, 100)
     && (candidate.relationshipIntent === 'marriage_family'
       || candidate.relationshipIntent === 'serious_relationship'
       || candidate.relationshipIntent === 'family_without_marriage');
