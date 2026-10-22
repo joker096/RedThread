@@ -136,3 +136,9 @@ test('accepts empty optional location strings and ignores additional response fi
     serverMetadata: { source: 'api' }
   }), true);
 });
+
+
+test('accepts each empty optional location field independently', () => {
+  assert.equal(isAccountUser({ ...validUser(), country: '' }), true);
+  assert.equal(isAccountUser({ ...validUser(), city: '' }), true);
+});
