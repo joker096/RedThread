@@ -829,7 +829,7 @@ export default function App() {
             }
             window.location.reload();
           }}
-          className="shrink-0 rounded-full border border-amber-200/30 px-2.5 py-1 font-bold hover:bg-amber-900/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-200"
+          className="min-h-11 shrink-0 rounded-full border border-amber-200/30 px-2.5 py-1 font-bold hover:bg-amber-900/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-200"
         >
           {t('resetDemo')}
         </button>
