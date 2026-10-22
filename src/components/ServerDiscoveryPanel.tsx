@@ -734,7 +734,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
             <button ref={matchDialogButtonRef} type="button" onClick={() => {
               setMatchedProfile(null);
               window.dispatchEvent(new CustomEvent('vow:match-created'));
-            }} className="vow-motion-button mt-5 w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white hover:bg-rose-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400">{t('sendMessage')}</button>
+            }} className="vow-motion-button mt-5 min-h-11 w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white hover:bg-rose-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400">{t('sendMessage')}</button>
           </div>
         </div>
       )}
