@@ -50,12 +50,21 @@ test('every advertised language has a truthful, internally consistent coverage r
 });
 
 test('unsupported advertised locales fall back honestly rather than claiming complete translation', () => {
-  for (const language of LANGUAGE_OPTIONS.filter(item => !['auto', 'en', 'ru', 'es', 'fr', 'de', 'pt', 'it', 'tr', 'ar', 'zh', 'hi'].includes(item.code))) {
+  for (const language of LANGUAGE_OPTIONS.filter(item => !['auto', 'en', 'ru', 'es', 'fr', 'de', 'pt', 'it', 'tr', 'ar', 'zh', 'hi', 'ka', 'pl'].includes(item.code))) {
     const coverage = getTranslationCoverage(language.code);
     if (coverage.translated === 0) {
       assert.equal(coverage.percentage, 0);
       assert.equal(coverage.missing.length, coverage.total);
     }
+  }
+});
+
+test('Polish catalog covers core discovery, safety, account and messaging UI', () => {
+  const polish = getTranslationCoverage('pl');
+  assert.ok(polish.translated >= 100, 'Polish should translate a substantial core set of UI messages');
+  assert.ok(polish.percentage > 0 && polish.percentage < 100, 'Polish must remain partial until complete');
+  for (const key of ['language','discovery','safety','like','pass','report','block','search','relationshipGoal','accountTitle','signIn','createAccount','email','password','chats','notificationCenter','authInvalidEmail','authDeleteConfirm','partialTranslationHelp'] as const) {
+    assert.ok(!polish.missing.includes(key), 'Polish core key ' + key + ' should be translated');
   }
 });
 
