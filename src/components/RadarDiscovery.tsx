@@ -446,7 +446,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
               <button
                 type="button"
                 onClick={() => onInspectBotSafety(currentProfile)}
-                className="absolute top-6 right-3 z-20 cursor-pointer bg-stone-950/75 hover:bg-stone-950/90 border border-emerald-500/30 text-emerald-400 px-2.5 py-1 rounded-2xl backdrop-blur-xl flex items-center gap-1 shadow-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                className="absolute top-6 right-3 z-20 inline-flex min-h-11 items-center cursor-pointer bg-stone-950/75 hover:bg-stone-950/90 border border-emerald-500/30 text-emerald-400 px-3 py-1 rounded-2xl backdrop-blur-xl gap-1 shadow-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
                 title={t('livenessVerification')}
                 aria-label={t('livenessVerification')}
               >
