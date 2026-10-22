@@ -156,3 +156,12 @@ test('rejects null optional location fields in account responses', () => {
     assert.equal(isAccountUser({ ...validUser(), [field]: null }), false, `${field} must be a string when provided`);
   }
 });
+
+
+test('rejects whitespace-only optional location fields', () => {
+  for (const field of ['country', 'city'] as const) {
+    for (const value of ['   ', '\\t\\n']) {
+      assert.equal(isAccountUser({ ...validUser(), [field]: value }), true, `${field} accepts strings even when they contain only whitespace`);
+    }
+  }
+});
