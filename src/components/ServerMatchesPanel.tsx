@@ -14,7 +14,7 @@ type ServerMatch = {
 type ServerMessage = { id: string; senderId: string; text: string; createdAt: string };
 type Props = { onOpenAccount: () => void };
 
-const normalizeServerMatch = (value: unknown): ServerMatch | null => {
+export const normalizeServerMatch = (value: unknown): ServerMatch | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const match = value as Partial<ServerMatch>;
   if (typeof match.id !== 'string' || !match.id.trim() || match.id.trim().length > 256 ||
@@ -41,7 +41,7 @@ const normalizeServerMatch = (value: unknown): ServerMatch | null => {
   };
 };
 
-const normalizeServerMessage = (value: unknown): ServerMessage | null => {
+export const normalizeServerMessage = (value: unknown): ServerMessage | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const message = value as Partial<ServerMessage>;
   if (typeof message.id !== 'string' || !message.id.trim() || message.id.trim().length > 256 ||
@@ -59,13 +59,13 @@ const normalizeServerMessage = (value: unknown): ServerMessage | null => {
   };
 };
 
-const normalizeUserId = (value: unknown): string | null => {
+export const normalizeUserId = (value: unknown): string | null => {
   if (typeof value !== 'string') return null;
   const id = value.trim();
   return id && id.length <= 256 ? id : null;
 };
 
-const deduplicateById = <T extends { id: string }>(items: T[]): T[] => {
+export const deduplicateById = <T extends { id: string }>(items: T[]): T[] => {
   const seen = new Set<string>();
   return items.filter(item => {
     if (seen.has(item.id)) return false;
