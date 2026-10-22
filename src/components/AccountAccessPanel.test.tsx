@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isAccountUser } from './AccountAccessPanel.tsx';
+import { isAccountUser, isBillingStatus } from './AccountAccessPanel.tsx';
 
 const validUser = () => ({
   id: 'user-123',
@@ -50,4 +50,38 @@ test('rejects missing required values and invalid enum values', () => {
   assert.equal(isAccountUser({ ...validUser(), relationshipIntent: 'casual' }), false);
   assert.equal(isAccountUser(null), false);
   assert.equal(isAccountUser([]), false);
+});
+
+test('accepts valid billing status response from the API', () => {
+  assert.equal(isBillingStatus({
+    access: 'full',
+    trialEndsAt: '2026-10-30T12:00:00.000Z',
+    premiumUntil: null,
+    paymentConfigured: true
+  }), true);
+  assert.equal(isBillingStatus({
+    access: 'premium_required',
+    trialEndsAt: null,
+    premiumUntil: null,
+    paymentConfigured: false
+  }), true);
+});
+
+test('rejects malformed billing status response fields', () => {
+  const valid = {
+    access: 'full',
+    trialEndsAt: null,
+    premiumUntil: null,
+    paymentConfigured: false
+  };
+  for (const invalid of [
+    { ...valid, access: 'unlimited' },
+    { ...valid, trialEndsAt: 'not-a-date' },
+    { ...valid, premiumUntil: 42 },
+    { ...valid, paymentConfigured: 'false' },
+    null,
+    []
+  ]) {
+    assert.equal(isBillingStatus(invalid), false);
+  }
 });
