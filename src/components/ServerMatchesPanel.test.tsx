@@ -81,3 +81,28 @@ test('normalizes user identifiers and preserves only the first item per id', () 
     { id: 'a', value: 1 }, { id: 'b', value: 2 }
   ]);
 });
+
+test('rejects empty and whitespace-only message timestamps', () => {
+  const valid = {
+    id: 'message-1',
+    senderId: 'user-1',
+    text: 'Hello',
+    createdAt: '2026-10-22T12:00:00Z'
+  };
+  for (const createdAt of ['', '   ', '\\t\\n']) {
+    assert.equal(normalizeServerMessage({ ...valid, createdAt }), null, 'message timestamp must not be blank');
+  }
+});
+
+test('treats empty and whitespace-only match message timestamps as absent', () => {
+  const valid = {
+    id: 'match-1',
+    partnerId: 'user-2',
+    displayName: 'Alex',
+    age: 30,
+    lastMessageAt: '2026-10-22T12:00:00Z'
+  };
+  for (const lastMessageAt of ['', '   ', '\\t\\n']) {
+    assert.equal(normalizeServerMatch({ ...valid, lastMessageAt })?.lastMessageAt, null);
+  }
+});
