@@ -766,7 +766,7 @@ export default function App() {
                 <p className="text-sm font-semibold text-white">{t('serverProfilesNotice')}</p>
                 <p className="mt-1 text-xs text-stone-400">{t('serverProfilesDescription')}</p>
               </div>
-              <button type="button" data-testid="open-demo-preview" onClick={() => setDiscoveryMode('demo')} className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-stone-300">{t('openDemoPreview')}</button>
+              <button type="button" data-testid="open-demo-preview" onClick={() => setDiscoveryMode('demo')} className="min-h-11 rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-stone-300">{t('openDemoPreview')}</button>
             </div>
             <ServerDiscoveryPanel onOpenAccount={() => setActiveTab('tests')} />
           </>
@@ -777,7 +777,7 @@ export default function App() {
                 <p className="text-sm font-semibold text-amber-100">{t('demoProfilesNotice')}</p>
                 <p className="mt-1 text-xs text-amber-200/70">{t('demoProfilesDescription')}</p>
               </div>
-              <button type="button" onClick={() => setDiscoveryMode('server')} className="rounded-xl border border-amber-200/20 px-3 py-2 text-xs font-semibold text-amber-100">{t('returnToRealProfiles')}</button>
+              <button type="button" onClick={() => setDiscoveryMode('server')} className="min-h-11 rounded-xl border border-amber-200/20 px-3 py-2 text-xs font-semibold text-amber-100">{t('returnToRealProfiles')}</button>
             </div>
             <RadarDiscovery
             profiles={filteredProfiles}
