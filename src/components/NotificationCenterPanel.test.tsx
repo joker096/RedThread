@@ -75,3 +75,14 @@ test('accepts the maximum notification identifier length and valid read timestam
     { id, type: 'new_match', createdAt, readAt }
   ]);
 });
+
+
+test('rejects empty or whitespace-only notification timestamps', () => {
+  const valid = { id: 'timestamp-check', type: 'new_message', createdAt: '2026-10-22T12:00:00Z', readAt: null };
+  assert.deepEqual(normalizeNotifications([
+    { ...valid, createdAt: '' },
+    { ...valid, createdAt: '   ' },
+    { ...valid, readAt: '' },
+    { ...valid, readAt: '   ' }
+  ]), []);
+});
