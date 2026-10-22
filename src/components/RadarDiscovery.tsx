@@ -249,7 +249,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
           <button
             type="button"
             onClick={() => { setHistory([]); setCurrentIndex(0); setPhotoIndex(0); setActivePsychCardIndex(0); setIsPlayingAudio(false); }}
-            className="mb-3 px-6 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-500 font-bold text-white text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
+            className="mb-3 inline-flex min-h-11 items-center justify-center px-6 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-500 font-bold text-white text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
           >
             {t('restartViewing')}
           </button>
@@ -257,7 +257,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
         <button
           type="button"
           onClick={onOpenFilters}
-          className="px-6 py-2.5 rounded-full bg-rose-600 hover:bg-rose-500 font-bold text-white shadow-lg shadow-rose-950 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
+          className="inline-flex min-h-11 items-center justify-center px-6 py-2.5 rounded-full bg-rose-600 hover:bg-rose-500 font-bold text-white shadow-lg shadow-rose-950 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
         >
           {t('changeFilters')}
         </button>
