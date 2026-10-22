@@ -289,7 +289,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
               onClick={() => setShowPartnerServices(true)}
               aria-haspopup="dialog"
               aria-expanded={showPartnerServices}
-              className="flex min-h-11 items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-emerald-600/30 bg-emerald-950/30 text-emerald-200 font-semibold text-xs hover:bg-emerald-900/40 transition-colors focus-visible:border-sky-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+              className="flex min-h-11 min-w-11 items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-emerald-600/30 bg-emerald-950/30 text-emerald-200 font-semibold text-xs hover:bg-emerald-900/40 transition-colors focus-visible:border-sky-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
               title={t('chatPartnerServicesTitle')}
             >
               <HeartHandshake className="w-4 h-4" />
@@ -300,7 +300,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
               onClick={() => setShowInviteModal(true)}
               aria-haspopup="dialog"
               aria-expanded={showInviteModal}
-              className="flex min-h-11 items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 text-white font-semibold text-xs shadow-md shadow-rose-950 hover:from-rose-500 hover:to-red-500 transition-all focus-visible:border-sky-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+              className="flex min-h-11 min-w-11 items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 text-white font-semibold text-xs shadow-md shadow-rose-950 hover:from-rose-500 hover:to-red-500 transition-all focus-visible:border-sky-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
             >
               <Coffee className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">{t('chatPlanDate')}</span>
