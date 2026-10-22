@@ -740,14 +740,14 @@ export default function App() {
               <div className="flex gap-2">
                 <button
                   onClick={() => setIsAdManagerOpen(true)}
-                  className="flex-1 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 font-bold text-stone-950 text-xs transition-colors flex items-center justify-center gap-1.5"
+                  className="flex-1 min-h-11 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 font-bold text-stone-950 text-xs transition-colors flex items-center justify-center gap-1.5"
                 >
                   <DollarSign className="w-4 h-4" />
                   <span>Статистика рекламы</span>
                 </button>
                 <button
                   onClick={() => setIsLadyPremiumOpen(true)}
-                  className="flex-1 py-3 rounded-2xl bg-rose-600 hover:bg-rose-500 font-bold text-white text-xs transition-colors flex items-center justify-center gap-1.5"
+                  className="flex-1 min-h-11 py-3 rounded-2xl bg-rose-600 hover:bg-rose-500 font-bold text-white text-xs transition-colors flex items-center justify-center gap-1.5"
                 >
                   <Crown className="w-4 h-4" />
                   <span>Тарифы Lady VIP</span>
