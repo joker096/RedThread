@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 
 type Profile = {
@@ -35,13 +35,17 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const [uploadBusy, setUploadBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [blockedProfiles, setBlockedProfiles] = useState<BlockedProfile[]>([]);
+  const loadRequestId = useRef(0);
 
   const load = async () => {
+    const requestId = ++loadRequestId.current;
     try {
       const response = await fetch('/api/profiles/me', { credentials: 'include' });
-      if (response.status === 401) { setAuthenticated(false); return; }
+      if (requestId !== loadRequestId.current) return;
+      if (response.status === 401) { setAuthenticated(false); setProfile(null); setBlockedProfiles([]); return; }
       if (!response.ok) throw new Error(t('profileLoadError'));
       const data = await response.json();
+      if (requestId !== loadRequestId.current) return;
       const rawProfile = data?.profile;
       if (!rawProfile || typeof rawProfile !== 'object' || Array.isArray(rawProfile) ||
           typeof rawProfile.id !== 'string' || !rawProfile.id.trim() ||
@@ -81,8 +85,10 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       setIsVisible(p.isVisible);
       setAuthenticated(true);
       const blocksResponse = await fetch('/api/blocks', { credentials: 'include' });
+      if (requestId !== loadRequestId.current) return;
       if (blocksResponse.ok) {
         const blockData = await blocksResponse.json();
+        if (requestId !== loadRequestId.current) return;
         const safeBlocks = Array.isArray(blockData?.blocks)
           ? blockData.blocks.filter((block: unknown): block is BlockedProfile => {
               if (!block || typeof block !== 'object' || Array.isArray(block)) return false;
@@ -95,10 +101,15 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
         setBlockedProfiles(safeBlocks);
       }
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('profileLoadError'));
+      if (requestId === loadRequestId.current) {
+        setNotice(error instanceof Error ? error.message : t('profileLoadError'));
+      }
     }
   };
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    void load();
+    return () => { loadRequestId.current += 1; };
+  }, []);
 
   const unblock = async (id: string) => {
     try {
