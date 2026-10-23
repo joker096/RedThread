@@ -449,6 +449,37 @@ test('mobile horizontal photo swipe advances gallery without passing the profile
   await expect(photo).toHaveClass(/h-72/);
 });
 
+test('profile photo gallery supports keyboard navigation', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const card = page.locator('.vow-profile-card').first();
+  const photo = card.locator('.vow-profile-photo');
+  const nextPhoto = photo.getByTestId('profile-photo-next');
+  const previousPhoto = photo.getByTestId('profile-photo-prev');
+  await expect(nextPhoto).toBeVisible();
+
+  const firstSrc = await photo.locator('img').getAttribute('src');
+  await nextPhoto.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(photo.locator('img')).not.toHaveAttribute('src', firstSrc ?? '');
+
+  const secondSrc = await photo.locator('img').getAttribute('src');
+  await page.keyboard.press('ArrowLeft');
+  await expect(photo.locator('img')).toHaveAttribute('src', firstSrc ?? '');
+  await page.keyboard.press('End');
+  await expect(photo.locator('img')).not.toHaveAttribute('src', firstSrc ?? '');
+
+  // End disables the next-photo button, so move focus to the still-enabled
+  // previous-photo control before testing Home (keyboard events are scoped to controls).
+  await previousPhoto.focus();
+  await page.keyboard.press('Home');
+  await expect(photo.locator('img')).toHaveAttribute('src', firstSrc ?? '');
+  await expect(previousPhoto).toBeDisabled();
+  await expect(card).toBeVisible();
+});
+
 test('mobile drags starting on profile controls do not trigger card swipes', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');

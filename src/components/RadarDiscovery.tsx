@@ -252,6 +252,22 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
     if (action === 'pass') handlePassCurrent();
   };
 
+  const handlePhotoNavigationKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    const key = event.key;
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    // Capture values before the state updater runs; React may defer updater execution.
+    const lastPhotoIndex = Math.max(0, currentProfile.photos.length - 1);
+    setPhotoIndex(index => {
+      if (key === 'Home') return 0;
+      if (key === 'End') return lastPhotoIndex;
+      if (key === 'ArrowLeft') return Math.max(0, index - 1);
+      return Math.min(lastPhotoIndex, index + 1);
+    });
+  };
+
   const toggleAudio = () => {
     setIsPlayingAudio(!isPlayingAudio);
   };
@@ -415,6 +431,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                     data-testid="profile-photo-prev"
                     className="h-full w-1/2 cursor-pointer bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rose-400"
                     onClick={() => setPhotoIndex(prev => Math.max(0, prev - 1))}
+                    onKeyDown={handlePhotoNavigationKeyDown}
                     title={t('previousPhoto')}
                     aria-label={t('previousPhoto')}
                     disabled={photoIndex === 0}
@@ -424,6 +441,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                     data-testid="profile-photo-next"
                     className="h-full w-1/2 cursor-pointer bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rose-400"
                     onClick={() => setPhotoIndex(prev => Math.min(currentProfile.photos.length - 1, prev + 1))}
+                    onKeyDown={handlePhotoNavigationKeyDown}
                     title={t('nextPhoto')}
                     aria-label={t('nextPhoto')}
                     disabled={photoIndex >= currentProfile.photos.length - 1}
