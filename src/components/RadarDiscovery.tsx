@@ -304,7 +304,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
       </div>
 
       {/* Main Full-Bleed Card Container */}
-      <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} className="vow-profile-card vow-surface-enter w-full relative rounded-3xl overflow-hidden bg-stone-900 border border-white/10 shadow-2xl transition-all">
+      <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} onTouchCancel={() => { touchStartX.current = null; touchStartY.current = null; }} className="vow-profile-card vow-surface-enter w-full relative rounded-3xl overflow-hidden bg-stone-900 border border-white/10 shadow-2xl transition-all">
         {currentProfile.isSponsorAd ? (
           /* Native sponsored placement: profile-feed styling, clearly disclosed and responsive. */
           <article aria-label={t('sponsorFirstDate')} className="flex w-full flex-col text-left">
@@ -386,7 +386,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
           /* Profile card */
           <div className="flex flex-col w-full text-left">
             {/* Top Photo Frame */}
-            <div onTouchStart={event => { const touch = event.touches[0]; photoTouchStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null; }} onTouchEnd={event => { const start = photoTouchStart.current; photoTouchStart.current = null; const touch = event.changedTouches[0]; if (!start || !touch) return; const dx = touch.clientX - start.x; const dy = touch.clientY - start.y; if (Math.abs(dy) >= 48 && Math.abs(dy) > Math.abs(dx)) { setPhotoCollapsed(dy < 0); event.stopPropagation(); return; }  }} className={"vow-profile-photo relative w-full overflow-hidden bg-stone-950 select-none transition-[height] duration-300 " + (photoCollapsed ? "h-16 sm:h-20" : "h-72 sm:h-80")}>
+            <div onTouchStart={event => { const touch = event.touches[0]; photoTouchStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null; }} onTouchEnd={event => { const start = photoTouchStart.current; photoTouchStart.current = null; const touch = event.changedTouches[0]; if (!start || !touch) return; const dx = touch.clientX - start.x; const dy = touch.clientY - start.y; if (Math.abs(dy) >= 48 && Math.abs(dy) > Math.abs(dx)) { setPhotoCollapsed(dy < 0); event.stopPropagation(); return; }  }} onTouchCancel={() => { photoTouchStart.current = null; }} className={"vow-profile-photo relative w-full overflow-hidden bg-stone-950 select-none transition-[height] duration-300 " + (photoCollapsed ? "h-16 sm:h-20" : "h-72 sm:h-80")}>
               <img
                 src={currentProfile.photos[photoIndex] || currentProfile.avatar}
                 alt={currentProfile.name}
