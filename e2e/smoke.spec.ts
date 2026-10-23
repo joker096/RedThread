@@ -1240,7 +1240,7 @@ test('mobile photo toggle and verification badge keep separate touch areas', asy
 
     const photo = page.locator('.vow-profile-card').first().locator('.vow-profile-photo');
     const toggle = photo.locator('button[aria-expanded="true"]');
-    const verificationBadge = photo.locator('button[title]').filter({ has: page.locator('svg.lucide-shield-check') });
+    const verificationBadge = photo.locator('button:has(svg.lucide-shield-check)');
 
     await expect(toggle).toBeVisible();
     await expect(verificationBadge).toBeVisible();
@@ -1264,7 +1264,7 @@ test('mobile voice intro and verification badge keep separate touch areas', asyn
 
     const photo = page.locator('.vow-profile-card').first().locator('.vow-profile-photo');
     const voiceIntro = photo.locator('button[aria-pressed]');
-    const verificationBadge = photo.locator('button').filter({ has: page.locator('svg.lucide-shield-check') });
+    const verificationBadge = photo.locator('button:has(svg.lucide-shield-check)');
 
     if (await voiceIntro.count() === 0) continue;
     await expect(voiceIntro).toBeVisible();
