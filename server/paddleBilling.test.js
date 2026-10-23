@@ -4,7 +4,7 @@ import { normalizePaddleEvent, isPaddleSubscriptionEntitled } from './paddleBill
 
 test('normalizes Paddle webhook snake_case and SDK camelCase envelopes', () => {
   assert.deepEqual(normalizePaddleEvent({ event_id: 'evt_1', event_type: 'subscription.updated', data: {} }), {
-    eventId: 'evt_1', eventType: 'subscription.updated', data: {}
+    eventId: 'evt_1', eventType: 'subscription.updated', data: {}, occurredAt: null
   });
   assert.equal(normalizePaddleEvent({ eventId: 'evt_2', eventType: 'transaction.completed', data: {} }).eventId, 'evt_2');
   assert.equal(normalizePaddleEvent({ event_type: 'subscription.updated' }), null);
