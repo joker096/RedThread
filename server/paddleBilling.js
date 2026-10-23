@@ -1,0 +1,93 @@
+const ACTIVE_PADDLE_SUBSCRIPTION_STATUSES = new Set(['active', 'trialing']);
+
+export function normalizePaddleEvent(event) {
+  if (!event || typeof event !== 'object') return null;
+  const eventId = event.eventId || event.event_id;
+  const eventType = event.eventType || event.event_type;
+  const data = event.data;
+  if (typeof eventId !== 'string' || !eventId || typeof eventType !== 'string' || !data || typeof data !== 'object') return null;
+  return { eventId, eventType, data };
+}
+
+export function isPaddleSubscriptionEntitled(status, periodEnd, now = Date.now()) {
+  if (!ACTIVE_PADDLE_SUBSCRIPTION_STATUSES.has(String(status || '').toLowerCase())) return false;
+  if (!periodEnd) return false;
+  const end = Date.parse(periodEnd);
+  return Number.isFinite(end) && end > now;
+}
+
+export async function processPaddleEvent(pool, rawEvent) {
+  const event = normalizePaddleEvent(rawEvent);
+  if (!event) throw new Error('invalid_paddle_event');
+
+  const { eventId, eventType, data } = event;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const inserted = await client.query(
+      'INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, $2) ON CONFLICT (event_id) DO NOTHING RETURNING event_id',
+      [eventId, eventType]
+    );
+    if (!inserted.rowCount) {
+      await client.query('COMMIT');
+      return { duplicate: true, handled: false };
+    }
+
+    const customData = data.customData || data.custom_data || {};
+    const customUserId = typeof customData.userId === 'string' ? customData.userId
+      : typeof customData.user_id === 'string' ? customData.user_id : null;
+    const subscriptionId = typeof data.id === 'string' && eventType.startsWith('subscription.')
+      ? data.id
+      : typeof data.subscriptionId === 'string' ? data.subscriptionId
+        : typeof data.subscription_id === 'string' ? data.subscription_id : null;
+    const customerId = typeof data.customerId === 'string' ? data.customerId
+      : typeof data.customer_id === 'string' ? data.customer_id : null;
+
+    if (['subscription.created', 'subscription.updated', 'subscription.canceled'].includes(eventType)) {
+      const status = eventType === 'subscription.canceled' ? 'canceled' : String(data.status || '').toLowerCase();
+      const periodEnd = data.currentBillingPeriod?.endsAt || data.current_billing_period?.ends_at || null;
+      const firstItem = Array.isArray(data.items) ? data.items[0] : null;
+      const priceId = firstItem?.price?.id || firstItem?.priceId || firstItem?.price_id || null;
+      const active = isPaddleSubscriptionEntitled(status, periodEnd);
+      await client.query(
+        `UPDATE users SET
+          paddle_customer_id = COALESCE($2, paddle_customer_id),
+          paddle_subscription_id = COALESCE($3, paddle_subscription_id),
+          paddle_subscription_status = $4,
+          paddle_price_id = COALESCE($5, paddle_price_id),
+          premium_until = CASE WHEN $6::boolean THEN $7::timestamptz ELSE NULL END,
+          premium_lifetime = CASE WHEN $6::boolean THEN FALSE ELSE premium_lifetime END,
+          updated_at = NOW()
+        WHERE id = COALESCE($1::uuid, (SELECT id FROM users WHERE paddle_subscription_id = $3 LIMIT 1))`,
+        [customUserId, customerId, subscriptionId, status, priceId, active, active ? periodEnd : null]
+      );
+    } else if (eventType === 'transaction.completed') {
+      // A completed transaction alone does not grant access. Access is provisioned
+      // from a verified subscription lifecycle event to avoid trusting checkout state.
+      await client.query(
+        `UPDATE users SET
+          paddle_customer_id = COALESCE($2, paddle_customer_id),
+          paddle_subscription_id = COALESCE($3, paddle_subscription_id),
+          updated_at = NOW()
+        WHERE id = COALESCE($1::uuid, (SELECT id FROM users WHERE paddle_subscription_id = $3 LIMIT 1))`,
+        [customUserId, customerId, subscriptionId]
+      );
+    } else if (eventType === 'customer.created' || eventType === 'customer.updated') {
+      const customerEmail = data.email;
+      if (customUserId && customerId && typeof customerEmail === 'string') {
+        await client.query(
+          'UPDATE users SET paddle_customer_id = COALESCE($2, paddle_customer_id), updated_at = NOW() WHERE id = $1::uuid AND lower(email) = lower($3)',
+          [customUserId, customerId, customerEmail]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+    return { duplicate: false, handled: ['subscription.created', 'subscription.updated', 'subscription.canceled', 'transaction.completed', 'customer.created', 'customer.updated'].includes(eventType) };
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
