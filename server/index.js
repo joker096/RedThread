@@ -2,7 +2,6 @@ import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { verifyStripeWebhookSignature } from './stripeWebhookSecurity.js';
 import { validateAdEventPayload, AD_IMPRESSION_CAP_24H } from './adEvents.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
@@ -56,45 +55,93 @@ app.use((_req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   next();
 });
-app.post('/api/billing/webhook', express.raw({ type: 'application/json', limit: '1mb' }), async (req, res) => {
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
-  if (!secret || !Buffer.isBuffer(req.body)) return res.status(503).json({ error: 'billing_webhook_not_configured' });
-  const header = req.get('stripe-signature') || '';
-  if (!verifyStripeWebhookSignature(req.body, header, secret)) return res.status(400).json({ error: 'invalid_webhook_signature' });
+app.post('/api/paddle/webhook', express.raw({ type: 'application/json', limit: '1mb' }), async (req, res) => {
+  const apiKey = process.env.PADDLE_API_KEY;
+  const secret = process.env.PADDLE_WEBHOOK_SECRET;
+  if (process.env.PADDLE_ENVIRONMENT !== 'sandbox' || !apiKey || !secret || !Buffer.isBuffer(req.body)) {
+    return res.status(503).json({ error: 'paddle_sandbox_webhook_not_configured' });
+  }
+  const signature = req.get('paddle-signature') || '';
+  if (!signature) return res.status(400).json({ error: 'missing_paddle_signature' });
+
   let event;
-  try { event = JSON.parse(req.body.toString('utf8')); } catch { return res.status(400).json({ error: 'invalid_webhook_payload' }); }
-  if (!pool) return res.status(503).json({ error: 'database_not_configured' });
   try {
-    const object = event?.data?.object || {};
-    const userId = object.metadata?.userId || object.client_reference_id || null;
-    const customerId = typeof object.customer === 'string' ? object.customer : object.customer?.id || null;
-    if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
-      if (userId && object.mode === 'payment' && object.payment_status === 'paid' && object.metadata?.plan === 'lifetime') {
-        await pool.query('UPDATE users SET premium_lifetime = TRUE, premium_until = NULL, stripe_customer_id = COALESCE($2, stripe_customer_id), stripe_subscription_id = NULL, updated_at = NOW() WHERE id = $1', [userId, customerId]);
-      } else if (userId && object.mode === 'subscription') {
-        const subscriptionId = typeof object.subscription === 'string' ? object.subscription : object.subscription?.id || null;
-        await pool.query('UPDATE users SET stripe_customer_id = COALESCE($2, stripe_customer_id), stripe_subscription_id = COALESCE($3, stripe_subscription_id), updated_at = NOW() WHERE id = $1', [userId, customerId, subscriptionId]);
-      }
-    } else if (['customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted'].includes(event.type)) {
-      const subscriptionId = object.id || null;
-      const active = event.type !== 'customer.subscription.deleted' && ['active', 'trialing'].includes(object.status) && Number.isFinite(Number(object.current_period_end));
-      const periodEnd = active ? Number(object.current_period_end) : null;
-      await pool.query(
-        `UPDATE users SET premium_until = CASE WHEN $2::boolean THEN to_timestamp($3::double precision) ELSE NULL END,
-          stripe_subscription_id = CASE WHEN $4::boolean THEN NULL ELSE COALESCE($5, stripe_subscription_id) END,
-          stripe_customer_id = COALESCE($6, stripe_customer_id), updated_at = NOW()
-          WHERE id = COALESCE($1::uuid, (SELECT id FROM users WHERE stripe_subscription_id = $5 LIMIT 1))`,
-        [userId, active, periodEnd, event.type === 'customer.subscription.deleted', subscriptionId, customerId]
-      );
-    }
-    return res.json({ received: true });
+    const { Paddle, Environment } = await import('@paddle/paddle-node-sdk');
+    const paddle = new Paddle(apiKey, { environment: Environment.sandbox });
+    event = await paddle.webhooks.unmarshal(req.body.toString('utf8'), secret, signature);
   } catch (error) {
-    console.error('Stripe webhook processing failed:', error?.message || 'unknown error');
-    return res.status(500).json({ error: 'billing_webhook_processing_failed' });
+    console.warn('Paddle sandbox webhook signature or payload rejected:', error?.message || 'invalid_signature');
+    return res.status(400).json({ error: 'invalid_paddle_webhook_signature' });
+  }
+
+  try {
+    const { processPaddleEvent } = await import('./paddleBilling.js');
+    await processPaddleEvent(pool, event);
+    return res.status(200).json({ received: true });
+  } catch (error) {
+    console.error('Paddle webhook processing failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'paddle_webhook_processing_failed' });
   }
 });
 
 app.use(express.json({ limit: '32kb', strict: true }));
+
+app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (req, res) => {
+  if (process.env.PADDLE_ENVIRONMENT !== 'sandbox') {
+    return res.status(503).json({ error: 'paddle_environment_must_be_explicitly_set_to_sandbox' });
+  }
+  if (!process.env.PADDLE_API_KEY || !process.env.PADDLE_CLIENT_TOKEN || !process.env.PADDLE_CLIENT_TOKEN.startsWith('test_')) {
+    return res.status(503).json({ error: 'paddle_sandbox_not_configured' });
+  }
+  if (req.authUser.gender !== 'female') return res.status(403).json({ error: 'premium_checkout_not_available' });
+
+  const plan = typeof req.body?.plan === 'string' ? req.body.plan : '';
+  const plans = {
+    '1month': process.env.PADDLE_PRICE_ID_1MONTH,
+    '3months': process.env.PADDLE_PRICE_ID_3MONTHS,
+    lifetime: process.env.PADDLE_PRICE_ID_LIFETIME
+  };
+  const priceId = plans[plan];
+  if (!priceId || !/^pri_[A-Za-z0-9]+$/.test(priceId)) return res.status(503).json({ error: 'paddle_price_not_configured' });
+
+  try {
+    const response = await fetch('https://sandbox-api.paddle.com/transactions', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + process.env.PADDLE_API_KEY,
+        'Content-Type': 'application/json',
+        'Paddle-Version': '1'
+      },
+      body: JSON.stringify({
+        items: [{ price_id: priceId, quantity: 1 }],
+        custom_data: { userId: req.authUser.id, plan }
+      })
+    });
+    const payload = await response.json().catch(() => null);
+    const transactionId = payload?.data?.id;
+    if (!response.ok || typeof transactionId !== 'string' || !transactionId.startsWith('txn_')) {
+      console.error('Paddle sandbox transaction rejected:', response.status, payload?.error?.code || 'unknown_error');
+      return res.status(502).json({ error: 'paddle_checkout_session_failed' });
+    }
+    return res.json({ transactionId, environment: 'sandbox' });
+  } catch (error) {
+    console.error('Paddle sandbox checkout request failed:', error?.message || 'unknown error');
+    return res.status(502).json({ error: 'paddle_checkout_unavailable' });
+  }
+});
+
+app.get('/api/paddle/config', requireSession, (req, res) => {
+  if (process.env.PADDLE_ENVIRONMENT !== 'sandbox' || !process.env.PADDLE_CLIENT_TOKEN?.startsWith('test_')) {
+    return res.json({ configured: false, environment: 'sandbox', plans: [] });
+  }
+  const plans = [
+    { id: '1month', priceId: process.env.PADDLE_PRICE_ID_1MONTH || null, billing: 'month' },
+    { id: '3months', priceId: process.env.PADDLE_PRICE_ID_3MONTHS || null, billing: 'quarter' },
+    { id: 'lifetime', priceId: process.env.PADDLE_PRICE_ID_LIFETIME || null, billing: 'one-time' }
+  ].filter(plan => plan.priceId && /^pri_[A-Za-z0-9]+$/.test(plan.priceId));
+  return res.json({ configured: Boolean(process.env.PADDLE_CLIENT_TOKEN && plans.length), environment: 'sandbox', clientToken: process.env.PADDLE_CLIENT_TOKEN, plans });
+});
+
 const photoStorageDir = path.resolve(process.env.PHOTO_STORAGE_DIR || 'uploads/private-photos');
 
 const authLimiter = rateLimit({
@@ -233,7 +280,7 @@ async function requireSession(req, res, next) {
 
   try {
     const result = await pool.query(
-      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.female_trial_ends_at, u.premium_until, u.premium_lifetime, u.stripe_customer_id, u.phone_verified_at,
+      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.female_trial_ends_at, u.premium_until, u.premium_lifetime, u.phone_verified_at,
               p.display_name, p.gender, p.country, p.city, p.relationship_intent, s.id AS session_id
        FROM sessions s
        JOIN users u ON u.id = s.user_id
@@ -716,78 +763,6 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
   }
 });
 
-app.post('/api/billing/checkout', validateRequestOrigin, requireSession, async (req, res) => {
-  const plan = req.body?.plan;
-  const plans = {
-    '1month': { price: process.env.STRIPE_PRICE_ID_1MONTH, mode: 'subscription' },
-    '3months': { price: process.env.STRIPE_PRICE_ID_3MONTHS, mode: 'subscription' },
-    lifetime: { price: process.env.STRIPE_PRICE_ID_LIFETIME, mode: 'payment' }
-  };
-  const selected = plans[plan];
-  if (!selected || !process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_WEBHOOK_SECRET || !selected.price) return res.status(503).json({ error: 'payment_not_configured' });
-  let baseUrl;
-  try {
-    baseUrl = new URL(process.env.APP_URL || process.env.APP_ORIGIN || allowedOrigin);
-    if (process.env.NODE_ENV === 'production' && baseUrl.protocol !== 'https:') throw new Error('https_required');
-    if (!['http:', 'https:'].includes(baseUrl.protocol)) throw new Error('invalid_protocol');
-  } catch { return res.status(503).json({ error: 'billing_return_url_not_configured' }); }
-  const successUrl = new URL('/', baseUrl); successUrl.searchParams.set('billing', 'success');
-  const cancelUrl = new URL('/', baseUrl); cancelUrl.searchParams.set('billing', 'cancelled');
-  const form = new URLSearchParams();
-  form.set('mode', selected.mode); form.set('line_items[0][price]', selected.price); form.set('line_items[0][quantity]', '1');
-  form.set('client_reference_id', req.authUser.id); form.set('metadata[userId]', req.authUser.id); form.set('metadata[plan]', plan);
-  if (selected.mode === 'subscription') form.set('subscription_data[metadata][userId]', req.authUser.id);
-  if (selected.mode === 'payment') form.set('payment_intent_data[metadata][userId]', req.authUser.id);
-  if (req.authUser.email) form.set('customer_email', req.authUser.email);
-  form.set('success_url', successUrl.toString()); form.set('cancel_url', cancelUrl.toString());
-  try {
-    const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + process.env.STRIPE_SECRET_KEY, 'Content-Type': 'application/x-www-form-urlencoded', 'Idempotency-Key': randomUUID() },
-      body: form, signal: AbortSignal.timeout(12_000)
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok || typeof payload?.url !== 'string') {
-      console.error('Stripe checkout rejected:', response.status, payload?.error?.type || 'unknown_error');
-      return res.status(502).json({ error: 'checkout_session_failed' });
-    }
-    return res.json({ url: payload.url, plan });
-  } catch (error) {
-    console.error('Stripe checkout request failed:', error?.message || 'unknown error');
-    return res.status(502).json({ error: 'checkout_session_failed' });
-  }
-});
-
-app.post('/api/billing/portal', validateRequestOrigin, requireSession, async (req, res) => {
-  if (!process.env.STRIPE_SECRET_KEY || !req.authUser.stripe_customer_id) return res.status(503).json({ error: 'billing_portal_not_available' });
-  let baseUrl;
-  try {
-    baseUrl = new URL(process.env.APP_URL || process.env.APP_ORIGIN || allowedOrigin);
-    if (process.env.NODE_ENV === 'production' && baseUrl.protocol !== 'https:') throw new Error('https_required');
-    if (!['http:', 'https:'].includes(baseUrl.protocol)) throw new Error('invalid_protocol');
-  } catch { return res.status(503).json({ error: 'billing_return_url_not_configured' }); }
-  const returnUrl = new URL('/', baseUrl);
-  returnUrl.searchParams.set('billing', 'manage');
-  const form = new URLSearchParams({ customer: req.authUser.stripe_customer_id, return_url: returnUrl.toString() });
-  try {
-    const response = await fetch('https://api.stripe.com/v1/billing_portal/sessions', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + process.env.STRIPE_SECRET_KEY, 'Content-Type': 'application/x-www-form-urlencoded', 'Idempotency-Key': randomUUID() },
-      body: form,
-      signal: AbortSignal.timeout(12_000)
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok || typeof payload?.url !== 'string') {
-      console.error('Stripe portal rejected:', response.status, payload?.error?.type || 'unknown_error');
-      return res.status(502).json({ error: 'billing_portal_failed' });
-    }
-    return res.json({ url: payload.url });
-  } catch (error) {
-    console.error('Stripe portal request failed:', error?.message || 'unknown error');
-    return res.status(502).json({ error: 'billing_portal_failed' });
-  }
-});
-
 app.get('/api/billing/status', requireSession, async (req, res) => {
   const trialEndsAt = req.authUser.female_trial_ends_at ? new Date(req.authUser.female_trial_ends_at) : null;
   const premiumUntil = req.authUser.premium_until ? new Date(req.authUser.premium_until) : null;
@@ -795,19 +770,30 @@ app.get('/api/billing/status', requireSession, async (req, res) => {
   const isTrialActive = req.authUser.gender === 'female' && trialEndsAt && trialEndsAt.getTime() > now;
   const hasTimedPremium = premiumUntil && premiumUntil.getTime() > now;
   const hasPremium = Boolean(req.authUser.premium_lifetime || hasTimedPremium);
-  const availablePlans = [
-    ...(process.env.STRIPE_PRICE_ID_1MONTH ? ['1month'] : []),
-    ...(process.env.STRIPE_PRICE_ID_3MONTHS ? ['3months'] : []),
-    ...(process.env.STRIPE_PRICE_ID_LIFETIME ? ['lifetime'] : [])
-  ];
-  const paymentConfigured = Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_WEBHOOK_SECRET && availablePlans.length);
+  const paddlePlans = process.env.PADDLE_ENVIRONMENT === 'sandbox' && process.env.PADDLE_CLIENT_TOKEN?.startsWith('test_')
+    ? [
+        ...(process.env.PADDLE_PRICE_ID_1MONTH ? ['1month'] : []),
+        ...(process.env.PADDLE_PRICE_ID_3MONTHS ? ['3months'] : []),
+        ...(process.env.PADDLE_PRICE_ID_LIFETIME ? ['lifetime'] : [])
+      ]
+    : [];
+  const paymentConfigured = Boolean(
+    process.env.PADDLE_ENVIRONMENT === 'sandbox' &&
+    process.env.PADDLE_API_KEY &&
+    process.env.PADDLE_WEBHOOK_SECRET &&
+    process.env.PADDLE_CLIENT_TOKEN?.startsWith('test_') &&
+    paddlePlans.length
+  );
+  const availablePlans = paddlePlans;
+  const note = paymentConfigured
+    ? 'Paddle Sandbox is enabled; premium access changes only after a verified webhook. Sandbox does not collect real payments.'
+    : 'Paddle Sandbox is not fully configured. No payment will be collected until its sandbox credentials and price IDs are configured.';
   return res.json({
     gender: req.authUser.gender, trialEndsAt: trialEndsAt?.toISOString() || null,
     premiumUntil: req.authUser.premium_lifetime ? null : premiumUntil?.toISOString() || null,
     premiumLifetime: Boolean(req.authUser.premium_lifetime),
     access: req.authUser.gender !== 'female' || isTrialActive || hasPremium ? 'full' : 'premium_required',
-    trialActive: Boolean(isTrialActive), premiumActive: hasPremium, paymentConfigured, availablePlans,
-    note: paymentConfigured ? 'Payment is processed by Stripe; access changes only after a verified webhook.' : 'Payments are not configured. No payment will be collected until Stripe keys, price IDs and webhook secret are configured.'
+    trialActive: Boolean(isTrialActive), premiumActive: hasPremium, paymentConfigured, availablePlans, note
   });
 });
 app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req, res) => {
