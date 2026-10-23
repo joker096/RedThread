@@ -217,8 +217,19 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
     const end = touch?.clientX;
     const endY = touch?.clientY;
     if (start === null || end === undefined) return;
-    if (startY !== null && endY !== undefined && Math.abs(endY - startY) > Math.abs(end - start)) return;
-    const action = getSwipeActionFromDelta(end - start);
+    const deltaX = end - start;
+    const deltaY = startY !== null && endY !== undefined ? endY - startY : 0;
+    // Vertical gestures reveal profile details; horizontal gestures remain like/pass.
+    // Keep buttons usable without turning an accidental finger movement into a card toggle.
+    if (startY !== null && endY !== undefined &&
+        Math.abs(deltaY) >= 48 && Math.abs(deltaY) > Math.abs(deltaX) * 1.15) {
+      if (!(event.target as HTMLElement).closest('button, input, select, textarea, a')) {
+        setPhotoCollapsed(deltaY < 0);
+      }
+      return;
+    }
+    if (startY !== null && endY !== undefined && Math.abs(deltaY) > Math.abs(deltaX)) return;
+    const action = getSwipeActionFromDelta(deltaX);
     if (currentProfile?.isSponsorAd) {
       if (action !== 'none') { onPass(currentProfile); handleNext('ad'); }
       return;
