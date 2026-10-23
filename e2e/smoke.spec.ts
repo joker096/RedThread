@@ -1534,3 +1534,37 @@ test('vertical drags starting on photo navigation controls do not collapse the p
   await expect(image).toHaveAttribute('src', initialSrc ?? '');
   await expect(photo.locator('button[aria-expanded="true"]')).toBeVisible();
 });
+
+test('cancelled vertical profile gesture does not collapse the photo later', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const card = page.locator('.vow-profile-card').first();
+  const photo = card.locator('.vow-profile-photo');
+  const details = card.locator('.vow-profile-details');
+  await expect(photo).toHaveClass(/h-72/);
+
+  await page.evaluate(() => {
+    const target = document.querySelector('.vow-profile-card .vow-profile-details');
+    if (!target) throw new Error('Profile details are not mounted');
+    const touch = (y: number) => new Touch({
+      identifier: 211, target, clientX: 180, clientY: y, screenX: 180, screenY: y
+    });
+    const start = touch(300);
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true, cancelable: true, touches: [start], changedTouches: [start]
+    }));
+    target.dispatchEvent(new TouchEvent('touchcancel', {
+      bubbles: true, cancelable: true, touches: [], changedTouches: [start]
+    }));
+    const end = touch(220);
+    target.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true, cancelable: true, touches: [], changedTouches: [end]
+    }));
+  });
+
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(photo.locator('button[aria-expanded="true"]')).toBeVisible();
+  await expect(details).toBeVisible();
+});
