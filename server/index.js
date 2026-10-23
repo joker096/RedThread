@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { validateAdEventPayload, AD_IMPRESSION_CAP_24H } from './adEvents.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
