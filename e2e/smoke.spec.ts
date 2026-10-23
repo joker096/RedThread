@@ -830,30 +830,11 @@ test('vertical swipe on photo navigation does not suppress the next gallery clic
       bubbles: true, cancelable: true, touches: [], changedTouches: [end]
     }));
   });
-  await expect(photo).toHaveClass(/h-16/);
-
-  await page.evaluate(() => {
-    const target = document.querySelector('.vow-profile-photo img');
-    if (!target) throw new Error('Collapsed profile photo is not mounted');
-    const makeTouch = (y: number) => new Touch({
-      identifier: 62,
-      target,
-      clientX: 180,
-      clientY: y,
-      screenX: 180,
-      screenY: y
-    });
-    const start = makeTouch(180);
-    target.dispatchEvent(new TouchEvent('touchstart', {
-      bubbles: true, cancelable: true, touches: [start], changedTouches: [start]
-    }));
-    const end = makeTouch(260);
-    target.dispatchEvent(new TouchEvent('touchend', {
-      bubbles: true, cancelable: true, touches: [], changedTouches: [end]
-    }));
-  });
+  // A vertical drag that starts on a gallery control must not collapse the photo.
   await expect(photo).toHaveClass(/h-72/);
+  await expect(photo.locator('button[aria-expanded="true"]')).toBeVisible();
 
+  // The vertical drag must not leave a suppressed click behind; normal gallery navigation still works.
   await photo.getByTestId('profile-photo-next').click();
   await expect(image).not.toHaveAttribute('src', firstSrc ?? '');
   await expect(card).toBeVisible();
