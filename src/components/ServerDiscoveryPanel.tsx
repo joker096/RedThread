@@ -619,7 +619,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                     });
                     return;
                   }
-                  if (Math.abs(deltaY) >= Math.abs(deltaX)) return;
+                  if (Math.abs(deltaX) < Math.abs(deltaY) * 1.15) return;
                   const action = getSwipeActionFromDelta(deltaX);
                   if (action === 'like') void like(profile);
                   else if (action === 'pass') void pass(profile);
