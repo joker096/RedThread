@@ -858,3 +858,64 @@ test('vertical swipe on photo navigation does not suppress the next gallery clic
   await expect(image).not.toHaveAttribute('src', firstSrc ?? '');
   await expect(card).toBeVisible();
 });
+
+
+test('cancelled vertical photo swipe does not collapse the image and the next swipe works', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const photo = page.locator('.vow-profile-card').first().locator('.vow-profile-photo');
+  const image = photo.locator('img');
+  await expect(photo).toHaveClass(/h-72/);
+
+  await page.evaluate(() => {
+    const target = document.querySelector('.vow-profile-photo img');
+    if (!target) throw new Error('Profile photo image is not mounted');
+    const makeTouch = (y: number) => new Touch({
+      identifier: 71,
+      target,
+      clientX: 180,
+      clientY: y,
+      screenX: 180,
+      screenY: y
+    });
+    const start = makeTouch(260);
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true, cancelable: true, touches: [start], changedTouches: [start]
+    }));
+    target.dispatchEvent(new TouchEvent('touchcancel', {
+      bubbles: true, cancelable: true, touches: [], changedTouches: [start]
+    }));
+    const lateEnd = makeTouch(180);
+    target.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true, cancelable: true, touches: [], changedTouches: [lateEnd]
+    }));
+  });
+
+  await expect(photo).toHaveClass(/h-72/);
+
+  await page.evaluate(() => {
+    const target = document.querySelector('.vow-profile-photo img');
+    if (!target) throw new Error('Profile photo image is not mounted');
+    const makeTouch = (y: number) => new Touch({
+      identifier: 72,
+      target,
+      clientX: 180,
+      clientY: y,
+      screenX: 180,
+      screenY: y
+    });
+    const start = makeTouch(260);
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true, cancelable: true, touches: [start], changedTouches: [start]
+    }));
+    const end = makeTouch(180);
+    target.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true, cancelable: true, touches: [], changedTouches: [end]
+    }));
+  });
+
+  await expect(photo).toHaveClass(/h-16/);
+  await expect(image).toBeVisible();
+});
