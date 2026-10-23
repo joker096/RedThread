@@ -1,5 +1,7 @@
 # RevenueCat Web Billing + Paddle Sandbox
 
+Russian seller onboarding, Georgia payout notes, KYC, tax form caveats, and Paddle product-policy checks: [PADDLE_REVENUECAT_ONBOARDING_RU.md](PADDLE_REVENUECAT_ONBOARDING_RU.md).
+
 Vow's browser subscription panel uses RevenueCat Web Billing, with Paddle Billing as its payment provider. RevenueCat sends webhooks to Vow; the server checks the current Premium entitlement against RevenueCat before enabling paid features. The old direct Paddle Sandbox integration remains available for backwards compatibility.
 
 **The integration is sandbox-only until the purchase lifecycle has been verified.** Do not enable live billing as part of initial setup.
