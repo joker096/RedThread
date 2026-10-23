@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 import { PaddleSubscriptionPanel } from './PaddleSubscriptionPanel.tsx';
 
@@ -129,6 +129,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
   const [googleClientId, setGoogleClientId] = useState('');
   const [googleCredential, setGoogleCredential] = useState<string | null>(null);
   const googleButtonRef = useRef<HTMLDivElement | null>(null);
+  const googleAuthInFlightRef = useRef(false);
   const [canResendVerification, setCanResendVerification] = useState(false);
   const [showReset, setShowReset] = useState(false);
   const [resetToken, setResetToken] = useState('');
@@ -187,9 +188,10 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
     return () => { cancelled = true; auxiliaryRequestIdRef.current += 1; };
   }, []);
 
-  const handleGoogleCredential = async (credential: string) => {
-    if (!credential || busy) return;
-    const actionId = ++sessionActionIdRef.current;
+  const handleGoogleCredential = useCallback(async (credential: string) => {
+    if (!credential || googleAuthInFlightRef.current) return;
+    googleAuthInFlightRef.current = true;
+    let actionId = ++sessionActionIdRef.current;
     auxiliaryRequestIdRef.current += 1;
     setBusy(true);
     setMessage('');
@@ -216,21 +218,22 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       }
       const normalizedUser = normalizeAccountUser(data?.user);
       if (!normalizedUser) throw new Error(t('authRequestFailed'));
-      const signedInActionId = ++sessionActionIdRef.current;
+      actionId = ++sessionActionIdRef.current;
       setGoogleCredential(null);
       setUser(normalizedUser);
       window.dispatchEvent(new Event('vow:session-changed'));
       const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
-      if (sessionActionIdRef.current !== signedInActionId) return;
+      if (sessionActionIdRef.current !== actionId) return;
       setBillingStatus(isBillingStatus(billing) ? billing : null);
       setMessage(t('authSignedIn'));
       onAuthenticated();
     } catch (error) {
       if (sessionActionIdRef.current === actionId) setMessage(error instanceof Error ? error.message : t('authConnectionFailed'));
     } finally {
+      googleAuthInFlightRef.current = false;
       if (sessionActionIdRef.current === actionId) setBusy(false);
     }
-  };
+  }, [onAuthenticated, t]);
 
   useEffect(() => {
     let cancelled = false;
