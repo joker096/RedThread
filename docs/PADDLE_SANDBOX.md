@@ -37,4 +37,4 @@ The repository change can prepare the integration, but it cannot create products
 
 ## Payment provider scope
 
-Vow currently supports Paddle only. This project uses Paddle Sandbox exclusively until checkout, webhook handling, and entitlement checks are validated end to end. Stripe endpoints and credentials are not supported. Do not configure production payments until the sandbox acceptance checklist is complete.
+Vow currently supports Paddle only. This project uses Paddle Sandbox exclusively until checkout, webhook handling, and entitlement checks are validated end to end. Do not configure production payments until the sandbox acceptance checklist is complete.
