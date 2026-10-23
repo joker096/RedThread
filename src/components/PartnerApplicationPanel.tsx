@@ -20,6 +20,10 @@ type Application = {
   city: string;
   website: string;
   serviceDescription: string;
+  priceFrom: string;
+  priceCurrency: string;
+  serviceLanguages: string;
+  availabilityNote: string;
 };
 
 const emptyApplication: Application = {
@@ -30,7 +34,11 @@ const emptyApplication: Application = {
   country: '',
   city: '',
   website: '',
-  serviceDescription: ''
+  serviceDescription: '',
+  priceFrom: '',
+  priceCurrency: 'USD',
+  serviceLanguages: '',
+  availabilityNote: ''
 };
 
 export const PartnerApplicationPanel: React.FC = () => {
@@ -113,6 +121,22 @@ export const PartnerApplicationPanel: React.FC = () => {
           <label className={labelClass}>Сайт или публичная страница (необязательно)
             <input type="url" maxLength={500} placeholder="https://example.com" value={application.website} onChange={event => update('website', event.target.value)} className={fieldClass} />
           </label>
+          <div className="grid gap-3 min-[420px]:grid-cols-2">
+            <label className={labelClass}>Цена от (необязательно)
+              <input type="number" min="0" max="10000000" step="0.01" inputMode="decimal" placeholder="Например, 150" value={application.priceFrom} onChange={event => update('priceFrom', event.target.value)} className={fieldClass} />
+            </label>
+            <label className={labelClass}>Валюта цены
+              <select value={application.priceCurrency} onChange={event => update('priceCurrency', event.target.value)} className={fieldClass}>
+                <option value="USD">USD · доллар США</option><option value="GEL">GEL · лари</option><option value="EUR">EUR · евро</option><option value="RUB">RUB · рубль</option><option value="KZT">KZT · тенге</option><option value="AMD">AMD · драм</option>
+              </select>
+            </label>
+            <label className={labelClass}>Языки обслуживания (через запятую)
+              <input maxLength={500} placeholder="Русский, English" value={application.serviceLanguages} onChange={event => update('serviceLanguages', event.target.value)} className={fieldClass} />
+            </label>
+            <label className={labelClass}>Доступность / сезон (необязательно)
+              <input maxLength={500} placeholder="Например: по предварительной записи" value={application.availabilityNote} onChange={event => update('availabilityNote', event.target.value)} className={fieldClass} />
+            </label>
+          </div>
           <label className={labelClass}>Какие услуги вы оказываете?
             <textarea required minLength={20} maxLength={2000} rows={4} value={application.serviceDescription} onChange={event => update('serviceDescription', event.target.value)} className={fieldClass + ' resize-y'} />
           </label>
