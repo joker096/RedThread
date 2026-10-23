@@ -57,12 +57,12 @@ const countryNames: Record<CountryCode, string> = {
 interface PartnerServicesMarketplaceProps {
   isOpen: boolean;
   onClose: () => void;
-  coupleNames: string;
-  compatibilityScore: number;
+  matchId: string;
+  partnerName: string;
 }
 
 export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProps> = ({
-  isOpen, onClose, coupleNames, compatibilityScore
+  isOpen, onClose, matchId, partnerName
 }) => {
   const [category, setCategory] = useState<ServiceCategory>('all');
   const [country, setCountry] = useState<CountryCode>('GE');
@@ -78,6 +78,12 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
   const [publishedPartners, setPublishedPartners] = useState<PublishedPartner[]>([]);
   const [partnersLoading, setPartnersLoading] = useState(false);
   const [partnersError, setPartnersError] = useState('');
+  const [inquiryProvider, setInquiryProvider] = useState<PublishedPartner | null>(null);
+  const [inquiryNote, setInquiryNote] = useState('');
+  const [serviceDate, setServiceDate] = useState('');
+  const [shareContact, setShareContact] = useState(false);
+  const [inquiryBusy, setInquiryBusy] = useState(false);
+  const [inquiryStatus, setInquiryStatus] = useState('');
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
 
@@ -159,11 +165,42 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
     };
   }, [isOpen]);
 
-  const filtered = useMemo(() => providerExamples.filter(p =>
-    (category === 'all' || p.category === category) && p.countries.includes(country)
-  ), [category, country]);
-
   if (!isOpen) return null;
+
+  const submitInquiry = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!inquiryProvider || !shareContact || inquiryNote.trim().length < 20 || inquiryBusy) return;
+    setInquiryBusy(true);
+    setInquiryStatus('');
+    try {
+      const response = await fetch('/api/partner-service-inquiries', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          applicationId: inquiryProvider.id,
+          matchId,
+          requestKey: crypto.randomUUID(),
+          requestNote: inquiryNote.trim(),
+          serviceDate: serviceDate || null,
+          shareContact: true
+        })
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(response.status === 401 ? 'Войдите в аккаунт, чтобы отправить запрос.' :
+        response.status === 503 || response.status === 502 ? 'Связь с поставщиком временно недоступна. Попробуйте позже.' :
+        'Не удалось отправить запрос. Проверьте данные и попробуйте ещё раз.');
+      setInquiryStatus(data?.sent ? 'Запрос отправлен поставщику. Его контактные данные не раскрывались.' : 'Запрос принят в обработку.');
+      setInquiryProvider(null);
+      setInquiryNote('');
+      setServiceDate('');
+      setShareContact(false);
+    } catch (error) {
+      setInquiryStatus(error instanceof Error ? error.message : 'Не удалось отправить запрос.');
+    } finally {
+      setInquiryBusy(false);
+    }
+  };
 
   const isLegal = category === 'legal';
   const handleSubmitProvider = (e: React.FormEvent<HTMLFormElement>) => {
@@ -192,7 +229,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
               <div>
                 <p className="text-[10px] uppercase tracking-[0.18em] text-rose-300 font-bold">Следующий этап для пары</p>
                 <h2 id="partner-services-title" className="text-xl sm:text-2xl font-black text-white">Планирование свадьбы и юридические услуги</h2>
-                <p id="partner-services-description" className="text-xs sm:text-sm text-stone-300 mt-1">Для пары: {coupleNames} · индекс совместимости {compatibilityScore}%</p>
+                <p id="partner-services-description" className="text-xs sm:text-sm text-stone-300 mt-1">Услуги для вас и {partnerName}. Запрос отправляется только выбранному поставщику.</p>
               </div>
             </div>
             <button type="button" onClick={onClose} className="flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-transparent bg-white/5 text-stone-300 hover:text-white focus-visible:border-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" aria-label="Закрыть"><X className="w-5 h-5" /></button>
@@ -273,7 +310,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
               <p role="status" aria-live="polite" aria-atomic="true" className="text-xs text-stone-400">{partnersLoading ? 'Загружаем каталог…' : `${publishedPartners.length} партнёров`}</p>
             </div>
             {partnersError && <p role="alert" className="mb-3 rounded-xl border border-amber-700/30 bg-amber-950/20 p-3 text-xs text-amber-100">{partnersError}</p>}
-            {!partnersLoading && !partnersError && publishedPartners.length === 0 && <p role="status" className="mb-3 rounded-xl border border-white/10 bg-stone-950/50 p-4 text-sm text-stone-400">Пока нет опубликованных партнёров для этого фильтра. Ниже показаны примеры, они не являются реальными предложениями.</p>}
+            {!partnersLoading && !partnersError && publishedPartners.length === 0 && <p role="status" className="mb-3 rounded-xl border border-white/10 bg-stone-950/50 p-4 text-sm text-stone-400">Опубликованных партнёров для выбранного фильтра пока нет.</p>}
             {publishedPartners.length > 0 && <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {publishedPartners.map(provider => {
                 const matchedCategory = provider.category === 'photography' || provider.category === 'videography' ? 'photo' : provider.category;
@@ -289,27 +326,27 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                     {provider.serviceLanguages?.length > 0 && <p><strong className="text-white">Языки:</strong> {provider.serviceLanguages.join(', ')}</p>}
                     {provider.availabilityNote && <p><strong className="text-white">Доступность:</strong> {provider.availabilityNote}</p>}
                   </div>
-                  {provider.website && <a href={provider.website} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex min-h-11 items-center rounded-lg border border-emerald-700/40 px-3 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-950/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">Открыть сайт исполнителя <ChevronRight className="ml-1 h-3.5 w-3.5" /></a>}
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button type="button" onClick={() => { setInquiryProvider(provider); setInquiryStatus(''); setShareContact(false); }} className="inline-flex min-h-11 items-center rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">Запросить предложение</button>
+                    {provider.website && <a href={provider.website} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center rounded-lg border border-emerald-700/40 px-3 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-950/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">Открыть сайт исполнителя <ChevronRight className="ml-1 h-3.5 w-3.5" /></a>}
+                  </div>
                 </article>;
               })}
             </div>}
           </section>
 
-          <p role="status" aria-live="polite" aria-atomic="true" className="mb-3 text-xs text-stone-400">{filtered.length} демонстрационных услуг · {countryNames[country]} · {categories.find(item => item.id === category)?.label}</p>
-          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
-            {filtered.map(provider => {
-              const Icon = categories.find(c => c.id === provider.category)?.icon || HeartHandshake;
-              return <article key={provider.id} className="rounded-2xl border border-white/10 bg-stone-950/60 p-4">
-                <div className="flex items-start justify-between gap-2"><div className="w-10 h-10 rounded-xl bg-rose-600/15 text-rose-300 flex items-center justify-center"><Icon className="w-5 h-5" /></div><span className="text-[9px] rounded-full border border-amber-700/40 bg-amber-950/40 px-2 py-1 text-amber-200">{provider.verificationLabel}</span></div>
-                <h3 className="mt-3 font-bold text-white">{provider.title}</h3>
-                <p className="text-xs text-stone-400 mt-1">{provider.name}</p>
-                <p className="text-xs text-stone-300 mt-3 leading-relaxed">{provider.description}</p>
-                <div className="mt-4 flex items-center justify-between gap-2 border-t border-white/5 pt-3"><span className="text-xs font-semibold text-stone-200">{provider.price}</span><button type="button" aria-label={`Показать похожие услуги: ${provider.title}`} onClick={() => { setShowProviderForm(false); setCategory(provider.category); }} className="inline-flex min-h-11 items-center gap-1 rounded-md border border-transparent px-2 text-xs font-bold text-rose-300 focus-visible:border-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">Похожие услуги <ChevronRight className="w-3.5 h-3.5" /></button></div>
-              </article>;
-            })}
-          </div>
-          {filtered.length === 0 && <div role="status" aria-live="polite" aria-atomic="true" className="rounded-2xl border border-white/10 p-8 text-center text-sm text-stone-400">Для выбранной страны и категории пока нет демонстрационных карточек.</div>}
-
+          {inquiryStatus && <p role="status" aria-live="polite" className="mt-4 rounded-xl border border-emerald-700/30 bg-emerald-950/20 p-3 text-sm text-emerald-100">{inquiryStatus}</p>}
+          {inquiryProvider && <form onSubmit={submitInquiry} className="mt-4 space-y-3 rounded-2xl border border-emerald-700/30 bg-stone-950/70 p-4">
+            <div><h3 className="font-bold text-white">Запрос для {inquiryProvider.businessName}</h3><p className="mt-1 text-xs text-stone-300">Опишите, что вам нужно. Не указывайте паспортные, платёжные или другие чувствительные данные.</p></div>
+            <label className="block text-xs font-semibold text-stone-200">Сообщение поставщику
+              <textarea required minLength={20} maxLength={2000} value={inquiryNote} onChange={event => setInquiryNote(event.target.value)} rows={4} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300" placeholder="Например: хотим узнать цену и свободные даты для фотосъёмки." />
+            </label>
+            <label className="block text-xs font-semibold text-stone-200">Желаемая дата (необязательно)
+              <input type="date" value={serviceDate} onChange={event => setServiceDate(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-900 px-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300" />
+            </label>
+            <label className="flex items-start gap-2 text-xs leading-relaxed text-stone-200"><input required type="checkbox" checked={shareContact} onChange={event => setShareContact(event.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-500" /><span>Я согласен(на) передать поставщику моё имя, email, желаемую дату и сообщение для ответа на запрос. Имя, контакты и переписка второго участника не передаются.</span></label>
+            <div className="flex flex-wrap gap-2"><button type="submit" disabled={inquiryBusy || !shareContact || inquiryNote.trim().length < 20} className="min-h-11 rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{inquiryBusy ? 'Отправляем…' : 'Отправить запрос'}</button><button type="button" onClick={() => setInquiryProvider(null)} disabled={inquiryBusy} className="min-h-11 rounded-lg border border-white/15 px-4 py-2 text-xs text-stone-200">Отмена</button></div>
+          </form>}
           <div className="mt-5 grid md:grid-cols-2 gap-3">
             <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-4">
               <div className="flex items-center gap-2 text-white font-bold text-sm"><Wallet className="w-4 h-4 text-rose-300" /> Как сервис сможет зарабатывать</div>
