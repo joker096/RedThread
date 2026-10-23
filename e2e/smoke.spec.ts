@@ -1207,6 +1207,8 @@ test('mobile photo toggle keeps a 44px minimum touch target when expanded and co
   const expandedToggle = photo.locator('button[aria-expanded="true"]');
   await expect(expandedToggle).toBeVisible();
 
+  await expect.poll(async () => (await expandedToggle.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+  await expect.poll(async () => (await expandedToggle.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(44);
   const expandedSize = await expandedToggle.evaluate(element => {
     const rect = element.getBoundingClientRect();
     return { width: rect.width, height: rect.height };
@@ -1219,6 +1221,8 @@ test('mobile photo toggle keeps a 44px minimum touch target when expanded and co
   const collapsedToggle = photo.locator('button[aria-expanded="false"]');
   await expect(collapsedToggle).toBeVisible();
 
+  await expect.poll(async () => (await collapsedToggle.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+  await expect.poll(async () => (await collapsedToggle.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(44);
   const collapsedSize = await collapsedToggle.evaluate(element => {
     const rect = element.getBoundingClientRect();
     return { width: rect.width, height: rect.height };
