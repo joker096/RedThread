@@ -65,6 +65,7 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
         }
         const paddle = await initializePaddle({ token: next.clientToken, environment: 'sandbox' });
         if (cancelled) return;
+        if (!paddle) throw new Error('paddle_sdk_initialization_failed');
         paddleRef.current = paddle as unknown as PaddleRuntime;
         setConfig(next);
 
@@ -79,7 +80,7 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
               return [plan.id, null] as const;
             }
           }));
-          if (!cancelled) setPrices(Object.fromEntries(previews.filter((entry): entry is readonly [string, string] => Boolean(entry[1]))) as PriceLabels);
+          if (!cancelled) setPrices(Object.fromEntries(previews.filter(entry => Boolean(entry[1])) as Array<readonly [string, string]>));
         }
       } catch {
         if (!cancelled) {
