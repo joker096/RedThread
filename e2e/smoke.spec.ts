@@ -355,3 +355,126 @@ test('profile editor clears private data when saving with an expired session', a
   await expect(displayName).toHaveCount(0);
   await expect(page.getByTestId('profile-login-button')).toBeVisible();
 });
+
+test('mobile profile card reveals details on upward swipe and restores photo on downward swipe', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const card = page.locator('.vow-profile-card').first();
+  const photo = card.locator('.vow-profile-photo');
+  const details = card.locator('.vow-profile-details');
+  await expect(card).toBeVisible();
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(details).toBeVisible();
+
+  const swipeDetails = async (fromY: number, toY: number) => {
+    await page.evaluate(({ fromY, toY }) => {
+      const target = document.querySelector('.vow-profile-card .vow-profile-details');
+      if (!target) throw new Error('Profile details are not mounted');
+      const makeTouch = (y: number) => new Touch({
+        identifier: 7,
+        target,
+        clientX: 180,
+        clientY: y,
+        screenX: 180,
+        screenY: y
+      });
+      const startTouch = makeTouch(fromY);
+      target.dispatchEvent(new TouchEvent('touchstart', {
+        bubbles: true,
+        cancelable: true,
+        touches: [startTouch],
+        changedTouches: [startTouch]
+      }));
+      const endTouch = makeTouch(toY);
+      target.dispatchEvent(new TouchEvent('touchend', {
+        bubbles: true,
+        cancelable: true,
+        touches: [],
+        changedTouches: [endTouch]
+      }));
+    }, { fromY, toY });
+  };
+
+  await swipeDetails(240, 160);
+  await expect(photo).toHaveClass(/h-16/);
+
+  await swipeDetails(160, 240);
+  await expect(photo).toHaveClass(/h-72/);
+});
+
+
+test('server discovery swipe mode collapses and restores profile photos vertically', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/profiles/search**', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        profiles: [{
+          id: 'mobile-swipe-profile',
+          displayName: 'Тестовый профиль',
+          age: 31,
+          gender: 'female',
+          country: 'Georgia',
+          city: 'Tbilisi',
+          bio: 'Проверка жестов',
+          photoUrls: ['/test-profile-photo.jpg'],
+          occupation: 'Designer',
+          education: 'University',
+          languages: ['Russian'],
+          relationshipIntent: 'marriage_family',
+          familyFormat: 'marriage',
+          hasChildren: false,
+          wantsChildren: 'yes',
+          childrenLivingArrangement: 'not_applicable',
+          financialAlignment: 82,
+          compatibilityScore: 90
+        }]
+      })
+    });
+  });
+
+  await page.goto('/');
+  const card = page.locator('.vow-profile-card').filter({ hasText: 'Тестовый профиль' }).first();
+  await expect(card).toBeVisible();
+  await page.getByTestId('server-discovery-swipe-mode').click();
+  await expect(card).toHaveAttribute('aria-label', /Тестовый профиль/i);
+  const photo = card.locator('img[alt*="Тестовый профиль"]');
+  await expect(photo).toBeVisible();
+
+  const swipeCard = async (fromY: number, toY: number) => {
+    await page.evaluate(({ fromY, toY }) => {
+      const target = document.querySelector('.vow-profile-card[aria-label*="Тестовый профиль"]');
+      if (!target) throw new Error('Server profile card is not mounted');
+      const makeTouch = (y: number) => new Touch({
+        identifier: 9,
+        target,
+        clientX: 180,
+        clientY: y,
+        screenX: 180,
+        screenY: y
+      });
+      const startTouch = makeTouch(fromY);
+      target.dispatchEvent(new TouchEvent('touchstart', {
+        bubbles: true,
+        cancelable: true,
+        touches: [startTouch],
+        changedTouches: [startTouch]
+      }));
+      const endTouch = makeTouch(toY);
+      target.dispatchEvent(new TouchEvent('touchend', {
+        bubbles: true,
+        cancelable: true,
+        touches: [],
+        changedTouches: [endTouch]
+      }));
+    }, { fromY, toY });
+  };
+
+  await swipeCard(240, 160);
+  await expect(photo).toHaveCount(0);
+  await swipeCard(160, 240);
+  await expect(photo).toBeVisible();
+});

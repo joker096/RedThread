@@ -204,6 +204,12 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
   };
 
   const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    // Leave pinch/zoom gestures to the browser and assistive interaction tools.
+    if (event.touches.length !== 1) {
+      touchStartX.current = null;
+      touchStartY.current = null;
+      return;
+    }
     touchStartX.current = event.touches[0]?.clientX ?? null;
     touchStartY.current = event.touches[0]?.clientY ?? null;
   };
@@ -217,8 +223,19 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
     const end = touch?.clientX;
     const endY = touch?.clientY;
     if (start === null || end === undefined) return;
-    if (startY !== null && endY !== undefined && Math.abs(endY - startY) > Math.abs(end - start)) return;
-    const action = getSwipeActionFromDelta(end - start);
+    const deltaX = end - start;
+    const deltaY = startY !== null && endY !== undefined ? endY - startY : 0;
+    // Vertical gestures reveal profile details; horizontal gestures remain like/pass.
+    // Keep buttons usable without turning an accidental finger movement into a card toggle.
+    if (startY !== null && endY !== undefined &&
+        Math.abs(deltaY) >= 48 && Math.abs(deltaY) > Math.abs(deltaX) * 1.15) {
+      if (!(event.target as HTMLElement).closest('button, input, select, textarea, a')) {
+        setPhotoCollapsed(deltaY < 0);
+      }
+      return;
+    }
+    if (startY !== null && endY !== undefined && Math.abs(deltaX) < Math.abs(deltaY) * 1.15) return;
+    const action = getSwipeActionFromDelta(deltaX);
     if (currentProfile?.isSponsorAd) {
       if (action !== 'none') { onPass(currentProfile); handleNext('ad'); }
       return;
@@ -293,7 +310,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
       </div>
 
       {/* Main Full-Bleed Card Container */}
-      <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} className="vow-profile-card vow-surface-enter w-full relative rounded-3xl overflow-hidden bg-stone-900 border border-white/10 shadow-2xl transition-all">
+      <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} onTouchCancel={() => { touchStartX.current = null; touchStartY.current = null; }} className="vow-profile-card vow-surface-enter w-full relative rounded-3xl overflow-hidden bg-stone-900 border border-white/10 shadow-2xl transition-all">
         {currentProfile.isSponsorAd ? (
           /* Native sponsored placement: profile-feed styling, clearly disclosed and responsive. */
           <article aria-label={t('sponsorFirstDate')} className="flex w-full flex-col text-left">
@@ -375,7 +392,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
           /* Profile card */
           <div className="flex flex-col w-full text-left">
             {/* Top Photo Frame */}
-            <div onTouchStart={event => { const touch = event.touches[0]; photoTouchStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null; }} onTouchEnd={event => { const start = photoTouchStart.current; photoTouchStart.current = null; const touch = event.changedTouches[0]; if (!start || !touch) return; const dx = touch.clientX - start.x; const dy = touch.clientY - start.y; if (Math.abs(dy) >= 48 && Math.abs(dy) > Math.abs(dx)) { setPhotoCollapsed(dy < 0); event.stopPropagation(); return; }  }} className={"vow-profile-photo relative w-full overflow-hidden bg-stone-950 select-none transition-[height] duration-300 " + (photoCollapsed ? "h-16 sm:h-20" : "h-72 sm:h-80")}>
+            <div onTouchStart={event => { const touch = event.touches.length === 1 ? event.touches[0] : null; photoTouchStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null; }} onTouchEnd={event => { const start = photoTouchStart.current; photoTouchStart.current = null; const touch = event.changedTouches[0]; if (!start || !touch) return; const dx = touch.clientX - start.x; const dy = touch.clientY - start.y; if (Math.abs(dy) >= 48 && Math.abs(dy) > Math.abs(dx)) { setPhotoCollapsed(dy < 0); event.stopPropagation(); return; }  }} onTouchCancel={() => { photoTouchStart.current = null; }} className={"vow-profile-photo relative w-full overflow-hidden bg-stone-950 select-none transition-[height] duration-300 " + (photoCollapsed ? "h-16 sm:h-20" : "h-72 sm:h-80")}>
               <img
                 src={currentProfile.photos[photoIndex] || currentProfile.avatar}
                 alt={currentProfile.name}
@@ -486,7 +503,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
               {/* Vignette Shadow */}
               <div className="absolute inset-0 bg-gradient-to-t from-stone-950 via-stone-950/20 to-transparent pointer-events-none"></div>
               </>}
-              <button type="button" onClick={() => setPhotoCollapsed(value => !value)} aria-label={photoCollapsed ? t('expandPhoto') : t('collapsePhoto')} title={photoCollapsed ? t('expandPhoto') : t('collapsePhoto')} className="absolute bottom-2 right-2 z-30 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-full border border-white/20 px-3 bg-stone-950/85 text-white shadow-lg backdrop-blur-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">{photoCollapsed ? <ChevronDown aria-hidden="true" className="h-4 w-4" /> : <ChevronUp aria-hidden="true" className="h-4 w-4" />}<span className="text-[11px] font-semibold">{photoCollapsed ? t('expandPhoto') : t('collapsePhoto')}</span></button>
+              <button type="button" onClick={() => setPhotoCollapsed(value => !value)} aria-label={photoCollapsed ? t('expandPhoto') : t('collapsePhoto')} aria-expanded={!photoCollapsed} title={photoCollapsed ? t('expandPhoto') : t('collapsePhoto')} className="absolute bottom-2 right-2 z-30 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-full border border-white/20 px-3 bg-stone-950/85 text-white shadow-lg backdrop-blur-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">{photoCollapsed ? <ChevronDown aria-hidden="true" className="h-4 w-4" /> : <ChevronUp aria-hidden="true" className="h-4 w-4" />}<span className="text-[11px] font-semibold">{photoCollapsed ? t('expandPhoto') : t('collapsePhoto')}</span></button>
             </div>
 
             {/* Profile Info & Psychological Cards */}
