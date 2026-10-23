@@ -160,7 +160,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
                   ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/30'
                   : 'bg-rose-950/80 text-rose-300 border border-rose-500/30'
               }`}>
-                {riskReport.isSafe ? 'Низкий риск (демо)' : 'Есть признаки риска'}
+                {riskReport.isSafe ? 'Низкий риск (демо)' : 'Есть признаки риска (демо)'}
               </span>
             </div>
             <p id="bot-safety-description" className="text-xs text-stone-400">
@@ -175,7 +175,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
             <div className="flex items-center gap-2">
               <Activity className="w-4 h-4 text-emerald-400 animate-pulse" />
               <span className="text-xs font-bold text-white uppercase tracking-wider">
-                {isScanning ? 'Проверяем текстовые признаки...' : 'Эвристическая оценка риска (демо)'}
+                {isScanning ? 'Проверяем текстовые признаки...' : 'Локальная демо-эвристика — не проверка безопасности'}
               </span>
             </div>
             <span className={`text-base font-heading font-black ${
@@ -197,7 +197,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
 
           <p className="text-[11px] text-stone-300 leading-relaxed">
             {riskReport.isSafe
-              ? 'Оценка учитывает текст анкеты и тестовые поля. Она не подтверждает личность и не гарантирует отсутствие мошенничества.'
+              ? 'Это локальная демонстрационная оценка по тексту и тестовым полям. Она не подтверждает личность, не является результатом серверной модерации и не гарантирует отсутствие мошенничества.'
               : 'Обнаружены текстовые признаки риска. Это предварительный сигнал, а не окончательный вывод о пользователе.'}
           </p>
         </div>
@@ -224,7 +224,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
               <div>
                 <span className="text-white font-medium">Фильтр спама и внешних ссылок</span>
-                <p className="text-[10px] text-stone-400">Проверка текста на сторонние Telegram-боты и крипту</p>
+                <p className="text-[10px] text-stone-400">Локальная демонстрационная эвристика; серверная модерация не подключена</p>
               </div>
             </div>
             <span className={`text-xs font-bold font-mono ${
@@ -254,13 +254,13 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
               <FileCheck2 className="w-4 h-4 text-emerald-400" />
               <div>
                 <span className="text-white font-medium">Жалобы сообщества</span>
-                <p className="text-[10px] text-stone-400">История нарушений правил честных знакомств</p>
+                <p className="text-[10px] text-stone-400">Тестовые данные профиля; реальная история жалоб не загружена</p>
               </div>
             </div>
             <span className={`text-xs font-bold font-mono ${
               targetProfile.verification.reportCount === 0 ? 'text-emerald-400' : 'text-rose-400'
             }`}>
-              {targetProfile.verification.reportCount} жалоб
+              {targetProfile.verification.reportCount} жалоб (демо)
             </span>
           </div>
         </div>
