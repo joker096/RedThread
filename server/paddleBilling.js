@@ -66,16 +66,38 @@ export async function processPaddleEvent(pool, rawEvent) {
         [customUserId, customerId, subscriptionId, status, priceId, active, active ? periodEnd : null, occurredAt]
       );
     } else if (eventType === 'transaction.completed') {
-      // A completed transaction alone does not grant access. Access is provisioned
-      // from a verified subscription lifecycle event to avoid trusting checkout state.
-      await client.query(
-        `UPDATE users SET
-          paddle_customer_id = COALESCE($2, paddle_customer_id),
-          paddle_subscription_id = COALESCE($3, paddle_subscription_id),
-          updated_at = NOW()
-        WHERE id = COALESCE($1::uuid, (SELECT id FROM users WHERE paddle_subscription_id = $3 LIMIT 1))`,
-        [customUserId, customerId, subscriptionId]
+      // A verified completed transaction can grant the one-time lifetime plan,
+      // but only when its server-configured Paddle price matches the expected price.
+      const transactionItems = Array.isArray(data.items) ? data.items : [];
+      const lifetimePriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
+      const includesLifetimePrice = Boolean(lifetimePriceId) && transactionItems.some(item =>
+        (item?.priceId || item?.price_id || item?.price?.id) === lifetimePriceId
       );
+      if (customData.plan === 'lifetime' && includesLifetimePrice && customUserId) {
+        await client.query(
+          `UPDATE users SET
+            paddle_customer_id = COALESCE($2, paddle_customer_id),
+            paddle_subscription_id = NULL,
+            paddle_subscription_status = 'completed',
+            paddle_price_id = $3,
+            premium_lifetime = TRUE,
+            premium_until = NULL,
+            updated_at = NOW()
+          WHERE id = $1::uuid`,
+          [customUserId, customerId, lifetimePriceId]
+        );
+      } else {
+        // Recurring subscriptions are provisioned only by verified subscription
+        // lifecycle events, never by the checkout redirect or transaction alone.
+        await client.query(
+          `UPDATE users SET
+            paddle_customer_id = COALESCE($2, paddle_customer_id),
+            paddle_subscription_id = COALESCE($3, paddle_subscription_id),
+            updated_at = NOW()
+          WHERE id = COALESCE($1::uuid, (SELECT id FROM users WHERE paddle_subscription_id = $3 LIMIT 1))`,
+          [customUserId, customerId, subscriptionId]
+        );
+      }
     } else if (eventType === 'customer.created' || eventType === 'customer.updated') {
       const customerEmail = data.email;
       if (customUserId && customerId && typeof customerEmail === 'string') {
