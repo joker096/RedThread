@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 
 type ServiceCategory = 'all' | 'legal' | 'dress' | 'photo' | 'host' | 'venue' | 'beauty' | 'cafe' | 'transport' | 'other';
-type PublishedPartner = { id: string; category: string; businessName: string; country: string; city: string; website: string; serviceDescription: string; publishedAt: string };
+type PublishedPartner = { id: string; category: string; businessName: string; country: string; city: string; website: string; serviceDescription: string; priceFrom: string | number | null; priceCurrency: string; serviceLanguages: string[]; availabilityNote: string; publishedAt: string };
 type CountryCode = 'GE' | 'RU' | 'KZ' | 'AM' | 'OTHER';
 
 interface ProviderExample {
@@ -284,6 +284,11 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                   <p className="mt-3 text-[10px] uppercase tracking-wide text-stone-400">{categoryLabel} · {provider.city}, {provider.country}</p>
                   <h4 className="mt-1 font-bold text-white">{provider.businessName}</h4>
                   <p className="mt-3 whitespace-pre-wrap break-words text-xs leading-relaxed text-stone-300">{provider.serviceDescription}</p>
+                  <div className="mt-3 space-y-1 text-xs text-stone-300">
+                    {provider.priceFrom !== null && provider.priceFrom !== undefined && <p><strong className="text-white">Ориентир:</strong> от {Number(provider.priceFrom).toLocaleString('ru-RU')} {provider.priceCurrency}</p>}
+                    {provider.serviceLanguages?.length > 0 && <p><strong className="text-white">Языки:</strong> {provider.serviceLanguages.join(', ')}</p>}
+                    {provider.availabilityNote && <p><strong className="text-white">Доступность:</strong> {provider.availabilityNote}</p>}
+                  </div>
                   {provider.website && <a href={provider.website} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex min-h-11 items-center rounded-lg border border-emerald-700/40 px-3 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-950/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">Открыть сайт исполнителя <ChevronRight className="ml-1 h-3.5 w-3.5" /></a>}
                 </article>;
               })}
