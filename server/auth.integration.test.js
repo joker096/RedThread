@@ -141,6 +141,19 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal('password_hash' in registered.user, false);
     const firstCookie = registration.headers.get('set-cookie')?.split(';')[0];
     assert.ok(firstCookie?.startsWith('nit_session='));
+
+    const inquiryWithoutConsent = await request('/api/partner-service-inquiries', {
+      method: 'POST',
+      headers: { Cookie: firstCookie },
+      body: JSON.stringify({
+        applicationId: randomUUID(),
+        matchId: randomUUID(),
+        requestKey: randomUUID(),
+        requestNote: 'Please send details about this service.',
+        shareContact: false
+      })
+    });
+    assert.equal(inquiryWithoutConsent.status, 400, 'a partner inquiry must require explicit contact-sharing consent');
     const billingStatus = await request('/api/billing/status', { headers: { Cookie: firstCookie } });
     assert.equal(billingStatus.status, 200);
     const trial = await billingStatus.json();
