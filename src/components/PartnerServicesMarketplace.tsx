@@ -84,6 +84,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
   const [shareContact, setShareContact] = useState(false);
   const [inquiryBusy, setInquiryBusy] = useState(false);
   const [inquiryStatus, setInquiryStatus] = useState('');
+  const inquiryRequestKey = useRef<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
 
@@ -180,7 +181,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
         body: JSON.stringify({
           applicationId: inquiryProvider.id,
           matchId,
-          requestKey: crypto.randomUUID(),
+          requestKey: inquiryRequestKey.current || (inquiryRequestKey.current = crypto.randomUUID()),
           requestNote: inquiryNote.trim(),
           serviceDate: serviceDate || null,
           shareContact: true
@@ -190,11 +191,16 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
       if (!response.ok) throw new Error(response.status === 401 ? 'Войдите в аккаунт, чтобы отправить запрос.' :
         response.status === 503 || response.status === 502 ? 'Связь с поставщиком временно недоступна. Попробуйте позже.' :
         'Не удалось отправить запрос. Проверьте данные и попробуйте ещё раз.');
-      setInquiryStatus(data?.sent ? 'Запрос отправлен поставщику. Его контактные данные не раскрывались.' : 'Запрос принят в обработку.');
-      setInquiryProvider(null);
-      setInquiryNote('');
-      setServiceDate('');
-      setShareContact(false);
+      if (data?.sent) {
+        setInquiryStatus('Запрос отправлен поставщику. Его контактные данные не раскрывались.');
+        setInquiryProvider(null);
+        setInquiryNote('');
+        setServiceDate('');
+        setShareContact(false);
+        inquiryRequestKey.current = null;
+      } else {
+        setInquiryStatus('Запрос уже обрабатывается. Повторная отправка использует тот же запрос и не создаст дубликат.');
+      }
     } catch (error) {
       setInquiryStatus(error instanceof Error ? error.message : 'Не удалось отправить запрос.');
     } finally {
@@ -327,7 +333,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                     {provider.availabilityNote && <p><strong className="text-white">Доступность:</strong> {provider.availabilityNote}</p>}
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
-                    <button type="button" onClick={() => { setInquiryProvider(provider); setInquiryStatus(''); setShareContact(false); }} className="inline-flex min-h-11 items-center rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">Запросить предложение</button>
+                    <button type="button" onClick={() => { inquiryRequestKey.current = null; setInquiryProvider(provider); setInquiryStatus(''); setShareContact(false); }} className="inline-flex min-h-11 items-center rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">Запросить предложение</button>
                     {provider.website && <a href={provider.website} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center rounded-lg border border-emerald-700/40 px-3 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-950/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">Открыть сайт исполнителя <ChevronRight className="ml-1 h-3.5 w-3.5" /></a>}
                   </div>
                 </article>;
@@ -339,10 +345,10 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
           {inquiryProvider && <form onSubmit={submitInquiry} className="mt-4 space-y-3 rounded-2xl border border-emerald-700/30 bg-stone-950/70 p-4">
             <div><h3 className="font-bold text-white">Запрос для {inquiryProvider.businessName}</h3><p className="mt-1 text-xs text-stone-300">Опишите, что вам нужно. Не указывайте паспортные, платёжные или другие чувствительные данные.</p></div>
             <label className="block text-xs font-semibold text-stone-200">Сообщение поставщику
-              <textarea required minLength={20} maxLength={2000} value={inquiryNote} onChange={event => setInquiryNote(event.target.value)} rows={4} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300" placeholder="Например: хотим узнать цену и свободные даты для фотосъёмки." />
+              <textarea required minLength={20} maxLength={2000} value={inquiryNote} onChange={event => { inquiryRequestKey.current = null; setInquiryNote(event.target.value); }} rows={4} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300" placeholder="Например: хотим узнать цену и свободные даты для фотосъёмки." />
             </label>
             <label className="block text-xs font-semibold text-stone-200">Желаемая дата (необязательно)
-              <input type="date" value={serviceDate} onChange={event => setServiceDate(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-900 px-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300" />
+              <input type="date" value={serviceDate} onChange={event => { inquiryRequestKey.current = null; setServiceDate(event.target.value); }} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-900 px-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300" />
             </label>
             <label className="flex items-start gap-2 text-xs leading-relaxed text-stone-200"><input required type="checkbox" checked={shareContact} onChange={event => setShareContact(event.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-500" /><span>Я согласен(на) передать поставщику моё имя, email, желаемую дату и сообщение для ответа на запрос. Имя, контакты и переписка второго участника не передаются.</span></label>
             <div className="flex flex-wrap gap-2"><button type="submit" disabled={inquiryBusy || !shareContact || inquiryNote.trim().length < 20} className="min-h-11 rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{inquiryBusy ? 'Отправляем…' : 'Отправить запрос'}</button><button type="button" onClick={() => setInquiryProvider(null)} disabled={inquiryBusy} className="min-h-11 rounded-lg border border-white/15 px-4 py-2 text-xs text-stone-200">Отмена</button></div>
