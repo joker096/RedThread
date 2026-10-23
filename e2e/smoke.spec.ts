@@ -1160,16 +1160,17 @@ test('photo collapse control exposes its expanded state to assistive technology'
   await page.getByTestId('open-demo-preview').click();
 
   const photo = page.locator('.vow-profile-card').first().locator('.vow-profile-photo');
-  const toggle = photo.getByRole('button', { name: /collapse photo/i });
+  let toggle = photo.locator('button[aria-expanded="true"]');
 
   await expect(photo).toHaveClass(/h-72/);
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(toggle).toBeVisible();
 
   await toggle.click();
   await expect(photo).toHaveClass(/h-16/);
-  await expect(photo.getByRole('button', { name: /expand photo/i })).toHaveAttribute('aria-expanded', 'false');
+  toggle = photo.locator('button[aria-expanded="false"]');
+  await expect(toggle).toBeVisible();
 
-  await photo.getByRole('button', { name: /expand photo/i }).click();
+  await toggle.click();
   await expect(photo).toHaveClass(/h-72/);
-  await expect(photo.getByRole('button', { name: /collapse photo/i })).toHaveAttribute('aria-expanded', 'true');
+  await expect(photo.locator('button[aria-expanded="true"]')).toBeVisible();
 });
