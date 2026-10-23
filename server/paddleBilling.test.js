@@ -23,3 +23,67 @@ test('malformed and unknown-status subscription events cannot be entitled', () =
   assert.equal(normalizePaddleEvent(null), null);
   assert.equal(isPaddleSubscriptionEntitled('past_due', '2027-01-01T00:00:00Z', 0), false);
 });
+
+
+test('grants lifetime Premium only for a verified matching transaction price', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
+  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_lifetime_test';
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) return { rowCount: 1, rows: [{ event_id: 'evt_lifetime' }] };
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    const pool = { async connect() { return client; } };
+    const result = await processPaddleEvent(pool, {
+      eventId: 'evt_lifetime',
+      eventType: 'transaction.completed',
+      data: {
+        customData: { userId: '00000000-0000-4000-8000-000000000001', plan: 'lifetime' },
+        items: [{ price: { id: 'pri_lifetime_test' } }]
+      }
+    });
+    assert.equal(result.handled, true);
+    const update = queries.find(query => query.sql.includes('premium_lifetime = TRUE'));
+    assert.ok(update, 'expected the lifetime entitlement update');
+    assert.equal(update.params[2], 'pri_lifetime_test');
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
+    else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
+  }
+});
+
+test('does not grant lifetime Premium when the transaction price does not match configuration', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
+  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_expected';
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) return { rowCount: 1, rows: [{ event_id: 'evt_wrong_price' }] };
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    const pool = { async connect() { return client; } };
+    await processPaddleEvent(pool, {
+      eventId: 'evt_wrong_price',
+      eventType: 'transaction.completed',
+      data: {
+        customData: { userId: '00000000-0000-4000-8000-000000000001', plan: 'lifetime' },
+        items: [{ price: { id: 'pri_unexpected' } }]
+      }
+    });
+    assert.equal(queries.some(query => query.sql.includes('premium_lifetime = TRUE')), false);
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
+    else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
+  }
+});
