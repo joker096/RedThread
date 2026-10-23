@@ -32,9 +32,9 @@ Do not expose this Compose stack directly to the internet over plain HTTP. Put a
 Before public launch:
 - Provision a supported host, DNS, TLS, and monitoring; set resource limits and update policies.
 - Use a managed PostgreSQL service or a protected private database network. Enable TLS verification when required by the provider.
-- Use a secret manager for database, Resend, and Stripe secrets. Do not commit credentials.
+- Use a secret manager for database, Resend, and Paddle secrets. Do not commit credentials.
 - Configure a verified sender domain and test email verification, resend and password reset end-to-end.
-- Configure Stripe products/prices and webhook signing secret; test checkout, renewals, cancellations, refunds and webhook replay behavior in test mode first.
+- When the deferred payment task resumes, configure Paddle Sandbox products/prices and webhook secret; test checkout, subscription lifecycle, duplicate/out-of-order events, cancellation and refunds before considering production billing.
 - Set a persistent private photo volume or private object storage; test photo review, access control, restore and deletion.
 - Schedule encrypted off-host database and photo backups; test restore. See [backup runbook](./OPERATIONS_BACKUPS.md).
 - Decide abuse-response staffing, moderator access, incident response, data retention, account export/deletion, age/identity checks, privacy notice and jurisdiction-specific terms.
@@ -76,7 +76,7 @@ Keep this list with the release candidate. A checked item means the named eviden
 - [ ] Test mobile viewport, keyboard-only operation, screen-reader labels, reduced motion and slow/offline network behavior.
 
 ### Gate D — payments and operational recovery
-- [ ] Keep billing disabled until Stripe test-mode checkout, signed webhook verification, duplicate/replayed events, cancellation, failed payment and refund flows pass.
+- [ ] Keep billing disabled until Paddle Sandbox checkout, signed webhook verification, duplicate/replayed and out-of-order events, cancellation, failed payment and refund flows pass.
 - [ ] Confirm Premium entitlements are derived server-side and cannot be granted by changing client state.
 - [ ] Configure encrypted off-host backups for PostgreSQL and private photos; run and record a restore drill in an isolated staging environment.
 - [ ] Configure uptime/error alerts, log redaction, incident contacts, retention and access controls for operators/moderators.

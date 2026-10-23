@@ -1,6 +1,6 @@
 # Vow implementation roadmap
 
-**Updated:** 2026-10-16  
+**Updated:** 2026-10-23  
 **Repository:** `joker096/RedThread`  
 **Goal:** turn the current prototype and server-backed pieces into a testable release candidate without misrepresenting demo data as live functionality.
 
@@ -17,7 +17,7 @@ Priority: P0 · Do before public promotion
 - [x] Document server-backed entry points and demo-only flows.
 - [x] Document the ten-scenario screenshot acceptance matrix.
 - [x] Make demo/preview mode unmistakable in the UI (persistent prototype disclosure plus separate demo/server discovery labels; continue the trust-label audit below).
-- [ ] Verify whether every chat send/read path is persisted on the server or only in local component state.
+- [x] Verify server-backed chat persistence and authorization: integration coverage confirms messages are written/read through the API and blocked/outsider accounts cannot access the conversation. Demo-preview chat remains demo data, not server persistence.
 - [ ] Audit all displayed trust labels, compatibility scores, ad counters and “online” indicators; label or remove values that are not backed by live data.
 - [x] Keep a single source-of-truth release status page in [RELEASE_STATUS.md](RELEASE_STATUS.md).
 
@@ -92,7 +92,7 @@ Priority: P1/P2
 
 Priority: P1 before monetized launch
 
-- [ ] Configure Stripe only in a secret-managed environment; validate webhook signatures and idempotency.
+- [ ] **Deferred:** configure Paddle Sandbox in a secret-managed environment; verify checkout, webhook signatures, idempotency, subscription lifecycle and Premium entitlements. Paddle is the only supported payment provider.
 - [ ] Confirm product/pricing/renewal/cancellation/refund language and region-specific legal requirements.
 - [ ] Test free/trial/paid/expired states with test-mode payments.
 - [ ] Configure production database backups, migrations, monitoring, error reporting and restore rehearsal.
