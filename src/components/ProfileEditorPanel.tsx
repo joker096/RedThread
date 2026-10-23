@@ -36,8 +36,11 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const [notice, setNotice] = useState('');
   const [blockedProfiles, setBlockedProfiles] = useState<BlockedProfile[]>([]);
   const loadRequestId = useRef(0);
+  const sessionRequestId = useRef(0);
 
   const clearProfileState = () => {
+    sessionRequestId.current += 1;
+    loadRequestId.current += 1;
     setAuthenticated(false);
     setProfile(null);
     setBlockedProfiles([]);
@@ -55,6 +58,9 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
     setWantsChildren('discuss');
     setChildrenLivingArrangement('not_applicable');
     setIsVisible(true);
+    setBusy(false);
+    setUploadBusy(false);
+    setNotice('');
   };
 
   const load = async () => {
@@ -131,7 +137,10 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
   };
   useEffect(() => {
     void load();
-    const handleSessionChanged = () => { void load(); };
+    const handleSessionChanged = () => {
+      clearProfileState();
+      void load();
+    };
     window.addEventListener('vow:session-changed', handleSessionChanged);
     return () => {
       window.removeEventListener('vow:session-changed', handleSessionChanged);
@@ -140,17 +149,22 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
   }, []);
 
   const unblock = async (id: string) => {
+    const sessionId = sessionRequestId.current;
     try {
       const response = await fetch(`/api/blocks/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'include' });
+      if (sessionId !== sessionRequestId.current) return;
       if (!response.ok) throw new Error(t('profileUnblockError'));
       setBlockedProfiles(current => current.filter(profile => profile.id !== id));
       setNotice(t('profileUnblocked'));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('profileUnblockError'));
+      if (sessionId === sessionRequestId.current) {
+        setNotice(error instanceof Error ? error.message : t('profileUnblockError'));
+      }
     }
   };
 
   const save = async () => {
+    const sessionId = sessionRequestId.current;
     setBusy(true);
     setNotice('');
     try {
@@ -166,6 +180,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
         })
       });
       const data = await response.json().catch(() => null);
+      if (sessionId !== sessionRequestId.current) return;
       if (response.status === 401) { clearProfileState(); return; }
       if (!response.ok) {
         const errors: Record<string, string> = {
@@ -180,9 +195,11 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       setProfile(data.profile);
       setNotice(t('profileSaved'));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('profileSaveError'));
+      if (sessionId === sessionRequestId.current) {
+        setNotice(error instanceof Error ? error.message : t('profileSaveError'));
+      }
     } finally {
-      setBusy(false);
+      if (sessionId === sessionRequestId.current) setBusy(false);
     }
   };
 
@@ -211,15 +228,17 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
             <input name="profile-photo-upload" type="file" accept="image/jpeg,image/png" aria-describedby="profile-photo-privacy-note" disabled={uploadBusy || (photoUrls.split(/\n|,/).map(value => value.trim()).filter(Boolean).length >= 6)} onChange={async event => {
               const file=event.currentTarget.files?.[0]; event.currentTarget.value=''; if(!file)return;
               if(!['image/jpeg','image/png'].includes(file.type)||file.size>8*1024*1024){setNotice(t('profileInvalidPhotoFile'));return;}
+              const sessionId = sessionRequestId.current;
               setUploadBusy(true);setNotice('');
               try {
                 const response=await fetch('/api/photos',{method:'POST',credentials:'include',headers:{'Content-Type':file.type},body:file});
                 const data=await response.json().catch(()=>null);
+                if(sessionId !== sessionRequestId.current) return;
                 if(!response.ok) throw new Error(data?.error==='photo_limit_reached'?t('profilePhotoLimit'):data?.error==='photo_storage_not_configured'?t('profilePhotoStorageError'):data?.error==='photo_rejected_by_automated_review'?t('profilePhotoRejected'):t('profilePhotoUploadError'));
                 setPhotoUrls(current=>[...current.split(/\n|,/).map(value=>value.trim()).filter(Boolean),data.photoUrl].join('\n'));
                 setNotice(data.reviewStatus==='approved'?t('profilePhotoApproved'): t('profilePhotoPending'));
-              } catch(error){setNotice(error instanceof Error?error.message:t('profilePhotoUploadError'));}
-              finally{setUploadBusy(false);}
+              } catch(error){if(sessionId === sessionRequestId.current)setNotice(error instanceof Error?error.message:t('profilePhotoUploadError'));}
+              finally{if(sessionId === sessionRequestId.current)setUploadBusy(false);}
             }} className="mt-2 block min-h-11 w-full text-sm text-stone-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 file:me-3 file:rounded-lg file:border-0 file:bg-rose-700 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white" />
           </label>
           <label className="block text-xs text-stone-300">{t('profileUploadedPhotos')}<textarea name="profile-uploaded-photos" value={photoUrls} readOnly rows={3} placeholder={t('profilePhotosPlaceholder')} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus:border-rose-500/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 read-only:opacity-80" /></label>
