@@ -1355,3 +1355,48 @@ test('ambiguous diagonal photo gesture does not collapse the photo or change pro
   await expect(image).toHaveAttribute('src', firstSrc ?? '');
   await expect(card.locator('h2').first()).toHaveText(profileName ?? '');
 });
+
+test('tablet profile gestures preserve photo state and accessible expansion state', async ({ page }) => {
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const card = page.locator('.vow-profile-card').first();
+  const photo = card.locator('.vow-profile-photo');
+  const details = card.locator('.vow-profile-details');
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(photo.locator('button[aria-expanded="true"]')).toBeVisible();
+
+  const swipeDetails = async (fromY: number, toY: number) => {
+    await page.evaluate(({ fromY, toY }) => {
+      const target = document.querySelector('.vow-profile-card .vow-profile-details');
+      if (!target) throw new Error('Profile details are not mounted');
+      const x = Math.round(window.innerWidth / 2);
+      const makeTouch = (y: number) => new Touch({
+        identifier: 151,
+        target,
+        clientX: x,
+        clientY: y,
+        screenX: x,
+        screenY: y
+      });
+      const start = makeTouch(fromY);
+      target.dispatchEvent(new TouchEvent('touchstart', {
+        bubbles: true, cancelable: true, touches: [start], changedTouches: [start]
+      }));
+      const end = makeTouch(toY);
+      target.dispatchEvent(new TouchEvent('touchend', {
+        bubbles: true, cancelable: true, touches: [], changedTouches: [end]
+      }));
+    }, { fromY, toY });
+  };
+
+  await swipeDetails(320, 240);
+  await expect(photo).toHaveClass(/h-16/);
+  await expect(photo.locator('button[aria-expanded="false"]')).toBeVisible();
+  await expect(details).toBeVisible();
+
+  await swipeDetails(240, 320);
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(photo.locator('button[aria-expanded="true"]')).toBeVisible();
+});
