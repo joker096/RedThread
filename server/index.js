@@ -881,19 +881,33 @@ app.get('/api/billing/status', requireSession, async (req, res) => {
   const isTrialActive = req.authUser.gender === 'female' && trialEndsAt && trialEndsAt.getTime() > now;
   const hasTimedPremium = premiumUntil && premiumUntil.getTime() > now;
   const hasPremium = Boolean(req.authUser.premium_lifetime || hasTimedPremium);
-  const availablePlans = [
+  const stripePlans = [
     ...(process.env.STRIPE_PRICE_ID_1MONTH ? ['1month'] : []),
     ...(process.env.STRIPE_PRICE_ID_3MONTHS ? ['3months'] : []),
     ...(process.env.STRIPE_PRICE_ID_LIFETIME ? ['lifetime'] : [])
   ];
-  const paymentConfigured = Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_WEBHOOK_SECRET && availablePlans.length);
+  const stripeConfigured = Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_WEBHOOK_SECRET && stripePlans.length);
+  const paddlePlans = process.env.PADDLE_ENVIRONMENT === 'sandbox' && process.env.PADDLE_CLIENT_TOKEN?.startsWith('test_')
+    ? [
+        ...(process.env.PADDLE_PRICE_ID_1MONTH ? ['1month'] : []),
+        ...(process.env.PADDLE_PRICE_ID_3MONTHS ? ['3months'] : []),
+        ...(process.env.PADDLE_PRICE_ID_LIFETIME ? ['lifetime'] : [])
+      ]
+    : [];
+  const paddleConfigured = Boolean(process.env.PADDLE_API_KEY && process.env.PADDLE_WEBHOOK_SECRET && paddlePlans.length);
+  const availablePlans = [...new Set([...stripePlans, ...paddlePlans])];
+  const paymentConfigured = stripeConfigured || paddleConfigured;
+  const note = paddleConfigured
+    ? 'Paddle Sandbox is enabled; premium access changes only after a verified webhook. Sandbox does not collect real payments.'
+    : stripeConfigured
+      ? 'Payment is processed by Stripe; access changes only after a verified webhook.'
+      : 'Payments are not configured. No payment will be collected until a payment provider and its required secrets and price IDs are configured.';
   return res.json({
     gender: req.authUser.gender, trialEndsAt: trialEndsAt?.toISOString() || null,
     premiumUntil: req.authUser.premium_lifetime ? null : premiumUntil?.toISOString() || null,
     premiumLifetime: Boolean(req.authUser.premium_lifetime),
     access: req.authUser.gender !== 'female' || isTrialActive || hasPremium ? 'full' : 'premium_required',
-    trialActive: Boolean(isTrialActive), premiumActive: hasPremium, paymentConfigured, availablePlans,
-    note: paymentConfigured ? 'Payment is processed by Stripe; access changes only after a verified webhook.' : 'Payments are not configured. No payment will be collected until Stripe keys, price IDs and webhook secret are configured.'
+    trialActive: Boolean(isTrialActive), premiumActive: hasPremium, paymentConfigured, availablePlans, note
   });
 });
 app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req, res) => {
