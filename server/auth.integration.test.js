@@ -71,13 +71,23 @@ test('auth API supports registration, session lookup, logout and login', {
       country: 'Georgia',
       city: 'Tbilisi',
       website: 'https://example.test',
-      serviceDescription: 'Wedding and couple photography services for local clients.'
+      serviceDescription: 'Wedding and couple photography services for local clients.',
+      priceFrom: '0.29',
+      priceCurrency: 'GEL',
+      serviceLanguages: 'Georgian, Russian',
+      availabilityNote: 'By appointment'
     };
     const insecurePartnerWebsite = await request('/api/partner-applications', {
       method: 'POST',
       body: JSON.stringify({ ...partnerApplication, website: 'http://example.test' })
     });
     assert.equal(insecurePartnerWebsite.status, 400, 'partner websites must use HTTPS');
+
+    const invalidPrice = await request('/api/partner-applications', {
+      method: 'POST',
+      body: JSON.stringify({ ...partnerApplication, priceFrom: '-1' })
+    });
+    assert.equal(invalidPrice.status, 400, 'partner prices must be non-negative');
 
     const partnerSubmission = await request('/api/partner-applications', {
       method: 'POST',
