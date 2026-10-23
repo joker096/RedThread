@@ -108,6 +108,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const [reportCategory, setReportCategory] = useState('fake_profile');
   const [reportDetails, setReportDetails] = useState('');
   const [swipeMode, setSwipeMode] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<{ profileId: string; index: number } | null>(null);
   const [collapsedPhotoProfileId, setCollapsedPhotoProfileId] = useState<string | null>(null);
   const touchStartX = useRef<number | null>(null);
@@ -535,7 +536,17 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         </div>
       ) : (
         <>
-          <div className="mb-4 grid grid-cols-1 gap-2 min-[360px]:grid-cols-2">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <p className="text-xs text-stone-400">{t('registeredProfiles')}{profiles.length ? ` · ${formatNumber(profiles.length)}` : ''}</p>
+            <button type="button" onClick={() => setFiltersOpen(value => !value)} aria-expanded={filtersOpen} aria-controls="server-discovery-filters" className="flex min-h-11 shrink-0 items-center gap-2 rounded-xl border border-white/10 bg-stone-950/50 px-3 text-xs font-semibold text-stone-200 hover:border-emerald-400/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400">
+              <span>{t('filters')}</span>
+              {(() => {
+                const activeFilters = Number(Boolean(country.trim())) + Number(Boolean(city.trim())) + Number(minAge !== 18 || maxAge !== 99) + Number(intent !== 'all') + Number(familyFormat !== 'all') + Number(childrenFilter !== 'all') + Number(minFinancialAlignment > 0);
+                return activeFilters > 0 ? <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-500/20 px-1.5 text-[10px] text-emerald-200">{activeFilters}</span> : null;
+              })()}
+            </button>
+          </div>
+          {filtersOpen && <div id="server-discovery-filters" className="mb-4 grid grid-cols-1 gap-2 rounded-2xl border border-white/10 bg-stone-950/50 p-3 min-[360px]:grid-cols-2">
             <label className="text-xs text-stone-300">{t('country')}<input name="filter-country" value={country} onChange={e => setCountry(e.target.value)} placeholder={t('anyCountry')} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400" /></label>
             <label className="text-xs text-stone-300">{t('city')}<input name="filter-city" value={city} onChange={e => setCity(e.target.value)} placeholder={t('anyCity')} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400" /></label>
             <label className="text-xs text-stone-300">{t('ageFrom')}<input name="filter-age-from" type="number" min="18" max={maxAge} value={minAge} onChange={e => setMinAge(Math.min(maxAge, Math.max(18, Number(e.target.value) || 18)))} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400" /></label>
@@ -544,9 +555,11 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
             <label className="text-xs text-stone-300">{t('familyFormat')}<select name="filter-family-format" value={familyFormat} onChange={e => setFamilyFormat(e.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"><option value="all">{t('anyFormat')}</option><option value="marriage">{t('marriageOnly')}</option><option value="cohabitation">{t('cohabitation')}</option><option value="open_to_both">{t('openToBoth')}</option></select></label>
             <label className="text-xs text-stone-300">{t('children')}<select name="filter-children" value={childrenFilter} onChange={e => setChildrenFilter(e.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"><option value="all">{t('notImportant')}</option><option value="false">{t('noChildren')}</option><option value="true">{t('hasChildren')}</option></select></label>
             <label className="text-xs text-stone-300">{t('financialMatch')}<select name="filter-financial-alignment" value={minFinancialAlignment} onChange={e => setMinFinancialAlignment(Number(e.target.value))} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"><option value="0">{t('doNotFilter')}</option><option value="33">{t('financialFrom33')}</option><option value="67">{t('financialFrom67')}</option><option value="100">{t('financialOnly100')}</option></select></label>
+          </div>}
+          <div className="mb-3 grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => { setFiltersOpen(false); void search(); }} disabled={busy} className="min-h-11 rounded-xl bg-emerald-700 px-3 py-2.5 text-sm font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">{busy ? t('searching') : t('search')}</button>
+            <button type="button" data-testid="server-discovery-swipe-mode" onClick={() => setSwipeMode(value => !value)} aria-pressed={swipeMode} className={`min-h-11 rounded-xl border px-3 py-2.5 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 ${swipeMode ? 'border-emerald-400/50 bg-emerald-500/10 text-emerald-100' : 'border-white/10 text-stone-300'}`}>{swipeMode ? t('listMode') : t('swipeMode')}</button>
           </div>
-          <button type="button" onClick={() => void search()} disabled={busy} className="mb-2 min-h-11 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">{busy ? t('searching') : t('search')}</button>
-          <button type="button" data-testid="server-discovery-swipe-mode" onClick={() => setSwipeMode(value => !value)} aria-pressed={swipeMode} className="mb-3 min-h-11 w-full rounded-xl border border-emerald-500/30 px-4 py-2.5 text-xs font-semibold text-emerald-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400">{swipeMode ? t('listMode') : t('swipeMode')}</button>
           <button type="button" onClick={() => void undoPass()} disabled={busy} className="mb-3 min-h-11 w-full rounded-xl border border-amber-500/30 px-4 py-2.5 text-xs font-semibold text-amber-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">↶ {t('undoAction')}</button>
           <button type="button" onClick={() => void toggleBlockedProfiles()} disabled={busy} aria-expanded={blockedProfilesOpen} aria-controls="blocked-profiles-panel" className="mb-3 min-h-11 w-full rounded-xl border border-white/10 px-4 py-2.5 text-xs font-semibold text-stone-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">
             {blockedProfilesOpen ? t('hideBlockedProfiles') : t('manageBlockedProfiles')}
