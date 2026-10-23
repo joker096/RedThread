@@ -350,8 +350,8 @@ test('profile editor clears private data when saving with an expired session', a
 
   const displayName = page.locator('input[name="profile-display-name"]');
   await expect(displayName).toHaveValue('Приватное имя');
-  await page.getByRole('button', { name: /save|сохранить/i }).last().click();
+  await page.getByTestId('profile-save-button').click();
 
   await expect(displayName).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /sign in|log in|войти|войдите/i }).last()).toBeVisible();
+  await expect(page.getByTestId('profile-login-button')).toBeVisible();
 });
