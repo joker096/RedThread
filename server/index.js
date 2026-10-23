@@ -1735,6 +1735,102 @@ app.get('/api/partner-services', requireDatabase, async (req, res) => {
   }
 });
 
+app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession, requireDatabase, profileActionLimiter, async (req, res) => {
+  const body = req.body || {};
+  const applicationId = body.applicationId;
+  const matchId = body.matchId;
+  const requestKey = body.requestKey;
+  const requestNote = typeof body.requestNote === 'string' ? body.requestNote.trim() : '';
+  const serviceDateInput = body.serviceDate === '' || body.serviceDate == null ? null : body.serviceDate;
+  if (!isUuid(applicationId) || !isUuid(matchId) || !isUuid(requestKey) ||
+      body.shareContact !== true || requestNote.length < 20 || requestNote.length > 2000 ||
+      (serviceDateInput !== null && (typeof serviceDateInput !== 'string' ||
+        !/^\\d{4}-\\d{2}-\\d{2}$/.test(serviceDateInput) ||
+        !Number.isFinite(Date.parse(serviceDateInput + 'T00:00:00Z')) ||
+        new Date(serviceDateInput + 'T00:00:00Z').toISOString().slice(0, 10) !== serviceDateInput))) {
+    return res.status(400).json({ error: 'invalid_partner_service_inquiry' });
+  }
+  if (!emailDeliveryConfigured()) return res.status(503).json({ error: 'partner_contact_temporarily_unavailable' });
+  const requesterName = String(req.authUser.display_name || '').trim().slice(0, 80);
+  const requesterEmail = normalizeEmail(req.authUser.email);
+  if (!requesterName || !isValidEmail(requesterEmail)) return res.status(400).json({ error: 'verified_contact_required' });
+
+  try {
+    const match = await pool.query(
+      "SELECT 1 FROM matches WHERE id = $1 AND status = 'active' AND (user_a_id = $2 OR user_b_id = $2) LIMIT 1",
+      [matchId, req.authUser.id]
+    );
+    if (!match.rowCount) return res.status(404).json({ error: 'active_match_not_found' });
+
+    const provider = await pool.query(
+      "SELECT id, business_name AS \"businessName\", contact_email AS \"contactEmail\" " +
+      "FROM partner_service_applications WHERE id = $1 AND status = 'approved' AND published_at IS NOT NULL LIMIT 1",
+      [applicationId]
+    );
+    if (!provider.rows[0]) return res.status(404).json({ error: 'published_partner_not_found' });
+
+    let inquiry = await pool.query(
+      'INSERT INTO partner_service_inquiries (application_id, match_id, requested_by, request_key, requester_name, requester_email, service_date, request_note, contact_consent_at) ' +
+      'VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW()) ON CONFLICT (requested_by, request_key) DO NOTHING RETURNING id, delivery_status AS \"deliveryStatus\"',
+      [applicationId, matchId, req.authUser.id, requestKey, requesterName, requesterEmail, serviceDateInput, requestNote]
+    );
+    if (!inquiry.rows[0]) {
+      inquiry = await pool.query(
+        'SELECT id, application_id AS \"applicationId\", match_id AS \"matchId\", service_date AS \"serviceDate\", request_note AS \"requestNote\", delivery_status AS \"deliveryStatus\" ' +
+        'FROM partner_service_inquiries WHERE requested_by = $1 AND request_key = $2 LIMIT 1',
+        [req.authUser.id, requestKey]
+      );
+      const existing = inquiry.rows[0];
+      if (!existing || existing.applicationId !== applicationId || existing.matchId !== matchId ||
+          existing.requestNote !== requestNote ||
+          (existing.serviceDate ? new Date(existing.serviceDate).toISOString().slice(0, 10) : null) !== serviceDateInput) {
+        return res.status(409).json({ error: 'inquiry_request_key_conflict' });
+      }
+      if (existing.deliveryStatus === 'sent') return res.json({ inquiryId: existing.id, sent: true });
+      if (existing.deliveryStatus === 'sending') return res.status(202).json({ inquiryId: existing.id, sent: false });
+    }
+
+    const inquiryId = inquiry.rows[0].id;
+    const claim = await pool.query(
+      "UPDATE partner_service_inquiries SET delivery_status = 'sending', delivery_attempts = delivery_attempts + 1, delivery_error = '', updated_at = NOW() " +
+      "WHERE id = $1 AND delivery_status = 'failed' RETURNING id",
+      [inquiryId]
+    );
+    if (!claim.rowCount) return res.status(202).json({ inquiryId, sent: false });
+
+    const escapeHtml = value => String(value).replace(/[&<>"']/g, character => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[character]);
+    const dateLine = serviceDateInput ? '<p><strong>Желаемая дата:</strong> ' + escapeHtml(serviceDateInput) + '</p>' : '';
+    try {
+      await sendConfiguredEmail({
+        to: provider.rows[0].contactEmail,
+        subject: 'Новый запрос по услуге в Vow',
+        html: '<h2>Запрос предложения</h2><p>Пользователь дал согласие передать поставщику своё имя, email и текст запроса.</p>' +
+          '<p><strong>Имя:</strong> ' + escapeHtml(requesterName) + '</p>' +
+          '<p><strong>Email:</strong> ' + escapeHtml(requesterEmail) + '</p>' + dateLine +
+          '<p><strong>Сообщение:</strong></p><p>' + escapeHtml(requestNote).replace(/\\n/g, '<br>') + '</p>' +
+          '<p>Данные второго участника совпадения, переписка и результаты совместимости не передаются.</p>'
+      });
+      await pool.query(
+        "UPDATE partner_service_inquiries SET delivery_status = 'sent', delivered_at = NOW(), updated_at = NOW() WHERE id = $1",
+        [inquiryId]
+      );
+      return res.status(201).json({ inquiryId, sent: true });
+    } catch (error) {
+      await pool.query(
+        "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'email_delivery_failed', updated_at = NOW() WHERE id = $1",
+        [inquiryId]
+      );
+      console.warn('Partner service inquiry delivery failed:', error?.message || 'unknown error');
+      return res.status(502).json({ error: 'partner_contact_temporarily_unavailable', inquiryId });
+    }
+  } catch (error) {
+    console.error('Partner service inquiry failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_service_inquiry_failed' });
+  }
+});
+
 app.post('/api/partner-applications', partnerApplicationLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
   const body = req.body || {};
   const category = body.category;
