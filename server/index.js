@@ -359,8 +359,89 @@ app.get('/api/ready', async (_req, res) => {
   }
 });
 
+let googleOAuthClient = null;
+
+async function verifyGoogleIdToken(credential) {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  if (!clientId) throw new Error('google_sign_in_not_configured');
+  if (typeof credential !== 'string' || credential.length < 100 || credential.length > 20_000) {
+    throw new Error('invalid_google_credential');
+  }
+  const { OAuth2Client } = await import('google-auth-library');
+  googleOAuthClient ||= new OAuth2Client(clientId);
+  const ticket = await googleOAuthClient.verifyIdToken({ idToken: credential, audience: clientId });
+  const payload = ticket.getPayload();
+  const email = normalizeEmail(payload?.email);
+  if (!payload || typeof payload.sub !== 'string' || !payload.sub || payload.sub.length > 255 ||
+      payload.email_verified !== true || !isValidEmail(email)) {
+    throw new Error('invalid_google_identity');
+  }
+  const displayName = typeof payload.name === 'string' ? payload.name.trim().slice(0, 80) : '';
+  return { subject: payload.sub, email, displayName };
+}
+
+app.get('/api/auth/google/config', (_req, res) => {
+  const clientId = process.env.GOOGLE_CLIENT_ID || '';
+  return res.json({ configured: Boolean(clientId), clientId: clientId || null });
+});
+
+app.post('/api/auth/google', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
+  if (!process.env.GOOGLE_CLIENT_ID) return res.status(503).json({ error: 'google_sign_in_not_configured' });
+  let identity;
+  try {
+    identity = await verifyGoogleIdToken(req.body?.credential);
+  } catch (error) {
+    console.warn('Google credential rejected:', error?.message || 'invalid_credential');
+    return res.status(401).json({ error: 'invalid_google_credential' });
+  }
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const result = await client.query(
+      'SELECT u.id, u.email, u.status, p.display_name, p.gender, p.country, p.city, p.relationship_intent ' +
+      'FROM user_auth_identities i JOIN users u ON u.id = i.user_id JOIN profiles p ON p.user_id = u.id ' +
+      "WHERE i.provider = 'google' AND i.provider_subject = $1 LIMIT 1",
+      [identity.subject]
+    );
+    const user = result.rows[0];
+    if (!user) {
+      const existingEmail = await client.query('SELECT 1 FROM users WHERE email = $1 LIMIT 1', [identity.email]);
+      await client.query('ROLLBACK');
+      if (existingEmail.rowCount) return res.status(409).json({ error: 'google_account_exists' });
+      return res.json({ registrationRequired: true, profile: { email: identity.email, displayName: identity.displayName } });
+    }
+    if (user.status !== 'active') {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'account_unavailable' });
+    }
+    const token = await createSession(client, user.id);
+    await client.query('COMMIT');
+    writeSessionCookie(res, token);
+    return res.json({ user: publicUser(user) });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Google sign-in failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'google_sign_in_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
 app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
-  const email = normalizeEmail(req.body?.email);
+  const googleCredential = req.body?.googleCredential;
+  let googleIdentity = null;
+  if (googleCredential !== undefined) {
+    if (!process.env.GOOGLE_CLIENT_ID) return res.status(503).json({ error: 'google_sign_in_not_configured' });
+    try {
+      googleIdentity = await verifyGoogleIdToken(googleCredential);
+    } catch (error) {
+      console.warn('Google registration credential rejected:', error?.message || 'invalid_credential');
+      return res.status(401).json({ error: 'invalid_google_credential' });
+    }
+  }
+  const email = googleIdentity?.email || normalizeEmail(req.body?.email);
   const password = req.body?.password;
   const displayName = typeof req.body?.displayName === 'string' ? req.body.displayName.trim() : '';
   const birthDate = req.body?.birthDate;
@@ -398,7 +479,7 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
     const passwordHash = await hashPassword(password);
     client = await pool.connect();
     await client.query('BEGIN');
-    if (emailVerificationRequired && !emailDeliveryConfigured()) {
+    if (emailVerificationRequired && !googleIdentity && !emailDeliveryConfigured()) {
       await client.query('ROLLBACK');
       return res.status(503).json({ error: 'email_delivery_not_configured' });
     }
@@ -407,6 +488,13 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
       [email, passwordHash, emailVerificationRequired ? 'pending' : 'active', gender]
     );
     const user = userResult.rows[0];
+    if (googleIdentity) {
+      await client.query('UPDATE users SET email_verified_at = NOW() WHERE id = $1', [user.id]);
+      await client.query(
+        "INSERT INTO user_auth_identities (user_id, provider, provider_subject) VALUES ($1, 'google', $2)",
+        [user.id, googleIdentity.subject]
+      );
+    }
     const profileResult = await client.query(
       `INSERT INTO profiles (
          user_id, display_name, birth_date, gender, country, city, relationship_intent,
@@ -416,10 +504,11 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
        RETURNING user_id AS id, display_name, gender, country, city, relationship_intent`,
       [user.id, displayName, birthDate, gender, country, city, relationshipIntent, familyFormat, hasChildren, wantsChildren, childrenLivingArrangement]
     );
-    const verificationToken = emailVerificationRequired
+    const needsEmailVerification = emailVerificationRequired && !googleIdentity;
+    const verificationToken = needsEmailVerification
       ? await createAccountActionToken(client, user.id, 'email_verification', 60)
       : null;
-    const token = emailVerificationRequired ? null : await createSession(client, user.id);
+    const token = needsEmailVerification ? null : await createSession(client, user.id);
     await client.query('COMMIT');
 
     if (verificationToken) {
@@ -447,7 +536,7 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
       console.error('Registration screening failed:', screeningError?.message || 'unknown error');
     }
 
-    if (emailVerificationRequired) {
+    if (needsEmailVerification) {
       return res.status(201).json({ verificationRequired: true, message: 'Check your email to activate your account.' });
     }
     writeSessionCookie(res, token);
