@@ -42,7 +42,8 @@ export async function processPaddleEvent(pool, rawEvent) {
       : typeof data.subscriptionId === 'string' ? data.subscriptionId
         : typeof data.subscription_id === 'string' ? data.subscription_id : null;
     const customerId = typeof data.customerId === 'string' ? data.customerId
-      : typeof data.customer_id === 'string' ? data.customer_id : null;
+      : typeof data.customer_id === 'string' ? data.customer_id
+        : (eventType === 'customer.created' || eventType === 'customer.updated') && typeof data.id === 'string' ? data.id : null;
 
     if (['subscription.created', 'subscription.updated', 'subscription.canceled'].includes(eventType)) {
       const status = eventType === 'subscription.canceled' ? 'canceled' : String(data.status || '').toLowerCase();
