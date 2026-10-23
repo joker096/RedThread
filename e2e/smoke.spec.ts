@@ -1483,3 +1483,40 @@ test('landscape phone profile gestures keep the photo toggle usable', async ({ p
   await expect(photo).toHaveClass(/h-72/);
   await expect(photo.locator('button[aria-expanded="true"]')).toBeVisible();
 });
+
+
+test('landscape phone viewports avoid horizontal overflow and keep photo controls reachable', async ({ page }) => {
+  for (const viewport of [
+    { width: 568, height: 320 },
+    { width: 667, height: 375 },
+    { width: 844, height: 390 }
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+    await page.getByTestId('open-demo-preview').click();
+
+    const card = page.locator('.vow-profile-card').first();
+    const photo = card.locator('.vow-profile-photo');
+    const toggle = photo.locator('button[aria-expanded="true"]');
+    await expect(card).toBeVisible();
+    await expect(toggle).toBeVisible();
+
+    const dimensions = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      document: document.documentElement.scrollWidth,
+      body: document.body.scrollWidth
+    }));
+    expect(
+      dimensions.document,
+      `landscape viewport ${viewport.width}×${viewport.height} causes horizontal overflow: ${JSON.stringify(dimensions)}`
+    ).toBeLessThanOrEqual(dimensions.viewport + 1);
+
+    await toggle.click();
+    await expect(photo).toHaveClass(/h-16/);
+    const collapsedToggle = photo.locator('button[aria-expanded="false"]');
+    await expect(collapsedToggle).toBeVisible();
+    await collapsedToggle.click();
+    await expect(photo).toHaveClass(/h-72/);
+    await expect(photo.locator('button[aria-expanded="true"]')).toBeVisible();
+  }
+});
