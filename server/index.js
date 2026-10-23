@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, createPublicKey, randomBytes, randomUUID, verify as verifySignature } from 'node:crypto';
 import { validateAdEventPayload, AD_IMPRESSION_CAP_24H } from './adEvents.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
@@ -216,6 +216,44 @@ function accountActionUrl(parameter, token) {
 }
 
 const googleSignupCookieName = 'nit_google_signup';
+let googleJwksCache = null;
+let googleJwksExpiresAt = 0;
+async function verifyGoogleIdToken(idToken, expectedNonce) {
+  const parts = idToken.split('.');
+  if (parts.length !== 3 || parts.some(part => !part)) throw new Error('google_auth_token_invalid');
+  let header;
+  let claims;
+  try {
+    header = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
+    claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+  } catch { throw new Error('google_auth_token_invalid'); }
+  if (header.alg !== 'RS256' || typeof header.kid !== 'string') throw new Error('google_auth_token_invalid');
+  if (!googleJwksCache || googleJwksExpiresAt <= Date.now()) {
+    const response = await fetch('https://www.googleapis.com/oauth2/v3/certs', { signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) throw new Error('google_auth_keys_unavailable');
+    const data = await response.json();
+    if (!Array.isArray(data.keys)) throw new Error('google_auth_keys_invalid');
+    const cacheControl = response.headers.get('cache-control') || '';
+    const maxAge = Number(cacheControl.match(/max-age=(\\d+)/)?.[1] || 300);
+    googleJwksCache = data.keys;
+    googleJwksExpiresAt = Date.now() + Math.min(maxAge, 3600) * 1000;
+  }
+  const jwk = googleJwksCache.find(key => key.kid === header.kid && key.kty === 'RSA' && key.alg === 'RS256');
+  if (!jwk) throw new Error('google_auth_key_not_found');
+  const signed = parts[0] + '.' + parts[1];
+  const validSignature = verifySignature('RSA-SHA256', Buffer.from(signed), createPublicKey({ key: jwk, format: 'jwk' }), Buffer.from(parts[2], 'base64url'));
+  const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+  if (!validSignature || !audiences.includes(process.env.GOOGLE_OAUTH_CLIENT_ID)
+    || !['accounts.google.com', 'https://accounts.google.com'].includes(claims.iss)
+    || !Number.isFinite(Number(claims.exp)) || Number(claims.exp) * 1000 <= Date.now()
+    || !Number.isFinite(Number(claims.iat)) || Number(claims.iat) * 1000 > Date.now() + 60_000
+    || claims.nonce !== expectedNonce
+    || !(claims.email_verified === true || claims.email_verified === 'true')
+    || typeof claims.sub !== 'string' || !claims.sub || !isValidEmail(claims.email)) {
+    throw new Error('google_auth_claims_invalid');
+  }
+  return claims;
+}
 const googleOAuthConfigured = () => Boolean(process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET && process.env.GOOGLE_OAUTH_REDIRECT_URI && (process.env.APP_URL || process.env.APP_ORIGIN));
 function cookieValue(req, name) {
   const prefix = name + '=';
@@ -430,14 +468,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
     if (!tokenResponse.ok) throw new Error('google_auth_exchange_failed');
     const tokenData = await tokenResponse.json();
     if (typeof tokenData.id_token !== 'string') throw new Error('google_auth_token_invalid');
-    const infoResponse = await fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(tokenData.id_token), { signal: AbortSignal.timeout(10_000) });
-    if (!infoResponse.ok) throw new Error('google_auth_token_invalid');
-    const claims = await infoResponse.json();
-    const expiresAt = Number(claims.exp) * 1000;
-    const audienceMatches = claims.aud === process.env.GOOGLE_OAUTH_CLIENT_ID;
-    if (!audienceMatches || !['accounts.google.com', 'https://accounts.google.com'].includes(claims.iss) || !Number.isFinite(expiresAt) || expiresAt <= Date.now() || claims.nonce !== nonce || claims.email_verified !== 'true' || typeof claims.sub !== 'string' || !claims.sub || !isValidEmail(claims.email)) {
-      throw new Error('google_auth_claims_invalid');
-    }
+    const claims = await verifyGoogleIdToken(tokenData.id_token, nonce);
     const email = normalizeEmail(claims.email);
     const displayName = typeof claims.name === 'string' ? claims.name.trim().slice(0, 80) : '';
     const client = await pool.connect();
