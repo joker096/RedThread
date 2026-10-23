@@ -13,7 +13,7 @@ BEGIN
       ADD CONSTRAINT partner_service_publication_requires_approval
       CHECK (
         (published_at IS NULL AND published_by IS NULL)
-        OR (status = 'approved' AND published_at IS NOT NULL AND published_by IS NOT NULL)
+        OR (status = 'approved' AND published_at IS NOT NULL)
       );
   END IF;
 END $$;
