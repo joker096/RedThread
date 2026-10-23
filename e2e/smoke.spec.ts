@@ -251,3 +251,54 @@ test('RTL filter drawer keeps relationship options aligned to the logical start'
   await expect(firstOption).toHaveCSS('text-align', 'start');
   await expect(dialog).toHaveCSS('direction', 'rtl');
 });
+
+test('profile editor reloads the active account after a session change', async ({ page }) => {
+  let profileRequests = 0;
+  await page.route('**/api/auth/me', async route => {
+    await route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'unauthorized' }) });
+  });
+  await page.route('**/api/profiles/me', async route => {
+    profileRequests += 1;
+    const displayName = profileRequests === 1 ? 'Первый аккаунт' : 'Новый аккаунт';
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        profile: {
+          id: profileRequests === 1 ? 'profile-first' : 'profile-next',
+          displayName,
+          age: 32,
+          gender: 'female',
+          country: 'Georgia',
+          city: 'Tbilisi',
+          bio: '',
+          photoUrls: [],
+          occupation: '',
+          education: '',
+          languages: [],
+          relationshipIntent: 'marriage_family',
+          familyFormat: 'open_to_both',
+          hasChildren: false,
+          wantsChildren: 'discuss',
+          childrenLivingArrangement: 'not_applicable',
+          isVisible: true
+        }
+      })
+    });
+  });
+  await page.route('**/api/blocks', async route => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ blocks: [] }) });
+  });
+
+  await page.goto('/');
+  const testsButton = page.locator('[data-testid="nav-tests"]:visible, [data-testid="mobile-nav-tests"]:visible').first();
+  await expect(testsButton).toBeVisible();
+  await testsButton.click();
+
+  const displayName = page.locator('input[name="profile-display-name"]');
+  await expect(displayName).toHaveValue('Первый аккаунт');
+
+  await page.evaluate(() => window.dispatchEvent(new Event('vow:session-changed')));
+  await expect.poll(() => profileRequests).toBeGreaterThan(1);
+  await expect(displayName).toHaveValue('Новый аккаунт');
+});
