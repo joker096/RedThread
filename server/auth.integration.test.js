@@ -31,7 +31,8 @@ test('auth API supports registration, session lookup, logout and login', {
       API_PORT: String(port),
       APP_ORIGIN: origin,
       NODE_ENV: 'test',
-      GOOGLE_CLIENT_ID: ''
+      GOOGLE_CLIENT_ID: '',
+      AUTH_RATE_LIMIT: '1000'
     },
     stdio: 'ignore'
   });
