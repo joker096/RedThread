@@ -1568,3 +1568,33 @@ test('cancelled vertical profile gesture does not collapse the photo later', asy
   await expect(photo.locator('button[aria-expanded="true"]')).toBeVisible();
   await expect(details).toBeVisible();
 });
+
+test('multi-touch vertical movement does not collapse the profile photo', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const photo = page.locator('.vow-profile-card').first().locator('.vow-profile-photo');
+  await expect(photo).toHaveClass(/h-72/);
+
+  await page.evaluate(() => {
+    const target = document.querySelector('.vow-profile-photo');
+    if (!target) throw new Error('Profile photo is not mounted');
+    const makeTouch = (identifier: number, y: number) => new Touch({
+      identifier, target, clientX: 180 + identifier, clientY: y,
+      screenX: 180 + identifier, screenY: y
+    });
+    const first = makeTouch(221, 300);
+    const second = makeTouch(222, 305);
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true, cancelable: true, touches: [first, second], changedTouches: [first, second]
+    }));
+    const moved = makeTouch(221, 220);
+    target.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true, cancelable: true, touches: [], changedTouches: [moved]
+    }));
+  });
+
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(photo.locator('button[aria-expanded="true"]')).toBeVisible();
+});
