@@ -148,7 +148,9 @@ const photoStorageDir = path.resolve(process.env.PHOTO_STORAGE_DIR || 'uploads/p
 const authLimiter = rateLimit({
   ...(pool ? { store: new PostgresRateLimitStore(pool, 'auth') } : {}),
   windowMs: 15 * 60 * 1000,
-  limit: 10,
+  limit: process.env.NODE_ENV === 'test' && /^\\d+$/.test(process.env.AUTH_RATE_LIMIT || '')
+    ? Math.max(10, Math.min(Number.parseInt(process.env.AUTH_RATE_LIMIT, 10), 1000))
+    : 10,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'too_many_auth_attempts' }
