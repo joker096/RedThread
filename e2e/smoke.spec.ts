@@ -302,3 +302,56 @@ test('profile editor reloads the active account after a session change', async (
   await expect.poll(() => profileRequests).toBeGreaterThan(1);
   await expect(displayName).toHaveValue('Новый аккаунт');
 });
+
+
+test('profile editor clears private data when saving with an expired session', async ({ page }) => {
+  await page.route('**/api/auth/me', async route => {
+    await route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'unauthorized' }) });
+  });
+  await page.route('**/api/profiles/me', async route => {
+    if (route.request().method() === 'PATCH') {
+      await route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'unauthorized' }) });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        profile: {
+          id: 'profile-expired-session',
+          displayName: 'Приватное имя',
+          age: 32,
+          gender: 'female',
+          country: 'Georgia',
+          city: 'Tbilisi',
+          bio: 'Приватное описание',
+          photoUrls: [],
+          occupation: '',
+          education: '',
+          languages: [],
+          relationshipIntent: 'marriage_family',
+          familyFormat: 'open_to_both',
+          hasChildren: false,
+          wantsChildren: 'discuss',
+          childrenLivingArrangement: 'not_applicable',
+          isVisible: true
+        }
+      })
+    });
+  });
+  await page.route('**/api/blocks', async route => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ blocks: [] }) });
+  });
+
+  await page.goto('/');
+  const testsButton = page.locator('[data-testid="nav-tests"]:visible, [data-testid="mobile-nav-tests"]:visible').first();
+  await expect(testsButton).toBeVisible();
+  await testsButton.click();
+
+  const displayName = page.locator('input[name="profile-display-name"]');
+  await expect(displayName).toHaveValue('Приватное имя');
+  await page.getByRole('button', { name: /save|сохранить/i }).last().click();
+
+  await expect(displayName).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /sign in|log in|войти|войдите/i }).last()).toBeVisible();
+});
