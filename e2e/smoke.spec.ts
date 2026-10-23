@@ -302,3 +302,52 @@ test('profile editor reloads the active account after a session change', async (
   await expect.poll(() => profileRequests).toBeGreaterThan(1);
   await expect(displayName).toHaveValue('Новый аккаунт');
 });
+
+
+test('mobile profile card reveals details on upward swipe and restores photo on downward swipe', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const card = page.locator('.vow-profile-card').first();
+  const photo = card.locator('.vow-profile-photo');
+  const details = card.locator('.vow-profile-details');
+  await expect(card).toBeVisible();
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(details).toBeVisible();
+
+  const swipeDetails = async (fromY: number, toY: number) => {
+    await page.evaluate(({ fromY, toY }) => {
+      const target = document.querySelector('.vow-profile-card .vow-profile-details');
+      if (!target) throw new Error('Profile details are not mounted');
+      const makeTouch = (y: number) => new Touch({
+        identifier: 7,
+        target,
+        clientX: 180,
+        clientY: y,
+        screenX: 180,
+        screenY: y
+      });
+      const startTouch = makeTouch(fromY);
+      target.dispatchEvent(new TouchEvent('touchstart', {
+        bubbles: true,
+        cancelable: true,
+        touches: [startTouch],
+        changedTouches: [startTouch]
+      }));
+      const endTouch = makeTouch(toY);
+      target.dispatchEvent(new TouchEvent('touchend', {
+        bubbles: true,
+        cancelable: true,
+        touches: [],
+        changedTouches: [endTouch]
+      }));
+    }, { fromY, toY });
+  };
+
+  await swipeDetails(240, 160);
+  await expect(photo).toHaveClass(/h-16/);
+
+  await swipeDetails(160, 240);
+  await expect(photo).toHaveClass(/h-72/);
+});
