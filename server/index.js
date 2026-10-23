@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { validateAdEventPayload, AD_IMPRESSION_CAP_24H } from './adEvents.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
+import { normalizeProviderApplication } from './providerApplications.js';
 import express from 'express';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import rateLimit from 'express-rate-limit';
@@ -167,6 +168,15 @@ const reportLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'too_many_reports' }
+});
+
+const providerApplicationLimiter = rateLimit({
+  ...(pool ? { store: new PostgresRateLimitStore(pool, 'provider_application') } : {}),
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too_many_provider_applications' }
 });
 
 function emailDeliveryConfigured() {
@@ -356,6 +366,43 @@ app.get('/api/ready', async (_req, res) => {
     return res.json({ status: 'ready', database: 'connected' });
   } catch {
     return res.status(503).json({ status: 'not_ready', reason: 'database_unavailable' });
+  }
+});
+
+app.post('/api/provider-applications', validateRequestOrigin, providerApplicationLimiter, requireDatabase, async (req, res) => {
+  const normalized = normalizeProviderApplication(req.body);
+  if (normalized.error) return res.status(400).json({ error: normalized.error });
+
+  const application = normalized.value;
+  try {
+    const result = await pool.query(
+      `INSERT INTO provider_applications
+         (contact_name, business_name, email, category, country, city, service_description, website_url, public_registry_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id, status, created_at`,
+      [
+        application.contactName,
+        application.businessName,
+        application.email,
+        application.category,
+        application.country,
+        application.city,
+        application.serviceDescription,
+        application.websiteUrl,
+        application.publicRegistryUrl
+      ]
+    );
+    return res.status(201).json({
+      application: {
+        id: result.rows[0].id,
+        status: result.rows[0].status,
+        createdAt: result.rows[0].created_at
+      }
+    });
+  } catch (error) {
+    if (error?.code === '23505') return res.status(409).json({ error: 'provider_application_already_pending' });
+    console.error('Provider application submission failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'provider_application_submission_failed' });
   }
 });
 
