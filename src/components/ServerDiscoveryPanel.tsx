@@ -612,6 +612,13 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                   if (endX === undefined || endY === undefined || startY === null) return;
                   const deltaX = endX - start;
                   const deltaY = endY - startY;
+                  if (Math.abs(deltaY) >= 48 && Math.abs(deltaY) > Math.abs(deltaX) * 1.15) {
+                    setCollapsedPhotoProfileId(current => {
+                      if (deltaY < 0) return profile.id;
+                      return current === profile.id ? null : current;
+                    });
+                    return;
+                  }
                   if (Math.abs(deltaY) >= Math.abs(deltaX)) return;
                   const action = getSwipeActionFromDelta(deltaX);
                   if (action === 'like') void like(profile);
