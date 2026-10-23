@@ -42,7 +42,26 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
     try {
       const response = await fetch('/api/profiles/me', { credentials: 'include' });
       if (requestId !== loadRequestId.current) return;
-      if (response.status === 401) { setAuthenticated(false); setProfile(null); setBlockedProfiles([]); return; }
+      if (response.status === 401) {
+        setAuthenticated(false);
+        setProfile(null);
+        setBlockedProfiles([]);
+        setDisplayName('');
+        setBio('');
+        setCountry('');
+        setCity('');
+        setOccupation('');
+        setEducation('');
+        setPhotoUrls('');
+        setLanguages('');
+        setRelationshipIntent('marriage_family');
+        setFamilyFormat('open_to_both');
+        setHasChildren(null);
+        setWantsChildren('discuss');
+        setChildrenLivingArrangement('not_applicable');
+        setIsVisible(true);
+        return;
+      }
       if (!response.ok) throw new Error(t('profileLoadError'));
       const data = await response.json();
       if (requestId !== loadRequestId.current) return;
@@ -108,7 +127,12 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
   };
   useEffect(() => {
     void load();
-    return () => { loadRequestId.current += 1; };
+    const handleSessionChanged = () => { void load(); };
+    window.addEventListener('vow:session-changed', handleSessionChanged);
+    return () => {
+      window.removeEventListener('vow:session-changed', handleSessionChanged);
+      loadRequestId.current += 1;
+    };
   }, []);
 
   const unblock = async (id: string) => {
