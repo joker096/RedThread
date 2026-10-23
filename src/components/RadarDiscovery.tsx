@@ -204,6 +204,14 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
   };
 
   const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    // Never interpret a gesture that starts on a control as a card action.
+    // This prevents a small finger drag on photo navigation/audio/buttons from
+    // accidentally liking or passing a profile on touch devices.
+    if ((event.target as HTMLElement).closest('button, input, select, textarea, a, [role="button"]')) {
+      touchStartX.current = null;
+      touchStartY.current = null;
+      return;
+    }
     // Leave pinch/zoom gestures to the browser and assistive interaction tools.
     if (event.touches.length !== 1) {
       touchStartX.current = null;
@@ -392,7 +400,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
           /* Profile card */
           <div className="flex flex-col w-full text-left">
             {/* Top Photo Frame */}
-            <div onTouchStart={event => { const touch = event.touches.length === 1 ? event.touches[0] : null; photoTouchStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null; }} onTouchEnd={event => { const start = photoTouchStart.current; photoTouchStart.current = null; const touch = event.changedTouches[0]; if (!start || !touch) return; const dx = touch.clientX - start.x; const dy = touch.clientY - start.y; if (Math.abs(dy) >= 48 && Math.abs(dy) > Math.abs(dx)) { setPhotoCollapsed(dy < 0); event.stopPropagation(); return; }  }} onTouchCancel={() => { photoTouchStart.current = null; }} className={"vow-profile-photo relative w-full overflow-hidden bg-stone-950 select-none transition-[height] duration-300 " + (photoCollapsed ? "h-16 sm:h-20" : "h-72 sm:h-80")}>
+            <div onTouchStart={event => { const interactiveTarget = (event.target as HTMLElement).closest('button, input, select, textarea, a, [role="button"]'); const touch = !interactiveTarget && event.touches.length === 1 ? event.touches[0] : null; photoTouchStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null; }} onTouchEnd={event => { const start = photoTouchStart.current; photoTouchStart.current = null; const touch = event.changedTouches[0]; if (!start || !touch) return; const dx = touch.clientX - start.x; const dy = touch.clientY - start.y; if (Math.abs(dy) >= 48 && Math.abs(dy) > Math.abs(dx) * 1.15) { setPhotoCollapsed(dy < 0); event.stopPropagation(); return; } if (Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy) * 1.15) { event.stopPropagation(); } }} onTouchCancel={() => { photoTouchStart.current = null; }} className={"vow-profile-photo relative w-full overflow-hidden bg-stone-950 select-none transition-[height] duration-300 " + (photoCollapsed ? "h-16 sm:h-20" : "h-72 sm:h-80")}>
               <img
                 src={currentProfile.photos[photoIndex] || currentProfile.avatar}
                 alt={currentProfile.name}
