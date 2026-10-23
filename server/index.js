@@ -46,7 +46,8 @@ app.use((_req, res, next) => {
   res.setHeader('X-Frame-Options', 'DENY');
   // One-time verification/reset tokens can appear in the URL; never leak them in Referer headers.
   res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  // Google Identity Services uses a popup; retain same-origin isolation while allowing its opener.
+  res.setHeader('Cross-Origin-Opener-Policy', process.env.GOOGLE_CLIENT_ID ? 'same-origin-allow-popups' : 'same-origin');
   res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
   if (process.env.NODE_ENV === 'production') {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
@@ -416,6 +417,16 @@ app.post('/api/auth/google', authLimiter, validateRequestOrigin, requireDatabase
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'account_unavailable' });
     }
+    const conflictingEmail = await client.query('SELECT 1 FROM users WHERE email = $1 AND id <> $2 LIMIT 1', [identity.email, user.id]);
+    if (conflictingEmail.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'google_account_exists' });
+    }
+    await client.query(
+      'UPDATE users SET email = $1, email_verified_at = COALESCE(email_verified_at, NOW()), updated_at = NOW() WHERE id = $2',
+      [identity.email, user.id]
+    );
+    user.email = identity.email;
     const token = await createSession(client, user.id);
     await client.query('COMMIT');
     writeSessionCookie(res, token);
