@@ -5,7 +5,8 @@ import {
   ChevronRight, Info, Upload, Wallet, CheckCircle2, AlertTriangle
 } from 'lucide-react';
 
-type ServiceCategory = 'all' | 'legal' | 'dress' | 'photo' | 'host' | 'venue' | 'beauty';
+type ServiceCategory = 'all' | 'legal' | 'dress' | 'photo' | 'host' | 'venue' | 'beauty' | 'cafe' | 'transport' | 'other';
+type PublishedPartner = { id: string; category: string; businessName: string; country: string; city: string; website: string; serviceDescription: string; publishedAt: string };
 type CountryCode = 'GE' | 'RU' | 'KZ' | 'AM' | 'OTHER';
 
 interface ProviderExample {
@@ -35,7 +36,10 @@ const categories: Array<{ id: ServiceCategory; label: string; icon: React.Elemen
   { id: 'photo', label: 'Фото / видео', icon: Camera },
   { id: 'host', label: 'Ведущие', icon: Music2 },
   { id: 'venue', label: 'Площадки', icon: MapPin },
-  { id: 'beauty', label: 'Образ', icon: SparklesIcon }
+  { id: 'beauty', label: 'Образ', icon: SparklesIcon },
+  { id: 'cafe', label: 'Кафе', icon: Wallet },
+  { id: 'transport', label: 'Транспорт', icon: MapPin },
+  { id: 'other', label: 'Другое', icon: HeartHandshake }
 ];
 
 function SparklesIcon(props: React.ComponentProps<'svg'>) {
@@ -71,8 +75,42 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
   const [providerEmail, setProviderEmail] = useState('');
   const [practice, setPractice] = useState('');
   const [documentNote, setDocumentNote] = useState('');
+  const [publishedPartners, setPublishedPartners] = useState<PublishedPartner[]>([]);
+  const [partnersLoading, setPartnersLoading] = useState(false);
+  const [partnersError, setPartnersError] = useState('');
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const controller = new AbortController();
+    const params = new URLSearchParams({ country: countryNames[country] });
+    if (category !== 'all') {
+      const apiCategory = category === 'photo' ? 'photo' : category === 'dress' || category === 'host' ? 'other' : category;
+      params.set('category', apiCategory);
+    }
+    setPartnersLoading(true);
+    setPartnersError('');
+    fetch('/api/partner-services?' + params.toString(), { signal: controller.signal })
+      .then(async response => {
+        const data = await response.json().catch(() => null);
+        if (!response.ok) throw new Error('Не удалось загрузить каталог партнёров.');
+        return Array.isArray(data?.providers) ? data.providers as PublishedPartner[] : [];
+      })
+      .then(providers => {
+        if (!controller.signal.aborted) setPublishedPartners(providers);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setPublishedPartners([]);
+          setPartnersError('Каталог временно недоступен. Попробуйте обновить позже.');
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPartnersLoading(false);
+      });
+    return () => controller.abort();
+  }, [isOpen, country, category]);
 
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -160,7 +198,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
           </div>
           <div className="mt-4 flex gap-2 rounded-xl border border-emerald-700/30 bg-emerald-950/30 p-3 text-xs text-emerald-100">
             <LockKeyhole className="w-4 h-4 shrink-0 mt-0.5" />
-            <p>Раздел появляется только внутри взаимного совпадения после этапа совместимости. Сейчас это демонстрация каталога: исполнители, цены, документы и оплата не подключены.</p>
+            <p>Раздел появляется только внутри взаимного совпадения после этапа совместимости. Здесь показываются только партнёры, которых модератор отдельно одобрил и опубликовал. Контактные email и внутренние заметки остаются закрытыми; цены и бронирование пока не подключены.</p>
           </div>
         </div>
 
@@ -227,6 +265,29 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
               </div>
             </div>
           )}
+
+          <section aria-labelledby="published-partners-title" className="mb-6">
+            <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+              <div><h3 id="published-partners-title" className="text-base font-bold text-white">Партнёры Vow</h3><p className="mt-1 text-xs text-stone-400">Опубликованные карточки · {countryNames[country]}</p></div>
+              <p role="status" aria-live="polite" aria-atomic="true" className="text-xs text-stone-400">{partnersLoading ? 'Загружаем каталог…' : `${publishedPartners.length} партнёров`}</p>
+            </div>
+            {partnersError && <p role="alert" className="mb-3 rounded-xl border border-amber-700/30 bg-amber-950/20 p-3 text-xs text-amber-100">{partnersError}</p>}
+            {!partnersLoading && !partnersError && publishedPartners.length === 0 && <p role="status" className="mb-3 rounded-xl border border-white/10 bg-stone-950/50 p-4 text-sm text-stone-400">Пока нет опубликованных партнёров для этого фильтра. Ниже показаны примеры, они не являются реальными предложениями.</p>}
+            {publishedPartners.length > 0 && <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {publishedPartners.map(provider => {
+                const matchedCategory = provider.category === 'photography' || provider.category === 'videography' ? 'photo' : provider.category;
+                const Icon = categories.find(item => item.id === matchedCategory)?.icon || HeartHandshake;
+                const categoryLabel = categories.find(item => item.id === matchedCategory)?.label || 'Услуги';
+                return <article key={provider.id} className="rounded-2xl border border-emerald-700/30 bg-stone-950/70 p-4">
+                  <div className="flex items-start justify-between gap-2"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600/15 text-emerald-300"><Icon className="h-5 w-5" /></div><span className="rounded-full border border-emerald-700/40 bg-emerald-950/40 px-2 py-1 text-[9px] text-emerald-200">Опубликовано Vow</span></div>
+                  <p className="mt-3 text-[10px] uppercase tracking-wide text-stone-400">{categoryLabel} · {provider.city}, {provider.country}</p>
+                  <h4 className="mt-1 font-bold text-white">{provider.businessName}</h4>
+                  <p className="mt-3 whitespace-pre-wrap break-words text-xs leading-relaxed text-stone-300">{provider.serviceDescription}</p>
+                  {provider.website && <a href={provider.website} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex min-h-11 items-center rounded-lg border border-emerald-700/40 px-3 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-950/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">Открыть сайт исполнителя <ChevronRight className="ml-1 h-3.5 w-3.5" /></a>}
+                </article>;
+              })}
+            </div>}
+          </section>
 
           <p role="status" aria-live="polite" aria-atomic="true" className="mb-3 text-xs text-stone-400">{filtered.length} демонстрационных услуг · {countryNames[country]} · {categories.find(item => item.id === category)?.label}</p>
           <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
