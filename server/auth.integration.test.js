@@ -30,7 +30,8 @@ test('auth API supports registration, session lookup, logout and login', {
       ...process.env,
       API_PORT: String(port),
       APP_ORIGIN: origin,
-      NODE_ENV: 'test'
+      NODE_ENV: 'test',
+      GOOGLE_CLIENT_ID: ''
     },
     stdio: 'ignore'
   });
@@ -62,6 +63,14 @@ test('auth API supports registration, session lookup, logout and login', {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     assert.equal(healthy, true, 'API should start and answer the health check');
+
+    const googleConfig = await request('/api/auth/google/config');
+    assert.deepEqual(await googleConfig.json(), { configured: false, clientId: null }, 'Google sign-in must stay hidden until configured');
+    const disabledGoogleSignIn = await request('/api/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ credential: 'untrusted-token' })
+    });
+    assert.equal(disabledGoogleSignIn.status, 503, 'Google sign-in must fail closed when no client ID is configured');
 
     const email = `test-${randomUUID()}@example.test`;
     const password = 'Test Password 2026! Secure';
