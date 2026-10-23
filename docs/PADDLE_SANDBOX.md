@@ -27,7 +27,7 @@ The server refuses checkout unless `PADDLE_ENVIRONMENT=sandbox` and the client t
 
 - Webhook signature verification uses the Paddle Node SDK and the notification signing secret against the raw request body.
 - Event IDs are stored in `paddle_webhook_events` in the same transaction as entitlement updates, so retries are idempotent.
-- `transaction.completed` alone does not grant Premium; a verified active/trialing subscription event with a future billing-period end does.
+- Recurring Premium is granted only by a verified active/trialing subscription event with a future billing-period end. The one-time lifetime plan is the explicit exception: a verified `transaction.completed` event grants it only when server-generated `custom_data.plan` is `lifetime` and the transaction contains the configured lifetime Price ID.
 - The checkout transaction is created server-side and includes the authenticated internal user ID in server-generated custom data; the client cannot choose a price ID or user ID.
 - The code intentionally rejects live environment configuration. Do not switch to live until sandbox tests pass and the Paddle account/domain verification is complete.
 
