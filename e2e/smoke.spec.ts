@@ -405,6 +405,50 @@ test('mobile profile card reveals details on upward swipe and restores photo on 
 });
 
 
+test('mobile horizontal photo swipe advances gallery without passing the profile', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const card = page.locator('.vow-profile-card').first();
+  const photo = card.locator('.vow-profile-photo');
+  const nextPhoto = photo.getByTestId('profile-photo-next');
+  await expect(nextPhoto).toBeVisible();
+  await expect(nextPhoto).toBeEnabled();
+  const before = await photo.locator('img').getAttribute('src');
+
+  await page.evaluate(() => {
+    const target = document.querySelector('[data-testid="profile-photo-next"]');
+    if (!target) throw new Error('Photo navigation target is not mounted');
+    const makeTouch = (x: number) => new Touch({
+      identifier: 9,
+      target,
+      clientX: x,
+      clientY: 300,
+      screenX: x,
+      screenY: 300
+    });
+    const startTouch = makeTouch(300);
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true,
+      cancelable: true,
+      touches: [startTouch],
+      changedTouches: [startTouch]
+    }));
+    const endTouch = makeTouch(220);
+    target.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true,
+      cancelable: true,
+      touches: [],
+      changedTouches: [endTouch]
+    }));
+  });
+
+  await expect(photo.locator('img')).not.toHaveAttribute('src', before ?? '');
+  await expect(card).toBeVisible();
+  await expect(photo).toHaveClass(/h-72/);
+});
+
 test('mobile drags starting on profile controls do not trigger card swipes', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
