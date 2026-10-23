@@ -1,7 +1,8 @@
 import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { fetchRevenueCatSubscriber, normalizeRevenueCatEvent, processRevenueCatEvent, revenueCatEntitlementState } from './revenueCatBilling.js';
 import { validateAdEventPayload, AD_IMPRESSION_CAP_24H } from './adEvents.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
@@ -84,6 +85,37 @@ app.post('/api/paddle/webhook', express.raw({ type: 'application/json', limit: '
   }
 });
 
+app.post('/api/revenuecat/webhook', express.raw({ type: 'application/json', limit: '1mb' }), async (req, res) => {
+  const authorization = process.env.REVENUECAT_WEBHOOK_AUTHORIZATION;
+  const secretApiKey = process.env.REVENUECAT_SECRET_API_KEY;
+  const environment = revenueCatEnvironment();
+  if (!revenueCatConfigured() || !authorization || !secretApiKey || !environment || !Buffer.isBuffer(req.body)) {
+    return res.status(503).json({ error: 'revenuecat_webhook_not_configured' });
+  }
+  if (!constantTimeStringEqual(req.get('authorization') || '', authorization)) {
+    return res.status(401).json({ error: 'invalid_revenuecat_webhook_authorization' });
+  }
+  let payload;
+  try {
+    payload = JSON.parse(req.body.toString('utf8'));
+  } catch {
+    return res.status(400).json({ error: 'invalid_revenuecat_webhook_payload' });
+  }
+  if (payload?.event?.type === 'TEST') return res.status(200).json({ received: true });
+  const event = normalizeRevenueCatEvent(payload);
+  if (!event) return res.status(400).json({ error: 'invalid_revenuecat_event' });
+  if (event.environment !== environment.toUpperCase()) return res.status(200).json({ received: true, ignored: true });
+  try {
+    const subscriber = await fetchRevenueCatSubscriber(event.appUserId, secretApiKey);
+    const state = revenueCatEntitlementState(subscriber, process.env.REVENUECAT_PREMIUM_ENTITLEMENT_ID || 'premium_access');
+    await processRevenueCatEvent(pool, event, state);
+    return res.status(200).json({ received: true });
+  } catch (error) {
+    console.error('RevenueCat webhook processing failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'revenuecat_webhook_processing_failed' });
+  }
+});
+
 app.use(express.json({ limit: '32kb', strict: true }));
 
 app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (req, res) => {
@@ -128,6 +160,16 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
     console.error('Paddle sandbox checkout request failed:', error?.message || 'unknown error');
     return res.status(502).json({ error: 'paddle_checkout_unavailable' });
   }
+});
+
+app.get('/api/revenuecat/config', requireSession, (_req, res) => {
+  if (!revenueCatConfigured()) return res.json({ configured: false, environment: revenueCatEnvironment() || 'sandbox' });
+  return res.json({
+    configured: true,
+    apiKey: process.env.REVENUECAT_WEB_API_KEY,
+    entitlementId: process.env.REVENUECAT_PREMIUM_ENTITLEMENT_ID || 'premium_access',
+    environment: revenueCatEnvironment()
+  });
 });
 
 app.get('/api/paddle/config', requireSession, (req, res) => {
@@ -280,7 +322,7 @@ async function requireSession(req, res, next) {
 
   try {
     const result = await pool.query(
-      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.female_trial_ends_at, u.premium_until, u.premium_lifetime, u.phone_verified_at,
+      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.female_trial_ends_at, u.premium_until, u.premium_lifetime, u.revenuecat_premium_until, u.revenuecat_premium_lifetime, u.phone_verified_at,
               p.display_name, p.gender, p.country, p.city, p.relationship_intent, s.id AS session_id
        FROM sessions s
        JOIN users u ON u.id = s.user_id
@@ -318,17 +360,41 @@ async function createNotification(userId, type, metadata = {}, dedupeKey = null,
   );
 }
 
+function revenueCatEnvironment() {
+  // Keep web billing explicitly sandbox-only until the full lifecycle is verified.
+  return String(process.env.REVENUECAT_ENVIRONMENT || 'sandbox').toLowerCase() === 'sandbox' ? 'sandbox' : null;
+}
+
+function revenueCatConfigured() {
+  return Boolean(revenueCatEnvironment() && process.env.REVENUECAT_WEB_API_KEY?.startsWith('rcb_')
+    && process.env.REVENUECAT_SECRET_API_KEY && process.env.REVENUECAT_WEBHOOK_AUTHORIZATION);
+}
+
+function paddleBillingConfigured() {
+  const plansConfigured = Boolean(process.env.PADDLE_PRICE_ID_1MONTH || process.env.PADDLE_PRICE_ID_3MONTHS || process.env.PADDLE_PRICE_ID_LIFETIME);
+  return Boolean(process.env.PADDLE_ENVIRONMENT === 'sandbox' && process.env.PADDLE_API_KEY
+    && process.env.PADDLE_WEBHOOK_SECRET && process.env.PADDLE_CLIENT_TOKEN?.startsWith('test_') && plansConfigured);
+}
+
+function constantTimeStringEqual(actual, expected) {
+  if (typeof actual !== 'string' || typeof expected !== 'string') return false;
+  const a = Buffer.from(actual, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 function requirePaidFeatures(req, res, next) {
   // Men retain the current free access model. Safety, account settings, and reports are never paywalled.
-  if (req.authUser.gender !== 'female' || req.authUser.premium_lifetime === true) return next();
+  if (req.authUser.gender !== 'female' || req.authUser.premium_lifetime === true || req.authUser.revenuecat_premium_lifetime === true) return next();
   const trialEndsAt = req.authUser.female_trial_ends_at ? new Date(req.authUser.female_trial_ends_at).getTime() : 0;
   const premiumUntil = req.authUser.premium_until ? new Date(req.authUser.premium_until).getTime() : 0;
+  const revenueCatPremiumUntil = req.authUser.revenuecat_premium_until ? new Date(req.authUser.revenuecat_premium_until).getTime() : 0;
   const now = Date.now();
-  if (trialEndsAt > now || premiumUntil > now) return next();
+  if (trialEndsAt > now || premiumUntil > now || revenueCatPremiumUntil > now) return next();
   return res.status(402).json({
     error: 'premium_required',
     message: 'Бесплатный период завершён. Для продолжения использования функций подбора нужен Premium.',
-    paymentConfigured: false
+    paymentConfigured: revenueCatConfigured() || paddleBillingConfigured()
   });
 }
 
@@ -742,7 +808,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     await client.query(
       `UPDATE users SET status = 'deleted', email = $2, password_hash = NULL,
          phone_e164 = NULL, phone_verified_at = NULL, female_trial_ends_at = NULL,
-         premium_until = NULL, updated_at = NOW()
+         premium_until = NULL, revenuecat_premium_until = NULL, revenuecat_premium_lifetime = FALSE, updated_at = NOW()
        WHERE id = $1`,
       [req.authUser.id, 'deleted+' + req.authUser.id + '@deleted.invalid']
     );
@@ -765,37 +831,33 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
 
 app.get('/api/billing/status', requireSession, async (req, res) => {
   const trialEndsAt = req.authUser.female_trial_ends_at ? new Date(req.authUser.female_trial_ends_at) : null;
-  const premiumUntil = req.authUser.premium_until ? new Date(req.authUser.premium_until) : null;
+  const paddlePremiumUntil = req.authUser.premium_until ? new Date(req.authUser.premium_until) : null;
+  const revenueCatPremiumUntil = req.authUser.revenuecat_premium_until ? new Date(req.authUser.revenuecat_premium_until) : null;
   const now = Date.now();
   const isTrialActive = req.authUser.gender === 'female' && trialEndsAt && trialEndsAt.getTime() > now;
-  const hasTimedPremium = premiumUntil && premiumUntil.getTime() > now;
-  const hasPremium = Boolean(req.authUser.premium_lifetime || hasTimedPremium);
+  const hasTimedPremium = Boolean((paddlePremiumUntil && paddlePremiumUntil.getTime() > now) || (revenueCatPremiumUntil && revenueCatPremiumUntil.getTime() > now));
+  const premiumLifetime = Boolean(req.authUser.premium_lifetime || req.authUser.revenuecat_premium_lifetime);
+  const hasPremium = premiumLifetime || hasTimedPremium;
   const paddlePlans = process.env.PADDLE_ENVIRONMENT === 'sandbox' && process.env.PADDLE_CLIENT_TOKEN?.startsWith('test_')
     ? [
         ...(process.env.PADDLE_PRICE_ID_1MONTH ? ['1month'] : []),
         ...(process.env.PADDLE_PRICE_ID_3MONTHS ? ['3months'] : []),
         ...(process.env.PADDLE_PRICE_ID_LIFETIME ? ['lifetime'] : [])
-      ]
-    : [];
-  const paymentConfigured = Boolean(
-    process.env.PADDLE_ENVIRONMENT === 'sandbox' &&
-    process.env.PADDLE_API_KEY &&
-    process.env.PADDLE_WEBHOOK_SECRET &&
-    process.env.PADDLE_CLIENT_TOKEN?.startsWith('test_') &&
-    paddlePlans.length
-  );
-  const availablePlans = paddlePlans;
+      ] : [];
+  const paymentConfigured = revenueCatConfigured() || paddleBillingConfigured();
+  const premiumUntilCandidates = [paddlePremiumUntil, revenueCatPremiumUntil].filter(date => date && date.getTime() > now).sort((a, b) => b.getTime() - a.getTime());
   const note = paymentConfigured
-    ? 'Paddle Sandbox is enabled; premium access changes only after a verified webhook. Sandbox does not collect real payments.'
-    : 'Paddle Sandbox is not fully configured. No payment will be collected until its sandbox credentials and price IDs are configured.';
+    ? 'Web purchases use RevenueCat with Paddle Billing; Premium changes only after a verified server notification.'
+    : 'RevenueCat and Paddle Sandbox are not fully configured. No payment will be collected until provider accounts, catalog, and webhook settings are complete.';
   return res.json({
     gender: req.authUser.gender, trialEndsAt: trialEndsAt?.toISOString() || null,
-    premiumUntil: req.authUser.premium_lifetime ? null : premiumUntil?.toISOString() || null,
-    premiumLifetime: Boolean(req.authUser.premium_lifetime),
+    premiumUntil: premiumLifetime ? null : premiumUntilCandidates[0]?.toISOString() || null,
+    premiumLifetime, revenueCatConfigured: revenueCatConfigured(),
     access: req.authUser.gender !== 'female' || isTrialActive || hasPremium ? 'full' : 'premium_required',
-    trialActive: Boolean(isTrialActive), premiumActive: hasPremium, paymentConfigured, availablePlans, note
+    trialActive: Boolean(isTrialActive), premiumActive: hasPremium, paymentConfigured, availablePlans: paddlePlans, note
   });
 });
+
 app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req, res) => {
   const cleanFilter = (value, maxLength) => {
     if (typeof value !== 'string') return null;
@@ -1876,8 +1938,9 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
   if (!validation.ok) return res.status(400).json({ error: validation.error });
 
   const user = req.authUser;
-  const hasPremium = Boolean(user.premium_lifetime) ||
-    (user.premium_until && new Date(user.premium_until).getTime() > Date.now());
+  const hasPremium = Boolean(user.premium_lifetime || user.revenuecat_premium_lifetime)
+    || (user.premium_until && new Date(user.premium_until).getTime() > Date.now())
+    || (user.revenuecat_premium_until && new Date(user.revenuecat_premium_until).getTime() > Date.now());
   if (hasPremium) return res.status(403).json({ error: 'ads_disabled_for_premium' });
 
   const { eventId, campaignId, eventType } = validation.value;

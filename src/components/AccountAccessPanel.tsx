@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
-import { PaddleSubscriptionPanel } from './PaddleSubscriptionPanel.tsx';
+import { RevenueCatSubscriptionPanel } from './RevenueCatSubscriptionPanel.tsx';
 
 type AccountUser = {
   id: string;
@@ -346,7 +346,16 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
             <p className="text-sm font-semibold text-white">{user.displayName}</p>
             <p className="mt-1 text-xs text-stone-400">{user.email} · {user.city}, {user.country}</p>
           </div>
-          {user.gender === 'female' && <PaddleSubscriptionPanel email={user.email} />}
+          {user.gender === 'female' && <RevenueCatSubscriptionPanel
+            userId={user.id}
+            email={user.email}
+            onEntitlementUpdated={() => {
+              void fetch('/api/billing/status', { credentials: 'include' })
+                .then(response => response.ok ? response.json() : null)
+                .then(status => { if (isBillingStatus(status)) setBillingStatus(status); })
+                .catch(() => {});
+            }}
+          />}
           {billingStatus && user.gender === 'female' && <div className={`rounded-xl border p-3 ${billingStatus.access === 'full' ? 'border-emerald-500/20 bg-emerald-950/20' : 'border-amber-500/20 bg-amber-950/20'}`}>
             <p className="text-sm font-semibold text-white">{billingStatus.access === 'full' ? t('authBillingFullAccess') : t('authBillingTrialEnded')}</p>
             <p className="mt-1 text-xs leading-relaxed text-stone-300">{billingStatus.trialEndsAt && billingStatus.access === 'full' ? t('authBillingFreeUntil').replace('{date}', formatDate(billingStatus.trialEndsAt, { dateStyle: 'medium', timeStyle: 'short' })) : billingStatus.access !== 'full' ? t('authBillingPremiumNotConfigured') : t('authBillingActive')}</p>
