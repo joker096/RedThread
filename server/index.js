@@ -433,6 +433,7 @@ app.post('/api/auth/google', authLimiter, validateRequestOrigin, requireDatabase
     return res.json({ user: publicUser(user) });
   } catch (error) {
     if (client) await client.query('ROLLBACK').catch(() => {});
+    if (error?.code === '23505') return res.status(409).json({ error: 'google_account_exists' });
     console.error('Google sign-in failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'google_sign_in_failed' });
   } finally {
