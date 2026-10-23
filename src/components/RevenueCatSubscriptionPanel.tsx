@@ -21,7 +21,7 @@ async function getPurchases(apiKey: string, appUserId: string): Promise<Purchase
     sharedPurchases = Purchases.configure({ apiKey, appUserId });
     sharedAppUserId = appUserId;
   } else if (sharedAppUserId !== appUserId) {
-    await sharedPurchases.logIn(appUserId);
+    await sharedPurchases.changeUser(appUserId);
     sharedAppUserId = appUserId;
   }
   return sharedPurchases;
