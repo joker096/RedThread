@@ -1254,3 +1254,29 @@ test('mobile photo toggle and verification badge keep separate touch areas', asy
     }).toBe(0);
   }
 });
+
+
+test('mobile voice intro and verification badge keep separate touch areas', async ({ page }) => {
+  for (const viewport of [{ width: 320, height: 720 }, { width: 360, height: 800 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+    await page.getByTestId('open-demo-preview').click();
+
+    const photo = page.locator('.vow-profile-card').first().locator('.vow-profile-photo');
+    const voiceIntro = photo.locator('button[aria-pressed]');
+    const verificationBadge = photo.locator('button').filter({ has: page.locator('svg.lucide-shield-check') });
+
+    if (await voiceIntro.count() === 0) continue;
+    await expect(voiceIntro).toBeVisible();
+    await expect(verificationBadge).toBeVisible();
+
+    await expect.poll(async () => {
+      const voiceBox = await voiceIntro.boundingBox();
+      const badgeBox = await verificationBadge.boundingBox();
+      if (!voiceBox || !badgeBox) return -1;
+      const overlapWidth = Math.max(0, Math.min(voiceBox.x + voiceBox.width, badgeBox.x + badgeBox.width) - Math.max(voiceBox.x, badgeBox.x));
+      const overlapHeight = Math.max(0, Math.min(voiceBox.y + voiceBox.height, badgeBox.y + badgeBox.height) - Math.max(voiceBox.y, badgeBox.y));
+      return overlapWidth * overlapHeight;
+    }).toBe(0);
+  }
+});
