@@ -919,3 +919,48 @@ test('cancelled vertical photo swipe does not collapse the image and the next sw
   await expect(photo).toHaveClass(/h-16/);
   await expect(image).toBeVisible();
 });
+
+test('horizontal swipe directly on the photo advances the gallery without passing the profile', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const card = page.locator('.vow-profile-card').first();
+  const photo = card.locator('.vow-profile-photo');
+  const image = photo.locator('img');
+  const initialName = await card.locator('h2').first().textContent();
+  const firstSrc = await image.getAttribute('src');
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(image).toBeVisible();
+
+  await page.evaluate(() => {
+    const target = document.querySelector('.vow-profile-photo img');
+    if (!target) throw new Error('Profile photo image is not mounted');
+    const makeTouch = (x: number) => new Touch({
+      identifier: 81,
+      target,
+      clientX: x,
+      clientY: 300,
+      screenX: x,
+      screenY: 300
+    });
+    const start = makeTouch(300);
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true,
+      cancelable: true,
+      touches: [start],
+      changedTouches: [start]
+    }));
+    const end = makeTouch(220);
+    target.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true,
+      cancelable: true,
+      touches: [],
+      changedTouches: [end]
+    }));
+  });
+
+  await expect(image).not.toHaveAttribute('src', firstSrc ?? '');
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(card.locator('h2').first()).toHaveText(initialName ?? '');
+});
