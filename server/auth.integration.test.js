@@ -93,6 +93,8 @@ test('auth API supports registration, session lookup, logout and login', {
     const directoryPayload = await publicDirectory.json();
     assert.deepEqual(directoryPayload.providers, [], 'pending applications must not appear in the public directory');
     assert.equal(JSON.stringify(directoryPayload).includes(partnerApplication.contactEmail), false, 'directory responses must not expose contact email');
+    assert.equal(JSON.stringify(directoryPayload).includes(partnerApplication.contactName), false, 'directory responses must not expose contact name');
+    assert.equal(JSON.stringify(directoryPayload).includes(partnerApplication.serviceDescription), false, 'pending application details must remain private');
     const invalidDirectoryFilter = await request('/api/partner-services?category=admin');
     assert.equal(invalidDirectoryFilter.status, 400, 'directory filters must reject unsupported categories');
 
@@ -135,6 +137,11 @@ test('auth API supports registration, session lookup, logout and login', {
     for (const adminPath of ['/api/admin/reports', '/api/admin/photos', '/api/admin/audit-log', '/api/admin/partner-applications']) {
       const forbidden = await request(adminPath, { headers: { Cookie: firstCookie } });
       assert.equal(forbidden.status, 403);
+    }
+
+    for (const publicationPath of ['/api/admin/partner-applications/'+randomUUID()+'/publish', '/api/admin/partner-applications/'+randomUUID()+'/unpublish']) {
+      const forbiddenPublication = await request(publicationPath, { method: 'POST', headers: { Cookie: firstCookie }, body: JSON.stringify({}) });
+      assert.equal(forbiddenPublication.status, 403, 'ordinary users must not publish or hide partner listings');
     }
 
     const forbiddenModerationAction = await request(`/api/admin/reports/${randomUUID()}/action`, {
