@@ -1230,3 +1230,27 @@ test('mobile photo toggle keeps a 44px minimum touch target when expanded and co
   expect(collapsedSize.height, 'collapsed toggle height should meet the 44px touch target guideline').toBeGreaterThanOrEqual(44);
   expect(collapsedSize.width, 'collapsed toggle width should meet the 44px touch target guideline').toBeGreaterThanOrEqual(44);
 });
+
+
+test('mobile photo toggle and verification badge keep separate touch areas', async ({ page }) => {
+  for (const viewport of [{ width: 320, height: 720 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+    await page.getByTestId('open-demo-preview').click();
+
+    const photo = page.locator('.vow-profile-card').first().locator('.vow-profile-photo');
+    const toggle = photo.locator('button[aria-expanded="true"]');
+    const verificationBadge = photo.locator('button[title]').filter({ has: page.locator('svg.lucide-shield-check') });
+
+    await expect(toggle).toBeVisible();
+    await expect(verificationBadge).toBeVisible();
+    await expect.poll(async () => {
+      const toggleBox = await toggle.boundingBox();
+      const badgeBox = await verificationBadge.boundingBox();
+      if (!toggleBox || !badgeBox) return -1;
+      const overlapWidth = Math.max(0, Math.min(toggleBox.x + toggleBox.width, badgeBox.x + badgeBox.width) - Math.max(toggleBox.x, badgeBox.x));
+      const overlapHeight = Math.max(0, Math.min(toggleBox.y + toggleBox.height, badgeBox.y + badgeBox.height) - Math.max(toggleBox.y, badgeBox.y));
+      return overlapWidth * overlapHeight;
+    }).toBe(0);
+  }
+});
