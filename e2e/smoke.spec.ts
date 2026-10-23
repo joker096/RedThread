@@ -132,12 +132,12 @@ test('language selector changes locale and persists on a narrow mobile viewport'
   await expect.poll(() => page.evaluate(() => localStorage.getItem('vow-locale-preference-v1'))).toBe('pt');
 });
 
-test('common phone viewports have no document-level horizontal overflow', async ({ page }) => {
+test('common phone and tablet viewports have no document-level horizontal overflow', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 720 });
   await page.goto('/');
   await expect(page.getByText('Vow', { exact: false }).first()).toBeVisible();
 
-  for (const width of [320, 360, 375, 390, 414, 430]) {
+  for (const width of [320, 360, 375, 390, 414, 430, 768, 820, 834, 1024]) {
     await page.setViewportSize({ width, height: 720 });
     const dimensions = await page.evaluate(() => {
       const viewport = document.documentElement.clientWidth;
