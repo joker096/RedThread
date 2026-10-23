@@ -154,6 +154,20 @@ test('auth API supports registration, session lookup, logout and login', {
       })
     });
     assert.equal(inquiryWithoutConsent.status, 400, 'a partner inquiry must require explicit contact-sharing consent');
+
+    const inquiryWithInvalidDate = await request('/api/partner-service-inquiries', {
+      method: 'POST',
+      headers: { Cookie: firstCookie },
+      body: JSON.stringify({
+        applicationId: randomUUID(),
+        matchId: randomUUID(),
+        requestKey: randomUUID(),
+        requestNote: 'Please send details about this service.',
+        serviceDate: '2026-13-40',
+        shareContact: true
+      })
+    });
+    assert.equal(inquiryWithInvalidDate.status, 400, 'partner inquiry dates must be real ISO calendar dates');
     const billingStatus = await request('/api/billing/status', { headers: { Cookie: firstCookie } });
     assert.equal(billingStatus.status, 200);
     const trial = await billingStatus.json();
