@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
+import { PartnerServicesMarketplace } from './PartnerServicesMarketplace.tsx';
 
 type ServerMatch = {
   id: string;
@@ -78,6 +79,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const { t, formatDate } = useLocale();
   const [matches, setMatches] = useState<ServerMatch[]>([]);
   const [selected, setSelected] = useState<string>('');
+  const [showPartnerServices, setShowPartnerServices] = useState(false);
   const [messages, setMessages] = useState<ServerMessage[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const draft = selected ? (drafts[selected] || '') : '';
@@ -396,11 +398,13 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                 </div>
                 {!messagesLoading && !messagesFailed && !messages.length && <p role="status" className="px-2 py-3 text-xs text-stone-500">{t('noMessagesYet')}</p>}
               </div>
+              <button type="button" onClick={() => setShowPartnerServices(true)} aria-haspopup="dialog" className="mb-3 min-h-11 w-full rounded-xl border border-emerald-700/40 bg-emerald-950/20 px-3 py-2 text-xs font-semibold text-emerald-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">Услуги партнёров для вашей пары</button>
               <textarea dir="auto" aria-label={t('writeMessage')} value={draft} onChange={e => setDrafts(current => ({ ...current, [selected]: e.target.value }))} onKeyDown={e => { if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229 || busy || !draft.trim()) return; e.preventDefault(); void send(); }} disabled={busy} maxLength={4000} rows={2} placeholder={t('writeMessage')} className="w-full resize-y rounded-xl border border-white/10 bg-stone-900/90 p-3.5 text-sm text-white outline-none transition placeholder:text-stone-500 focus:border-rose-400/60 focus:ring-2 focus:ring-rose-400/15 disabled:cursor-not-allowed disabled:opacity-60" />
               <button data-testid="server-match-send" type="button" onClick={() => void send()} disabled={busy || !draft.trim()} className="vow-motion-button mt-2 min-h-12 w-full rounded-xl bg-gradient-to-r from-rose-600 to-rose-700 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-rose-950/25 transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300 disabled:cursor-not-allowed disabled:opacity-40">{busy ? t('sendingMessage') : t('sendMessage')}</button>
               <button type="button" onClick={() => void loadMessages(selected)} disabled={busy || messagesLoading} className="vow-motion-button mt-2 min-h-11 w-full rounded-xl border border-white/10 px-4 py-2 text-xs font-semibold text-stone-300 transition hover:border-white/20 hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300 disabled:cursor-not-allowed disabled:opacity-50">{t('refreshMessages')}</button>
             </div>
           )}
+          {selected && <PartnerServicesMarketplace isOpen={showPartnerServices} onClose={() => setShowPartnerServices(false)} matchId={selected} partnerName={matches.find(match => match.id === selected)?.displayName || 'вашего совпадения'} />}
           <button type="button" onClick={() => void loadMatches()} disabled={matchesLoading || busy} aria-busy={matchesLoading} className="vow-motion-button min-h-11 w-full rounded-xl border border-white/10 px-4 py-2.5 text-xs font-semibold text-stone-300 transition hover:border-white/20 hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300 disabled:cursor-not-allowed disabled:opacity-50">{t('refreshMatches')}</button>
         </div>
       )}
