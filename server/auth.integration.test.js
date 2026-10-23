@@ -88,6 +88,11 @@ test('auth API supports registration, session lookup, logout and login', {
       body: JSON.stringify({ ...partnerApplication, priceFrom: '-1' })
     });
     assert.equal(invalidPrice.status, 400, 'partner prices must be non-negative');
+    const invalidCurrency = await request('/api/partner-applications', {
+      method: 'POST',
+      body: JSON.stringify({ ...partnerApplication, priceCurrency: 'BTC' })
+    });
+    assert.equal(invalidCurrency.status, 400, 'partner prices must use a supported currency');
 
     const partnerSubmission = await request('/api/partner-applications', {
       method: 'POST',
@@ -107,6 +112,8 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(JSON.stringify(directoryPayload).includes(partnerApplication.serviceDescription), false, 'pending application details must remain private');
     const invalidDirectoryFilter = await request('/api/partner-services?category=admin');
     assert.equal(invalidDirectoryFilter.status, 400, 'directory filters must reject unsupported categories');
+    const repeatedDirectoryFilter = await request('/api/partner-services?category=legal&category=photo');
+    assert.equal(repeatedDirectoryFilter.status, 400, 'directory filters must reject repeated parameters');
 
     const email = `test-${randomUUID()}@example.test`;
     const password = 'Test Password 2026! Secure';
