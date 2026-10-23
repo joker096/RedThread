@@ -37,29 +37,33 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const [blockedProfiles, setBlockedProfiles] = useState<BlockedProfile[]>([]);
   const loadRequestId = useRef(0);
 
+  const clearProfileState = () => {
+    setAuthenticated(false);
+    setProfile(null);
+    setBlockedProfiles([]);
+    setDisplayName('');
+    setBio('');
+    setCountry('');
+    setCity('');
+    setOccupation('');
+    setEducation('');
+    setPhotoUrls('');
+    setLanguages('');
+    setRelationshipIntent('marriage_family');
+    setFamilyFormat('open_to_both');
+    setHasChildren(null);
+    setWantsChildren('discuss');
+    setChildrenLivingArrangement('not_applicable');
+    setIsVisible(true);
+  };
+
   const load = async () => {
     const requestId = ++loadRequestId.current;
     try {
       const response = await fetch('/api/profiles/me', { credentials: 'include' });
       if (requestId !== loadRequestId.current) return;
       if (response.status === 401) {
-        setAuthenticated(false);
-        setProfile(null);
-        setBlockedProfiles([]);
-        setDisplayName('');
-        setBio('');
-        setCountry('');
-        setCity('');
-        setOccupation('');
-        setEducation('');
-        setPhotoUrls('');
-        setLanguages('');
-        setRelationshipIntent('marriage_family');
-        setFamilyFormat('open_to_both');
-        setHasChildren(null);
-        setWantsChildren('discuss');
-        setChildrenLivingArrangement('not_applicable');
-        setIsVisible(true);
+        clearProfileState();
         return;
       }
       if (!response.ok) throw new Error(t('profileLoadError'));
@@ -162,7 +166,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
         })
       });
       const data = await response.json().catch(() => null);
-      if (response.status === 401) { setAuthenticated(false); return; }
+      if (response.status === 401) { clearProfileState(); return; }
       if (!response.ok) {
         const errors: Record<string, string> = {
           children_status_required: t('profileChildrenRequired'),
