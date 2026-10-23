@@ -111,9 +111,8 @@ test('Vietnamese catalog covers core discovery, safety, account and messaging UI
     'Vietnamese must remain marked partial until the complete catalog is translated');
   for (const key of [
     'language', 'discovery', 'safety', 'like', 'pass', 'report', 'block',
-    'search', 'relationshipGoal', 'accountTitle', 'signIn', 'createAccount',
-    'email', 'password', 'chats', 'notificationCenter', 'authInvalidEmail',
-    'authDeleteConfirm', 'partialTranslationHelp'
+    'search', 'relationshipGoal', 'accountTitle', 'signIn', 'createAccount', 'email', 'password',
+    'chats', 'notificationCenter', 'authInvalidEmail', 'authDeleteConfirm', 'partialTranslationHelp'
   ] as const) {
     assert.ok(!vietnamese.missing.includes(key), `Vietnamese core key "${key}" should be translated`);
   }
@@ -296,5 +295,20 @@ test('locale preferences accept supported values and safely fall back for invali
   }
   for (const invalid of [null, undefined, '', 'xx', 'EN', 'en-US', 'rtl', 'undefined']) {
     assert.equal(normalizeLocalePreference(invalid), 'auto', `${String(invalid)} should fall back to automatic language`);
+  }
+});
+
+
+test('Georgian catalog covers core discovery, safety, account and messaging UI', () => {
+  const georgian = getTranslationCoverage('ka');
+  assert.ok(georgian.translated >= 200, 'Georgian should translate a substantial core set of interface messages');
+  assert.ok(georgian.percentage > 0 && georgian.percentage < 100,
+    'Georgian must remain marked partial until the complete catalog is translated');
+  for (const key of [
+    'language', 'discovery', 'safety', 'like', 'pass', 'report', 'block',
+    'search', 'relationshipGoal', 'accountTitle', 'chats', 'authInvalidEmail',
+    'authDeleteConfirm', 'partialTranslationHelp'
+  ] as const) {
+    assert.ok(!georgian.missing.includes(key), `Georgian core key "${key}" should be translated`);
   }
 });
