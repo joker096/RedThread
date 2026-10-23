@@ -1806,14 +1806,47 @@ app.post('/api/admin/partner-applications/:applicationId/publish', validateReque
   }
 });
 
+app.post('/api/admin/partner-applications/:applicationId/unpublish', validateRequestOrigin, requireSession, async (req, res) => {
+  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
+  const applicationId = req.params.applicationId;
+  if (!isUuid(applicationId)) return res.status(400).json({ error: 'invalid_partner_application_id' });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const result = await client.query(
+      "UPDATE partner_service_applications SET published_at = NULL, published_by = NULL, updated_at = NOW() " +
+      "WHERE id = $1 AND status = 'approved' AND published_at IS NOT NULL " +
+      'RETURNING id, category, business_name AS "businessName"',
+      [applicationId]
+    );
+    if (!result.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'published_partner_application_not_found' });
+    }
+    await client.query(
+      'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, details) VALUES ($1, $2, $3, $4, $5::jsonb)',
+      [req.authUser.id, 'partner_application_unpublished', 'partner_service_application', applicationId, JSON.stringify({ category: result.rows[0].category, businessName: result.rows[0].businessName })]
+    );
+    await client.query('COMMIT');
+    return res.json({ application: result.rows[0] });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Partner application unpublication failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_application_unpublication_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
 app.get('/api/admin/partner-applications', requireSession, async (req, res) => {
   if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   try {
     const result = await pool.query(
       'SELECT id, category, business_name AS "businessName", contact_name AS "contactName", ' +
       'contact_email AS "contactEmail", country, city, website, service_description AS "serviceDescription", ' +
-      'status, review_note AS "reviewNote", created_at AS "createdAt" ' +
-      "FROM partner_service_applications WHERE status IN ('pending', 'in_review', 'approved') AND published_at IS NULL ORDER BY created_at ASC LIMIT 100"
+      'status, review_note AS "reviewNote", published_at AS "publishedAt", created_at AS "createdAt" ' +
+      "FROM partner_service_applications WHERE status IN ('pending', 'in_review', 'approved') ORDER BY created_at ASC LIMIT 100"
     );
     return res.json({ applications: result.rows });
   } catch (error) {
