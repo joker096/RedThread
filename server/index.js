@@ -1714,7 +1714,8 @@ app.get('/api/partner-services', requireDatabase, async (req, res) => {
   try {
     const result = await pool.query(
       'SELECT id, category, business_name AS "businessName", country, city, website, ' +
-      'service_description AS "serviceDescription", published_at AS "publishedAt" ' +
+      'service_description AS "serviceDescription", price_from AS "priceFrom", price_currency AS "priceCurrency", ' +
+      'service_languages AS "serviceLanguages", availability_note AS "availabilityNote", published_at AS "publishedAt" ' +
       "FROM partner_service_applications WHERE status = 'approved' AND published_at IS NOT NULL " +
       'AND ($1::text = \'\' OR LOWER(country) = LOWER($1)) ' +
       "AND ($2::text = '' OR category = $2 OR ($2 = 'photo' AND category = 'videography')) " +
@@ -1738,6 +1739,12 @@ app.post('/api/partner-applications', partnerApplicationLimiter, validateRequest
   const city = typeof body.city === 'string' ? body.city.trim() : '';
   const website = typeof body.website === 'string' ? body.website.trim() : '';
   const serviceDescription = typeof body.serviceDescription === 'string' ? body.serviceDescription.trim() : '';
+  const priceFromInput = body.priceFrom === '' || body.priceFrom == null ? null : Number(body.priceFrom);
+  const priceCurrency = typeof body.priceCurrency === 'string' ? body.priceCurrency : 'USD';
+  const languageInput = typeof body.serviceLanguages === 'string' ? body.serviceLanguages : '';
+  const serviceLanguages = languageInput.split(',').map(language => language.trim()).filter(Boolean);
+  const availabilityNote = typeof body.availabilityNote === 'string' ? body.availabilityNote.trim() : '';
+  const currencies = ['USD', 'GEL', 'EUR', 'RUB', 'KZT', 'AMD'];
   const categories = ['cafe', 'photography', 'videography', 'venue', 'beauty', 'legal', 'transport', 'other'];
 
   let safeWebsite = '';
@@ -1755,16 +1762,19 @@ app.post('/api/partner-applications', partnerApplicationLimiter, validateRequest
   if (!categories.includes(category) || businessName.length < 2 || businessName.length > 160 ||
       contactName.length < 2 || contactName.length > 120 || !isValidEmail(contactEmail) ||
       country.length < 2 || country.length > 100 || city.length < 2 || city.length > 120 ||
-      website.length > 500 || serviceDescription.length < 20 || serviceDescription.length > 2000) {
+      website.length > 500 || serviceDescription.length < 20 || serviceDescription.length > 2000 ||
+      (priceFromInput !== null && (!Number.isFinite(priceFromInput) || priceFromInput < 0 || priceFromInput > 10000000 || Math.round(priceFromInput * 100) !== priceFromInput * 100)) ||
+      !currencies.includes(priceCurrency) || languageInput.length > 500 || serviceLanguages.length > 10 ||
+      serviceLanguages.some(language => language.length < 2 || language.length > 40) || availabilityNote.length > 500) {
     return res.status(400).json({ error: 'invalid_partner_application' });
   }
 
   try {
     const result = await pool.query(
-      'INSERT INTO partner_service_applications (category, business_name, contact_name, contact_email, country, city, website, service_description) ' +
-      'VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ' +
+      'INSERT INTO partner_service_applications (category, business_name, contact_name, contact_email, country, city, website, service_description, price_from, price_currency, service_languages, availability_note) ' +
+      'VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ' +
       'RETURNING id, status, created_at AS "createdAt"',
-      [category, businessName, contactName, contactEmail, country, city, safeWebsite, serviceDescription]
+      [category, businessName, contactName, contactEmail, country, city, safeWebsite, serviceDescription, priceFromInput, priceCurrency, serviceLanguages, availabilityNote]
     );
     return res.status(201).json({ application: result.rows[0] });
   } catch (error) {
@@ -1845,6 +1855,7 @@ app.get('/api/admin/partner-applications', requireSession, async (req, res) => {
     const result = await pool.query(
       'SELECT id, category, business_name AS "businessName", contact_name AS "contactName", ' +
       'contact_email AS "contactEmail", country, city, website, service_description AS "serviceDescription", ' +
+      'price_from AS "priceFrom", price_currency AS "priceCurrency", service_languages AS "serviceLanguages", availability_note AS "availabilityNote", ' +
       'status, review_note AS "reviewNote", published_at AS "publishedAt", created_at AS "createdAt" ' +
       "FROM partner_service_applications WHERE status IN ('pending', 'in_review', 'approved') ORDER BY created_at ASC LIMIT 100"
     );
