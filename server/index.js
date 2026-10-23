@@ -1745,7 +1745,7 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
   if (!isUuid(applicationId) || !isUuid(matchId) || !isUuid(requestKey) ||
       body.shareContact !== true || requestNote.length < 20 || requestNote.length > 2000 ||
       (serviceDateInput !== null && (typeof serviceDateInput !== 'string' ||
-        !/^\\d{4}-\\d{2}-\\d{2}$/.test(serviceDateInput) ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(serviceDateInput) ||
         !Number.isFinite(Date.parse(serviceDateInput + 'T00:00:00Z')) ||
         new Date(serviceDateInput + 'T00:00:00Z').toISOString().slice(0, 10) !== serviceDateInput))) {
     return res.status(400).json({ error: 'invalid_partner_service_inquiry' });
@@ -1809,7 +1809,7 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
         html: '<h2>Запрос предложения</h2><p>Пользователь дал согласие передать поставщику своё имя, email и текст запроса.</p>' +
           '<p><strong>Имя:</strong> ' + escapeHtml(requesterName) + '</p>' +
           '<p><strong>Email:</strong> ' + escapeHtml(requesterEmail) + '</p>' + dateLine +
-          '<p><strong>Сообщение:</strong></p><p>' + escapeHtml(requestNote).replace(/\\n/g, '<br>') + '</p>' +
+          '<p><strong>Сообщение:</strong></p><p>' + escapeHtml(requestNote).replace(/\n/g, '<br>') + '</p>' +
           '<p>Данные второго участника совпадения, переписка и результаты совместимости не передаются.</p>'
       });
       await pool.query(
