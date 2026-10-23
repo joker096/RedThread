@@ -1152,3 +1152,25 @@ test('vertical swipes directly on the photo collapse and restore it', async ({ p
   await expect(image).toBeVisible();
   await expect(card.locator('h2').first()).toHaveText(profileName ?? '');
 });
+
+
+test('photo collapse control exposes its expanded state to assistive technology', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const photo = page.locator('.vow-profile-card').first().locator('.vow-profile-photo');
+  let toggle = photo.locator('button[aria-expanded="true"]');
+
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(toggle).toBeVisible();
+
+  await toggle.click();
+  await expect(photo).toHaveClass(/h-16/);
+  toggle = photo.locator('button[aria-expanded="false"]');
+  await expect(toggle).toBeVisible();
+
+  await toggle.click();
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(photo.locator('button[aria-expanded="true"]')).toBeVisible();
+});
