@@ -496,7 +496,7 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
     }
     const userResult = await client.query(
       'INSERT INTO users (email, password_hash, status, female_trial_ends_at) VALUES ($1, $2, $3, CASE WHEN $4 = \'female\' THEN NOW() + INTERVAL \'24 hours\' ELSE NULL END) RETURNING id, email',
-      [email, passwordHash, emailVerificationRequired ? 'pending' : 'active', gender]
+      [email, passwordHash, emailVerificationRequired && !googleIdentity ? 'pending' : 'active', gender]
     );
     const user = userResult.rows[0];
     if (googleIdentity) {
