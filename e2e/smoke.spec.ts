@@ -1104,3 +1104,51 @@ test('adding a second finger cancels an in-progress photo swipe', async ({ page 
   await expect(photo).toHaveClass(/h-72/);
   await expect(card.locator('h2').first()).toHaveText(profileName ?? '');
 });
+
+
+test('vertical swipes directly on the photo collapse and restore it', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const card = page.locator('.vow-profile-card').first();
+  const photo = card.locator('.vow-profile-photo');
+  const image = photo.locator('img');
+  const profileName = await card.locator('h2').first().textContent();
+  await expect(photo).toHaveClass(/h-72/);
+
+  const swipePhoto = async (fromY: number, toY: number, identifier: number) => {
+    await page.evaluate(({ fromY, toY, identifier }) => {
+      const target = document.querySelector('.vow-profile-photo img');
+      if (!target) throw new Error('Profile photo image is not mounted');
+      const makeTouch = (y: number) => new Touch({
+        identifier,
+        target,
+        clientX: 180,
+        clientY: y,
+        screenX: 180,
+        screenY: y
+      });
+      const start = makeTouch(fromY);
+      target.dispatchEvent(new TouchEvent('touchstart', {
+        bubbles: true, cancelable: true, touches: [start], changedTouches: [start]
+      }));
+      const end = makeTouch(toY);
+      target.dispatchEvent(new TouchEvent('touchend', {
+        bubbles: true, cancelable: true, touches: [], changedTouches: [end]
+      }));
+    }, { fromY, toY, identifier });
+  };
+
+  // Upward swipe on the photo reveals the profile details.
+  await swipePhoto(300, 220, 111);
+  await expect(photo).toHaveClass(/h-16/);
+  await expect(image).toBeVisible();
+  await expect(card.locator('h2').first()).toHaveText(profileName ?? '');
+
+  // Downward swipe on the same photo restores the full photo area.
+  await swipePhoto(220, 300, 112);
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(image).toBeVisible();
+  await expect(card.locator('h2').first()).toHaveText(profileName ?? '');
+});
