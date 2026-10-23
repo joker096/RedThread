@@ -548,7 +548,8 @@ test('profile photo gallery remains viewport-bounded in landscape orientation', 
     }));
   });
   await expect(photo).toHaveClass(/h-72/);
-  await expect(photo.evaluate(element => element.getBoundingClientRect().height)).toBeLessThanOrEqual(390 * 0.55 + 1);
+  const restoredHeight = await photo.evaluate(element => element.getBoundingClientRect().height);
+  expect(restoredHeight).toBeLessThanOrEqual(390 * 0.55 + 1);
 });
 
 test('profile photo gallery supports keyboard navigation', async ({ page }) => {
