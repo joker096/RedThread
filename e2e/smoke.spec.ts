@@ -405,6 +405,49 @@ test('mobile profile card reveals details on upward swipe and restores photo on 
 });
 
 
+test('mobile drags starting on profile controls do not trigger card swipes', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const card = page.locator('.vow-profile-card').first();
+  const photo = card.locator('.vow-profile-photo');
+  const toggle = photo.locator('button').last();
+  const profileName = await card.locator('h2').first().textContent();
+  await expect(toggle).toBeVisible();
+  await expect(photo).toHaveClass(/h-72/);
+
+  await page.evaluate(() => {
+    const target = document.querySelector('.vow-profile-photo button:last-of-type');
+    if (!target) throw new Error('Photo toggle button is not mounted');
+    const makeTouch = (x: number) => new Touch({
+      identifier: 8,
+      target,
+      clientX: x,
+      clientY: 300,
+      screenX: x,
+      screenY: 300
+    });
+    const startTouch = makeTouch(220);
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true,
+      cancelable: true,
+      touches: [startTouch],
+      changedTouches: [startTouch]
+    }));
+    const endTouch = makeTouch(120);
+    target.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true,
+      cancelable: true,
+      touches: [],
+      changedTouches: [endTouch]
+    }));
+  });
+
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(card.locator('h2').first()).toHaveText(profileName ?? '');
+});
+
 test('server discovery swipe mode collapses and restores profile photos vertically', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/profiles/search**', async route => {
