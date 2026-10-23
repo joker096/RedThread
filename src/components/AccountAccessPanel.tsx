@@ -75,6 +75,8 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
   const { formatDate, t } = useLocale();
   const [user, setUser] = useState<AccountUser | null>(null);
   const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [googleConfigured, setGoogleConfigured] = useState(false);
+  const [googleSignup, setGoogleSignup] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -125,7 +127,40 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         }
       })
       .catch(() => {});
+    fetch('/api/auth/google/status').then(response => response.ok ? response.json() : null).then(data => {
+      if (!cancelled) setGoogleConfigured(data?.configured === true);
+    }).catch(() => {});
     const params = new URLSearchParams(window.location.search);
+    const googleSignupRequested = params.get('googleSignup') === '1';
+    const googleLoginCompleted = params.get('googleLogin') === '1';
+    const googleAuthFailed = params.get('authError') === 'google';
+    if (googleSignupRequested) {
+      fetch('/api/auth/google/pending', { credentials: 'include' })
+        .then(async response => {
+          const data = await response.json().catch(() => null);
+          if (!response.ok || !data?.signup) throw new Error(t('authGoogleSignupExpired'));
+          if (cancelled) return;
+          setGoogleSignup(true);
+          setMode('register');
+          setEmail(data.signup.email || '');
+          setDisplayName(data.signup.displayName || '');
+          setMessage(t('authGoogleCompleteProfile'));
+        }).catch(error => {
+          if (!cancelled) setMessage(error instanceof Error ? error.message : t('authGoogleSignupExpired'));
+        });
+      params.delete('googleSignup');
+      window.history.replaceState({}, '', window.location.pathname + (params.size ? '?' + params.toString() : '') + window.location.hash);
+    }
+    if (googleLoginCompleted) {
+      setMessage(t('authGoogleSignedIn'));
+      params.delete('googleLogin');
+      window.history.replaceState({}, '', window.location.pathname + (params.size ? '?' + params.toString() : '') + window.location.hash);
+    }
+    if (googleAuthFailed) {
+      setMessage(t('authGoogleFailed'));
+      params.delete('authError');
+      window.history.replaceState({}, '', window.location.pathname + (params.size ? '?' + params.toString() : '') + window.location.hash);
+    }
     const verificationToken = params.get('verifyEmail');
     const passwordResetToken = params.get('resetPassword');
     if (verificationToken) {
@@ -161,8 +196,9 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
     try {
       const body = submittedMode === 'login'
         ? { email, password }
-        : { email, password, displayName, birthDate, gender, country, city, relationshipIntent, familyFormat, hasChildren, wantsChildren, childrenLivingArrangement };
-      const response = await fetch(submittedMode === 'login' ? '/api/auth/login' : '/api/auth/register', {
+        : { email, ...(googleSignup ? {} : { password }), displayName, birthDate, gender, country, city, relationshipIntent, familyFormat, hasChildren, wantsChildren, childrenLivingArrangement };
+      const endpoint = submittedMode === 'login' ? '/api/auth/login' : googleSignup ? '/api/auth/google/complete' : '/api/auth/register';
+      const response = await fetch(endpoint, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -173,6 +209,9 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       if (!response.ok) {
         const errors: Record<string, string> = {
           invalid_email: t('authInvalidEmail'),
+          invalid_profile: t('authRequestFailed'),
+          google_signup_expired: t('authGoogleSignupExpired'),
+          google_registration_failed: t('authRequestFailed'),
           password_must_be_12_to_128_characters: t('authPasswordLengthError'),
           must_be_18_or_older_with_valid_birth_date: t('authAdultRequired'),
           email_already_registered: t('authEmailTaken'),
@@ -199,6 +238,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       if (sessionActionIdRef.current !== activeActionId) return;
       setBillingStatus(isBillingStatus(billing) ? billing : null);
       setMessage(submittedMode === 'register' ? t('authAccountCreated') : t('authSignedIn'));
+      setGoogleSignup(false);
       setPassword('');
       onAuthenticated();
     } catch (error) {
@@ -373,6 +413,8 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
             <button type="button" aria-pressed={mode === 'register'} onClick={() => { setMode('register'); setMessage(''); }} className={`focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 min-h-11 rounded-xl border px-3 py-2 text-xs font-semibold ${mode === 'register' ? 'border-rose-500 bg-rose-950/50 text-white' : 'border-white/10 text-stone-400'}`}>{t('register')}</button>
           </div>
           <div className="space-y-3">
+            {googleConfigured && !googleSignup && <a href="/api/auth/google/start" className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white px-4 py-3 text-sm font-semibold text-stone-900 hover:bg-stone-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"><span aria-hidden="true" className="font-bold text-base">G</span>{t('authContinueGoogle')}</a>}
+            {googleSignup && <p className="rounded-xl border border-emerald-500/20 bg-emerald-950/20 p-3 text-xs text-emerald-100">{t('authGoogleCompleteProfile')}</p>}
             {mode === 'register' && <>
               <label className="block text-xs text-stone-300">{t('profileName')}<input name="registration-display-name" value={displayName} onChange={e => setDisplayName(e.target.value)} minLength={2} maxLength={80} autoComplete="name" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" /></label>
               <label className="block text-xs text-stone-300">{t('birthDate')}<input name="registration-birth-date" type="date" value={birthDate} onChange={e => setBirthDate(e.target.value)} max={getLatestBirthDateInputValue()} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" /></label>
@@ -395,8 +437,8 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
               </fieldset>
             </>}
             <label className="block text-xs text-stone-300">{t('email')}<input name="account-email" type="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" /></label>
-            <label className="block text-xs text-stone-300">{t('passwordMin')}<input name="account-password" type="password" value={password} onChange={e => setPassword(e.target.value)} minLength={12} maxLength={128} required autoComplete={mode === 'login' ? 'current-password' : 'new-password'} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" /></label>
-            <button type="button" onClick={() => void submit()} disabled={busy || !email.trim() || password.length < 12 || (mode === 'register' && (!displayName.trim() || !birthDate || !country.trim() || !city.trim() || hasChildren === null))} className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 min-h-11 w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">{busy ? t('wait') : mode === 'login' ? t('signIn') : t('createAccount')}</button>
+            {!(mode === 'register' && googleSignup) &&             <label className="block text-xs text-stone-300">{t('passwordMin')}<input name="account-password" type="password" value={password} onChange={e => setPassword(e.target.value)} minLength={12} maxLength={128} required autoComplete={mode === 'login' ? 'current-password' : 'new-password'} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" /></label>}
+            <button type="button" onClick={() => void submit()} disabled={busy || !email.trim() || (mode === 'login' && password.length < 12) || (mode === 'register' && !googleSignup && password.length < 12) || (mode === 'register' && (!displayName.trim() || !birthDate || !country.trim() || !city.trim() || hasChildren === null))} className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 min-h-11 w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">{busy ? t('wait') : mode === 'login' ? t('signIn') : t('createAccount')}</button>
             {mode === 'login' && <div className="grid grid-cols-1 gap-2">
               <button type="button" onClick={() => void requestPasswordReset()} disabled={busy || !email.trim()} className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 min-h-11 text-start text-xs text-rose-300 underline disabled:opacity-40">{t('resetEmailLink')}</button>
               {canResendVerification && <button type="button" onClick={() => void resendVerification()} disabled={busy || !email.trim()} className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 min-h-11 text-start text-xs text-amber-300 underline disabled:opacity-40">{t('resendEmailVerification')}</button>}
