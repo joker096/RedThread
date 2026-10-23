@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { validateAdEventPayload, AD_IMPRESSION_CAP_24H } from './adEvents.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
@@ -215,6 +215,22 @@ function accountActionUrl(parameter, token) {
   return base + '/?'+ parameter + '=' + encodeURIComponent(token);
 }
 
+const googleSignupCookieName = 'nit_google_signup';
+const googleOAuthConfigured = () => Boolean(process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET && process.env.GOOGLE_OAUTH_REDIRECT_URI && (process.env.APP_URL || process.env.APP_ORIGIN));
+function cookieValue(req, name) {
+  const prefix = name + '=';
+  const item = (req.headers.cookie || '').split(';').map(value => value.trim()).find(value => value.startsWith(prefix));
+  return item ? decodeURIComponent(item.slice(prefix.length)) : '';
+}
+function writeShortCookie(res, name, value, maxAge) {
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  res.append('Set-Cookie', name + '=' + encodeURIComponent(value) + '; Path=/; HttpOnly; SameSite=Lax; Max-Age=' + maxAge + secure);
+}
+function clearShortCookie(res, name) {
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  res.append('Set-Cookie', name + '=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0' + secure);
+}
+
 function requireDatabase(_req, res, next) {
   if (!pool) {
     return res.status(503).json({ error: 'database_not_configured' });
@@ -357,6 +373,198 @@ app.get('/api/ready', async (_req, res) => {
   } catch {
     return res.status(503).json({ status: 'not_ready', reason: 'database_unavailable' });
   }
+});
+
+app.get('/api/auth/google/status', (_req, res) => res.json({ configured: googleOAuthConfigured() }));
+
+app.get('/api/auth/google/start', (req, res) => {
+  if (!googleOAuthConfigured()) return res.status(503).json({ error: 'google_auth_not_configured' });
+  const state = randomBytes(32).toString('base64url');
+  const nonce = randomBytes(32).toString('base64url');
+  const verifier = randomBytes(48).toString('base64url');
+  const challenge = createHash('sha256').update(verifier).digest('base64url');
+  writeShortCookie(res, 'nit_google_state', state, 600);
+  writeShortCookie(res, 'nit_google_nonce', nonce, 600);
+  writeShortCookie(res, 'nit_google_verifier', verifier, 600);
+  const authorize = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  authorize.search = new URLSearchParams({
+    client_id: process.env.GOOGLE_OAUTH_CLIENT_ID,
+    redirect_uri: process.env.GOOGLE_OAUTH_REDIRECT_URI,
+    response_type: 'code',
+    scope: 'openid email profile',
+    state,
+    nonce,
+    code_challenge: challenge,
+    code_challenge_method: 'S256',
+    prompt: 'select_account'
+  }).toString();
+  return res.redirect(302, authorize.toString());
+});
+
+app.get('/api/auth/google/callback', async (req, res) => {
+  const clearOAuthCookies = () => {
+    for (const name of ['nit_google_state', 'nit_google_nonce', 'nit_google_verifier']) clearShortCookie(res, name);
+  };
+  try {
+    if (!googleOAuthConfigured() || !pool) throw new Error('google_auth_not_configured');
+    const state = cookieValue(req, 'nit_google_state');
+    const nonce = cookieValue(req, 'nit_google_nonce');
+    const verifier = cookieValue(req, 'nit_google_verifier');
+    if (!state || state.length < 32 || state !== req.query.state || !nonce || !verifier || typeof req.query.code !== 'string') {
+      throw new Error('google_auth_state_invalid');
+    }
+    clearOAuthCookies();
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code: req.query.code,
+        client_id: process.env.GOOGLE_OAUTH_CLIENT_ID,
+        client_secret: process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+        redirect_uri: process.env.GOOGLE_OAUTH_REDIRECT_URI,
+        grant_type: 'authorization_code',
+        code_verifier: verifier
+      }),
+      signal: AbortSignal.timeout(10_000)
+    });
+    if (!tokenResponse.ok) throw new Error('google_auth_exchange_failed');
+    const tokenData = await tokenResponse.json();
+    if (typeof tokenData.id_token !== 'string') throw new Error('google_auth_token_invalid');
+    const infoResponse = await fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(tokenData.id_token), { signal: AbortSignal.timeout(10_000) });
+    if (!infoResponse.ok) throw new Error('google_auth_token_invalid');
+    const claims = await infoResponse.json();
+    const expiresAt = Number(claims.exp) * 1000;
+    const audienceMatches = claims.aud === process.env.GOOGLE_OAUTH_CLIENT_ID;
+    if (!audienceMatches || !['accounts.google.com', 'https://accounts.google.com'].includes(claims.iss) || !Number.isFinite(expiresAt) || expiresAt <= Date.now() || claims.nonce !== nonce || claims.email_verified !== 'true' || typeof claims.sub !== 'string' || !claims.sub || !isValidEmail(claims.email)) {
+      throw new Error('google_auth_claims_invalid');
+    }
+    const email = normalizeEmail(claims.email);
+    const displayName = typeof claims.name === 'string' ? claims.name.trim().slice(0, 80) : '';
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const identity = await client.query(
+        `SELECT u.id, u.status, p.display_name, p.gender, p.country, p.city, p.relationship_intent
+         FROM auth_identities i JOIN users u ON u.id = i.user_id JOIN profiles p ON p.user_id = u.id
+         WHERE i.provider = 'google' AND i.provider_subject = $1 FOR UPDATE`,
+        [claims.sub]
+      );
+      let user = identity.rows[0];
+      if (!user) {
+        const byEmail = await client.query(
+          `SELECT u.id, u.status, p.display_name, p.gender, p.country, p.city, p.relationship_intent
+           FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.email = $1 FOR UPDATE`,
+          [email]
+        );
+        user = byEmail.rows[0];
+        if (!user) {
+          const pendingToken = createSessionToken();
+          await client.query(
+            `INSERT INTO oauth_signup_sessions (token_hash, provider, provider_subject, email, display_name, expires_at)
+             VALUES ($1, 'google', $2, $3, $4, NOW() + INTERVAL '10 minutes')`,
+            [hashSessionToken(pendingToken), claims.sub, email, displayName]
+          );
+          await client.query('COMMIT');
+          writeShortCookie(res, googleSignupCookieName, pendingToken, 600);
+          const base = (process.env.APP_URL || process.env.APP_ORIGIN).replace(/\\/+$/, '');
+          return res.redirect(302, base + '/?googleSignup=1');
+        }
+        if (user.status !== 'active') throw new Error('google_existing_account_unavailable');
+        await client.query('UPDATE users SET email_verified_at = COALESCE(email_verified_at, NOW()), updated_at = NOW() WHERE id = $1', [user.id]);
+        await client.query(`INSERT INTO auth_identities (user_id, provider, provider_subject) VALUES ($1, 'google', $2) ON CONFLICT (provider, provider_subject) DO NOTHING`, [user.id, claims.sub]);
+      }
+      if (user.status !== 'active') throw new Error('google_existing_account_unavailable');
+      const sessionToken = await createSession(client, user.id);
+      await client.query('COMMIT');
+      writeSessionCookie(res, sessionToken);
+      clearShortCookie(res, googleSignupCookieName);
+      const base = (process.env.APP_URL || process.env.APP_ORIGIN).replace(/\\/+$/, '');
+      return res.redirect(302, base + '/?googleLogin=1');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally { client.release(); }
+  } catch (error) {
+    clearOAuthCookies();
+    console.warn('Google sign-in failed:', error?.message || 'unknown error');
+    const base = (process.env.APP_URL || process.env.APP_ORIGIN || allowedOrigin).replace(/\\/+$/, '');
+    return res.redirect(302, base + '/?authError=google');
+  }
+});
+
+app.get('/api/auth/google/pending', requireDatabase, async (req, res) => {
+  const token = cookieValue(req, googleSignupCookieName);
+  if (!token || token.length > 512) return res.status(401).json({ error: 'google_signup_expired' });
+  const result = await pool.query(
+    `SELECT email, display_name AS "displayName" FROM oauth_signup_sessions
+     WHERE token_hash = $1 AND expires_at > NOW() AND consumed_at IS NULL LIMIT 1`,
+    [hashSessionToken(token)]
+  );
+  if (!result.rows[0]) { clearShortCookie(res, googleSignupCookieName); return res.status(401).json({ error: 'google_signup_expired' }); }
+  return res.json({ signup: result.rows[0] });
+});
+
+app.post('/api/auth/google/complete', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
+  const token = cookieValue(req, googleSignupCookieName);
+  if (!token || token.length > 512) return res.status(401).json({ error: 'google_signup_expired' });
+  const email = normalizeEmail(req.body?.email);
+  const displayName = typeof req.body?.displayName === 'string' ? req.body.displayName.trim() : '';
+  const { birthDate, gender, country, city } = req.body || {};
+  const relationshipIntent = req.body?.relationshipIntent || 'marriage_family';
+  const familyFormat = req.body?.familyFormat || 'open_to_both';
+  const hasChildren = req.body?.hasChildren;
+  const wantsChildren = req.body?.wantsChildren || 'discuss';
+  const childrenLivingArrangement = req.body?.childrenLivingArrangement || (hasChildren === true ? 'prefer_to_discuss' : 'not_applicable');
+  if (!isValidEmail(email) || displayName.length < 2 || displayName.length > 80) return res.status(400).json({ error: 'invalid_profile' });
+  if (!isAdultDate(birthDate)) return res.status(400).json({ error: 'must_be_18_or_older_with_valid_birth_date' });
+  if (gender !== 'female' && gender !== 'male') return res.status(400).json({ error: 'invalid_gender' });
+  if (!country || country.length > 100 || !city || city.length > 120) return res.status(400).json({ error: 'valid_country_and_city_required' });
+  if (!['marriage_family', 'serious_relationship', 'family_without_marriage'].includes(relationshipIntent)) return res.status(400).json({ error: 'invalid_relationship_intent' });
+  if (!['marriage', 'cohabitation', 'open_to_both'].includes(familyFormat)) return res.status(400).json({ error: 'invalid_family_format' });
+  if (typeof hasChildren !== 'boolean') return res.status(400).json({ error: 'children_status_required' });
+  if (!['yes', 'no', 'discuss', 'unsure'].includes(wantsChildren)) return res.status(400).json({ error: 'invalid_wants_children' });
+  if (!['with_me', 'shared_custody', 'with_other_parent', 'not_applicable', 'prefer_to_discuss'].includes(childrenLivingArrangement)) return res.status(400).json({ error: 'invalid_children_living_arrangement' });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const pendingResult = await client.query(
+      `SELECT id, provider_subject, email, display_name FROM oauth_signup_sessions
+       WHERE token_hash = $1 AND provider = 'google' AND expires_at > NOW() AND consumed_at IS NULL FOR UPDATE`,
+      [hashSessionToken(token)]
+    );
+    const pending = pendingResult.rows[0];
+    if (!pending || pending.email !== email) { await client.query('ROLLBACK'); return res.status(401).json({ error: 'google_signup_expired' }); }
+    const userResult = await client.query(
+      `INSERT INTO users (email, password_hash, status, email_verified_at, female_trial_ends_at)
+       VALUES ($1, NULL, 'active', NOW(), CASE WHEN $2 = 'female' THEN NOW() + INTERVAL '24 hours' ELSE NULL END)
+       RETURNING id, email`,
+      [pending.email, gender]
+    );
+    const user = userResult.rows[0];
+    const profileResult = await client.query(
+      `INSERT INTO profiles (user_id, display_name, birth_date, gender, country, city, relationship_intent, family_format, has_children, children_disclosure_confirmed_at, wants_children, children_living_arrangement)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10, $11)
+       RETURNING user_id AS id, display_name, gender, country, city, relationship_intent`,
+      [user.id, displayName, birthDate, gender, country.trim(), city.trim(), relationshipIntent, familyFormat, hasChildren, wantsChildren, childrenLivingArrangement]
+    );
+    await client.query(`INSERT INTO auth_identities (user_id, provider, provider_subject) VALUES ($1, 'google', $2)`, [user.id, pending.provider_subject]);
+    await client.query('UPDATE oauth_signup_sessions SET consumed_at = NOW() WHERE id = $1', [pending.id]);
+    const sessionToken = await createSession(client, user.id);
+    await client.query('COMMIT');
+    writeSessionCookie(res, sessionToken);
+    clearShortCookie(res, googleSignupCookieName);
+    try {
+      const screened = await screenProfilePrivate({ displayName, country, city, bio: '', occupation: '', education: '', hasChildren, childrenLivingArrangement });
+      await persistScreening(user.id, 'profile', screened);
+    } catch (error) { console.warn('Google registration screening failed:', error?.message || 'unknown error'); }
+    return res.status(201).json({ user: publicUser({ ...profileResult.rows[0], email: user.email }) });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (error?.code === '23505') return res.status(409).json({ error: 'email_already_registered' });
+    console.error('Google registration failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'google_registration_failed' });
+  } finally { client?.release(); }
 });
 
 app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
