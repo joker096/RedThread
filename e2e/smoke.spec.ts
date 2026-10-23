@@ -569,8 +569,9 @@ test('photo gallery boundary swipes keep the first and last photo selected', asy
   await expect(image).toHaveAttribute('src', firstSrc ?? '');
   await expect(previousPhoto).toBeDisabled();
 
-  // Move to the final photo, then confirm a leftward swipe cannot go past it.
-  await nextPhoto.click();
+  // Move directly to the final photo; demo profiles can contain more than two photos.
+  await nextPhoto.focus();
+  await page.keyboard.press('End');
   const lastSrc = await image.getAttribute('src');
   await expect(lastSrc).not.toBe(firstSrc);
   await expect(nextPhoto).toBeDisabled();
