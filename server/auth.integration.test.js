@@ -632,15 +632,52 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(wrongPassword.status, 401);
 
-    const rejectedOrigin = await fetch(`${api}/api/auth/login`, {
-      method: 'POST',
-      headers: { Origin: 'https://untrusted.example', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
+    const originCheckPort = await findFreePort();
+    const originCheckChild = spawn(process.execPath, ['server/index.js'], {
+      env: {
+        ...process.env,
+        API_PORT: String(originCheckPort),
+        APP_ORIGIN: origin,
+        NODE_ENV: 'test',
+        GOOGLE_CLIENT_ID: ''
+      },
+      stdio: 'ignore'
     });
-    assert.equal(rejectedOrigin.status, 403);
+    const originCheckApi = `http://127.0.0.1:${originCheckPort}`;
+    try {
+      let originCheckHealthy = false;
+      for (let attempt = 0; attempt < 80; attempt += 1) {
+        if (originCheckChild.exitCode !== null) throw new Error(`Origin-check API exited with code ${originCheckChild.exitCode}`);
+        try {
+          const response = await fetch(`${originCheckApi}/api/health`);
+          if (response.ok) {
+            originCheckHealthy = true;
+            break;
+          }
+        } catch {
+          // The process may need a moment to bind its port.
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      assert.equal(originCheckHealthy, true, 'isolated origin-check API should start');
 
-    const missingOrigin = await fetch(api + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
-    assert.equal(missingOrigin.status, 403);
+      const rejectedOrigin = await fetch(`${originCheckApi}/api/auth/login`, {
+        method: 'POST',
+        headers: { Origin: 'https://untrusted.example', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      assert.equal(rejectedOrigin.status, 403);
+
+      const missingOrigin = await fetch(`${originCheckApi}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      assert.equal(missingOrigin.status, 403);
+    } finally {
+      originCheckChild.kill('SIGTERM');
+      await once(originCheckChild, 'exit');
+    }
 
     const deleteWithoutConfirmation = await request('/api/account', {
       method: 'DELETE',
