@@ -518,6 +518,7 @@ test('profile photo gallery supports keyboard navigation', async ({ page }) => {
   await expect(photo.locator('img')).toHaveAttribute('src', firstSrc ?? '');
   await page.keyboard.press('End');
   await expect(photo.locator('img')).not.toHaveAttribute('src', firstSrc ?? '');
+  await expect(nextPhoto).toBeDisabled();
 
   // End disables the next-photo button, so move focus to the still-enabled
   // previous-photo control before testing Home (keyboard events are scoped to controls).
@@ -525,7 +526,58 @@ test('profile photo gallery supports keyboard navigation', async ({ page }) => {
   await page.keyboard.press('Home');
   await expect(photo.locator('img')).toHaveAttribute('src', firstSrc ?? '');
   await expect(previousPhoto).toBeDisabled();
+  await expect(nextPhoto).toBeEnabled();
   await expect(card).toBeVisible();
+});
+
+test('photo gallery boundary swipes keep the first and last photo selected', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const card = page.locator('.vow-profile-card').first();
+  const photo = card.locator('.vow-profile-photo');
+  const image = photo.locator('img');
+  const previousPhoto = photo.getByTestId('profile-photo-prev');
+  const nextPhoto = photo.getByTestId('profile-photo-next');
+  const profileName = await card.locator('h2').first().textContent();
+  const firstSrc = await image.getAttribute('src');
+
+  await expect(previousPhoto).toBeDisabled();
+  await expect(nextPhoto).toBeEnabled();
+
+  const swipePhoto = async (fromX: number, toX: number, identifier: number) => {
+    await page.evaluate(({ fromX, toX, identifier }) => {
+      const target = document.querySelector('.vow-profile-photo img');
+      if (!target) throw new Error('Profile photo image is not mounted');
+      const makeTouch = (x: number) => new Touch({
+        identifier, target, clientX: x, clientY: 300, screenX: x, screenY: 300
+      });
+      const start = makeTouch(fromX);
+      target.dispatchEvent(new TouchEvent('touchstart', {
+        bubbles: true, cancelable: true, touches: [start], changedTouches: [start]
+      }));
+      const end = makeTouch(toX);
+      target.dispatchEvent(new TouchEvent('touchend', {
+        bubbles: true, cancelable: true, touches: [], changedTouches: [end]
+      }));
+    }, { fromX, toX, identifier });
+  };
+
+  // A rightward swipe at the first photo cannot move before index zero.
+  await swipePhoto(220, 300, 201);
+  await expect(image).toHaveAttribute('src', firstSrc ?? '');
+  await expect(previousPhoto).toBeDisabled();
+
+  // Move to the final photo, then confirm a leftward swipe cannot go past it.
+  await nextPhoto.click();
+  const lastSrc = await image.getAttribute('src');
+  await expect(lastSrc).not.toBe(firstSrc);
+  await expect(nextPhoto).toBeDisabled();
+  await swipePhoto(300, 220, 202);
+  await expect(image).toHaveAttribute('src', lastSrc ?? '');
+  await expect(nextPhoto).toBeDisabled();
+  await expect(card.locator('h2').first()).toHaveText(profileName ?? '');
 });
 
 test('mobile drags starting on profile controls do not trigger card swipes', async ({ page }) => {
