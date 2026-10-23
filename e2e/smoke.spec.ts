@@ -1174,3 +1174,25 @@ test('photo collapse control exposes its expanded state to assistive technology'
   await expect(photo).toHaveClass(/h-72/);
   await expect(photo.locator('button[aria-expanded="true"]')).toBeVisible();
 });
+
+
+test('mobile photo collapse control works with Enter and Space on the keyboard', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const photo = page.locator('.vow-profile-card').first().locator('.vow-profile-photo');
+  const toggle = photo.locator('button[aria-expanded="true"]');
+  await expect(toggle).toBeVisible();
+  await toggle.focus();
+  await expect(toggle).toBeFocused();
+
+  await page.keyboard.press('Enter');
+  await expect(photo).toHaveClass(/h-16/);
+  const expandToggle = photo.locator('button[aria-expanded="false"]');
+  await expect(expandToggle).toBeFocused();
+
+  await page.keyboard.press('Space');
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(photo.locator('button[aria-expanded="true"]')).toBeFocused();
+});
