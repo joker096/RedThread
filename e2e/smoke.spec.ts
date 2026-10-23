@@ -1638,6 +1638,12 @@ test('landscape phone viewports avoid horizontal overflow and keep photo control
     await expect(card).toBeVisible();
     await expect(toggle).toBeVisible();
 
+    const expandedHeight = await photo.evaluate(element => element.getBoundingClientRect().height);
+    expect(
+      expandedHeight,
+      `expanded photo exceeds 55dvh at ${viewport.width}×${viewport.height}`
+    ).toBeLessThanOrEqual(viewport.height * 0.55 + 1);
+
     const dimensions = await page.evaluate(() => ({
       viewport: document.documentElement.clientWidth,
       document: document.documentElement.scrollWidth,
@@ -1650,11 +1656,21 @@ test('landscape phone viewports avoid horizontal overflow and keep photo control
 
     await toggle.click();
     await expect(photo).toHaveClass(/h-16/);
+    const collapsedHeight = await photo.evaluate(element => element.getBoundingClientRect().height);
+    expect(
+      collapsedHeight,
+      `collapsed photo unexpectedly exceeds 55dvh at ${viewport.width}×${viewport.height}`
+    ).toBeLessThanOrEqual(viewport.height * 0.55 + 1);
     const collapsedToggle = photo.locator('button[aria-expanded="false"]');
     await expect(collapsedToggle).toBeVisible();
     await collapsedToggle.click();
     await expect(photo).toHaveClass(/h-72/);
     await expect(photo.locator('button[aria-expanded="true"]')).toBeVisible();
+    const restoredHeight = await photo.evaluate(element => element.getBoundingClientRect().height);
+    expect(
+      restoredHeight,
+      `restored photo exceeds 55dvh at ${viewport.width}×${viewport.height}`
+    ).toBeLessThanOrEqual(viewport.height * 0.55 + 1);
   }
 });
 
