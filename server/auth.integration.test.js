@@ -63,6 +63,31 @@ test('auth API supports registration, session lookup, logout and login', {
     }
     assert.equal(healthy, true, 'API should start and answer the health check');
 
+    const partnerApplication = {
+      category: 'photography',
+      businessName: 'Test Studio',
+      contactName: 'Test Contact',
+      contactEmail: `partner-${randomUUID()}@example.test`,
+      country: 'Georgia',
+      city: 'Tbilisi',
+      website: 'https://example.test',
+      serviceDescription: 'Wedding and couple photography services for local clients.'
+    };
+    const insecurePartnerWebsite = await request('/api/partner-applications', {
+      method: 'POST',
+      body: JSON.stringify({ ...partnerApplication, website: 'http://example.test' })
+    });
+    assert.equal(insecurePartnerWebsite.status, 400, 'partner websites must use HTTPS');
+
+    const partnerSubmission = await request('/api/partner-applications', {
+      method: 'POST',
+      body: JSON.stringify(partnerApplication)
+    });
+    assert.equal(partnerSubmission.status, 201);
+    const submittedPartner = await partnerSubmission.json();
+    assert.equal(submittedPartner.application.status, 'pending');
+    assert.equal('contactEmail' in submittedPartner.application, false, 'public response must not echo contact details');
+
     const email = `test-${randomUUID()}@example.test`;
     const password = 'Test Password 2026! Secure';
     const registration = await request('/api/auth/register', {
@@ -99,7 +124,7 @@ test('auth API supports registration, session lookup, logout and login', {
     const notificationList = await request('/api/notifications', { headers: { Cookie: firstCookie } });
     assert.equal(notificationList.status, 200);
     assert.deepEqual((await notificationList.json()).notifications, []);
-    for (const adminPath of ['/api/admin/reports', '/api/admin/photos', '/api/admin/audit-log']) {
+    for (const adminPath of ['/api/admin/reports', '/api/admin/photos', '/api/admin/audit-log', '/api/admin/partner-applications']) {
       const forbidden = await request(adminPath, { headers: { Cookie: firstCookie } });
       assert.equal(forbidden.status, 403);
     }
