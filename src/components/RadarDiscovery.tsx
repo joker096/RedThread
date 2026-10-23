@@ -253,14 +253,18 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
   };
 
   const handlePhotoNavigationKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const key = event.key;
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(key)) return;
     event.preventDefault();
     event.stopPropagation();
+
+    // Capture values before the state updater runs; React may defer updater execution.
+    const lastPhotoIndex = Math.max(0, currentProfile.photos.length - 1);
     setPhotoIndex(index => {
-      if (event.key === 'Home') return 0;
-      if (event.key === 'End') return Math.max(0, currentProfile.photos.length - 1);
-      if (event.key === 'ArrowLeft') return Math.max(0, index - 1);
-      return Math.min(Math.max(0, currentProfile.photos.length - 1), index + 1);
+      if (key === 'Home') return 0;
+      if (key === 'End') return lastPhotoIndex;
+      if (key === 'ArrowLeft') return Math.max(0, index - 1);
+      return Math.min(lastPhotoIndex, index + 1);
     });
   };
 
