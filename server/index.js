@@ -361,8 +361,8 @@ async function createNotification(userId, type, metadata = {}, dedupeKey = null,
 }
 
 function revenueCatEnvironment() {
-  const environment = String(process.env.REVENUECAT_ENVIRONMENT || 'sandbox').toLowerCase();
-  return environment === 'production' ? 'production' : environment === 'sandbox' ? 'sandbox' : null;
+  // Keep web billing explicitly sandbox-only until the full lifecycle is verified.
+  return String(process.env.REVENUECAT_ENVIRONMENT || 'sandbox').toLowerCase() === 'sandbox' ? 'sandbox' : null;
 }
 
 function revenueCatConfigured() {
