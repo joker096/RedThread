@@ -28,9 +28,28 @@ export function normalizeEmail(email) {
 }
 
 export function isValidEmail(email) {
-  return typeof email === 'string' &&
-    email.length <= 254 &&
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  if (typeof email !== 'string' || email.length > 254) return false;
+
+  const separator = email.indexOf('@');
+  if (separator <= 0 || separator !== email.lastIndexOf('@')) return false;
+
+  const local = email.slice(0, separator);
+  const domain = email.slice(separator + 1);
+  if (local.length > 64 || domain.length > 253 || local.startsWith('.') || local.endsWith('.') || local.includes('..')) {
+    return false;
+  }
+
+  // Accept dot-atom addresses while rejecting whitespace, controls and malformed separators.
+  if (!/^[^\s@<>()[\]\\,;:"]+(?:\.[^\s@<>()[\]\\,;:"]+)*$/u.test(local)) return false;
+
+  const labels = domain.split('.');
+  if (labels.length < 2 || labels.some(label =>
+    label.length === 0 || label.length > 63 || label.startsWith('-') || label.endsWith('-') ||
+    !/^[\p{L}\p{N}-]+$/u.test(label)
+  )) return false;
+
+  const topLevelDomain = labels[labels.length - 1];
+  return [...topLevelDomain].length >= 2 && /[\p{L}]/u.test(topLevelDomain);
 }
 
 export function isAdultDate(value, now = new Date()) {
