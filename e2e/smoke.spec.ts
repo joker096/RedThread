@@ -1400,3 +1400,32 @@ test('tablet profile gestures preserve photo state and accessible expansion stat
   await expect(photo).toHaveClass(/h-72/);
   await expect(photo.locator('button[aria-expanded="true"]')).toBeVisible();
 });
+
+test('collapsed profile photo remains accessible after mobile orientation changes', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const card = page.locator('.vow-profile-card').first();
+  const photo = card.locator('.vow-profile-photo');
+  const toggle = photo.locator('button').last();
+  await expect(photo).toHaveClass(/h-72/);
+  await toggle.click();
+  await expect(photo).toHaveClass(/h-16/);
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+  // Simulate a phone rotating to landscape and back to portrait.
+  await page.setViewportSize({ width: 844, height: 390 });
+  await expect(photo).toHaveClass(/h-16/);
+  await expect(toggle).toBeVisible();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(photo).toHaveClass(/h-16/);
+  await expect(toggle).toBeVisible();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+  await toggle.click();
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+});
