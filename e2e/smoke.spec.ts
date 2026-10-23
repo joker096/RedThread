@@ -1316,3 +1316,42 @@ test('small vertical finger movement does not collapse the profile photo', async
   await expect(photo).toHaveClass(/h-72/);
   await expect(image).toHaveAttribute('src', initialSrc ?? '');
 });
+
+test('ambiguous diagonal photo gesture does not collapse the photo or change profiles', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const card = page.locator('.vow-profile-card').first();
+  const photo = card.locator('.vow-profile-photo');
+  const image = photo.locator('img');
+  const firstSrc = await image.getAttribute('src');
+  const profileName = await card.locator('h2').first().textContent();
+  await expect(photo).toHaveClass(/h-72/);
+
+  // Equal horizontal and vertical movement is intentionally ambiguous and should not trigger either gesture.
+  await page.evaluate(() => {
+    const target = document.querySelector('.vow-profile-photo img');
+    if (!target) throw new Error('Profile photo image is not mounted');
+    const makeTouch = (x: number, y: number) => new Touch({
+      identifier: 131,
+      target,
+      clientX: x,
+      clientY: y,
+      screenX: x,
+      screenY: y
+    });
+    const start = makeTouch(180, 280);
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true, cancelable: true, touches: [start], changedTouches: [start]
+    }));
+    const end = makeTouch(230, 330);
+    target.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true, cancelable: true, touches: [], changedTouches: [end]
+    }));
+  });
+
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(image).toHaveAttribute('src', firstSrc ?? '');
+  await expect(card.locator('h2').first()).toHaveText(profileName ?? '');
+});
