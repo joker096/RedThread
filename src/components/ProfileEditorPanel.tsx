@@ -211,7 +211,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
       {authenticated === false ? (
         <div className="mt-3 rounded-2xl border border-white/10 bg-stone-950/60 p-4">
           <p className="text-sm text-stone-300">{t('profileLoginPrompt')}</p>
-          <button type="button" onClick={onOpenAccount} className="mt-3 min-h-11 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400">{t('profileLoginButton')}</button>
+          <button type="button" data-testid="profile-login-button" onClick={onOpenAccount} className="mt-3 min-h-11 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400">{t('profileLoginButton')}</button>
         </div>
       ) : (
         <div className="mt-3 space-y-3">
@@ -259,7 +259,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
             {profile?.childrenDisclosureConfirmedAt === null && <p className="mt-2 text-[10px] text-amber-300">{t('profileConfirmChildrenNotice')}</p>}
           </fieldset>
           <label className="flex items-center gap-3 rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-stone-200"><input name="profile-visible-in-search" type="checkbox" checked={isVisible} onChange={e => setIsVisible(e.target.checked)} className="h-4 w-4 accent-rose-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-rose-400" />{t('profileShowInSearch')}</label>
-          <button type="button" onClick={() => void save()} disabled={busy || uploadBusy || !displayName.trim() || !country.trim() || !city.trim() || hasChildren === null} className="min-h-11 w-full rounded-xl bg-amber-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400">{busy ? t('profileSaving') : t('profileSave')}</button>
+          <button type="button" data-testid="profile-save-button" onClick={() => void save()} disabled={busy || uploadBusy || !displayName.trim() || !country.trim() || !city.trim() || hasChildren === null} className="min-h-11 w-full rounded-xl bg-amber-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400">{busy ? t('profileSaving') : t('profileSave')}</button>
           <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-3">
             <h4 className="text-sm font-semibold text-white">{t('profileBlockedUsers')}</h4>
             {!blockedProfiles.length ? <p className="mt-2 text-xs text-stone-500">{t('profileBlockListEmpty')}</p> : blockedProfiles.map(blocked => (
