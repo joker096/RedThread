@@ -234,7 +234,7 @@ async function verifyGoogleIdToken(idToken, expectedNonce) {
     const data = await response.json();
     if (!Array.isArray(data.keys)) throw new Error('google_auth_keys_invalid');
     const cacheControl = response.headers.get('cache-control') || '';
-    const maxAge = Number(cacheControl.match(/max-age=(\\d+)/)?.[1] || 300);
+    const maxAge = Number(cacheControl.match(/max-age=(\d+)/)?.[1] || 300);
     googleJwksCache = data.keys;
     googleJwksExpiresAt = Date.now() + Math.min(maxAge, 3600) * 1000;
   }
@@ -497,7 +497,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
           );
           await client.query('COMMIT');
           writeShortCookie(res, googleSignupCookieName, pendingToken, 600);
-          const base = (process.env.APP_URL || process.env.APP_ORIGIN).replace(/\\/+$/, '');
+          const base = (process.env.APP_URL || process.env.APP_ORIGIN).replace(/\/+$/, '');
           return res.redirect(302, base + '/?googleSignup=1');
         }
         if (user.status !== 'active') throw new Error('google_existing_account_unavailable');
@@ -509,7 +509,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
       await client.query('COMMIT');
       writeSessionCookie(res, sessionToken);
       clearShortCookie(res, googleSignupCookieName);
-      const base = (process.env.APP_URL || process.env.APP_ORIGIN).replace(/\\/+$/, '');
+      const base = (process.env.APP_URL || process.env.APP_ORIGIN).replace(/\/+$/, '');
       return res.redirect(302, base + '/?googleLogin=1');
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
@@ -518,7 +518,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
   } catch (error) {
     clearOAuthCookies();
     console.warn('Google sign-in failed:', error?.message || 'unknown error');
-    const base = (process.env.APP_URL || process.env.APP_ORIGIN || allowedOrigin).replace(/\\/+$/, '');
+    const base = (process.env.APP_URL || process.env.APP_ORIGIN || allowedOrigin).replace(/\/+$/, '');
     return res.redirect(302, base + '/?authError=google');
   }
 });
