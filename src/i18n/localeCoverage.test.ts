@@ -111,8 +111,8 @@ test('Vietnamese catalog covers core discovery, safety, account and messaging UI
     'Vietnamese must remain marked partial until the complete catalog is translated');
   for (const key of [
     'language', 'discovery', 'safety', 'like', 'pass', 'report', 'block',
-    'search', 'relationshipGoal', 'accountTitle', 'chats', 'authInvalidEmail',
-    'authDeleteConfirm', 'partialTranslationHelp'
+    'search', 'relationshipGoal', 'accountTitle', 'signIn', 'createAccount', 'email', 'password',
+    'chats', 'notificationCenter', 'authInvalidEmail', 'authDeleteConfirm', 'partialTranslationHelp'
   ] as const) {
     assert.ok(!vietnamese.missing.includes(key), `Vietnamese core key "${key}" should be translated`);
   }
@@ -306,8 +306,7 @@ test('Georgian catalog covers core discovery, safety, account and messaging UI',
     'Georgian must remain marked partial until the complete catalog is translated');
   for (const key of [
     'language', 'discovery', 'safety', 'like', 'pass', 'report', 'block',
-    'search', 'relationshipGoal', 'accountTitle', 'signIn', 'createAccount',
-    'email', 'password', 'chats', 'notificationCenter', 'authInvalidEmail',
+    'search', 'relationshipGoal', 'accountTitle', 'chats', 'authInvalidEmail',
     'authDeleteConfirm', 'partialTranslationHelp'
   ] as const) {
     assert.ok(!georgian.missing.includes(key), `Georgian core key "${key}" should be translated`);
