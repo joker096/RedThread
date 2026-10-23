@@ -1705,8 +1705,14 @@ app.post('/api/reports', reportLimiter, validateRequestOrigin, requireSession, a
 });
 
 app.get('/api/partner-services', requireDatabase, async (req, res) => {
-  const country = typeof req.query.country === 'string' ? req.query.country.trim() : '';
-  const requestedCategory = typeof req.query.category === 'string' ? req.query.category : '';
+  const countryInput = req.query.country;
+  const categoryInput = req.query.category;
+  if ((countryInput !== undefined && typeof countryInput !== 'string') ||
+      (categoryInput !== undefined && typeof categoryInput !== 'string')) {
+    return res.status(400).json({ error: 'invalid_partner_service_filter' });
+  }
+  const country = typeof countryInput === 'string' ? countryInput.trim() : '';
+  const requestedCategory = typeof categoryInput === 'string' ? categoryInput : '';
   const categories = ['cafe', 'photography', 'videography', 'photo', 'venue', 'beauty', 'legal', 'transport', 'other'];
   if (country.length > 100 || (requestedCategory && !categories.includes(requestedCategory))) {
     return res.status(400).json({ error: 'invalid_partner_service_filter' });
