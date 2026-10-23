@@ -88,6 +88,14 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(submittedPartner.application.status, 'pending');
     assert.equal('contactEmail' in submittedPartner.application, false, 'public response must not echo contact details');
 
+    const publicDirectory = await request('/api/partner-services?country=Georgia&category=photo');
+    assert.equal(publicDirectory.status, 200, 'the public directory is readable without a session');
+    const directoryPayload = await publicDirectory.json();
+    assert.deepEqual(directoryPayload.providers, [], 'pending applications must not appear in the public directory');
+    assert.equal(JSON.stringify(directoryPayload).includes(partnerApplication.contactEmail), false, 'directory responses must not expose contact email');
+    const invalidDirectoryFilter = await request('/api/partner-services?category=admin');
+    assert.equal(invalidDirectoryFilter.status, 400, 'directory filters must reject unsupported categories');
+
     const email = `test-${randomUUID()}@example.test`;
     const password = 'Test Password 2026! Secure';
     const registration = await request('/api/auth/register', {
