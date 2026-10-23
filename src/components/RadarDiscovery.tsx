@@ -228,7 +228,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
       }
       return;
     }
-    if (startY !== null && endY !== undefined && Math.abs(deltaY) > Math.abs(deltaX)) return;
+    if (startY !== null && endY !== undefined && Math.abs(deltaX) < Math.abs(deltaY) * 1.15) return;
     const action = getSwipeActionFromDelta(deltaX);
     if (currentProfile?.isSponsorAd) {
       if (action !== 'none') { onPass(currentProfile); handleNext('ad'); }
