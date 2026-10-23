@@ -15,7 +15,8 @@ import {
   Flame,
   AlertCircle,
   HeartHandshake,
-  LockKeyhole
+  LockKeyhole,
+  Share2
 } from 'lucide-react';
 import type { ChatThread, Message, UserProfile } from '../types/index.ts';
 import { checkAntiChitChatDeadline } from '../utils/compatibility.ts';
@@ -51,6 +52,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
   const sendingThreadIdsRef = useRef(new Set<string>());
   const [sendingThreadIds, setSendingThreadIds] = useState<Set<string>>(new Set());
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [shareNotices, setShareNotices] = useState<Record<string, string>>({});
   const inviteDialogRef = useRef<HTMLDivElement | null>(null);
   const messagesLogRef = useRef<HTMLDivElement | null>(null);
   const shouldAutoScrollMessagesRef = useRef(true);
@@ -162,6 +164,29 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
     const dayLabelKey = ({ today: 'chatDayToday', tomorrow: 'chatDayTomorrow', saturday: 'chatDaySaturday', sunday: 'chatDaySunday' } as const)[selectedDay as 'today' | 'tomorrow' | 'saturday' | 'sunday'] ?? 'chatDayTomorrow';
     onSendDateInvite(activeThread.id, t(placeLabelKey), t(dayLabelKey), selectedTime);
     setShowInviteModal(false);
+  };
+
+
+  const shareConfirmedDate = async (message: Message) => {
+    const plan = message.dateInviteDetails;
+    if (!plan) return;
+    const text = [t('chatShareDatePrefix'), plan.place, plan.day + ', ' + plan.time, t('chatShareDateReminder')].join('\\n');
+    try {
+      if (typeof navigator.share === 'function') {
+        await navigator.share({ title: t('chatShareDateTitle'), text });
+        setShareNotices(current => ({ ...current, [message.id]: t('chatDateShared') }));
+        return;
+      }
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        setShareNotices(current => ({ ...current, [message.id]: t('chatDatePlanCopied') }));
+        return;
+      }
+      setShareNotices(current => ({ ...current, [message.id]: t('chatDateShareUnavailable') }));
+    } catch (error) {
+      if (error && typeof error === 'object' && 'name' in error && error.name === 'AbortError') return;
+      setShareNotices(current => ({ ...current, [message.id]: t('chatDateShareUnavailable') }));
+    }
   };
 
   if (!activeThread) {
@@ -398,9 +423,17 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
 
                     <div className="flex items-center gap-2">
                       {msg.dateInviteDetails?.status === 'accepted' ? (
-                        <div role="status" aria-live="polite" aria-atomic="true" className="w-full py-2 rounded-xl bg-emerald-950/80 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center justify-center gap-1.5">
-                          <Check className="w-4 h-4" />
-                          <span>{t('chatDateConfirmed')}</span>
+                        <div className="w-full space-y-2">
+                          <div role="status" aria-live="polite" aria-atomic="true" className="w-full py-2 rounded-xl bg-emerald-950/80 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center justify-center gap-1.5">
+                            <Check className="w-4 h-4" />
+                            <span>{t('chatDateConfirmed')}</span>
+                          </div>
+                          <button type="button" onClick={() => void shareConfirmedDate(msg)} aria-label={t('chatShareDateTitle')} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-950/20 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-950/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">
+                            <Share2 className="h-4 w-4" aria-hidden="true" />
+                            <span>{t('chatShareDateButton')}</span>
+                          </button>
+                          <p className="text-[10px] leading-relaxed text-stone-400">{t('chatShareDatePrivacy')}</p>
+                          {shareNotices[msg.id] && <p role="status" aria-live="polite" aria-atomic="true" className="text-[10px] text-emerald-200">{shareNotices[msg.id]}</p>}
                         </div>
                       ) : msg.dateInviteDetails?.status === 'pending' && !isMe ? (
                         <button type="button"
