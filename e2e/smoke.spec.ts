@@ -731,3 +731,68 @@ test('mobile photo swipe suppresses the synthetic click so the gallery advances 
   await expect(swipeImage).toHaveAttribute('src', expectedSecondSrc ?? '');
   await expect(swipeButton).toBeVisible();
 });
+
+
+test('mobile photo gallery ignores cancelled gestures and accepts the next swipe', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const card = page.locator('.vow-profile-card').first();
+  const photo = card.locator('.vow-profile-photo');
+  const nextButton = photo.getByTestId('profile-photo-next');
+  const image = photo.locator('img');
+  const firstSrc = await image.getAttribute('src');
+  await expect(nextButton).toBeVisible();
+
+  await page.evaluate(() => {
+    const target = document.querySelector('[data-testid="profile-photo-next"]');
+    if (!target) throw new Error('Photo navigation target is not mounted');
+    const makeTouch = (x: number) => new Touch({
+      identifier: 52,
+      target,
+      clientX: x,
+      clientY: 300,
+      screenX: x,
+      screenY: 300
+    });
+    const start = makeTouch(300);
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true, cancelable: true, touches: [start], changedTouches: [start]
+    }));
+    target.dispatchEvent(new TouchEvent('touchcancel', {
+      bubbles: true, cancelable: true, touches: [], changedTouches: [start]
+    }));
+    // A late touchend after cancellation must not complete the abandoned gesture.
+    const lateEnd = makeTouch(220);
+    target.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true, cancelable: true, touches: [], changedTouches: [lateEnd]
+    }));
+  });
+
+  await expect(image).toHaveAttribute('src', firstSrc ?? '');
+
+  await page.evaluate(() => {
+    const target = document.querySelector('[data-testid="profile-photo-next"]');
+    if (!target) throw new Error('Photo navigation target is not mounted');
+    const makeTouch = (x: number) => new Touch({
+      identifier: 53,
+      target,
+      clientX: x,
+      clientY: 300,
+      screenX: x,
+      screenY: 300
+    });
+    const start = makeTouch(300);
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true, cancelable: true, touches: [start], changedTouches: [start]
+    }));
+    const end = makeTouch(220);
+    target.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true, cancelable: true, touches: [], changedTouches: [end]
+    }));
+  });
+
+  await expect(image).not.toHaveAttribute('src', firstSrc ?? '');
+  await expect(card).toBeVisible();
+});
