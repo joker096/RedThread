@@ -1041,3 +1041,66 @@ test('multi-touch photo gesture is ignored and the next single-finger swipe work
   await expect(photo).toHaveClass(/h-72/);
   await expect(card.locator('h2').first()).toHaveText(profileName ?? '');
 });
+
+
+test('adding a second finger cancels an in-progress photo swipe', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const card = page.locator('.vow-profile-card').first();
+  const photo = card.locator('.vow-profile-photo');
+  const image = photo.locator('img');
+  const firstSrc = await image.getAttribute('src');
+  const profileName = await card.locator('h2').first().textContent();
+
+  await page.evaluate(() => {
+    const target = document.querySelector('.vow-profile-photo img');
+    if (!target) throw new Error('Profile photo image is not mounted');
+    const makeTouch = (identifier: number, x: number, y: number) => new Touch({
+      identifier,
+      target,
+      clientX: x,
+      clientY: y,
+      screenX: x,
+      screenY: y
+    });
+    const first = makeTouch(101, 300, 300);
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true, cancelable: true, touches: [first], changedTouches: [first]
+    }));
+
+    // A second finger joins after the gesture has already started.
+    const second = makeTouch(102, 280, 305);
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true, cancelable: true, touches: [first, second], changedTouches: [second]
+    }));
+    const movedFirst = makeTouch(101, 220, 300);
+    const movedSecond = makeTouch(102, 200, 305);
+    target.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true, cancelable: true, touches: [], changedTouches: [movedFirst, movedSecond]
+    }));
+  });
+
+  await expect(image).toHaveAttribute('src', firstSrc ?? '');
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(card.locator('h2').first()).toHaveText(profileName ?? '');
+
+  // Cancelling the interrupted gesture must not poison the next valid swipe.
+  await page.evaluate(() => {
+    const target = document.querySelector('.vow-profile-photo img');
+    if (!target) throw new Error('Profile photo image is not mounted');
+    const start = new Touch({ identifier: 103, target, clientX: 300, clientY: 300, screenX: 300, screenY: 300 });
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true, cancelable: true, touches: [start], changedTouches: [start]
+    }));
+    const end = new Touch({ identifier: 103, target, clientX: 220, clientY: 300, screenX: 220, screenY: 300 });
+    target.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true, cancelable: true, touches: [], changedTouches: [end]
+    }));
+  });
+
+  await expect(image).not.toHaveAttribute('src', firstSrc ?? '');
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(card.locator('h2').first()).toHaveText(profileName ?? '');
+});
