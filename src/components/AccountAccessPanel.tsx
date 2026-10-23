@@ -46,6 +46,18 @@ export const isAccountUser = (value: unknown): value is AccountUser => {
       || candidate.relationshipIntent === 'family_without_marriage');
 };
 
+export const normalizeAccountUser = (value: unknown): AccountUser | null => {
+  if (!isAccountUser(value)) return null;
+  return {
+    ...value,
+    id: value.id.trim(),
+    email: value.email.trim(),
+    displayName: value.displayName.trim(),
+    country: value.country.trim(),
+    city: value.city.trim()
+  };
+};
+
 export const isBillingStatus = (value: unknown): value is BillingStatus => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const candidate = value as Record<string, unknown>;
@@ -95,7 +107,8 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       .then(async response => response.ok ? response.json() : null)
       .then(async data => {
         if (!cancelled && initialSessionActionId === sessionActionIdRef.current && initialAuxiliaryRequestId === auxiliaryRequestIdRef.current && data?.user) {
-          if (!isAccountUser(data.user)) {
+          const normalizedUser = normalizeAccountUser(data.user);
+          if (!normalizedUser) {
             setMessage(t('authRequestFailed'));
             return;
           }
@@ -104,7 +117,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
             setPassword('');
             return;
           }
-          setUser(data.user);
+          setUser(normalizedUser);
           window.dispatchEvent(new Event('vow:session-changed'));
           const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
           if (!cancelled && initialSessionActionId === sessionActionIdRef.current && initialAuxiliaryRequestId === auxiliaryRequestIdRef.current) setBillingStatus(isBillingStatus(billing) ? billing : null);
@@ -174,11 +187,12 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         if (data?.error === 'email_verification_required' || data?.error === 'verification_email_delivery_failed') setCanResendVerification(true);
         throw new Error(errors[data?.error] || t('authRequestFailed'));
       }
-      if (!isAccountUser(data?.user)) {
+      const normalizedUser = normalizeAccountUser(data?.user);
+      if (!normalizedUser) {
         throw new Error(t('authRequestFailed'));
       }
       activeActionId = ++sessionActionIdRef.current;
-      setUser(data.user);
+      setUser(normalizedUser);
       window.dispatchEvent(new Event('vow:session-changed'));
       const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
       if (sessionActionIdRef.current !== activeActionId) return;

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getLatestBirthDateInputValue, isAccountUser, isBillingStatus } from './AccountAccessPanel.tsx';
+import { getLatestBirthDateInputValue, isAccountUser, isBillingStatus, normalizeAccountUser } from './AccountAccessPanel.tsx';
 
 const validUser = () => ({
   id: 'user-123',
@@ -170,4 +170,21 @@ test('accepts whitespace-only optional location fields', () => {
 test('registration date picker maximum is the local calendar date 18 years ago', () => {
   assert.equal(getLatestBirthDateInputValue(new Date('2026-10-23T12:00:00.000Z')), '2008-10-23');
   assert.equal(getLatestBirthDateInputValue(new Date('2000-01-15T12:00:00.000Z')), '1982-01-15');
+});
+
+
+test('normalizes whitespace in validated account identity and location fields', () => {
+  assert.deepEqual(normalizeAccountUser({
+    ...validUser(),
+    id: '  user-123  ',
+    email: ' person@example.com ',
+    displayName: ' Alex ',
+    country: ' Georgia ',
+    city: ' Tbilisi '
+  }), validUser());
+});
+
+test('normalization rejects invalid account payloads', () => {
+  assert.equal(normalizeAccountUser({ ...validUser(), email: '   ' }), null);
+  assert.equal(normalizeAccountUser(null), null);
 });
