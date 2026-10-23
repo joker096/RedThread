@@ -821,11 +821,11 @@ test('vertical swipe on photo navigation does not suppress the next gallery clic
       screenX: 300,
       screenY: y
     });
-    const start = makeTouch(180);
+    const start = makeTouch(260);
     target.dispatchEvent(new TouchEvent('touchstart', {
       bubbles: true, cancelable: true, touches: [start], changedTouches: [start]
     }));
-    const end = makeTouch(260);
+    const end = makeTouch(180);
     target.dispatchEvent(new TouchEvent('touchend', {
       bubbles: true, cancelable: true, touches: [], changedTouches: [end]
     }));
