@@ -1763,7 +1763,7 @@ app.post('/api/partner-applications', partnerApplicationLimiter, validateRequest
       contactName.length < 2 || contactName.length > 120 || !isValidEmail(contactEmail) ||
       country.length < 2 || country.length > 100 || city.length < 2 || city.length > 120 ||
       website.length > 500 || serviceDescription.length < 20 || serviceDescription.length > 2000 ||
-      (priceFromInput !== null && (!Number.isFinite(priceFromInput) || priceFromInput < 0 || priceFromInput > 10000000 || Math.round(priceFromInput * 100) !== priceFromInput * 100)) ||
+      (priceFromInput !== null && (!Number.isFinite(priceFromInput) || priceFromInput < 0 || priceFromInput > 10000000 || Math.abs(Math.round(priceFromInput * 100) - priceFromInput * 100) > 1e-7)) ||
       !currencies.includes(priceCurrency) || languageInput.length > 500 || serviceLanguages.length > 10 ||
       serviceLanguages.some(language => language.length < 2 || language.length > 40) || availabilityNote.length > 500) {
     return res.status(400).json({ error: 'invalid_partner_application' });
