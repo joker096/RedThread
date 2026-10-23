@@ -2874,7 +2874,8 @@ export function getTranslationCoverage(locale: string) {
 const rtlLocales = new Set(['ar', 'he', 'fa', 'ur']);
 
 export function getTextDirection(locale: string): 'rtl' | 'ltr' {
-  return rtlLocales.has(locale) ? 'rtl' : 'ltr';
+  const baseLocale = locale.toLowerCase().split(/[-_]/, 1)[0];
+  return rtlLocales.has(baseLocale) ? 'rtl' : 'ltr';
 }
 
 export function normalizeLocalePreference(value: string | null | undefined): string {

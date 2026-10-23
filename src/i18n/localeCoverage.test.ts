@@ -281,10 +281,10 @@ test('Hindi catalog covers core discovery, safety, account and messaging UI', ()
 
 
 test('text direction is RTL only for locales with right-to-left scripts', () => {
-  for (const locale of ['ar', 'he', 'fa', 'ur']) {
+  for (const locale of ['ar', 'he', 'fa', 'ur', 'ar-EG', 'AR-sa', 'fa_IR', 'ur-PK']) {
     assert.equal(getTextDirection(locale), 'rtl', `${locale} should use right-to-left layout`);
   }
-  for (const locale of ['en', 'ru', 'ka', 'vi', 'zh', 'hi', 'auto']) {
+  for (const locale of ['en', 'ru', 'ka', 'vi', 'zh', 'hi', 'auto', 'en-US', 'ru-RU', 'zh-Hant']) {
     assert.equal(getTextDirection(locale), 'ltr', `${locale} should use left-to-right layout`);
   }
 });
