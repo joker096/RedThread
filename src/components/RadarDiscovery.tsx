@@ -492,12 +492,12 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
               <button
                 type="button"
                 onClick={() => onInspectBotSafety(currentProfile)}
-                className="absolute bottom-3 right-3 z-20 inline-flex min-h-11 items-center cursor-pointer bg-stone-950/75 hover:bg-stone-950/90 border border-emerald-500/30 text-emerald-400 px-3 py-1 rounded-2xl backdrop-blur-xl gap-1 shadow-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                className="absolute bottom-3 right-3 z-20 inline-flex min-h-11 items-center cursor-pointer bg-stone-950/75 hover:bg-stone-950/90 border border-emerald-500/30 text-emerald-400 px-3 max-[379px]:px-2 py-1 rounded-2xl backdrop-blur-xl gap-1 max-[379px]:gap-0 shadow-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
                 title={t('livenessVerification')}
                 aria-label={t('livenessVerification')}
               >
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="text-[10px] font-bold text-white">
+                <span className="text-[10px] font-bold text-white max-[379px]:hidden">
                   {currentProfile.verification.isVerified ? t('verifiedDemo') : t('notVerified')}
                 </span>
               </button>
