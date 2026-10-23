@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import type { UserProfile, CrucialAnswers } from '../types/index.ts';
 import { calculateCompatibility } from '../utils/compatibility.ts';
+import { useLocale } from '../i18n/LocaleProvider.tsx';
 
 interface CompatibilityMatrixModalProps {
   profile: UserProfile | null;
@@ -31,6 +32,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
   onClose,
   onStartChat
 }) => {
+  const { t } = useLocale();
   const [chemistryStep, setChemistryStep] = useState<number>(0);
   const [chemistryScoreBonus, setChemistryScoreBonus] = useState<number>(0);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -161,7 +163,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
               </span>
             </div>
             <p id="compatibility-matrix-description" className="text-xs text-stone-400 mt-0.5">
-              Матрица совместимости по 5 факторам брака
+              {t('compatibilityMatrixDescription')}
             </p>
           </div>
         </div>
@@ -175,11 +177,11 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
             </div>
             <div>
               <div className="text-sm font-bold text-white flex items-center gap-1.5">
-                <span>{displayScore >= 85 ? 'Высочайшая гармония для брака' : 'Хорошая совместимость'}</span>
+                <span>{displayScore >= 85 ? t('compatibilityHighAlignment') : t('compatibilitySomeAlignment')}</span>
                 <Flame className="w-4 h-4 text-amber-400 fill-amber-400" />
               </div>
               <p className="text-xs text-rose-300/90 mt-0.5">
-                Ценности и долгосрочные цели совпадают
+                {t('compatibilityScoreDisclaimer')}
               </p>
             </div>
           </div>
