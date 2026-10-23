@@ -1429,3 +1429,57 @@ test('collapsed profile photo remains accessible after mobile orientation change
   await expect(photo).toHaveClass(/h-72/);
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
 });
+
+
+test('landscape phone profile gestures keep the photo toggle usable', async ({ page }) => {
+  await page.setViewportSize({ width: 844, height: 390 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const card = page.locator('.vow-profile-card').first();
+  const photo = card.locator('.vow-profile-photo');
+  const details = card.locator('.vow-profile-details');
+  const expandedToggle = photo.locator('button[aria-expanded="true"]');
+  await expect(card).toBeVisible();
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(expandedToggle).toBeVisible();
+
+  const swipeDetails = async (fromY: number, toY: number) => {
+    await page.evaluate(({ fromY, toY }) => {
+      const target = document.querySelector('.vow-profile-card .vow-profile-details');
+      if (!target) throw new Error('Profile details are not mounted');
+      const x = Math.round(window.innerWidth / 2);
+      const makeTouch = (y: number) => new Touch({
+        identifier: 171,
+        target,
+        clientX: x,
+        clientY: y,
+        screenX: x,
+        screenY: y
+      });
+      const start = makeTouch(fromY);
+      target.dispatchEvent(new TouchEvent('touchstart', {
+        bubbles: true, cancelable: true, touches: [start], changedTouches: [start]
+      }));
+      const end = makeTouch(toY);
+      target.dispatchEvent(new TouchEvent('touchend', {
+        bubbles: true, cancelable: true, touches: [], changedTouches: [end]
+      }));
+    }, { fromY, toY });
+  };
+
+  await swipeDetails(300, 220);
+  await expect(photo).toHaveClass(/h-16/);
+  const collapsedToggle = photo.locator('button[aria-expanded="false"]');
+  await expect(collapsedToggle).toBeVisible();
+  await expect(details).toBeVisible();
+
+  // The explicit control remains usable even when vertical screen space is limited.
+  await collapsedToggle.click();
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(photo.locator('button[aria-expanded="true"]')).toBeVisible();
+
+  await swipeDetails(220, 300);
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(photo.locator('button[aria-expanded="true"]')).toBeVisible();
+});
