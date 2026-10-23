@@ -6,7 +6,8 @@ export function normalizePaddleEvent(event) {
   const eventType = event.eventType || event.event_type;
   const data = event.data;
   if (typeof eventId !== 'string' || !eventId || typeof eventType !== 'string' || !data || typeof data !== 'object') return null;
-  return { eventId, eventType, data };
+  const occurredAt = event.occurredAt || event.occurred_at || null;
+  return { eventId, eventType, data, occurredAt };
 }
 
 export function isPaddleSubscriptionEntitled(status, periodEnd, now = Date.now()) {
@@ -20,7 +21,7 @@ export async function processPaddleEvent(pool, rawEvent) {
   const event = normalizePaddleEvent(rawEvent);
   if (!event) throw new Error('invalid_paddle_event');
 
-  const { eventId, eventType, data } = event;
+  const { eventId, eventType, data, occurredAt } = event;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -55,11 +56,13 @@ export async function processPaddleEvent(pool, rawEvent) {
           paddle_subscription_id = COALESCE($3, paddle_subscription_id),
           paddle_subscription_status = $4,
           paddle_price_id = COALESCE($5, paddle_price_id),
+          paddle_subscription_updated_at = COALESCE($8::timestamptz, NOW()),
           premium_until = CASE WHEN $6::boolean THEN $7::timestamptz ELSE NULL END,
           premium_lifetime = CASE WHEN $6::boolean THEN FALSE ELSE premium_lifetime END,
           updated_at = NOW()
-        WHERE id = COALESCE($1::uuid, (SELECT id FROM users WHERE paddle_subscription_id = $3 LIMIT 1))`,
-        [customUserId, customerId, subscriptionId, status, priceId, active, active ? periodEnd : null]
+        WHERE id = COALESCE($1::uuid, (SELECT id FROM users WHERE paddle_subscription_id = $3 LIMIT 1))
+          AND (paddle_subscription_updated_at IS NULL OR $8::timestamptz IS NULL OR $8::timestamptz >= paddle_subscription_updated_at)`,
+        [customUserId, customerId, subscriptionId, status, priceId, active, active ? periodEnd : null, occurredAt]
       );
     } else if (eventType === 'transaction.completed') {
       // A completed transaction alone does not grant access. Access is provisioned
