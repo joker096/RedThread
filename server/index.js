@@ -56,6 +56,91 @@ app.use((_req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   next();
 });
+app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (req, res) => {
+  if (process.env.PADDLE_ENVIRONMENT !== 'sandbox') {
+    return res.status(503).json({ error: 'paddle_environment_must_be_explicitly_set_to_sandbox' });
+  }
+  if (!process.env.PADDLE_API_KEY || !process.env.PADDLE_CLIENT_TOKEN || !process.env.PADDLE_CLIENT_TOKEN.startsWith('test_')) {
+    return res.status(503).json({ error: 'paddle_sandbox_not_configured' });
+  }
+  if (req.authUser.gender !== 'female') return res.status(403).json({ error: 'premium_checkout_not_available' });
+
+  const plan = typeof req.body?.plan === 'string' ? req.body.plan : '';
+  const plans = {
+    '1month': process.env.PADDLE_PRICE_ID_1MONTH,
+    '3months': process.env.PADDLE_PRICE_ID_3MONTHS,
+    lifetime: process.env.PADDLE_PRICE_ID_LIFETIME
+  };
+  const priceId = plans[plan];
+  if (!priceId || !/^pri_[A-Za-z0-9]+$/.test(priceId)) return res.status(503).json({ error: 'paddle_price_not_configured' });
+
+  try {
+    const response = await fetch('https://sandbox-api.paddle.com/transactions', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + process.env.PADDLE_API_KEY,
+        'Content-Type': 'application/json',
+        'Paddle-Version': '1'
+      },
+      body: JSON.stringify({
+        items: [{ price_id: priceId, quantity: 1 }],
+        custom_data: { userId: req.authUser.id, plan }
+      })
+    });
+    const payload = await response.json().catch(() => null);
+    const transactionId = payload?.data?.id;
+    if (!response.ok || typeof transactionId !== 'string' || !transactionId.startsWith('txn_')) {
+      console.error('Paddle sandbox transaction rejected:', response.status, payload?.error?.code || 'unknown_error');
+      return res.status(502).json({ error: 'paddle_checkout_session_failed' });
+    }
+    return res.json({ transactionId, environment: 'sandbox' });
+  } catch (error) {
+    console.error('Paddle sandbox checkout request failed:', error?.message || 'unknown error');
+    return res.status(502).json({ error: 'paddle_checkout_unavailable' });
+  }
+});
+
+app.get('/api/paddle/config', requireSession, (req, res) => {
+  if (process.env.PADDLE_ENVIRONMENT !== 'sandbox' || !process.env.PADDLE_CLIENT_TOKEN?.startsWith('test_')) {
+    return res.json({ configured: false, environment: 'sandbox', plans: [] });
+  }
+  const plans = [
+    { id: '1month', priceId: process.env.PADDLE_PRICE_ID_1MONTH || null, billing: 'month' },
+    { id: '3months', priceId: process.env.PADDLE_PRICE_ID_3MONTHS || null, billing: 'quarter' },
+    { id: 'lifetime', priceId: process.env.PADDLE_PRICE_ID_LIFETIME || null, billing: 'one-time' }
+  ].filter(plan => plan.priceId && /^pri_[A-Za-z0-9]+$/.test(plan.priceId));
+  return res.json({ configured: Boolean(process.env.PADDLE_CLIENT_TOKEN && plans.length), environment: 'sandbox', clientToken: process.env.PADDLE_CLIENT_TOKEN, plans });
+});
+
+app.post('/api/paddle/webhook', express.raw({ type: 'application/json', limit: '1mb' }), async (req, res) => {
+  const apiKey = process.env.PADDLE_API_KEY;
+  const secret = process.env.PADDLE_WEBHOOK_SECRET;
+  if (process.env.PADDLE_ENVIRONMENT !== 'sandbox' || !apiKey || !secret || !Buffer.isBuffer(req.body)) {
+    return res.status(503).json({ error: 'paddle_sandbox_webhook_not_configured' });
+  }
+  const signature = req.get('paddle-signature') || '';
+  if (!signature) return res.status(400).json({ error: 'missing_paddle_signature' });
+
+  let event;
+  try {
+    const { Paddle, Environment } = await import('@paddle/paddle-node-sdk');
+    const paddle = new Paddle(apiKey, { environment: Environment.sandbox });
+    event = await paddle.webhooks.unmarshal(req.body.toString('utf8'), secret, signature);
+  } catch (error) {
+    console.warn('Paddle sandbox webhook signature or payload rejected:', error?.message || 'invalid_signature');
+    return res.status(400).json({ error: 'invalid_paddle_webhook_signature' });
+  }
+
+  try {
+    const { processPaddleEvent } = await import('./paddleBilling.js');
+    await processPaddleEvent(pool, event);
+    return res.status(200).json({ received: true });
+  } catch (error) {
+    console.error('Paddle webhook processing failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'paddle_webhook_processing_failed' });
+  }
+});
+
 app.post('/api/billing/webhook', express.raw({ type: 'application/json', limit: '1mb' }), async (req, res) => {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!secret || !Buffer.isBuffer(req.body)) return res.status(503).json({ error: 'billing_webhook_not_configured' });
