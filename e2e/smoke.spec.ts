@@ -497,6 +497,60 @@ test('vertical photo swipe collapses and restores the image without changing gal
   await expect(photo.locator('img')).toHaveAttribute('src', before ?? '');
 });
 
+test('profile photo gallery remains viewport-bounded in landscape orientation', async ({ page }) => {
+  await page.setViewportSize({ width: 844, height: 390 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const card = page.locator('.vow-profile-card').first();
+  const photo = card.locator('.vow-profile-photo');
+  const image = photo.locator('img');
+  await expect(image).toBeVisible();
+
+  const initial = await photo.evaluate(element => ({
+    height: element.getBoundingClientRect().height,
+    viewportHeight: window.innerHeight
+  }));
+  expect(initial.height).toBeLessThanOrEqual(initial.viewportHeight * 0.55 + 1);
+
+  // In landscape, vertical gestures must still switch between photo and details.
+  await page.evaluate(() => {
+    const target = document.querySelector('.vow-profile-photo img');
+    if (!target) throw new Error('Profile photo image is not mounted');
+    const makeTouch = (y: number) => new Touch({
+      identifier: 301, target, clientX: 400, clientY: y, screenX: 400, screenY: y
+    });
+    const start = makeTouch(260);
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true, cancelable: true, touches: [start], changedTouches: [start]
+    }));
+    const end = makeTouch(180);
+    target.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true, cancelable: true, touches: [], changedTouches: [end]
+    }));
+  });
+  await expect(photo).toHaveClass(/h-16/);
+  await expect(image).toBeVisible();
+
+  await page.evaluate(() => {
+    const target = document.querySelector('.vow-profile-photo img');
+    if (!target) throw new Error('Profile photo image is not mounted');
+    const makeTouch = (y: number) => new Touch({
+      identifier: 302, target, clientX: 400, clientY: y, screenX: 400, screenY: y
+    });
+    const start = makeTouch(180);
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true, cancelable: true, touches: [start], changedTouches: [start]
+    }));
+    const end = makeTouch(260);
+    target.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true, cancelable: true, touches: [], changedTouches: [end]
+    }));
+  });
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(photo.evaluate(element => element.getBoundingClientRect().height)).toBeLessThanOrEqual(390 * 0.55 + 1);
+});
+
 test('profile photo gallery supports keyboard navigation', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
