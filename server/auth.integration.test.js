@@ -63,6 +63,25 @@ test('auth API supports registration, session lookup, logout and login', {
     }
     assert.equal(healthy, true, 'API should start and answer the health check');
 
+    for (const malformedEmail of [
+      '.user@example.com',
+      'user.@example.com',
+      'user..name@example.com',
+      'user@example..com',
+      'user@-example.com',
+      'user@example-.com',
+      'user@example.c',
+      'user@@example.com',
+      'user name@example.com'
+    ]) {
+      const invalidRegistration = await request('/api/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({ email: malformedEmail })
+      });
+      assert.equal(invalidRegistration.status, 400, `should reject malformed email: ${malformedEmail}`);
+      assert.equal((await invalidRegistration.json()).error, 'invalid_email');
+    }
+
     const email = `test-${randomUUID()}@example.test`;
     const password = 'Test Password 2026! Secure';
     const registration = await request('/api/auth/register', {
