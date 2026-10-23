@@ -546,7 +546,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
             <label className="text-xs text-stone-300">{t('financialMatch')}<select name="filter-financial-alignment" value={minFinancialAlignment} onChange={e => setMinFinancialAlignment(Number(e.target.value))} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-950 p-2.5 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"><option value="0">{t('doNotFilter')}</option><option value="33">{t('financialFrom33')}</option><option value="67">{t('financialFrom67')}</option><option value="100">{t('financialOnly100')}</option></select></label>
           </div>
           <button type="button" onClick={() => void search()} disabled={busy} className="mb-2 min-h-11 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">{busy ? t('searching') : t('search')}</button>
-          <button type="button" onClick={() => setSwipeMode(value => !value)} aria-pressed={swipeMode} className="mb-3 min-h-11 w-full rounded-xl border border-emerald-500/30 px-4 py-2.5 text-xs font-semibold text-emerald-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400">{swipeMode ? t('listMode') : t('swipeMode')}</button>
+          <button type="button" data-testid="server-discovery-swipe-mode" onClick={() => setSwipeMode(value => !value)} aria-pressed={swipeMode} className="mb-3 min-h-11 w-full rounded-xl border border-emerald-500/30 px-4 py-2.5 text-xs font-semibold text-emerald-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400">{swipeMode ? t('listMode') : t('swipeMode')}</button>
           <button type="button" onClick={() => void undoPass()} disabled={busy} className="mb-3 min-h-11 w-full rounded-xl border border-amber-500/30 px-4 py-2.5 text-xs font-semibold text-amber-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">↶ {t('undoAction')}</button>
           <button type="button" onClick={() => void toggleBlockedProfiles()} disabled={busy} aria-expanded={blockedProfilesOpen} aria-controls="blocked-profiles-panel" className="mb-3 min-h-11 w-full rounded-xl border border-white/10 px-4 py-2.5 text-xs font-semibold text-stone-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-50">
             {blockedProfilesOpen ? t('hideBlockedProfiles') : t('manageBlockedProfiles')}
@@ -582,14 +582,17 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
             {profiles.slice(0, swipeMode ? 1 : profiles.length).map((profile, profileIndex) => (
               <article key={profile.id}
                 onTouchStart={event => {
-                  if (swipeMode && !(event.target as HTMLElement).closest('button, input, select, textarea')) {
-                    touchStartX.current = event.changedTouches[0]?.clientX ?? null;
-                    touchStartY.current = event.changedTouches[0]?.clientY ?? null;
+                  if (swipeMode && event.touches.length === 1 && !(event.target as HTMLElement).closest('button, input, select, textarea')) {
+                    touchStartX.current = event.touches[0]?.clientX ?? null;
+                    touchStartY.current = event.touches[0]?.clientY ?? null;
                     event.currentTarget.style.transition = 'none';
+                  } else if (swipeMode) {
+                    touchStartX.current = null;
+                    touchStartY.current = null;
                   }
                 }}
                 onTouchMove={event => {
-                  if (!swipeMode || touchStartX.current === null || (event.target as HTMLElement).closest('button, input, select, textarea')) return;
+                  if (!swipeMode || event.touches.length !== 1 || touchStartX.current === null || (event.target as HTMLElement).closest('button, input, select, textarea')) return;
                   const currentY = event.changedTouches[0]?.clientY;
                   if (currentY !== undefined && touchStartY.current !== null && Math.abs(currentY - touchStartY.current) > Math.abs((event.changedTouches[0]?.clientX ?? touchStartX.current) - touchStartX.current)) return;
                   const currentX = event.changedTouches[0]?.clientX;
@@ -612,10 +615,23 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                   if (endX === undefined || endY === undefined || startY === null) return;
                   const deltaX = endX - start;
                   const deltaY = endY - startY;
-                  if (Math.abs(deltaY) >= Math.abs(deltaX)) return;
+                  if (Math.abs(deltaY) >= 48 && Math.abs(deltaY) > Math.abs(deltaX) * 1.15) {
+                    setCollapsedPhotoProfileId(current => {
+                      if (deltaY < 0) return profile.id;
+                      return current === profile.id ? null : current;
+                    });
+                    return;
+                  }
+                  if (Math.abs(deltaX) < Math.abs(deltaY) * 1.15) return;
                   const action = getSwipeActionFromDelta(deltaX);
                   if (action === 'like') void like(profile);
                   else if (action === 'pass') void pass(profile);
+                }}
+                onTouchCancel={event => {
+                  touchStartX.current = null;
+                  touchStartY.current = null;
+                  event.currentTarget.style.transition = '';
+                  event.currentTarget.style.transform = '';
                 }}
                 role={swipeMode ? 'group' : undefined}
                 aria-label={swipeMode ? t('swipeProfileAria').replace('{name}', profile.displayName) : undefined}
