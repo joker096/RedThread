@@ -1704,6 +1704,30 @@ app.post('/api/reports', reportLimiter, validateRequestOrigin, requireSession, a
   }
 });
 
+app.get('/api/partner-services', requireDatabase, async (req, res) => {
+  const country = typeof req.query.country === 'string' ? req.query.country.trim() : '';
+  const requestedCategory = typeof req.query.category === 'string' ? req.query.category : '';
+  const categories = ['cafe', 'photography', 'videography', 'photo', 'venue', 'beauty', 'legal', 'transport', 'other'];
+  if (country.length > 100 || (requestedCategory && !categories.includes(requestedCategory))) {
+    return res.status(400).json({ error: 'invalid_partner_service_filter' });
+  }
+  try {
+    const result = await pool.query(
+      'SELECT id, category, business_name AS "businessName", country, city, website, ' +
+      'service_description AS "serviceDescription", published_at AS "publishedAt" ' +
+      "FROM partner_service_applications WHERE status = 'approved' AND published_at IS NOT NULL " +
+      'AND ($1::text = \'\' OR LOWER(country) = LOWER($1)) ' +
+      "AND ($2::text = '' OR category = $2 OR ($2 = 'photo' AND category = 'videography')) " +
+      'ORDER BY published_at DESC, business_name ASC LIMIT 100',
+      [country, requestedCategory]
+    );
+    return res.json({ providers: result.rows });
+  } catch (error) {
+    console.error('Published partner directory failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_directory_unavailable' });
+  }
+});
+
 app.post('/api/partner-applications', partnerApplicationLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
   const body = req.body || {};
   const category = body.category;
@@ -1749,6 +1773,39 @@ app.post('/api/partner-applications', partnerApplicationLimiter, validateRequest
   }
 });
 
+app.post('/api/admin/partner-applications/:applicationId/publish', validateRequestOrigin, requireSession, async (req, res) => {
+  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
+  const applicationId = req.params.applicationId;
+  if (!isUuid(applicationId)) return res.status(400).json({ error: 'invalid_partner_application_id' });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const result = await client.query(
+      "UPDATE partner_service_applications SET published_at = NOW(), published_by = $2, updated_at = NOW() " +
+      "WHERE id = $1 AND status = 'approved' AND published_at IS NULL " +
+      'RETURNING id, category, business_name AS "businessName", published_at AS "publishedAt"',
+      [applicationId, req.authUser.id]
+    );
+    if (!result.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'approved_partner_application_not_publishable' });
+    }
+    await client.query(
+      'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, details) VALUES ($1, $2, $3, $4, $5::jsonb)',
+      [req.authUser.id, 'partner_application_published', 'partner_service_application', applicationId, JSON.stringify({ category: result.rows[0].category, businessName: result.rows[0].businessName })]
+    );
+    await client.query('COMMIT');
+    return res.json({ application: result.rows[0] });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Partner application publication failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_application_publication_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
 app.get('/api/admin/partner-applications', requireSession, async (req, res) => {
   if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   try {
@@ -1756,7 +1813,7 @@ app.get('/api/admin/partner-applications', requireSession, async (req, res) => {
       'SELECT id, category, business_name AS "businessName", contact_name AS "contactName", ' +
       'contact_email AS "contactEmail", country, city, website, service_description AS "serviceDescription", ' +
       'status, review_note AS "reviewNote", created_at AS "createdAt" ' +
-      "FROM partner_service_applications WHERE status IN ('pending', 'in_review') ORDER BY created_at ASC LIMIT 100"
+      "FROM partner_service_applications WHERE status IN ('pending', 'in_review', 'approved') AND published_at IS NULL ORDER BY created_at ASC LIMIT 100"
     );
     return res.json({ applications: result.rows });
   } catch (error) {
