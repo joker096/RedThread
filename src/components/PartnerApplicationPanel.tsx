@@ -80,7 +80,7 @@ export const PartnerApplicationPanel: React.FC = () => {
       <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-300">Партнёрам Vow</p>
       <h3 className="mt-1 text-lg font-bold text-white">Предложить услугу парам</h3>
       <p className="mt-2 text-sm leading-relaxed text-stone-300">
-        Кафе, фотографы, площадки и другие специалисты могут подать заявку на проверку. Публикация появится только после ручного одобрения; отправка формы не создаёт договор, бронь или оплату.
+        Кафе, фотографы, площадки и другие специалисты могут подать заявку на проверку. Команда проверит заявку и свяжется с вами; отправка формы не публикует карточку автоматически и не создаёт договор, бронь или оплату.
       </p>
       {submitted ? (
         <div role="status" aria-live="polite" className="mt-4 rounded-2xl border border-emerald-500/30 bg-emerald-950/30 p-4 text-sm text-emerald-100">
