@@ -90,6 +90,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
       params.set('category', apiCategory);
     }
     setPartnersLoading(true);
+    setPublishedPartners([]);
     setPartnersError('');
     fetch('/api/partner-services?' + params.toString(), { signal: controller.signal })
       .then(async response => {
