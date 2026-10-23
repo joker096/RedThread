@@ -153,6 +153,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
     try {
       const response = await fetch(`/api/blocks/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'include' });
       if (sessionId !== sessionRequestId.current) return;
+      if (response.status === 401) { clearProfileState(); return; }
       if (!response.ok) throw new Error(t('profileUnblockError'));
       setBlockedProfiles(current => current.filter(profile => profile.id !== id));
       setNotice(t('profileUnblocked'));
@@ -234,6 +235,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
                 const response=await fetch('/api/photos',{method:'POST',credentials:'include',headers:{'Content-Type':file.type},body:file});
                 const data=await response.json().catch(()=>null);
                 if(sessionId !== sessionRequestId.current) return;
+                if(response.status === 401) { clearProfileState(); return; }
                 if(!response.ok) throw new Error(data?.error==='photo_limit_reached'?t('profilePhotoLimit'):data?.error==='photo_storage_not_configured'?t('profilePhotoStorageError'):data?.error==='photo_rejected_by_automated_review'?t('profilePhotoRejected'):t('profilePhotoUploadError'));
                 setPhotoUrls(current=>[...current.split(/\n|,/).map(value=>value.trim()).filter(Boolean),data.photoUrl].join('\n'));
                 setNotice(data.reviewStatus==='approved'?t('profilePhotoApproved'): t('profilePhotoPending'));
