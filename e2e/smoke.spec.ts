@@ -674,3 +674,60 @@ test('mobile profile touch cancellation clears pending swipe state', async ({ pa
   });
   await expect(photo).toHaveClass(/h-16/);
 });
+
+
+test('mobile photo swipe suppresses the synthetic click so the gallery advances once', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const nextPhoto = page.locator('.vow-profile-card').first().getByTestId('profile-photo-next');
+  const image = page.locator('.vow-profile-card').first().locator('.vow-profile-photo img');
+  await expect(nextPhoto).toBeVisible();
+  const firstSrc = await image.getAttribute('src');
+  await nextPhoto.click();
+  const expectedSecondSrc = await image.getAttribute('src');
+  expect(expectedSecondSrc).not.toBe(firstSrc);
+
+  await page.reload();
+  await page.getByTestId('open-demo-preview').click();
+  const swipeButton = page.locator('.vow-profile-card').first().getByTestId('profile-photo-next');
+  const swipeImage = page.locator('.vow-profile-card').first().locator('.vow-profile-photo img');
+  await expect(swipeImage).toHaveAttribute('src', firstSrc ?? '');
+
+  await page.evaluate(() => {
+    const target = document.querySelector('[data-testid="profile-photo-next"]');
+    if (!target) throw new Error('Photo navigation target is not mounted');
+    const makeTouch = (x: number) => new Touch({
+      identifier: 21,
+      target,
+      clientX: x,
+      clientY: 300,
+      screenX: x,
+      screenY: 300
+    });
+    const startTouch = makeTouch(300);
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true,
+      cancelable: true,
+      touches: [startTouch],
+      changedTouches: [startTouch]
+    }));
+    const endTouch = makeTouch(220);
+    target.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true,
+      cancelable: true,
+      touches: [],
+      changedTouches: [endTouch]
+    }));
+    // Mobile browsers synthesize a click after a completed touch gesture.
+    target.dispatchEvent(new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      detail: 1
+    }));
+  });
+
+  await expect(swipeImage).toHaveAttribute('src', expectedSecondSrc ?? '');
+  await expect(swipeButton).toBeVisible();
+});
