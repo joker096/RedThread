@@ -449,6 +449,54 @@ test('mobile horizontal photo swipe advances gallery without passing the profile
   await expect(photo).toHaveClass(/h-72/);
 });
 
+test('vertical photo swipe collapses and restores the image without changing gallery selection', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const card = page.locator('.vow-profile-card').first();
+  const photo = card.locator('.vow-profile-photo');
+  await expect(photo).toHaveClass(/h-72/);
+  const before = await photo.locator('img').getAttribute('src');
+
+  const swipePhotoVertically = async (fromY: number, toY: number) => {
+    await page.evaluate(({ fromY, toY }) => {
+      const target = document.querySelector('.vow-profile-card .vow-profile-photo');
+      if (!target) throw new Error('Profile photo area is not mounted');
+      const makeTouch = (y: number) => new Touch({
+        identifier: 12,
+        target,
+        clientX: 180,
+        clientY: y,
+        screenX: 180,
+        screenY: y
+      });
+      const startTouch = makeTouch(fromY);
+      target.dispatchEvent(new TouchEvent('touchstart', {
+        bubbles: true,
+        cancelable: true,
+        touches: [startTouch],
+        changedTouches: [startTouch]
+      }));
+      const endTouch = makeTouch(toY);
+      target.dispatchEvent(new TouchEvent('touchend', {
+        bubbles: true,
+        cancelable: true,
+        touches: [],
+        changedTouches: [endTouch]
+      }));
+    }, { fromY, toY });
+  };
+
+  await swipePhotoVertically(240, 160);
+  await expect(photo).toHaveClass(/h-16/);
+  await expect(photo.locator('img')).toHaveAttribute('src', before ?? '');
+
+  await swipePhotoVertically(160, 240);
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(photo.locator('img')).toHaveAttribute('src', before ?? '');
+});
+
 test('profile photo gallery supports keyboard navigation', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
