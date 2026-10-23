@@ -470,6 +470,10 @@ test('profile photo gallery supports keyboard navigation', async ({ page }) => {
   await expect(photo.locator('img')).toHaveAttribute('src', firstSrc ?? '');
   await page.keyboard.press('End');
   await expect(photo.locator('img')).not.toHaveAttribute('src', firstSrc ?? '');
+
+  // End disables the next-photo button, so move focus to the still-enabled
+  // previous-photo control before testing Home (keyboard events are scoped to controls).
+  await previousPhoto.focus();
   await page.keyboard.press('Home');
   await expect(photo.locator('img')).toHaveAttribute('src', firstSrc ?? '');
   await expect(previousPhoto).toBeDisabled();
