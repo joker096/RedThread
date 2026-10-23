@@ -18,7 +18,12 @@ Priority: P0 · Do before public promotion
 - [x] Document the ten-scenario screenshot acceptance matrix.
 - [x] Make demo/preview mode unmistakable in the UI (persistent prototype disclosure plus separate demo/server discovery labels; continue the trust-label audit below).
 - [x] Verify server-backed chat persistence and authorization: integration coverage confirms messages are written/read through the API and blocked/outsider accounts cannot access the conversation. Demo-preview chat remains demo data, not server persistence.
-- [ ] Audit all displayed trust labels, compatibility scores, ad counters and “online” indicators; label or remove values that are not backed by live data.
+- [x] Audit displayed trust labels, compatibility scores, ad counters and “online” indicators; label or remove values that are not backed by live data.
+  - Demo discovery explicitly labels the verification badge as demo; the underlying mock `onlineStatus` field is not rendered as live presence.
+  - Safety score and complaint count are explicitly demo-only; the scanner states that its local heuristic is not server moderation or identity verification.
+  - Ad manager metrics are labelled demo, and revenue is not calculated without ad-network data. Feed analytics only emit events for configured server-backed campaign IDs.
+  - Compatibility labels describe answer/preference alignment and show a disclaimer that the score is not a scientific prediction or guarantee of relationship success.
+  - Re-audit whenever live verification, presence, moderation, or advertising providers are connected; this review does not prove production provider integration.
 - [x] Keep a single source-of-truth release status page in [RELEASE_STATUS.md](RELEASE_STATUS.md).
 
 **Acceptance:** a tester can tell which data are examples and which came from the API; no screenshot can be mistaken for evidence of real verification, actual revenue, or live conversations.
