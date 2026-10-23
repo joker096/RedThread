@@ -34,3 +34,7 @@ The server refuses checkout unless `PADDLE_ENVIRONMENT=sandbox` and the client t
 ## Not yet verified
 
 The repository change can prepare the integration, but it cannot create products, API keys, tokens, or notification destinations without access to your Paddle Sandbox account. After setting the sandbox secrets and creating the catalog, verify deliveries under Paddle **Events > Notifications**. Never paste API keys or signing secrets into chat or Git.
+
+## Payment provider scope
+
+Vow currently supports Paddle only. This project uses Paddle Sandbox exclusively until checkout, webhook handling, and entitlement checks are validated end to end. Stripe endpoints and credentials are not supported. Do not configure production payments until the sandbox acceptance checklist is complete.
