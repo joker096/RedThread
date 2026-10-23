@@ -243,7 +243,7 @@ async function verifyGoogleIdToken(idToken, expectedNonce) {
   const signed = parts[0] + '.' + parts[1];
   const validSignature = verifySignature('RSA-SHA256', Buffer.from(signed), createPublicKey({ key: jwk, format: 'jwk' }), Buffer.from(parts[2], 'base64url'));
   const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
-  if (!validSignature || !audiences.includes(process.env.GOOGLE_OAUTH_CLIENT_ID)
+  if (!validSignature || !audiences.includes(process.env.GOOGLE_OAUTH_CLIENT_ID) || (audiences.length > 1 && claims.azp !== process.env.GOOGLE_OAUTH_CLIENT_ID)
     || !['accounts.google.com', 'https://accounts.google.com'].includes(claims.iss)
     || !Number.isFinite(Number(claims.exp)) || Number(claims.exp) * 1000 <= Date.now()
     || !Number.isFinite(Number(claims.iat)) || Number(claims.iat) * 1000 > Date.now() + 60_000
