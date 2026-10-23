@@ -1280,3 +1280,39 @@ test('mobile voice intro and verification badge keep separate touch areas', asyn
     }).toBe(0);
   }
 });
+
+test('small vertical finger movement does not collapse the profile photo', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const photo = page.locator('.vow-profile-card').first().locator('.vow-profile-photo');
+  const image = photo.locator('img');
+  const initialSrc = await image.getAttribute('src');
+  await expect(photo).toHaveClass(/h-72/);
+
+  // A short drag below the deliberate vertical-swipe threshold should be treated as a tap-like movement.
+  await page.evaluate(() => {
+    const target = document.querySelector('.vow-profile-photo img');
+    if (!target) throw new Error('Profile photo image is not mounted');
+    const makeTouch = (y: number) => new Touch({
+      identifier: 121,
+      target,
+      clientX: 180,
+      clientY: y,
+      screenX: 180,
+      screenY: y
+    });
+    const start = makeTouch(260);
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true, cancelable: true, touches: [start], changedTouches: [start]
+    }));
+    const end = makeTouch(220);
+    target.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true, cancelable: true, touches: [], changedTouches: [end]
+    }));
+  });
+
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(image).toHaveAttribute('src', initialSrc ?? '');
+});
