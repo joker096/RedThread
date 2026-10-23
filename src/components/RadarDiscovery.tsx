@@ -400,7 +400,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
           /* Profile card */
           <div className="flex flex-col w-full text-left">
             {/* Top Photo Frame */}
-            <div onTouchStart={event => { const interactiveTarget = (event.target as HTMLElement).closest('button, input, select, textarea, a, [role="button"]'); const touch = !interactiveTarget && event.touches.length === 1 ? event.touches[0] : null; photoTouchStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null; }} onTouchEnd={event => { const start = photoTouchStart.current; photoTouchStart.current = null; const touch = event.changedTouches[0]; if (!start || !touch) return; const dx = touch.clientX - start.x; const dy = touch.clientY - start.y; if (Math.abs(dy) >= 48 && Math.abs(dy) > Math.abs(dx) * 1.15) { setPhotoCollapsed(dy < 0); event.stopPropagation(); return; } }} onTouchCancel={() => { photoTouchStart.current = null; }} className={"vow-profile-photo relative w-full overflow-hidden bg-stone-950 select-none transition-[height] duration-300 " + (photoCollapsed ? "h-16 sm:h-20" : "h-72 sm:h-80")}>
+            <div onTouchStart={event => { const target = event.target as HTMLElement; const photoNavButton = target.closest('[data-testid="profile-photo-prev"], [data-testid="profile-photo-next"]'); const interactiveTarget = target.closest('button, input, select, textarea, a, [role="button"]'); const touch = (!interactiveTarget || photoNavButton) && event.touches.length === 1 ? event.touches[0] : null; photoTouchStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null; }} onTouchEnd={event => { const start = photoTouchStart.current; photoTouchStart.current = null; const touch = event.changedTouches[0]; if (!start || !touch) return; const dx = touch.clientX - start.x; const dy = touch.clientY - start.y; if (Math.abs(dy) >= 48 && Math.abs(dy) > Math.abs(dx) * 1.15) { setPhotoCollapsed(dy < 0); event.preventDefault(); event.stopPropagation(); return; } if (Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy) * 1.15 && currentProfile.photos.length > 1) { setPhotoIndex(index => Math.max(0, Math.min(currentProfile.photos.length - 1, index + (dx < 0 ? 1 : -1)))); event.preventDefault(); event.stopPropagation(); } }} onTouchCancel={() => { photoTouchStart.current = null; }} className={"vow-profile-photo relative w-full overflow-hidden bg-stone-950 select-none transition-[height] duration-300 " + (photoCollapsed ? "h-16 sm:h-20" : "h-72 sm:h-80")}>
               <img
                 src={currentProfile.photos[photoIndex] || currentProfile.avatar}
                 alt={currentProfile.name}
@@ -412,6 +412,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                 <div className="absolute inset-0 flex">
                   <button
                     type="button"
+                    data-testid="profile-photo-prev"
                     className="h-full w-1/2 cursor-pointer bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rose-400"
                     onClick={() => setPhotoIndex(prev => Math.max(0, prev - 1))}
                     title={t('previousPhoto')}
@@ -420,6 +421,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                   />
                   <button
                     type="button"
+                    data-testid="profile-photo-next"
                     className="h-full w-1/2 cursor-pointer bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rose-400"
                     onClick={() => setPhotoIndex(prev => Math.min(currentProfile.photos.length - 1, prev + 1))}
                     title={t('nextPhoto')}
