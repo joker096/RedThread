@@ -596,3 +596,81 @@ test('server discovery swipe mode collapses and restores profile photos vertical
   await swipeCard(160, 240);
   await expect(photo).toBeVisible();
 });
+
+
+test('mobile profile touch cancellation clears pending swipe state', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const card = page.locator('.vow-profile-card').first();
+  const photo = card.locator('.vow-profile-photo');
+  const initialName = await card.locator('h2').first().textContent();
+  await expect(photo).toHaveClass(/h-72/);
+
+  await page.evaluate(() => {
+    const target = document.querySelector('.vow-profile-card');
+    if (!target) throw new Error('Profile card is not mounted');
+    const makeTouch = (y: number) => new Touch({
+      identifier: 42,
+      target,
+      clientX: 180,
+      clientY: y,
+      screenX: 180,
+      screenY: y
+    });
+    const startTouch = makeTouch(240);
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true,
+      cancelable: true,
+      touches: [startTouch],
+      changedTouches: [startTouch]
+    }));
+    target.dispatchEvent(new TouchEvent('touchcancel', {
+      bubbles: true,
+      cancelable: true,
+      touches: [],
+      changedTouches: [startTouch]
+    }));
+    // Some browsers emit a final touchend after cancellation. It must not
+    // complete the cancelled gesture or trigger a card action.
+    target.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true,
+      cancelable: true,
+      touches: [],
+      changedTouches: [makeTouch(150)]
+    }));
+  });
+
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(card.locator('h2').first()).toHaveText(initialName ?? '');
+
+  // Cancellation must not poison the next independent gesture.
+  await page.evaluate(() => {
+    const target = document.querySelector('.vow-profile-card .vow-profile-details');
+    if (!target) throw new Error('Profile details are not mounted');
+    const makeTouch = (y: number) => new Touch({
+      identifier: 43,
+      target,
+      clientX: 180,
+      clientY: y,
+      screenX: 180,
+      screenY: y
+    });
+    const startTouch = makeTouch(240);
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true,
+      cancelable: true,
+      touches: [startTouch],
+      changedTouches: [startTouch]
+    }));
+    const endTouch = makeTouch(160);
+    target.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true,
+      cancelable: true,
+      touches: [],
+      changedTouches: [endTouch]
+    }));
+  });
+  await expect(photo).toHaveClass(/h-16/);
+});
