@@ -1520,3 +1520,36 @@ test('landscape phone viewports avoid horizontal overflow and keep photo control
     await expect(photo.locator('button[aria-expanded="true"]')).toBeVisible();
   }
 });
+
+test('vertical drags starting on photo navigation controls do not collapse the photo', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const photo = page.locator('.vow-profile-card').first().locator('.vow-profile-photo');
+  const image = photo.locator('img');
+  const initialSrc = await image.getAttribute('src');
+  const nextButton = photo.locator('[data-testid="profile-photo-next"]');
+  await expect(nextButton).toBeVisible();
+  await expect(photo).toHaveClass(/h-72/);
+
+  await page.evaluate(() => {
+    const target = document.querySelector('.vow-profile-photo [data-testid="profile-photo-next"]');
+    if (!target) throw new Error('Next photo control is not mounted');
+    const makeTouch = (y: number) => new Touch({
+      identifier: 181, target, clientX: 320, clientY: y, screenX: 320, screenY: y
+    });
+    const start = makeTouch(300);
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true, cancelable: true, touches: [start], changedTouches: [start]
+    }));
+    const end = makeTouch(220);
+    target.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true, cancelable: true, touches: [], changedTouches: [end]
+    }));
+  });
+
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(image).toHaveAttribute('src', initialSrc ?? '');
+  await expect(photo.locator('button[aria-expanded="true"]')).toBeVisible();
+});
