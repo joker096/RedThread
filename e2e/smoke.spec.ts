@@ -1598,3 +1598,61 @@ test('multi-touch vertical movement does not collapse the profile photo', async 
   await expect(photo).toHaveClass(/h-72/);
   await expect(photo.locator('button[aria-expanded="true"]')).toBeVisible();
 });
+
+test('adding a second finger cancels an in-progress vertical profile-card swipe', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const card = page.locator('.vow-profile-card').first();
+  const photo = card.locator('.vow-profile-photo');
+  const details = card.locator('.vow-profile-details');
+  const profileName = await card.locator('h2').first().textContent();
+  await expect(photo).toHaveClass(/h-72/);
+
+  await page.evaluate(() => {
+    const target = document.querySelector('.vow-profile-card .vow-profile-details');
+    if (!target) throw new Error('Profile details are not mounted');
+    const makeTouch = (identifier: number, y: number) => new Touch({
+      identifier, target, clientX: 180 + identifier, clientY: y,
+      screenX: 180 + identifier, screenY: y
+    });
+    const first = makeTouch(301, 300);
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true, cancelable: true, touches: [first], changedTouches: [first]
+    }));
+
+    // A second finger joins after the vertical swipe has begun.
+    const second = makeTouch(302, 305);
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true, cancelable: true, touches: [first, second], changedTouches: [second]
+    }));
+    const movedFirst = makeTouch(301, 220);
+    const movedSecond = makeTouch(302, 225);
+    target.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true, cancelable: true, touches: [], changedTouches: [movedFirst, movedSecond]
+    }));
+  });
+
+  await expect(photo).toHaveClass(/h-72/);
+  await expect(photo.locator('button[aria-expanded="true"]')).toBeVisible();
+  await expect(card.locator('h2').first()).toHaveText(profileName ?? '');
+
+  // A fresh single-finger upward swipe must still reveal details normally.
+  await page.evaluate(() => {
+    const target = document.querySelector('.vow-profile-card .vow-profile-details');
+    if (!target) throw new Error('Profile details are not mounted');
+    const start = new Touch({ identifier: 303, target, clientX: 180, clientY: 300, screenX: 180, screenY: 300 });
+    const end = new Touch({ identifier: 303, target, clientX: 180, clientY: 220, screenX: 180, screenY: 220 });
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true, cancelable: true, touches: [start], changedTouches: [start]
+    }));
+    target.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true, cancelable: true, touches: [], changedTouches: [end]
+    }));
+  });
+
+  await expect(photo).toHaveClass(/h-16/);
+  await expect(details).toBeVisible();
+  await expect(photo.locator('button[aria-expanded="false"]')).toBeVisible();
+});
