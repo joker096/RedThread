@@ -1196,3 +1196,33 @@ test('mobile photo collapse control works with Enter and Space on the keyboard',
   await expect(photo).toHaveClass(/h-72/);
   await expect(photo.locator('button[aria-expanded="true"]')).toBeFocused();
 });
+
+
+test('mobile photo toggle keeps a 44px minimum touch target when expanded and collapsed', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.goto('/');
+  await page.getByTestId('open-demo-preview').click();
+
+  const photo = page.locator('.vow-profile-card').first().locator('.vow-profile-photo');
+  const expandedToggle = photo.locator('button[aria-expanded="true"]');
+  await expect(expandedToggle).toBeVisible();
+
+  const expandedSize = await expandedToggle.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    return { width: rect.width, height: rect.height };
+  });
+  expect(expandedSize.height, 'expanded toggle height should meet the 44px touch target guideline').toBeGreaterThanOrEqual(44);
+  expect(expandedSize.width, 'expanded toggle width should meet the 44px touch target guideline').toBeGreaterThanOrEqual(44);
+
+  await expandedToggle.click();
+  await expect(photo).toHaveClass(/h-16/);
+  const collapsedToggle = photo.locator('button[aria-expanded="false"]');
+  await expect(collapsedToggle).toBeVisible();
+
+  const collapsedSize = await collapsedToggle.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    return { width: rect.width, height: rect.height };
+  });
+  expect(collapsedSize.height, 'collapsed toggle height should meet the 44px touch target guideline').toBeGreaterThanOrEqual(44);
+  expect(collapsedSize.width, 'collapsed toggle width should meet the 44px touch target guideline').toBeGreaterThanOrEqual(44);
+});
