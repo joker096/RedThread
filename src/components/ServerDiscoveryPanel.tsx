@@ -582,14 +582,17 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
             {profiles.slice(0, swipeMode ? 1 : profiles.length).map((profile, profileIndex) => (
               <article key={profile.id}
                 onTouchStart={event => {
-                  if (swipeMode && !(event.target as HTMLElement).closest('button, input, select, textarea')) {
-                    touchStartX.current = event.changedTouches[0]?.clientX ?? null;
-                    touchStartY.current = event.changedTouches[0]?.clientY ?? null;
+                  if (swipeMode && event.touches.length === 1 && !(event.target as HTMLElement).closest('button, input, select, textarea')) {
+                    touchStartX.current = event.touches[0]?.clientX ?? null;
+                    touchStartY.current = event.touches[0]?.clientY ?? null;
                     event.currentTarget.style.transition = 'none';
+                  } else if (swipeMode) {
+                    touchStartX.current = null;
+                    touchStartY.current = null;
                   }
                 }}
                 onTouchMove={event => {
-                  if (!swipeMode || touchStartX.current === null || (event.target as HTMLElement).closest('button, input, select, textarea')) return;
+                  if (!swipeMode || event.touches.length !== 1 || touchStartX.current === null || (event.target as HTMLElement).closest('button, input, select, textarea')) return;
                   const currentY = event.changedTouches[0]?.clientY;
                   if (currentY !== undefined && touchStartY.current !== null && Math.abs(currentY - touchStartY.current) > Math.abs((event.changedTouches[0]?.clientX ?? touchStartX.current) - touchStartX.current)) return;
                   const currentX = event.changedTouches[0]?.clientX;
