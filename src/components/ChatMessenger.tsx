@@ -170,7 +170,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
   const shareConfirmedDate = async (message: Message) => {
     const plan = message.dateInviteDetails;
     if (!plan) return;
-    const text = [t('chatShareDatePrefix'), plan.place, plan.day + ', ' + plan.time, t('chatShareDateReminder')].join('\\n');
+    const text = [t('chatShareDatePrefix'), plan.place, plan.day + ', ' + plan.time, t('chatShareDateReminder')].join('\n');
     try {
       if (typeof navigator.share === 'function') {
         await navigator.share({ title: t('chatShareDateTitle'), text });
