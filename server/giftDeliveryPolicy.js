@@ -88,7 +88,7 @@ export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecord
 
 export function denyGiftFulfilmentAfterSafetyEvent({ status, safetyEvent } = {}) {
   if (!['block', 'report', 'restriction', 'account_deleted', 'consent_withdrawn'].includes(safetyEvent)) return { suspend: false, reason: 'no_safety_event' };
-  if (['delivered', 'declined', 'expired', 'cancelled', 'refunded'].includes(status)) return { suspend: false, reason: 'order_already_terminal' };
+  if (['delivered', 'declined', 'expired', 'cancelled', 'blocked', 'refunded'].includes(status)) return { suspend: false, reason: 'order_already_terminal' };
   return { suspend: true, reason: 'safety_event_requires_fulfilment_suspension' };
 }
 
