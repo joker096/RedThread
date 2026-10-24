@@ -3,6 +3,7 @@ import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { validateAdEventPayload, classifyDuplicateAdEvent, hasExplicitAdConsent, evaluateAdEventFrequency } from './adEvents.js';
+import { AD_EVENT_FREQUENCY_COUNTS_SQL } from './adEventFrequencyQuery.js';
 import { validateGiftDecisionInput } from './giftDecisionInput.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
@@ -2272,39 +2273,7 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
     // click-after-impression checks, preventing parallel requests bypassing either.
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`ad-campaign:${user.id}:${campaignId}`]);
 
-    const counts = await client.query(
-      `WITH recent_events AS (
-         SELECT
-           event_type,
-           created_at,
-           COUNT(*) OVER (PARTITION BY event_type)::int AS event_count,
-           ROW_NUMBER() OVER (PARTITION BY event_type ORDER BY created_at ASC) AS event_position
-         FROM ad_events
-         WHERE user_id = $1 AND campaign_id = $2
-           AND created_at >= NOW() - INTERVAL '24 hours'
-       )
-       SELECT
-         COUNT(*) FILTER (WHERE event_type = 'impression')::int AS impressions,
-         COUNT(*) FILTER (WHERE event_type = 'click')::int AS clicks,
-         COALESCE(
-           MAX(GREATEST(1, CEIL(EXTRACT(EPOCH FROM (created_at + INTERVAL '24 hours' - NOW()))))::int)
-             FILTER (
-               WHERE event_type = 'impression'
-                 AND event_position = GREATEST(event_count - 3 + 1, 1)
-             ),
-           1
-         ) AS impression_retry_after_seconds,
-         COALESCE(
-           MAX(GREATEST(1, CEIL(EXTRACT(EPOCH FROM (created_at + INTERVAL '24 hours' - NOW()))))::int)
-             FILTER (
-               WHERE event_type = 'click'
-                 AND event_position = GREATEST(event_count - 5 + 1, 1)
-             ),
-           1
-         ) AS click_retry_after_seconds
-       FROM recent_events`,
-      [user.id, campaignId]
-    );
+    const counts = await client.query(AD_EVENT_FREQUENCY_COUNTS_SQL, [user.id, campaignId]);
     const eventCounts = counts.rows[0];
     const frequency = evaluateAdEventFrequency({
       eventType,
