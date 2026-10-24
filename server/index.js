@@ -2126,6 +2126,16 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+    // Serialize this event against consent changes. No stored row means consent is off.
+    const consent = await client.query(
+      'SELECT ads_consent FROM ad_consent_preferences WHERE user_id = $1 FOR SHARE',
+      [user.id]
+    );
+    if (consent.rows[0]?.ads_consent !== true) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'ad_consent_required' });
+    }
+
     // Serialize frequency checks per user/campaign so concurrent requests cannot bypass the cap.
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`${user.id}:${campaignId}`]);
 
