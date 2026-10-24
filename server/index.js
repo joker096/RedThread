@@ -2148,8 +2148,10 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
       return res.status(403).json({ error: 'ad_consent_required' });
     }
 
-    // Serialize frequency checks per user/campaign so concurrent requests cannot bypass the cap.
-    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`${user.id}:${campaignId}`]);
+    // Lock order is always event ID first, then user/campaign. This serializes
+    // the same idempotency key even when concurrent requests claim different users
+    // or campaigns; the second request then observes the committed row below.
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`ad-event:${eventId}`]);
 
     const duplicate = await client.query(
       'SELECT user_id, campaign_id, event_type FROM ad_events WHERE event_id = $1',
@@ -2168,6 +2170,10 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
       await client.query('ROLLBACK');
       return res.status(409).json({ error: 'ad_event_id_conflict' });
     }
+
+    // Distinct event IDs for this user/campaign serialize before frequency and
+    // click-after-impression checks, preventing parallel requests bypassing either.
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`ad-campaign:${user.id}:${campaignId}`]);
 
     if (eventType === 'impression') {
       const count = await client.query(
@@ -2202,6 +2208,11 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
     return res.status(201).json({ accepted: true, duplicate: false });
   } catch (error) {
     if (client) await client.query('ROLLBACK').catch(() => {});
+    // Defense in depth for a primary-key collision if a request bypasses the
+    // advisory-lock path; never leak this idempotency conflict as a generic 500.
+    if (error?.code === '23505' && error?.constraint === 'ad_events_pkey') {
+      return res.status(409).json({ error: 'ad_event_id_conflict' });
+    }
     console.error('Ad event processing failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'ad_event_processing_failed' });
   } finally {
