@@ -1872,6 +1872,65 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
   }
 });
 
+app.get('/api/gifts/preferences', requireSession, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT requests_enabled FROM gift_receiving_preferences WHERE user_id = $1',
+      [req.authUser.id]
+    );
+    const { serializeGiftReceivingPreferences } = await import('./giftReceivingPreferences.js');
+    return res.json({ preferences: serializeGiftReceivingPreferences(result.rows[0]) });
+  } catch (error) {
+    console.error('Gift receiving preferences read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_preferences_unavailable' });
+  }
+});
+
+app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  const { normalizeGiftReceivingPreferences, serializeGiftReceivingPreferences } = await import('./giftReceivingPreferences.js');
+  const validation = normalizeGiftReceivingPreferences(req.body);
+  if (!validation.ok) {
+    return res.status(400).json({ error: validation.error, ...(validation.field ? { field: validation.field } : {}) });
+  }
+  try {
+    const result = await pool.query(
+      `INSERT INTO gift_receiving_preferences (user_id, requests_enabled, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         requests_enabled = EXCLUDED.requests_enabled,
+         updated_at = NOW()
+       RETURNING requests_enabled`,
+      [req.authUser.id, validation.value.requestsEnabled]
+    );
+    return res.json({ preferences: serializeGiftReceivingPreferences(result.rows[0]) });
+  } catch (error) {
+    console.error('Gift receiving preferences save failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_preferences_unavailable' });
+  }
+});
+
+app.get('/api/gifts/orders', requireSession, profileActionLimiter, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT public_reference AS "publicReference", product_name_snapshot AS "productName",
+              product_category AS "productCategory", total_minor_units AS "totalMinorUnits",
+              currency, status, created_at AS "createdAt",
+              estimated_delivery_start AS "estimatedDeliveryStart",
+              estimated_delivery_end AS "estimatedDeliveryEnd",
+              CASE WHEN recipient_id = $1 THEN 'recipient' ELSE 'sender' END AS "myRole"
+       FROM gift_delivery_orders
+       WHERE sender_id = $1 OR recipient_id = $1
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      [req.authUser.id]
+    );
+    return res.json({ orders: result.rows });
+  } catch (error) {
+    console.error('Gift order list failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_orders_unavailable' });
+  }
+});
+
 app.get('/api/ads/consent', requireSession, async (req, res) => {
   try {
     const result = await pool.query(
