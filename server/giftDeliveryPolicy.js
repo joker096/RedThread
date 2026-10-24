@@ -69,10 +69,19 @@ export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecord
     refund_pending: new Set(['refunded']), refunded: new Set([])
   };
   if (!transitions[from]?.has(to)) return false;
+
+  if (to === 'awaiting_recipient_consent' && actor !== 'sender') return false;
   if (to === 'recipient_accepted' && (actor !== 'recipient' || !recipientConsentRecorded)) return false;
-  if (to === 'address_verified' && (actor !== 'recipient' || !recipientConsentRecorded)) return false;
-  if (to === 'fulfilment_authorized' && (!recipientConsentRecorded || !addressVerified)) return false;
-  if ((to === 'dispatched' || to === 'delivered') && actor !== 'trusted_delivery_service') return false;
+  if (to === 'address_verified' && (actor !== 'recipient' || !recipientConsentRecorded || !addressVerified)) return false;
+  if (to === 'fulfilment_authorized' && (actor !== 'system' || !recipientConsentRecorded || !addressVerified)) return false;
+  if (to === 'declined' && actor !== 'recipient') return false;
+  if (to === 'expired' && actor !== 'system') return false;
+  if (to === 'cancelled' && !['sender', 'recipient', 'moderator', 'system'].includes(actor)) return false;
+  if (to === 'blocked' && !['sender', 'recipient', 'moderator', 'system'].includes(actor)) return false;
+  if (to === 'reported' && !['sender', 'recipient', 'moderator', 'system'].includes(actor)) return false;
+  if ((to === 'dispatched' || to === 'delivered' || to === 'delivery_failed') && actor !== 'trusted_delivery_service') return false;
+  if (to === 'refund_pending' && !['system', 'moderator'].includes(actor)) return false;
+  if (to === 'refunded' && actor !== 'trusted_payment_service') return false;
   return true;
 }
 
