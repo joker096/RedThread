@@ -131,14 +131,17 @@ export const PartnerApplicationPanel: React.FC = () => {
               </select>
             </label>
             <label className={labelClass}>Языки обслуживания (через запятую)
-              <input maxLength={500} placeholder="Русский, English" value={application.serviceLanguages} onChange={event => update('serviceLanguages', event.target.value)} className={fieldClass} />
+              <input maxLength={500} aria-describedby="partner-languages-count" placeholder="Русский, English" value={application.serviceLanguages} onChange={event => update('serviceLanguages', event.target.value)} className={fieldClass} />
+              <span id="partner-languages-count" className="mt-1 block text-right text-[11px] text-stone-400" aria-live="polite">{application.serviceLanguages.length}/500</span>
             </label>
             <label className={labelClass}>Доступность / сезон (необязательно)
-              <input maxLength={500} placeholder="Например: по предварительной записи" value={application.availabilityNote} onChange={event => update('availabilityNote', event.target.value)} className={fieldClass} />
+              <input maxLength={500} aria-describedby="partner-availability-count" placeholder="Например: по предварительной записи" value={application.availabilityNote} onChange={event => update('availabilityNote', event.target.value)} className={fieldClass} />
+              <span id="partner-availability-count" className="mt-1 block text-right text-[11px] text-stone-400" aria-live="polite">{application.availabilityNote.length}/500</span>
             </label>
           </div>
           <label className={labelClass}>Какие услуги вы оказываете?
-            <textarea required minLength={20} maxLength={2000} rows={4} value={application.serviceDescription} onChange={event => update('serviceDescription', event.target.value)} className={fieldClass + ' resize-y'} />
+            <textarea required minLength={20} maxLength={2000} rows={4} aria-describedby="partner-description-count" value={application.serviceDescription} onChange={event => update('serviceDescription', event.target.value)} className={fieldClass + ' resize-y'} />
+            <span id="partner-description-count" className="mt-1 block text-right text-[11px] text-stone-400" aria-live="polite">{application.serviceDescription.length}/2000</span>
           </label>
           <p className="text-xs leading-relaxed text-stone-400">
             Не прикладывайте паспортные, платёжные или другие чувствительные документы. Если они понадобятся для проверки, команда запросит их отдельно безопасным способом.
