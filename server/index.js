@@ -1637,6 +1637,12 @@ app.post('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, r
   if (!client) return res.status(503).json({ error: 'database_unavailable' });
   try {
     await client.query('BEGIN');
+    // Share the same pair lock as gift acceptance/reporting so a safety action
+    // and gift acceptance have a deterministic order.
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext('gift-safety:' || LEAST($1::uuid, $2::uuid)::text || ':' || GREATEST($1::uuid, $2::uuid)::text))",
+      [req.authUser.id, targetId]
+    );
     const target = await client.query(`SELECT 1 FROM users WHERE id = $1 AND status = 'active'`, [targetId]);
     if (!target.rowCount) {
       await client.query('ROLLBACK');
@@ -1682,18 +1688,33 @@ app.post('/api/reports', reportLimiter, validateRequestOrigin, requireSession, a
     return res.status(400).json({ error: 'invalid_report_details' });
   }
 
+  let client;
   try {
-    const target = await pool.query('SELECT 1 FROM users WHERE id = $1 LIMIT 1', [reportedUserId]);
-    if (target.rowCount === 0) return res.status(404).json({ error: 'reported_user_not_found' });
-    const result = await pool.query(
+    client = await pool.connect();
+    await client.query('BEGIN');
+    // Serialize reports with gift acceptance and blocking for this user pair.
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext('gift-safety:' || LEAST($1::uuid, $2::uuid)::text || ':' || GREATEST($1::uuid, $2::uuid)::text))",
+      [req.authUser.id, reportedUserId]
+    );
+    const target = await client.query('SELECT 1 FROM users WHERE id = $1 LIMIT 1', [reportedUserId]);
+    if (target.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'reported_user_not_found' });
+    }
+    const result = await client.query(
       `INSERT INTO user_reports (reporter_id, reported_user_id, category, details)
        VALUES ($1, $2, $3, $4) RETURNING id, status, created_at AS "createdAt"`,
       [req.authUser.id, reportedUserId, category, details]
     );
+    await client.query('COMMIT');
     return res.status(201).json({ report: result.rows[0] });
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Report submission failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'report_submission_failed' });
+  } finally {
+    client?.release();
   }
 });
 
@@ -1969,16 +1990,45 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
       return res.status(409).json({ error: 'gift_request_not_actionable' });
     }
 
-    if (action === 'accept' && (
-      order.match_status !== 'active' ||
-      order.sender_status !== 'active' ||
-      order.recipient_status !== 'active' ||
-      order.requests_enabled !== true ||
-      order.has_block === true ||
-      order.has_open_report === true
-    )) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'gift_request_not_actionable' });
+    if (action === 'accept') {
+      // Block/report routes use this same pair lock. Re-read safety-critical
+      // state only after acquiring it, so an in-flight safety action cannot race
+      // past the final acceptance check.
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtext('gift-safety:' || LEAST($1::uuid, $2::uuid)::text || ':' || GREATEST($1::uuid, $2::uuid)::text))",
+        [order.sender_id, order.recipient_id]
+      );
+      const currentSafety = await client.query(
+        `SELECT m.status AS match_status,
+                sender.status AS sender_status,
+                recipient.status AS recipient_status,
+                COALESCE(pref.requests_enabled, FALSE) AS requests_enabled,
+                EXISTS (
+                  SELECT 1 FROM user_blocks b
+                  WHERE (b.blocker_id = $1 AND b.blocked_id = $2)
+                     OR (b.blocker_id = $2 AND b.blocked_id = $1)
+                ) AS has_block,
+                EXISTS (
+                  SELECT 1 FROM user_reports r
+                  WHERE r.status IN ('open', 'reviewing')
+                    AND ((r.reporter_id = $1 AND r.reported_user_id = $2)
+                      OR (r.reporter_id = $2 AND r.reported_user_id = $1))
+                ) AS has_open_report
+         FROM matches m
+         JOIN users sender ON sender.id = $1
+         JOIN users recipient ON recipient.id = $2
+         LEFT JOIN gift_receiving_preferences pref ON pref.user_id = $2
+         WHERE m.id = $3`,
+        [order.sender_id, order.recipient_id, order.match_id]
+      );
+      const safety = currentSafety.rows[0];
+      if (!safety || safety.match_status !== 'active' ||
+          safety.sender_status !== 'active' || safety.recipient_status !== 'active' ||
+          safety.requests_enabled !== true || safety.has_block === true ||
+          safety.has_open_report === true) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'gift_request_not_actionable' });
+      }
     }
 
     const nextStatus = action === 'accept' ? 'recipient_accepted' : 'declined';
