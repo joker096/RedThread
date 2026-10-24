@@ -502,6 +502,44 @@ test('auth API supports registration, session lookup, logout and login', {
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [raceOrderId]).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [raceOrderId]).catch(() => {});
       }
+
+      // Disabling future requests must not silently withdraw consent already
+      // given for an accepted order.
+      const acceptedOrderResult = await giftTestDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, recipient_consent_at,
+            recipient_consent_version, idempotency_key)
+         VALUES ($1, $2, $3, 'Accepted consent preservation test', 'chocolate', 1000, 'USD',
+                 'recipient_accepted', 'not_started', NOW(), 1, $4)
+         RETURNING id`,
+        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      const acceptedOrderId = acceptedOrderResult.rows[0].id;
+      try {
+        const disableFutureRequests = await request('/api/gifts/preferences', {
+          method: 'PUT',
+          headers: { Cookie: secondCookie },
+          body: JSON.stringify({ requestsEnabled: false })
+        });
+        assert.equal(disableFutureRequests.status, 200);
+        const acceptedState = await giftTestDb.query(
+          'SELECT status, recipient_consent_at FROM gift_delivery_orders WHERE id = $1',
+          [acceptedOrderId]
+        );
+        assert.equal(acceptedState.rows[0].status, 'recipient_accepted');
+        assert.ok(acceptedState.rows[0].recipient_consent_at,
+          'previously recorded per-order consent must remain intact');
+        const acceptedAudit = await giftTestDb.query(
+          'SELECT event_type FROM gift_delivery_order_events WHERE order_id = $1',
+          [acceptedOrderId]
+        );
+        assert.equal(acceptedAudit.rowCount, 0,
+          'opting out of future requests must not add a cancellation event to an accepted order');
+      } finally {
+        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [acceptedOrderId]).catch(() => {});
+        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [acceptedOrderId]).catch(() => {});
+      }
     } finally {
       if (giftOrderId) {
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [giftOrderId]).catch(() => {});
