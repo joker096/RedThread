@@ -62,6 +62,8 @@ function evaluate(overrides = {}) {
 test('fails closed when required context or campaign approval is missing', () => {
   assert.equal(evaluateContextualAdEligibility().reason, 'missing_context');
   assert.equal(evaluate({ campaign: { status: 'pending' } }).eligible, false);
+  assert.equal(evaluate({ campaign: { startsAt: undefined } }).reason, 'invalid_campaign_start');
+  assert.equal(evaluate({ campaign: { endsAt: undefined } }).reason, 'invalid_campaign_end');
   assert.equal(evaluate({ campaign: { advertiserVerified: false } }).reason, 'advertiser_or_creative_not_approved');
   assert.equal(evaluate({ campaign: { regionAllowed: false } }).reason, 'region_not_allowed');
   assert.equal(evaluate({ viewer: { adsConsent: false } }).reason, 'viewer_not_consented_or_eligible');
@@ -72,6 +74,7 @@ test('restaurant and cafe offers require an explicitly confirmed mutual date', (
   assert.equal(evaluate({ match: { dateStatus: 'pending' } }).reason, 'date_not_mutually_confirmed');
   assert.equal(evaluate({ match: { mutuallyAcceptedDate: false } }).reason, 'date_not_mutually_confirmed');
   assert.equal(evaluate({ match: { dateCancelled: true } }).reason, 'date_cancelled');
+  assert.equal(evaluate({ match: { dateCancelled: undefined } }).reason, 'date_cancellation_state_unknown');
   assert.equal(evaluate({ viewer: { dateOffersConsent: false } }).reason, 'date_offer_consent_required');
   assert.equal(evaluate({ match: { partnerAdsConsent: false } }).reason, 'both_participants_consent_required');
   assert.equal(evaluate({ match: { partnerDateOffersConsent: false } }).reason, 'both_participants_consent_required');
@@ -116,9 +119,10 @@ test('opt-in categories and legal help require their own consent and entry point
 });
 
 test('safety states, blocked categories, unsupported categories and invalid dates deny delivery', () => {
-  assert.equal(evaluate({ match: { blocked: true } }).reason, 'safety_suppressed');
-  assert.equal(evaluate({ match: { reported: true } }).reason, 'safety_suppressed');
-  assert.equal(evaluate({ viewer: { safetyRestricted: true } }).reason, 'safety_suppressed');
+  assert.equal(evaluate({ match: { blocked: true } }).reason, 'safety_state_unavailable_or_restricted');
+  assert.equal(evaluate({ match: { reported: true } }).reason, 'safety_state_unavailable_or_restricted');
+  assert.equal(evaluate({ viewer: { safetyRestricted: true } }).reason, 'safety_state_unavailable_or_restricted');
+  assert.equal(evaluate({ match: { paused: undefined } }).reason, 'safety_state_unavailable_or_restricted');
   assert.equal(evaluate({ campaign: { category: 'gambling' } }).reason, 'category_blocked');
   assert.equal(evaluate({ campaign: { category: 'unknown_kind' } }).reason, 'category_not_supported');
   assert.equal(evaluate({ campaign: { startsAt: 'not-a-date' } }).reason, 'invalid_campaign_start');
