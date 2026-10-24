@@ -1906,7 +1906,7 @@ app.post('/api/partner-applications', validateRequestOrigin, partnerApplicationL
   }
 });
 
-app.post('/api/admin/partner-applications/:applicationId/publish', validateRequestOrigin, requireSession, async (req, res) => {
+app.post('/api/admin/partner-applications/:applicationId/publish', validateRequestOrigin, requireSession, requireDatabase, async (req, res) => {
   if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   const applicationId = req.params.applicationId;
   if (!isUuid(applicationId)) return res.status(400).json({ error: 'invalid_partner_application_id' });
@@ -1939,7 +1939,7 @@ app.post('/api/admin/partner-applications/:applicationId/publish', validateReque
   }
 });
 
-app.post('/api/admin/partner-applications/:applicationId/unpublish', validateRequestOrigin, requireSession, async (req, res) => {
+app.post('/api/admin/partner-applications/:applicationId/unpublish', validateRequestOrigin, requireSession, requireDatabase, async (req, res) => {
   if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   const applicationId = req.params.applicationId;
   if (!isUuid(applicationId)) return res.status(400).json({ error: 'invalid_partner_application_id' });
@@ -1972,7 +1972,7 @@ app.post('/api/admin/partner-applications/:applicationId/unpublish', validateReq
   }
 });
 
-app.get('/api/admin/partner-applications', requireSession, async (req, res) => {
+app.get('/api/admin/partner-applications', requireSession, requireDatabase, async (req, res) => {
   if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   try {
     const result = await pool.query(
@@ -1989,7 +1989,7 @@ app.get('/api/admin/partner-applications', requireSession, async (req, res) => {
   }
 });
 
-app.post('/api/admin/partner-applications/:applicationId/review', validateRequestOrigin, requireSession, async (req, res) => {
+app.post('/api/admin/partner-applications/:applicationId/review', validateRequestOrigin, requireSession, requireDatabase, async (req, res) => {
   if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   const applicationId = req.params.applicationId;
   const decision = req.body?.decision;
