@@ -90,10 +90,16 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
 
   useEffect(() => {
     if (!isOpen) return;
+    if (category === 'dress' || category === 'host') {
+      setPartnersLoading(false);
+      setPublishedPartners([]);
+      setPartnersError('');
+      return;
+    }
     const controller = new AbortController();
     const params = new URLSearchParams({ country: countryNames[country] });
     if (category !== 'all') {
-      const apiCategory = category === 'photo' ? 'photo' : category === 'dress' || category === 'host' ? 'other' : category;
+      const apiCategory = category === 'photo' ? 'photo' : category;
       params.set('category', apiCategory);
     }
     setPartnersLoading(true);
@@ -316,7 +322,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
               <p role="status" aria-live="polite" aria-atomic="true" className="text-xs text-stone-400">{partnersLoading ? 'Загружаем каталог…' : `${publishedPartners.length} партнёров`}</p>
             </div>
             {partnersError && <p role="alert" className="mb-3 rounded-xl border border-amber-700/30 bg-amber-950/20 p-3 text-xs text-amber-100">{partnersError}</p>}
-            {!partnersLoading && !partnersError && publishedPartners.length === 0 && <p role="status" className="mb-3 rounded-xl border border-white/10 bg-stone-950/50 p-4 text-sm text-stone-400">Опубликованных партнёров для выбранного фильтра пока нет.</p>}
+            {!partnersLoading && !partnersError && publishedPartners.length === 0 && <p role="status" className="mb-3 rounded-xl border border-white/10 bg-stone-950/50 p-4 text-sm text-stone-400">{category === 'dress' || category === 'host' ? 'Для этой категории пока нет отдельного типа карточки в каталоге. Мы добавим фильтр, когда появятся соответствующие категории партнёров.' : 'Опубликованных партнёров для выбранного фильтра пока нет.'}</p>}
             {publishedPartners.length > 0 && <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {publishedPartners.map(provider => {
                 const matchedCategory = provider.category === 'photography' || provider.category === 'videography' ? 'photo' : provider.category;
