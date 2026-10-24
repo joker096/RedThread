@@ -257,16 +257,23 @@ test('auth API supports registration, session lookup, logout and login', {
     const giftTestDb = new Pool({ connectionString: process.env.DATABASE_URL });
     let giftOrderId;
     let giftMatchId;
+    let giftMatchCreated = false;
     try {
       const [userA, userB] = [registered.user.id, maleRegistered.user.id].sort();
       const match = await giftTestDb.query(
         `INSERT INTO matches (user_a_id, user_b_id, status)
          VALUES ($1, $2, 'active')
-         ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET status = 'active'
+         ON CONFLICT (user_a_id, user_b_id) DO NOTHING
          RETURNING id`,
         [userA, userB]
       );
-      giftMatchId = match.rows[0].id;
+      giftMatchCreated = match.rowCount === 1;
+      const matchRow = match.rows[0] || (await giftTestDb.query(
+        'SELECT id FROM matches WHERE user_a_id = $1 AND user_b_id = $2',
+        [userA, userB]
+      )).rows[0];
+      if (!matchRow) throw new Error('Could not create or locate integration-test match');
+      giftMatchId = matchRow.id;
 
       const giftOrder = await giftTestDb.query(
         `INSERT INTO gift_delivery_orders
@@ -333,7 +340,7 @@ test('auth API supports registration, session lookup, logout and login', {
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [giftOrderId]).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [giftOrderId]).catch(() => {});
       }
-      if (giftMatchId) {
+      if (giftMatchId && giftMatchCreated) {
         await giftTestDb.query('DELETE FROM matches WHERE id = $1', [giftMatchId]).catch(() => {});
       }
       await giftTestDb.end();
