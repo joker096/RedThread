@@ -1818,10 +1818,18 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
           '<p>Данные второго участника совпадения, переписка и результаты совместимости не передаются.</p>'
       });
     } catch (error) {
-      await pool.query(
-        "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'email_delivery_failed', updated_at = NOW() WHERE id = $1",
-        [inquiryId]
-      );
+      // A provider rejection means delivery failed, but preserve the ambiguous state if
+      // the database itself cannot record that failure. Never imply a retry is safe
+      // unless the persisted state confirms it.
+      try {
+        await pool.query(
+          "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'email_delivery_failed', updated_at = NOW() WHERE id = $1",
+          [inquiryId]
+        );
+      } catch (stateError) {
+        console.error('Partner inquiry email failed and delivery state could not be saved:', stateError?.message || 'unknown error');
+        return res.status(503).json({ error: 'partner_inquiry_delivery_state_pending', inquiryId });
+      }
       console.warn('Partner service inquiry delivery failed:', error?.message || 'unknown error');
       return res.status(502).json({ error: 'partner_contact_temporarily_unavailable', inquiryId });
     }
