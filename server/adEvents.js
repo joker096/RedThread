@@ -1,6 +1,8 @@
 import { AD_CONSENT_VERSION } from './adConsentPreferences.js';
 
 export const AD_IMPRESSION_CAP_24H = 3;
+// Separate cap prevents a single user from generating unlimited click events.
+export const AD_CLICK_CAP_24H = 5;
 
 export function validateAdEventPayload(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
