@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { validateAdEventPayload, classifyDuplicateAdEvent, hasExplicitAdConsent, evaluateAdEventFrequency } from './adEvents.js';
 import { AD_EVENT_FREQUENCY_COUNTS_SQL } from './adEventFrequencyQuery.js';
 import { validateGiftDecisionInput } from './giftDecisionInput.js';
+import { evaluateGiftConsentWithdrawalEligibility } from './giftDeliveryPolicy.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
@@ -2199,23 +2200,18 @@ app.post('/api/gifts/orders/:publicReference/withdraw-consent', validateRequestO
     );
 
     const selected = await client.query(
-      `SELECT id, status, payment_status, consent_withdrawn_at, dispatched_at
+      `SELECT id, status, payment_status AS "paymentStatus",
+              consent_withdrawn_at AS "consentWithdrawnAt", dispatched_at AS "dispatchedAt"
        FROM gift_delivery_orders
        WHERE public_reference = $1 AND recipient_id = $2
        FOR UPDATE`,
       [reference, req.authUser.id]
     );
     const order = selected.rows[0];
-    if (!order || order.consent_withdrawn_at) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'gift_order_not_withdrawable' });
-    }
-
-    // Withdrawal is available only before fulfilment authorization or dispatch.
-    // Payment transitions are intentionally not simulated by this endpoint.
-    if (!['recipient_accepted', 'address_verified'].includes(order.status) ||
-        order.dispatched_at ||
-        !['not_started', 'failed', 'voided'].includes(order.payment_status)) {
+    // Keep endpoint and unit-tested policy gates aligned. Payment transitions
+    // are intentionally not simulated by this endpoint.
+    const withdrawalEligibility = evaluateGiftConsentWithdrawalEligibility(order);
+    if (!withdrawalEligibility.eligible) {
       await client.query('ROLLBACK');
       return res.status(409).json({ error: 'gift_order_not_withdrawable' });
     }
