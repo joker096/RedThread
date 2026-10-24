@@ -388,7 +388,7 @@ app.get('/api/auth/google/config', (_req, res) => {
   return res.json({ configured: Boolean(clientId), clientId: clientId || null });
 });
 
-app.post('/api/auth/google', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
+app.post('/api/auth/google', validateRequestOrigin, authLimiter, requireDatabase, async (req, res) => {
   if (!process.env.GOOGLE_CLIENT_ID) return res.status(503).json({ error: 'google_sign_in_not_configured' });
   let identity;
   try {
@@ -443,7 +443,7 @@ app.post('/api/auth/google', authLimiter, validateRequestOrigin, requireDatabase
   }
 });
 
-app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
+app.post('/api/auth/register', validateRequestOrigin, authLimiter, requireDatabase, async (req, res) => {
   const googleCredential = req.body?.googleCredential;
   let googleIdentity = null;
   if (googleCredential !== undefined) {
@@ -565,7 +565,7 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
   }
 });
 
-app.post('/api/auth/verify-email', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
+app.post('/api/auth/verify-email', validateRequestOrigin, authLimiter, requireDatabase, async (req, res) => {
   const token = typeof req.body?.token === 'string' ? req.body.token : '';
   if (token.length < 32 || token.length > 512) return res.status(400).json({ error: 'invalid_or_expired_token' });
   const client = await pool.connect();
@@ -601,7 +601,7 @@ app.post('/api/auth/verify-email', authLimiter, validateRequestOrigin, requireDa
   }
 });
 
-app.post('/api/auth/email-verification/resend', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
+app.post('/api/auth/email-verification/resend', validateRequestOrigin, authLimiter, requireDatabase, async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   // Keep the response generic so the endpoint does not disclose registered addresses.
   const generic = { accepted: true, message: 'If the account needs verification, an email will be sent.' };
@@ -637,7 +637,7 @@ app.post('/api/auth/email-verification/resend', authLimiter, validateRequestOrig
   return res.status(202).json(generic);
 });
 
-app.post('/api/auth/password-reset/request', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
+app.post('/api/auth/password-reset/request', validateRequestOrigin, authLimiter, requireDatabase, async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   const generic = { accepted: true, message: 'If an eligible account exists, password reset instructions will be sent.' };
   if (!isValidEmail(email) || !emailDeliveryConfigured()) return res.status(202).json(generic);
@@ -671,7 +671,7 @@ app.post('/api/auth/password-reset/request', authLimiter, validateRequestOrigin,
   return res.status(202).json(generic);
 });
 
-app.post('/api/auth/password-reset/complete', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
+app.post('/api/auth/password-reset/complete', validateRequestOrigin, authLimiter, requireDatabase, async (req, res) => {
   const token = typeof req.body?.token === 'string' ? req.body.token : '';
   const password = req.body?.password;
   if (typeof password !== 'string' || password.length < 12 || password.length > 128) {
@@ -709,7 +709,7 @@ app.post('/api/auth/password-reset/complete', authLimiter, validateRequestOrigin
   }
 });
 
-app.post('/api/auth/login', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
+app.post('/api/auth/login', validateRequestOrigin, authLimiter, requireDatabase, async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   const password = req.body?.password;
   if (!isValidEmail(email) || typeof password !== 'string' || password.length > 128) {
