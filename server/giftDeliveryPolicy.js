@@ -2,6 +2,7 @@ export const GIFT_MIN_MATCH_AGE_DAYS = 3;
 export const GIFT_MIN_MESSAGES_PER_PERSON = 3;
 export const GIFT_MAX_NEW_REQUESTS_PER_30_DAYS = 3;
 export const GIFT_MAX_ACCEPTED_PER_RECIPIENT_PER_7_DAYS = 1;
+export const GIFT_SAFETY_SNAPSHOT_MAX_AGE_MS = 5 * 60 * 1000;
 
 const ALLOWED_GIFT_CATEGORIES = new Set(['flowers', 'chocolate', 'confectionery', 'book', 'approved_gift']);
 const BLOCKED_GIFT_CATEGORIES = new Set(['cash', 'gift_card', 'alcohol', 'tobacco', 'nicotine', 'drug', 'medication', 'weapon', 'adult_item', 'crypto', 'gambling', 'unreviewed_food', 'custom_item']);
@@ -28,8 +29,10 @@ export function evaluateGiftRequestEligibility({ sender, recipient, relationship
   return { eligible: true, reason: 'request_allowed_pending_recipient_consent', fulfilmentAuthorized: false };
 }
 
-export function evaluateGiftFulfilmentEligibility({ request, sender, recipient, address, payment, relationship, safetyEvents, now = Date.now() } = {}) {
-  if (!request || !sender || !recipient || !address || !payment || !relationship || !Array.isArray(safetyEvents)) return deny('missing_context');
+export function evaluateGiftFulfilmentEligibility({ request, sender, recipient, address, payment, relationship, safetyEvents, safetySnapshotAt, now = Date.now() } = {}) {
+  if (!request || !sender || !recipient || !address || !payment || !relationship || !Array.isArray(safetyEvents) || !safetySnapshotAt) return deny('missing_context');
+  const snapshotTime = Date.parse(safetySnapshotAt);
+  if (!Number.isFinite(snapshotTime) || snapshotTime > now || now - snapshotTime > GIFT_SAFETY_SNAPSHOT_MAX_AGE_MS) return deny('safety_snapshot_stale_or_invalid');
   if (safetyEvents.some((event) => !['block', 'report', 'restriction', 'account_deleted', 'consent_withdrawn'].includes(event))) return deny('safety_state_unavailable_or_invalid');
   if (safetyEvents.length > 0) return deny('safety_event_requires_fulfilment_suspension');
   if (sender.accountStatus !== 'active' || sender.isAdult !== true || sender.identityVerified !== true || sender.safetyRestricted !== false) return deny('sender_safety_state_unavailable_or_restricted');
