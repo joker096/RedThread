@@ -4,6 +4,8 @@ import { createServer } from 'node:net';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
+import pg from 'pg';
+const { Pool } = pg;
 
 async function findFreePort() {
   const listener = createServer();
@@ -110,6 +112,29 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(JSON.stringify(directoryPayload).includes(partnerApplication.contactEmail), false, 'directory responses must not expose contact email');
     assert.equal(JSON.stringify(directoryPayload).includes(partnerApplication.contactName), false, 'directory responses must not expose contact name');
     assert.equal(JSON.stringify(directoryPayload).includes(partnerApplication.serviceDescription), false, 'pending application details must remain private');
+
+    // Exercise the public photo filter against an approved and published photography listing.
+    const testPool = new Pool({ connectionString: process.env.DATABASE_URL });
+    try {
+      await testPool.query(
+        "UPDATE partner_service_applications SET status = 'approved', published_at = NOW() WHERE contact_email = $1",
+        [partnerApplication.contactEmail]
+      );
+      const publishedDirectoryResponse = await request('/api/partner-services?country=Georgia&category=photo');
+      assert.equal(publishedDirectoryResponse.status, 200);
+      const publishedDirectory = await publishedDirectoryResponse.json();
+      assert.ok(publishedDirectory.providers.some(provider =>
+        provider.category === 'photography' && provider.businessName === partnerApplication.businessName
+      ), 'photo filter must include published photography providers');
+      assert.equal(JSON.stringify(publishedDirectory).includes(partnerApplication.contactEmail), false,
+        'published directory must not expose provider contact email');
+      assert.equal(JSON.stringify(publishedDirectory).includes(partnerApplication.contactName), false,
+        'published directory must not expose provider contact name');
+    } finally {
+      await testPool.query('DELETE FROM partner_service_applications WHERE contact_email = $1', [partnerApplication.contactEmail]);
+      await testPool.end();
+    }
+
     const invalidDirectoryFilter = await request('/api/partner-services?category=admin');
     assert.equal(invalidDirectoryFilter.status, 400, 'directory filters must reject unsupported categories');
     const repeatedDirectoryFilter = await request('/api/partner-services?category=legal&category=photo');
