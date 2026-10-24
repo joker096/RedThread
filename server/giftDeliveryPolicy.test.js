@@ -61,8 +61,9 @@ test('state transitions enforce actors, consent, persisted states, and terminal 
   assert.equal(canTransitionGiftOrder({ from: 'address_verified', to: 'fulfilment_authorized', actor: 'sender', recipientConsentRecorded: true, addressVerified: true }), false);
   assert.equal(canTransitionGiftOrder({ from: 'address_verified', to: 'fulfilment_authorized', actor: 'system', recipientConsentRecorded: false, addressVerified: true }), false);
   assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'dispatched', actor: 'sender' }), false);
-  assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'dispatched', actor: 'trusted_delivery_service' }), true);
-  assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'delivery_failed', actor: 'trusted_delivery_service' }), true);
+  assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'dispatched', actor: 'trusted_delivery_service' }), false);
+  assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'dispatched', actor: 'delivery_partner' }), true);
+  assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'delivery_failed', actor: 'delivery_partner' }), true);
   assert.equal(canTransitionGiftOrder({ from: 'delivered', to: 'cancelled', actor: 'sender' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'recipient_accepted', actor: 'recipient', recipientConsentRecorded: true }), false);
   assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'refund_pending', actor: 'system' }), true);
