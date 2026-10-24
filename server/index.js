@@ -1914,7 +1914,13 @@ app.get('/api/gifts/orders', requireSession, profileActionLimiter, async (req, r
     const result = await pool.query(
       `SELECT public_reference AS "publicReference", product_name_snapshot AS "productName",
               product_category AS "productCategory", total_minor_units AS "totalMinorUnits",
-              currency, status, created_at AS "createdAt",
+              currency,
+              CASE
+                WHEN sender_id = $1 AND status IN ('declined', 'expired', 'cancelled', 'blocked', 'reported')
+                  THEN 'not_available'
+                ELSE status
+              END AS status,
+              created_at AS "createdAt",
               estimated_delivery_start AS "estimatedDeliveryStart",
               estimated_delivery_end AS "estimatedDeliveryEnd",
               CASE WHEN recipient_id = $1 THEN 'recipient' ELSE 'sender' END AS "myRole"
