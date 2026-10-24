@@ -2277,7 +2277,13 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
          COUNT(*) FILTER (WHERE event_type = 'impression')::int AS impressions,
          COUNT(*) FILTER (WHERE event_type = 'click')::int AS clicks,
          MIN(created_at) FILTER (WHERE event_type = 'impression') AS oldest_impression,
-         MIN(created_at) FILTER (WHERE event_type = 'click') AS oldest_click
+         MIN(created_at) FILTER (WHERE event_type = 'click') AS oldest_click,
+         GREATEST(1, CEIL(EXTRACT(EPOCH FROM (
+           MIN(created_at) FILTER (WHERE event_type = 'impression') + INTERVAL '24 hours' - NOW()
+         ))))::int AS impression_retry_after_seconds,
+         GREATEST(1, CEIL(EXTRACT(EPOCH FROM (
+           MIN(created_at) FILTER (WHERE event_type = 'click') + INTERVAL '24 hours' - NOW()
+         ))))::int AS click_retry_after_seconds
        FROM ad_events
        WHERE user_id = $1 AND campaign_id = $2
          AND created_at >= NOW() - INTERVAL '24 hours'`,
@@ -2292,14 +2298,11 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
     if (!frequency.allowed) {
       await client.query('ROLLBACK');
       const status = frequency.reason === 'impression_required_before_click' ? 409 : 429;
-      const oldestCappedEvent = frequency.reason === 'ad_frequency_cap_reached'
-        ? eventCounts.oldest_impression
+      const retryAfterSeconds = frequency.reason === 'ad_frequency_cap_reached'
+        ? eventCounts.impression_retry_after_seconds
         : frequency.reason === 'ad_click_frequency_cap_reached'
-          ? eventCounts.oldest_click
+          ? eventCounts.click_retry_after_seconds
           : null;
-      const retryAfterSeconds = oldestCappedEvent
-        ? Math.max(1, Math.ceil((new Date(oldestCappedEvent).getTime() + 24 * 60 * 60 * 1000 - Date.now()) / 1000))
-        : null;
       return res.status(status).json({
         error: frequency.reason,
         ...(status === 429 && retryAfterSeconds !== null ? { retryAfterSeconds } : {})
