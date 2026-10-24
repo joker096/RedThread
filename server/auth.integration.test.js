@@ -138,13 +138,6 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(tooManyLanguages.status, 400, 'partner listings must not exceed the supported language count');
 
-    const oversizedAvailabilityNote = await request('/api/partner-applications', {
-      method: 'POST',
-      body: JSON.stringify({ ...partnerApplication, availabilityNote: 'A'.repeat(501) })
-    });
-    assert.equal(oversizedAvailabilityNote.status, 400,
-      'partner availability notes must respect the 500-character limit');
-
     const partnerSubmission = await request('/api/partner-applications', {
       method: 'POST',
       body: JSON.stringify(partnerApplication)
@@ -153,6 +146,14 @@ test('auth API supports registration, session lookup, logout and login', {
     const submittedPartner = await partnerSubmission.json();
     assert.equal(submittedPartner.application.status, 'pending');
     assert.equal('contactEmail' in submittedPartner.application, false, 'public response must not echo contact details');
+
+    const oversizedAvailabilityNote = await request('/api/partner-applications', {
+      method: 'POST',
+      body: JSON.stringify({ ...partnerApplication, availabilityNote: 'A'.repeat(501) })
+    });
+    assert.equal(oversizedAvailabilityNote.status, 400,
+      'partner availability notes must respect the 500-character limit');
+
 
     const publicDirectory = await request('/api/partner-services?country=Georgia&category=photo');
     assert.equal(publicDirectory.status, 200, 'the public directory is readable without a session');
