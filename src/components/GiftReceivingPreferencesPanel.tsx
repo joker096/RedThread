@@ -20,6 +20,9 @@ export const GiftReceivingPreferencesPanel: React.FC = () => {
   const [loadFailed, setLoadFailed] = useState(false);
   const [notice, setNotice] = useState('');
   const requestEpoch = useRef(0);
+  // Keep the last server-confirmed value so a failed save cannot leave the
+  // checkbox showing an opt-in that the server never persisted.
+  const confirmedPreferences = useRef<Preferences>({ ...defaults });
 
   const load = useCallback(async () => {
     const epoch = ++requestEpoch.current;
@@ -31,7 +34,9 @@ export const GiftReceivingPreferencesPanel: React.FC = () => {
         throw new Error(response.status === 401 ? t('giftPreferencesSignInRequired') : t('giftPreferencesLoadError'));
       }
       if (epoch !== requestEpoch.current) return;
-      setPreferences(normalizeGiftReceivingPayload((payload as { preferences: unknown }).preferences));
+      const loaded = normalizeGiftReceivingPayload((payload as { preferences: unknown }).preferences);
+      confirmedPreferences.current = loaded;
+      setPreferences(loaded);
       setNotice('');
       setLoadFailed(false);
     } catch (error) {
@@ -66,11 +71,13 @@ export const GiftReceivingPreferencesPanel: React.FC = () => {
       }
       if (epoch !== requestEpoch.current) return;
       const saved = normalizeGiftReceivingPayload((payload as { preferences: unknown }).preferences);
+      confirmedPreferences.current = saved;
       setPreferences(saved);
       setNotice(t('giftPreferencesSaved'));
       setLoadFailed(false);
     } catch (error) {
       if (epoch === requestEpoch.current) {
+        setPreferences({ ...confirmedPreferences.current });
         setNotice(error instanceof Error ? error.message : t('giftPreferencesSaveError'));
       }
     } finally {
@@ -90,7 +97,7 @@ export const GiftReceivingPreferencesPanel: React.FC = () => {
               type="checkbox"
               className="mt-1 h-5 w-5 accent-rose-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
               checked={preferences.requestsEnabled}
-              disabled={saving}
+              disabled={saving || loadFailed}
               onChange={event => setPreferences({ requestsEnabled: event.target.checked })}
             />
             <span>
@@ -98,7 +105,7 @@ export const GiftReceivingPreferencesPanel: React.FC = () => {
               <span className="mt-1 block text-xs text-stone-400">{t('giftPreferencesEnableDescription')}</span>
             </span>
           </label>
-          <button type="submit" disabled={saving} className="w-full rounded-xl bg-rose-700 px-4 py-2.5 text-sm font-semibold hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">
+          <button type="submit" disabled={saving || loadFailed} className="w-full rounded-xl bg-rose-700 px-4 py-2.5 text-sm font-semibold hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">
             {saving ? t('giftPreferencesSaving') : t('giftPreferencesSave')}
           </button>
         </form>
