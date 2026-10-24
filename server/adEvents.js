@@ -1,3 +1,5 @@
+import { AD_CONSENT_VERSION } from './adConsentPreferences.js';
+
 export const AD_IMPRESSION_CAP_24H = 3;
 
 export function validateAdEventPayload(body) {
@@ -28,7 +30,8 @@ export function validateAdEventPayload(body) {
  * Missing rows and every value other than boolean true fail closed.
  */
 export function hasExplicitAdConsent(rows) {
-  return Array.isArray(rows) && rows[0]?.ads_consent === true;
+  return Array.isArray(rows) && rows[0]?.ads_consent === true &&
+    rows[0]?.consent_version === AD_CONSENT_VERSION;
 }
 
 
