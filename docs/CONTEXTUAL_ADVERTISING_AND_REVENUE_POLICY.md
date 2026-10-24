@@ -126,3 +126,8 @@ Official references:
 8. Keep Premium Paddle Sandbox testing and advertiser billing independently gated; enable production only after formal review.
 
 This document defines intended policy. Consent storage/API, user-facing consent settings and a pure eligibility helper exist. Trusted date/safety data integration, live ad serving, advertiser invoicing and production Paddle billing remain unimplemented. The API must continue to fail closed until eligibility receives trusted server-side facts.
+
+
+### Engagement events are not billable evidence
+
+The authenticated `/api/ads/events` endpoint currently records consent-gated, client-reported engagement for frequency control and idempotency only. A stored `impression` or `click` row is **not** proof that an ad was actually viewable, that the campaign was approved and active at display time, that traffic was valid, or that attribution rules were satisfied. The pure `evaluateAdEventBillingEligibility()` guard requires all those facts plus a trusted server-measurement proof source; it is not connected to billing. Never use client event counts directly to invoice advertisers. Before billing, implement signed/server-issued display authorization, server-verifiable viewability/attribution, invalid-traffic controls, campaign registry checks, audit/reconciliation, and tests for replay and fabricated events. Until then, advertiser billing remains disabled.
