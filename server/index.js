@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { validateAdEventPayload, hasExplicitAdConsent, AD_IMPRESSION_CAP_24H } from './adEvents.js';
+import { validateAdEventPayload, classifyDuplicateAdEvent, hasExplicitAdConsent, AD_IMPRESSION_CAP_24H } from './adEvents.js';
 import { validateGiftDecisionInput } from './giftDecisionInput.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
@@ -2151,10 +2151,22 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
     // Serialize frequency checks per user/campaign so concurrent requests cannot bypass the cap.
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`${user.id}:${campaignId}`]);
 
-    const duplicate = await client.query('SELECT 1 FROM ad_events WHERE event_id = $1', [eventId]);
-    if (duplicate.rowCount) {
+    const duplicate = await client.query(
+      'SELECT user_id, campaign_id, event_type FROM ad_events WHERE event_id = $1',
+      [eventId]
+    );
+    const duplicateStatus = classifyDuplicateAdEvent(duplicate.rows[0], {
+      userId: user.id,
+      campaignId,
+      eventType
+    });
+    if (duplicateStatus === 'duplicate') {
       await client.query('COMMIT');
       return res.json({ accepted: true, duplicate: true });
+    }
+    if (duplicateStatus === 'conflict') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'ad_event_id_conflict' });
     }
 
     if (eventType === 'impression') {
