@@ -1725,7 +1725,7 @@ app.get('/api/partner-services', requireDatabase, async (req, res) => {
       'service_languages AS "serviceLanguages", availability_note AS "availabilityNote", published_at AS "publishedAt" ' +
       "FROM partner_service_applications WHERE status = 'approved' AND published_at IS NOT NULL " +
       'AND ($1::text = \'\' OR LOWER(country) = LOWER($1)) ' +
-      "AND ($2::text = '' OR category = $2 OR ($2 = 'photo' AND category = 'videography')) " +
+      "AND ($2::text = '' OR category = $2 OR ($2 = 'photo' AND category IN ('photography', 'videography'))) " +
       'ORDER BY published_at DESC, business_name ASC LIMIT 100',
       [country, requestedCategory]
     );
