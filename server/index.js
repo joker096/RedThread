@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { validateAdEventPayload, classifyDuplicateAdEvent, hasExplicitAdConsent, AD_IMPRESSION_CAP_24H } from './adEvents.js';
+import { validateAdEventPayload, classifyDuplicateAdEvent, hasExplicitAdConsent, AD_IMPRESSION_CAP_24H, AD_CLICK_CAP_24H } from './adEvents.js';
 import { validateGiftDecisionInput } from './giftDecisionInput.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
@@ -2284,6 +2284,17 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
         return res.status(429).json({ error: 'ad_frequency_cap_reached', retryAfterSeconds: 86400 });
       }
     } else {
+      const clickCount = await client.query(
+        `SELECT COUNT(*)::int AS count FROM ad_events
+         WHERE user_id = $1 AND campaign_id = $2 AND event_type = 'click'
+           AND created_at >= NOW() - INTERVAL '24 hours'`,
+        [user.id, campaignId]
+      );
+      if (clickCount.rows[0].count >= AD_CLICK_CAP_24H) {
+        await client.query('ROLLBACK');
+        return res.status(429).json({ error: 'ad_click_frequency_cap_reached', retryAfterSeconds: 86400 });
+      }
+
       const impression = await client.query(
         `SELECT 1 FROM ad_events
          WHERE user_id = $1 AND campaign_id = $2 AND event_type = 'impression'
