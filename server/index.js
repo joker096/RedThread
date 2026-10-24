@@ -194,13 +194,14 @@ function emailDeliveryConfigured() {
     validPublicUrl;
 }
 
-async function sendConfiguredEmail({ to, subject, html }) {
+async function sendConfiguredEmail({ to, subject, html, idempotencyKey }) {
   if (!emailDeliveryConfigured()) throw new Error('email_delivery_not_configured');
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       Authorization: 'Bearer ' + process.env.RESEND_API_KEY,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {})
     },
     body: JSON.stringify({ from: process.env.EMAIL_FROM, to: [to], subject, html }),
     signal: AbortSignal.timeout(10_000)
@@ -1752,8 +1753,8 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
     return res.status(400).json({ error: 'invalid_partner_service_inquiry' });
   }
   if (!emailDeliveryConfigured()) return res.status(503).json({ error: 'partner_contact_temporarily_unavailable' });
-  const requesterName = String(req.authUser.display_name || '').trim().slice(0, 80);
-  const requesterEmail = normalizeEmail(req.authUser.email);
+  let requesterName = String(req.authUser.display_name || '').trim().slice(0, 80);
+  let requesterEmail = normalizeEmail(req.authUser.email);
   if (!requesterName || !isValidEmail(requesterEmail)) return res.status(400).json({ error: 'verified_contact_required' });
 
   try {
@@ -1777,7 +1778,7 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
     );
     if (!inquiry.rows[0]) {
       inquiry = await pool.query(
-        'SELECT id, application_id AS \"applicationId\", match_id AS \"matchId\", service_date AS \"serviceDate\", request_note AS \"requestNote\", delivery_status AS \"deliveryStatus\" ' +
+        'SELECT id, application_id AS \"applicationId\", match_id AS \"matchId\", service_date AS \"serviceDate\", request_note AS \"requestNote\", requester_name AS \"requesterName\", requester_email AS \"requesterEmail\", delivery_status AS \"deliveryStatus\" ' +
         'FROM partner_service_inquiries WHERE requested_by = $1 AND request_key = $2 LIMIT 1',
         [req.authUser.id, requestKey]
       );
@@ -1787,6 +1788,8 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
           (existing.serviceDate ? new Date(existing.serviceDate).toISOString().slice(0, 10) : null) !== serviceDateInput) {
         return res.status(409).json({ error: 'inquiry_request_key_conflict' });
       }
+      requesterName = existing.requesterName;
+      requesterEmail = existing.requesterEmail;
       if (existing.deliveryStatus === 'sent') return res.json({ inquiryId: existing.id, sent: true });
       if (existing.deliveryStatus === 'sending') return res.status(202).json({ inquiryId: existing.id, sent: false });
     }
@@ -1806,6 +1809,7 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
     try {
       await sendConfiguredEmail({
         to: provider.rows[0].contactEmail,
+        idempotencyKey: 'partner-service-inquiry/' + inquiryId,
         subject: 'Новый запрос по услуге в Vow',
         html: '<h2>Запрос предложения</h2><p>Пользователь дал согласие передать поставщику своё имя, email и текст запроса.</p>' +
           '<p><strong>Имя:</strong> ' + escapeHtml(requesterName) + '</p>' +
