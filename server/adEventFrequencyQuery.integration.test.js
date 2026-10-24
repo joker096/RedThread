@@ -138,3 +138,67 @@ test('PostgreSQL enforces sender-scoped idempotency keys for gift orders', {
   }
 });
 
+
+
+test('PostgreSQL unordered-pair uniqueness rejects a reverse-direction pending request', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  await client.connect();
+
+  try {
+    // Exercise the same expression/partial-index rule in an isolated table so
+    // the behavior test never inserts synthetic orders into persistent data.
+    await client.query(`
+      CREATE TEMP TABLE gift_pending_pair_probe (
+        match_id uuid NOT NULL,
+        sender_id uuid NOT NULL,
+        recipient_id uuid NOT NULL,
+        status text NOT NULL
+      ) ON COMMIT PRESERVE ROWS
+    `);
+    await client.query(`
+      CREATE UNIQUE INDEX gift_pending_pair_probe_unique_idx
+      ON gift_pending_pair_probe (
+        match_id,
+        LEAST(sender_id, recipient_id),
+        GREATEST(sender_id, recipient_id)
+      )
+      WHERE status = 'awaiting_recipient_consent'
+    `);
+
+    const matchId = '00000000-0000-4000-8000-000000000001';
+    const senderA = '00000000-0000-4000-8000-00000000000a';
+    const senderB = '00000000-0000-4000-8000-00000000000b';
+    const otherMatch = '00000000-0000-4000-8000-000000000002';
+
+    await client.query(
+      'INSERT INTO gift_pending_pair_probe VALUES ($1, $2, $3, $4)',
+      [matchId, senderA, senderB, 'awaiting_recipient_consent']
+    );
+
+    await assert.rejects(
+      client.query(
+        'INSERT INTO gift_pending_pair_probe VALUES ($1, $2, $3, $4)',
+        [matchId, senderB, senderA, 'awaiting_recipient_consent']
+      ),
+      error => error.code === '23505'
+    );
+
+    // A different match is independent; a non-pending row is outside the index.
+    await client.query(
+      'INSERT INTO gift_pending_pair_probe VALUES ($1, $2, $3, $4)',
+      [otherMatch, senderB, senderA, 'awaiting_recipient_consent']
+    );
+    await client.query(
+      'INSERT INTO gift_pending_pair_probe VALUES ($1, $2, $3, $4)',
+      [matchId, senderB, senderA, 'declined']
+    );
+
+    const result = await client.query('SELECT COUNT(*)::int AS count FROM gift_pending_pair_probe');
+    assert.equal(result.rows[0].count, 3);
+  } finally {
+    await client.end();
+  }
+});
