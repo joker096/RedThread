@@ -3,6 +3,7 @@ import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { validateAdEventPayload, AD_IMPRESSION_CAP_24H } from './adEvents.js';
+import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
 import express from 'express';
@@ -1868,6 +1869,71 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
     return res.status(500).json({ error: 'moderation_action_failed' });
   } finally {
     client?.release();
+  }
+});
+
+app.get('/api/ads/consent', requireSession, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT ads_consent, date_offers_consent, wedding_offers_consent,
+              marriage_planning_opt_in, category_consents
+       FROM ad_consent_preferences WHERE user_id = $1`,
+      [req.authUser.id]
+    );
+    return res.json({
+      version: AD_CONSENT_VERSION,
+      preferences: serializeAdConsentPreferences(result.rows[0])
+    });
+  } catch (error) {
+    console.error('Ad consent preferences read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'ad_consent_preferences_unavailable' });
+  }
+});
+
+app.put('/api/ads/consent', validateRequestOrigin, requireSession, async (req, res) => {
+  const validation = normalizeAdConsentPreferences(req.body);
+  if (!validation.ok) {
+    return res.status(400).json({
+      error: validation.error,
+      ...(validation.field ? { field: validation.field } : {}),
+      ...(validation.category ? { category: validation.category } : {})
+    });
+  }
+
+  const preferences = validation.value;
+  try {
+    const result = await pool.query(
+      `INSERT INTO ad_consent_preferences
+         (user_id, ads_consent, date_offers_consent, wedding_offers_consent,
+          marriage_planning_opt_in, category_consents, consent_version, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         ads_consent = EXCLUDED.ads_consent,
+         date_offers_consent = EXCLUDED.date_offers_consent,
+         wedding_offers_consent = EXCLUDED.wedding_offers_consent,
+         marriage_planning_opt_in = EXCLUDED.marriage_planning_opt_in,
+         category_consents = EXCLUDED.category_consents,
+         consent_version = EXCLUDED.consent_version,
+         updated_at = NOW()
+       RETURNING ads_consent, date_offers_consent, wedding_offers_consent,
+                 marriage_planning_opt_in, category_consents`,
+      [
+        req.authUser.id,
+        preferences.adsConsent,
+        preferences.dateOffersConsent,
+        preferences.weddingOffersConsent,
+        preferences.marriagePlanningOptIn,
+        JSON.stringify(preferences.categoryConsents),
+        AD_CONSENT_VERSION
+      ]
+    );
+    return res.json({
+      version: AD_CONSENT_VERSION,
+      preferences: serializeAdConsentPreferences(result.rows[0])
+    });
+  } catch (error) {
+    console.error('Ad consent preferences update failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'ad_consent_preferences_unavailable' });
   }
 });
 
