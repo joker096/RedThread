@@ -1,5 +1,5 @@
 -- Explicit, revocable advertising preferences. No consent is inferred from profile or match activity.
--- The table is intentionally not read by ad delivery until a consent-management API and UI are implemented.
+-- The table is used by the authenticated consent API; it is not connected to ad delivery until user controls and trusted eligibility data are integrated.
 CREATE TABLE IF NOT EXISTS ad_consent_preferences (
   user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   ads_consent BOOLEAN NOT NULL DEFAULT FALSE,
@@ -16,6 +16,6 @@ CREATE TABLE IF NOT EXISTS ad_consent_preferences (
 );
 
 COMMENT ON TABLE ad_consent_preferences IS
-  'Explicit per-user advertising consent preferences. All options default off; not connected to ad delivery until consent API/UI is implemented.';
+  'Explicit per-user advertising consent preferences. All options default off; authenticated API exists, but ad delivery remains disconnected pending UI and trusted eligibility data.';
 COMMENT ON COLUMN ad_consent_preferences.category_consents IS
   'Per-category opt-ins only; unknown keys must be ignored by application code.';
