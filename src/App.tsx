@@ -20,6 +20,7 @@ import { ProfileEditorPanel } from './components/ProfileEditorPanel.tsx';
 import { ModeratorConsolePanel } from './components/ModeratorConsolePanel.tsx';
 import { NotificationCenterPanel } from './components/NotificationCenterPanel.tsx';
 import { AdConsentPanel } from './components/AdConsentPanel.tsx';
+import { GiftReceivingPreferencesPanel } from './components/GiftReceivingPreferencesPanel.tsx';
 import type { 
   UserProfile, 
   Gender, 
@@ -603,6 +604,7 @@ export default function App() {
             <NotificationCenterPanel />
             <ProfileEditorPanel key={assessmentRevision} onOpenAccount={() => setActiveTab('tests')} />
             <AdConsentPanel />
+            <GiftReceivingPreferencesPanel />
             <ModeratorConsolePanel />
             <RelationshipAssessmentPanel key={assessmentRevision} />
             <GenderSpecificTests
