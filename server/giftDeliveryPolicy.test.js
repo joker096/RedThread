@@ -33,13 +33,21 @@ test('rate limits and product restrictions block coercion and unsafe categories'
 const order = { id: 'internal-order-1', publicReference: 'gift_7f2a', status: 'recipient_accepted', recipientId: recipient.id, consentRecordedAt: '2026-10-20T12:00:00Z', expiresAt: '2026-10-30T12:00:00Z', totalMinorUnits: 2500, currency: 'GEL', fulfilmentAuthorized: false, productName: 'Chocolate box' };
 const address = { ownerUserId: recipient.id, verified: true, recipientEntered: true };
 const payment = { status: 'authorized', orderId: order.id, amountMinorUnits: 2500, currency: 'GEL' };
-test('fulfilment requires recipient acceptance, verified address and matching payment', () => {
+test('fulfilment requires recipient acceptance, unexpired request, verified address and matching payment', () => {
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, recipient, address, payment, relationship }).eligible, true);
   assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, status: 'awaiting_recipient_consent' }, recipient, address, payment, relationship }).reason, 'recipient_consent_required');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, expiresAt: undefined }, recipient, address, payment, relationship }).reason, 'request_expired');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, expiresAt: '2020-01-01T00:00:00Z' }, recipient, address, payment, relationship, now: Date.parse('2026-10-24T00:00:00Z') }).reason, 'request_expired');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, consentRecordedAt: undefined }, recipient, address, payment, relationship }).reason, 'recipient_consent_record_missing');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, recipient: { ...recipient, id: 'other' }, address, payment, relationship }).reason, 'recipient_authorization_failed');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, recipient, address: { ...address, recipientEntered: false }, payment, relationship }).reason, 'recipient_address_not_verified');
-  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, recipient, address, payment: { ...payment, amountMinorUnits: 1 }, relationship }).reason, 'payment_not_authorized_for_order');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, recipient, payment: { ...payment, amountMinorUnits: 1 }, address, relationship }).reason, 'payment_not_authorized_for_order');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, recipient, address, payment, relationship: { ...relationship, reported: true } }).reason, 'relationship_safety_state_unavailable_or_restricted');
+});
+test('fulfilment fails closed after gift preference opt-out or explicit consent withdrawal', () => {
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, recipient: { ...recipient, giftRequestsEnabled: false }, address, payment, relationship }).reason, 'recipient_consent_withdrawn');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, consentWithdrawnAt: '2026-10-23T12:00:00Z' }, recipient, address, payment, relationship }).reason, 'recipient_consent_withdrawn');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, fulfilmentAuthorized: true }, recipient, address, payment, relationship }).reason, 'fulfilment_already_authorized');
 });
 test('only recipient can accept; only trusted delivery service can update delivery states', () => {
   assert.equal(canTransitionGiftOrder({ from: 'awaiting_recipient_consent', to: 'recipient_accepted', actor: 'sender', recipientConsentRecorded: true }), false);
@@ -50,6 +58,10 @@ test('only recipient can accept; only trusted delivery service can update delive
   assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'dispatched', actor: 'sender' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'dispatched', actor: 'trusted_delivery_service' }), true);
   assert.equal(canTransitionGiftOrder({ from: 'delivered', to: 'cancelled', actor: 'sender' }), false);
+  assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'recipient_accepted', actor: 'recipient', recipientConsentRecorded: true }), false);
+  assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'refund_pending' }), true);
+  assert.equal(canTransitionGiftOrder({ from: 'declined', to: 'recipient_accepted', actor: 'recipient', recipientConsentRecorded: true }), false);
+  assert.equal(canTransitionGiftOrder({ from: 'expired', to: 'recipient_accepted', actor: 'recipient', recipientConsentRecorded: true }), false);
 });
 test('sender projection never exposes address, phone, email or coordinates', () => {
   const view = redactGiftOrderForSender({ ...order, recipientAddress: 'secret street', recipientPhone: '+9950000', recipientEmail: 'secret@example.com', recipientCoordinates: { lat: 1, lon: 2 } });
