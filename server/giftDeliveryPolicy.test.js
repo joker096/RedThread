@@ -60,8 +60,8 @@ test('fulfilment requires explicit fresh safety-event state and a safe active se
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient: { ...recipient, isAdult: false }, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'recipient_safety_state_unavailable_or_restricted');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, address, payment, relationship, safetyEvents: ['unknown'], safetySnapshotAt: new Date().toISOString() }).reason, 'safety_state_unavailable_or_invalid');
 });
-test('fulfilment fails closed after gift preference opt-out or explicit consent withdrawal', () => {
-  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient: { ...recipient, giftRequestsEnabled: false }, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'recipient_consent_withdrawn');
+test('future gift preference opt-out does not revoke an already accepted order; explicit withdrawal does', () => {
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient: { ...recipient, giftRequestsEnabled: false }, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'recipient_consent_and_verified_address');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, consentWithdrawnAt: '2026-10-23T12:00:00Z' }, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'recipient_consent_withdrawn');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, fulfilmentAuthorized: true }, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'fulfilment_already_authorized');
 });
