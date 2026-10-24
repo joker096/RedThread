@@ -38,6 +38,16 @@ test('gift order list discards invalid or oversized delivery estimate dates', ()
   assert.equal(orders[0].estimatedDeliveryEnd, null);
 });
 
+test('gift order list discards an end estimate earlier than the start estimate', () => {
+  const orders = normalizeGiftOrders({ orders: [{
+    ...validOrder,
+    estimatedDeliveryStart: '2026-11-10T00:00:00.000Z',
+    estimatedDeliveryEnd: '2026-11-09T00:00:00.000Z'
+  }] });
+  assert.equal(orders[0].estimatedDeliveryStart, '2026-11-10T00:00:00.000Z');
+  assert.equal(orders[0].estimatedDeliveryEnd, null);
+});
+
 test('gift order list is capped at the API maximum of 50 records', () => {
   const orders = Array.from({ length: 60 }, (_, index) => ({
     ...validOrder,
