@@ -68,7 +68,8 @@ test('state transitions enforce actors, consent, persisted states, and terminal 
   assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'recipient_accepted', actor: 'recipient', recipientConsentRecorded: true }), false);
   assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'refund_pending', actor: 'system' }), true);
   assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'refund_pending', actor: 'sender' }), false);
-  assert.equal(canTransitionGiftOrder({ from: 'refund_pending', to: 'refunded', actor: 'trusted_payment_service' }), true);
+  assert.equal(canTransitionGiftOrder({ from: 'refund_pending', to: 'refunded', actor: 'trusted_payment_service' }), false);
+  assert.equal(canTransitionGiftOrder({ from: 'refund_pending', to: 'refunded', actor: 'payment_service' }), true);
   assert.equal(canTransitionGiftOrder({ from: 'declined', to: 'recipient_accepted', actor: 'recipient', recipientConsentRecorded: true }), false);
   assert.equal(canTransitionGiftOrder({ from: 'expired', to: 'recipient_accepted', actor: 'recipient', recipientConsentRecorded: true }), false);
 });
