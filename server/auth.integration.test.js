@@ -86,6 +86,20 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(partnerApplicationWithoutOrigin.status, 403, 'partner application mutations must reject requests without a trusted Origin before applying rate limits');
 
+    const partnerInquiryWithoutOrigin = await request('/api/partner-service-inquiries', {
+      method: 'POST',
+      headers: { Origin: '' },
+      body: JSON.stringify({
+        applicationId: randomUUID(),
+        matchId: randomUUID(),
+        requestKey: randomUUID(),
+        requestNote: 'Please send details about this service.',
+        shareContact: true
+      })
+    });
+    assert.equal(partnerInquiryWithoutOrigin.status, 403,
+      'partner inquiry mutations must reject untrusted Origins before session or database processing');
+
     const insecurePartnerWebsite = await request('/api/partner-applications', {
       method: 'POST',
       body: JSON.stringify({ ...partnerApplication, website: 'http://example.test' })
