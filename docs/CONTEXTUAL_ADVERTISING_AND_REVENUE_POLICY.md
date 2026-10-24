@@ -114,11 +114,11 @@ Official references:
 
 1. Approve this policy and advertiser terms; review advertising, privacy, consumer and tax obligations in each launch country.
 2. Implement and test server-side eligibility without delivering ads.
-3. Consent storage and authenticated API are implemented (`GET /api/ads/consent`, full-replacement `PUT /api/ads/consent`); build the user-facing settings controls, then test mobile accessibility and localization.
+3. Consent storage, authenticated API (`GET /api/ads/consent`, full-replacement `PUT /api/ads/consent`) and user-facing settings controls are implemented; verify cross-account isolation, persisted revocation, mobile accessibility and localization.
 4. Run internal campaigns with no billing.
 5. Pilot confirmed-date cafe offers in one city with fixed sponsorship and manual invoicing.
 6. Add impression/click billing only after measurement, reporting, anti-fraud and refunds are tested.
 7. Add bridal campaigns only after opt-in, thresholds, suppression and audience tests pass.
 8. Keep Premium Paddle Sandbox testing and advertiser billing independently gated; enable production only after formal review.
 
-This document defines intended policy. Consent storage/API and a pure eligibility helper exist, but user-facing consent settings, trusted date/safety data integration, live ad serving, advertiser invoicing, and live Paddle billing are not implemented.
+This document defines intended policy. Consent storage/API, user-facing consent settings and a pure eligibility helper exist. Trusted date/safety data integration, live ad serving, advertiser invoicing and production Paddle billing remain unimplemented. The API must continue to fail closed until eligibility receives trusted server-side facts.
