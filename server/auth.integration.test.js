@@ -132,6 +132,12 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(invalidCurrency.status, 400, 'partner prices must use a supported currency');
 
+    const tooManyLanguages = await request('/api/partner-applications', {
+      method: 'POST',
+      body: JSON.stringify({ ...partnerApplication, serviceLanguages: 'English,Russian,Georgian,Spanish,French,German,Italian,Chinese,Japanese,Arabic,Hindi' })
+    });
+    assert.equal(tooManyLanguages.status, 400, 'partner listings must not exceed the supported language count');
+
     const partnerSubmission = await request('/api/partner-applications', {
       method: 'POST',
       body: JSON.stringify(partnerApplication)
