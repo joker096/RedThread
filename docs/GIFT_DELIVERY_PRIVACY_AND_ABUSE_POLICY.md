@@ -1,6 +1,6 @@
 # Vow gifts and privacy-preserving delivery policy
 
-Status: policy, fail-closed decision helpers, PostgreSQL order/catalog/partner schema, recipient gift-request preference API, privacy-safe order-list API, recipient-only accept/decline endpoint, and a recipient-facing order review/decision panel are implemented. The panel displays privacy-safe order projections and supports accept, decline, and pre-fulfilment consent withdrawal. The order creation API, encrypted address vault, payment authorization, courier integration, and dispatch are not implemented or enabled.
+Status: policy, fail-closed decision helpers, PostgreSQL order/catalog/partner schema, recipient gift-request preference API, privacy-safe order-list API, recipient-only accept/decline/consent-withdrawal endpoints, and a recipient-facing order review/decision panel are implemented. The panel displays privacy-safe order projections and supports accept, decline, and pre-fulfilment consent withdrawal. The order creation API, encrypted address vault, payment authorization, courier integration, and dispatch are not implemented or enabled.
 
 ## Product flow
 Vow may list approved flowers, sealed chocolates/confectionery, books, and other reviewed non-cash gifts delivered by vetted local partners. Sender chooses an item and starts a **pending request**, not an authorized shipment. Recipient must accept that specific gift before any address is collected or shared.
@@ -66,3 +66,8 @@ The pure refund eligibility policy is fail-closed: only a system or moderator ma
 ### Persisted state consistency
 
 The pure `validateGiftOrderPersistenceState()` helper cross-checks order and payment status against required consent, verified-address, fulfilment, dispatch, delivery, and refund markers. It rejects unknown states, a completed refund without `payment_status = refunded`, a pending refund without `payment_status = refund_pending`, and a declined order that still has an active/captured payment. This helper is not yet wired as a database trigger or used by a live fulfilment/payment endpoint; production transitions must validate and persist both statuses atomically in one transaction, with a matching audit event.
+
+
+## Latest verification
+
+Current PR head `58d5b2d819bf61e881b6ebbd8dbf57ec0f182923` passed [CI](https://github.com/joker096/RedThread/actions/runs/40121776601) and [Browser E2E](https://github.com/joker096/RedThread/actions/runs/40121776605). The CI test verifies that PostgreSQL defines the sender-scoped idempotency-key unique index. This is a schema regression check, not a live gift-order creation test; the creation endpoint remains unimplemented. Green checks do not enable real payments, address disclosure, or delivery.
