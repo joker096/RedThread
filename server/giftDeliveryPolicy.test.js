@@ -63,6 +63,7 @@ test('fulfilment requires explicit fresh safety-event state and a safe active se
 test('future gift preference opt-out does not revoke an already accepted order; explicit withdrawal does', () => {
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient: { ...recipient, giftRequestsEnabled: false }, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'recipient_consent_and_verified_address');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, consentWithdrawnAt: '2026-10-23T12:00:00Z' }, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'recipient_consent_withdrawn');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, status: 'cancelled', consentWithdrawnAt: '2026-10-23T12:00:00Z' }, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'recipient_consent_withdrawn');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, fulfilmentAuthorized: true }, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'fulfilment_already_authorized');
 });
 test('state transitions enforce actors, consent, persisted states, and terminal states', () => {
