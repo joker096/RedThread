@@ -217,6 +217,19 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(inquiryWithoutConsent.status, 400, 'a partner inquiry must require explicit contact-sharing consent');
 
+    const inquiryWithShortNote = await request('/api/partner-service-inquiries', {
+      method: 'POST',
+      headers: { Cookie: firstCookie },
+      body: JSON.stringify({
+        applicationId: randomUUID(),
+        matchId: randomUUID(),
+        requestKey: randomUUID(),
+        requestNote: 'Interested.',
+        shareContact: true
+      })
+    });
+    assert.equal(inquiryWithShortNote.status, 400, 'partner inquiry notes must meet the minimum length before database access');
+
     const inquiryWithInvalidDate = await request('/api/partner-service-inquiries', {
       method: 'POST',
       headers: { Cookie: firstCookie },
