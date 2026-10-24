@@ -249,6 +249,37 @@ test('auth API supports registration, session lookup, logout and login', {
     const maleCookie = maleRegistration.headers.get('set-cookie')?.split(';')[0];
     assert.ok(maleCookie?.startsWith('nit_session='));
 
+    const unauthenticatedAdConsentRead = await request('/api/ads/consent');
+    assert.equal(unauthenticatedAdConsentRead.status, 401,
+      'advertising preferences must never be readable without an authenticated session');
+
+    const unauthenticatedAdConsentWrite = await request('/api/ads/consent', {
+      method: 'PUT',
+      body: JSON.stringify({
+        adsConsent: true,
+        dateOffersConsent: false,
+        weddingOffersConsent: false,
+        marriagePlanningOptIn: false,
+        categoryConsents: {}
+      })
+    });
+    assert.equal(unauthenticatedAdConsentWrite.status, 401,
+      'advertising preferences must never be writable without an authenticated session');
+
+    const originlessAdConsentWrite = await fetch(`${api}/api/ads/consent`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: secondCookie },
+      body: JSON.stringify({
+        adsConsent: true,
+        dateOffersConsent: false,
+        weddingOffersConsent: false,
+        marriagePlanningOptIn: false,
+        categoryConsents: {}
+      })
+    });
+    assert.equal(originlessAdConsentWrite.status, 403,
+      'browser-originated consent changes must reject requests without an explicit trusted Origin');
+
     const initialAdConsent = await request('/api/ads/consent', { headers: { Cookie: secondCookie } });
     assert.equal(initialAdConsent.status, 200);
     assert.deepEqual((await initialAdConsent.json()).preferences, {
