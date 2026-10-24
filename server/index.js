@@ -2173,6 +2173,10 @@ app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileAction
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+    // The upsert takes a row-level write lock. Ad-event requests hold FOR SHARE
+    // on the same preference row until their transaction finishes, so a concurrent
+    // revocation and event are serialized: either the event finishes before the
+    // revocation commits, or it observes the revoked/stale consent and is rejected.
     const result = await client.query(
       `INSERT INTO ad_consent_preferences
          (user_id, ads_consent, date_offers_consent, wedding_offers_consent,
