@@ -329,7 +329,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                 const Icon = categories.find(item => item.id === matchedCategory)?.icon || HeartHandshake;
                 const categoryLabel = categories.find(item => item.id === matchedCategory)?.label || 'Услуги';
                 return <article key={provider.id} className="rounded-2xl border border-emerald-700/30 bg-stone-950/70 p-4">
-                  <div className="flex items-start justify-between gap-2"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600/15 text-emerald-300"><Icon className="h-5 w-5" /></div><span className="rounded-full border border-emerald-700/40 bg-emerald-950/40 px-2 py-1 text-[9px] text-emerald-200">Опубликовано Vow</span></div>
+                  <div className="flex items-start justify-between gap-2"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600/15 text-emerald-300"><Icon className="h-5 w-5" /></div><span className="rounded-full border border-emerald-700/40 bg-emerald-950/40 px-2 py-1 text-[9px] text-emerald-200">В каталоге Vow</span></div>
                   <p className="mt-3 text-[10px] uppercase tracking-wide text-stone-400">{categoryLabel} · {provider.city}, {provider.country}</p>
                   <h4 className="mt-1 font-bold text-white">{provider.businessName}</h4>
                   <p className="mt-3 whitespace-pre-wrap break-words text-xs leading-relaxed text-stone-300">{provider.serviceDescription}</p>
