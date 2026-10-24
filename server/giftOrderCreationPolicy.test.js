@@ -78,6 +78,11 @@ test('rejects self-gifting, invalid money values, and unverified suppliers', () 
   selfGift.recipient.id = selfGift.sender.id;
   assert.equal(evaluateGiftOrderCreation(selfGift).reason, 'invalid_participants');
 
+  const mixedTypeSelfGift = validContext();
+  mixedTypeSelfGift.sender.id = 42;
+  mixedTypeSelfGift.recipient.id = '42';
+  assert.equal(evaluateGiftOrderCreation(mixedTypeSelfGift).reason, 'invalid_participants');
+
   const zeroPrice = validContext();
   zeroPrice.product.totalMinorUnits = 0;
   assert.equal(evaluateGiftOrderCreation(zeroPrice).reason, 'invalid_total_price');
