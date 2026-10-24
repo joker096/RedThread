@@ -110,6 +110,9 @@ test('persisted order and payment states must satisfy the migration invariants',
   assert.equal(validateGiftOrderPersistenceState({ ...base, status: 'refunded', paymentStatus: 'captured' }).reason, 'refunded_payment_state_required');
   assert.equal(validateGiftOrderPersistenceState({ ...base, status: 'refund_pending', paymentStatus: 'captured' }).reason, 'pending_refund_payment_state_required');
   assert.equal(validateGiftOrderPersistenceState({ ...base, status: 'declined', paymentStatus: 'captured' }).reason, 'declined_order_payment_must_be_inactive');
+  assert.equal(validateGiftOrderPersistenceState({ ...base, status: 'cancelled', paymentStatus: 'captured' }).reason, 'cancelled_order_payment_must_be_voided_or_refunded');
+  assert.deepEqual(validateGiftOrderPersistenceState({ ...base, status: 'cancelled', paymentStatus: 'voided' }), { valid: true, reason: 'persistence_state_consistent' });
+  assert.deepEqual(validateGiftOrderPersistenceState({ ...base, status: 'cancelled', paymentStatus: 'refund_pending' }), { valid: true, reason: 'persistence_state_consistent' });
 });
 test('refund policy is fail-closed, state-bound, amount-matched and idempotency-keyed', () => {
   const refundRequest = { ...order, status: 'delivery_failed' };
