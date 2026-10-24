@@ -108,6 +108,7 @@ test('persisted inconsistent consent fails closed and strips unsupported categor
 
   assert.deepEqual(serializeAdConsentPreferences({
     ads_consent: true,
+    consent_version: AD_CONSENT_VERSION,
     date_offers_consent: true,
     wedding_offers_consent: false,
     marriage_planning_opt_in: true,
