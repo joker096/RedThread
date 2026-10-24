@@ -53,12 +53,12 @@ test('fulfilment rejects missing, future-dated, and stale safety snapshots', () 
 test('fulfilment requires explicit fresh safety-event state and a safe active sender', () => {
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, address, payment, relationship }).reason, 'missing_context');
   for (const event of ['block', 'report', 'restriction', 'account_deleted', 'consent_withdrawn']) {
-    assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, address, payment, relationship, safetyEvents: [event] }).reason, 'safety_event_requires_fulfilment_suspension');
+    assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, address, payment, relationship, safetyEvents: [event], safetySnapshotAt: new Date().toISOString() }).reason, 'safety_event_requires_fulfilment_suspension');
   }
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender: { ...sender, accountStatus: 'deleted' }, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'sender_safety_state_unavailable_or_restricted');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender: { ...sender, identityVerified: false }, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'sender_safety_state_unavailable_or_restricted');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient: { ...recipient, isAdult: false }, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'recipient_safety_state_unavailable_or_restricted');
-  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, address, payment, relationship, safetyEvents: ['unknown'] }).reason, 'safety_state_unavailable_or_invalid');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, address, payment, relationship, safetyEvents: ['unknown'], safetySnapshotAt: new Date().toISOString() }).reason, 'safety_state_unavailable_or_invalid');
 });
 test('fulfilment fails closed after gift preference opt-out or explicit consent withdrawal', () => {
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient: { ...recipient, giftRequestsEnabled: false }, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'recipient_consent_withdrawn');
