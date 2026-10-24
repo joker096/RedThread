@@ -1653,6 +1653,23 @@ app.post('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, r
     await client.query('DELETE FROM profile_passes WHERE (passer_id = $1 AND passed_user_id = $2) OR (passer_id = $2 AND passed_user_id = $1)', [req.authUser.id, targetId]);
     await client.query(`UPDATE matches SET status = 'blocked'
       WHERE user_a_id = LEAST($1::uuid, $2::uuid) AND user_b_id = GREATEST($1::uuid, $2::uuid) AND status = 'active'`, [req.authUser.id, targetId]);
+    // Close pending gift requests in the same pair-locked transaction. Do not
+    // touch accepted/in-flight orders here; their fulfilment must re-check safety.
+    const pendingGifts = await client.query(
+      `UPDATE gift_delivery_orders
+       SET status = 'blocked', updated_at = NOW()
+       WHERE sender_id = $1 AND recipient_id = $2 AND status = 'awaiting_recipient_consent'
+       OR sender_id = $2 AND recipient_id = $1 AND status = 'awaiting_recipient_consent'
+       RETURNING id, sender_id, recipient_id`,
+      [req.authUser.id, targetId]
+    );
+    for (const gift of pendingGifts.rows) {
+      await client.query(
+        `INSERT INTO gift_delivery_order_events (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
+         VALUES ($1, $2, $3, 'blocked', 'awaiting_recipient_consent', 'blocked')`,
+        [gift.id, req.authUser.id, gift.sender_id === req.authUser.id ? 'sender' : 'recipient']
+      );
+    }
     await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
@@ -1707,6 +1724,24 @@ app.post('/api/reports', reportLimiter, validateRequestOrigin, requireSession, a
        VALUES ($1, $2, $3, $4) RETURNING id, status, created_at AS "createdAt"`,
       [req.authUser.id, reportedUserId, category, details]
     );
+    // A report immediately closes only requests still awaiting consent. Accepted
+    // orders require a separate safety/fulfilment review and are never dispatched
+    // by this endpoint.
+    const pendingGifts = await client.query(
+      `UPDATE gift_delivery_orders
+       SET status = 'reported', updated_at = NOW()
+       WHERE ((sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1))
+         AND status = 'awaiting_recipient_consent'
+       RETURNING id, sender_id, recipient_id`,
+      [req.authUser.id, reportedUserId]
+    );
+    for (const gift of pendingGifts.rows) {
+      await client.query(
+        `INSERT INTO gift_delivery_order_events (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
+         VALUES ($1, $2, $3, 'reported', 'awaiting_recipient_consent', 'reported')`,
+        [gift.id, req.authUser.id, gift.sender_id === req.authUser.id ? 'sender' : 'recipient']
+      );
+    }
     await client.query('COMMIT');
     return res.status(201).json({ report: result.rows[0] });
   } catch (error) {
