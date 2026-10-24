@@ -3,6 +3,7 @@ import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { validateAdEventPayload, AD_IMPRESSION_CAP_24H } from './adEvents.js';
+import { validateGiftDecisionInput } from './giftDecisionInput.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
@@ -1910,16 +1911,11 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
 });
 
 app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
-  const action = req.body?.action;
-  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) ||
-      Object.keys(req.body).some(key => key !== 'action') ||
-      !['accept', 'decline'].includes(action)) {
-    return res.status(400).json({ error: 'invalid_gift_decision' });
+  const validation = validateGiftDecisionInput(req.body, req.params.publicReference);
+  if (!validation.valid) {
+    return res.status(validation.notFound ? 404 : 400).json({ error: validation.error });
   }
-  const reference = req.params.publicReference;
-  if (typeof reference !== 'string' || !/^gift_[a-f0-9]{32}$/i.test(reference)) {
-    return res.status(404).json({ error: 'gift_request_not_available' });
-  }
+  const { action, publicReference: reference } = validation;
 
   let client;
   try {
