@@ -1,16 +1,15 @@
-import React from 'react';
-import { describe, expect, it } from 'vitest';
-import { normalizeGiftReceivingPayload } from './GiftReceivingPreferencesPanel';
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { normalizeGiftReceivingPayload } from './GiftReceivingPreferencesPanel.tsx';
 
-describe('normalizeGiftReceivingPayload', () => {
-  it('accepts an explicit boolean setting', () => {
-    expect(normalizeGiftReceivingPayload({ requestsEnabled: true })).toEqual({ requestsEnabled: true });
-    expect(normalizeGiftReceivingPayload({ requestsEnabled: false })).toEqual({ requestsEnabled: false });
-  });
-  it('fails closed for malformed or missing preference payloads', () => {
-    expect(normalizeGiftReceivingPayload(null)).toEqual({ requestsEnabled: false });
-    expect(normalizeGiftReceivingPayload({})).toEqual({ requestsEnabled: false });
-    expect(normalizeGiftReceivingPayload({ requestsEnabled: 'true' })).toEqual({ requestsEnabled: false });
-    expect(normalizeGiftReceivingPayload([])).toEqual({ requestsEnabled: false });
-  });
+test('gift preference payload accepts an explicit boolean setting', () => {
+  assert.deepEqual(normalizeGiftReceivingPayload({ requestsEnabled: true }), { requestsEnabled: true });
+  assert.deepEqual(normalizeGiftReceivingPayload({ requestsEnabled: false }), { requestsEnabled: false });
+});
+
+test('gift preference payload fails closed for malformed or missing values', () => {
+  assert.deepEqual(normalizeGiftReceivingPayload(null), { requestsEnabled: false });
+  assert.deepEqual(normalizeGiftReceivingPayload({}), { requestsEnabled: false });
+  assert.deepEqual(normalizeGiftReceivingPayload({ requestsEnabled: 'true' }), { requestsEnabled: false });
+  assert.deepEqual(normalizeGiftReceivingPayload([]), { requestsEnabled: false });
 });
