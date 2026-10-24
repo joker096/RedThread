@@ -39,6 +39,7 @@ import { AdManagerModal } from './components/AdManagerModal.tsx';
 import { FilterDrawer } from './components/FilterDrawer.tsx';
 import { BrandNamingModal, brandOptions } from './components/BrandNamingModal.tsx';
 import { GenderSpecificTests } from './components/GenderSpecificTests.tsx';
+import { PartnerApplicationPanel } from './components/PartnerApplicationPanel.tsx';
 
 export default function App() {
   const { t } = useLocale();
@@ -62,6 +63,7 @@ export default function App() {
 
   // Navigation tab
   const [activeTab, setActiveTab] = useState<'discovery' | 'tests' | 'chats' | 'safety' | 'monetization'>('discovery');
+  const [partnerApplicationOpen, setPartnerApplicationOpen] = useState(false);
 
   // Candidate profiles
   const [profiles, setProfiles] = useState<UserProfile[]>(initialProfiles);
@@ -766,8 +768,12 @@ export default function App() {
                 <p className="text-sm font-semibold text-white">{t('serverProfilesNotice')}</p>
                 <p className="mt-1 text-xs text-stone-400">{t('serverProfilesDescription')}</p>
               </div>
-              <button type="button" data-testid="open-demo-preview" onClick={() => setDiscoveryMode('demo')} className="min-h-11 rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-stone-300">{t('openDemoPreview')}</button>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" data-testid="open-demo-preview" onClick={() => setDiscoveryMode('demo')} className="min-h-11 rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-stone-300">{t('openDemoPreview')}</button>
+                <button type="button" onClick={() => setPartnerApplicationOpen(value => !value)} aria-expanded={partnerApplicationOpen} aria-controls="partner-application-panel" className="min-h-11 rounded-xl border border-emerald-500/30 bg-emerald-950/30 px-3 py-2 text-xs font-semibold text-emerald-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">Для бизнеса: стать партнёром</button>
+              </div>
             </div>
+            {partnerApplicationOpen && <div id="partner-application-panel"><PartnerApplicationPanel /></div>}
             <ServerDiscoveryPanel onOpenAccount={() => setActiveTab('tests')} />
           </>
         ) : (

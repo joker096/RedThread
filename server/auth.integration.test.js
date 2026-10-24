@@ -4,6 +4,8 @@ import { createServer } from 'node:net';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
+import pg from 'pg';
+const { Pool } = pg;
 
 async function findFreePort() {
   const listener = createServer();
@@ -63,6 +65,125 @@ test('auth API supports registration, session lookup, logout and login', {
     }
     assert.equal(healthy, true, 'API should start and answer the health check');
 
+    const partnerApplication = {
+      category: 'photography',
+      businessName: 'Test Studio',
+      contactName: 'Test Contact',
+      contactEmail: `partner-${randomUUID()}@example.test`,
+      country: 'Georgia',
+      city: 'Tbilisi',
+      website: 'https://example.test',
+      serviceDescription: 'Wedding and couple photography services for local clients.',
+      priceFrom: '0.29',
+      priceCurrency: 'GEL',
+      serviceLanguages: 'Georgian, Russian',
+      availabilityNote: 'By appointment'
+    };
+    const partnerApplicationWithoutOrigin = await request('/api/partner-applications', {
+      method: 'POST',
+      headers: { Origin: '' },
+      body: JSON.stringify(partnerApplication)
+    });
+    assert.equal(partnerApplicationWithoutOrigin.status, 403, 'partner application mutations must reject requests without a trusted Origin before applying rate limits');
+
+    const partnerInquiryWithoutOrigin = await request('/api/partner-service-inquiries', {
+      method: 'POST',
+      headers: { Origin: '' },
+      body: JSON.stringify({
+        applicationId: randomUUID(),
+        matchId: randomUUID(),
+        requestKey: randomUUID(),
+        requestNote: 'Please send details about this service.',
+        shareContact: true
+      })
+    });
+    assert.equal(partnerInquiryWithoutOrigin.status, 403,
+      'partner inquiry mutations must reject untrusted Origins before session or database processing');
+
+    const adminPartnerMutationPaths = [
+      ['/api/admin/partner-applications/' + randomUUID() + '/publish', 'publication'],
+      ['/api/admin/partner-applications/' + randomUUID() + '/unpublish', 'unpublication'],
+      ['/api/admin/partner-applications/' + randomUUID() + '/review', 'review']
+    ];
+    for (const [path, action] of adminPartnerMutationPaths) {
+      const response = await request(path, {
+        method: 'POST',
+        headers: { Origin: '' },
+        body: JSON.stringify({ decision: 'approved', reviewNote: 'Origin protection regression test' })
+      });
+      assert.equal(response.status, 403,
+        'partner application ' + action + ' mutations must reject untrusted Origins before session or database processing');
+    }
+
+    const insecurePartnerWebsite = await request('/api/partner-applications', {
+      method: 'POST',
+      body: JSON.stringify({ ...partnerApplication, website: 'http://example.test' })
+    });
+    assert.equal(insecurePartnerWebsite.status, 400, 'partner websites must use HTTPS');
+
+    const invalidPrice = await request('/api/partner-applications', {
+      method: 'POST',
+      body: JSON.stringify({ ...partnerApplication, priceFrom: '-1' })
+    });
+    assert.equal(invalidPrice.status, 400, 'partner prices must be non-negative');
+    const invalidCurrency = await request('/api/partner-applications', {
+      method: 'POST',
+      body: JSON.stringify({ ...partnerApplication, priceCurrency: 'BTC' })
+    });
+    assert.equal(invalidCurrency.status, 400, 'partner prices must use a supported currency');
+
+    const tooManyLanguages = await request('/api/partner-applications', {
+      method: 'POST',
+      body: JSON.stringify({ ...partnerApplication, serviceLanguages: 'English,Russian,Georgian,Spanish,French,German,Italian,Chinese,Japanese,Arabic,Hindi' })
+    });
+    assert.equal(tooManyLanguages.status, 400, 'partner listings must not exceed the supported language count');
+
+    const partnerSubmission = await request('/api/partner-applications', {
+      method: 'POST',
+      body: JSON.stringify(partnerApplication)
+    });
+    assert.equal(partnerSubmission.status, 201);
+    const submittedPartner = await partnerSubmission.json();
+    assert.equal(submittedPartner.application.status, 'pending');
+    assert.equal('contactEmail' in submittedPartner.application, false, 'public response must not echo contact details');
+
+
+    const publicDirectory = await request('/api/partner-services?country=Georgia&category=photo');
+    assert.equal(publicDirectory.status, 200, 'the public directory is readable without a session');
+    const directoryPayload = await publicDirectory.json();
+    assert.deepEqual(directoryPayload.providers, [], 'pending applications must not appear in the public directory');
+    assert.equal(JSON.stringify(directoryPayload).includes(partnerApplication.contactEmail), false, 'directory responses must not expose contact email');
+    assert.equal(JSON.stringify(directoryPayload).includes(partnerApplication.contactName), false, 'directory responses must not expose contact name');
+    assert.equal(JSON.stringify(directoryPayload).includes(partnerApplication.serviceDescription), false, 'pending application details must remain private');
+
+    // Exercise the public photo filter against an approved and published photography listing.
+    const testPool = new Pool({ connectionString: process.env.DATABASE_URL });
+    try {
+      const promoted = await testPool.query(
+        "UPDATE partner_service_applications SET status = 'approved', published_at = NOW() WHERE contact_email = $1",
+        [partnerApplication.contactEmail]
+      );
+      assert.equal(promoted.rowCount, 1, 'the regression test must promote exactly its own submitted application');
+      const publishedDirectoryResponse = await request('/api/partner-services?country=Georgia&category=photo');
+      assert.equal(publishedDirectoryResponse.status, 200);
+      const publishedDirectory = await publishedDirectoryResponse.json();
+      assert.ok(publishedDirectory.providers.some(provider =>
+        provider.category === 'photography' && provider.businessName === partnerApplication.businessName
+      ), 'photo filter must include published photography providers');
+      assert.equal(JSON.stringify(publishedDirectory).includes(partnerApplication.contactEmail), false,
+        'published directory must not expose provider contact email');
+      assert.equal(JSON.stringify(publishedDirectory).includes(partnerApplication.contactName), false,
+        'published directory must not expose provider contact name');
+    } finally {
+      await testPool.query('DELETE FROM partner_service_applications WHERE contact_email = $1', [partnerApplication.contactEmail]);
+      await testPool.end();
+    }
+
+    const invalidDirectoryFilter = await request('/api/partner-services?category=admin');
+    assert.equal(invalidDirectoryFilter.status, 400, 'directory filters must reject unsupported categories');
+    const repeatedDirectoryFilter = await request('/api/partner-services?category=legal&category=photo');
+    assert.equal(repeatedDirectoryFilter.status, 400, 'directory filters must reject repeated parameters');
+
     const email = `test-${randomUUID()}@example.test`;
     const password = 'Test Password 2026! Secure';
     const registration = await request('/api/auth/register', {
@@ -89,6 +210,46 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal('password_hash' in registered.user, false);
     const firstCookie = registration.headers.get('set-cookie')?.split(';')[0];
     assert.ok(firstCookie?.startsWith('nit_session='));
+
+    const inquiryWithoutConsent = await request('/api/partner-service-inquiries', {
+      method: 'POST',
+      headers: { Cookie: firstCookie },
+      body: JSON.stringify({
+        applicationId: randomUUID(),
+        matchId: randomUUID(),
+        requestKey: randomUUID(),
+        requestNote: 'Please send details about this service.',
+        shareContact: false
+      })
+    });
+    assert.equal(inquiryWithoutConsent.status, 400, 'a partner inquiry must require explicit contact-sharing consent');
+
+    const inquiryWithShortNote = await request('/api/partner-service-inquiries', {
+      method: 'POST',
+      headers: { Cookie: firstCookie },
+      body: JSON.stringify({
+        applicationId: randomUUID(),
+        matchId: randomUUID(),
+        requestKey: randomUUID(),
+        requestNote: 'Interested.',
+        shareContact: true
+      })
+    });
+    assert.equal(inquiryWithShortNote.status, 400, 'partner inquiry notes must meet the minimum length before database access');
+
+    const inquiryWithInvalidDate = await request('/api/partner-service-inquiries', {
+      method: 'POST',
+      headers: { Cookie: firstCookie },
+      body: JSON.stringify({
+        applicationId: randomUUID(),
+        matchId: randomUUID(),
+        requestKey: randomUUID(),
+        requestNote: 'Please send details about this service.',
+        serviceDate: '2026-13-40',
+        shareContact: true
+      })
+    });
+    assert.equal(inquiryWithInvalidDate.status, 400, 'partner inquiry dates must be real ISO calendar dates');
     const billingStatus = await request('/api/billing/status', { headers: { Cookie: firstCookie } });
     assert.equal(billingStatus.status, 200);
     const trial = await billingStatus.json();
@@ -99,9 +260,14 @@ test('auth API supports registration, session lookup, logout and login', {
     const notificationList = await request('/api/notifications', { headers: { Cookie: firstCookie } });
     assert.equal(notificationList.status, 200);
     assert.deepEqual((await notificationList.json()).notifications, []);
-    for (const adminPath of ['/api/admin/reports', '/api/admin/photos', '/api/admin/audit-log']) {
+    for (const adminPath of ['/api/admin/reports', '/api/admin/photos', '/api/admin/audit-log', '/api/admin/partner-applications']) {
       const forbidden = await request(adminPath, { headers: { Cookie: firstCookie } });
       assert.equal(forbidden.status, 403);
+    }
+
+    for (const publicationPath of ['/api/admin/partner-applications/'+randomUUID()+'/publish', '/api/admin/partner-applications/'+randomUUID()+'/unpublish']) {
+      const forbiddenPublication = await request(publicationPath, { method: 'POST', headers: { Cookie: firstCookie }, body: JSON.stringify({}) });
+      assert.equal(forbiddenPublication.status, 403, 'ordinary users must not publish or hide partner listings');
     }
 
     const forbiddenModerationAction = await request(`/api/admin/reports/${randomUUID()}/action`, {

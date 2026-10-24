@@ -3,6 +3,7 @@ import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { validateAdEventPayload, AD_IMPRESSION_CAP_24H } from './adEvents.js';
+import { cleanupPartnerServiceData, partnerRetentionOptions } from './partnerRetention.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
 import express from 'express';
@@ -169,6 +170,15 @@ const reportLimiter = rateLimit({
   message: { error: 'too_many_reports' }
 });
 
+const partnerApplicationLimiter = rateLimit({
+  ...(pool ? { store: new PostgresRateLimitStore(pool, 'partner-application') } : {}),
+  windowMs: 24 * 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too_many_partner_applications' }
+});
+
 function emailDeliveryConfigured() {
   const configuredUrl = process.env.APP_URL || process.env.APP_ORIGIN;
   let validPublicUrl = false;
@@ -184,13 +194,14 @@ function emailDeliveryConfigured() {
     validPublicUrl;
 }
 
-async function sendConfiguredEmail({ to, subject, html }) {
+async function sendConfiguredEmail({ to, subject, html, idempotencyKey }) {
   if (!emailDeliveryConfigured()) throw new Error('email_delivery_not_configured');
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       Authorization: 'Bearer ' + process.env.RESEND_API_KEY,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {})
     },
     body: JSON.stringify({ from: process.env.EMAIL_FROM, to: [to], subject, html }),
     signal: AbortSignal.timeout(10_000)
@@ -1695,6 +1706,326 @@ app.post('/api/reports', reportLimiter, validateRequestOrigin, requireSession, a
   }
 });
 
+app.get('/api/partner-services', requireDatabase, async (req, res) => {
+  const countryInput = req.query.country;
+  const categoryInput = req.query.category;
+  if ((countryInput !== undefined && typeof countryInput !== 'string') ||
+      (categoryInput !== undefined && typeof categoryInput !== 'string')) {
+    return res.status(400).json({ error: 'invalid_partner_service_filter' });
+  }
+  const country = typeof countryInput === 'string' ? countryInput.trim() : '';
+  const requestedCategory = typeof categoryInput === 'string' ? categoryInput : '';
+  const categories = ['cafe', 'photography', 'videography', 'photo', 'venue', 'beauty', 'legal', 'transport', 'other'];
+  if (country.length > 100 || (requestedCategory && !categories.includes(requestedCategory))) {
+    return res.status(400).json({ error: 'invalid_partner_service_filter' });
+  }
+  try {
+    const result = await pool.query(
+      'SELECT id, category, business_name AS "businessName", country, city, website, ' +
+      'service_description AS "serviceDescription", price_from AS "priceFrom", price_currency AS "priceCurrency", ' +
+      'service_languages AS "serviceLanguages", availability_note AS "availabilityNote", published_at AS "publishedAt" ' +
+      "FROM partner_service_applications WHERE status = 'approved' AND published_at IS NOT NULL " +
+      'AND ($1::text = \'\' OR LOWER(country) = LOWER($1)) ' +
+      "AND ($2::text = '' OR category = $2 OR ($2 = 'photo' AND category IN ('photography', 'videography'))) " +
+      'ORDER BY published_at DESC, business_name ASC LIMIT 100',
+      [country, requestedCategory]
+    );
+    return res.json({ providers: result.rows });
+  } catch (error) {
+    console.error('Published partner directory failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_directory_unavailable' });
+  }
+});
+
+app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession, requireDatabase, profileActionLimiter, async (req, res) => {
+  const body = req.body || {};
+  const applicationId = body.applicationId;
+  const matchId = body.matchId;
+  const requestKey = body.requestKey;
+  const requestNote = typeof body.requestNote === 'string' ? body.requestNote.trim() : '';
+  const serviceDateInput = body.serviceDate === '' || body.serviceDate == null ? null : body.serviceDate;
+  if (!isUuid(applicationId) || !isUuid(matchId) || !isUuid(requestKey) ||
+      body.shareContact !== true || requestNote.length < 20 || requestNote.length > 2000 ||
+      (serviceDateInput !== null && (typeof serviceDateInput !== 'string' ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(serviceDateInput) ||
+        !Number.isFinite(Date.parse(serviceDateInput + 'T00:00:00Z')) ||
+        new Date(serviceDateInput + 'T00:00:00Z').toISOString().slice(0, 10) !== serviceDateInput))) {
+    return res.status(400).json({ error: 'invalid_partner_service_inquiry' });
+  }
+  if (!emailDeliveryConfigured()) return res.status(503).json({ error: 'partner_contact_temporarily_unavailable' });
+  let requesterName = String(req.authUser.display_name || '').trim().slice(0, 80);
+  let requesterEmail = normalizeEmail(req.authUser.email);
+  if (!requesterName || !isValidEmail(requesterEmail)) return res.status(400).json({ error: 'verified_contact_required' });
+
+  try {
+    const match = await pool.query(
+      "SELECT 1 FROM matches WHERE id = $1 AND status = 'active' AND (user_a_id = $2 OR user_b_id = $2) LIMIT 1",
+      [matchId, req.authUser.id]
+    );
+    if (!match.rowCount) return res.status(404).json({ error: 'active_match_not_found' });
+
+    const provider = await pool.query(
+      "SELECT id, business_name AS \"businessName\", contact_email AS \"contactEmail\" " +
+      "FROM partner_service_applications WHERE id = $1 AND status = 'approved' AND published_at IS NOT NULL LIMIT 1",
+      [applicationId]
+    );
+    if (!provider.rows[0]) return res.status(404).json({ error: 'published_partner_not_found' });
+
+    let inquiry = await pool.query(
+      'INSERT INTO partner_service_inquiries (application_id, match_id, requested_by, request_key, requester_name, requester_email, service_date, request_note, contact_consent_at) ' +
+      'VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW()) ON CONFLICT (requested_by, request_key) DO NOTHING RETURNING id, delivery_status AS \"deliveryStatus\"',
+      [applicationId, matchId, req.authUser.id, requestKey, requesterName, requesterEmail, serviceDateInput, requestNote]
+    );
+    if (!inquiry.rows[0]) {
+      inquiry = await pool.query(
+        'SELECT id, application_id AS \"applicationId\", match_id AS \"matchId\", service_date AS \"serviceDate\", request_note AS \"requestNote\", requester_name AS \"requesterName\", requester_email AS \"requesterEmail\", delivery_status AS \"deliveryStatus\" ' +
+        'FROM partner_service_inquiries WHERE requested_by = $1 AND request_key = $2 LIMIT 1',
+        [req.authUser.id, requestKey]
+      );
+      const existing = inquiry.rows[0];
+      if (!existing || existing.applicationId !== applicationId || existing.matchId !== matchId ||
+          existing.requestNote !== requestNote ||
+          (existing.serviceDate ? new Date(existing.serviceDate).toISOString().slice(0, 10) : null) !== serviceDateInput) {
+        return res.status(409).json({ error: 'inquiry_request_key_conflict' });
+      }
+      requesterName = existing.requesterName;
+      requesterEmail = existing.requesterEmail;
+      if (existing.deliveryStatus === 'sent') return res.json({ inquiryId: existing.id, sent: true });
+      if (existing.deliveryStatus === 'sending') return res.status(202).json({ inquiryId: existing.id, sent: false });
+    }
+
+    const inquiryId = inquiry.rows[0].id;
+    const claim = await pool.query(
+      "UPDATE partner_service_inquiries SET delivery_status = 'sending', delivery_attempts = delivery_attempts + 1, delivery_error = '', updated_at = NOW() " +
+      "WHERE id = $1 AND delivery_status = 'failed' RETURNING id",
+      [inquiryId]
+    );
+    if (!claim.rowCount) return res.status(202).json({ inquiryId, sent: false });
+
+    const escapeHtml = value => String(value).replace(/[&<>"']/g, character => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[character]);
+    const dateLine = serviceDateInput ? '<p><strong>Желаемая дата:</strong> ' + escapeHtml(serviceDateInput) + '</p>' : '';
+    try {
+      await sendConfiguredEmail({
+        to: provider.rows[0].contactEmail,
+        idempotencyKey: 'partner-service-inquiry/' + inquiryId,
+        subject: 'Новый запрос по услуге в Vow',
+        html: '<h2>Запрос предложения</h2><p>Пользователь дал согласие передать поставщику своё имя, email и текст запроса.</p>' +
+          '<p><strong>Имя:</strong> ' + escapeHtml(requesterName) + '</p>' +
+          '<p><strong>Email:</strong> ' + escapeHtml(requesterEmail) + '</p>' + dateLine +
+          '<p><strong>Сообщение:</strong></p><p>' + escapeHtml(requestNote).replace(/\n/g, '<br>') + '</p>' +
+          '<p>Данные второго участника совпадения, переписка и результаты совместимости не передаются.</p>'
+      });
+    } catch (error) {
+      // A provider rejection means delivery failed, but preserve the ambiguous state if
+      // the database itself cannot record that failure. Never imply a retry is safe
+      // unless the persisted state confirms it.
+      try {
+        await pool.query(
+          "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'email_delivery_failed', updated_at = NOW() WHERE id = $1",
+          [inquiryId]
+        );
+      } catch (stateError) {
+        console.error('Partner inquiry email failed and delivery state could not be saved:', stateError?.message || 'unknown error');
+        return res.status(503).json({ error: 'partner_inquiry_delivery_state_pending', inquiryId });
+      }
+      console.warn('Partner service inquiry delivery failed:', error?.message || 'unknown error');
+      return res.status(502).json({ error: 'partner_contact_temporarily_unavailable', inquiryId });
+    }
+
+    // Do not mark a successfully sent email as failed if only this bookkeeping update fails:
+    // a retry could send the same provider email a second time. Keep "sending" for reconciliation.
+    try {
+      await pool.query(
+        "UPDATE partner_service_inquiries SET delivery_status = 'sent', delivered_at = NOW(), updated_at = NOW() WHERE id = $1",
+        [inquiryId]
+      );
+    } catch (error) {
+      console.error('Partner inquiry email was delivered but delivery status could not be saved:', error?.message || 'unknown error');
+      return res.status(202).json({ inquiryId, sent: true, deliveryStatus: 'status_update_pending' });
+    }
+    return res.status(201).json({ inquiryId, sent: true });
+  } catch (error) {
+    console.error('Partner service inquiry failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_service_inquiry_failed' });
+  }
+});
+
+app.post('/api/partner-applications', validateRequestOrigin, partnerApplicationLimiter, requireDatabase, async (req, res) => {
+  const body = req.body || {};
+  const category = body.category;
+  const businessName = typeof body.businessName === 'string' ? body.businessName.trim() : '';
+  const contactName = typeof body.contactName === 'string' ? body.contactName.trim() : '';
+  const contactEmail = normalizeEmail(body.contactEmail);
+  const country = typeof body.country === 'string' ? body.country.trim() : '';
+  const city = typeof body.city === 'string' ? body.city.trim() : '';
+  const website = typeof body.website === 'string' ? body.website.trim() : '';
+  const serviceDescription = typeof body.serviceDescription === 'string' ? body.serviceDescription.trim() : '';
+  const priceFromInput = body.priceFrom === '' || body.priceFrom == null ? null : Number(body.priceFrom);
+  const priceCurrency = typeof body.priceCurrency === 'string' ? body.priceCurrency : 'USD';
+  const languageInput = typeof body.serviceLanguages === 'string' ? body.serviceLanguages : '';
+  const serviceLanguages = languageInput.split(',').map(language => language.trim()).filter(Boolean);
+  const availabilityNote = typeof body.availabilityNote === 'string' ? body.availabilityNote.trim() : '';
+  const currencies = ['USD', 'GEL', 'EUR', 'RUB', 'KZT', 'AMD'];
+  const categories = ['cafe', 'photography', 'videography', 'venue', 'beauty', 'legal', 'transport', 'other'];
+
+  let safeWebsite = '';
+  if (website) {
+    try {
+      const parsed = new URL(website);
+      if (parsed.protocol !== 'https:' || !parsed.hostname || parsed.username || parsed.password) {
+        return res.status(400).json({ error: 'invalid_partner_application' });
+      }
+      safeWebsite = parsed.toString();
+    } catch {
+      return res.status(400).json({ error: 'invalid_partner_application' });
+    }
+  }
+  if (!categories.includes(category) || businessName.length < 2 || businessName.length > 160 ||
+      contactName.length < 2 || contactName.length > 120 || !isValidEmail(contactEmail) ||
+      country.length < 2 || country.length > 100 || city.length < 2 || city.length > 120 ||
+      website.length > 500 || serviceDescription.length < 20 || serviceDescription.length > 2000 ||
+      (priceFromInput !== null && (!Number.isFinite(priceFromInput) || priceFromInput < 0 || priceFromInput > 10000000 || Math.abs(Math.round(priceFromInput * 100) - priceFromInput * 100) > 1e-7)) ||
+      !currencies.includes(priceCurrency) || languageInput.length > 500 || serviceLanguages.length > 10 ||
+      serviceLanguages.some(language => language.length < 2 || language.length > 40) || availabilityNote.length > 500) {
+    return res.status(400).json({ error: 'invalid_partner_application' });
+  }
+
+  try {
+    const result = await pool.query(
+      'INSERT INTO partner_service_applications (category, business_name, contact_name, contact_email, country, city, website, service_description, price_from, price_currency, service_languages, availability_note) ' +
+      'VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ' +
+      'RETURNING id, status, created_at AS "createdAt"',
+      [category, businessName, contactName, contactEmail, country, city, safeWebsite, serviceDescription, priceFromInput, priceCurrency, serviceLanguages, availabilityNote]
+    );
+    return res.status(201).json({ application: result.rows[0] });
+  } catch (error) {
+    console.error('Partner application submission failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_application_unavailable' });
+  }
+});
+
+app.post('/api/admin/partner-applications/:applicationId/publish', validateRequestOrigin, requireSession, requireDatabase, async (req, res) => {
+  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
+  const applicationId = req.params.applicationId;
+  if (!isUuid(applicationId)) return res.status(400).json({ error: 'invalid_partner_application_id' });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const result = await client.query(
+      "UPDATE partner_service_applications SET published_at = NOW(), published_by = $2, updated_at = NOW() " +
+      "WHERE id = $1 AND status = 'approved' AND published_at IS NULL " +
+      'RETURNING id, category, business_name AS "businessName", published_at AS "publishedAt"',
+      [applicationId, req.authUser.id]
+    );
+    if (!result.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'approved_partner_application_not_publishable' });
+    }
+    await client.query(
+      'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, details) VALUES ($1, $2, $3, $4, $5::jsonb)',
+      [req.authUser.id, 'partner_application_published', 'partner_service_application', applicationId, JSON.stringify({ category: result.rows[0].category, businessName: result.rows[0].businessName })]
+    );
+    await client.query('COMMIT');
+    return res.json({ application: result.rows[0] });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Partner application publication failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_application_publication_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.post('/api/admin/partner-applications/:applicationId/unpublish', validateRequestOrigin, requireSession, requireDatabase, async (req, res) => {
+  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
+  const applicationId = req.params.applicationId;
+  if (!isUuid(applicationId)) return res.status(400).json({ error: 'invalid_partner_application_id' });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const result = await client.query(
+      "UPDATE partner_service_applications SET published_at = NULL, published_by = NULL, updated_at = NOW() " +
+      "WHERE id = $1 AND status = 'approved' AND published_at IS NOT NULL " +
+      'RETURNING id, category, business_name AS "businessName"',
+      [applicationId]
+    );
+    if (!result.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'published_partner_application_not_found' });
+    }
+    await client.query(
+      'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, details) VALUES ($1, $2, $3, $4, $5::jsonb)',
+      [req.authUser.id, 'partner_application_unpublished', 'partner_service_application', applicationId, JSON.stringify({ category: result.rows[0].category, businessName: result.rows[0].businessName })]
+    );
+    await client.query('COMMIT');
+    return res.json({ application: result.rows[0] });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Partner application unpublication failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_application_unpublication_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.get('/api/admin/partner-applications', requireSession, requireDatabase, async (req, res) => {
+  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
+  try {
+    const result = await pool.query(
+      'SELECT id, category, business_name AS "businessName", contact_name AS "contactName", ' +
+      'contact_email AS "contactEmail", country, city, website, service_description AS "serviceDescription", ' +
+      'price_from AS "priceFrom", price_currency AS "priceCurrency", service_languages AS "serviceLanguages", availability_note AS "availabilityNote", ' +
+      'status, review_note AS "reviewNote", published_at AS "publishedAt", created_at AS "createdAt" ' +
+      "FROM partner_service_applications WHERE status IN ('pending', 'in_review', 'approved') ORDER BY created_at ASC LIMIT 100"
+    );
+    return res.json({ applications: result.rows });
+  } catch (error) {
+    console.error('Partner application queue failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_application_queue_failed' });
+  }
+});
+
+app.post('/api/admin/partner-applications/:applicationId/review', validateRequestOrigin, requireSession, requireDatabase, async (req, res) => {
+  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
+  const applicationId = req.params.applicationId;
+  const decision = req.body?.decision;
+  const reviewNote = typeof req.body?.reviewNote === 'string' ? req.body.reviewNote.trim().slice(0, 1000) : '';
+  if (!isUuid(applicationId) || !['in_review', 'approved', 'rejected'].includes(decision)) {
+    return res.status(400).json({ error: 'invalid_partner_application_review' });
+  }
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const result = await client.query(
+      'UPDATE partner_service_applications SET status = $2, reviewed_by = $3, reviewed_at = NOW(), ' +
+      "review_note = $4, updated_at = NOW() WHERE id = $1 AND status IN ('pending', 'in_review') " +
+      'RETURNING id, status, category, business_name AS "businessName"',
+      [applicationId, decision, req.authUser.id, reviewNote]
+    );
+    if (!result.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'pending_partner_application_not_found' });
+    }
+    await client.query(
+      'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, reason, details) VALUES ($1, $2, $3, $4, $5, $6::jsonb)',
+      [req.authUser.id, 'partner_application_' + decision, 'partner_service_application', applicationId, reviewNote || null, JSON.stringify({ category: result.rows[0].category, businessName: result.rows[0].businessName })]
+    );
+    await client.query('COMMIT');
+    return res.json({ application: result.rows[0] });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Partner application review failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_application_review_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
 app.get('/api/admin/screenings', requireSession, async (req, res) => {
   if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   try {
@@ -1941,6 +2272,22 @@ app.use('/api', (_req, res) => {
 const server = app.listen(port, '0.0.0.0', () => {
   console.log(`Vow API listening on port ${port}`);
 });
+
+if (pool && process.env.NODE_ENV !== 'test') {
+  const runPartnerRetentionCleanup = async () => {
+    try {
+      const result = await cleanupPartnerServiceData(pool, partnerRetentionOptions());
+      if (result.inquiriesDeleted || result.applicationsDeleted) {
+        console.info('Partner retention cleanup completed:', result);
+      }
+    } catch (error) {
+      console.error('Partner retention cleanup failed:', error?.message || 'unknown error');
+    }
+  };
+  void runPartnerRetentionCleanup();
+  const partnerRetentionInterval = setInterval(() => void runPartnerRetentionCleanup(), 24 * 60 * 60 * 1000);
+  partnerRetentionInterval.unref();
+}
 
 async function shutdown(signal) {
   console.log(`Received ${signal}; shutting down API`);
