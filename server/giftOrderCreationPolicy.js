@@ -15,7 +15,7 @@ export function evaluateGiftOrderCreation(context) {
   if (!sender || !recipient || !match || !product || !delivery || !activity || !safety || !idempotency) {
     return deny('missing_context');
   }
-  if (sender.id == null || recipient.id == null || sender.id === recipient.id) return deny('invalid_participants');
+  if (sender.id == null || recipient.id == null || String(sender.id) === String(recipient.id)) return deny('invalid_participants');
   if (sender.accountStatus !== 'active' || recipient.accountStatus !== 'active') return deny('account_ineligible');
   if (sender.isAdult !== true || recipient.isAdult !== true) return deny('adult_accounts_required');
   if (sender.identityVerified !== true) return deny('sender_identity_not_verified');
