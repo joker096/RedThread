@@ -1998,6 +1998,13 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
         "SELECT pg_advisory_xact_lock(hashtext('gift-safety:' || LEAST($1::uuid, $2::uuid)::text || ':' || GREATEST($1::uuid, $2::uuid)::text))",
         [order.sender_id, order.recipient_id]
       );
+      // Lock the existing preference row against a concurrent opt-out. A
+      // missing row remains disabled; the preference endpoint's upsert will
+      // serialize on this row whenever it already exists.
+      const preferenceState = await client.query(
+        'SELECT requests_enabled FROM gift_receiving_preferences WHERE user_id = $1 FOR SHARE',
+        [order.recipient_id]
+      );
       const currentSafety = await client.query(
         `SELECT m.status AS match_status,
                 sender.status AS sender_status,
@@ -2022,10 +2029,11 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
         [order.sender_id, order.recipient_id, order.match_id]
       );
       const safety = currentSafety.rows[0];
+      const requestsEnabled = preferenceState.rows[0]?.requests_enabled === true;
       if (!safety || safety.match_status !== 'active' ||
           safety.sender_status !== 'active' || safety.recipient_status !== 'active' ||
-          safety.requests_enabled !== true || safety.has_block === true ||
-          safety.has_open_report === true) {
+          !requestsEnabled || safety.requests_enabled !== true ||
+          safety.has_block === true || safety.has_open_report === true) {
         await client.query('ROLLBACK');
         return res.status(409).json({ error: 'gift_request_not_actionable' });
       }
