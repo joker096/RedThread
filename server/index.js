@@ -2273,48 +2273,36 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`ad-campaign:${user.id}:${campaignId}`]);
 
     const counts = await client.query(
-      `SELECT
+      `WITH recent_events AS (
+         SELECT
+           event_type,
+           created_at,
+           COUNT(*) OVER (PARTITION BY event_type)::int AS event_count,
+           ROW_NUMBER() OVER (PARTITION BY event_type ORDER BY created_at ASC) AS event_position
+         FROM ad_events
+         WHERE user_id = $1 AND campaign_id = $2
+           AND created_at >= NOW() - INTERVAL '24 hours'
+       )
+       SELECT
          COUNT(*) FILTER (WHERE event_type = 'impression')::int AS impressions,
          COUNT(*) FILTER (WHERE event_type = 'click')::int AS clicks,
-         GREATEST(1, CEIL(EXTRACT(EPOCH FROM (
-           (
-             SELECT e.created_at
-             FROM ad_events e
-             WHERE e.user_id = $1 AND e.campaign_id = $2
-               AND e.event_type = 'impression'
-               AND e.created_at >= NOW() - INTERVAL '24 hours'
-             ORDER BY e.created_at ASC
-             OFFSET GREATEST(
-               (SELECT COUNT(*)::int FROM ad_events e
-                WHERE e.user_id = $1 AND e.campaign_id = $2
-                  AND e.event_type = 'impression'
-                  AND e.created_at >= NOW() - INTERVAL '24 hours') - 3,
-               0
-             )
-             LIMIT 1
-           ) + INTERVAL '24 hours' - NOW()
-         ))))::int AS impression_retry_after_seconds,
-         GREATEST(1, CEIL(EXTRACT(EPOCH FROM (
-           (
-             SELECT e.created_at
-             FROM ad_events e
-             WHERE e.user_id = $1 AND e.campaign_id = $2
-               AND e.event_type = 'click'
-               AND e.created_at >= NOW() - INTERVAL '24 hours'
-             ORDER BY e.created_at ASC
-             OFFSET GREATEST(
-               (SELECT COUNT(*)::int FROM ad_events e
-                WHERE e.user_id = $1 AND e.campaign_id = $2
-                  AND e.event_type = 'click'
-                  AND e.created_at >= NOW() - INTERVAL '24 hours') - 5,
-               0
-             )
-             LIMIT 1
-           ) + INTERVAL '24 hours' - NOW()
-         ))))::int AS click_retry_after_seconds
-       FROM ad_events
-       WHERE user_id = $1 AND campaign_id = $2
-         AND created_at >= NOW() - INTERVAL '24 hours'`,
+         COALESCE(
+           MAX(GREATEST(1, CEIL(EXTRACT(EPOCH FROM (created_at + INTERVAL '24 hours' - NOW()))))::int)
+             FILTER (
+               WHERE event_type = 'impression'
+                 AND event_position = GREATEST(event_count - 3 + 1, 1)
+             ),
+           1
+         ) AS impression_retry_after_seconds,
+         COALESCE(
+           MAX(GREATEST(1, CEIL(EXTRACT(EPOCH FROM (created_at + INTERVAL '24 hours' - NOW()))))::int)
+             FILTER (
+               WHERE event_type = 'click'
+                 AND event_position = GREATEST(event_count - 5 + 1, 1)
+             ),
+           1
+         ) AS click_retry_after_seconds
+       FROM recent_events`,
       [user.id, campaignId]
     );
     const eventCounts = counts.rows[0];
