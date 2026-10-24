@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS gift_delivery_order_events (
   id BIGSERIAL PRIMARY KEY,
   order_id UUID NOT NULL REFERENCES gift_delivery_orders(id) ON DELETE RESTRICT,
   actor_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-  actor_type TEXT NOT NULL CHECK (actor_type IN ('sender', 'recipient', 'system', 'moderator', 'delivery_partner')),
+  actor_type TEXT NOT NULL CHECK (actor_type IN ('sender', 'recipient', 'system', 'moderator', 'delivery_partner', 'payment_service')),
   event_type TEXT NOT NULL CHECK (event_type IN (
     'request_created', 'accepted', 'declined', 'expired', 'address_verified',
     'fulfilment_authorized', 'dispatched', 'delivered', 'delivery_failed',
