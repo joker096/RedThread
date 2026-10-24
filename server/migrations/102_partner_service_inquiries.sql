@@ -17,6 +17,9 @@ CREATE TABLE IF NOT EXISTS partner_service_inquiries (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (requested_by, request_key),
+  CHECK (LENGTH(BTRIM(requester_name)) BETWEEN 1 AND 80),
+  CHECK (requester_email = LOWER(BTRIM(requester_email)) AND LENGTH(requester_email) BETWEEN 3 AND 254),
+  CHECK ((delivery_status = 'sent') = (delivered_at IS NOT NULL)),
   CHECK (LENGTH(BTRIM(request_note)) BETWEEN 20 AND 2000)
 );
 
