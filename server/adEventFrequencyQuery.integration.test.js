@@ -111,3 +111,30 @@ test('PostgreSQL permits only one pending gift request per unordered match pair'
     await client.end();
   }
 });
+
+test('PostgreSQL enforces sender-scoped idempotency keys for gift orders', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  await client.connect();
+
+  try {
+    const result = await client.query(
+      `SELECT i.indisunique AS is_unique, pg_get_indexdef(i.indexrelid) AS definition
+       FROM pg_index i
+       JOIN pg_class idx ON idx.oid = i.indexrelid
+       JOIN pg_class tbl ON tbl.oid = i.indrelid
+       WHERE tbl.relname = 'gift_delivery_orders'
+         AND idx.relname = 'gift_delivery_orders_sender_id_idempotency_key_key'`
+    );
+    assert.equal(result.rowCount, 1, 'sender/idempotency unique index must exist');
+    assert.equal(result.rows[0].is_unique, true);
+    const definition = result.rows[0].definition.toLowerCase();
+    assert.match(definition, /sender_id/);
+    assert.match(definition, /idempotency_key/);
+  } finally {
+    await client.end();
+  }
+});
+
