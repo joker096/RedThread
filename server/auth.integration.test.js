@@ -249,6 +249,81 @@ test('auth API supports registration, session lookup, logout and login', {
     const maleCookie = maleRegistration.headers.get('set-cookie')?.split(';')[0];
     assert.ok(maleCookie?.startsWith('nit_session='));
 
+    const initialAdConsent = await request('/api/ads/consent', { headers: { Cookie: secondCookie } });
+    assert.equal(initialAdConsent.status, 200);
+    assert.deepEqual((await initialAdConsent.json()).preferences, {
+      adsConsent: false,
+      dateOffersConsent: false,
+      weddingOffersConsent: false,
+      marriagePlanningOptIn: false,
+      categoryConsents: {}
+    });
+
+    const savedAdConsent = await request('/api/ads/consent', {
+      method: 'PUT',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({
+        adsConsent: true,
+        dateOffersConsent: true,
+        weddingOffersConsent: true,
+        marriagePlanningOptIn: true,
+        categoryConsents: { travel: true, fashion: true }
+      })
+    });
+    assert.equal(savedAdConsent.status, 200);
+    assert.deepEqual((await savedAdConsent.json()).preferences, {
+      adsConsent: true,
+      dateOffersConsent: true,
+      weddingOffersConsent: true,
+      marriagePlanningOptIn: true,
+      categoryConsents: { travel: true, fashion: true }
+    });
+
+    const foreignTargetAttempt = await request('/api/ads/consent', {
+      method: 'PUT',
+      headers: { Cookie: maleCookie },
+      body: JSON.stringify({
+        userId: registered.user.id,
+        adsConsent: true,
+        dateOffersConsent: true,
+        weddingOffersConsent: false,
+        marriagePlanningOptIn: false,
+        categoryConsents: {}
+      })
+    });
+    assert.equal(foreignTargetAttempt.status, 400,
+      'the consent API must reject client-supplied user IDs rather than permitting cross-account writes');
+
+    const outsiderAdConsent = await request('/api/ads/consent', { headers: { Cookie: maleCookie } });
+    assert.equal(outsiderAdConsent.status, 200);
+    assert.deepEqual((await outsiderAdConsent.json()).preferences, {
+      adsConsent: false,
+      dateOffersConsent: false,
+      weddingOffersConsent: false,
+      marriagePlanningOptIn: false,
+      categoryConsents: {}
+    }, 'a separate account must not read another account\'s consent preferences');
+
+    const revokeAdConsent = await request('/api/ads/consent', {
+      method: 'PUT',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({
+        adsConsent: false,
+        dateOffersConsent: true,
+        weddingOffersConsent: true,
+        marriagePlanningOptIn: true,
+        categoryConsents: { travel: true, fashion: true }
+      })
+    });
+    assert.equal(revokeAdConsent.status, 200);
+    assert.deepEqual((await revokeAdConsent.json()).preferences, {
+      adsConsent: false,
+      dateOffersConsent: false,
+      weddingOffersConsent: false,
+      marriagePlanningOptIn: false,
+      categoryConsents: {}
+    }, 'revoking master consent must clear every dependent preference in persisted API state');
+
     const pendingPhotoReadByOtherAccount = await request(uploadedPhoto.photoUrl, { headers: { Cookie: maleCookie } });
     assert.equal(pendingPhotoReadByOtherAccount.status, 404, 'pending photos must not be visible to other accounts');
     const crossAccountPhotoAttach = await request('/api/profiles/me', {
