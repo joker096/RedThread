@@ -116,10 +116,11 @@ test('auth API supports registration, session lookup, logout and login', {
     // Exercise the public photo filter against an approved and published photography listing.
     const testPool = new Pool({ connectionString: process.env.DATABASE_URL });
     try {
-      await testPool.query(
+      const promoted = await testPool.query(
         "UPDATE partner_service_applications SET status = 'approved', published_at = NOW() WHERE contact_email = $1",
         [partnerApplication.contactEmail]
       );
+      assert.equal(promoted.rowCount, 1, 'the regression test must promote exactly its own submitted application');
       const publishedDirectoryResponse = await request('/api/partner-services?country=Georgia&category=photo');
       assert.equal(publishedDirectoryResponse.status, 200);
       const publishedDirectory = await publishedDirectoryResponse.json();
