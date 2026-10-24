@@ -67,7 +67,8 @@ export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecord
     reported: new Set(['cancelled', 'refund_pending']), delivered: new Set([]),
     refund_pending: new Set(['refunded']), refunded: new Set([])
   };
-  // Keep the policy state graph aligned with persisted statuses; `draft` is not a DB state.\n  if (!transitions[from]?.has(to)) return false;
+  // Keep the policy state graph aligned with persisted statuses; `draft` is not a DB state.
+  if (!transitions[from]?.has(to)) return false;
 
   if (to === 'awaiting_recipient_consent' && actor !== 'sender') return false;
   if (to === 'recipient_accepted' && (actor !== 'recipient' || !recipientConsentRecorded)) return false;
