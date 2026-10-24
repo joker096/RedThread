@@ -73,6 +73,7 @@ test('fails closed when required context or campaign approval is missing', () =>
 
 test('restaurant and cafe offers require an explicitly confirmed mutual date', () => {
   assert.deepEqual(evaluate(), { eligible: true, reason: 'confirmed_date' });
+  assert.equal(evaluateContextualAdEligibility({ campaign, viewer, surface: 'confirmed_date_detail' }).reason, 'missing_context');
   assert.equal(evaluate({ match: { dateStatus: 'pending' } }).reason, 'date_not_mutually_confirmed');
   assert.equal(evaluate({ match: { mutuallyAcceptedDate: false } }).reason, 'date_not_mutually_confirmed');
   assert.equal(evaluate({ match: { dateCancelled: true } }).reason, 'date_cancelled');
@@ -112,6 +113,22 @@ test('bridal offers are restricted to opted-in women with sustained mutual activ
   assert.equal(check({}, { viewerMessagesSent: BRIDAL_MIN_MESSAGES_PER_PERSON - 1 }).reason, 'insufficient_mutual_conversation');
   assert.equal(check({}, { partnerMessagesSent: BRIDAL_MIN_MESSAGES_PER_PERSON - 1 }).reason, 'insufficient_mutual_conversation');
   assert.equal(check({}, {}, 'private_chat').reason, 'surface_excluded');
+});
+
+test('user-requested gift discovery does not require a match or date', () => {
+  const result = evaluateContextualAdEligibility({
+    campaign: { ...campaign, category: 'flowers' },
+    viewer,
+    surface: 'user_requested_gift_discovery'
+  });
+  assert.deepEqual(result, { eligible: true, reason: 'user_requested_gift_discovery' });
+  assert.equal(evaluateContextualAdEligibility({
+    campaign: { ...campaign, category: 'cafe' }, viewer, surface: 'user_requested_gift_discovery'
+  }).reason, 'missing_context');
+  assert.equal(evaluateContextualAdEligibility({
+    campaign: { ...campaign, category: 'gift' }, viewer: { ...viewer, safetyRestricted: undefined },
+    surface: 'user_requested_gift_discovery'
+  }).reason, 'safety_state_unavailable_or_restricted');
 });
 
 test('opt-in categories and legal help require their own consent and entry points', () => {
