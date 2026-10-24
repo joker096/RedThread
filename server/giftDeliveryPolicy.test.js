@@ -4,7 +4,7 @@ import { GIFT_MAX_ACCEPTED_PER_RECIPIENT_PER_7_DAYS, GIFT_MAX_NEW_REQUESTS_PER_3
 
 const sender = { accountStatus: 'active', isAdult: true, identityVerified: true, safetyRestricted: false, pendingRequestsToRecipient: 0, newRequestsLast30Days: 0, acceptedGiftsToRecipientLast7Days: 0, accountCreatedAt: '2026-01-01T00:00:00Z' };
 const recipient = { id: 'recipient-internal-42', authenticatedUserId: 'recipient-internal-42', accountStatus: 'active', isAdult: true, safetyRestricted: false, giftRequestsEnabled: true };
-const relationship = { status: 'active_match', ageDays: GIFT_MIN_MATCH_AGE_DAYS, senderMessagesSent: GIFT_MIN_MESSAGES_PER_PERSON, recipientMessagesSent: GIFT_MIN_MESSAGES_PER_PERSON, blocked: false, reported: false, paused: false, safetyRestricted: false };
+const relationship = { safetyEvents: [], status: 'active_match', ageDays: GIFT_MIN_MATCH_AGE_DAYS, senderMessagesSent: GIFT_MIN_MESSAGES_PER_PERSON, recipientMessagesSent: GIFT_MIN_MESSAGES_PER_PERSON, blocked: false, reported: false, paused: false, safetyRestricted: false };
 const product = { category: 'chocolate', catalogApproved: true, supplierVerified: true, available: true, totalMinorUnits: 2500, currency: 'GEL' };
 const delivery = { coverageVerified: true, countrySupported: true, regionAllowed: true, partnerId: 'partner-ge-1' };
 function request(overrides = {}) { return evaluateGiftRequestEligibility({ sender: { ...sender, ...overrides.sender }, recipient: { ...recipient, ...overrides.recipient }, relationship: { ...relationship, ...overrides.relationship }, product: { ...product, ...overrides.product }, delivery: { ...delivery, ...overrides.delivery } }); }
@@ -34,21 +34,29 @@ const order = { id: 'internal-order-1', publicReference: 'gift_7f2a', status: 'r
 const address = { ownerUserId: recipient.id, verified: true, recipientEntered: true };
 const payment = { status: 'authorized', orderId: order.id, amountMinorUnits: 2500, currency: 'GEL' };
 test('fulfilment requires recipient acceptance, unexpired request, verified address and matching payment', () => {
-  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, recipient, address, payment, relationship }).eligible, true);
-  assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, status: 'awaiting_recipient_consent' }, recipient, address, payment, relationship }).reason, 'recipient_consent_required');
-  assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, expiresAt: undefined }, recipient, address, payment, relationship }).reason, 'request_expired');
-  assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, expiresAt: '2020-01-01T00:00:00Z' }, recipient, address, payment, relationship, now: Date.parse('2026-10-24T00:00:00Z') }).reason, 'request_expired');
-  assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, consentRecordedAt: undefined }, recipient, address, payment, relationship }).reason, 'recipient_consent_record_missing');
-  assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, consentRecordedAt: '2026-10-25T12:00:00Z' }, recipient, address, payment, relationship, now: Date.parse('2026-10-24T00:00:00Z') }).reason, 'recipient_consent_record_missing');
-  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, recipient: { ...recipient, id: 'other' }, address, payment, relationship }).reason, 'recipient_authorization_failed');
-  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, recipient, address: { ...address, recipientEntered: false }, payment, relationship }).reason, 'recipient_address_not_verified');
-  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, recipient, payment: { ...payment, amountMinorUnits: 1 }, address, relationship }).reason, 'payment_not_authorized_for_order');
-  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, recipient, address, payment, relationship: { ...relationship, reported: true } }).reason, 'relationship_safety_state_unavailable_or_restricted');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, address, payment, relationship, safetyEvents: [] }).eligible, true);
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, status: 'awaiting_recipient_consent' }, sender, recipient, address, payment, relationship, safetyEvents: [] }).reason, 'recipient_consent_required');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, expiresAt: undefined }, sender, recipient, address, payment, relationship, safetyEvents: [] }).reason, 'request_expired');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, expiresAt: '2020-01-01T00:00:00Z' }, sender, recipient, address, payment, relationship, safetyEvents: [], now: Date.parse('2026-10-24T00:00:00Z') }).reason, 'request_expired');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, consentRecordedAt: undefined }, sender, recipient, address, payment, relationship, safetyEvents: [] }).reason, 'recipient_consent_record_missing');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, consentRecordedAt: '2026-10-25T12:00:00Z' }, sender, recipient, address, payment, relationship, safetyEvents: [], now: Date.parse('2026-10-24T00:00:00Z') }).reason, 'recipient_consent_record_missing');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient: { ...recipient, id: 'other' }, address, payment, relationship, safetyEvents: [] }).reason, 'recipient_authorization_failed');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, address: { ...address, recipientEntered: false }, payment, relationship, safetyEvents: [] }).reason, 'recipient_address_not_verified');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, payment: { ...payment, amountMinorUnits: 1 }, address, relationship, safetyEvents: [] }).reason, 'payment_not_authorized_for_order');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, address, payment, relationship: { ...relationship, reported: true }, safetyEvents: [] }).reason, 'relationship_safety_state_unavailable_or_restricted');
+});
+test('fulfilment requires explicit fresh safety-event state and a safe active sender', () => {
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, address, payment, relationship }).reason, 'missing_context');
+  for (const event of ['block', 'report', 'restriction', 'account_deleted', 'consent_withdrawn']) {
+    assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, address, payment, relationship, safetyEvents: [event] }).reason, 'safety_event_requires_fulfilment_suspension');
+  }
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender: { ...sender, accountStatus: 'deleted' }, recipient, address, payment, relationship, safetyEvents: [] }).reason, 'sender_safety_state_unavailable_or_restricted');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, address, payment, relationship, safetyEvents: ['unknown'] }).reason, 'safety_state_unavailable_or_invalid');
 });
 test('fulfilment fails closed after gift preference opt-out or explicit consent withdrawal', () => {
-  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, recipient: { ...recipient, giftRequestsEnabled: false }, address, payment, relationship }).reason, 'recipient_consent_withdrawn');
-  assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, consentWithdrawnAt: '2026-10-23T12:00:00Z' }, recipient, address, payment, relationship }).reason, 'recipient_consent_withdrawn');
-  assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, fulfilmentAuthorized: true }, recipient, address, payment, relationship }).reason, 'fulfilment_already_authorized');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient: { ...recipient, giftRequestsEnabled: false }, address, payment, relationship, safetyEvents: [] }).reason, 'recipient_consent_withdrawn');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, consentWithdrawnAt: '2026-10-23T12:00:00Z' }, sender, recipient, address, payment, relationship, safetyEvents: [] }).reason, 'recipient_consent_withdrawn');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, fulfilmentAuthorized: true }, sender, recipient, address, payment, relationship, safetyEvents: [] }).reason, 'fulfilment_already_authorized');
 });
 test('state transitions enforce actors, consent, persisted states, and terminal states', () => {
   assert.equal(canTransitionGiftOrder({ from: 'draft', to: 'awaiting_recipient_consent', actor: 'sender' }), false);
