@@ -83,13 +83,26 @@ export function normalizeAdConsentPreferences(input) {
 }
 
 export function serializeAdConsentPreferences(row) {
-  if (!row) return { ...DEFAULT_AD_CONSENT_PREFERENCES, categoryConsents: {} };
+  if (!row || row.ads_consent !== true) {
+    return { ...DEFAULT_AD_CONSENT_PREFERENCES, categoryConsents: {} };
+  }
+
+  const weddingOffersConsent = row.wedding_offers_consent === true;
+  const rawCategoryConsents = row.category_consents && typeof row.category_consents === 'object' &&
+    !Array.isArray(row.category_consents) ? row.category_consents : {};
+  const categoryConsents = {};
+
+  // Treat persisted data as untrusted too: corrupt/stale rows must never re-enable
+  // unknown categories or preferences whose parent consent has been revoked.
+  for (const category of AD_CONSENT_CATEGORIES) {
+    if (rawCategoryConsents[category] === true) categoryConsents[category] = true;
+  }
+
   return {
-    adsConsent: row.ads_consent === true,
+    adsConsent: true,
     dateOffersConsent: row.date_offers_consent === true,
-    weddingOffersConsent: row.wedding_offers_consent === true,
-    marriagePlanningOptIn: row.marriage_planning_opt_in === true,
-    categoryConsents: row.category_consents && typeof row.category_consents === 'object' &&
-      !Array.isArray(row.category_consents) ? row.category_consents : {}
+    weddingOffersConsent,
+    marriagePlanningOptIn: weddingOffersConsent && row.marriage_planning_opt_in === true,
+    categoryConsents
   };
 }
