@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AD_CLICK_CAP_24H, AD_IMPRESSION_CAP_24H, classifyDuplicateAdEvent, evaluateAdEventBillingEligibility, hasExplicitAdConsent, validateAdEventPayload } from './adEvents.js';
+import { AD_CLICK_CAP_24H, AD_IMPRESSION_CAP_24H, classifyDuplicateAdEvent, evaluateAdEventBillingEligibility, evaluateAdEventFrequency, hasExplicitAdConsent, validateAdEventPayload } from './adEvents.js';
 
 test('ad event payload accepts valid impression and click events', () => {
   const base = { eventId: 'b5e8d1a0-5c2b-4f39-8f04-3db6a1e32d88', campaignId: 'restaurant_summer-1' };
@@ -76,4 +76,32 @@ test('persisted client engagement alone is never billable', () => {
     event: { event_type: 'unknown' }, campaignApproved: true, viewabilityVerified: true,
     invalidTrafficChecked: true, attributionValid: true, proofSource: 'trusted_server_measurement'
   }), { billable: false, reason: 'invalid_event' });
+});
+
+
+test('ad frequency policy enforces impression and click caps from persisted counts', () => {
+  assert.deepEqual(evaluateAdEventFrequency({ eventType: 'impression', impressionCount: 2 }), {
+    allowed: true, reason: null
+  });
+  assert.deepEqual(evaluateAdEventFrequency({ eventType: 'impression', impressionCount: 3 }), {
+    allowed: false, reason: 'ad_frequency_cap_reached'
+  });
+  assert.deepEqual(evaluateAdEventFrequency({ eventType: 'click', impressionCount: 1, clickCount: 4 }), {
+    allowed: true, reason: null
+  });
+  assert.deepEqual(evaluateAdEventFrequency({ eventType: 'click', impressionCount: 1, clickCount: 5 }), {
+    allowed: false, reason: 'ad_click_frequency_cap_reached'
+  });
+});
+
+test('ad click policy requires an impression and rejects invalid persisted counts', () => {
+  assert.deepEqual(evaluateAdEventFrequency({ eventType: 'click', impressionCount: 0, clickCount: 0 }), {
+    allowed: false, reason: 'impression_required_before_click'
+  });
+  assert.deepEqual(evaluateAdEventFrequency({ eventType: 'impression', impressionCount: -1 }), {
+    allowed: false, reason: 'invalid_event_counts'
+  });
+  assert.deepEqual(evaluateAdEventFrequency({ eventType: 'unknown' }), {
+    allowed: false, reason: 'invalid_event_type'
+  });
 });
