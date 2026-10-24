@@ -27,8 +27,8 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
     return deny('invalid_category');
   }
   if (campaign.status !== 'approved' || campaign.active !== true) return deny('campaign_not_active');
-  if (campaign.startsAt && !isValidDate(campaign.startsAt)) return deny('invalid_campaign_start');
-  if (campaign.endsAt && !isValidDate(campaign.endsAt)) return deny('invalid_campaign_end');
+  if (!isValidDate(campaign.startsAt)) return deny('invalid_campaign_start');
+  if (!isValidDate(campaign.endsAt)) return deny('invalid_campaign_end');
   const now = Number.isFinite(campaign.now) ? campaign.now : Date.now();
   if (campaign.startsAt && Date.parse(campaign.startsAt) > now) return deny('campaign_not_started');
   if (campaign.endsAt && Date.parse(campaign.endsAt) <= now) return deny('campaign_expired');
@@ -38,8 +38,10 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
   }
   if (FORBIDDEN_CATEGORIES.has(category)) return deny('category_blocked');
   if (viewer.accountEligible !== true || viewer.adsConsent !== true) return deny('viewer_not_consented_or_eligible');
-  if (viewer.safetyRestricted === true || match.safetyRestricted === true || match.blocked === true || match.reported === true || match.paused === true) {
-    return deny('safety_suppressed');
+  // Safety state must be explicitly loaded from trusted server records; unknown is not equivalent to safe.
+  if (viewer.safetyRestricted !== false || match.safetyRestricted !== false || match.blocked !== false
+    || match.reported !== false || match.paused !== false) {
+    return deny('safety_state_unavailable_or_restricted');
   }
 
   // Private or safety-critical surfaces never carry advertising.
@@ -50,7 +52,7 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
   if (DATE_CONTEXT_CATEGORIES.has(category)) {
     if (surface !== 'confirmed_date_detail') return deny('date_surface_required');
     if (match.dateStatus !== 'confirmed' || match.mutuallyAcceptedDate !== true) return deny('date_not_mutually_confirmed');
-    if (match.dateCancelled === true) return deny('date_cancelled');
+    if (match.dateCancelled !== false) return deny(match.dateCancelled === true ? 'date_cancelled' : 'date_cancellation_state_unknown');
     if (viewer.dateOffersConsent !== true) return deny('date_offer_consent_required');
     // Date-context offers are pair-contextual: both participants must independently opt in.
     if (match.partnerAdsConsent !== true || match.partnerDateOffersConsent !== true) {
