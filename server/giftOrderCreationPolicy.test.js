@@ -72,3 +72,21 @@ test('missing trusted context is denied', () => {
   assert.equal(result.eligible, false);
   assert.equal(result.reason, 'missing_context');
 });
+
+test('rejects self-gifting, invalid money values, and unverified suppliers', () => {
+  const selfGift = validContext();
+  selfGift.recipient.id = selfGift.sender.id;
+  assert.equal(evaluateGiftOrderCreation(selfGift).reason, 'invalid_participants');
+
+  const zeroPrice = validContext();
+  zeroPrice.product.totalMinorUnits = 0;
+  assert.equal(evaluateGiftOrderCreation(zeroPrice).reason, 'invalid_total_price');
+
+  const malformedCurrency = validContext();
+  malformedCurrency.product.currency = 'gel';
+  assert.equal(evaluateGiftOrderCreation(malformedCurrency).reason, 'invalid_total_price');
+
+  const unverifiedSupplier = validContext();
+  unverifiedSupplier.product.supplierVerified = false;
+  assert.equal(evaluateGiftOrderCreation(unverifiedSupplier).reason, 'product_or_supplier_not_approved');
+});
