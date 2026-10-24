@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AD_IMPRESSION_CAP_24H, classifyDuplicateAdEvent, hasExplicitAdConsent, validateAdEventPayload } from './adEvents.js';
+import { AD_IMPRESSION_CAP_24H, classifyDuplicateAdEvent, evaluateAdEventBillingEligibility, hasExplicitAdConsent, validateAdEventPayload } from './adEvents.js';
 
 test('ad event payload accepts valid impression and click events', () => {
   const base = { eventId: 'b5e8d1a0-5c2b-4f39-8f04-3db6a1e32d88', campaignId: 'restaurant_summer-1' };
@@ -53,4 +53,24 @@ test('ad event idempotency accepts only an exact retry by the same user', () => 
   assert.equal(classifyDuplicateAdEvent({ ...row, campaign_id: 'other-campaign' }, event), 'conflict');
   assert.equal(classifyDuplicateAdEvent({ ...row, event_type: 'click' }, event), 'conflict');
   assert.equal(classifyDuplicateAdEvent({ ...row, user_id: 'user-a' }, { ...event, userId: 'user-b' }), 'conflict');
+});
+
+
+test('persisted client engagement alone is never billable', () => {
+  const event = { event_type: 'impression' };
+  assert.deepEqual(evaluateAdEventBillingEligibility({ event }), {
+    billable: false, reason: 'billing_evidence_incomplete'
+  });
+  assert.deepEqual(evaluateAdEventBillingEligibility({
+    event, campaignApproved: true, viewabilityVerified: true,
+    invalidTrafficChecked: true, attributionValid: true, proofSource: 'client'
+  }), { billable: false, reason: 'untrusted_billing_evidence' });
+  assert.deepEqual(evaluateAdEventBillingEligibility({
+    event, campaignApproved: true, viewabilityVerified: true,
+    invalidTrafficChecked: true, attributionValid: true, proofSource: 'trusted_server_measurement'
+  }), { billable: true, reason: 'verified_billing_evidence' });
+  assert.deepEqual(evaluateAdEventBillingEligibility({
+    event: { event_type: 'unknown' }, campaignApproved: true, viewabilityVerified: true,
+    invalidTrafficChecked: true, attributionValid: true, proofSource: 'trusted_server_measurement'
+  }), { billable: false, reason: 'invalid_event' });
 });
