@@ -2169,6 +2169,93 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
   }
 });
 
+app.post('/api/gifts/orders/:publicReference/withdraw-consent', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  const reference = req.params.publicReference;
+  if (typeof reference !== 'string' || !/^gift_[a-f0-9]{32}$/i.test(reference)) {
+    return res.status(400).json({ error: 'invalid_gift_reference' });
+  }
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    // Only the recipient may withdraw consent. Acquire the same pair lock as
+    // acceptance, blocking, and reporting before taking the order row lock.
+    const pair = await client.query(
+      `SELECT sender_id, recipient_id
+       FROM gift_delivery_orders
+       WHERE public_reference = $1 AND recipient_id = $2`,
+      [reference, req.authUser.id]
+    );
+    if (!pair.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'gift_order_not_available' });
+    }
+
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext('gift-safety:' || LEAST($1::uuid, $2::uuid)::text || ':' || GREATEST($1::uuid, $2::uuid)::text))",
+      [pair.rows[0].sender_id, pair.rows[0].recipient_id]
+    );
+
+    const selected = await client.query(
+      `SELECT id, status, payment_status, consent_withdrawn_at, dispatched_at
+       FROM gift_delivery_orders
+       WHERE public_reference = $1 AND recipient_id = $2
+       FOR UPDATE`,
+      [reference, req.authUser.id]
+    );
+    const order = selected.rows[0];
+    if (!order || order.consent_withdrawn_at) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_order_not_withdrawable' });
+    }
+
+    // Withdrawal is available only before fulfilment authorization or dispatch.
+    // Payment transitions are intentionally not simulated by this endpoint.
+    if (!['recipient_accepted', 'address_verified'].includes(order.status) ||
+        order.dispatched_at ||
+        !['not_started', 'failed', 'voided'].includes(order.payment_status)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_order_not_withdrawable' });
+    }
+
+    const updated = await client.query(
+      `UPDATE gift_delivery_orders
+       SET status = 'cancelled',
+           consent_withdrawn_at = NOW(),
+           address_vault_ref = NULL,
+           address_verified_at = NULL,
+           updated_at = NOW()
+       WHERE id = $1
+         AND recipient_id = $2
+         AND status IN ('recipient_accepted', 'address_verified')
+         AND consent_withdrawn_at IS NULL
+       RETURNING public_reference`,
+      [order.id, req.authUser.id]
+    );
+    if (updated.rowCount !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_order_not_withdrawable' });
+    }
+
+    await client.query(
+      `INSERT INTO gift_delivery_order_events
+         (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
+       VALUES ($1, $2, 'recipient', 'consent_withdrawn', $3, 'cancelled')`,
+      [order.id, req.authUser.id, order.status]
+    );
+    await client.query('COMMIT');
+    return res.json({ order: { id: updated.rows[0].public_reference, status: 'cancelled', consentWithdrawn: true } });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Gift consent withdrawal failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_consent_withdrawal_unavailable' });
+  } finally {
+    client?.release();
+  }
+});
+
 app.get('/api/gifts/orders', requireSession, profileActionLimiter, async (req, res) => {
   try {
     const result = await pool.query(
