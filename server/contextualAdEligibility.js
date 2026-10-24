@@ -39,8 +39,8 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
   if (FORBIDDEN_CATEGORIES.has(category)) return deny('category_blocked');
   if (viewer.accountEligible !== true || viewer.adsConsent !== true) return deny('viewer_not_consented_or_eligible');
   // Safety state must be explicitly loaded from trusted server records; unknown is not equivalent to safe.
-  if (viewer.safetyRestricted !== false || match.safetyRestricted !== false || match.blocked !== false
-    || match.reported !== false || match.paused !== false) {
+  if (viewer.safetyRestricted !== false || match.safetyRestricted !== false || match.partnerSafetyRestricted !== false
+    || match.partnerAccountEligible !== true || match.blocked !== false || match.reported !== false || match.paused !== false) {
     return deny('safety_state_unavailable_or_restricted');
   }
 
