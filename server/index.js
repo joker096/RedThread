@@ -1909,6 +1909,119 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
   }
 });
 
+app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  const action = req.body?.action;
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) ||
+      Object.keys(req.body).some(key => key !== 'action') ||
+      !['accept', 'decline'].includes(action)) {
+    return res.status(400).json({ error: 'invalid_gift_decision' });
+  }
+  const reference = req.params.publicReference;
+  if (typeof reference !== 'string' || !/^gift_[a-f0-9]{32}$/i.test(reference)) {
+    return res.status(404).json({ error: 'gift_request_not_available' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const selected = await client.query(
+      `SELECT o.id, o.match_id, o.sender_id, o.recipient_id, o.status, o.expires_at,
+              m.status AS match_status,
+              sender.status AS sender_status,
+              recipient.status AS recipient_status,
+              COALESCE(pref.requests_enabled, FALSE) AS requests_enabled,
+              EXISTS (
+                SELECT 1 FROM user_blocks b
+                WHERE (b.blocker_id = o.sender_id AND b.blocked_id = o.recipient_id)
+                   OR (b.blocker_id = o.recipient_id AND b.blocked_id = o.sender_id)
+              ) AS has_block,
+              EXISTS (
+                SELECT 1 FROM user_reports r
+                WHERE r.status IN ('open', 'reviewing')
+                  AND ((r.reporter_id = o.sender_id AND r.reported_user_id = o.recipient_id)
+                    OR (r.reporter_id = o.recipient_id AND r.reported_user_id = o.sender_id))
+              ) AS has_open_report
+       FROM gift_delivery_orders o
+       JOIN matches m ON m.id = o.match_id
+       JOIN users sender ON sender.id = o.sender_id
+       JOIN users recipient ON recipient.id = o.recipient_id
+       LEFT JOIN gift_receiving_preferences pref ON pref.user_id = o.recipient_id
+       WHERE o.public_reference = $1 AND o.recipient_id = $2
+       FOR UPDATE OF o`,
+      [reference, req.authUser.id]
+    );
+    const order = selected.rows[0];
+    if (!order) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'gift_request_not_available' });
+    }
+    if (order.status !== 'awaiting_recipient_consent' || new Date(order.expires_at).getTime() <= Date.now()) {
+      if (order.status === 'awaiting_recipient_consent') {
+        await client.query(
+          `UPDATE gift_delivery_orders SET status = 'expired', updated_at = NOW()
+           WHERE id = $1 AND status = 'awaiting_recipient_consent'`,
+          [order.id]
+        );
+        await client.query(
+          `INSERT INTO gift_delivery_order_events (order_id, actor_type, event_type, from_status, to_status)
+           VALUES ($1, 'system', 'expired', 'awaiting_recipient_consent', 'expired')`,
+          [order.id]
+        );
+      }
+      await client.query('COMMIT');
+      return res.status(409).json({ error: 'gift_request_not_actionable' });
+    }
+
+    if (action === 'accept' && (
+      order.match_status !== 'active' ||
+      order.sender_status !== 'active' ||
+      order.recipient_status !== 'active' ||
+      order.requests_enabled !== true ||
+      order.has_block === true ||
+      order.has_open_report === true
+    )) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_request_not_actionable' });
+    }
+
+    const nextStatus = action === 'accept' ? 'recipient_accepted' : 'declined';
+    const updated = await client.query(
+      `UPDATE gift_delivery_orders
+       SET status = $2,
+           recipient_consent_at = CASE WHEN $2 = 'recipient_accepted' THEN NOW() ELSE recipient_consent_at END,
+           recipient_consent_version = CASE WHEN $2 = 'recipient_accepted' THEN 1 ELSE recipient_consent_version END,
+           updated_at = NOW()
+       WHERE id = $1 AND status = 'awaiting_recipient_consent'
+       RETURNING public_reference AS "publicReference", status`,
+      [order.id, nextStatus]
+    );
+    if (updated.rowCount !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_request_not_actionable' });
+    }
+    await client.query(
+      `INSERT INTO gift_delivery_order_events (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
+       VALUES ($1, $2, 'recipient', $3, 'awaiting_recipient_consent', $4)`,
+      [order.id, req.authUser.id, action === 'accept' ? 'accepted' : 'declined', nextStatus]
+    );
+    await client.query('COMMIT');
+    // A decision records consent only; it does not authorize payment, address access, or fulfilment.
+    return res.json({
+      request: {
+        id: updated.rows[0].publicReference,
+        status: action === 'accept' ? 'recipient_accepted' : 'not_available'
+      },
+      nextStep: action === 'accept' ? 'recipient_address_setup_required' : 'closed'
+    });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Gift request decision failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_request_decision_unavailable' });
+  } finally {
+    client.release();
+  }
+});
+
 app.get('/api/gifts/orders', requireSession, profileActionLimiter, async (req, res) => {
   try {
     const result = await pool.query(
