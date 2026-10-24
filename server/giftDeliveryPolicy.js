@@ -32,8 +32,9 @@ export function evaluateGiftFulfilmentEligibility({ request, recipient, address,
   if (!request || !recipient || !address || !payment || !relationship) return deny('missing_context');
   if (request.status !== 'recipient_accepted') return deny('recipient_consent_required');
   if (request.recipientId !== recipient.id || recipient.authenticatedUserId !== recipient.id) return deny('recipient_authorization_failed');
-  if (request.expiresAt && (!Number.isFinite(Date.parse(request.expiresAt)) || Date.parse(request.expiresAt) <= now)) return deny('request_expired');
+  if (!request.expiresAt || !Number.isFinite(Date.parse(request.expiresAt)) || Date.parse(request.expiresAt) <= now) return deny('request_expired');
   if (!Number.isFinite(Date.parse(request.consentRecordedAt))) return deny('recipient_consent_record_missing');
+  if (request.consentWithdrawnAt != null || recipient.giftRequestsEnabled !== true) return deny('recipient_consent_withdrawn');
   if (address.ownerUserId !== recipient.id || address.verified !== true || address.recipientEntered !== true) return deny('recipient_address_not_verified');
   if (relationship.blocked !== false || relationship.reported !== false || relationship.paused !== false || relationship.safetyRestricted !== false) return deny('relationship_safety_state_unavailable_or_restricted');
   if (recipient.safetyRestricted !== false || recipient.accountStatus !== 'active') return deny('recipient_safety_state_unavailable_or_restricted');
@@ -62,7 +63,7 @@ export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecord
     address_verified: new Set(['fulfilment_authorized', 'cancelled', 'reported', 'blocked']),
     fulfilment_authorized: new Set(['dispatched', 'delivery_failed', 'cancelled', 'reported', 'blocked']),
     dispatched: new Set(['delivered', 'delivery_failed', 'reported']),
-    delivery_failed: new Set(['refund_pending', 'recipient_accepted', 'cancelled']),
+    delivery_failed: new Set(['refund_pending', 'cancelled']),
     declined: new Set([]), expired: new Set([]), cancelled: new Set([]), blocked: new Set([]),
     reported: new Set(['cancelled', 'refund_pending']), delivered: new Set([]),
     refund_pending: new Set(['refunded']), refunded: new Set([])
