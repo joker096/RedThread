@@ -30,3 +30,20 @@ export function validateAdEventPayload(body) {
 export function hasExplicitAdConsent(rows) {
   return Array.isArray(rows) && rows[0]?.ads_consent === true;
 }
+
+
+/**
+ * Idempotency keys are scoped to the exact authenticated event payload.
+ * A reused UUID with different ownership or content must not be treated as a successful retry.
+ */
+export function classifyDuplicateAdEvent(row, { userId, campaignId, eventType }) {
+  if (!row) return 'new';
+  if (
+    String(row.user_id) === String(userId) &&
+    row.campaign_id === campaignId &&
+    row.event_type === eventType
+  ) {
+    return 'duplicate';
+  }
+  return 'conflict';
+}
