@@ -131,11 +131,23 @@ test('user-requested gift discovery does not require a match or date', () => {
   }).reason, 'safety_state_unavailable_or_restricted');
 });
 
-test('opt-in categories and legal help require their own consent and entry points', () => {
+test('opt-in categories and legal help require their own consent and entry points, not a match', () => {
   assert.equal(evaluate({ campaign: { category: 'fashion' }, surface: 'offers' }).reason, 'category_opt_in');
   assert.equal(evaluate({ campaign: { category: 'fashion' }, viewer: { categoryConsents: {} }, surface: 'offers' }).reason, 'category_consent_required');
   assert.equal(evaluate({ campaign: { category: 'family_law' }, surface: 'user_requested_legal_help' }).reason, 'user_requested_legal_help');
   assert.equal(evaluate({ campaign: { category: 'family_law' }, surface: 'offers' }).reason, 'user_requested_legal_help_required');
+
+  const withoutMatch = (category, surface, viewerChanges = {}) => evaluateContextualAdEligibility({
+    campaign: { ...campaign, category },
+    viewer: { ...viewer, ...viewerChanges },
+    surface
+  });
+  assert.deepEqual(withoutMatch('fashion', 'offers'), { eligible: true, reason: 'category_opt_in' });
+  assert.deepEqual(withoutMatch('travel', 'relationship_offers'), { eligible: true, reason: 'category_opt_in' });
+  assert.deepEqual(withoutMatch('family_law', 'user_requested_legal_help'), { eligible: true, reason: 'user_requested_legal_help' });
+  assert.equal(withoutMatch('fashion', 'offers', { categoryConsents: {} }).reason, 'category_consent_required');
+  assert.equal(withoutMatch('cafe', 'confirmed_date_detail').reason, 'missing_context');
+  assert.equal(withoutMatch('bridal_dress', 'relationship_offers').reason, 'missing_context');
 });
 
 test('safety states, blocked categories, unsupported categories and invalid dates deny delivery', () => {
