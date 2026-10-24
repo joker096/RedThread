@@ -42,12 +42,6 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
   if (viewer.safetyRestricted !== false) return deny('safety_state_unavailable_or_restricted');
   const userRequestedGiftDiscovery = surface === 'user_requested_gift_discovery'
     && (category === 'flowers' || category === 'gift');
-  if (!match && !userRequestedGiftDiscovery) return deny('missing_context');
-  if (match && (match.safetyRestricted !== false || match.blocked !== false
-    || match.reported !== false || match.paused !== false)) {
-    return deny('safety_state_unavailable_or_restricted');
-  }
-
   // A user-opened gift catalog is independent of a match/date and does not
   // reveal anything about another person. Explicit navigation is the opt-in.
   if (userRequestedGiftDiscovery) return allow('user_requested_gift_discovery');
@@ -58,6 +52,11 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
   }
 
   if (DATE_CONTEXT_CATEGORIES.has(category)) {
+    if (!match) return deny('missing_context');
+    if (match.safetyRestricted !== false || match.blocked !== false
+      || match.reported !== false || match.paused !== false) {
+      return deny('safety_state_unavailable_or_restricted');
+    }
     if (match.partnerAccountEligible !== true || match.partnerSafetyRestricted !== false) {
       return deny('partner_safety_state_unavailable_or_restricted');
     }
@@ -74,6 +73,11 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
   }
 
   if (BRIDAL_CATEGORIES.has(category)) {
+    if (!match) return deny('missing_context');
+    if (match.safetyRestricted !== false || match.blocked !== false
+      || match.reported !== false || match.paused !== false) {
+      return deny('safety_state_unavailable_or_restricted');
+    }
     if (match.partnerAccountEligible !== true || match.partnerSafetyRestricted !== false) {
       return deny('partner_safety_state_unavailable_or_restricted');
     }
