@@ -43,7 +43,9 @@ test('fulfilment requires recipient acceptance, verified address and matching pa
 });
 test('only recipient can accept; only trusted delivery service can update delivery states', () => {
   assert.equal(canTransitionGiftOrder({ from: 'awaiting_recipient_consent', to: 'recipient_accepted', actor: 'recipient' }), true);
-  assert.equal(canTransitionGiftOrder({ from: 'awaiting_recipient_consent', to: 'recipient_accepted', actor: 'sender' }), false);
+  assert.equal(canTransitionGiftOrder({ from: 'awaiting_recipient_consent', to: 'recipient_accepted', actor: 'sender', recipientConsentRecorded: true }), false);
+  assert.equal(canTransitionGiftOrder({ from: 'awaiting_recipient_consent', to: 'recipient_accepted', actor: 'recipient' }), false);
+  assert.equal(canTransitionGiftOrder({ from: 'awaiting_recipient_consent', to: 'recipient_accepted', actor: 'recipient', recipientConsentRecorded: true }), true);
   assert.equal(canTransitionGiftOrder({ from: 'address_verified', to: 'fulfilment_authorized', recipientConsentRecorded: true, addressVerified: true }), true);
   assert.equal(canTransitionGiftOrder({ from: 'address_verified', to: 'fulfilment_authorized', recipientConsentRecorded: false, addressVerified: true }), false);
   assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'dispatched', actor: 'sender' }), false);
