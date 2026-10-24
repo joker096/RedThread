@@ -14,7 +14,8 @@ const validOrder = {
 };
 
 test('gift order list accepts only privacy-safe order projection records', () => {
-  assert.deepEqual(normalizeGiftOrders({ orders: [validOrder] }), [validOrder]);
+  const responseOrder = { ...validOrder, address: 'PRIVATE ADDRESS', phone: '+1-555-0100', unexpectedInternalField: 'must not reach component state' };
+  assert.deepEqual(normalizeGiftOrders({ orders: [responseOrder] }), [validOrder]);
 });
 
 test('gift order list fails closed for malformed payloads and rows', () => {
