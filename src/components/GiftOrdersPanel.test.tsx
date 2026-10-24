@@ -10,6 +10,8 @@ const validOrder = {
   currency: 'USD',
   status: 'awaiting_recipient_consent',
   createdAt: '2026-10-24T12:00:00.000Z',
+  estimatedDeliveryStart: null,
+  estimatedDeliveryEnd: null,
   myRole: 'recipient' as const
 };
 
