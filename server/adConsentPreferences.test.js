@@ -89,3 +89,33 @@ test('database preferences are serialized to the public camelCase shape', () => 
     categoryConsents: { fashion: true }
   });
 });
+
+test('persisted inconsistent consent fails closed and strips unsupported categories', () => {
+  assert.deepEqual(serializeAdConsentPreferences({
+    ads_consent: false,
+    date_offers_consent: true,
+    wedding_offers_consent: true,
+    marriage_planning_opt_in: true,
+    category_consents: { fashion: true, political: true }
+  }), {
+    adsConsent: false,
+    dateOffersConsent: false,
+    weddingOffersConsent: false,
+    marriagePlanningOptIn: false,
+    categoryConsents: {}
+  });
+
+  assert.deepEqual(serializeAdConsentPreferences({
+    ads_consent: true,
+    date_offers_consent: true,
+    wedding_offers_consent: false,
+    marriage_planning_opt_in: true,
+    category_consents: { travel: true, political: true, beauty: 'yes' }
+  }), {
+    adsConsent: true,
+    dateOffersConsent: true,
+    weddingOffersConsent: false,
+    marriagePlanningOptIn: false,
+    categoryConsents: { travel: true }
+  });
+});
