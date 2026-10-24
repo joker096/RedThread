@@ -1658,8 +1658,8 @@ app.post('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, r
     const pendingGifts = await client.query(
       `UPDATE gift_delivery_orders
        SET status = 'blocked', updated_at = NOW()
-       WHERE sender_id = $1 AND recipient_id = $2 AND status = 'awaiting_recipient_consent'
-       OR sender_id = $2 AND recipient_id = $1 AND status = 'awaiting_recipient_consent'
+       WHERE ((sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1))
+         AND status = 'awaiting_recipient_consent'
        RETURNING id, sender_id, recipient_id`,
       [req.authUser.id, targetId]
     );
