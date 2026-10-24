@@ -83,7 +83,9 @@ export function normalizeAdConsentPreferences(input) {
 }
 
 export function serializeAdConsentPreferences(row) {
-  if (!row || row.ads_consent !== true) {
+  // Consent given under an older policy version is not consent to newly introduced
+  // purposes or terms. Require a fresh explicit choice after the version changes.
+  if (!row || row.ads_consent !== true || row.consent_version !== AD_CONSENT_VERSION) {
     return { ...DEFAULT_AD_CONSENT_PREFERENCES, categoryConsents: {} };
   }
 
