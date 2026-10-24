@@ -28,8 +28,11 @@ export function evaluateGiftRequestEligibility({ sender, recipient, relationship
   return { eligible: true, reason: 'request_allowed_pending_recipient_consent', fulfilmentAuthorized: false };
 }
 
-export function evaluateGiftFulfilmentEligibility({ request, recipient, address, payment, relationship, now = Date.now() } = {}) {
-  if (!request || !recipient || !address || !payment || !relationship) return deny('missing_context');
+export function evaluateGiftFulfilmentEligibility({ request, sender, recipient, address, payment, relationship, safetyEvents, now = Date.now() } = {}) {
+  if (!request || !sender || !recipient || !address || !payment || !relationship || !Array.isArray(safetyEvents)) return deny('missing_context');
+  if (safetyEvents.some((event) => !['block', 'report', 'restriction', 'account_deleted', 'consent_withdrawn'].includes(event))) return deny('safety_state_unavailable_or_invalid');
+  if (safetyEvents.length > 0) return deny('safety_event_requires_fulfilment_suspension');
+  if (sender.accountStatus !== 'active' || sender.safetyRestricted !== false) return deny('sender_safety_state_unavailable_or_restricted');
   if (request.status !== 'recipient_accepted') return deny('recipient_consent_required');
   if (request.recipientId !== recipient.id || recipient.authenticatedUserId !== recipient.id) return deny('recipient_authorization_failed');
   if (!request.expiresAt || !Number.isFinite(Date.parse(request.expiresAt)) || Date.parse(request.expiresAt) <= now) return deny('request_expired');
