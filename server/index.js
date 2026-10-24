@@ -2301,6 +2301,9 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
         : frequency.reason === 'ad_click_frequency_cap_reached'
           ? eventCounts.click_retry_after_seconds
           : null;
+      if (status === 429 && retryAfterSeconds !== null) {
+        res.setHeader('Retry-After', String(retryAfterSeconds));
+      }
       return res.status(status).json({
         error: frequency.reason,
         ...(status === 429 && retryAfterSeconds !== null ? { retryAfterSeconds } : {})
