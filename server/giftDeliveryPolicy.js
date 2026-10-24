@@ -80,7 +80,7 @@ export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecord
   if (to === 'cancelled' && !['sender', 'recipient', 'moderator', 'system'].includes(actor)) return false;
   if (to === 'blocked' && !['sender', 'recipient', 'moderator', 'system'].includes(actor)) return false;
   if (to === 'reported' && !['sender', 'recipient', 'moderator', 'system'].includes(actor)) return false;
-  if ((to === 'dispatched' || to === 'delivered' || to === 'delivery_failed') && actor !== 'trusted_delivery_service') return false;
+  if ((to === 'dispatched' || to === 'delivered' || to === 'delivery_failed') && actor !== 'delivery_partner') return false;
   if (to === 'refund_pending' && !['system', 'moderator'].includes(actor)) return false;
   if (to === 'refunded' && actor !== 'trusted_payment_service') return false;
   return true;
