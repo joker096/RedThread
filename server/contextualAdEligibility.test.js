@@ -105,6 +105,7 @@ test('bridal offers are restricted to opted-in women with sustained mutual activ
   assert.equal(check({ selfDescribedGender: 'man' }).reason, 'bridal_audience_ineligible');
   assert.equal(check({ weddingOffersConsent: false }).reason, 'wedding_consent_required');
   assert.equal(check({ marriagePlanningOptIn: false }).reason, 'marriage_planning_opt_in_required');
+  assert.equal(check({}, { partnerAccountEligible: false }).reason, 'partner_safety_state_unavailable_or_restricted');
   assert.equal(check({}, { ageDays: BRIDAL_MIN_MATCH_AGE_DAYS - 1 }).reason, 'match_too_new');
   assert.equal(check({}, { viewerActiveDays: BRIDAL_MIN_ACTIVE_DAYS_PER_PERSON - 1 }).reason, 'insufficient_mutual_activity');
   assert.equal(check({}, { partnerActiveDays: BRIDAL_MIN_ACTIVE_DAYS_PER_PERSON - 1 }).reason, 'insufficient_mutual_activity');
@@ -125,10 +126,10 @@ test('safety states, blocked categories, unsupported categories and invalid date
   assert.equal(evaluate({ match: { reported: true } }).reason, 'safety_state_unavailable_or_restricted');
   assert.equal(evaluate({ viewer: { safetyRestricted: true } }).reason, 'safety_state_unavailable_or_restricted');
   assert.equal(evaluate({ match: { paused: undefined } }).reason, 'safety_state_unavailable_or_restricted');
-  assert.equal(evaluate({ match: { partnerAccountEligible: undefined } }).reason, 'safety_state_unavailable_or_restricted');
-  assert.equal(evaluate({ match: { partnerAccountEligible: false } }).reason, 'safety_state_unavailable_or_restricted');
-  assert.equal(evaluate({ match: { partnerSafetyRestricted: true } }).reason, 'safety_state_unavailable_or_restricted');
-  assert.equal(evaluate({ match: { partnerSafetyRestricted: undefined } }).reason, 'safety_state_unavailable_or_restricted');
+  assert.equal(evaluate({ match: { partnerAccountEligible: undefined } }).reason, 'partner_safety_state_unavailable_or_restricted');
+  assert.equal(evaluate({ match: { partnerAccountEligible: false } }).reason, 'partner_safety_state_unavailable_or_restricted');
+  assert.equal(evaluate({ match: { partnerSafetyRestricted: true } }).reason, 'partner_safety_state_unavailable_or_restricted');
+  assert.equal(evaluate({ match: { partnerSafetyRestricted: undefined } }).reason, 'partner_safety_state_unavailable_or_restricted');
   assert.equal(evaluate({ campaign: { category: 'gambling' } }).reason, 'category_blocked');
   assert.equal(evaluate({ campaign: { category: 'unknown_kind' } }).reason, 'category_not_supported');
   assert.equal(evaluate({ campaign: { startsAt: 'not-a-date' } }).reason, 'invalid_campaign_start');
