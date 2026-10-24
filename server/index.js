@@ -2277,10 +2277,40 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
          COUNT(*) FILTER (WHERE event_type = 'impression')::int AS impressions,
          COUNT(*) FILTER (WHERE event_type = 'click')::int AS clicks,
          GREATEST(1, CEIL(EXTRACT(EPOCH FROM (
-           MIN(created_at) FILTER (WHERE event_type = 'impression') + INTERVAL '24 hours' - NOW()
+           (
+             SELECT e.created_at
+             FROM ad_events e
+             WHERE e.user_id = $1 AND e.campaign_id = $2
+               AND e.event_type = 'impression'
+               AND e.created_at >= NOW() - INTERVAL '24 hours'
+             ORDER BY e.created_at ASC
+             OFFSET GREATEST(
+               (SELECT COUNT(*)::int FROM ad_events e
+                WHERE e.user_id = $1 AND e.campaign_id = $2
+                  AND e.event_type = 'impression'
+                  AND e.created_at >= NOW() - INTERVAL '24 hours') - 3,
+               0
+             )
+             LIMIT 1
+           ) + INTERVAL '24 hours' - NOW()
          ))))::int AS impression_retry_after_seconds,
          GREATEST(1, CEIL(EXTRACT(EPOCH FROM (
-           MIN(created_at) FILTER (WHERE event_type = 'click') + INTERVAL '24 hours' - NOW()
+           (
+             SELECT e.created_at
+             FROM ad_events e
+             WHERE e.user_id = $1 AND e.campaign_id = $2
+               AND e.event_type = 'click'
+               AND e.created_at >= NOW() - INTERVAL '24 hours'
+             ORDER BY e.created_at ASC
+             OFFSET GREATEST(
+               (SELECT COUNT(*)::int FROM ad_events e
+                WHERE e.user_id = $1 AND e.campaign_id = $2
+                  AND e.event_type = 'click'
+                  AND e.created_at >= NOW() - INTERVAL '24 hours') - 5,
+               0
+             )
+             LIMIT 1
+           ) + INTERVAL '24 hours' - NOW()
          ))))::int AS click_retry_after_seconds
        FROM ad_events
        WHERE user_id = $1 AND campaign_id = $2
