@@ -68,7 +68,7 @@ export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecord
     refund_pending: new Set(['refunded']), refunded: new Set([])
   };
   if (!transitions[from]?.has(to)) return false;
-  if (to === 'recipient_accepted' && actor !== 'recipient') return false;
+  if (to === 'recipient_accepted' && (actor !== 'recipient' || !recipientConsentRecorded)) return false;
   if (to === 'address_verified' && (actor !== 'recipient' || !recipientConsentRecorded)) return false;
   if (to === 'fulfilment_authorized' && (!recipientConsentRecorded || !addressVerified)) return false;
   if ((to === 'dispatched' || to === 'delivered') && actor !== 'trusted_delivery_service') return false;
