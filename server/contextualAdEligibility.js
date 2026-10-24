@@ -39,8 +39,8 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
   if (FORBIDDEN_CATEGORIES.has(category)) return deny('category_blocked');
   if (viewer.accountEligible !== true || viewer.adsConsent !== true) return deny('viewer_not_consented_or_eligible');
   // Safety state must be explicitly loaded from trusted server records; unknown is not equivalent to safe.
-  if (viewer.safetyRestricted !== false || match.safetyRestricted !== false || match.partnerSafetyRestricted !== false
-    || match.partnerAccountEligible !== true || match.blocked !== false || match.reported !== false || match.paused !== false) {
+  if (viewer.safetyRestricted !== false || match.safetyRestricted !== false || match.blocked !== false
+    || match.reported !== false || match.paused !== false) {
     return deny('safety_state_unavailable_or_restricted');
   }
 
@@ -50,6 +50,9 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
   }
 
   if (DATE_CONTEXT_CATEGORIES.has(category)) {
+    if (match.partnerAccountEligible !== true || match.partnerSafetyRestricted !== false) {
+      return deny('partner_safety_state_unavailable_or_restricted');
+    }
     if (surface !== 'confirmed_date_detail') return deny('date_surface_required');
     if (match.dateStatus !== 'confirmed' || match.mutuallyAcceptedDate !== true) return deny('date_not_mutually_confirmed');
     if (match.dateCancelled !== false) return deny(match.dateCancelled === true ? 'date_cancelled' : 'date_cancellation_state_unknown');
@@ -63,6 +66,9 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
   }
 
   if (BRIDAL_CATEGORIES.has(category)) {
+    if (match.partnerAccountEligible !== true || match.partnerSafetyRestricted !== false) {
+      return deny('partner_safety_state_unavailable_or_restricted');
+    }
     if (surface !== 'relationship_offers') return deny('relationship_offers_surface_required');
     if (viewer.selfDescribedGender !== 'woman') return deny('bridal_audience_ineligible');
     if (viewer.weddingOffersConsent !== true) return deny('wedding_consent_required');
