@@ -253,6 +253,19 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(unauthenticatedAdConsentRead.status, 401,
       'advertising preferences must never be readable without an authenticated session');
 
+    const unauthenticatedGiftConsentWithdrawal = await request('/api/gifts/orders/gift_0123456789abcdef0123456789abcdef/withdraw-consent', {
+      method: 'POST'
+    });
+    assert.equal(unauthenticatedGiftConsentWithdrawal.status, 401,
+      'gift consent withdrawal must require an authenticated recipient session');
+
+    const invalidGiftReference = await request('/api/gifts/orders/not-a-gift-reference/withdraw-consent', {
+      method: 'POST',
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(invalidGiftReference.status, 400,
+      'gift consent withdrawal must reject malformed public references before querying orders');
+
     const unauthenticatedAdConsentWrite = await request('/api/ads/consent', {
       method: 'PUT',
       body: JSON.stringify({
