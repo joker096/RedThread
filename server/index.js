@@ -1813,11 +1813,6 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
           '<p><strong>Сообщение:</strong></p><p>' + escapeHtml(requestNote).replace(/\n/g, '<br>') + '</p>' +
           '<p>Данные второго участника совпадения, переписка и результаты совместимости не передаются.</p>'
       });
-      await pool.query(
-        "UPDATE partner_service_inquiries SET delivery_status = 'sent', delivered_at = NOW(), updated_at = NOW() WHERE id = $1",
-        [inquiryId]
-      );
-      return res.status(201).json({ inquiryId, sent: true });
     } catch (error) {
       await pool.query(
         "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'email_delivery_failed', updated_at = NOW() WHERE id = $1",
@@ -1826,6 +1821,19 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
       console.warn('Partner service inquiry delivery failed:', error?.message || 'unknown error');
       return res.status(502).json({ error: 'partner_contact_temporarily_unavailable', inquiryId });
     }
+
+    // Do not mark a successfully sent email as failed if only this bookkeeping update fails:
+    // a retry could send the same provider email a second time. Keep "sending" for reconciliation.
+    try {
+      await pool.query(
+        "UPDATE partner_service_inquiries SET delivery_status = 'sent', delivered_at = NOW(), updated_at = NOW() WHERE id = $1",
+        [inquiryId]
+      );
+    } catch (error) {
+      console.error('Partner inquiry email was delivered but delivery status could not be saved:', error?.message || 'unknown error');
+      return res.status(202).json({ inquiryId, sent: true, deliveryStatus: 'status_update_pending' });
+    }
+    return res.status(201).json({ inquiryId, sent: true });
   } catch (error) {
     console.error('Partner service inquiry failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'partner_service_inquiry_failed' });
