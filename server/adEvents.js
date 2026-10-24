@@ -21,3 +21,12 @@ export function validateAdEventPayload(body) {
 
   return { ok: true, value: { eventId, campaignId, eventType } };
 }
+
+
+/**
+ * Ad engagement events are permitted only when a persisted, explicit opt-in exists.
+ * Missing rows and every value other than boolean true fail closed.
+ */
+export function hasExplicitAdConsent(rows) {
+  return Array.isArray(rows) && rows[0]?.ads_consent === true;
+}
