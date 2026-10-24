@@ -52,6 +52,10 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
     if (match.dateStatus !== 'confirmed' || match.mutuallyAcceptedDate !== true) return deny('date_not_mutually_confirmed');
     if (match.dateCancelled === true) return deny('date_cancelled');
     if (viewer.dateOffersConsent !== true) return deny('date_offer_consent_required');
+    // Date-context offers are pair-contextual: both participants must independently opt in.
+    if (match.partnerAdsConsent !== true || match.partnerDateOffersConsent !== true) {
+      return deny('both_participants_consent_required');
+    }
     if (match.regionAllowed !== true) return deny('match_region_not_allowed');
     return allow('confirmed_date');
   }
