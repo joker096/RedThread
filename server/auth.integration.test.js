@@ -335,6 +335,56 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       assert.equal(repeatedWithdrawal.status, 409,
         'a second withdrawal must not create another transition or audit event');
+
+      // Race two recipient requests against a separate order. Row/advisory locks must
+      // allow only one transition and exactly one consent-withdrawal audit event.
+      const concurrentOrderResult = await giftTestDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, recipient_consent_at,
+            recipient_consent_version, address_vault_ref, address_verified_at, idempotency_key)
+         VALUES ($1, $2, $3, 'Concurrent integration test chocolate', 'chocolate', 1000, 'USD',
+                 'address_verified', 'not_started', NOW(), 1, 'test-only-concurrent-vault-reference',
+                 NOW(), $4)
+         RETURNING id, public_reference`,
+        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      const concurrentGiftOrderId = concurrentOrderResult.rows[0].id;
+      const concurrentGiftReference = concurrentOrderResult.rows[0].public_reference;
+      try {
+        const concurrentResponses = await Promise.all([
+          request(`/api/gifts/orders/${concurrentGiftReference}/withdraw-consent`, {
+            method: 'POST', headers: { Cookie: secondCookie }
+          }),
+          request(`/api/gifts/orders/${concurrentGiftReference}/withdraw-consent`, {
+            method: 'POST', headers: { Cookie: secondCookie }
+          })
+        ]);
+        assert.deepEqual(
+          concurrentResponses.map(response => response.status).sort((a, b) => a - b),
+          [200, 409],
+          'exactly one concurrent withdrawal may win; the other must see the terminal state'
+        );
+        const concurrentState = await giftTestDb.query(
+          `SELECT status, consent_withdrawn_at, address_vault_ref, address_verified_at
+           FROM gift_delivery_orders WHERE id = $1`,
+          [concurrentGiftOrderId]
+        );
+        assert.equal(concurrentState.rows[0].status, 'cancelled');
+        assert.ok(concurrentState.rows[0].consent_withdrawn_at);
+        assert.equal(concurrentState.rows[0].address_vault_ref, null);
+        assert.equal(concurrentState.rows[0].address_verified_at, null);
+        const concurrentAudit = await giftTestDb.query(
+          `SELECT COUNT(*)::int AS count FROM gift_delivery_order_events
+           WHERE order_id = $1 AND event_type = 'consent_withdrawn'`,
+          [concurrentGiftOrderId]
+        );
+        assert.equal(concurrentAudit.rows[0].count, 1,
+          'concurrent requests must not duplicate the audit event');
+      } finally {
+        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [concurrentGiftOrderId]).catch(() => {});
+        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [concurrentGiftOrderId]).catch(() => {});
+      }
     } finally {
       if (giftOrderId) {
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [giftOrderId]).catch(() => {});
