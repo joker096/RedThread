@@ -71,3 +71,28 @@ export function evaluateAdEventBillingEligibility({ event, campaignApproved, vie
   }
   return { billable: true, reason: 'verified_billing_evidence' };
 }
+
+
+/**
+ * Pure frequency decision shared by the endpoint and unit tests.
+ * Counts must come from trusted persisted rows, never request payloads.
+ */
+export function evaluateAdEventFrequency({ eventType, impressionCount = 0, clickCount = 0 } = {}) {
+  if (eventType !== 'impression' && eventType !== 'click') {
+    return { allowed: false, reason: 'invalid_event_type' };
+  }
+  if (!Number.isSafeInteger(impressionCount) || impressionCount < 0 ||
+      !Number.isSafeInteger(clickCount) || clickCount < 0) {
+    return { allowed: false, reason: 'invalid_event_counts' };
+  }
+  if (eventType === 'impression' && impressionCount >= AD_IMPRESSION_CAP_24H) {
+    return { allowed: false, reason: 'ad_frequency_cap_reached' };
+  }
+  if (eventType === 'click' && clickCount >= AD_CLICK_CAP_24H) {
+    return { allowed: false, reason: 'ad_click_frequency_cap_reached' };
+  }
+  if (eventType === 'click' && impressionCount < 1) {
+    return { allowed: false, reason: 'impression_required_before_click' };
+  }
+  return { allowed: true, reason: null };
+}
