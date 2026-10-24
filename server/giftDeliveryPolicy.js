@@ -108,6 +108,7 @@ export function validateGiftOrderPersistenceState(order = {}) {
   if (order.status === 'refunded' && order.paymentStatus !== 'refunded') return { valid: false, reason: 'refunded_payment_state_required' };
   if (order.status === 'refund_pending' && order.paymentStatus !== 'refund_pending') return { valid: false, reason: 'pending_refund_payment_state_required' };
   if (order.status === 'declined' && order.paymentStatus !== 'not_started' && order.paymentStatus !== 'voided' && order.paymentStatus !== 'failed') return { valid: false, reason: 'declined_order_payment_must_be_inactive' };
+  if (order.status === 'cancelled' && ['authorization_pending', 'authorized', 'captured'].includes(order.paymentStatus)) return { valid: false, reason: 'cancelled_order_payment_must_be_voided_or_refunded' };
   return { valid: true, reason: 'persistence_state_consistent' };
 }
 
