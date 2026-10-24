@@ -56,6 +56,8 @@ test('sender projection never exposes address, phone, email or coordinates', () 
   assert.deepEqual(view, { id: 'gift_7f2a', status: 'recipient_accepted', productName: 'Chocolate box', totalMinorUnits: 2500, currency: 'GEL', estimatedDeliveryWindow: null });
   assert.equal(JSON.stringify(view).includes('secret street'), false);
   assert.equal(JSON.stringify(view).includes('+9950000'), false);
+  assert.equal(redactGiftOrderForSender({ publicReference: 'gift_safe', status: 'reported' }).status, 'not_available');
+  assert.equal(redactGiftOrderForSender({ publicReference: 'gift_safe', status: 'blocked' }).status, 'not_available');
 });
 test('block, report and consent withdrawal suspend fulfilment unless already terminal', () => {
   assert.equal(denyGiftFulfilmentAfterSafetyEvent({ status: 'recipient_accepted', safetyEvent: 'block' }).suspend, true);
