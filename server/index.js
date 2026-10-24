@@ -2076,8 +2076,11 @@ app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileAction
   }
 
   const preferences = validation.value;
+  let client;
   try {
-    const result = await pool.query(
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const result = await client.query(
       `INSERT INTO ad_consent_preferences
          (user_id, ads_consent, date_offers_consent, wedding_offers_consent,
           marriage_planning_opt_in, category_consents, consent_version, updated_at)
@@ -2102,13 +2105,22 @@ app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileAction
         AD_CONSENT_VERSION
       ]
     );
+    const savedPreferences = serializeAdConsentPreferences(result.rows[0]);
+    await client.query(
+      'INSERT INTO ad_consent_history (user_id, consent_version, preferences) VALUES ($1, $2, $3::jsonb)',
+      [req.authUser.id, AD_CONSENT_VERSION, JSON.stringify(savedPreferences)]
+    );
+    await client.query('COMMIT');
     return res.json({
       version: AD_CONSENT_VERSION,
-      preferences: serializeAdConsentPreferences(result.rows[0])
+      preferences: savedPreferences
     });
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Ad consent preferences update failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'ad_consent_preferences_unavailable' });
+  } finally {
+    client?.release();
   }
 });
 
