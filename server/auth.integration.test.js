@@ -79,6 +79,13 @@ test('auth API supports registration, session lookup, logout and login', {
       serviceLanguages: 'Georgian, Russian',
       availabilityNote: 'By appointment'
     };
+    const partnerApplicationWithoutOrigin = await request('/api/partner-applications', {
+      method: 'POST',
+      headers: { Origin: '' },
+      body: JSON.stringify(partnerApplication)
+    });
+    assert.equal(partnerApplicationWithoutOrigin.status, 403, 'partner application mutations must reject requests without a trusted Origin before applying rate limits');
+
     const insecurePartnerWebsite = await request('/api/partner-applications', {
       method: 'POST',
       body: JSON.stringify({ ...partnerApplication, website: 'http://example.test' })
