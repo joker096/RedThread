@@ -49,7 +49,8 @@ test('fulfilment fails closed after gift preference opt-out or explicit consent 
   assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, consentWithdrawnAt: '2026-10-23T12:00:00Z' }, recipient, address, payment, relationship }).reason, 'recipient_consent_withdrawn');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, fulfilmentAuthorized: true }, recipient, address, payment, relationship }).reason, 'fulfilment_already_authorized');
 });
-test('state transitions enforce actors, consent, persisted states, and terminal states', () => {\n  assert.equal(canTransitionGiftOrder({ from: 'draft', to: 'awaiting_recipient_consent', actor: 'sender' }), false);
+test('state transitions enforce actors, consent, persisted states, and terminal states', () => {
+  assert.equal(canTransitionGiftOrder({ from: 'draft', to: 'awaiting_recipient_consent', actor: 'sender' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'awaiting_recipient_consent', to: 'recipient_accepted', actor: 'sender', recipientConsentRecorded: true }), false);
   assert.equal(canTransitionGiftOrder({ from: 'awaiting_recipient_consent', to: 'recipient_accepted', actor: 'recipient' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'awaiting_recipient_consent', to: 'recipient_accepted', actor: 'recipient', recipientConsentRecorded: true }), true);
