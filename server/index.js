@@ -2275,23 +2275,34 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
     const counts = await client.query(
       `SELECT
          COUNT(*) FILTER (WHERE event_type = 'impression')::int AS impressions,
-         COUNT(*) FILTER (WHERE event_type = 'click')::int AS clicks
+         COUNT(*) FILTER (WHERE event_type = 'click')::int AS clicks,
+         MIN(created_at) FILTER (WHERE event_type = 'impression') AS oldest_impression,
+         MIN(created_at) FILTER (WHERE event_type = 'click') AS oldest_click
        FROM ad_events
        WHERE user_id = $1 AND campaign_id = $2
          AND created_at >= NOW() - INTERVAL '24 hours'`,
       [user.id, campaignId]
     );
+    const eventCounts = counts.rows[0];
     const frequency = evaluateAdEventFrequency({
       eventType,
-      impressionCount: counts.rows[0].impressions,
-      clickCount: counts.rows[0].clicks
+      impressionCount: eventCounts.impressions,
+      clickCount: eventCounts.clicks
     });
     if (!frequency.allowed) {
       await client.query('ROLLBACK');
       const status = frequency.reason === 'impression_required_before_click' ? 409 : 429;
+      const oldestCappedEvent = frequency.reason === 'ad_frequency_cap_reached'
+        ? eventCounts.oldest_impression
+        : frequency.reason === 'ad_click_frequency_cap_reached'
+          ? eventCounts.oldest_click
+          : null;
+      const retryAfterSeconds = oldestCappedEvent
+        ? Math.max(1, Math.ceil((new Date(oldestCappedEvent).getTime() + 24 * 60 * 60 * 1000 - Date.now()) / 1000))
+        : null;
       return res.status(status).json({
         error: frequency.reason,
-        ...(status === 429 ? { retryAfterSeconds: 86400 } : {})
+        ...(status === 429 && retryAfterSeconds !== null ? { retryAfterSeconds } : {})
       });
     }
 
