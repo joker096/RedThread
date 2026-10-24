@@ -60,6 +60,8 @@ Advertisers may narrow eligibility or add stricter rules, never weaken platform 
 ## Consent, privacy and safety
 
 - Separate controls for contextual ads, wedding offers and partner communications. Consent is optional, granular, revocable and never bundled with account creation, matching, safety or Premium.
+- Persist the current consent state separately from an append-only choice history. Write the normalized preference snapshot and current state in one database transaction; if history recording fails, roll back the preference change. Do not collect IP addresses, user-agent strings, chat data or inferred traits in the history. Delete user-linked history when the account is deleted, subject to applicable retention requirements.
+- The authenticated ad-event endpoint rejects impressions/clicks unless an explicit persisted master ad-consent opt-in exists. Revocation and event writes serialize on the consent row; missing consent defaults to off. These minimal events are for frequency control and are not proof of billable impressions.
 - Include “Why am I seeing this?”, “Hide this offer”, category controls and report-ad actions.
 - Eligibility uses minimal derived metadata only: confirmed-date state, match age, active-day count, per-side message counts, opt-in flags and safety state. Never copy message bodies, voice transcripts, photos, compatibility answers or contact information into ad targeting.
 - Do not send user IDs, pair IDs, gender, conversation counts, exact dates, location or eligibility reasons to advertisers. Reports are aggregate, with small-cell suppression.
