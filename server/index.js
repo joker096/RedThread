@@ -3,6 +3,7 @@ import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { validateAdEventPayload, AD_IMPRESSION_CAP_24H } from './adEvents.js';
+import { cleanupPartnerServiceData, partnerRetentionOptions } from './partnerRetention.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
 import express from 'express';
@@ -2251,6 +2252,22 @@ app.use('/api', (_req, res) => {
 const server = app.listen(port, '0.0.0.0', () => {
   console.log(`Vow API listening on port ${port}`);
 });
+
+if (pool && process.env.NODE_ENV !== 'test') {
+  const runPartnerRetentionCleanup = async () => {
+    try {
+      const result = await cleanupPartnerServiceData(pool, partnerRetentionOptions());
+      if (result.inquiriesDeleted || result.applicationsDeleted) {
+        console.info('Partner retention cleanup completed:', result);
+      }
+    } catch (error) {
+      console.error('Partner retention cleanup failed:', error?.message || 'unknown error');
+    }
+  };
+  void runPartnerRetentionCleanup();
+  const partnerRetentionInterval = setInterval(() => void runPartnerRetentionCleanup(), 24 * 60 * 60 * 1000);
+  partnerRetentionInterval.unref();
+}
 
 async function shutdown(signal) {
   console.log(`Received ${signal}; shutting down API`);
