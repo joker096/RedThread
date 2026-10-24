@@ -2019,6 +2019,26 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+    if (action === 'accept') {
+      // Acquire the pair-level safety lock before locking the order row.
+      // Block/report routes use this same order (pair -> order); reversing it
+      // here could deadlock when acceptance races with a safety action.
+      const pair = await client.query(
+        `SELECT sender_id, recipient_id
+         FROM gift_delivery_orders
+         WHERE public_reference = $1 AND recipient_id = $2`,
+        [reference, req.authUser.id]
+      );
+      if (!pair.rows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'gift_request_not_available' });
+      }
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtext('gift-safety:' || LEAST($1::uuid, $2::uuid)::text || ':' || GREATEST($1::uuid, $2::uuid)::text))",
+        [pair.rows[0].sender_id, pair.rows[0].recipient_id]
+      );
+    }
+
     const selected = await client.query(
       `SELECT o.id, o.match_id, o.sender_id, o.recipient_id, o.status, o.expires_at,
               m.status AS match_status,
@@ -2068,13 +2088,8 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
     }
 
     if (action === 'accept') {
-      // Block/report routes use this same pair lock. Re-read safety-critical
-      // state only after acquiring it, so an in-flight safety action cannot race
-      // past the final acceptance check.
-      await client.query(
-        "SELECT pg_advisory_xact_lock(hashtext('gift-safety:' || LEAST($1::uuid, $2::uuid)::text || ':' || GREATEST($1::uuid, $2::uuid)::text))",
-        [order.sender_id, order.recipient_id]
-      );
+      // The pair lock is already held before the order row lock. Re-read
+      // safety-critical state now that block/report actions are serialized.
       // Lock the existing preference row against a concurrent opt-out. A
       // missing row remains disabled; the preference endpoint's upsert will
       // serialize on this row whenever it already exists.
