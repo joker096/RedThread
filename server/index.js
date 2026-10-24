@@ -1950,8 +1950,26 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
   if (!validation.ok) {
     return res.status(400).json({ error: validation.error, ...(validation.field ? { field: validation.field } : {}) });
   }
+
+  let client;
   try {
-    const result = await pool.query(
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    // Lock pending orders before the preference row. Gift acceptance locks an
+    // order before reading the preference, so this ordering avoids reversing
+    // the order/preference lock sequence and creating a deadlock.
+    if (!validation.value.requestsEnabled) {
+      await client.query(
+        `SELECT id FROM gift_delivery_orders
+         WHERE recipient_id = $1 AND status = 'awaiting_recipient_consent'
+         ORDER BY id
+         FOR UPDATE`,
+        [req.authUser.id]
+      );
+    }
+
+    const result = await client.query(
       `INSERT INTO gift_receiving_preferences (user_id, requests_enabled, updated_at)
        VALUES ($1, $2, NOW())
        ON CONFLICT (user_id) DO UPDATE SET
@@ -1960,10 +1978,33 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
        RETURNING requests_enabled`,
       [req.authUser.id, validation.value.requestsEnabled]
     );
+
+    if (!validation.value.requestsEnabled) {
+      const cancelled = await client.query(
+        `UPDATE gift_delivery_orders
+         SET status = 'cancelled', updated_at = NOW()
+         WHERE recipient_id = $1 AND status = 'awaiting_recipient_consent'
+         RETURNING id, sender_id`,
+        [req.authUser.id]
+      );
+      for (const order of cancelled.rows) {
+        await client.query(
+          `INSERT INTO gift_delivery_order_events
+             (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
+           VALUES ($1, $2, 'recipient', 'cancelled', 'awaiting_recipient_consent', 'cancelled')`,
+          [order.id, req.authUser.id]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
     return res.json({ preferences: serializeGiftReceivingPreferences(result.rows[0]) });
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Gift receiving preferences save failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'gift_preferences_unavailable' });
+  } finally {
+    client?.release();
   }
 });
 
