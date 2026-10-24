@@ -52,3 +52,23 @@ test('retention options accept bounded whole-day overrides and reject unsafe val
   assert.throws(() => partnerRetentionOptions({ PARTNER_REJECTED_RETENTION_DAYS: '1.5' }), RangeError);
   assert.throws(() => partnerRetentionOptions({ PARTNER_INACTIVE_RETENTION_DAYS: '99999' }), RangeError);
 });
+
+test('partner retention rejects invalid runtime overrides before opening a database connection', async () => {
+  let connections = 0;
+  const pool = {
+    async connect() {
+      connections += 1;
+      throw new Error('must not connect for invalid retention settings');
+    }
+  };
+
+  await assert.rejects(
+    () => cleanupPartnerServiceData(pool, { inquiryDays: 0 }),
+    RangeError
+  );
+  await assert.rejects(
+    () => cleanupPartnerServiceData(pool, { inactiveApplicationDays: 1.5 }),
+    RangeError
+  );
+  assert.equal(connections, 0, 'invalid retention settings must fail before any database work');
+});
