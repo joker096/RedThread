@@ -36,7 +36,7 @@ export function evaluateGiftFulfilmentEligibility({ request, sender, recipient, 
   if (safetyEvents.some((event) => !['block', 'report', 'restriction', 'account_deleted', 'consent_withdrawn'].includes(event))) return deny('safety_state_unavailable_or_invalid');
   if (safetyEvents.length > 0) return deny('safety_event_requires_fulfilment_suspension');
   if (sender.accountStatus !== 'active' || sender.isAdult !== true || sender.identityVerified !== true || sender.safetyRestricted !== false) return deny('sender_safety_state_unavailable_or_restricted');
-  if (request.status !== 'recipient_accepted') return deny('recipient_consent_required');
+  if (request.status !== 'address_verified') return deny('verified_address_state_required');
   if (request.recipientId !== recipient.id || recipient.authenticatedUserId !== recipient.id) return deny('recipient_authorization_failed');
   if (!request.expiresAt || !Number.isFinite(Date.parse(request.expiresAt)) || Date.parse(request.expiresAt) <= now) return deny('request_expired');
   const consentRecordedAt = Date.parse(request.consentRecordedAt);
