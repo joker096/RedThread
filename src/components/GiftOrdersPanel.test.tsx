@@ -55,3 +55,13 @@ test('gift order list is capped at the API maximum of 50 records', () => {
   }));
   assert.equal(normalizeGiftOrders({ orders }).length, 50);
 });
+
+test('gift order list rejects ambiguous and impossible ISO delivery dates', () => {
+  const orders = normalizeGiftOrders({ orders: [{
+    ...validOrder,
+    estimatedDeliveryStart: '1',
+    estimatedDeliveryEnd: '2026-02-31T12:00:00.000Z'
+  }] });
+  assert.equal(orders[0].estimatedDeliveryStart, null);
+  assert.equal(orders[0].estimatedDeliveryEnd, null);
+});
