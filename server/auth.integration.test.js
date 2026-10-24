@@ -385,6 +385,59 @@ test('auth API supports registration, session lookup, logout and login', {
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [concurrentGiftOrderId]).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [concurrentGiftOrderId]).catch(() => {});
       }
+
+      // Turning off gift requests must atomically close all pending requests
+      // and record a durable audit event, so a stale notification cannot be accepted later.
+      const pendingPreferenceOrder = await giftTestDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, idempotency_key)
+         VALUES ($1, $2, $3, 'Pending preference test gift', 'chocolate', 1000, 'USD',
+                 'awaiting_recipient_consent', 'not_started', $4)
+         RETURNING id, public_reference`,
+        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      const pendingPreferenceOrderId = pendingPreferenceOrder.rows[0].id;
+      try {
+        const disableGiftRequests = await request('/api/gifts/preferences', {
+          method: 'PUT',
+          headers: { Cookie: secondCookie },
+          body: JSON.stringify({ requestsEnabled: false })
+        });
+        assert.equal(disableGiftRequests.status, 200);
+        assert.deepEqual((await disableGiftRequests.json()).preferences, { requestsEnabled: false });
+
+        const pendingPreferenceState = await giftTestDb.query(
+          'SELECT status FROM gift_delivery_orders WHERE id = $1',
+          [pendingPreferenceOrderId]
+        );
+        assert.equal(pendingPreferenceState.rows[0].status, 'cancelled',
+          'disabling gift requests must cancel pending requests in the same transaction');
+        const preferenceAudit = await giftTestDb.query(
+          `SELECT actor_type, event_type, from_status, to_status
+           FROM gift_delivery_order_events WHERE order_id = $1`,
+          [pendingPreferenceOrderId]
+        );
+        assert.deepEqual(preferenceAudit.rows, [{
+          actor_type: 'recipient',
+          event_type: 'cancelled',
+          from_status: 'awaiting_recipient_consent',
+          to_status: 'cancelled'
+        }]);
+        const staleAccept = await request(
+          `/api/gifts/orders/${pendingPreferenceOrder.rows[0].public_reference}/decision`,
+          {
+            method: 'POST',
+            headers: { Cookie: secondCookie },
+            body: JSON.stringify({ action: 'accept' })
+          }
+        );
+        assert.equal(staleAccept.status, 409,
+          'a stale gift request cannot be accepted after the recipient disables requests');
+      } finally {
+        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [pendingPreferenceOrderId]).catch(() => {});
+        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [pendingPreferenceOrderId]).catch(() => {});
+      }
     } finally {
       if (giftOrderId) {
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [giftOrderId]).catch(() => {});
