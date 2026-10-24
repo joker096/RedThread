@@ -92,6 +92,19 @@ export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecord
   return true;
 }
 
+export function evaluateGiftRefundEligibility({ request, payment, actor, reason, idempotencyKey, alreadyRefunded = false } = {}) {
+  if (!request || !payment || !actor || !reason || !idempotencyKey) return deny('missing_refund_context');
+  if (!['system', 'moderator'].includes(actor)) return deny('refund_actor_not_authorized');
+  if (!['delivery_failed', 'reported', 'refund_pending'].includes(request.status)) return deny('order_not_refundable_in_current_state');
+  if (alreadyRefunded || payment.status === 'refunded' || request.status === 'refunded') return deny('refund_already_completed');
+  if (!['captured', 'settled'].includes(payment.status)) return deny('payment_not_captured');
+  if (payment.orderId !== request.id || payment.amountMinorUnits !== request.totalMinorUnits || payment.currency !== request.currency) return deny('payment_order_mismatch');
+  if (!Number.isSafeInteger(request.totalMinorUnits) || request.totalMinorUnits <= 0 || typeof request.currency !== 'string' || !/^[A-Z]{3}$/.test(request.currency)) return deny('invalid_refund_amount');
+  if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9:_-]{16,128}$/.test(idempotencyKey)) return deny('invalid_refund_idempotency_key');
+  if (typeof reason !== 'string' || reason.trim().length < 3 || reason.trim().length > 500) return deny('invalid_refund_reason');
+  return { eligible: true, reason: 'refund_allowed_pending_idempotent_payment_service', fulfilmentAuthorized: false, refundAmountMinorUnits: request.totalMinorUnits, currency: request.currency };
+}
+
 export function denyGiftFulfilmentAfterSafetyEvent({ status, safetyEvent } = {}) {
   if (!['block', 'report', 'restriction', 'account_deleted', 'consent_withdrawn'].includes(safetyEvent)) return { suspend: false, reason: 'no_safety_event' };
   if (['delivered', 'declined', 'expired', 'cancelled', 'blocked', 'refunded'].includes(status)) return { suspend: false, reason: 'order_already_terminal' };
