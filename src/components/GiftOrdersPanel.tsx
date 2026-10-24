@@ -17,7 +17,7 @@ type GiftOrder = {
 function normalizeOptionalDate(value: unknown): string | null {
   if (typeof value !== 'string' || value.length > 64) return null;
   // Accept only unambiguous ISO dates/timestamps; Date.parse alone accepts values such as "1".
-  const match = /^(\\d{4})-(\\d{2})-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.(\\d{1,3}))?)?(Z|[+-]\\d{2}:\\d{2}))?$/i.exec(value);
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(Z|[+-]\d{2}:\d{2}))?$/i.exec(value);
   if (!match || !Number.isFinite(Date.parse(value))) return null;
   const year = Number(match[1]);
   const month = Number(match[2]);
