@@ -25,6 +25,13 @@ export function normalizeAdConsentPayload(value: unknown): Preferences {
   }
 
   const candidate = value as Partial<Preferences>;
+  if (typeof candidate.adsConsent !== 'boolean' ||
+      typeof candidate.dateOffersConsent !== 'boolean' ||
+      typeof candidate.weddingOffersConsent !== 'boolean' ||
+      typeof candidate.marriagePlanningOptIn !== 'boolean') {
+    return { ...defaults, categoryConsents: {} };
+  }
+
   const categoryConsents: Record<string, boolean> = {};
   if (candidate.categoryConsents && typeof candidate.categoryConsents === 'object' &&
       !Array.isArray(candidate.categoryConsents)) {
