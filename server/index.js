@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { validateAdEventPayload, AD_IMPRESSION_CAP_24H } from './adEvents.js';
+import { validateAdEventPayload, hasExplicitAdConsent, AD_IMPRESSION_CAP_24H } from './adEvents.js';
 import { validateGiftDecisionInput } from './giftDecisionInput.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
@@ -2131,7 +2131,7 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
       'SELECT ads_consent FROM ad_consent_preferences WHERE user_id = $1 FOR SHARE',
       [user.id]
     );
-    if (consent.rows[0]?.ads_consent !== true) {
+    if (!hasExplicitAdConsent(consent.rows)) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'ad_consent_required' });
     }
