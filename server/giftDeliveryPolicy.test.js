@@ -90,7 +90,7 @@ test('state transitions enforce actors, consent, persisted states, and terminal 
 });
 test('sender projection never exposes address, phone, email or coordinates', () => {
   const view = redactGiftOrderForSender({ ...order, recipientAddress: 'secret street', recipientPhone: '+9950000', recipientEmail: 'secret@example.com', recipientCoordinates: { lat: 1, lon: 2 } });
-  assert.deepEqual(view, { id: 'gift_7f2a', status: 'recipient_accepted', productName: 'Chocolate box', totalMinorUnits: 2500, currency: 'GEL', estimatedDeliveryWindow: null });
+  assert.deepEqual(view, { id: 'gift_7f2a', status: 'address_verified', productName: 'Chocolate box', totalMinorUnits: 2500, currency: 'GEL', estimatedDeliveryWindow: null });
   assert.equal(JSON.stringify(view).includes('secret street'), false);
   assert.equal(JSON.stringify(view).includes('+9950000'), false);
   assert.equal(redactGiftOrderForSender({ publicReference: 'gift_safe', status: 'reported' }).status, 'not_available');
