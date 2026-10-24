@@ -2011,7 +2011,7 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
       nextStep: action === 'accept' ? 'recipient_address_setup_required' : 'closed'
     });
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Gift request decision failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'gift_request_decision_unavailable' });
   } finally {
