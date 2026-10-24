@@ -438,6 +438,70 @@ test('auth API supports registration, session lookup, logout and login', {
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [pendingPreferenceOrderId]).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [pendingPreferenceOrderId]).catch(() => {});
       }
+
+      // Race opt-out against recipient acceptance. The order lock serializes the
+      // operations: either acceptance commits first and remains accepted, or
+      // opt-out cancels the pending request and acceptance is rejected.
+      const enableGiftRequests = await request('/api/gifts/preferences', {
+        method: 'PUT',
+        headers: { Cookie: secondCookie },
+        body: JSON.stringify({ requestsEnabled: true })
+      });
+      assert.equal(enableGiftRequests.status, 200);
+      const raceOrderResult = await giftTestDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, idempotency_key)
+         VALUES ($1, $2, $3, 'Opt-out race test gift', 'chocolate', 1000, 'USD',
+                 'awaiting_recipient_consent', 'not_started', $4)
+         RETURNING id, public_reference`,
+        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      const raceOrderId = raceOrderResult.rows[0].id;
+      const raceReference = raceOrderResult.rows[0].public_reference;
+      try {
+        const [raceDecision, raceOptOut] = await Promise.all([
+          request(`/api/gifts/orders/${raceReference}/decision`, {
+            method: 'POST',
+            headers: { Cookie: secondCookie },
+            body: JSON.stringify({ action: 'accept' })
+          }),
+          request('/api/gifts/preferences', {
+            method: 'PUT',
+            headers: { Cookie: secondCookie },
+            body: JSON.stringify({ requestsEnabled: false })
+          })
+        ]);
+        assert.equal(raceOptOut.status, 200);
+        assert.ok([200, 409].includes(raceDecision.status),
+          'concurrent acceptance must either commit before opt-out or be rejected after cancellation');
+        const raceState = await giftTestDb.query(
+          'SELECT status FROM gift_delivery_orders WHERE id = $1',
+          [raceOrderId]
+        );
+        assert.ok(['cancelled', 'recipient_accepted'].includes(raceState.rows[0].status));
+        if (raceDecision.status === 200) {
+          assert.equal(raceState.rows[0].status, 'recipient_accepted',
+            'if acceptance wins the order lock, the accepted order remains accepted');
+        } else {
+          assert.equal(raceState.rows[0].status, 'cancelled',
+            'if opt-out wins the order lock, acceptance must not revive the cancelled request');
+        }
+        const raceAudit = await giftTestDb.query(
+          `SELECT event_type, from_status, to_status
+           FROM gift_delivery_order_events WHERE order_id = $1 ORDER BY created_at, id`,
+          [raceOrderId]
+        );
+        assert.equal(raceAudit.rowCount, 1,
+          'the winning state transition must produce exactly one audit event');
+        assert.ok(
+          (raceState.rows[0].status === 'cancelled' && raceAudit.rows[0].event_type === 'cancelled') ||
+          (raceState.rows[0].status === 'recipient_accepted' && raceAudit.rows[0].event_type === 'accepted')
+        );
+      } finally {
+        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [raceOrderId]).catch(() => {});
+        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [raceOrderId]).catch(() => {});
+      }
     } finally {
       if (giftOrderId) {
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [giftOrderId]).catch(() => {});
