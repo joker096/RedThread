@@ -46,7 +46,7 @@ export function redactGiftOrderForSender(order) {
   if (!order || typeof order !== 'object') return null;
   return {
     id: order.publicReference,
-    status: order.status,
+    status: ['declined', 'expired', 'cancelled', 'blocked', 'reported'].includes(order.status) ? 'not_available' : order.status,
     productName: order.productName,
     totalMinorUnits: order.totalMinorUnits,
     currency: order.currency,
