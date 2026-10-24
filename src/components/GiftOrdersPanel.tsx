@@ -36,6 +36,13 @@ export function normalizeGiftOrders(value: unknown): GiftOrder[] {
       || typeof order.createdAt !== 'string') return [];
     // Explicitly project the API response into the small display allowlist.
     // Accidental future fields (especially address/contact data) are discarded.
+    const estimatedDeliveryStart = normalizeOptionalDate(order.estimatedDeliveryStart);
+    let estimatedDeliveryEnd = normalizeOptionalDate(order.estimatedDeliveryEnd);
+    // Never render an internally inconsistent delivery window from an untrusted API payload.
+    if (estimatedDeliveryStart && estimatedDeliveryEnd
+      && Date.parse(estimatedDeliveryEnd) < Date.parse(estimatedDeliveryStart)) {
+      estimatedDeliveryEnd = null;
+    }
     return [{
       publicReference: order.publicReference,
       productName: order.productName.slice(0, 160),
@@ -44,8 +51,8 @@ export function normalizeGiftOrders(value: unknown): GiftOrder[] {
       currency: order.currency,
       status: order.status.slice(0, 64),
       createdAt: order.createdAt,
-      estimatedDeliveryStart: normalizeOptionalDate(order.estimatedDeliveryStart),
-      estimatedDeliveryEnd: normalizeOptionalDate(order.estimatedDeliveryEnd),
+      estimatedDeliveryStart,
+      estimatedDeliveryEnd,
       myRole: order.myRole
     }];
   }).slice(0, 50);
