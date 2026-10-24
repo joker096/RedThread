@@ -131,3 +131,8 @@ This document defines intended policy. Consent storage/API, user-facing consent 
 ### Engagement events are not billable evidence
 
 The authenticated `/api/ads/events` endpoint currently records consent-gated, client-reported engagement for frequency control and idempotency only. A stored `impression` or `click` row is **not** proof that an ad was actually viewable, that the campaign was approved and active at display time, that traffic was valid, or that attribution rules were satisfied. The pure `evaluateAdEventBillingEligibility()` guard requires all those facts plus a trusted server-measurement proof source; it is not connected to billing. Never use client event counts directly to invoice advertisers. Before billing, implement signed/server-issued display authorization, server-verifiable viewability/attribution, invalid-traffic controls, campaign registry checks, audit/reconciliation, and tests for replay and fabricated events. Until then, advertiser billing remains disabled.
+
+
+### Consent policy versioning
+
+Persisted consent is valid only when its `consent_version` matches the current server-side `AD_CONSENT_VERSION`. The consent read serializer and engagement-event endpoint both fail closed for missing or stale versions. When the policy changes in a material way, increment the version; existing users will then see consent as off until they make a fresh explicit choice. The consent update API writes the current version and appends the normalized choice to the history table in the same transaction. Do not use a client-supplied version as authority.
