@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AD_IMPRESSION_CAP_24H, classifyDuplicateAdEvent, evaluateAdEventBillingEligibility, hasExplicitAdConsent, validateAdEventPayload } from './adEvents.js';
+import { AD_CLICK_CAP_24H, AD_IMPRESSION_CAP_24H, classifyDuplicateAdEvent, evaluateAdEventBillingEligibility, hasExplicitAdConsent, validateAdEventPayload } from './adEvents.js';
 
 test('ad event payload accepts valid impression and click events', () => {
   const base = { eventId: 'b5e8d1a0-5c2b-4f39-8f04-3db6a1e32d88', campaignId: 'restaurant_summer-1' };
@@ -20,6 +20,7 @@ test('ad event validation rejects malformed ids, campaigns and event types', () 
 
 test('server-side impression frequency cap is intentionally bounded', () => {
   assert.equal(AD_IMPRESSION_CAP_24H, 3);
+  assert.equal(AD_CLICK_CAP_24H, 5);
 });
 
 
