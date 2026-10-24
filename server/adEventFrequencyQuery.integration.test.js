@@ -56,3 +56,32 @@ test('PostgreSQL ad frequency query computes the expiry that actually clears eac
     await client.end();
   }
 });
+
+
+test('PostgreSQL enforces gift order and payment terminal-state consistency', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  await client.connect();
+
+  try {
+    const expected = [
+      'gift_orders_refunded_payment_consistency',
+      'gift_orders_refund_pending_payment_consistency',
+      'gift_orders_declined_payment_inactive',
+      'gift_orders_cancelled_payment_inactive'
+    ];
+    const result = await client.query(
+      `SELECT conname
+       FROM pg_constraint
+       WHERE conrelid = 'gift_delivery_orders'::regclass
+         AND conname = ANY($1::text[])
+         AND convalidated = TRUE`,
+      [expected]
+    );
+    assert.deepEqual(result.rows.map(row => row.conname).sort(), [...expected].sort());
+  } finally {
+    await client.end();
+  }
+});
