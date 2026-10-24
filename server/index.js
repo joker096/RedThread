@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { validateAdEventPayload, classifyDuplicateAdEvent, hasExplicitAdConsent, evaluateAdEventFrequency, AD_IMPRESSION_CAP_24H, AD_CLICK_CAP_24H } from './adEvents.js';
+import { validateAdEventPayload, classifyDuplicateAdEvent, hasExplicitAdConsent, evaluateAdEventFrequency } from './adEvents.js';
 import { validateGiftDecisionInput } from './giftDecisionInput.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
