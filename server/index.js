@@ -46,7 +46,8 @@ app.use((_req, res, next) => {
   res.setHeader('X-Frame-Options', 'DENY');
   // One-time verification/reset tokens can appear in the URL; never leak them in Referer headers.
   res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  // Google Identity Services uses a popup; retain same-origin isolation while allowing its opener.
+  res.setHeader('Cross-Origin-Opener-Policy', process.env.GOOGLE_CLIENT_ID ? 'same-origin-allow-popups' : 'same-origin');
   res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
   if (process.env.NODE_ENV === 'production') {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
@@ -147,7 +148,9 @@ const photoStorageDir = path.resolve(process.env.PHOTO_STORAGE_DIR || 'uploads/p
 const authLimiter = rateLimit({
   ...(pool ? { store: new PostgresRateLimitStore(pool, 'auth') } : {}),
   windowMs: 15 * 60 * 1000,
-  limit: 10,
+  limit: process.env.NODE_ENV === 'test' && /^\\d+$/.test(process.env.AUTH_RATE_LIMIT || '')
+    ? Math.max(10, Math.min(Number.parseInt(process.env.AUTH_RATE_LIMIT, 10), 1000))
+    : 10,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'too_many_auth_attempts' }
@@ -359,8 +362,100 @@ app.get('/api/ready', async (_req, res) => {
   }
 });
 
-app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
-  const email = normalizeEmail(req.body?.email);
+let googleOAuthClient = null;
+
+async function verifyGoogleIdToken(credential) {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  if (!clientId) throw new Error('google_sign_in_not_configured');
+  if (typeof credential !== 'string' || credential.length < 100 || credential.length > 20_000) {
+    throw new Error('invalid_google_credential');
+  }
+  const { OAuth2Client } = await import('google-auth-library');
+  googleOAuthClient ||= new OAuth2Client(clientId);
+  const ticket = await googleOAuthClient.verifyIdToken({ idToken: credential, audience: clientId });
+  const payload = ticket.getPayload();
+  const email = normalizeEmail(payload?.email);
+  if (!payload || typeof payload.sub !== 'string' || !payload.sub || payload.sub.length > 255 ||
+      payload.email_verified !== true || !isValidEmail(email)) {
+    throw new Error('invalid_google_identity');
+  }
+  const displayName = typeof payload.name === 'string' ? payload.name.trim().slice(0, 80) : '';
+  return { subject: payload.sub, email, displayName };
+}
+
+app.get('/api/auth/google/config', (_req, res) => {
+  const clientId = process.env.GOOGLE_CLIENT_ID || '';
+  return res.json({ configured: Boolean(clientId), clientId: clientId || null });
+});
+
+app.post('/api/auth/google', validateRequestOrigin, authLimiter, requireDatabase, async (req, res) => {
+  if (!process.env.GOOGLE_CLIENT_ID) return res.status(503).json({ error: 'google_sign_in_not_configured' });
+  let identity;
+  try {
+    identity = await verifyGoogleIdToken(req.body?.credential);
+  } catch (error) {
+    console.warn('Google credential rejected:', error?.message || 'invalid_credential');
+    return res.status(401).json({ error: 'invalid_google_credential' });
+  }
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const result = await client.query(
+      'SELECT u.id, u.email, u.status, p.display_name, p.gender, p.country, p.city, p.relationship_intent ' +
+      'FROM user_auth_identities i JOIN users u ON u.id = i.user_id JOIN profiles p ON p.user_id = u.id ' +
+      "WHERE i.provider = 'google' AND i.provider_subject = $1 LIMIT 1",
+      [identity.subject]
+    );
+    const user = result.rows[0];
+    if (!user) {
+      const existingEmail = await client.query('SELECT 1 FROM users WHERE email = $1 LIMIT 1', [identity.email]);
+      await client.query('ROLLBACK');
+      if (existingEmail.rowCount) return res.status(409).json({ error: 'google_account_exists' });
+      return res.json({ registrationRequired: true, profile: { email: identity.email, displayName: identity.displayName } });
+    }
+    if (user.status !== 'active') {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'account_unavailable' });
+    }
+    const conflictingEmail = await client.query('SELECT 1 FROM users WHERE email = $1 AND id <> $2 LIMIT 1', [identity.email, user.id]);
+    if (conflictingEmail.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'google_account_exists' });
+    }
+    await client.query(
+      'UPDATE users SET email = $1, email_verified_at = COALESCE(email_verified_at, NOW()), updated_at = NOW() WHERE id = $2',
+      [identity.email, user.id]
+    );
+    user.email = identity.email;
+    const token = await createSession(client, user.id);
+    await client.query('COMMIT');
+    writeSessionCookie(res, token);
+    return res.json({ user: publicUser(user) });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (error?.code === '23505') return res.status(409).json({ error: 'google_account_exists' });
+    console.error('Google sign-in failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'google_sign_in_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.post('/api/auth/register', validateRequestOrigin, authLimiter, requireDatabase, async (req, res) => {
+  const googleCredential = req.body?.googleCredential;
+  let googleIdentity = null;
+  if (googleCredential !== undefined) {
+    if (!process.env.GOOGLE_CLIENT_ID) return res.status(503).json({ error: 'google_sign_in_not_configured' });
+    try {
+      googleIdentity = await verifyGoogleIdToken(googleCredential);
+    } catch (error) {
+      console.warn('Google registration credential rejected:', error?.message || 'invalid_credential');
+      return res.status(401).json({ error: 'invalid_google_credential' });
+    }
+  }
+  const email = googleIdentity?.email || normalizeEmail(req.body?.email);
   const password = req.body?.password;
   const displayName = typeof req.body?.displayName === 'string' ? req.body.displayName.trim() : '';
   const birthDate = req.body?.birthDate;
@@ -398,15 +493,22 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
     const passwordHash = await hashPassword(password);
     client = await pool.connect();
     await client.query('BEGIN');
-    if (emailVerificationRequired && !emailDeliveryConfigured()) {
+    if (emailVerificationRequired && !googleIdentity && !emailDeliveryConfigured()) {
       await client.query('ROLLBACK');
       return res.status(503).json({ error: 'email_delivery_not_configured' });
     }
     const userResult = await client.query(
       'INSERT INTO users (email, password_hash, status, female_trial_ends_at) VALUES ($1, $2, $3, CASE WHEN $4 = \'female\' THEN NOW() + INTERVAL \'24 hours\' ELSE NULL END) RETURNING id, email',
-      [email, passwordHash, emailVerificationRequired ? 'pending' : 'active', gender]
+      [email, passwordHash, emailVerificationRequired && !googleIdentity ? 'pending' : 'active', gender]
     );
     const user = userResult.rows[0];
+    if (googleIdentity) {
+      await client.query('UPDATE users SET email_verified_at = NOW() WHERE id = $1', [user.id]);
+      await client.query(
+        "INSERT INTO user_auth_identities (user_id, provider, provider_subject) VALUES ($1, 'google', $2)",
+        [user.id, googleIdentity.subject]
+      );
+    }
     const profileResult = await client.query(
       `INSERT INTO profiles (
          user_id, display_name, birth_date, gender, country, city, relationship_intent,
@@ -416,10 +518,11 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
        RETURNING user_id AS id, display_name, gender, country, city, relationship_intent`,
       [user.id, displayName, birthDate, gender, country, city, relationshipIntent, familyFormat, hasChildren, wantsChildren, childrenLivingArrangement]
     );
-    const verificationToken = emailVerificationRequired
+    const needsEmailVerification = emailVerificationRequired && !googleIdentity;
+    const verificationToken = needsEmailVerification
       ? await createAccountActionToken(client, user.id, 'email_verification', 60)
       : null;
-    const token = emailVerificationRequired ? null : await createSession(client, user.id);
+    const token = needsEmailVerification ? null : await createSession(client, user.id);
     await client.query('COMMIT');
 
     if (verificationToken) {
@@ -447,7 +550,7 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
       console.error('Registration screening failed:', screeningError?.message || 'unknown error');
     }
 
-    if (emailVerificationRequired) {
+    if (needsEmailVerification) {
       return res.status(201).json({ verificationRequired: true, message: 'Check your email to activate your account.' });
     }
     writeSessionCookie(res, token);
@@ -462,7 +565,7 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
   }
 });
 
-app.post('/api/auth/verify-email', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
+app.post('/api/auth/verify-email', validateRequestOrigin, authLimiter, requireDatabase, async (req, res) => {
   const token = typeof req.body?.token === 'string' ? req.body.token : '';
   if (token.length < 32 || token.length > 512) return res.status(400).json({ error: 'invalid_or_expired_token' });
   const client = await pool.connect();
@@ -498,7 +601,7 @@ app.post('/api/auth/verify-email', authLimiter, validateRequestOrigin, requireDa
   }
 });
 
-app.post('/api/auth/email-verification/resend', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
+app.post('/api/auth/email-verification/resend', validateRequestOrigin, authLimiter, requireDatabase, async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   // Keep the response generic so the endpoint does not disclose registered addresses.
   const generic = { accepted: true, message: 'If the account needs verification, an email will be sent.' };
@@ -534,7 +637,7 @@ app.post('/api/auth/email-verification/resend', authLimiter, validateRequestOrig
   return res.status(202).json(generic);
 });
 
-app.post('/api/auth/password-reset/request', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
+app.post('/api/auth/password-reset/request', validateRequestOrigin, authLimiter, requireDatabase, async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   const generic = { accepted: true, message: 'If an eligible account exists, password reset instructions will be sent.' };
   if (!isValidEmail(email) || !emailDeliveryConfigured()) return res.status(202).json(generic);
@@ -568,7 +671,7 @@ app.post('/api/auth/password-reset/request', authLimiter, validateRequestOrigin,
   return res.status(202).json(generic);
 });
 
-app.post('/api/auth/password-reset/complete', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
+app.post('/api/auth/password-reset/complete', validateRequestOrigin, authLimiter, requireDatabase, async (req, res) => {
   const token = typeof req.body?.token === 'string' ? req.body.token : '';
   const password = req.body?.password;
   if (typeof password !== 'string' || password.length < 12 || password.length > 128) {
@@ -606,7 +709,7 @@ app.post('/api/auth/password-reset/complete', authLimiter, validateRequestOrigin
   }
 });
 
-app.post('/api/auth/login', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
+app.post('/api/auth/login', validateRequestOrigin, authLimiter, requireDatabase, async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   const password = req.body?.password;
   if (!isValidEmail(email) || typeof password !== 'string' || password.length > 128) {

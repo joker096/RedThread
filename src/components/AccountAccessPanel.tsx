@@ -1,6 +1,39 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 import { PaddleSubscriptionPanel } from './PaddleSubscriptionPanel.tsx';
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (options: { client_id: string; callback: (response: { credential?: string }) => void }) => void;
+          renderButton: (parent: HTMLElement, options: { theme: 'outline'; size: 'large'; text: 'continue_with'; shape: 'rectangular'; width: number }) => void;
+        };
+      };
+    };
+  }
+}
+
+function loadGoogleIdentityServices(): Promise<void> {
+  if (window.google?.accounts?.id) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    let script = document.querySelector<HTMLScriptElement>('script[data-google-identity]');
+    const onLoad = () => window.google?.accounts?.id ? resolve() : reject(new Error('Google Identity Services did not initialize.'));
+    if (!script) {
+      script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.dataset.googleIdentity = 'true';
+      script.addEventListener('load', onLoad, { once: true });
+      script.addEventListener('error', () => reject(new Error('Google Identity Services could not load.')), { once: true });
+      document.head.appendChild(script);
+      return;
+    }
+    script.addEventListener('load', onLoad, { once: true });
+    script.addEventListener('error', () => reject(new Error('Google Identity Services could not load.')), { once: true });
+  });
+}
 
 type AccountUser = {
   id: string;
@@ -93,6 +126,10 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [googleClientId, setGoogleClientId] = useState('');
+  const [googleCredential, setGoogleCredential] = useState<string | null>(null);
+  const googleButtonRef = useRef<HTMLDivElement | null>(null);
+  const googleAuthInFlightRef = useRef(false);
   const [canResendVerification, setCanResendVerification] = useState(false);
   const [showReset, setShowReset] = useState(false);
   const [resetToken, setResetToken] = useState('');
@@ -151,6 +188,89 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
     return () => { cancelled = true; auxiliaryRequestIdRef.current += 1; };
   }, []);
 
+  const handleGoogleCredential = useCallback(async (credential: string) => {
+    if (!credential || googleAuthInFlightRef.current) return;
+    googleAuthInFlightRef.current = true;
+    let actionId = ++sessionActionIdRef.current;
+    auxiliaryRequestIdRef.current += 1;
+    setBusy(true);
+    setMessage('');
+    try {
+      const response = await fetch('/api/auth/google', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential })
+      });
+      const data = await response.json().catch(() => null);
+      if (sessionActionIdRef.current !== actionId) return;
+      if (!response.ok) {
+        if (data?.error === 'google_account_exists') throw new Error(t('authGoogleAccountExists'));
+        throw new Error(t('authRequestFailed'));
+      }
+      if (data?.registrationRequired) {
+        setGoogleCredential(credential);
+        setEmail(typeof data.profile?.email === 'string' ? data.profile.email : '');
+        setDisplayName(typeof data.profile?.displayName === 'string' ? data.profile.displayName : '');
+        setMode('register');
+        setMessage(t('authGoogleFinishProfile'));
+        return;
+      }
+      const normalizedUser = normalizeAccountUser(data?.user);
+      if (!normalizedUser) throw new Error(t('authRequestFailed'));
+      actionId = ++sessionActionIdRef.current;
+      setGoogleCredential(null);
+      setUser(normalizedUser);
+      window.dispatchEvent(new Event('vow:session-changed'));
+      const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
+      if (sessionActionIdRef.current !== actionId) return;
+      setBillingStatus(isBillingStatus(billing) ? billing : null);
+      setMessage(t('authSignedIn'));
+      onAuthenticated();
+    } catch (error) {
+      if (sessionActionIdRef.current === actionId) setMessage(error instanceof Error ? error.message : t('authConnectionFailed'));
+    } finally {
+      googleAuthInFlightRef.current = false;
+      if (sessionActionIdRef.current === actionId) setBusy(false);
+    }
+  }, [onAuthenticated, t]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/auth/google/config', { credentials: 'include' })
+      .then(response => response.ok ? response.json() : null)
+      .then(data => {
+        if (!cancelled && data?.configured && typeof data.clientId === 'string') setGoogleClientId(data.clientId);
+      })
+      .catch(() => { if (!cancelled) setGoogleClientId(''); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    const container = googleButtonRef.current;
+    if (!googleClientId || mode !== 'login' || !container) return;
+    let cancelled = false;
+    void loadGoogleIdentityServices().then(() => {
+      if (cancelled || !googleButtonRef.current || !window.google?.accounts?.id) return;
+      const target = googleButtonRef.current;
+      target.replaceChildren();
+      window.google.accounts.id.initialize({
+        client_id: googleClientId,
+        callback: response => { if (response.credential) void handleGoogleCredential(response.credential); }
+      });
+      window.google.accounts.id.renderButton(target, {
+        theme: 'outline',
+        size: 'large',
+        text: 'continue_with',
+        shape: 'rectangular',
+        width: Math.min(400, Math.max(200, target.clientWidth))
+      });
+    }).catch(() => {
+      if (!cancelled) setMessage(t('authConnectionFailed'));
+    });
+    return () => { cancelled = true; };
+  }, [googleClientId, mode, handleGoogleCredential, t]);
+
   const submit = async () => {
     auxiliaryRequestIdRef.current += 1;
     let activeActionId = ++sessionActionIdRef.current;
@@ -159,9 +279,10 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
     setMessage('');
     setCanResendVerification(false);
     try {
+      const submittedGoogleCredential = googleCredential;
       const body = submittedMode === 'login'
         ? { email, password }
-        : { email, password, displayName, birthDate, gender, country, city, relationshipIntent, familyFormat, hasChildren, wantsChildren, childrenLivingArrangement };
+        : { email, password, displayName, birthDate, gender, country, city, relationshipIntent, familyFormat, hasChildren, wantsChildren, childrenLivingArrangement, ...(submittedGoogleCredential ? { googleCredential: submittedGoogleCredential } : {}) };
       const response = await fetch(submittedMode === 'login' ? '/api/auth/login' : '/api/auth/register', {
         method: 'POST',
         credentials: 'include',
@@ -176,6 +297,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
           password_must_be_12_to_128_characters: t('authPasswordLengthError'),
           must_be_18_or_older_with_valid_birth_date: t('authAdultRequired'),
           email_already_registered: t('authEmailTaken'),
+          google_account_exists: t('authGoogleAccountExists'),
           email_or_password_incorrect: t('authCredentialsInvalid'),
           email_verification_required: t('authVerifyEmailFirst'),
           email_delivery_not_configured: t('authEmailNotConfigured'),
@@ -200,6 +322,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       setBillingStatus(isBillingStatus(billing) ? billing : null);
       setMessage(submittedMode === 'register' ? t('authAccountCreated') : t('authSignedIn'));
       setPassword('');
+      if (submittedGoogleCredential) setGoogleCredential(null);
       onAuthenticated();
     } catch (error) {
       if (sessionActionIdRef.current !== activeActionId) return;
@@ -369,7 +492,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       ) : (
         <>
           <div className="mb-3 grid grid-cols-2 gap-2">
-            <button type="button" aria-pressed={mode === 'login'} onClick={() => { setMode('login'); setMessage(''); }} className={`focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 min-h-11 rounded-xl border px-3 py-2 text-xs font-semibold ${mode === 'login' ? 'border-rose-500 bg-rose-950/50 text-white' : 'border-white/10 text-stone-400'}`}>{t('signIn')}</button>
+            <button type="button" aria-pressed={mode === 'login'} onClick={() => { setMode('login'); setGoogleCredential(null); setMessage(''); }} className={`focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 min-h-11 rounded-xl border px-3 py-2 text-xs font-semibold ${mode === 'login' ? 'border-rose-500 bg-rose-950/50 text-white' : 'border-white/10 text-stone-400'}`}>{t('signIn')}</button>
             <button type="button" aria-pressed={mode === 'register'} onClick={() => { setMode('register'); setMessage(''); }} className={`focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 min-h-11 rounded-xl border px-3 py-2 text-xs font-semibold ${mode === 'register' ? 'border-rose-500 bg-rose-950/50 text-white' : 'border-white/10 text-stone-400'}`}>{t('register')}</button>
           </div>
           <div className="space-y-3">
@@ -395,6 +518,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
               </fieldset>
             </>}
             <label className="block text-xs text-stone-300">{t('email')}<input name="account-email" type="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" /></label>
+            {mode === 'login' && googleClientId && <div ref={googleButtonRef} className="flex min-h-11 justify-center" aria-label="Sign in with Google" />}
             <label className="block text-xs text-stone-300">{t('passwordMin')}<input name="account-password" type="password" value={password} onChange={e => setPassword(e.target.value)} minLength={12} maxLength={128} required autoComplete={mode === 'login' ? 'current-password' : 'new-password'} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" /></label>
             <button type="button" onClick={() => void submit()} disabled={busy || !email.trim() || password.length < 12 || (mode === 'register' && (!displayName.trim() || !birthDate || !country.trim() || !city.trim() || hasChildren === null))} className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 min-h-11 w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">{busy ? t('wait') : mode === 'login' ? t('signIn') : t('createAccount')}</button>
             {mode === 'login' && <div className="grid grid-cols-1 gap-2">
