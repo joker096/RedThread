@@ -15,6 +15,26 @@ jobs:
   browser-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: nit_test
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: nit_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nit_test -d nit_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://nit_test:test_password@localhost:5432/nit_test
+      PGSSL: "false"
+      API_PORT: "3001"
+      APP_ORIGIN: http://127.0.0.1:4173
+      NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,7 +42,19 @@ jobs:
           node-version: 22
       - run: npm install --no-audit --no-fund
       - run: npx playwright install --with-deps chromium
+      - run: npm run db:migrate
       - run: npm run build
+      - name: Start API for browser tests
+        run: |
+          npm run start:api > /tmp/vow-api.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3001/api/health >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/vow-api.log
+          exit 1
       - run: npm run test:e2e
       - name: Generate feature graphic
         run: node scripts/generate-store-assets.mjs

@@ -4,6 +4,9 @@ import { createServer } from 'node:net';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
+import pg from 'pg';
+
+const { Pool } = pg;
 
 async function findFreePort() {
   const listener = createServer();
@@ -248,6 +251,476 @@ test('auth API supports registration, session lookup, logout and login', {
     const maleRegistered = await maleRegistration.json();
     const maleCookie = maleRegistration.headers.get('set-cookie')?.split(';')[0];
     assert.ok(maleCookie?.startsWith('nit_session='));
+
+    // Exercise withdrawal against real PostgreSQL rows, not only the pure policy helper.
+    // This integration case is skipped with the enclosing auth test when DATABASE_URL is absent.
+    const giftTestDb = new Pool({ connectionString: process.env.DATABASE_URL });
+    let giftOrderId;
+    let giftMatchId;
+    let giftMatchCreated = false;
+    try {
+      const [userA, userB] = [registered.user.id, maleRegistered.user.id].sort();
+      const match = await giftTestDb.query(
+        `INSERT INTO matches (user_a_id, user_b_id, status)
+         VALUES ($1, $2, 'active')
+         ON CONFLICT (user_a_id, user_b_id) DO NOTHING
+         RETURNING id`,
+        [userA, userB]
+      );
+      giftMatchCreated = match.rowCount === 1;
+      const matchRow = match.rows[0] || (await giftTestDb.query(
+        'SELECT id FROM matches WHERE user_a_id = $1 AND user_b_id = $2',
+        [userA, userB]
+      )).rows[0];
+      if (!matchRow) throw new Error('Could not create or locate integration-test match');
+      giftMatchId = matchRow.id;
+
+      const giftOrder = await giftTestDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, recipient_consent_at,
+            recipient_consent_version, address_vault_ref, address_verified_at, idempotency_key)
+         VALUES ($1, $2, $3, 'Integration test chocolate', 'chocolate', 1000, 'USD',
+                 'address_verified', 'not_started', NOW(), 1, 'test-only-vault-reference',
+                 NOW(), $4)
+         RETURNING id, public_reference`,
+        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      giftOrderId = giftOrder.rows[0].id;
+      const giftReference = giftOrder.rows[0].public_reference;
+
+      const crossAccountWithdrawal = await request(
+        `/api/gifts/orders/${giftReference}/withdraw-consent`,
+        { method: 'POST', headers: { Cookie: maleCookie } }
+      );
+      assert.equal(crossAccountWithdrawal.status, 404,
+        'a sender or unrelated account must not withdraw the recipient\'s consent');
+
+      const successfulWithdrawal = await request(
+        `/api/gifts/orders/${giftReference}/withdraw-consent`,
+        { method: 'POST', headers: { Cookie: secondCookie } }
+      );
+      assert.equal(successfulWithdrawal.status, 200);
+      assert.deepEqual(await successfulWithdrawal.json(), {
+        order: { id: giftReference, status: 'cancelled', consentWithdrawn: true }
+      });
+
+      const persistedOrder = await giftTestDb.query(
+        `SELECT status, consent_withdrawn_at, address_vault_ref, address_verified_at
+         FROM gift_delivery_orders WHERE id = $1`,
+        [giftOrderId]
+      );
+      assert.equal(persistedOrder.rows[0].status, 'cancelled');
+      assert.ok(persistedOrder.rows[0].consent_withdrawn_at);
+      assert.equal(persistedOrder.rows[0].address_vault_ref, null);
+      assert.equal(persistedOrder.rows[0].address_verified_at, null);
+
+      const auditEvent = await giftTestDb.query(
+        `SELECT event_type, actor_type, from_status, to_status
+         FROM gift_delivery_order_events
+         WHERE order_id = $1 AND event_type = 'consent_withdrawn'`,
+        [giftOrderId]
+      );
+      assert.equal(auditEvent.rowCount, 1);
+      assert.deepEqual(auditEvent.rows[0], {
+        event_type: 'consent_withdrawn',
+        actor_type: 'recipient',
+        from_status: 'address_verified',
+        to_status: 'cancelled'
+      });
+
+      const repeatedWithdrawal = await request(
+        `/api/gifts/orders/${giftReference}/withdraw-consent`,
+        { method: 'POST', headers: { Cookie: secondCookie } }
+      );
+      assert.equal(repeatedWithdrawal.status, 409,
+        'a second withdrawal must not create another transition or audit event');
+
+      // Race two recipient requests against a separate order. Row/advisory locks must
+      // allow only one transition and exactly one consent-withdrawal audit event.
+      const concurrentOrderResult = await giftTestDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, recipient_consent_at,
+            recipient_consent_version, address_vault_ref, address_verified_at, idempotency_key)
+         VALUES ($1, $2, $3, 'Concurrent integration test chocolate', 'chocolate', 1000, 'USD',
+                 'address_verified', 'not_started', NOW(), 1, 'test-only-concurrent-vault-reference',
+                 NOW(), $4)
+         RETURNING id, public_reference`,
+        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      const concurrentGiftOrderId = concurrentOrderResult.rows[0].id;
+      const concurrentGiftReference = concurrentOrderResult.rows[0].public_reference;
+      try {
+        const concurrentResponses = await Promise.all([
+          request(`/api/gifts/orders/${concurrentGiftReference}/withdraw-consent`, {
+            method: 'POST', headers: { Cookie: secondCookie }
+          }),
+          request(`/api/gifts/orders/${concurrentGiftReference}/withdraw-consent`, {
+            method: 'POST', headers: { Cookie: secondCookie }
+          })
+        ]);
+        assert.deepEqual(
+          concurrentResponses.map(response => response.status).sort((a, b) => a - b),
+          [200, 409],
+          'exactly one concurrent withdrawal may win; the other must see the terminal state'
+        );
+        const concurrentState = await giftTestDb.query(
+          `SELECT status, consent_withdrawn_at, address_vault_ref, address_verified_at
+           FROM gift_delivery_orders WHERE id = $1`,
+          [concurrentGiftOrderId]
+        );
+        assert.equal(concurrentState.rows[0].status, 'cancelled');
+        assert.ok(concurrentState.rows[0].consent_withdrawn_at);
+        assert.equal(concurrentState.rows[0].address_vault_ref, null);
+        assert.equal(concurrentState.rows[0].address_verified_at, null);
+        const concurrentAudit = await giftTestDb.query(
+          `SELECT COUNT(*)::int AS count FROM gift_delivery_order_events
+           WHERE order_id = $1 AND event_type = 'consent_withdrawn'`,
+          [concurrentGiftOrderId]
+        );
+        assert.equal(concurrentAudit.rows[0].count, 1,
+          'concurrent requests must not duplicate the audit event');
+      } finally {
+        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [concurrentGiftOrderId]).catch(() => {});
+        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [concurrentGiftOrderId]).catch(() => {});
+      }
+
+      // Turning off gift requests must atomically close all pending requests
+      // and record a durable audit event, so a stale notification cannot be accepted later.
+      const pendingPreferenceOrder = await giftTestDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, idempotency_key)
+         VALUES ($1, $2, $3, 'Pending preference test gift', 'chocolate', 1000, 'USD',
+                 'awaiting_recipient_consent', 'not_started', $4)
+         RETURNING id, public_reference`,
+        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      const pendingPreferenceOrderId = pendingPreferenceOrder.rows[0].id;
+      try {
+        const disableGiftRequests = await request('/api/gifts/preferences', {
+          method: 'PUT',
+          headers: { Cookie: secondCookie },
+          body: JSON.stringify({ requestsEnabled: false })
+        });
+        assert.equal(disableGiftRequests.status, 200);
+        assert.deepEqual((await disableGiftRequests.json()).preferences, { requestsEnabled: false });
+
+        const pendingPreferenceState = await giftTestDb.query(
+          'SELECT status FROM gift_delivery_orders WHERE id = $1',
+          [pendingPreferenceOrderId]
+        );
+        assert.equal(pendingPreferenceState.rows[0].status, 'cancelled',
+          'disabling gift requests must cancel pending requests in the same transaction');
+        const preferenceAudit = await giftTestDb.query(
+          `SELECT actor_type, event_type, from_status, to_status
+           FROM gift_delivery_order_events WHERE order_id = $1`,
+          [pendingPreferenceOrderId]
+        );
+        assert.deepEqual(preferenceAudit.rows, [{
+          actor_type: 'recipient',
+          event_type: 'cancelled',
+          from_status: 'awaiting_recipient_consent',
+          to_status: 'cancelled'
+        }]);
+        const staleAccept = await request(
+          `/api/gifts/orders/${pendingPreferenceOrder.rows[0].public_reference}/decision`,
+          {
+            method: 'POST',
+            headers: { Cookie: secondCookie },
+            body: JSON.stringify({ action: 'accept' })
+          }
+        );
+        assert.equal(staleAccept.status, 409,
+          'a stale gift request cannot be accepted after the recipient disables requests');
+      } finally {
+        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [pendingPreferenceOrderId]).catch(() => {});
+        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [pendingPreferenceOrderId]).catch(() => {});
+      }
+
+      // Race opt-out against recipient acceptance. The order lock serializes the
+      // operations: either acceptance commits first and remains accepted, or
+      // opt-out cancels the pending request and acceptance is rejected.
+      const enableGiftRequests = await request('/api/gifts/preferences', {
+        method: 'PUT',
+        headers: { Cookie: secondCookie },
+        body: JSON.stringify({ requestsEnabled: true })
+      });
+      assert.equal(enableGiftRequests.status, 200);
+      const raceOrderResult = await giftTestDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, idempotency_key)
+         VALUES ($1, $2, $3, 'Opt-out race test gift', 'chocolate', 1000, 'USD',
+                 'awaiting_recipient_consent', 'not_started', $4)
+         RETURNING id, public_reference`,
+        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      const raceOrderId = raceOrderResult.rows[0].id;
+      const raceReference = raceOrderResult.rows[0].public_reference;
+      try {
+        const [raceDecision, raceOptOut] = await Promise.all([
+          request(`/api/gifts/orders/${raceReference}/decision`, {
+            method: 'POST',
+            headers: { Cookie: secondCookie },
+            body: JSON.stringify({ action: 'accept' })
+          }),
+          request('/api/gifts/preferences', {
+            method: 'PUT',
+            headers: { Cookie: secondCookie },
+            body: JSON.stringify({ requestsEnabled: false })
+          })
+        ]);
+        assert.equal(raceOptOut.status, 200);
+        assert.ok([200, 409].includes(raceDecision.status),
+          'concurrent acceptance must either commit before opt-out or be rejected after cancellation');
+        const raceState = await giftTestDb.query(
+          'SELECT status FROM gift_delivery_orders WHERE id = $1',
+          [raceOrderId]
+        );
+        assert.ok(['cancelled', 'recipient_accepted'].includes(raceState.rows[0].status));
+        if (raceDecision.status === 200) {
+          assert.equal(raceState.rows[0].status, 'recipient_accepted',
+            'if acceptance wins the order lock, the accepted order remains accepted');
+        } else {
+          assert.equal(raceState.rows[0].status, 'cancelled',
+            'if opt-out wins the order lock, acceptance must not revive the cancelled request');
+        }
+        const raceAudit = await giftTestDb.query(
+          `SELECT event_type, from_status, to_status
+           FROM gift_delivery_order_events WHERE order_id = $1 ORDER BY created_at, id`,
+          [raceOrderId]
+        );
+        assert.equal(raceAudit.rowCount, 1,
+          'the winning state transition must produce exactly one audit event');
+        assert.ok(
+          (raceState.rows[0].status === 'cancelled' && raceAudit.rows[0].event_type === 'cancelled') ||
+          (raceState.rows[0].status === 'recipient_accepted' && raceAudit.rows[0].event_type === 'accepted')
+        );
+      } finally {
+        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [raceOrderId]).catch(() => {});
+        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [raceOrderId]).catch(() => {});
+      }
+
+      // Disabling future requests must not silently withdraw consent already
+      // given for an accepted order.
+      const acceptedOrderResult = await giftTestDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, recipient_consent_at,
+            recipient_consent_version, idempotency_key)
+         VALUES ($1, $2, $3, 'Accepted consent preservation test', 'chocolate', 1000, 'USD',
+                 'recipient_accepted', 'not_started', NOW(), 1, $4)
+         RETURNING id`,
+        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      const acceptedOrderId = acceptedOrderResult.rows[0].id;
+      await giftTestDb.query(
+        `INSERT INTO gift_delivery_order_events
+           (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
+         VALUES ($1, $2, 'recipient', 'accepted', 'awaiting_recipient_consent', 'recipient_accepted')`,
+        [acceptedOrderId, registered.user.id]
+      );
+      try {
+        const disableFutureRequests = await request('/api/gifts/preferences', {
+          method: 'PUT',
+          headers: { Cookie: secondCookie },
+          body: JSON.stringify({ requestsEnabled: false })
+        });
+        assert.equal(disableFutureRequests.status, 200);
+        const acceptedState = await giftTestDb.query(
+          'SELECT status, recipient_consent_at FROM gift_delivery_orders WHERE id = $1',
+          [acceptedOrderId]
+        );
+        assert.equal(acceptedState.rows[0].status, 'recipient_accepted');
+        assert.ok(acceptedState.rows[0].recipient_consent_at,
+          'previously recorded per-order consent must remain intact');
+        const acceptedAudit = await giftTestDb.query(
+          'SELECT event_type, from_status, to_status FROM gift_delivery_order_events WHERE order_id = $1',
+          [acceptedOrderId]
+        );
+        assert.deepEqual(acceptedAudit.rows, [{
+          event_type: 'accepted',
+          from_status: 'awaiting_recipient_consent',
+          to_status: 'recipient_accepted'
+        }], 'opting out of future requests must preserve the existing consent audit event without adding cancellation');
+      } finally {
+        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [acceptedOrderId]).catch(() => {});
+        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [acceptedOrderId]).catch(() => {});
+      }
+    } finally {
+      if (giftOrderId) {
+        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [giftOrderId]).catch(() => {});
+        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [giftOrderId]).catch(() => {});
+      }
+      if (giftMatchId && giftMatchCreated) {
+        await giftTestDb.query('DELETE FROM matches WHERE id = $1', [giftMatchId]).catch(() => {});
+      }
+      await giftTestDb.end();
+    }
+
+    const unauthenticatedAdConsentRead = await request('/api/ads/consent');
+    assert.equal(unauthenticatedAdConsentRead.status, 401,
+      'advertising preferences must never be readable without an authenticated session');
+
+    const unauthenticatedGiftConsentWithdrawal = await request('/api/gifts/orders/gift_0123456789abcdef0123456789abcdef/withdraw-consent', {
+      method: 'POST'
+    });
+    assert.equal(unauthenticatedGiftConsentWithdrawal.status, 401,
+      'gift consent withdrawal must require an authenticated recipient session');
+
+    const invalidGiftReference = await request('/api/gifts/orders/not-a-gift-reference/withdraw-consent', {
+      method: 'POST',
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(invalidGiftReference.status, 400,
+      'gift consent withdrawal must reject malformed public references before querying orders');
+
+    const unauthenticatedAdConsentWrite = await request('/api/ads/consent', {
+      method: 'PUT',
+      body: JSON.stringify({
+        adsConsent: true,
+        dateOffersConsent: false,
+        weddingOffersConsent: false,
+        marriagePlanningOptIn: false,
+        categoryConsents: {}
+      })
+    });
+    assert.equal(unauthenticatedAdConsentWrite.status, 401,
+      'advertising preferences must never be writable without an authenticated session');
+
+    const originlessAdConsentWrite = await fetch(`${api}/api/ads/consent`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: secondCookie },
+      body: JSON.stringify({
+        adsConsent: true,
+        dateOffersConsent: false,
+        weddingOffersConsent: false,
+        marriagePlanningOptIn: false,
+        categoryConsents: {}
+      })
+    });
+    assert.equal(originlessAdConsentWrite.status, 403,
+      'browser-originated consent changes must reject requests without an explicit trusted Origin');
+
+    const initialAdConsent = await request('/api/ads/consent', { headers: { Cookie: secondCookie } });
+    assert.equal(initialAdConsent.status, 200);
+    assert.deepEqual((await initialAdConsent.json()).preferences, {
+      adsConsent: false,
+      dateOffersConsent: false,
+      weddingOffersConsent: false,
+      marriagePlanningOptIn: false,
+      categoryConsents: {}
+    });
+
+    const preConsentAdEventId = randomUUID();
+    const preConsentAdEvent = await request('/api/ads/events', {
+      method: 'POST',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({ eventId: preConsentAdEventId, campaignId: 'consent-gate-test', eventType: 'impression' })
+    });
+    assert.equal(preConsentAdEvent.status, 403,
+      'an ad event must be rejected until persisted explicit consent exists');
+
+    const savedAdConsent = await request('/api/ads/consent', {
+      method: 'PUT',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({
+        adsConsent: true,
+        dateOffersConsent: true,
+        weddingOffersConsent: true,
+        marriagePlanningOptIn: true,
+        categoryConsents: { travel: true, fashion: true }
+      })
+    });
+    assert.equal(savedAdConsent.status, 200);
+    assert.deepEqual((await savedAdConsent.json()).preferences, {
+      adsConsent: true,
+      dateOffersConsent: true,
+      weddingOffersConsent: true,
+      marriagePlanningOptIn: true,
+      categoryConsents: { travel: true, fashion: true }
+    });
+
+    const consentedAdEventId = randomUUID();
+    const consentedAdEventPayload = {
+      eventId: consentedAdEventId,
+      campaignId: 'consent-gate-test',
+      eventType: 'impression'
+    };
+    const consentedAdEvent = await request('/api/ads/events', {
+      method: 'POST',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify(consentedAdEventPayload)
+    });
+    assert.equal(consentedAdEvent.status, 201);
+    assert.deepEqual(await consentedAdEvent.json(), { accepted: true, duplicate: false });
+    const replayedAdEvent = await request('/api/ads/events', {
+      method: 'POST',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify(consentedAdEventPayload)
+    });
+    assert.equal(replayedAdEvent.status, 200);
+    assert.deepEqual(await replayedAdEvent.json(), { accepted: true, duplicate: true },
+      'same-user same-payload retries must be idempotent');
+
+    const foreignTargetAttempt = await request('/api/ads/consent', {
+      method: 'PUT',
+      headers: { Cookie: maleCookie },
+      body: JSON.stringify({
+        userId: registered.user.id,
+        adsConsent: true,
+        dateOffersConsent: true,
+        weddingOffersConsent: false,
+        marriagePlanningOptIn: false,
+        categoryConsents: {}
+      })
+    });
+    assert.equal(foreignTargetAttempt.status, 400,
+      'the consent API must reject client-supplied user IDs rather than permitting cross-account writes');
+
+    const outsiderAdConsent = await request('/api/ads/consent', { headers: { Cookie: maleCookie } });
+    assert.equal(outsiderAdConsent.status, 200);
+    assert.deepEqual((await outsiderAdConsent.json()).preferences, {
+      adsConsent: false,
+      dateOffersConsent: false,
+      weddingOffersConsent: false,
+      marriagePlanningOptIn: false,
+      categoryConsents: {}
+    }, 'a separate account must not read another account\'s consent preferences');
+
+    const revokeAdConsent = await request('/api/ads/consent', {
+      method: 'PUT',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({
+        adsConsent: false,
+        dateOffersConsent: true,
+        weddingOffersConsent: true,
+        marriagePlanningOptIn: true,
+        categoryConsents: { travel: true, fashion: true }
+      })
+    });
+    assert.equal(revokeAdConsent.status, 200);
+    assert.deepEqual((await revokeAdConsent.json()).preferences, {
+      adsConsent: false,
+      dateOffersConsent: false,
+      weddingOffersConsent: false,
+      marriagePlanningOptIn: false,
+      categoryConsents: {}
+    }, 'revoking master consent must clear every dependent preference in persisted API state');
+
+    const postRevocationAdEvent = await request('/api/ads/events', {
+      method: 'POST',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({
+        eventId: randomUUID(),
+        campaignId: 'consent-gate-test',
+        eventType: 'click'
+      })
+    });
+    assert.equal(postRevocationAdEvent.status, 403,
+      'revoking persisted master consent must immediately block new ad engagement events');
 
     const pendingPhotoReadByOtherAccount = await request(uploadedPhoto.photoUrl, { headers: { Cookie: maleCookie } });
     assert.equal(pendingPhotoReadByOtherAccount.status, 404, 'pending photos must not be visible to other accounts');

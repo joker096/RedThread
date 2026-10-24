@@ -1,0 +1,73 @@
+# Vow gifts and privacy-preserving delivery policy
+
+Status: policy, fail-closed decision helpers, PostgreSQL order/catalog/partner schema, recipient gift-request preference API, privacy-safe order-list API, recipient-only accept/decline/consent-withdrawal endpoints, and a recipient-facing order review/decision panel are implemented. The panel displays privacy-safe order projections and supports accept, decline, and pre-fulfilment consent withdrawal. The order creation API, encrypted address vault, payment authorization, courier integration, and dispatch are not implemented or enabled.
+
+## Product flow
+Vow may list approved flowers, sealed chocolates/confectionery, books, and other reviewed non-cash gifts delivered by vetted local partners. Sender chooses an item and starts a **pending request**, not an authorized shipment. Recipient must accept that specific gift before any address is collected or shared.
+
+1. Sender sees catalog, total price, delivery fee, availability and estimate for the recipient's delivery area. Do not reveal or confirm private city, address, phone, email or coordinates. A sender must never be asked to obtain the address directly.
+2. Create an expiring request with an opaque order reference. No arbitrary attachments. Optional note is short, moderated and rejects links, contact details, payment requests and off-platform solicitation.
+3. Recipient sees item, sender identity as already visible in Vow, note, price and delivery expectations. They can Accept, Decline, Report or Block. Silence is not consent. Decline/expiry is neutral; do not tell sender why.
+4. Only after acceptance, recipient enters and verifies delivery details in a secure Vow flow. The address is never exposed to sender, analytics, ad events, URLs, push notifications or routine support screens.
+5. Send only minimum necessary address/contact/delivery data to the vetted carrier via authenticated server-to-server API. Carrier receives no chat, match history, compatibility, gender or ad identifiers. Sender sees only generic status: accepted, preparing, dispatched, delivered, or delivery failed.
+6. Delete/redact address after the delivery, dispute and legally required retention window. Financial records, if required, are retained separately. Provider webhooks must be signed, idempotent, replay-protected and checked against stored order, amount, currency and allowed state.
+
+## Server-side eligibility gates
+- Both accounts active and adult; sender verified; both safety states explicitly safe.
+- Active mutual match at least 3 days old, both sides sent at least 3 messages (counts only; never inspect message content).
+- Recipient explicitly enabled gift requests; consent is separate from ad consent, Premium and match status.
+- No block, report, pause or unknown safety state. Facts come from trusted server records only.
+- PostgreSQL enforces at most one pending request per unordered match pair, regardless of which participant initiated it. The migration builds the normalized unique index before removing the older directional index; conflicting legacy rows make the migration fail atomically for manual reconciliation.
+- Recipient acceptance and block/report actions use a deterministic per-pair PostgreSQL advisory lock. Acceptance acquires this pair lock before locking the order row, matching block/report lock order and avoiding an order-row/pair-lock inversion; it then re-reads match/account/block/report state and locks the existing preference row. Missing preference rows remain disabled. Disabling gift requests locks pending orders before updating the preference, then atomically cancels every `awaiting_recipient_consent` request and appends an audit event. This preference controls future requests; it does not silently revoke consent for an already accepted order. Accepted orders require a separate, auditable per-order consent withdrawal before fulfilment can proceed, and that withdrawal must be included in the fresh safety snapshot. Blocking or reporting atomically changes only pending requests to `blocked` or `reported`; accepted/in-flight orders are not silently rewritten and must pass a fresh safety check before any future fulfilment. This is a partial concurrency safeguard, not a substitute for PostgreSQL integration tests covering account deletion/restriction, moderation transitions, and all future safety mutation paths; every new pair-level safety mutation must follow a consistent lock protocol.
+- At most one pending request per pair, 3 new requests per sender per 30 days, and at most one accepted gift to a recipient per 7 days. Add global/device/payment velocity checks and manual review for suspicious patterns.
+- Strict catalog allowlist, verified supplier, approved creative/item, transparent price/currency/taxes/delivery/refund terms, and confirmed provider coverage for recipient's region.
+- Recipient consent is per order, revocable before dispatch where feasible, never inferred or preselected. Sender payment must not be captured before acceptance unless a reviewed processor supports a clearly disclosed reversible authorization.
+
+## State machine
+`awaiting_recipient_consent → recipient_accepted → address_verified → fulfilment_authorized → dispatched → delivered`
+
+Exception/terminal states: `declined`, `expired`, `cancelled`, `blocked`, `reported`, `delivery_failed`, `refund_pending`, `refunded`.
+
+The pure `canTransitionGiftOrder` helper now checks both legal state edges and the actor allowed to perform them: recipient-only consent/decline, system-only expiry and fulfilment authorization, `delivery_partner` for dispatch/delivery/failure, and `payment_service` for final refund state. The helper deliberately excludes a `draft` state because the current PostgreSQL status constraint does not persist it. These are policy checks and unit tests, **not yet a database-enforced transition guard or a live fulfilment workflow**; every future endpoint and worker must enforce the same rules inside its transaction. The API now supports recipient-only, transactional withdrawal for accepted orders in `recipient_accepted` or `address_verified` before fulfilment authorization. It records `consent_withdrawn_at`, cancels the order, clears the opaque address-vault reference, and appends an audit event while taking the same pair-level advisory lock before the order row lock as acceptance/block/report. This does not implement an address vault or live payment cancellation; the endpoint fails closed when payment has progressed beyond `not_started`, `failed`, or `voided`, and no real dispatch can be enabled.
+
+Only recipient may accept and enter address. The fail-closed fulfilment policy permits the fulfilment check only from the persisted `address_verified` state (after recipient acceptance and address verification), and requires an explicit fresh safety-event snapshot (missing or unknown event state denies fulfilment), active adult sender and recipient accounts, current sender identity verification, recipient-entered verified address, recorded consent, matching authorized payment, and a final relationship safety snapshot no older than five minutes; missing, invalid, future-dated, or stale snapshots fail closed. Block, report, restriction, account deletion, or consent withdrawal in that snapshot denies fulfilment. Block/report/restriction/account deletion/consent withdrawal suspends fulfilment and triggers review; after dispatch, request carrier stop/return if supported. Declined/expired requests never reveal address and must not charge; release authorization/refund per disclosed terms. A gift cannot buy affection, a reply, a date, or contact exchange. No sender tracking map, live courier location, exact handoff instructions or delivery phone number.
+
+## Fraud and abuse controls
+- **Stalking/address harvesting:** address collected only after acceptance, never in sender payloads/logs/URLs; per-order scoped carrier access, encryption, retention deletion and access audit.
+- **Repeated unwanted gifts/coercion:** opt-in to gift requests, one pending request per pair, rate limits/cooldowns, recipient disable/report/block, no guilt-inducing reminders or public generosity badges.
+- **Fake profiles/stolen cards:** account verification, payment risk/velocity checks, SCA where applicable, delayed fulfilment until payment and fraud checks pass, chargeback monitoring.
+- **Phishing/solicitation:** moderated length-capped note, reject URLs, handles, phone numbers, payment requests and arbitrary files.
+- **Dangerous/illegal goods:** exclude cash, gift cards, alcohol, tobacco/nicotine, drugs/medicines, weapons, adult items, crypto, gambling products and unreviewed/custom items; check local laws, allergens, food safety, customs and age restrictions.
+- **Supplier/driver misuse:** vetted partner, processor contract, minimum data, least-privilege access, incident response and regional transfer review.
+- **Forged delivery/replay:** webhook signature/timestamp verification, idempotency, legal state transitions and order reconciliation.
+- **Refund/chargeback abuse:** separate sender/recipient/provider identities, fair dispute flow, no off-platform payout, never disclose recipient address as evidence.
+- **Wrong-person delivery:** recipient verifies address and chooses delivery/pickup method; sender cannot set private delivery instructions.
+- **Safety event:** suspend before dispatch; safety/support team can pause order without exposing report details to sender.
+
+Unknown, stale, contradictory or unavailable eligibility/payment/provider data must fail closed. Do not expose reasons such as “reported” to the sender. Never grant ranking, messaging or visibility boosts for gifts.
+
+## Country/city and partners
+Use a vetted provider's maintained service-area catalogue, not guessed country codes or sender-entered address. Resolve recipient's delivery region server-side. Show sender only availability and an estimate, without confirming private location. If no partner covers the region, do not collect address; offer recipient-selected safe pickup where available or cancel/refund. Launch country by country after review of consumer, privacy/data residency, cross-border transfer, tax/VAT, food/allergen, import/customs and courier requirements. No global courier integration is assumed.
+
+## Advertising and payments
+Sponsored gift placements are ads: label them and apply ad consent, campaign eligibility, frequency and disclosure rules. Opening the gift catalog is a service action and does not silently grant ad consent. Keep ad billing, physical gift orders/supplier refunds and Vow Premium subscriptions as separate order types and ledgers. Paddle is only a possible future option for eligible Vow Premium billing; do not assume it supports physical goods or third-party marketplace payments. Verify processor terms and legal obligations before launch. No Stripe integration.
+
+## Release gates
+Before real orders: database-backed request creation and immutable consent history; encrypted address vault and retention job; recipient-only report/block UI integrated with the order list; sender-safe payload projection; signed provider API/webhooks; idempotent fulfilment and reconciliation; CSRF/origin/session checks; per-order authorization; payment/refund design; supplier/country catalog; support escalation and emergency kill switch. Test cross-account access, replayed acceptance, expiry/decline, blocks/reports before and after acceptance, rate limits, forged webhooks, provider outage, refund and address redaction.
+
+Implemented in this branch: policy and eligibility helpers; database tables for recipient gift-request preferences, reviewed catalog items, delivery partner coverage, order states and order audit events; authenticated GET/PUT preference endpoints (default off, CSRF/origin-protected writes); a sender/recipient-scoped order list that deliberately omits address and contact fields; and a recipient-only transactional accept/decline endpoint with expiry, account, match, preference, block, and open-report checks. The decision endpoint records consent only; it does not create orders, authorize payment, grant address access, or connect to a carrier. The preference and recipient order/decision panels exist; the order creation API, trusted identity-verification source, encrypted address vault, payment authorization/refund integration, provider API/webhooks, and retention/deletion jobs remain release blockers. Explicit consent withdrawal is implemented for pre-fulfilment accepted orders, but still needs route-level integration tests and a reviewed payment-state cancellation design before any production order workflow. This code must not charge, order, or dispatch real gifts.
+
+
+### Refund authorization policy (not connected to a payment provider)
+
+The pure refund eligibility policy is fail-closed: only a system or moderator may request evaluation for an order in `delivery_failed`, `reported`, or `refund_pending`; payment must be captured/settled and match the exact order, amount, and currency; an idempotency key and bounded reason are mandatory; already-refunded orders are denied. The helper does not issue refunds or contact a payment provider. A production integration must enforce a unique durable idempotency key and transactional order/payment ledger, verify provider webhooks, reconcile uncertain outcomes, and ensure retrying a refund never pays twice. Until those controls and tests exist, no real gift payments or refunds are enabled.
+
+
+### Persisted state consistency
+
+The pure `validateGiftOrderPersistenceState()` helper cross-checks order and payment status against required consent, verified-address, fulfilment, dispatch, delivery, and refund markers. It rejects unknown states, a completed refund without `payment_status = refunded`, a pending refund without `payment_status = refund_pending`, and a declined order that still has an active/captured payment. This helper is not yet wired as a database trigger or used by a live fulfilment/payment endpoint; production transitions must validate and persist both statuses atomically in one transaction, with a matching audit event.
+
+
+## Latest verification
+
+Current PR head `58d5b2d819bf61e881b6ebbd8dbf57ec0f182923` passed [CI](https://github.com/joker096/RedThread/actions/runs/40121776601) and [Browser E2E](https://github.com/joker096/RedThread/actions/runs/40121776605). The CI test verifies that PostgreSQL defines the sender-scoped idempotency-key unique index. This is a schema regression check, not a live gift-order creation test; the creation endpoint remains unimplemented. Green checks do not enable real payments, address disclosure, or delivery.

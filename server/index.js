@@ -2,7 +2,11 @@ import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { validateAdEventPayload, AD_IMPRESSION_CAP_24H } from './adEvents.js';
+import { validateAdEventPayload, classifyDuplicateAdEvent, hasExplicitAdConsent, evaluateAdEventFrequency } from './adEvents.js';
+import { AD_EVENT_FREQUENCY_COUNTS_SQL } from './adEventFrequencyQuery.js';
+import { validateGiftDecisionInput } from './giftDecisionInput.js';
+import { evaluateGiftConsentWithdrawalEligibility } from './giftDeliveryPolicy.js';
+import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
 import express from 'express';
@@ -1635,6 +1639,12 @@ app.post('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, r
   if (!client) return res.status(503).json({ error: 'database_unavailable' });
   try {
     await client.query('BEGIN');
+    // Share the same pair lock as gift acceptance/reporting so a safety action
+    // and gift acceptance have a deterministic order.
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext('gift-safety:' || LEAST($1::uuid, $2::uuid)::text || ':' || GREATEST($1::uuid, $2::uuid)::text))",
+      [req.authUser.id, targetId]
+    );
     const target = await client.query(`SELECT 1 FROM users WHERE id = $1 AND status = 'active'`, [targetId]);
     if (!target.rowCount) {
       await client.query('ROLLBACK');
@@ -1645,6 +1655,23 @@ app.post('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, r
     await client.query('DELETE FROM profile_passes WHERE (passer_id = $1 AND passed_user_id = $2) OR (passer_id = $2 AND passed_user_id = $1)', [req.authUser.id, targetId]);
     await client.query(`UPDATE matches SET status = 'blocked'
       WHERE user_a_id = LEAST($1::uuid, $2::uuid) AND user_b_id = GREATEST($1::uuid, $2::uuid) AND status = 'active'`, [req.authUser.id, targetId]);
+    // Close pending gift requests in the same pair-locked transaction. Do not
+    // touch accepted/in-flight orders here; their fulfilment must re-check safety.
+    const pendingGifts = await client.query(
+      `UPDATE gift_delivery_orders
+       SET status = 'blocked', updated_at = NOW()
+       WHERE ((sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1))
+         AND status = 'awaiting_recipient_consent'
+       RETURNING id, sender_id, recipient_id`,
+      [req.authUser.id, targetId]
+    );
+    for (const gift of pendingGifts.rows) {
+      await client.query(
+        `INSERT INTO gift_delivery_order_events (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
+         VALUES ($1, $2, $3, 'blocked', 'awaiting_recipient_consent', 'blocked')`,
+        [gift.id, req.authUser.id, gift.sender_id === req.authUser.id ? 'sender' : 'recipient']
+      );
+    }
     await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
@@ -1680,18 +1707,51 @@ app.post('/api/reports', reportLimiter, validateRequestOrigin, requireSession, a
     return res.status(400).json({ error: 'invalid_report_details' });
   }
 
+  let client;
   try {
-    const target = await pool.query('SELECT 1 FROM users WHERE id = $1 LIMIT 1', [reportedUserId]);
-    if (target.rowCount === 0) return res.status(404).json({ error: 'reported_user_not_found' });
-    const result = await pool.query(
+    client = await pool.connect();
+    await client.query('BEGIN');
+    // Serialize reports with gift acceptance and blocking for this user pair.
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext('gift-safety:' || LEAST($1::uuid, $2::uuid)::text || ':' || GREATEST($1::uuid, $2::uuid)::text))",
+      [req.authUser.id, reportedUserId]
+    );
+    const target = await client.query('SELECT 1 FROM users WHERE id = $1 LIMIT 1', [reportedUserId]);
+    if (target.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'reported_user_not_found' });
+    }
+    const result = await client.query(
       `INSERT INTO user_reports (reporter_id, reported_user_id, category, details)
        VALUES ($1, $2, $3, $4) RETURNING id, status, created_at AS "createdAt"`,
       [req.authUser.id, reportedUserId, category, details]
     );
+    // A report immediately closes only requests still awaiting consent. Accepted
+    // orders require a separate safety/fulfilment review and are never dispatched
+    // by this endpoint.
+    const pendingGifts = await client.query(
+      `UPDATE gift_delivery_orders
+       SET status = 'reported', updated_at = NOW()
+       WHERE ((sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1))
+         AND status = 'awaiting_recipient_consent'
+       RETURNING id, sender_id, recipient_id`,
+      [req.authUser.id, reportedUserId]
+    );
+    for (const gift of pendingGifts.rows) {
+      await client.query(
+        `INSERT INTO gift_delivery_order_events (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
+         VALUES ($1, $2, $3, 'reported', 'awaiting_recipient_consent', 'reported')`,
+        [gift.id, req.authUser.id, gift.sender_id === req.authUser.id ? 'sender' : 'recipient']
+      );
+    }
+    await client.query('COMMIT');
     return res.status(201).json({ report: result.rows[0] });
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Report submission failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'report_submission_failed' });
+  } finally {
+    client?.release();
   }
 });
 
@@ -1871,6 +1931,436 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
   }
 });
 
+app.get('/api/gifts/preferences', requireSession, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT requests_enabled FROM gift_receiving_preferences WHERE user_id = $1',
+      [req.authUser.id]
+    );
+    const { serializeGiftReceivingPreferences } = await import('./giftReceivingPreferences.js');
+    return res.json({ preferences: serializeGiftReceivingPreferences(result.rows[0]) });
+  } catch (error) {
+    console.error('Gift receiving preferences read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_preferences_unavailable' });
+  }
+});
+
+app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  const { normalizeGiftReceivingPreferences, serializeGiftReceivingPreferences } = await import('./giftReceivingPreferences.js');
+  const validation = normalizeGiftReceivingPreferences(req.body);
+  if (!validation.ok) {
+    return res.status(400).json({ error: validation.error, ...(validation.field ? { field: validation.field } : {}) });
+  }
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    // Lock pending orders before the preference row. Gift acceptance locks an
+    // order before reading the preference, so this ordering avoids reversing
+    // the order/preference lock sequence and creating a deadlock.
+    if (!validation.value.requestsEnabled) {
+      await client.query(
+        `SELECT id FROM gift_delivery_orders
+         WHERE recipient_id = $1 AND status = 'awaiting_recipient_consent'
+         ORDER BY id
+         FOR UPDATE`,
+        [req.authUser.id]
+      );
+    }
+
+    const result = await client.query(
+      `INSERT INTO gift_receiving_preferences (user_id, requests_enabled, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         requests_enabled = EXCLUDED.requests_enabled,
+         updated_at = NOW()
+       RETURNING requests_enabled`,
+      [req.authUser.id, validation.value.requestsEnabled]
+    );
+
+    if (!validation.value.requestsEnabled) {
+      const cancelled = await client.query(
+        `UPDATE gift_delivery_orders
+         SET status = 'cancelled', updated_at = NOW()
+         WHERE recipient_id = $1 AND status = 'awaiting_recipient_consent'
+         RETURNING id, sender_id`,
+        [req.authUser.id]
+      );
+      for (const order of cancelled.rows) {
+        await client.query(
+          `INSERT INTO gift_delivery_order_events
+             (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
+           VALUES ($1, $2, 'recipient', 'cancelled', 'awaiting_recipient_consent', 'cancelled')`,
+          [order.id, req.authUser.id]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+    return res.json({ preferences: serializeGiftReceivingPreferences(result.rows[0]) });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Gift receiving preferences save failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_preferences_unavailable' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  const validation = validateGiftDecisionInput(req.body, req.params.publicReference);
+  if (!validation.valid) {
+    return res.status(validation.notFound ? 404 : 400).json({ error: validation.error });
+  }
+  const { action, publicReference: reference } = validation;
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    if (action === 'accept') {
+      // Acquire the pair-level safety lock before locking the order row.
+      // Block/report routes use this same order (pair -> order); reversing it
+      // here could deadlock when acceptance races with a safety action.
+      const pair = await client.query(
+        `SELECT sender_id, recipient_id
+         FROM gift_delivery_orders
+         WHERE public_reference = $1 AND recipient_id = $2`,
+        [reference, req.authUser.id]
+      );
+      if (!pair.rows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'gift_request_not_available' });
+      }
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtext('gift-safety:' || LEAST($1::uuid, $2::uuid)::text || ':' || GREATEST($1::uuid, $2::uuid)::text))",
+        [pair.rows[0].sender_id, pair.rows[0].recipient_id]
+      );
+    }
+
+    const selected = await client.query(
+      `SELECT o.id, o.match_id, o.sender_id, o.recipient_id, o.status, o.expires_at,
+              m.status AS match_status,
+              sender.status AS sender_status,
+              recipient.status AS recipient_status,
+              COALESCE(pref.requests_enabled, FALSE) AS requests_enabled,
+              EXISTS (
+                SELECT 1 FROM user_blocks b
+                WHERE (b.blocker_id = o.sender_id AND b.blocked_id = o.recipient_id)
+                   OR (b.blocker_id = o.recipient_id AND b.blocked_id = o.sender_id)
+              ) AS has_block,
+              EXISTS (
+                SELECT 1 FROM user_reports r
+                WHERE r.status IN ('open', 'reviewing')
+                  AND ((r.reporter_id = o.sender_id AND r.reported_user_id = o.recipient_id)
+                    OR (r.reporter_id = o.recipient_id AND r.reported_user_id = o.sender_id))
+              ) AS has_open_report
+       FROM gift_delivery_orders o
+       JOIN matches m ON m.id = o.match_id
+       JOIN users sender ON sender.id = o.sender_id
+       JOIN users recipient ON recipient.id = o.recipient_id
+       LEFT JOIN gift_receiving_preferences pref ON pref.user_id = o.recipient_id
+       WHERE o.public_reference = $1 AND o.recipient_id = $2
+       FOR UPDATE OF o`,
+      [reference, req.authUser.id]
+    );
+    const order = selected.rows[0];
+    if (!order) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'gift_request_not_available' });
+    }
+    if (order.status !== 'awaiting_recipient_consent' || new Date(order.expires_at).getTime() <= Date.now()) {
+      if (order.status === 'awaiting_recipient_consent') {
+        await client.query(
+          `UPDATE gift_delivery_orders SET status = 'expired', updated_at = NOW()
+           WHERE id = $1 AND status = 'awaiting_recipient_consent'`,
+          [order.id]
+        );
+        await client.query(
+          `INSERT INTO gift_delivery_order_events (order_id, actor_type, event_type, from_status, to_status)
+           VALUES ($1, 'system', 'expired', 'awaiting_recipient_consent', 'expired')`,
+          [order.id]
+        );
+      }
+      await client.query('COMMIT');
+      return res.status(409).json({ error: 'gift_request_not_actionable' });
+    }
+
+    if (action === 'accept') {
+      // The pair lock is already held before the order row lock. Re-read
+      // safety-critical state now that block/report actions are serialized.
+      // Lock the existing preference row against a concurrent opt-out. A
+      // missing row remains disabled; the preference endpoint's upsert will
+      // serialize on this row whenever it already exists.
+      const preferenceState = await client.query(
+        'SELECT requests_enabled FROM gift_receiving_preferences WHERE user_id = $1 FOR SHARE',
+        [order.recipient_id]
+      );
+      const currentSafety = await client.query(
+        `SELECT m.status AS match_status,
+                sender.status AS sender_status,
+                recipient.status AS recipient_status,
+                COALESCE(pref.requests_enabled, FALSE) AS requests_enabled,
+                EXISTS (
+                  SELECT 1 FROM user_blocks b
+                  WHERE (b.blocker_id = $1 AND b.blocked_id = $2)
+                     OR (b.blocker_id = $2 AND b.blocked_id = $1)
+                ) AS has_block,
+                EXISTS (
+                  SELECT 1 FROM user_reports r
+                  WHERE r.status IN ('open', 'reviewing')
+                    AND ((r.reporter_id = $1 AND r.reported_user_id = $2)
+                      OR (r.reporter_id = $2 AND r.reported_user_id = $1))
+                ) AS has_open_report
+         FROM matches m
+         JOIN users sender ON sender.id = $1
+         JOIN users recipient ON recipient.id = $2
+         LEFT JOIN gift_receiving_preferences pref ON pref.user_id = $2
+         WHERE m.id = $3`,
+        [order.sender_id, order.recipient_id, order.match_id]
+      );
+      const safety = currentSafety.rows[0];
+      const requestsEnabled = preferenceState.rows[0]?.requests_enabled === true;
+      if (!safety || safety.match_status !== 'active' ||
+          safety.sender_status !== 'active' || safety.recipient_status !== 'active' ||
+          !requestsEnabled || safety.requests_enabled !== true ||
+          safety.has_block === true || safety.has_open_report === true) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'gift_request_not_actionable' });
+      }
+    }
+
+    const nextStatus = action === 'accept' ? 'recipient_accepted' : 'declined';
+    const updated = await client.query(
+      `UPDATE gift_delivery_orders
+       SET status = $2,
+           recipient_consent_at = CASE WHEN $2 = 'recipient_accepted' THEN NOW() ELSE recipient_consent_at END,
+           recipient_consent_version = CASE WHEN $2 = 'recipient_accepted' THEN 1 ELSE recipient_consent_version END,
+           updated_at = NOW()
+       WHERE id = $1 AND status = 'awaiting_recipient_consent'
+       RETURNING public_reference AS "publicReference", status`,
+      [order.id, nextStatus]
+    );
+    if (updated.rowCount !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_request_not_actionable' });
+    }
+    await client.query(
+      `INSERT INTO gift_delivery_order_events (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
+       VALUES ($1, $2, 'recipient', $3, 'awaiting_recipient_consent', $4)`,
+      [order.id, req.authUser.id, action === 'accept' ? 'accepted' : 'declined', nextStatus]
+    );
+    await client.query('COMMIT');
+    // A decision records consent only; it does not authorize payment, address access, or fulfilment.
+    return res.json({
+      request: {
+        id: updated.rows[0].publicReference,
+        status: action === 'accept' ? 'recipient_accepted' : 'not_available'
+      },
+      nextStep: action === 'accept' ? 'recipient_address_setup_required' : 'closed'
+    });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Gift request decision failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_request_decision_unavailable' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.post('/api/gifts/orders/:publicReference/withdraw-consent', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  const reference = req.params.publicReference;
+  if (typeof reference !== 'string' || !/^gift_[a-f0-9]{32}$/i.test(reference)) {
+    return res.status(400).json({ error: 'invalid_gift_reference' });
+  }
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    // Only the recipient may withdraw consent. Acquire the same pair lock as
+    // acceptance, blocking, and reporting before taking the order row lock.
+    const pair = await client.query(
+      `SELECT sender_id, recipient_id
+       FROM gift_delivery_orders
+       WHERE public_reference = $1 AND recipient_id = $2`,
+      [reference, req.authUser.id]
+    );
+    if (!pair.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'gift_order_not_available' });
+    }
+
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext('gift-safety:' || LEAST($1::uuid, $2::uuid)::text || ':' || GREATEST($1::uuid, $2::uuid)::text))",
+      [pair.rows[0].sender_id, pair.rows[0].recipient_id]
+    );
+
+    const selected = await client.query(
+      `SELECT id, status, payment_status AS "paymentStatus",
+              consent_withdrawn_at AS "consentWithdrawnAt", dispatched_at AS "dispatchedAt"
+       FROM gift_delivery_orders
+       WHERE public_reference = $1 AND recipient_id = $2
+       FOR UPDATE`,
+      [reference, req.authUser.id]
+    );
+    const order = selected.rows[0];
+    // Keep endpoint and unit-tested policy gates aligned. Payment transitions
+    // are intentionally not simulated by this endpoint.
+    const withdrawalEligibility = evaluateGiftConsentWithdrawalEligibility(order);
+    if (!withdrawalEligibility.eligible) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_order_not_withdrawable' });
+    }
+
+    const updated = await client.query(
+      `UPDATE gift_delivery_orders
+       SET status = 'cancelled',
+           consent_withdrawn_at = NOW(),
+           address_vault_ref = NULL,
+           address_verified_at = NULL,
+           updated_at = NOW()
+       WHERE id = $1
+         AND recipient_id = $2
+         AND status IN ('recipient_accepted', 'address_verified')
+         AND consent_withdrawn_at IS NULL
+       RETURNING public_reference`,
+      [order.id, req.authUser.id]
+    );
+    if (updated.rowCount !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_order_not_withdrawable' });
+    }
+
+    await client.query(
+      `INSERT INTO gift_delivery_order_events
+         (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
+       VALUES ($1, $2, 'recipient', 'consent_withdrawn', $3, 'cancelled')`,
+      [order.id, req.authUser.id, order.status]
+    );
+    await client.query('COMMIT');
+    return res.json({ order: { id: updated.rows[0].public_reference, status: 'cancelled', consentWithdrawn: true } });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Gift consent withdrawal failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_consent_withdrawal_unavailable' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.get('/api/gifts/orders', requireSession, profileActionLimiter, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT public_reference AS "publicReference", product_name_snapshot AS "productName",
+              product_category AS "productCategory", total_minor_units AS "totalMinorUnits",
+              currency,
+              CASE
+                WHEN sender_id = $1 AND status IN ('declined', 'expired', 'cancelled', 'blocked', 'reported')
+                  THEN 'not_available'
+                ELSE status
+              END AS status,
+              created_at AS "createdAt",
+              estimated_delivery_start AS "estimatedDeliveryStart",
+              estimated_delivery_end AS "estimatedDeliveryEnd",
+              CASE WHEN recipient_id = $1 THEN 'recipient' ELSE 'sender' END AS "myRole"
+       FROM gift_delivery_orders
+       WHERE sender_id = $1 OR recipient_id = $1
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      [req.authUser.id]
+    );
+    return res.json({ orders: result.rows });
+  } catch (error) {
+    console.error('Gift order list failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_orders_unavailable' });
+  }
+});
+
+app.get('/api/ads/consent', requireSession, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT ads_consent, date_offers_consent, wedding_offers_consent,
+              marriage_planning_opt_in, category_consents, consent_version
+       FROM ad_consent_preferences WHERE user_id = $1`,
+      [req.authUser.id]
+    );
+    return res.json({
+      version: AD_CONSENT_VERSION,
+      preferences: serializeAdConsentPreferences(result.rows[0])
+    });
+  } catch (error) {
+    console.error('Ad consent preferences read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'ad_consent_preferences_unavailable' });
+  }
+});
+
+app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  const validation = normalizeAdConsentPreferences(req.body);
+  if (!validation.ok) {
+    return res.status(400).json({
+      error: validation.error,
+      ...(validation.field ? { field: validation.field } : {}),
+      ...(validation.category ? { category: validation.category } : {})
+    });
+  }
+
+  const preferences = validation.value;
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    // The upsert takes a row-level write lock. Ad-event requests hold FOR SHARE
+    // on the same preference row until their transaction finishes, so a concurrent
+    // revocation and event are serialized: either the event finishes before the
+    // revocation commits, or it observes the revoked/stale consent and is rejected.
+    const result = await client.query(
+      `INSERT INTO ad_consent_preferences
+         (user_id, ads_consent, date_offers_consent, wedding_offers_consent,
+          marriage_planning_opt_in, category_consents, consent_version, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         ads_consent = EXCLUDED.ads_consent,
+         date_offers_consent = EXCLUDED.date_offers_consent,
+         wedding_offers_consent = EXCLUDED.wedding_offers_consent,
+         marriage_planning_opt_in = EXCLUDED.marriage_planning_opt_in,
+         category_consents = EXCLUDED.category_consents,
+         consent_version = EXCLUDED.consent_version,
+         updated_at = NOW()
+       RETURNING ads_consent, date_offers_consent, wedding_offers_consent,
+                 marriage_planning_opt_in, category_consents, consent_version`,
+      [
+        req.authUser.id,
+        preferences.adsConsent,
+        preferences.dateOffersConsent,
+        preferences.weddingOffersConsent,
+        preferences.marriagePlanningOptIn,
+        JSON.stringify(preferences.categoryConsents),
+        AD_CONSENT_VERSION
+      ]
+    );
+    const savedPreferences = serializeAdConsentPreferences(result.rows[0]);
+    await client.query(
+      'INSERT INTO ad_consent_history (user_id, consent_version, preferences) VALUES ($1, $2, $3::jsonb)',
+      [req.authUser.id, AD_CONSENT_VERSION, JSON.stringify(savedPreferences)]
+    );
+    await client.query('COMMIT');
+    return res.json({
+      version: AD_CONSENT_VERSION,
+      preferences: savedPreferences
+    });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Ad consent preferences update failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'ad_consent_preferences_unavailable' });
+  } finally {
+    client?.release();
+  }
+});
+
 app.post('/api/ads/events', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
   const validation = validateAdEventPayload(req.body);
   if (!validation.ok) return res.status(400).json({ error: validation.error });
@@ -1885,38 +2375,65 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
   try {
     client = await pool.connect();
     await client.query('BEGIN');
-    // Serialize frequency checks per user/campaign so concurrent requests cannot bypass the cap.
-    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`${user.id}:${campaignId}`]);
+    // Serialize this event against consent changes. No stored row means consent is off.
+    const consent = await client.query(
+      'SELECT ads_consent, consent_version FROM ad_consent_preferences WHERE user_id = $1 FOR SHARE',
+      [user.id]
+    );
+    if (!hasExplicitAdConsent(consent.rows)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'ad_consent_required' });
+    }
 
-    const duplicate = await client.query('SELECT 1 FROM ad_events WHERE event_id = $1', [eventId]);
-    if (duplicate.rowCount) {
+    // Lock order is always event ID first, then user/campaign. This serializes
+    // the same idempotency key even when concurrent requests claim different users
+    // or campaigns; the second request then observes the committed row below.
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`ad-event:${eventId}`]);
+
+    const duplicate = await client.query(
+      'SELECT user_id, campaign_id, event_type FROM ad_events WHERE event_id = $1',
+      [eventId]
+    );
+    const duplicateStatus = classifyDuplicateAdEvent(duplicate.rows[0], {
+      userId: user.id,
+      campaignId,
+      eventType
+    });
+    if (duplicateStatus === 'duplicate') {
       await client.query('COMMIT');
       return res.json({ accepted: true, duplicate: true });
     }
+    if (duplicateStatus === 'conflict') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'ad_event_id_conflict' });
+    }
 
-    if (eventType === 'impression') {
-      const count = await client.query(
-        `SELECT COUNT(*)::int AS count FROM ad_events
-         WHERE user_id = $1 AND campaign_id = $2 AND event_type = 'impression'
-           AND created_at >= NOW() - INTERVAL '24 hours'`,
-        [user.id, campaignId]
-      );
-      if (count.rows[0].count >= AD_IMPRESSION_CAP_24H) {
-        await client.query('ROLLBACK');
-        return res.status(429).json({ error: 'ad_frequency_cap_reached', retryAfterSeconds: 86400 });
+    // Distinct event IDs for this user/campaign serialize before frequency and
+    // click-after-impression checks, preventing parallel requests bypassing either.
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`ad-campaign:${user.id}:${campaignId}`]);
+
+    const counts = await client.query(AD_EVENT_FREQUENCY_COUNTS_SQL, [user.id, campaignId]);
+    const eventCounts = counts.rows[0];
+    const frequency = evaluateAdEventFrequency({
+      eventType,
+      impressionCount: eventCounts.impressions,
+      clickCount: eventCounts.clicks
+    });
+    if (!frequency.allowed) {
+      await client.query('ROLLBACK');
+      const status = frequency.reason === 'impression_required_before_click' ? 409 : 429;
+      const retryAfterSeconds = frequency.reason === 'ad_frequency_cap_reached'
+        ? eventCounts.impression_retry_after_seconds
+        : frequency.reason === 'ad_click_frequency_cap_reached'
+          ? eventCounts.click_retry_after_seconds
+          : null;
+      if (status === 429 && retryAfterSeconds !== null) {
+        res.setHeader('Retry-After', String(retryAfterSeconds));
       }
-    } else {
-      const impression = await client.query(
-        `SELECT 1 FROM ad_events
-         WHERE user_id = $1 AND campaign_id = $2 AND event_type = 'impression'
-           AND created_at >= NOW() - INTERVAL '24 hours'
-         LIMIT 1`,
-        [user.id, campaignId]
-      );
-      if (!impression.rowCount) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({ error: 'impression_required_before_click' });
-      }
+      return res.status(status).json({
+        error: frequency.reason,
+        ...(status === 429 && retryAfterSeconds !== null ? { retryAfterSeconds } : {})
+      });
     }
 
     await client.query(
@@ -1927,6 +2444,11 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
     return res.status(201).json({ accepted: true, duplicate: false });
   } catch (error) {
     if (client) await client.query('ROLLBACK').catch(() => {});
+    // Defense in depth for a primary-key collision if a request bypasses the
+    // advisory-lock path; never leak this idempotency conflict as a generic 500.
+    if (error?.code === '23505' && error?.constraint === 'ad_events_pkey') {
+      return res.status(409).json({ error: 'ad_event_id_conflict' });
+    }
     console.error('Ad event processing failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'ad_event_processing_failed' });
   } finally {
