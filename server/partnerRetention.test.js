@@ -25,6 +25,12 @@ test('partner retention cleanup removes inquiries before stale applications in o
   assert.equal(fake.calls[0].sql, 'BEGIN');
   assert.match(fake.calls[1].sql, /DELETE FROM partner_service_inquiries/);
   assert.match(fake.calls[1].sql, /make_interval\(days => \$1\)/);
+  assert.match(fake.calls[1].sql, /application_id IN \([\s\S]*FROM partner_service_applications/,
+    'inquiries for expired unpublished applications must be removed before their application rows');
+  assert.match(fake.calls[1].sql, /status = 'rejected'/);
+  assert.match(fake.calls[1].sql, /status IN \('pending', 'in_review'\)/);
+  assert.doesNotMatch(fake.calls[1].sql, /status\s*=\s*'approved'/,
+    'inquiry cleanup must not cascade from approved applications');
   assert.deepEqual(fake.calls[1].values, [180, 180, 365]);
   assert.match(fake.calls[2].sql, /status = 'rejected'/);
   assert.match(fake.calls[2].sql, /status IN \('pending', 'in_review'\)/);
