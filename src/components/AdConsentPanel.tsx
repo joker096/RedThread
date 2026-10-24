@@ -58,6 +58,7 @@ export const AdConsentPanel: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState('');
+  const [loadFailed, setLoadFailed] = useState(false);
   const requestEpoch = useRef(0);
 
   const load = useCallback(async () => {
@@ -77,8 +78,12 @@ export const AdConsentPanel: React.FC = () => {
       if (epoch !== requestEpoch.current) return;
       setPreferences(normalizeAdConsentPayload(value));
       setNotice('');
+      setLoadFailed(false);
     } catch (error) {
-      if (epoch === requestEpoch.current) setNotice(error instanceof Error ? error.message : t('adConsentLoadError'));
+      if (epoch === requestEpoch.current) {
+        setLoadFailed(true);
+        setNotice(error instanceof Error ? error.message : t('adConsentLoadError'));
+      }
     } finally {
       if (epoch === requestEpoch.current) setLoading(false);
     }
@@ -118,6 +123,7 @@ export const AdConsentPanel: React.FC = () => {
       }
       if (epoch !== requestEpoch.current) return;
       setPreferences(normalizeAdConsentPayload(payload?.preferences));
+      setLoadFailed(false);
       setNotice(t('adConsentSaved'));
     } catch (error) {
       if (epoch === requestEpoch.current) setNotice(error instanceof Error ? error.message : t('adConsentSaveError'));
@@ -174,6 +180,7 @@ export const AdConsentPanel: React.FC = () => {
         </form>
       )}
       {notice && <p role="status" aria-live="polite" className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-stone-200">{notice}</p>}
+      {loadFailed && !loading && <button type="button" onClick={() => void load()} className="mt-3 min-h-11 w-full rounded-xl border border-white/15 px-4 py-2 text-sm font-semibold text-stone-100 transition hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300">{t('retry')}</button>}
     </section>
   );
 };
