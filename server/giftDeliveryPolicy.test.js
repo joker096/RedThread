@@ -39,6 +39,7 @@ test('fulfilment requires recipient acceptance, unexpired request, verified addr
   assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, expiresAt: undefined }, recipient, address, payment, relationship }).reason, 'request_expired');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, expiresAt: '2020-01-01T00:00:00Z' }, recipient, address, payment, relationship, now: Date.parse('2026-10-24T00:00:00Z') }).reason, 'request_expired');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, consentRecordedAt: undefined }, recipient, address, payment, relationship }).reason, 'recipient_consent_record_missing');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, consentRecordedAt: '2026-10-25T12:00:00Z' }, recipient, address, payment, relationship, now: Date.parse('2026-10-24T00:00:00Z') }).reason, 'recipient_consent_record_missing');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, recipient: { ...recipient, id: 'other' }, address, payment, relationship }).reason, 'recipient_authorization_failed');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, recipient, address: { ...address, recipientEntered: false }, payment, relationship }).reason, 'recipient_address_not_verified');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, recipient, payment: { ...payment, amountMinorUnits: 1 }, address, relationship }).reason, 'payment_not_authorized_for_order');
