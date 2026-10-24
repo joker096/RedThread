@@ -30,12 +30,12 @@ test('rate limits and product restrictions block coercion and unsafe categories'
   assert.equal(request({ product: { totalMinorUnits: 0 } }).reason, 'invalid_total_price');
   assert.equal(request({ delivery: { coverageVerified: false } }).reason, 'delivery_region_unavailable');
 });
-const order = { id: 'internal-order-1', publicReference: 'gift_7f2a', status: 'recipient_accepted', recipientId: recipient.id, consentRecordedAt: '2026-10-20T12:00:00Z', expiresAt: '2026-10-30T12:00:00Z', totalMinorUnits: 2500, currency: 'GEL', fulfilmentAuthorized: false, productName: 'Chocolate box' };
+const order = { id: 'internal-order-1', publicReference: 'gift_7f2a', status: 'address_verified', recipientId: recipient.id, consentRecordedAt: '2026-10-20T12:00:00Z', expiresAt: '2026-10-30T12:00:00Z', totalMinorUnits: 2500, currency: 'GEL', fulfilmentAuthorized: false, productName: 'Chocolate box' };
 const address = { ownerUserId: recipient.id, verified: true, recipientEntered: true };
 const payment = { status: 'authorized', orderId: order.id, amountMinorUnits: 2500, currency: 'GEL' };
 test('fulfilment requires recipient acceptance, unexpired request, verified address and matching payment', () => {
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).eligible, true);
-  assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, status: 'awaiting_recipient_consent' }, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'recipient_consent_required');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, status: 'awaiting_recipient_consent' }, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'verified_address_state_required');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, expiresAt: undefined }, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'request_expired');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, expiresAt: '2020-01-01T00:00:00Z' }, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString(), now: Date.now() }).reason, 'request_expired');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, consentRecordedAt: undefined }, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'recipient_consent_record_missing');
