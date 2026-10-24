@@ -1921,8 +1921,9 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
     return res.status(404).json({ error: 'gift_request_not_available' });
   }
 
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
     const selected = await client.query(
       `SELECT o.id, o.match_id, o.sender_id, o.recipient_id, o.status, o.expires_at,
@@ -2018,7 +2019,7 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
     console.error('Gift request decision failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'gift_request_decision_unavailable' });
   } finally {
-    client.release();
+    client?.release();
   }
 });
 
