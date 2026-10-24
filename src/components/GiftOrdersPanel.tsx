@@ -14,6 +14,11 @@ type GiftOrder = {
   myRole: 'recipient' | 'sender';
 };
 
+function normalizeOptionalDate(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length > 64 || !Number.isFinite(Date.parse(value))) return null;
+  return value;
+}
+
 export function normalizeGiftOrders(value: unknown): GiftOrder[] {
   if (!value || typeof value !== 'object' || !('orders' in value)) return [];
   const orders = (value as { orders?: unknown }).orders;
@@ -39,8 +44,8 @@ export function normalizeGiftOrders(value: unknown): GiftOrder[] {
       currency: order.currency,
       status: order.status.slice(0, 64),
       createdAt: order.createdAt,
-      estimatedDeliveryStart: typeof order.estimatedDeliveryStart === 'string' ? order.estimatedDeliveryStart : null,
-      estimatedDeliveryEnd: typeof order.estimatedDeliveryEnd === 'string' ? order.estimatedDeliveryEnd : null,
+      estimatedDeliveryStart: normalizeOptionalDate(order.estimatedDeliveryStart),
+      estimatedDeliveryEnd: normalizeOptionalDate(order.estimatedDeliveryEnd),
       myRole: order.myRole
     }];
   }).slice(0, 50);
