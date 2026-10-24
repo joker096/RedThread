@@ -85,3 +85,29 @@ test('PostgreSQL enforces gift order and payment terminal-state consistency', {
     await client.end();
   }
 });
+
+
+test('PostgreSQL permits only one pending gift request per unordered match pair', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  await client.connect();
+
+  try {
+    const result = await client.query(
+      `SELECT i.indisunique AS is_unique, pg_get_indexdef(i.indexrelid) AS definition
+       FROM pg_index i
+       JOIN pg_class idx ON idx.oid = i.indexrelid
+       WHERE idx.relname = 'gift_orders_one_pending_per_unordered_pair_idx'`
+    );
+    assert.equal(result.rowCount, 1);
+    assert.equal(result.rows[0].is_unique, true);
+    const definition = result.rows[0].definition.toLowerCase();
+    assert.match(definition, /least\s*\(sender_id, recipient_id\)/);
+    assert.match(definition, /greatest\s*\(sender_id, recipient_id\)/);
+    assert.match(definition, /awaiting_recipient_consent/);
+  } finally {
+    await client.end();
+  }
+});
