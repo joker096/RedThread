@@ -83,5 +83,6 @@ test('block, report and consent withdrawal suspend fulfilment unless already ter
   assert.equal(denyGiftFulfilmentAfterSafetyEvent({ status: 'recipient_accepted', safetyEvent: 'block' }).suspend, true);
   assert.equal(denyGiftFulfilmentAfterSafetyEvent({ status: 'dispatched', safetyEvent: 'report' }).suspend, true);
   assert.equal(denyGiftFulfilmentAfterSafetyEvent({ status: 'delivered', safetyEvent: 'report' }).suspend, false);
+  assert.deepEqual(denyGiftFulfilmentAfterSafetyEvent({ status: 'blocked', safetyEvent: 'block' }), { suspend: false, reason: 'order_already_terminal' });
   assert.equal(denyGiftFulfilmentAfterSafetyEvent({ status: 'recipient_accepted', safetyEvent: 'unknown' }).suspend, false);
 });
