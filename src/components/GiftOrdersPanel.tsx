@@ -15,7 +15,25 @@ type GiftOrder = {
 };
 
 function normalizeOptionalDate(value: unknown): string | null {
-  if (typeof value !== 'string' || value.length > 64 || !Number.isFinite(Date.parse(value))) return null;
+  if (typeof value !== 'string' || value.length > 64) return null;
+  // Accept only unambiguous ISO dates/timestamps; Date.parse alone accepts values such as "1".
+  const match = /^(\\d{4})-(\\d{2})-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.(\\d{1,3}))?)?(Z|[+-]\\d{2}:\\d{2}))?$/i.exec(value);
+  if (!match || !Number.isFinite(Date.parse(value))) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const calendarDate = new Date(`${match[1]}-${match[2]}-${match[3]}T00:00:00.000Z`);
+  if (calendarDate.getUTCFullYear() !== year || calendarDate.getUTCMonth() + 1 !== month || calendarDate.getUTCDate() !== day) return null;
+  const hour = match[4] === undefined ? 0 : Number(match[4]);
+  const minute = match[5] === undefined ? 0 : Number(match[5]);
+  const second = match[6] === undefined ? 0 : Number(match[6]);
+  const offset = match[8];
+  if (hour > 23 || minute > 59 || second > 59) return null;
+  if (offset && offset.toUpperCase() !== 'Z') {
+    const offsetHour = Number(offset.slice(1, 3));
+    const offsetMinute = Number(offset.slice(4, 6));
+    if (offsetHour > 23 || offsetMinute > 59) return null;
+  }
   return value;
 }
 
