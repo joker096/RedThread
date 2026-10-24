@@ -33,7 +33,8 @@ export function evaluateGiftFulfilmentEligibility({ request, recipient, address,
   if (request.status !== 'recipient_accepted') return deny('recipient_consent_required');
   if (request.recipientId !== recipient.id || recipient.authenticatedUserId !== recipient.id) return deny('recipient_authorization_failed');
   if (!request.expiresAt || !Number.isFinite(Date.parse(request.expiresAt)) || Date.parse(request.expiresAt) <= now) return deny('request_expired');
-  if (!Number.isFinite(Date.parse(request.consentRecordedAt))) return deny('recipient_consent_record_missing');
+  const consentRecordedAt = Date.parse(request.consentRecordedAt);
+  if (!Number.isFinite(consentRecordedAt) || consentRecordedAt > now) return deny('recipient_consent_record_missing');
   if (request.consentWithdrawnAt != null || recipient.giftRequestsEnabled !== true) return deny('recipient_consent_withdrawn');
   if (address.ownerUserId !== recipient.id || address.verified !== true || address.recipientEntered !== true) return deny('recipient_address_not_verified');
   if (relationship.blocked !== false || relationship.reported !== false || relationship.paused !== false || relationship.safetyRestricted !== false) return deny('relationship_safety_state_unavailable_or_restricted');
