@@ -47,3 +47,22 @@ export function classifyDuplicateAdEvent(row, { userId, campaignId, eventType })
   }
   return 'conflict';
 }
+
+
+/**
+ * Persisted engagement rows alone are not billing evidence. A billing pipeline
+ * must supply separately verified campaign, viewability, invalid-traffic and
+ * attribution evidence; missing or client-provided proof is never sufficient.
+ */
+export function evaluateAdEventBillingEligibility({ event, campaignApproved, viewabilityVerified, invalidTrafficChecked, attributionValid, proofSource } = {}) {
+  if (!event || !['impression', 'click'].includes(event.event_type)) {
+    return { billable: false, reason: 'invalid_event' };
+  }
+  if (campaignApproved !== true || viewabilityVerified !== true || invalidTrafficChecked !== true || attributionValid !== true) {
+    return { billable: false, reason: 'billing_evidence_incomplete' };
+  }
+  if (proofSource !== 'trusted_server_measurement') {
+    return { billable: false, reason: 'untrusted_billing_evidence' };
+  }
+  return { billable: true, reason: 'verified_billing_evidence' };
+}
