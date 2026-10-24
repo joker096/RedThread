@@ -77,6 +77,7 @@ test('missing database preferences serialize as consent-off defaults', () => {
 test('database preferences are serialized to the public camelCase shape', () => {
   assert.deepEqual(serializeAdConsentPreferences({
     ads_consent: true,
+    consent_version: AD_CONSENT_VERSION,
     date_offers_consent: true,
     wedding_offers_consent: false,
     marriage_planning_opt_in: false,
@@ -117,5 +118,23 @@ test('persisted inconsistent consent fails closed and strips unsupported categor
     weddingOffersConsent: false,
     marriagePlanningOptIn: false,
     categoryConsents: { travel: true }
+  });
+});
+
+
+test('persisted consent from an older policy version fails closed', () => {
+  assert.deepEqual(serializeAdConsentPreferences({
+    ads_consent: true,
+    consent_version: AD_CONSENT_VERSION - 1,
+    date_offers_consent: true,
+    wedding_offers_consent: true,
+    marriage_planning_opt_in: true,
+    category_consents: { fashion: true }
+  }), {
+    adsConsent: false,
+    dateOffersConsent: false,
+    weddingOffersConsent: false,
+    marriagePlanningOptIn: false,
+    categoryConsents: {}
   });
 });
