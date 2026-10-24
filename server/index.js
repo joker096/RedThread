@@ -1840,7 +1840,7 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
   }
 });
 
-app.post('/api/partner-applications', partnerApplicationLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
+app.post('/api/partner-applications', validateRequestOrigin, partnerApplicationLimiter, requireDatabase, async (req, res) => {
   const body = req.body || {};
   const category = body.category;
   const businessName = typeof body.businessName === 'string' ? body.businessName.trim() : '';
