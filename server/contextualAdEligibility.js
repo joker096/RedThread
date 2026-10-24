@@ -18,7 +18,7 @@ const isNonNegativeInteger = value => Number.isInteger(value) && value >= 0;
  * assertions as authoritative eligibility facts.
  */
 export function evaluateContextualAdEligibility({ campaign, viewer, match, surface } = {}) {
-  if (!campaign || !viewer || !match || typeof surface !== 'string') {
+  if (!campaign || !viewer || typeof surface !== 'string') {
     return deny('missing_context');
   }
 
@@ -39,10 +39,18 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
   if (FORBIDDEN_CATEGORIES.has(category)) return deny('category_blocked');
   if (viewer.accountEligible !== true || viewer.adsConsent !== true) return deny('viewer_not_consented_or_eligible');
   // Safety state must be explicitly loaded from trusted server records; unknown is not equivalent to safe.
-  if (viewer.safetyRestricted !== false || match.safetyRestricted !== false || match.blocked !== false
-    || match.reported !== false || match.paused !== false) {
+  if (viewer.safetyRestricted !== false) return deny('safety_state_unavailable_or_restricted');
+  const userRequestedGiftDiscovery = surface === 'user_requested_gift_discovery'
+    && (category === 'flowers' || category === 'gift');
+  if (!match && !userRequestedGiftDiscovery) return deny('missing_context');
+  if (match && (match.safetyRestricted !== false || match.blocked !== false
+    || match.reported !== false || match.paused !== false)) {
     return deny('safety_state_unavailable_or_restricted');
   }
+
+  // A user-opened gift catalog is independent of a match/date and does not
+  // reveal anything about another person. Explicit navigation is the opt-in.
+  if (userRequestedGiftDiscovery) return allow('user_requested_gift_discovery');
 
   // Private or safety-critical surfaces never carry advertising.
   if (['discovery', 'private_chat', 'voice_call', 'video_call', 'verification', 'reporting', 'blocking', 'checkout', 'payment'].includes(surface)) {
