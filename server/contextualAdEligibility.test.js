@@ -33,6 +33,8 @@ const confirmedMatch = {
   dateStatus: 'confirmed',
   mutuallyAcceptedDate: true,
   dateCancelled: false,
+  partnerAdsConsent: true,
+  partnerDateOffersConsent: true,
   regionAllowed: true,
   safetyRestricted: false,
   blocked: false,
@@ -71,6 +73,9 @@ test('restaurant and cafe offers require an explicitly confirmed mutual date', (
   assert.equal(evaluate({ match: { mutuallyAcceptedDate: false } }).reason, 'date_not_mutually_confirmed');
   assert.equal(evaluate({ match: { dateCancelled: true } }).reason, 'date_cancelled');
   assert.equal(evaluate({ viewer: { dateOffersConsent: false } }).reason, 'date_offer_consent_required');
+  assert.equal(evaluate({ match: { partnerAdsConsent: false } }).reason, 'both_participants_consent_required');
+  assert.equal(evaluate({ match: { partnerDateOffersConsent: false } }).reason, 'both_participants_consent_required');
+  assert.equal(evaluate({ match: { partnerAdsConsent: undefined } }).reason, 'both_participants_consent_required');
   assert.equal(evaluate({ surface: 'private_chat' }).reason, 'surface_excluded');
   assert.equal(evaluate({ surface: 'offers' }).reason, 'date_surface_required');
 });
