@@ -2144,7 +2144,7 @@ app.get('/api/ads/consent', requireSession, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT ads_consent, date_offers_consent, wedding_offers_consent,
-              marriage_planning_opt_in, category_consents
+              marriage_planning_opt_in, category_consents, consent_version
        FROM ad_consent_preferences WHERE user_id = $1`,
       [req.authUser.id]
     );
@@ -2187,7 +2187,7 @@ app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileAction
          consent_version = EXCLUDED.consent_version,
          updated_at = NOW()
        RETURNING ads_consent, date_offers_consent, wedding_offers_consent,
-                 marriage_planning_opt_in, category_consents`,
+                 marriage_planning_opt_in, category_consents, consent_version`,
       [
         req.authUser.id,
         preferences.adsConsent,
@@ -2233,7 +2233,7 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
     await client.query('BEGIN');
     // Serialize this event against consent changes. No stored row means consent is off.
     const consent = await client.query(
-      'SELECT ads_consent FROM ad_consent_preferences WHERE user_id = $1 FOR SHARE',
+      'SELECT ads_consent, consent_version FROM ad_consent_preferences WHERE user_id = $1 FOR SHARE',
       [user.id]
     );
     if (!hasExplicitAdConsent(consent.rows)) {
