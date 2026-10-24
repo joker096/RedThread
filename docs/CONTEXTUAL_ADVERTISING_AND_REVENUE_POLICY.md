@@ -136,3 +136,8 @@ The authenticated `/api/ads/events` endpoint currently records consent-gated, cl
 ### Consent policy versioning
 
 Persisted consent is valid only when its `consent_version` matches the current server-side `AD_CONSENT_VERSION`. The consent read serializer and engagement-event endpoint both fail closed for missing or stale versions. When the policy changes in a material way, increment the version; existing users will then see consent as off until they make a fresh explicit choice. The consent update API writes the current version and appends the normalized choice to the history table in the same transaction. Do not use a client-supplied version as authority.
+
+
+### Engagement-event rate limits
+
+The current authenticated event endpoint applies a server-side cap of 3 impression events and 5 click events per user per campaign in a rolling 24-hour window. Event IDs and the per-user/campaign advisory lock serialize concurrent attempts so parallel requests cannot simply race past the counters. The click cap limits event spam; it does not prove a genuine human click, viewability, attribution, or billable engagement. The endpoint remains an anti-abuse/frequency-control mechanism only.
