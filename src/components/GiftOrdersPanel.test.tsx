@@ -65,3 +65,20 @@ test('gift order list rejects ambiguous and impossible ISO delivery dates', () =
   assert.equal(orders[0].estimatedDeliveryStart, null);
   assert.equal(orders[0].estimatedDeliveryEnd, null);
 });
+
+test('gift order list accepts only ISO timezone offsets within ±14:00', () => {
+  const orders = normalizeGiftOrders({ orders: [{
+    ...validOrder,
+    estimatedDeliveryStart: '2026-11-10T12:00:00+14:00',
+    estimatedDeliveryEnd: '2026-11-10T12:00:00+14:01'
+  }, {
+    ...validOrder,
+    publicReference: 'gift_1123456789abcdef0123456789abcdef',
+    estimatedDeliveryStart: '2026-11-10T12:00:00-14:00',
+    estimatedDeliveryEnd: '2026-11-10T12:00:00+23:00'
+  }] });
+  assert.equal(orders[0].estimatedDeliveryStart, '2026-11-10T12:00:00+14:00');
+  assert.equal(orders[0].estimatedDeliveryEnd, null);
+  assert.equal(orders[1].estimatedDeliveryStart, '2026-11-10T12:00:00-14:00');
+  assert.equal(orders[1].estimatedDeliveryEnd, null);
+});
