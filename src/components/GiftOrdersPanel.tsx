@@ -14,8 +14,6 @@ type GiftOrder = {
   myRole: 'recipient' | 'sender';
 };
 
-const terminalStatuses = new Set(['declined', 'expired', 'cancelled', 'blocked', 'reported', 'delivery_failed', 'refunded', 'not_available']);
-
 export function normalizeGiftOrders(value: unknown): GiftOrder[] {
   if (!value || typeof value !== 'object' || !('orders' in value)) return [];
   const orders = (value as { orders?: unknown }).orders;
