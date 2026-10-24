@@ -32,7 +32,8 @@ function normalizeOptionalDate(value: unknown): string | null {
   if (offset && offset.toUpperCase() !== 'Z') {
     const offsetHour = Number(offset.slice(1, 3));
     const offsetMinute = Number(offset.slice(4, 6));
-    if (offsetHour > 23 || offsetMinute > 59) return null;
+    // ISO 8601 civil offsets are limited to ±14:00.
+    if (offsetHour > 14 || offsetMinute > 59 || (offsetHour === 14 && offsetMinute !== 0)) return null;
   }
   return value;
 }
