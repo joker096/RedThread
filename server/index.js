@@ -1890,7 +1890,7 @@ app.get('/api/ads/consent', requireSession, async (req, res) => {
   }
 });
 
-app.put('/api/ads/consent', validateRequestOrigin, requireSession, async (req, res) => {
+app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
   const validation = normalizeAdConsentPreferences(req.body);
   if (!validation.ok) {
     return res.status(400).json({
