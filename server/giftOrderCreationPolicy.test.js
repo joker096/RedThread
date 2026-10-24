@@ -58,6 +58,20 @@ test('rejects unsafe catalog entries and rate-limit violations', () => {
   assert.equal(evaluateGiftOrderCreation(rateLimited).eligible, false);
 });
 
+test('recipient weekly acceptance cap and sender idempotency both fail closed', () => {
+  const recipientCapped = validContext();
+  recipientCapped.activity.acceptedGiftsToRecipientLast7Days = 1;
+  assert.equal(evaluateGiftOrderCreation(recipientCapped).reason, 'recipient_gift_rate_limit');
+
+  const missingIdempotency = validContext();
+  missingIdempotency.idempotency.valid = false;
+  assert.equal(evaluateGiftOrderCreation(missingIdempotency).reason, 'idempotency_check_failed');
+
+  const duplicateIdempotency = validContext();
+  duplicateIdempotency.idempotency.duplicate = true;
+  assert.equal(evaluateGiftOrderCreation(duplicateIdempotency).reason, 'idempotency_check_failed');
+});
+
 test('missing age or message counts cannot pass eligibility', () => {
   const noAge = validContext();
   delete noAge.match.ageDays;
