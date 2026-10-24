@@ -42,7 +42,6 @@ test('fulfilment requires recipient acceptance, verified address and matching pa
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, recipient, address, payment, relationship: { ...relationship, reported: true } }).reason, 'relationship_safety_state_unavailable_or_restricted');
 });
 test('only recipient can accept; only trusted delivery service can update delivery states', () => {
-  assert.equal(canTransitionGiftOrder({ from: 'awaiting_recipient_consent', to: 'recipient_accepted', actor: 'recipient' }), true);
   assert.equal(canTransitionGiftOrder({ from: 'awaiting_recipient_consent', to: 'recipient_accepted', actor: 'sender', recipientConsentRecorded: true }), false);
   assert.equal(canTransitionGiftOrder({ from: 'awaiting_recipient_consent', to: 'recipient_accepted', actor: 'recipient' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'awaiting_recipient_consent', to: 'recipient_accepted', actor: 'recipient', recipientConsentRecorded: true }), true);
