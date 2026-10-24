@@ -32,7 +32,9 @@ test('ad engagement consent fails closed when preferences are absent or disabled
 });
 
 test('ad engagement consent requires a persisted boolean opt-in', () => {
-  assert.equal(hasExplicitAdConsent([{ ads_consent: true }]), true);
+  assert.equal(hasExplicitAdConsent([{ ads_consent: true, consent_version: 1 }]), true);
+  assert.equal(hasExplicitAdConsent([{ ads_consent: true, consent_version: 0 }]), false);
+  assert.equal(hasExplicitAdConsent([{ ads_consent: true }]), false);
 });
 
 
