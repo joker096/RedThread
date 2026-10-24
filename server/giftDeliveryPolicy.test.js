@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GIFT_MAX_ACCEPTED_PER_RECIPIENT_PER_7_DAYS, GIFT_MAX_NEW_REQUESTS_PER_30_DAYS, GIFT_MIN_MATCH_AGE_DAYS, GIFT_MIN_MESSAGES_PER_PERSON, canTransitionGiftOrder, denyGiftFulfilmentAfterSafetyEvent, evaluateGiftFulfilmentEligibility, evaluateGiftRequestEligibility, redactGiftOrderForSender } from './giftDeliveryPolicy.js';
+import { GIFT_MAX_ACCEPTED_PER_RECIPIENT_PER_7_DAYS, GIFT_MAX_NEW_REQUESTS_PER_30_DAYS, GIFT_MIN_MATCH_AGE_DAYS, GIFT_MIN_MESSAGES_PER_PERSON, canTransitionGiftOrder, denyGiftFulfilmentAfterSafetyEvent, evaluateGiftRefundEligibility, evaluateGiftFulfilmentEligibility, evaluateGiftRequestEligibility, redactGiftOrderForSender } from './giftDeliveryPolicy.js';
 
 const sender = { accountStatus: 'active', isAdult: true, identityVerified: true, safetyRestricted: false, pendingRequestsToRecipient: 0, newRequestsLast30Days: 0, acceptedGiftsToRecipientLast7Days: 0, accountCreatedAt: '2026-01-01T00:00:00Z' };
 const recipient = { id: 'recipient-internal-42', authenticatedUserId: 'recipient-internal-42', accountStatus: 'active', isAdult: true, safetyRestricted: false, giftRequestsEnabled: true };
@@ -95,6 +95,21 @@ test('sender projection never exposes address, phone, email or coordinates', () 
   assert.equal(JSON.stringify(view).includes('+9950000'), false);
   assert.equal(redactGiftOrderForSender({ publicReference: 'gift_safe', status: 'reported' }).status, 'not_available');
   assert.equal(redactGiftOrderForSender({ publicReference: 'gift_safe', status: 'blocked' }).status, 'not_available');
+});
+test('refund policy is fail-closed, state-bound, amount-matched and idempotency-keyed', () => {
+  const refundRequest = { ...order, status: 'delivery_failed' };
+  const capturedPayment = { ...payment, status: 'captured' };
+  const key = 'gift-refund:order-123456';
+  assert.equal(evaluateGiftRefundEligibility().reason, 'missing_refund_context');
+  assert.equal(evaluateGiftRefundEligibility({ request: refundRequest, payment: capturedPayment, actor: 'sender', reason: 'delivery failed', idempotencyKey: key }).reason, 'refund_actor_not_authorized');
+  assert.equal(evaluateGiftRefundEligibility({ request: { ...refundRequest, status: 'dispatched' }, payment: capturedPayment, actor: 'system', reason: 'delivery failed', idempotencyKey: key }).reason, 'order_not_refundable_in_current_state');
+  assert.equal(evaluateGiftRefundEligibility({ request: refundRequest, payment, actor: 'system', reason: 'delivery failed', idempotencyKey: key }).reason, 'payment_not_captured');
+  assert.equal(evaluateGiftRefundEligibility({ request: refundRequest, payment: { ...capturedPayment, amountMinorUnits: 1 }, actor: 'system', reason: 'delivery failed', idempotencyKey: key }).reason, 'payment_order_mismatch');
+  assert.equal(evaluateGiftRefundEligibility({ request: refundRequest, payment: capturedPayment, actor: 'system', reason: 'delivery failed', idempotencyKey: 'short' }).reason, 'invalid_refund_idempotency_key');
+  assert.equal(evaluateGiftRefundEligibility({ request: refundRequest, payment: capturedPayment, actor: 'system', reason: 'delivery failed', idempotencyKey: key, alreadyRefunded: true }).reason, 'refund_already_completed');
+  assert.deepEqual(evaluateGiftRefundEligibility({ request: refundRequest, payment: capturedPayment, actor: 'moderator', reason: 'delivery failed', idempotencyKey: key }), {
+    eligible: true, reason: 'refund_allowed_pending_idempotent_payment_service', fulfilmentAuthorized: false, refundAmountMinorUnits: 2500, currency: 'GEL'
+  });
 });
 test('block, report and consent withdrawal suspend fulfilment unless already terminal', () => {
   assert.equal(denyGiftFulfilmentAfterSafetyEvent({ status: 'recipient_accepted', safetyEvent: 'block' }).suspend, true);
