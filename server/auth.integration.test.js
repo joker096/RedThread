@@ -516,6 +516,12 @@ test('auth API supports registration, session lookup, logout and login', {
         [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
       );
       const acceptedOrderId = acceptedOrderResult.rows[0].id;
+      await giftTestDb.query(
+        `INSERT INTO gift_delivery_order_events
+           (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
+         VALUES ($1, $2, 'recipient', 'accepted', 'awaiting_recipient_consent', 'recipient_accepted')`,
+        [acceptedOrderId, registered.user.id]
+      );
       try {
         const disableFutureRequests = await request('/api/gifts/preferences', {
           method: 'PUT',
@@ -531,11 +537,14 @@ test('auth API supports registration, session lookup, logout and login', {
         assert.ok(acceptedState.rows[0].recipient_consent_at,
           'previously recorded per-order consent must remain intact');
         const acceptedAudit = await giftTestDb.query(
-          'SELECT event_type FROM gift_delivery_order_events WHERE order_id = $1',
+          'SELECT event_type, from_status, to_status FROM gift_delivery_order_events WHERE order_id = $1',
           [acceptedOrderId]
         );
-        assert.equal(acceptedAudit.rowCount, 0,
-          'opting out of future requests must not add a cancellation event to an accepted order');
+        assert.deepEqual(acceptedAudit.rows, [{
+          event_type: 'accepted',
+          from_status: 'awaiting_recipient_consent',
+          to_status: 'recipient_accepted'
+        }], 'opting out of future requests must preserve the existing consent audit event without adding cancellation');
       } finally {
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [acceptedOrderId]).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [acceptedOrderId]).catch(() => {});
