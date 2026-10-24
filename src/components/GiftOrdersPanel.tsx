@@ -20,15 +20,31 @@ export function normalizeGiftOrders(value: unknown): GiftOrder[] {
   if (!value || typeof value !== 'object' || !('orders' in value)) return [];
   const orders = (value as { orders?: unknown }).orders;
   if (!Array.isArray(orders)) return [];
-  return orders.filter((item): item is GiftOrder => {
-    if (!item || typeof item !== 'object') return false;
+  return orders.flatMap((item): GiftOrder[] => {
+    if (!item || typeof item !== 'object') return [];
     const order = item as Partial<GiftOrder>;
-    return typeof order.publicReference === 'string'
-      && typeof order.productName === 'string'
-      && typeof order.status === 'string'
-      && (order.myRole === 'recipient' || order.myRole === 'sender')
-      && typeof order.totalMinorUnits === 'number'
-      && typeof order.currency === 'string';
+    if (typeof order.publicReference !== 'string' || !/^gift_[a-f0-9]{32}$/i.test(order.publicReference)
+      || typeof order.productName !== 'string'
+      || typeof order.productCategory !== 'string'
+      || typeof order.status !== 'string'
+      || (order.myRole !== 'recipient' && order.myRole !== 'sender')
+      || typeof order.totalMinorUnits !== 'number'
+      || typeof order.currency !== 'string'
+      || typeof order.createdAt !== 'string') return [];
+    // Explicitly project the API response into the small display allowlist.
+    // Accidental future fields (especially address/contact data) are discarded.
+    return [{
+      publicReference: order.publicReference,
+      productName: order.productName.slice(0, 160),
+      productCategory: order.productCategory.slice(0, 80),
+      totalMinorUnits: order.totalMinorUnits,
+      currency: order.currency,
+      status: order.status.slice(0, 64),
+      createdAt: order.createdAt,
+      estimatedDeliveryStart: typeof order.estimatedDeliveryStart === 'string' ? order.estimatedDeliveryStart : null,
+      estimatedDeliveryEnd: typeof order.estimatedDeliveryEnd === 'string' ? order.estimatedDeliveryEnd : null,
+      myRole: order.myRole
+    }];
   }).slice(0, 50);
 }
 
