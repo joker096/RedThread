@@ -97,7 +97,7 @@ export function evaluateGiftRefundEligibility({ request, payment, actor, reason,
   if (!['system', 'moderator'].includes(actor)) return deny('refund_actor_not_authorized');
   if (!['delivery_failed', 'reported', 'refund_pending'].includes(request.status)) return deny('order_not_refundable_in_current_state');
   if (alreadyRefunded || payment.status === 'refunded' || request.status === 'refunded') return deny('refund_already_completed');
-  if (!['captured', 'settled'].includes(payment.status)) return deny('payment_not_captured');
+  if (payment.status !== 'captured') return deny('payment_not_captured');
   if (payment.orderId !== request.id || payment.amountMinorUnits !== request.totalMinorUnits || payment.currency !== request.currency) return deny('payment_order_mismatch');
   if (!Number.isSafeInteger(request.totalMinorUnits) || request.totalMinorUnits <= 0 || typeof request.currency !== 'string' || !/^[A-Z]{3}$/.test(request.currency)) return deny('invalid_refund_amount');
   if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9:_-]{16,128}$/.test(idempotencyKey)) return deny('invalid_refund_idempotency_key');
