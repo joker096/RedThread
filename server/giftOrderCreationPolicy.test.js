@@ -58,6 +58,15 @@ test('rejects unsafe catalog entries and rate-limit violations', () => {
   assert.equal(evaluateGiftOrderCreation(rateLimited).eligible, false);
 });
 
+test('missing age or message counts cannot pass eligibility', () => {
+  const noAge = validContext();
+  delete noAge.match.ageDays;
+  assert.equal(evaluateGiftOrderCreation(noAge).eligible, false);
+  const noMessages = validContext();
+  delete noMessages.activity.senderMessages;
+  assert.equal(evaluateGiftOrderCreation(noMessages).eligible, false);
+});
+
 test('missing trusted context is denied', () => {
   const result = evaluateGiftOrderCreation({ sender: {} });
   assert.equal(result.eligible, false);
