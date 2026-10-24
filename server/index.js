@@ -2276,8 +2276,6 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
       `SELECT
          COUNT(*) FILTER (WHERE event_type = 'impression')::int AS impressions,
          COUNT(*) FILTER (WHERE event_type = 'click')::int AS clicks,
-         MIN(created_at) FILTER (WHERE event_type = 'impression') AS oldest_impression,
-         MIN(created_at) FILTER (WHERE event_type = 'click') AS oldest_click,
          GREATEST(1, CEIL(EXTRACT(EPOCH FROM (
            MIN(created_at) FILTER (WHERE event_type = 'impression') + INTERVAL '24 hours' - NOW()
          ))))::int AS impression_retry_after_seconds,
