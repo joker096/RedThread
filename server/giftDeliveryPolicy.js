@@ -36,12 +36,12 @@ export function evaluateGiftFulfilmentEligibility({ request, sender, recipient, 
   if (safetyEvents.some((event) => !['block', 'report', 'restriction', 'account_deleted', 'consent_withdrawn'].includes(event))) return deny('safety_state_unavailable_or_invalid');
   if (safetyEvents.length > 0) return deny('safety_event_requires_fulfilment_suspension');
   if (sender.accountStatus !== 'active' || sender.isAdult !== true || sender.identityVerified !== true || sender.safetyRestricted !== false) return deny('sender_safety_state_unavailable_or_restricted');
+  if (request.consentWithdrawnAt != null) return deny('recipient_consent_withdrawn');
   if (request.status !== 'address_verified') return deny('verified_address_state_required');
   if (request.recipientId !== recipient.id || recipient.authenticatedUserId !== recipient.id) return deny('recipient_authorization_failed');
   if (!request.expiresAt || !Number.isFinite(Date.parse(request.expiresAt)) || Date.parse(request.expiresAt) <= now) return deny('request_expired');
   const consentRecordedAt = Date.parse(request.consentRecordedAt);
   if (!Number.isFinite(consentRecordedAt) || consentRecordedAt > now) return deny('recipient_consent_record_missing');
-  if (request.consentWithdrawnAt != null) return deny('recipient_consent_withdrawn');
   if (address.ownerUserId !== recipient.id || address.verified !== true || address.recipientEntered !== true) return deny('recipient_address_not_verified');
   if (relationship.blocked !== false || relationship.reported !== false || relationship.paused !== false || relationship.safetyRestricted !== false) return deny('relationship_safety_state_unavailable_or_restricted');
   if (recipient.safetyRestricted !== false || recipient.accountStatus !== 'active' || recipient.isAdult !== true) return deny('recipient_safety_state_unavailable_or_restricted');
