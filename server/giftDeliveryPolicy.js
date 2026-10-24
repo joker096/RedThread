@@ -92,6 +92,25 @@ export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecord
   return true;
 }
 
+export function validateGiftOrderPersistenceState(order = {}) {
+  const validStatuses = new Set([
+    'awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized',
+    'dispatched', 'delivered', 'declined', 'expired', 'cancelled', 'blocked', 'reported',
+    'delivery_failed', 'refund_pending', 'refunded'
+  ]);
+  const validPaymentStatuses = new Set(['not_started', 'authorization_pending', 'authorized', 'captured', 'voided', 'refund_pending', 'refunded', 'failed']);
+  if (!validStatuses.has(order.status) || !validPaymentStatuses.has(order.paymentStatus)) return { valid: false, reason: 'unknown_persisted_state' };
+  if (['recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivered'].includes(order.status) && !order.recipientConsentAt) return { valid: false, reason: 'recipient_consent_required' };
+  if (['address_verified', 'fulfilment_authorized', 'dispatched', 'delivered'].includes(order.status) && (!order.addressVaultRef || !order.addressVerifiedAt)) return { valid: false, reason: 'verified_address_required' };
+  if (['fulfilment_authorized', 'dispatched', 'delivered'].includes(order.status) && (!order.fulfilmentAuthorizedAt || !['authorized', 'captured'].includes(order.paymentStatus))) return { valid: false, reason: 'fulfilment_payment_authorization_required' };
+  if (order.status === 'dispatched' && !order.dispatchedAt) return { valid: false, reason: 'dispatch_timestamp_required' };
+  if (order.status === 'delivered' && !order.deliveredAt) return { valid: false, reason: 'delivery_timestamp_required' };
+  if (order.status === 'refunded' && order.paymentStatus !== 'refunded') return { valid: false, reason: 'refunded_payment_state_required' };
+  if (order.status === 'refund_pending' && order.paymentStatus !== 'refund_pending') return { valid: false, reason: 'pending_refund_payment_state_required' };
+  if (order.status === 'declined' && order.paymentStatus !== 'not_started' && order.paymentStatus !== 'voided' && order.paymentStatus !== 'failed') return { valid: false, reason: 'declined_order_payment_must_be_inactive' };
+  return { valid: true, reason: 'persistence_state_consistent' };
+}
+
 export function evaluateGiftRefundEligibility({ request, payment, actor, reason, idempotencyKey, alreadyRefunded = false } = {}) {
   if (!request || !payment || !actor || !reason || !idempotencyKey) return deny('missing_refund_context');
   if (!['system', 'moderator'].includes(actor)) return deny('refund_actor_not_authorized');
