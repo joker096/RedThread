@@ -450,6 +450,15 @@ test('auth API supports registration, session lookup, logout and login', {
       categoryConsents: {}
     });
 
+    const preConsentAdEventId = randomUUID();
+    const preConsentAdEvent = await request('/api/ads/events', {
+      method: 'POST',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({ eventId: preConsentAdEventId, campaignId: 'consent-gate-test', eventType: 'impression' })
+    });
+    assert.equal(preConsentAdEvent.status, 403,
+      'an ad event must be rejected until persisted explicit consent exists');
+
     const savedAdConsent = await request('/api/ads/consent', {
       method: 'PUT',
       headers: { Cookie: secondCookie },
@@ -469,6 +478,28 @@ test('auth API supports registration, session lookup, logout and login', {
       marriagePlanningOptIn: true,
       categoryConsents: { travel: true, fashion: true }
     });
+
+    const consentedAdEventId = randomUUID();
+    const consentedAdEventPayload = {
+      eventId: consentedAdEventId,
+      campaignId: 'consent-gate-test',
+      eventType: 'impression'
+    };
+    const consentedAdEvent = await request('/api/ads/events', {
+      method: 'POST',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify(consentedAdEventPayload)
+    });
+    assert.equal(consentedAdEvent.status, 201);
+    assert.deepEqual(await consentedAdEvent.json(), { accepted: true, duplicate: false });
+    const replayedAdEvent = await request('/api/ads/events', {
+      method: 'POST',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify(consentedAdEventPayload)
+    });
+    assert.equal(replayedAdEvent.status, 200);
+    assert.deepEqual(await replayedAdEvent.json(), { accepted: true, duplicate: true },
+      'same-user same-payload retries must be idempotent');
 
     const foreignTargetAttempt = await request('/api/ads/consent', {
       method: 'PUT',
@@ -514,6 +545,18 @@ test('auth API supports registration, session lookup, logout and login', {
       marriagePlanningOptIn: false,
       categoryConsents: {}
     }, 'revoking master consent must clear every dependent preference in persisted API state');
+
+    const postRevocationAdEvent = await request('/api/ads/events', {
+      method: 'POST',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({
+        eventId: randomUUID(),
+        campaignId: 'consent-gate-test',
+        eventType: 'click'
+      })
+    });
+    assert.equal(postRevocationAdEvent.status, 403,
+      'revoking persisted master consent must immediately block new ad engagement events');
 
     const pendingPhotoReadByOtherAccount = await request(uploadedPhoto.photoUrl, { headers: { Cookie: maleCookie } });
     assert.equal(pendingPhotoReadByOtherAccount.status, 404, 'pending photos must not be visible to other accounts');
