@@ -19,6 +19,32 @@ const defaults: Preferences = {
 
 const categories = ['fashion', 'beauty', 'travel', 'general_local'] as const;
 
+export function normalizeAdConsentPayload(value: unknown): Preferences {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { ...defaults, categoryConsents: {} };
+  }
+
+  const candidate = value as Partial<Preferences>;
+  const categoryConsents: Record<string, boolean> = {};
+  if (candidate.categoryConsents && typeof candidate.categoryConsents === 'object' &&
+      !Array.isArray(candidate.categoryConsents)) {
+    for (const category of categories) {
+      if (candidate.categoryConsents[category] === true) categoryConsents[category] = true;
+    }
+  }
+
+  if (candidate.adsConsent !== true) return { ...defaults, categoryConsents: {} };
+
+  const weddingOffersConsent = candidate.weddingOffersConsent === true;
+  return {
+    adsConsent: true,
+    dateOffersConsent: candidate.dateOffersConsent === true,
+    weddingOffersConsent,
+    marriagePlanningOptIn: weddingOffersConsent && candidate.marriagePlanningOptIn === true,
+    categoryConsents
+  };
+}
+
 export const AdConsentPanel: React.FC = () => {
   const { t } = useLocale();
   const [preferences, setPreferences] = useState<Preferences>(defaults);
@@ -40,17 +66,9 @@ export const AdConsentPanel: React.FC = () => {
       if (!payload || typeof payload !== 'object' || !('preferences' in payload)) {
         throw new Error(t('adConsentLoadError'));
       }
-      const value = (payload as { preferences: Partial<Preferences> }).preferences;
+      const value = (payload as { preferences: unknown }).preferences;
       if (epoch !== requestEpoch.current) return;
-      setPreferences({
-        adsConsent: value.adsConsent === true,
-        dateOffersConsent: value.dateOffersConsent === true,
-        weddingOffersConsent: value.weddingOffersConsent === true,
-        marriagePlanningOptIn: value.marriagePlanningOptIn === true,
-        categoryConsents: value.categoryConsents && typeof value.categoryConsents === 'object' && !Array.isArray(value.categoryConsents)
-          ? Object.fromEntries(categories.filter(category => value.categoryConsents?.[category] === true).map(category => [category, true]))
-          : {}
-      });
+      setPreferences(normalizeAdConsentPayload(value));
       setNotice('');
     } catch (error) {
       if (epoch === requestEpoch.current) setNotice(error instanceof Error ? error.message : t('adConsentLoadError'));
@@ -92,7 +110,7 @@ export const AdConsentPanel: React.FC = () => {
         throw new Error(t('adConsentSaveError'));
       }
       if (epoch !== requestEpoch.current) return;
-      setPreferences(payload?.preferences || defaults);
+      setPreferences(normalizeAdConsentPayload(payload?.preferences));
       setNotice(t('adConsentSaved'));
     } catch (error) {
       if (epoch === requestEpoch.current) setNotice(error instanceof Error ? error.message : t('adConsentSaveError'));
