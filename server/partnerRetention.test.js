@@ -28,6 +28,8 @@ test('partner retention cleanup removes inquiries before stale applications in o
   assert.deepEqual(fake.calls[1].values, [180, 180, 365]);
   assert.match(fake.calls[2].sql, /status = 'rejected'/);
   assert.match(fake.calls[2].sql, /status IN \('pending', 'in_review'\)/);
+  assert.doesNotMatch(fake.calls[2].sql, /status\s*=\s*'approved'/,
+    'retention cleanup must never delete approved applications that may back published listings');
   assert.deepEqual(fake.calls[2].values, [180, 365]);
   assert.equal(fake.calls[3].sql, 'COMMIT');
   assert.equal(fake.wasReleased(), true);
