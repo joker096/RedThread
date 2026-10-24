@@ -4,6 +4,9 @@ import { createServer } from 'node:net';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
+import pg from 'pg';
+
+const { Pool } = pg;
 
 async function findFreePort() {
   const listener = createServer();
@@ -248,6 +251,93 @@ test('auth API supports registration, session lookup, logout and login', {
     const maleRegistered = await maleRegistration.json();
     const maleCookie = maleRegistration.headers.get('set-cookie')?.split(';')[0];
     assert.ok(maleCookie?.startsWith('nit_session='));
+
+    // Exercise withdrawal against real PostgreSQL rows, not only the pure policy helper.
+    // This integration case is skipped with the enclosing auth test when DATABASE_URL is absent.
+    const giftTestDb = new Pool({ connectionString: process.env.DATABASE_URL });
+    let giftOrderId;
+    let giftMatchId;
+    try {
+      const [userA, userB] = [registered.user.id, maleRegistered.user.id].sort();
+      const match = await giftTestDb.query(
+        `INSERT INTO matches (user_a_id, user_b_id, status)
+         VALUES ($1, $2, 'active')
+         ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET status = 'active'
+         RETURNING id`,
+        [userA, userB]
+      );
+      giftMatchId = match.rows[0].id;
+
+      const giftOrder = await giftTestDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, recipient_consent_at,
+            recipient_consent_version, address_vault_ref, address_verified_at, idempotency_key)
+         VALUES ($1, $2, $3, 'Integration test chocolate', 'chocolate', 1000, 'USD',
+                 'address_verified', 'not_started', NOW(), 1, 'test-only-vault-reference',
+                 NOW(), $4)
+         RETURNING id, public_reference`,
+        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      giftOrderId = giftOrder.rows[0].id;
+      const giftReference = giftOrder.rows[0].public_reference;
+
+      const crossAccountWithdrawal = await request(
+        `/api/gifts/orders/${giftReference}/withdraw-consent`,
+        { method: 'POST', headers: { Cookie: maleCookie } }
+      );
+      assert.equal(crossAccountWithdrawal.status, 404,
+        'a sender or unrelated account must not withdraw the recipient\'s consent');
+
+      const successfulWithdrawal = await request(
+        `/api/gifts/orders/${giftReference}/withdraw-consent`,
+        { method: 'POST', headers: { Cookie: secondCookie } }
+      );
+      assert.equal(successfulWithdrawal.status, 200);
+      assert.deepEqual(await successfulWithdrawal.json(), {
+        order: { id: giftReference, status: 'cancelled', consentWithdrawn: true }
+      });
+
+      const persistedOrder = await giftTestDb.query(
+        `SELECT status, consent_withdrawn_at, address_vault_ref, address_verified_at
+         FROM gift_delivery_orders WHERE id = $1`,
+        [giftOrderId]
+      );
+      assert.equal(persistedOrder.rows[0].status, 'cancelled');
+      assert.ok(persistedOrder.rows[0].consent_withdrawn_at);
+      assert.equal(persistedOrder.rows[0].address_vault_ref, null);
+      assert.equal(persistedOrder.rows[0].address_verified_at, null);
+
+      const auditEvent = await giftTestDb.query(
+        `SELECT event_type, actor_type, from_status, to_status
+         FROM gift_delivery_order_events
+         WHERE order_id = $1 AND event_type = 'consent_withdrawn'`,
+        [giftOrderId]
+      );
+      assert.equal(auditEvent.rowCount, 1);
+      assert.deepEqual(auditEvent.rows[0], {
+        event_type: 'consent_withdrawn',
+        actor_type: 'recipient',
+        from_status: 'address_verified',
+        to_status: 'cancelled'
+      });
+
+      const repeatedWithdrawal = await request(
+        `/api/gifts/orders/${giftReference}/withdraw-consent`,
+        { method: 'POST', headers: { Cookie: secondCookie } }
+      );
+      assert.equal(repeatedWithdrawal.status, 409,
+        'a second withdrawal must not create another transition or audit event');
+    } finally {
+      if (giftOrderId) {
+        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [giftOrderId]).catch(() => {});
+        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [giftOrderId]).catch(() => {});
+      }
+      if (giftMatchId) {
+        await giftTestDb.query('DELETE FROM matches WHERE id = $1', [giftMatchId]).catch(() => {});
+      }
+      await giftTestDb.end();
+    }
 
     const unauthenticatedAdConsentRead = await request('/api/ads/consent');
     assert.equal(unauthenticatedAdConsentRead.status, 401,
