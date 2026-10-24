@@ -112,6 +112,15 @@ export function validateGiftOrderPersistenceState(order = {}) {
   return { valid: true, reason: 'persistence_state_consistent' };
 }
 
+export function evaluateGiftConsentWithdrawalEligibility(order = {}) {
+  if (!order || typeof order !== 'object') return deny('missing_withdrawal_context');
+  if (order.consentWithdrawnAt != null) return deny('gift_order_not_withdrawable');
+  if (!['recipient_accepted', 'address_verified'].includes(order.status)) return deny('gift_order_not_withdrawable');
+  if (order.dispatchedAt != null) return deny('gift_order_not_withdrawable');
+  if (!['not_started', 'failed', 'voided'].includes(order.paymentStatus)) return deny('gift_order_not_withdrawable');
+  return { eligible: true, reason: 'consent_withdrawal_allowed', fulfilmentAuthorized: false };
+}
+
 export function evaluateGiftRefundEligibility({ request, payment, actor, reason, idempotencyKey, alreadyRefunded = false } = {}) {
   if (!request || !payment || !actor || !reason || !idempotencyKey) return deny('missing_refund_context');
   if (!['system', 'moderator'].includes(actor)) return deny('refund_actor_not_authorized');
