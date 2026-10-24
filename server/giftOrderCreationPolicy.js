@@ -21,8 +21,8 @@ export function evaluateGiftOrderCreation(context) {
   if (sender.identityVerified !== true) return deny('sender_identity_not_verified');
   if (sender.safetyRestricted !== false || recipient.safetyRestricted !== false) return deny('safety_state_unavailable_or_restricted');
   if (match.status !== 'active' || match.includesSender !== true || match.includesRecipient !== true) return deny('active_match_required');
-  if (match.ageDays < MIN_MATCH_AGE_DAYS) return deny('match_too_new');
-  if (activity.senderMessages < MIN_MESSAGES_PER_PERSON || activity.recipientMessages < MIN_MESSAGES_PER_PERSON) return deny('insufficient_mutual_conversation');
+  if (!Number.isInteger(match.ageDays) || match.ageDays < MIN_MATCH_AGE_DAYS) return deny('match_too_new');
+  if (!Number.isInteger(activity.senderMessages) || !Number.isInteger(activity.recipientMessages) || activity.senderMessages < MIN_MESSAGES_PER_PERSON || activity.recipientMessages < MIN_MESSAGES_PER_PERSON) return deny('insufficient_mutual_conversation');
   if (safety.blocked !== false || safety.openReport !== false) return deny('relationship_safety_state_unavailable_or_restricted');
   if (recipient.giftRequestsEnabled !== true) return deny('recipient_gift_requests_disabled');
   if (activity.pendingRequestsForPair !== 0) return deny('pending_request_exists');
