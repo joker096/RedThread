@@ -60,3 +60,8 @@ Implemented in this branch: policy and eligibility helpers; database tables for 
 ### Refund authorization policy (not connected to a payment provider)
 
 The pure refund eligibility policy is fail-closed: only a system or moderator may request evaluation for an order in `delivery_failed`, `reported`, or `refund_pending`; payment must be captured/settled and match the exact order, amount, and currency; an idempotency key and bounded reason are mandatory; already-refunded orders are denied. The helper does not issue refunds or contact a payment provider. A production integration must enforce a unique durable idempotency key and transactional order/payment ledger, verify provider webhooks, reconcile uncertain outcomes, and ensure retrying a refund never pays twice. Until those controls and tests exist, no real gift payments or refunds are enabled.
+
+
+### Persisted state consistency
+
+The pure `validateGiftOrderPersistenceState()` helper cross-checks order and payment status against required consent, verified-address, fulfilment, dispatch, delivery, and refund markers. It rejects unknown states, a completed refund without `payment_status = refunded`, a pending refund without `payment_status = refund_pending`, and a declined order that still has an active/captured payment. This helper is not yet wired as a database trigger or used by a live fulfilment/payment endpoint; production transitions must validate and persist both statuses atomically in one transaction, with a matching audit event.
