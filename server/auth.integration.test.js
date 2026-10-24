@@ -100,6 +100,21 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(partnerInquiryWithoutOrigin.status, 403,
       'partner inquiry mutations must reject untrusted Origins before session or database processing');
 
+    const adminPartnerMutationPaths = [
+      ['/api/admin/partner-applications/' + randomUUID() + '/publish', 'publication'],
+      ['/api/admin/partner-applications/' + randomUUID() + '/unpublish', 'unpublication'],
+      ['/api/admin/partner-applications/' + randomUUID() + '/review', 'review']
+    ];
+    for (const [path, action] of adminPartnerMutationPaths) {
+      const response = await request(path, {
+        method: 'POST',
+        headers: { Origin: '' },
+        body: JSON.stringify({ decision: 'approved', reviewNote: 'Origin protection regression test' })
+      });
+      assert.equal(response.status, 403,
+        'partner application ' + action + ' mutations must reject untrusted Origins before session or database processing');
+    }
+
     const insecurePartnerWebsite = await request('/api/partner-applications', {
       method: 'POST',
       body: JSON.stringify({ ...partnerApplication, website: 'http://example.test' })
