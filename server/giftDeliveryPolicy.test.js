@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GIFT_MAX_ACCEPTED_PER_RECIPIENT_PER_7_DAYS, GIFT_MAX_NEW_REQUESTS_PER_30_DAYS, GIFT_MIN_MATCH_AGE_DAYS, GIFT_MIN_MESSAGES_PER_PERSON, canTransitionGiftOrder, denyGiftFulfilmentAfterSafetyEvent, evaluateGiftRefundEligibility, evaluateGiftConsentWithdrawalEligibility, validateGiftOrderPersistenceState, evaluateGiftFulfilmentEligibility, evaluateGiftRequestEligibility, redactGiftOrderForSender, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
+import { GIFT_MAX_ACCEPTED_PER_RECIPIENT_PER_7_DAYS, GIFT_MAX_NEW_REQUESTS_PER_30_DAYS, GIFT_MIN_MATCH_AGE_DAYS, GIFT_MIN_MESSAGES_PER_PERSON, GIFT_SAFETY_SNAPSHOT_MAX_AGE_MS, canTransitionGiftOrder, denyGiftFulfilmentAfterSafetyEvent, evaluateGiftRefundEligibility, evaluateGiftConsentWithdrawalEligibility, validateGiftOrderPersistenceState, evaluateGiftFulfilmentEligibility, evaluateGiftRequestEligibility, redactGiftOrderForSender, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
 
 const sender = { accountStatus: 'active', isAdult: true, identityVerified: true, safetyRestricted: false, pendingRequestsToRecipient: 0, newRequestsLast30Days: 0, acceptedGiftsToRecipientLast7Days: 0, accountCreatedAt: '2026-01-01T00:00:00Z' };
 const recipient = { id: 'recipient-internal-42', authenticatedUserId: 'recipient-internal-42', accountStatus: 'active', isAdult: true, safetyRestricted: false, giftRequestsEnabled: true };
@@ -10,6 +10,23 @@ const delivery = { coverageVerified: true, countrySupported: true, regionAllowed
 function request(overrides = {}) { return evaluateGiftRequestEligibility({ sender: { ...sender, ...overrides.sender }, recipient: { ...recipient, ...overrides.recipient }, relationship: { ...relationship, ...overrides.relationship }, product: { ...product, ...overrides.product }, delivery: { ...delivery, ...overrides.delivery } }); }
 
 test('valid request remains pending until recipient consent', () => assert.deepEqual(request(), { eligible: true, reason: 'request_allowed_pending_recipient_consent', fulfilmentAuthorized: false }));
+test('request eligibility rejects missing, invalid, future, and stale safety snapshots', () => {
+  const now = Date.parse('2026-10-25T00:00:00Z');
+  const evaluate = (safetySnapshotAt) => evaluateGiftRequestEligibility({
+    sender, recipient, relationship: { ...relationship, safetySnapshotAt }, product, delivery, now
+  });
+  for (const safetySnapshotAt of [undefined, null, '', 'not-a-date', new Date(now + 1).toISOString()]) {
+    assert.equal(evaluate(safetySnapshotAt).reason, 'safety_snapshot_stale_or_invalid', String(safetySnapshotAt));
+  }
+  assert.equal(evaluate(new Date(now - GIFT_SAFETY_SNAPSHOT_MAX_AGE_MS - 1).toISOString()).reason, 'safety_snapshot_stale_or_invalid');
+  assert.deepEqual(evaluate(new Date(now).toISOString()), {
+    eligible: true, reason: 'request_allowed_pending_recipient_consent', fulfilmentAuthorized: false
+  });
+  assert.deepEqual(evaluate(new Date(now - GIFT_SAFETY_SNAPSHOT_MAX_AGE_MS).toISOString()), {
+    eligible: true, reason: 'request_allowed_pending_recipient_consent', fulfilmentAuthorized: false
+  });
+});
+
 test('request eligibility rejects malformed or future sender account timestamps', () => {
   const now = Date.parse('2026-10-25T00:00:00Z');
   const freshRelationship = { ...relationship, safetySnapshotAt: new Date(now).toISOString() };
