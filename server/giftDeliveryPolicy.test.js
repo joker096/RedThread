@@ -178,3 +178,14 @@ test('block, report and consent withdrawal suspend fulfilment unless already ter
   assert.deepEqual(denyGiftFulfilmentAfterSafetyEvent({ status: 'blocked', safetyEvent: 'block' }), { suspend: false, reason: 'order_already_terminal' });
   assert.equal(denyGiftFulfilmentAfterSafetyEvent({ status: 'recipient_accepted', safetyEvent: 'unknown' }).suspend, false);
 });
+
+
+test('gift safety audit reason is restricted to internal allowlisted codes', () => {
+  assert.equal(normalizeGiftSafetyAuditReason('account_deleted'), 'account_deleted');
+  assert.equal(normalizeGiftSafetyAuditReason('moderator_suspension'), 'moderator_suspension');
+  assert.equal(normalizeGiftSafetyAuditReason('account_safety_event'), 'account_safety_event');
+  assert.equal(normalizeGiftSafetyAuditReason('person@example.test'), 'account_safety_event');
+  assert.equal(normalizeGiftSafetyAuditReason('+995 555 123 456'), 'account_safety_event');
+  assert.equal(normalizeGiftSafetyAuditReason({ note: 'private data' }), 'account_safety_event');
+  assert.equal(normalizeGiftSafetyAuditReason(undefined), 'account_safety_event');
+});
