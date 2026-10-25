@@ -46,8 +46,13 @@ export async function processPaddleEvent(pool, rawEvent) {
     }
 
     const customData = data.customData || data.custom_data || {};
-    const customUserId = typeof customData.userId === 'string' ? customData.userId
+    const rawCustomUserId = typeof customData.userId === 'string' ? customData.userId
       : typeof customData.user_id === 'string' ? customData.user_id : null;
+    // Paddle custom_data is external input; avoid passing malformed identifiers into
+    // PostgreSQL UUID casts, which would turn a bad metadata value into endless webhook retries.
+    const customUserId = rawCustomUserId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawCustomUserId)
+      ? rawCustomUserId
+      : null;
     const subscriptionId = typeof data.id === 'string' && eventType.startsWith('subscription.')
       ? data.id
       : typeof data.subscriptionId === 'string' ? data.subscriptionId
