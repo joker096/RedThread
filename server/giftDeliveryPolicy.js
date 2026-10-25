@@ -26,7 +26,7 @@ export function evaluateGiftRequestEligibility({ sender, recipient, relationship
   if (!Number.isSafeInteger(product.totalMinorUnits) || product.totalMinorUnits <= 0 || typeof product.currency !== 'string' || !/^[A-Z]{3}$/.test(product.currency)) return deny('invalid_total_price');
   if (delivery.coverageVerified !== true || delivery.countrySupported !== true || delivery.regionAllowed !== true) return deny('delivery_region_unavailable');
   if (typeof delivery.partnerId !== 'string' || delivery.partnerId.length < 1) return deny('delivery_partner_missing');
-  if (sender.accountCreatedAt && (!Number.isFinite(Date.parse(sender.accountCreatedAt)) || Date.parse(sender.accountCreatedAt) > now)) return deny('invalid_sender_account_age');
+  if (sender.accountCreatedAt != null && (typeof sender.accountCreatedAt !== 'string' || sender.accountCreatedAt.trim().length === 0 || !Number.isFinite(Date.parse(sender.accountCreatedAt)) || Date.parse(sender.accountCreatedAt) > now)) return deny('invalid_sender_account_age');
   return { eligible: true, reason: 'request_allowed_pending_recipient_consent', fulfilmentAuthorized: false };
 }
 
