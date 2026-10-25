@@ -74,6 +74,22 @@ test('delivery_failed gift orders require persisted consent, address and fulfilm
         VALUES ('recipient_accepted', NULL, NULL, NULL, NULL, 'not_started')
       `);
 
+      // A fully evidenced delivery failure must remain persistable; the CHECKs
+      // are intended to reject missing/invalid evidence, not the terminal status.
+      await client.query(
+        `INSERT INTO gift_delivery_failed_constraint_test
+          (status, recipient_consent_at, address_vault_ref, address_verified_at,
+           fulfilment_authorized_at, payment_status)
+         VALUES ('delivery_failed', $1, $2, $3, $4, $5)`,
+        [
+          '2026-10-01T00:00:00Z',
+          'vault-ref',
+          '2026-10-01T00:00:00Z',
+          '2026-10-01T00:00:00Z',
+          'captured'
+        ]
+      );
+
       const invalidCases = [
         { status: 'delivery_failed', consent: null, vault: 'vault-ref', addressAt: '2026-10-01T00:00:00Z', fulfilmentAt: '2026-10-01T00:00:00Z', payment: 'authorized' },
         { status: 'delivery_failed', consent: '2026-10-01T00:00:00Z', vault: ' ', addressAt: '2026-10-01T00:00:00Z', fulfilmentAt: '2026-10-01T00:00:00Z', payment: 'authorized' },
