@@ -1297,12 +1297,56 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(deleteWrongPassword.status, 401);
 
-    const deleteAccount = await request('/api/account', {
-      method: 'DELETE',
-      headers: { Cookie: secondCookie },
-      body: JSON.stringify({ password })
-    });
-    assert.equal(deleteAccount.status, 204);
+    // Account deletion must revoke gift address access transactionally without
+    // pretending an active payment authorization was voided.
+    const deletionSafetyDb = new Pool({ connectionString: process.env.DATABASE_URL });
+    let deletionSafetyOrderId;
+    try {
+      const deletionSafetyOrder = await deletionSafetyDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, recipient_consent_at,
+            recipient_consent_version, address_vault_ref, address_verified_at, idempotency_key)
+         VALUES ($1, $2, $3, 'Account deletion safety test chocolate', 'chocolate', 1000, 'USD',
+                 'address_verified', 'authorized', NOW(), 1, 'test-deletion-vault-reference',
+                 NOW(), $4)
+         RETURNING id`,
+        [matchPayload.match.id, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      deletionSafetyOrderId = deletionSafetyOrder.rows[0].id;
+
+      const deleteAccount = await request('/api/account', {
+        method: 'DELETE',
+        headers: { Cookie: secondCookie },
+        body: JSON.stringify({ password })
+      });
+      assert.equal(deleteAccount.status, 204);
+      const deletedGift = await deletionSafetyDb.query(
+        'SELECT status, payment_status, address_vault_ref, address_verified_at FROM gift_delivery_orders WHERE id = $1',
+        [deletionSafetyOrderId]
+      );
+      assert.equal(deletedGift.rows[0].status, 'blocked');
+      assert.equal(deletedGift.rows[0].payment_status, 'authorized',
+        'account deletion must not pretend an active authorization was voided');
+      assert.equal(deletedGift.rows[0].address_vault_ref, null);
+      assert.equal(deletedGift.rows[0].address_verified_at, null);
+      const deletionAudit = await deletionSafetyDb.query(
+        `SELECT actor_type, event_type, from_status, to_status, metadata
+         FROM gift_delivery_order_events WHERE order_id = $1 AND event_type = 'safety_hold'`,
+        [deletionSafetyOrderId]
+      );
+      assert.equal(deletionAudit.rowCount, 1);
+      assert.equal(deletionAudit.rows[0].actor_type, 'system');
+      assert.equal(deletionAudit.rows[0].from_status, 'address_verified');
+      assert.equal(deletionAudit.rows[0].to_status, 'blocked');
+      assert.equal(deletionAudit.rows[0].metadata.reason, 'account_deleted');
+    } finally {
+      if (deletionSafetyOrderId) {
+        await deletionSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [deletionSafetyOrderId]).catch(() => {});
+        await deletionSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [deletionSafetyOrderId]).catch(() => {});
+      }
+      await deletionSafetyDb.end();
+    }
 
     const deletedAccountMe = await request('/api/auth/me', { headers: { Cookie: secondCookie } });
     assert.equal(deletedAccountMe.status, 401);
