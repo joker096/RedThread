@@ -129,7 +129,12 @@ test('persisted order and payment states must satisfy the migration invariants',
   assert.equal(validateGiftOrderPersistenceState({ ...base, status: 'declined', paymentStatus: 'captured' }).reason, 'declined_order_payment_must_be_inactive');
   assert.equal(validateGiftOrderPersistenceState({ ...base, status: 'cancelled', paymentStatus: 'captured' }).reason, 'cancelled_order_payment_must_be_voided_or_refunded');
   assert.deepEqual(validateGiftOrderPersistenceState({ ...base, status: 'cancelled', paymentStatus: 'voided' }), { valid: true, reason: 'persistence_state_consistent' });
-  assert.deepEqual(validateGiftOrderPersistenceState({ ...base, status: 'cancelled', paymentStatus: 'refund_pending' }), { valid: true, reason: 'persistence_state_consistent' });
+  assert.equal(validateGiftOrderPersistenceState({ ...base, status: 'cancelled', paymentStatus: 'refund_pending' }).reason, 'cancelled_order_payment_must_be_voided_or_refunded');
+  assert.equal(validateGiftOrderPersistenceState({ ...base, status: 'expired', paymentStatus: 'authorization_pending' }).reason, 'expired_order_payment_requires_reconciliation');
+  assert.equal(validateGiftOrderPersistenceState({ ...base, status: 'expired', paymentStatus: 'authorized' }).reason, 'expired_order_payment_requires_reconciliation');
+  assert.equal(validateGiftOrderPersistenceState({ ...base, status: 'expired', paymentStatus: 'captured' }).reason, 'expired_order_payment_requires_reconciliation');
+  assert.equal(validateGiftOrderPersistenceState({ ...base, status: 'expired', paymentStatus: 'refund_pending' }).reason, 'expired_order_payment_requires_reconciliation');
+  assert.deepEqual(validateGiftOrderPersistenceState({ ...base, status: 'expired', paymentStatus: 'voided' }), { valid: true, reason: 'persistence_state_consistent' });
 });
 test('refund policy is fail-closed, state-bound, amount-matched and idempotency-keyed', () => {
   const refundRequest = { ...order, status: 'delivery_failed' };
