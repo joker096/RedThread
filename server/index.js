@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { validateAdEventPayload, classifyDuplicateAdEvent, hasExplicitAdConsent, evaluateAdEventFrequency } from './adEvents.js';
 import { AD_EVENT_FREQUENCY_COUNTS_SQL } from './adEventFrequencyQuery.js';
 import { validateGiftDecisionInput } from './giftDecisionInput.js';
-import { evaluateGiftConsentWithdrawalEligibility } from './giftDeliveryPolicy.js';
+import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
@@ -749,7 +749,7 @@ async function suspendGiftOrdersForUser(client, userId, { actorUserId = null, ac
       `INSERT INTO gift_delivery_order_events
          (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
        VALUES ($1, $2, $3, 'safety_hold', $4, $5, $6::jsonb)`,
-      [gift.id, actorUserId, actorType, gift.previous_status, gift.next_status, JSON.stringify({ reason })]
+      [gift.id, actorUserId, actorType, gift.previous_status, gift.next_status, JSON.stringify({ reason: normalizeGiftSafetyAuditReason(reason) })]
     );
   }
   return suspended.rowCount;
