@@ -9,6 +9,7 @@ const BLOCKED_GIFT_CATEGORIES = new Set(['cash', 'gift_card', 'alcohol', 'tobacc
 
 export function evaluateGiftRequestEligibility({ sender, recipient, relationship, product, delivery, now = Date.now() } = {}) {
   if (!sender || !recipient || !relationship || !product || !delivery) return deny('missing_context');
+  if (!Number.isFinite(now)) return deny('invalid_validation_clock');
   if (sender.accountStatus !== 'active' || recipient.accountStatus !== 'active') return deny('account_ineligible');
   if (sender.isAdult !== true || recipient.isAdult !== true) return deny('adult_accounts_required');
   if (sender.identityVerified !== true || sender.safetyRestricted !== false || recipient.safetyRestricted !== false) return deny('verification_or_safety_gate_failed');
@@ -31,6 +32,7 @@ export function evaluateGiftRequestEligibility({ sender, recipient, relationship
 
 export function evaluateGiftFulfilmentEligibility({ request, sender, recipient, address, payment, relationship, safetyEvents, safetySnapshotAt, now = Date.now() } = {}) {
   if (!request || !sender || !recipient || !address || !payment || !relationship || !Array.isArray(safetyEvents) || !safetySnapshotAt) return deny('missing_context');
+  if (!Number.isFinite(now)) return deny('invalid_validation_clock');
   const snapshotTime = Date.parse(safetySnapshotAt);
   if (!Number.isFinite(snapshotTime) || snapshotTime > now || now - snapshotTime > GIFT_SAFETY_SNAPSHOT_MAX_AGE_MS) return deny('safety_snapshot_stale_or_invalid');
   if (safetyEvents.some((event) => !['block', 'report', 'restriction', 'account_deleted', 'consent_withdrawn'].includes(event))) return deny('safety_state_unavailable_or_invalid');
@@ -80,7 +82,7 @@ export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecord
     refund_pending: new Set(['refunded']), refunded: new Set([])
   };
   // Keep the policy state graph aligned with persisted statuses; `draft` is not a DB state.
-  if (!transitions[from]?.has(to)) return false;
+  if (!Number.isFinite(now) || !transitions[from]?.has(to)) return false;
   // Terminalize only after payment is known to be inactive; callers must reconcile active payments first.
   if (['declined', 'expired', 'cancelled'].includes(to) && !['not_started', 'voided', 'failed'].includes(paymentStatus)) return false;
   // High-impact transitions require a fresh, explicit safety snapshot; unknown/stale safety state fails closed.
