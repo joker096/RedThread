@@ -82,7 +82,10 @@ export async function processPaddleEvent(pool, rawEvent) {
           AND ($2::text IS NULL OR NOT EXISTS (
             SELECT 1 FROM users AS other
             WHERE other.paddle_customer_id = $2 AND other.id <> users.id
-          ))`,
+          ))
+          -- Do not silently replace this account's established Paddle identities.
+          AND ($3::text IS NULL OR paddle_subscription_id IS NULL OR paddle_subscription_id = $3)
+          AND ($2::text IS NULL OR paddle_customer_id IS NULL OR paddle_customer_id = $2)`,
         [customUserId, customerId, subscriptionId, status, priceId, active, active ? periodEnd : null, occurredAt]
       );
     } else if (eventType === 'transaction.completed') {
@@ -107,7 +110,9 @@ export async function processPaddleEvent(pool, rawEvent) {
             AND ($2::text IS NULL OR NOT EXISTS (
               SELECT 1 FROM users AS other
               WHERE other.paddle_customer_id = $2 AND other.id <> users.id
-            ))`,
+            ))
+            -- A transaction may confirm the same customer, but cannot swap account identity.
+            AND ($2::text IS NULL OR paddle_customer_id IS NULL OR paddle_customer_id = $2)`,
           [customUserId, customerId, lifetimePriceId]
         );
       } else {
@@ -136,6 +141,7 @@ export async function processPaddleEvent(pool, rawEvent) {
         await client.query(
           `UPDATE users SET paddle_customer_id = COALESCE($2, paddle_customer_id), updated_at = NOW()
            WHERE id = $1::uuid AND lower(email) = lower($3)
+             AND (paddle_customer_id IS NULL OR paddle_customer_id = $2)
              AND NOT EXISTS (
                SELECT 1 FROM users AS other
                WHERE other.paddle_customer_id = $2 AND other.id <> users.id
