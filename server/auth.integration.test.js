@@ -1361,6 +1361,7 @@ test('auth API supports registration, session lookup, logout and login', {
     // pretending an active payment authorization was voided.
     const deletionSafetyDb = new Pool({ connectionString: process.env.DATABASE_URL });
     let deletionSafetyOrderId;
+    let dispatchedDeletionSafetyOrderId;
     try {
       const deletionSafetyOrder = await deletionSafetyDb.query(
         `INSERT INTO gift_delivery_orders
@@ -1374,6 +1375,20 @@ test('auth API supports registration, session lookup, logout and login', {
         [matchPayload.match.id, maleRegistered.user.id, registered.user.id, randomUUID()]
       );
       deletionSafetyOrderId = deletionSafetyOrder.rows[0].id;
+
+      const dispatchedDeletionSafetyOrder = await deletionSafetyDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, recipient_consent_at,
+            recipient_consent_version, address_vault_ref, address_verified_at,
+            fulfilment_authorized_at, dispatched_at, idempotency_key)
+         VALUES ($1, $2, $3, 'Dispatched deletion safety test chocolate', 'chocolate', 1500, 'USD',
+                 'dispatched', 'captured', NOW(), 1, 'test-dispatched-deletion-vault-reference',
+                 NOW(), NOW(), NOW(), $4)
+         RETURNING id`,
+        [matchPayload.match.id, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      dispatchedDeletionSafetyOrderId = dispatchedDeletionSafetyOrder.rows[0].id;
 
       const deleteAccount = await request('/api/account', {
         method: 'DELETE',
@@ -1400,10 +1415,19 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.equal(deletionAudit.rows[0].from_status, 'address_verified');
       assert.equal(deletionAudit.rows[0].to_status, 'blocked');
       assert.equal(deletionAudit.rows[0].metadata.reason, 'account_deleted');
+      const dispatchedGift = await deletionSafetyDb.query(
+        'SELECT status, payment_status, address_vault_ref, address_verified_at FROM gift_delivery_orders WHERE id = $1',
+        [dispatchedDeletionSafetyOrderId]
+      );
+      assert.equal(dispatchedGift.rows[0].status, 'reported',
+        'a dispatched gift must enter the safety-review state instead of being treated as an ordinary pre-dispatch block');
+      assert.equal(dispatchedGift.rows[0].payment_status, 'captured');
+      assert.equal(dispatchedGift.rows[0].address_vault_ref, null);
+      assert.equal(dispatchedGift.rows[0].address_verified_at, null);
     } finally {
-      if (deletionSafetyOrderId) {
-        await deletionSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [deletionSafetyOrderId]).catch(() => {});
-        await deletionSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [deletionSafetyOrderId]).catch(() => {});
+      for (const orderId of [deletionSafetyOrderId, dispatchedDeletionSafetyOrderId].filter(Boolean)) {
+        await deletionSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [orderId]).catch(() => {});
+        await deletionSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [orderId]).catch(() => {});
       }
       await deletionSafetyDb.end();
     }
