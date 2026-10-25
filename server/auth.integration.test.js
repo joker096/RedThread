@@ -635,6 +635,79 @@ test('auth API supports registration, session lookup, logout and login', {
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [acceptedOrderId]).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [acceptedOrderId]).catch(() => {});
       }
+
+      // Race recipient acceptance against a safety block using the same pair lock.
+      // A block must win the final state regardless of which request obtains the lock first.
+      if (giftMatchCreated) {
+        const safetyRaceOrder = await giftTestDb.query(
+          `INSERT INTO gift_delivery_orders
+             (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+              total_minor_units, currency, status, payment_status, idempotency_key,
+              address_vault_ref, address_verified_at)
+           VALUES ($1, $2, $3, 'Safety race test gift', 'chocolate', 1000, 'USD',
+                   'awaiting_recipient_consent', 'not_started', $4,
+                   'test-only-safety-race-vault-reference', NOW())
+           RETURNING id, public_reference`,
+          [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+        );
+        const safetyRaceOrderId = safetyRaceOrder.rows[0].id;
+        const safetyRaceReference = safetyRaceOrder.rows[0].public_reference;
+        try {
+          const [safetyRaceDecision, safetyRaceBlock] = await Promise.all([
+            request(`/api/gifts/orders/${safetyRaceReference}/decision`, {
+              method: 'POST',
+              headers: { Cookie: secondCookie },
+              body: JSON.stringify({ action: 'accept' })
+            }),
+            request(`/api/blocks/${registered.user.id}`, {
+              method: 'POST',
+              headers: { Cookie: maleCookie }
+            })
+          ]);
+          assert.ok([200, 409].includes(safetyRaceDecision.status),
+            'acceptance must either commit before the block or be rejected after it');
+          assert.equal(safetyRaceBlock.status, 204);
+          const safetyRaceState = await giftTestDb.query(
+            `SELECT status, address_vault_ref, address_verified_at
+             FROM gift_delivery_orders WHERE id = $1`,
+            [safetyRaceOrderId]
+          );
+          assert.deepEqual(safetyRaceState.rows[0], {
+            status: 'blocked',
+            address_vault_ref: null,
+            address_verified_at: null
+          }, 'the safety block must leave the order blocked and clear address access');
+          const safetyRaceEvents = await giftTestDb.query(
+            `SELECT event_type, from_status, to_status
+             FROM gift_delivery_order_events WHERE order_id = $1
+             ORDER BY created_at, id`,
+            [safetyRaceOrderId]
+          );
+          assert.ok(
+            (safetyRaceDecision.status === 200 &&
+              safetyRaceEvents.rows.length === 2 &&
+              safetyRaceEvents.rows[0].event_type === 'accepted' &&
+              safetyRaceEvents.rows[0].from_status === 'awaiting_recipient_consent' &&
+              safetyRaceEvents.rows[0].to_status === 'recipient_accepted' &&
+              safetyRaceEvents.rows[1].event_type === 'blocked' &&
+              safetyRaceEvents.rows[1].from_status === 'awaiting_recipient_consent' &&
+              safetyRaceEvents.rows[1].to_status === 'blocked') ||
+            (safetyRaceDecision.status === 409 &&
+              safetyRaceEvents.rows.length === 1 &&
+              safetyRaceEvents.rows[0].event_type === 'blocked' &&
+              safetyRaceEvents.rows[0].from_status === 'awaiting_recipient_consent' &&
+              safetyRaceEvents.rows[0].to_status === 'blocked'),
+            'audit events must describe only committed transitions in order'
+          );
+        } finally {
+          await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [safetyRaceOrderId]).catch(() => {});
+          await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [safetyRaceOrderId]).catch(() => {});
+          await giftTestDb.query(
+            'DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2',
+            [maleRegistered.user.id, registered.user.id]
+          ).catch(() => {});
+        }
+      }
     } finally {
       if (giftOrderId) {
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [giftOrderId]).catch(() => {});
