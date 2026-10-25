@@ -156,3 +156,17 @@ export function denyGiftFulfilmentAfterSafetyEvent({ status, safetyEvent } = {})
 function deny(reason) {
   return { eligible: false, reason, fulfilmentAuthorized: false };
 }
+
+
+const SAFE_GIFT_SAFETY_AUDIT_REASONS = new Set([
+  'account_deleted',
+  'moderator_suspension',
+  'account_safety_event'
+]);
+
+// Audit metadata must contain only stable internal reason codes, never caller-supplied prose.
+export function normalizeGiftSafetyAuditReason(reason) {
+  return typeof reason === 'string' && SAFE_GIFT_SAFETY_AUDIT_REASONS.has(reason)
+    ? reason
+    : 'account_safety_event';
+}
