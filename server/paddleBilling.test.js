@@ -157,6 +157,10 @@ test('does not grant lifetime Premium when the transaction price does not match 
       }
     });
     assert.equal(queries.some(query => query.sql.includes('premium_lifetime = TRUE')), false);
+    const identityUpdate = queries.find(query => query.sql.includes('paddle_subscription_id = COALESCE($3, paddle_subscription_id)'));
+    assert.ok(identityUpdate, 'expected the non-lifetime transaction identity update');
+    assert.match(identityUpdate.sql, /other\.paddle_subscription_id = \$3 AND other\.id <> users\.id/);
+    assert.match(identityUpdate.sql, /other\.paddle_customer_id = \$2 AND other\.id <> users\.id/);
   } finally {
     if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
     else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
