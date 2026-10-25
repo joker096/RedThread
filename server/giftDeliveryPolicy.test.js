@@ -107,6 +107,14 @@ test('fulfilment rejects missing, future-dated, and stale safety snapshots', () 
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date(Date.now() + 60_000).toISOString() }).reason, 'safety_snapshot_stale_or_invalid');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date(Date.now() - 10 * 60_000).toISOString() }).reason, 'safety_snapshot_stale_or_invalid');
 });
+
+test('fulfilment rejects non-string safety snapshot timestamps', () => {
+  for (const safetySnapshotAt of [{}, new Date(), true, 123]) {
+    assert.equal(evaluateGiftFulfilmentEligibility({
+      request: order, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt
+    }).reason, 'safety_snapshot_stale_or_invalid', String(safetySnapshotAt));
+  }
+});
 test('fulfilment requires explicit fresh safety-event state and a safe active sender', () => {
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, address, payment, relationship }).reason, 'missing_context');
   for (const event of ['block', 'report', 'restriction', 'account_deleted', 'consent_withdrawn']) {
@@ -152,6 +160,10 @@ test('state transitions enforce actors, consent, persisted states, and terminal 
   assert.equal(canTransitionGiftOrder({ from: 'address_verified', to: 'fulfilment_authorized', actor: 'system', recipientConsentRecorded: true, addressVerified: true }), false);
   assert.equal(canTransitionGiftOrder({ from: 'address_verified', to: 'fulfilment_authorized', actor: 'system', recipientConsentRecorded: true, addressVerified: true, paymentStatus: 'not_started' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'address_verified', to: 'fulfilment_authorized', actor: 'system', recipientConsentRecorded: true, addressVerified: true, paymentStatus: 'authorized', safetyEvents: [], safetySnapshotAt: new Date().toISOString() }), true);
+  for (const safetySnapshotAt of [{}, new Date(), true, 123]) {
+    assert.equal(canTransitionGiftOrder({ from: 'address_verified', to: 'fulfilment_authorized', actor: 'system', recipientConsentRecorded: true, addressVerified: true, paymentStatus: 'authorized', safetyEvents: [], safetySnapshotAt }), false, String(safetySnapshotAt));
+    assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'dispatched', actor: 'delivery_partner', recipientConsentRecorded: true, addressVerified: true, paymentStatus: 'authorized', safetyEvents: [], safetySnapshotAt }), false, String(safetySnapshotAt));
+  }
   assert.equal(canTransitionGiftOrder({ from: 'address_verified', to: 'fulfilment_authorized', actor: 'system', recipientConsentRecorded: true, addressVerified: true, paymentStatus: 'authorized' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'address_verified', to: 'fulfilment_authorized', actor: 'system', recipientConsentRecorded: true, addressVerified: true, paymentStatus: 'authorized', safetyEvents: ['block'], safetySnapshotAt: new Date().toISOString() }), false);
   assert.equal(canTransitionGiftOrder({ from: 'address_verified', to: 'fulfilment_authorized', actor: 'system', recipientConsentRecorded: true, addressVerified: true, paymentStatus: 'authorized', safetyEvents: [], safetySnapshotAt: new Date(Date.now() - 10 * 60_000).toISOString() }), false);
