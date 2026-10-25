@@ -102,8 +102,11 @@ test('state transitions enforce actors, consent, persisted states, and terminal 
   assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'dispatched', actor: 'delivery_partner', paymentStatus: 'authorized', safetyEvents: [], safetySnapshotAt: new Date(Date.now() - 10 * 60_000).toISOString() }), false);
   assert.equal(canTransitionGiftOrder({ from: 'dispatched', to: 'delivered', actor: 'delivery_partner' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'dispatched', to: 'delivered', actor: 'delivery_partner', paymentStatus: 'failed' }), false);
-  assert.equal(canTransitionGiftOrder({ from: 'dispatched', to: 'delivered', actor: 'delivery_partner', paymentStatus: 'captured' }), true);
-  assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'delivery_failed', actor: 'delivery_partner' }), true);
+  assert.equal(canTransitionGiftOrder({ from: 'dispatched', to: 'delivered', actor: 'delivery_partner', paymentStatus: 'captured' }), false);
+  assert.equal(canTransitionGiftOrder({ from: 'dispatched', to: 'delivered', actor: 'delivery_partner', recipientConsentRecorded: true, addressVerified: true, paymentStatus: 'captured' }), true);
+  assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'delivery_failed', actor: 'delivery_partner' }), false);
+  assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'delivery_failed', actor: 'delivery_partner', recipientConsentRecorded: true, addressVerified: true, paymentStatus: 'failed' }), false);
+  assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'delivery_failed', actor: 'delivery_partner', recipientConsentRecorded: true, addressVerified: true, paymentStatus: 'authorized' }), true);
   assert.equal(canTransitionGiftOrder({ from: 'delivered', to: 'cancelled', actor: 'sender' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'recipient_accepted', actor: 'recipient', recipientConsentRecorded: true }), false);
   assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'refund_pending', actor: 'system' }), false);
