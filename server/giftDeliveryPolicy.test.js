@@ -95,7 +95,8 @@ test('state transitions enforce actors, consent, persisted states, and terminal 
   assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'dispatched', actor: 'sender' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'dispatched', actor: 'trusted_delivery_service' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'dispatched', actor: 'delivery_partner' }), false);
-  assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'dispatched', actor: 'delivery_partner', paymentStatus: 'authorized', safetyEvents: [], safetySnapshotAt: new Date().toISOString() }), true);
+  assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'dispatched', actor: 'delivery_partner', recipientConsentRecorded: true, addressVerified: true, paymentStatus: 'authorized', safetyEvents: [], safetySnapshotAt: new Date().toISOString() }), true);
+  assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'dispatched', actor: 'delivery_partner', paymentStatus: 'authorized', safetyEvents: [], safetySnapshotAt: new Date().toISOString() }), false);
   assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'dispatched', actor: 'delivery_partner', paymentStatus: 'authorized' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'dispatched', actor: 'delivery_partner', paymentStatus: 'authorized', safetyEvents: ['consent_withdrawn'], safetySnapshotAt: new Date().toISOString() }), false);
   assert.equal(canTransitionGiftOrder({ from: 'fulfilment_authorized', to: 'dispatched', actor: 'delivery_partner', paymentStatus: 'authorized', safetyEvents: [], safetySnapshotAt: new Date(Date.now() - 10 * 60_000).toISOString() }), false);
