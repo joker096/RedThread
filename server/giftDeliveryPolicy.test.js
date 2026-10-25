@@ -10,6 +10,23 @@ const delivery = { coverageVerified: true, countrySupported: true, regionAllowed
 function request(overrides = {}) { return evaluateGiftRequestEligibility({ sender: { ...sender, ...overrides.sender }, recipient: { ...recipient, ...overrides.recipient }, relationship: { ...relationship, ...overrides.relationship }, product: { ...product, ...overrides.product }, delivery: { ...delivery, ...overrides.delivery } }); }
 
 test('valid request remains pending until recipient consent', () => assert.deepEqual(request(), { eligible: true, reason: 'request_allowed_pending_recipient_consent', fulfilmentAuthorized: false }));
+test('request eligibility rejects malformed or future sender account timestamps', () => {
+  const now = Date.parse('2026-10-25T00:00:00Z');
+  for (const accountCreatedAt of ['', '   ', 'not-a-date', 0, 123, {}, new Date('2026-01-01T00:00:00Z'), '2026-10-25T00:00:01Z']) {
+    assert.equal(evaluateGiftRequestEligibility({
+      sender: { ...sender, accountCreatedAt }, recipient, relationship, product, delivery, now
+    }).reason, 'invalid_sender_account_age', String(accountCreatedAt));
+  }
+  assert.equal(evaluateGiftRequestEligibility({
+    sender: { ...sender, accountCreatedAt: '2026-01-01T00:00:00Z' }, recipient, relationship, product, delivery, now
+  }).eligible, true);
+  for (const accountCreatedAt of [undefined, null]) {
+    assert.equal(evaluateGiftRequestEligibility({
+      sender: { ...sender, accountCreatedAt }, recipient, relationship, product, delivery, now
+    }).eligible, true);
+  }
+});
+
 test('request eligibility fails closed when the validation clock is invalid', () => {
   for (const now of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, '2026-10-25T00:00:00Z', null]) {
     assert.deepEqual(evaluateGiftRequestEligibility({ sender, recipient, relationship, product, delivery, now }), {
