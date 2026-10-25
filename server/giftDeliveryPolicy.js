@@ -46,7 +46,10 @@ export function evaluateGiftFulfilmentEligibility({ request, sender, recipient, 
   if (request.consentWithdrawnAt != null) return deny('recipient_consent_withdrawn');
   if (request.status !== 'address_verified') return deny('verified_address_state_required');
   if (request.recipientId !== recipient.id || recipient.authenticatedUserId !== recipient.id) return deny('recipient_authorization_failed');
-  if (!request.expiresAt || !Number.isFinite(Date.parse(request.expiresAt)) || Date.parse(request.expiresAt) <= now) return deny('request_expired');
+  if (typeof request.expiresAt !== 'string' || request.expiresAt.trim().length === 0) return deny('request_expired');
+  const expiresAt = Date.parse(request.expiresAt);
+  if (!Number.isFinite(expiresAt) || expiresAt <= now) return deny('request_expired');
+  if (typeof request.consentRecordedAt !== 'string' || request.consentRecordedAt.trim().length === 0) return deny('recipient_consent_record_missing');
   const consentRecordedAt = Date.parse(request.consentRecordedAt);
   if (!Number.isFinite(consentRecordedAt) || consentRecordedAt > now) return deny('recipient_consent_record_missing');
   if (address.ownerUserId !== recipient.id || address.verified !== true || address.recipientEntered !== true) return deny('recipient_address_not_verified');
