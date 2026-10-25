@@ -103,7 +103,11 @@ export async function processPaddleEvent(pool, rawEvent) {
             premium_lifetime = TRUE,
             premium_until = NULL,
             updated_at = NOW()
-          WHERE id = $1::uuid`,
+          WHERE id = $1::uuid
+            AND ($2::text IS NULL OR NOT EXISTS (
+              SELECT 1 FROM users AS other
+              WHERE other.paddle_customer_id = $2 AND other.id <> users.id
+            ))`,
           [customUserId, customerId, lifetimePriceId]
         );
       } else {
@@ -114,7 +118,15 @@ export async function processPaddleEvent(pool, rawEvent) {
             paddle_customer_id = COALESCE($2, paddle_customer_id),
             paddle_subscription_id = COALESCE($3, paddle_subscription_id),
             updated_at = NOW()
-          WHERE id = COALESCE($1::uuid, (SELECT id FROM users WHERE paddle_subscription_id = $3 LIMIT 1))`,
+          WHERE id = COALESCE($1::uuid, (SELECT id FROM users WHERE paddle_subscription_id = $3 LIMIT 1))
+            AND ($3::text IS NULL OR NOT EXISTS (
+              SELECT 1 FROM users AS other
+              WHERE other.paddle_subscription_id = $3 AND other.id <> users.id
+            ))
+            AND ($2::text IS NULL OR NOT EXISTS (
+              SELECT 1 FROM users AS other
+              WHERE other.paddle_customer_id = $2 AND other.id <> users.id
+            ))`,
           [customUserId, customerId, subscriptionId]
         );
       }
@@ -122,7 +134,12 @@ export async function processPaddleEvent(pool, rawEvent) {
       const customerEmail = data.email;
       if (customUserId && customerId && typeof customerEmail === 'string') {
         await client.query(
-          'UPDATE users SET paddle_customer_id = COALESCE($2, paddle_customer_id), updated_at = NOW() WHERE id = $1::uuid AND lower(email) = lower($3)',
+          `UPDATE users SET paddle_customer_id = COALESCE($2, paddle_customer_id), updated_at = NOW()
+           WHERE id = $1::uuid AND lower(email) = lower($3)
+             AND NOT EXISTS (
+               SELECT 1 FROM users AS other
+               WHERE other.paddle_customer_id = $2 AND other.id <> users.id
+             )`,
           [customUserId, customerId, customerEmail]
         );
       }
