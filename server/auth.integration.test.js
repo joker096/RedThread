@@ -463,16 +463,6 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       const activePaymentOrderId = activePaymentOrder.rows[0].id;
       const activePaymentReference = activePaymentOrder.rows[0].public_reference;
-      const inactiveSiblingOrder = await giftTestDb.query(
-        `INSERT INTO gift_delivery_orders
-           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
-            total_minor_units, currency, status, payment_status, idempotency_key)
-         VALUES ($1, $2, $3, 'Inactive sibling test gift', 'chocolate', 1000, 'USD',
-                 'awaiting_recipient_consent', 'not_started', $4)
-         RETURNING id`,
-        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
-      );
-      const inactiveSiblingOrderId = inactiveSiblingOrder.rows[0].id;
       try {
         const declineActivePayment = await request(
           `/api/gifts/orders/${activePaymentReference}/decision`,
@@ -533,6 +523,31 @@ test('auth API supports registration, session lookup, logout and login', {
         assert.deepEqual(activePaymentAudit.rows, [],
           'no cancellation event should be recorded when active payment requires reconciliation');
 
+      } finally {
+        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [activePaymentOrderId]).catch(() => {});
+        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [activePaymentOrderId]).catch(() => {});
+      }
+
+      // The schema intentionally permits only one pending gift per unordered
+      // participant pair, so test the no-payment cancellation in a separate
+      // transaction after the active-payment case has been cleaned up.
+      const inactiveSiblingOrder = await giftTestDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, idempotency_key)
+         VALUES ($1, $2, $3, 'Inactive sibling test gift', 'chocolate', 1000, 'USD',
+                 'awaiting_recipient_consent', 'not_started', $4)
+         RETURNING id`,
+        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      const inactiveSiblingOrderId = inactiveSiblingOrder.rows[0].id;
+      try {
+        const disableWithoutPayment = await request('/api/gifts/preferences', {
+          method: 'PUT',
+          headers: { Cookie: secondCookie },
+          body: JSON.stringify({ requestsEnabled: false })
+        });
+        assert.equal(disableWithoutPayment.status, 200);
         const inactiveSiblingState = await giftTestDb.query(
           'SELECT status, payment_status FROM gift_delivery_orders WHERE id = $1',
           [inactiveSiblingOrderId]
@@ -540,7 +555,7 @@ test('auth API supports registration, session lookup, logout and login', {
         assert.deepEqual(inactiveSiblingState.rows[0], {
           status: 'cancelled',
           payment_status: 'not_started'
-        }, 'opt-out should still cancel eligible pending orders when another order needs payment reconciliation');
+        }, 'opt-out must cancel a pending order whose payment has not started');
         const inactiveSiblingAudit = await giftTestDb.query(
           'SELECT event_type, from_status, to_status FROM gift_delivery_order_events WHERE order_id = $1',
           [inactiveSiblingOrderId]
@@ -551,8 +566,8 @@ test('auth API supports registration, session lookup, logout and login', {
           to_status: 'cancelled'
         }]);
       } finally {
-        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = ANY($1::uuid[])', [[activePaymentOrderId, inactiveSiblingOrderId]]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = ANY($1::uuid[])', [[activePaymentOrderId, inactiveSiblingOrderId]]).catch(() => {});
+        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [inactiveSiblingOrderId]).catch(() => {});
+        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [inactiveSiblingOrderId]).catch(() => {});
       }
 
       const reenableAfterActivePayment = await request('/api/gifts/preferences', {
