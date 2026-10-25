@@ -706,6 +706,55 @@ app.post('/api/auth/logout', validateRequestOrigin, requireDatabase, async (req,
   return res.status(204).end();
 });
 
+
+async function suspendGiftOrdersForUser(client, userId, { actorUserId = null, actorType = 'system', reason = 'account_safety_event' } = {}) {
+  // Use the same pair-level lock as accept/block/report, in stable order, before
+  // touching gift rows. This prevents a concurrent acceptance from restoring
+  // address access after deletion or moderator suspension.
+  const pairs = await client.query(
+    `SELECT DISTINCT LEAST(sender_id, recipient_id)::text AS user_a,
+            GREATEST(sender_id, recipient_id)::text AS user_b
+     FROM gift_delivery_orders
+     WHERE (sender_id = $1 OR recipient_id = $1)
+       AND status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched')
+     ORDER BY user_a, user_b`,
+    [userId]
+  );
+  for (const pair of pairs.rows) {
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext('gift-safety:' || $1 || ':' || $2))",
+      [pair.user_a, pair.user_b]
+    );
+  }
+
+  const suspended = await client.query(
+    `WITH candidates AS (
+       SELECT id, status AS previous_status
+       FROM gift_delivery_orders
+       WHERE (sender_id = $1 OR recipient_id = $1)
+         AND status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched')
+       ORDER BY id
+       FOR UPDATE
+     )
+     UPDATE gift_delivery_orders AS o
+     SET status = CASE WHEN c.previous_status = 'dispatched' THEN 'reported' ELSE 'blocked' END,
+         address_vault_ref = NULL, address_verified_at = NULL, updated_at = NOW()
+     FROM candidates AS c
+     WHERE o.id = c.id
+     RETURNING o.id, c.previous_status, o.status AS next_status`,
+    [userId]
+  );
+  for (const gift of suspended.rows) {
+    await client.query(
+      `INSERT INTO gift_delivery_order_events
+         (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
+       VALUES ($1, $2, $3, 'safety_hold', $4, $5, $6::jsonb)`,
+      [gift.id, actorUserId, actorType, gift.previous_status, gift.next_status, JSON.stringify({ reason })]
+    );
+  }
+  return suspended.rowCount;
+}
+
 app.delete('/api/account', validateRequestOrigin, requireSession, async (req, res) => {
   let privatePhotoPaths = [];
   const password = req.body?.password;
@@ -722,6 +771,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
 
     client = await pool.connect();
     await client.query('BEGIN');
+    await suspendGiftOrdersForUser(client, req.authUser.id, { reason: 'account_deleted' });
     const photoFiles = await client.query('SELECT storage_path FROM photo_assets WHERE user_id = $1', [req.authUser.id]);
     privatePhotoPaths = photoFiles.rows.map(row => row.storage_path);
     await client.query('DELETE FROM photo_assets WHERE user_id = $1', [req.authUser.id]);
@@ -1924,6 +1974,7 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'category_not_eligible_for_suspension' });
       }
+      await suspendGiftOrdersForUser(client, report.reported_user_id, { actorUserId: req.authUser.id, actorType: 'moderator', reason: 'moderator_suspension' });
       await client.query("UPDATE users SET status = 'suspended', updated_at = NOW() WHERE id = $1", [report.reported_user_id]);
       await client.query('UPDATE profiles SET is_visible = FALSE, updated_at = NOW() WHERE user_id = $1', [report.reported_user_id]);
       await client.query(
