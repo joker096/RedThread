@@ -90,7 +90,13 @@ test('fulfilment requires recipient acceptance, unexpired request, verified addr
   assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, status: 'awaiting_recipient_consent' }, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'verified_address_state_required');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, expiresAt: undefined }, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'request_expired');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, expiresAt: '2020-01-01T00:00:00Z' }, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString(), now: Date.now() }).reason, 'request_expired');
+  for (const expiresAt of [123, true, {}, new Date(Date.now() + 60_000), '']) {
+    assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, expiresAt }, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'request_expired', String(expiresAt));
+  }
   assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, consentRecordedAt: undefined }, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'recipient_consent_record_missing');
+  for (const consentRecordedAt of [123, true, {}, new Date(), '']) {
+    assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, consentRecordedAt }, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'recipient_consent_record_missing', String(consentRecordedAt));
+  }
   assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, consentRecordedAt: new Date(Date.now() + 60_000).toISOString() }, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString(), now: Date.now() }).reason, 'recipient_consent_record_missing');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient: { ...recipient, id: 'other' }, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'recipient_authorization_failed');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, address: { ...address, recipientEntered: false }, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'recipient_address_not_verified');
