@@ -1133,6 +1133,94 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(familySearch.status, 200);
     assert.equal((await familySearch.json()).profiles.some(profile => profile.id === maleRegistered.user.id), false);
 
+    // A block/report must also suspend already accepted, pre-dispatch gift orders
+    // and clear address-vault references, not just close pending consent requests.
+    const giftSafetyDb = new Pool({ connectionString: process.env.DATABASE_URL });
+    let blockSafetyOrderId;
+    let reportSafetyOrderId;
+    let reportId;
+    try {
+      const safetyMatch = await giftSafetyDb.query(
+        'SELECT id FROM matches WHERE id = $1',
+        [matchPayload.match.id]
+      );
+      assert.equal(safetyMatch.rowCount, 1);
+      const blockSafetyOrder = await giftSafetyDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, recipient_consent_at,
+            recipient_consent_version, address_vault_ref, address_verified_at, idempotency_key)
+         VALUES ($1, $2, $3, 'Block safety test chocolate', 'chocolate', 1000, 'USD',
+                 'address_verified', 'not_started', NOW(), 1, 'test-block-vault-reference',
+                 NOW(), $4)
+         RETURNING id`,
+        [matchPayload.match.id, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      blockSafetyOrderId = blockSafetyOrder.rows[0].id;
+
+      const block = await request(`/api/blocks/${maleRegistered.user.id}`, {
+        method: 'POST', headers: { Cookie: secondCookie }, body: JSON.stringify({})
+      });
+      assert.equal(block.status, 204);
+      const blockedGift = await giftSafetyDb.query(
+        'SELECT status, address_vault_ref, address_verified_at FROM gift_delivery_orders WHERE id = $1',
+        [blockSafetyOrderId]
+      );
+      assert.equal(blockedGift.rows[0].status, 'blocked');
+      assert.equal(blockedGift.rows[0].address_vault_ref, null);
+      assert.equal(blockedGift.rows[0].address_verified_at, null);
+      const blockAudit = await giftSafetyDb.query(
+        `SELECT from_status, to_status FROM gift_delivery_order_events
+         WHERE order_id = $1 AND event_type = 'blocked'`,
+        [blockSafetyOrderId]
+      );
+      assert.deepEqual(blockAudit.rows, [{ from_status: 'address_verified', to_status: 'blocked' }]);
+
+      const reportSafetyOrder = await giftSafetyDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, recipient_consent_at,
+            recipient_consent_version, address_vault_ref, address_verified_at, idempotency_key)
+         VALUES ($1, $2, $3, 'Report safety test chocolate', 'chocolate', 1000, 'USD',
+                 'address_verified', 'not_started', NOW(), 1, 'test-report-vault-reference',
+                 NOW(), $4)
+         RETURNING id`,
+        [matchPayload.match.id, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      reportSafetyOrderId = reportSafetyOrder.rows[0].id;
+      const report = await request('/api/reports', {
+        method: 'POST',
+        headers: { Cookie: secondCookie },
+        body: JSON.stringify({
+          reportedUserId: maleRegistered.user.id,
+          category: 'safety',
+          details: 'Integration test: suspend accepted gift'
+        })
+      });
+      assert.equal(report.status, 201);
+      reportId = (await report.json()).report.id;
+      const reportedGift = await giftSafetyDb.query(
+        'SELECT status, address_vault_ref, address_verified_at FROM gift_delivery_orders WHERE id = $1',
+        [reportSafetyOrderId]
+      );
+      assert.equal(reportedGift.rows[0].status, 'reported');
+      assert.equal(reportedGift.rows[0].address_vault_ref, null);
+      assert.equal(reportedGift.rows[0].address_verified_at, null);
+      const reportAudit = await giftSafetyDb.query(
+        `SELECT from_status, to_status FROM gift_delivery_order_events
+         WHERE order_id = $1 AND event_type = 'reported'`,
+        [reportSafetyOrderId]
+      );
+      assert.deepEqual(reportAudit.rows, [{ from_status: 'address_verified', to_status: 'reported' }]);
+    } finally {
+      if (reportId) await giftSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [reportId]).catch(() => {});
+      for (const orderId of [blockSafetyOrderId, reportSafetyOrderId].filter(Boolean)) {
+        await giftSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [orderId]).catch(() => {});
+        await giftSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [orderId]).catch(() => {});
+      }
+      await giftSafetyDb.end();
+    }
+
     const block = await request(`/api/blocks/${maleRegistered.user.id}`, {
       method: 'POST',
       headers: { Cookie: secondCookie },
