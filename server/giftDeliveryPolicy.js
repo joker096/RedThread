@@ -99,6 +99,7 @@ export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecord
   if (to === 'recipient_accepted' && (actor !== 'recipient' || !recipientConsentRecorded)) return false;
   if (to === 'address_verified' && (actor !== 'recipient' || !recipientConsentRecorded || !addressVerified)) return false;
   if (to === 'fulfilment_authorized' && (actor !== 'system' || !recipientConsentRecorded || !addressVerified)) return false;
+  if (to === 'dispatched' && (!recipientConsentRecorded || !addressVerified)) return false;
   if (to === 'declined' && actor !== 'recipient') return false;
   if (to === 'expired' && actor !== 'system') return false;
   if (to === 'cancelled' && !['sender', 'recipient', 'moderator', 'system'].includes(actor)) return false;
