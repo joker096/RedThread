@@ -123,12 +123,14 @@ export function validateGiftOrderPersistenceState(order = {}) {
     'delivery_failed', 'refund_pending', 'refunded'
   ]);
   const validPaymentStatuses = new Set(['not_started', 'authorization_pending', 'authorized', 'captured', 'voided', 'refund_pending', 'refunded', 'failed']);
+  const hasValidTimestamp = (value) => typeof value === 'string' && value.trim().length > 0 && Number.isFinite(Date.parse(value));
+  const hasNonEmptyString = (value) => typeof value === 'string' && value.trim().length > 0;
   if (!validStatuses.has(order.status) || !validPaymentStatuses.has(order.paymentStatus)) return { valid: false, reason: 'unknown_persisted_state' };
-  if (['recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivered'].includes(order.status) && !order.recipientConsentAt) return { valid: false, reason: 'recipient_consent_required' };
-  if (['address_verified', 'fulfilment_authorized', 'dispatched', 'delivered'].includes(order.status) && (!order.addressVaultRef || !order.addressVerifiedAt)) return { valid: false, reason: 'verified_address_required' };
-  if (['fulfilment_authorized', 'dispatched', 'delivered'].includes(order.status) && (!order.fulfilmentAuthorizedAt || !['authorized', 'captured'].includes(order.paymentStatus))) return { valid: false, reason: 'fulfilment_payment_authorization_required' };
-  if (order.status === 'dispatched' && !order.dispatchedAt) return { valid: false, reason: 'dispatch_timestamp_required' };
-  if (order.status === 'delivered' && !order.deliveredAt) return { valid: false, reason: 'delivery_timestamp_required' };
+  if (['recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivered', 'delivery_failed'].includes(order.status) && !hasValidTimestamp(order.recipientConsentAt)) return { valid: false, reason: 'recipient_consent_required' };
+  if (['address_verified', 'fulfilment_authorized', 'dispatched', 'delivered', 'delivery_failed'].includes(order.status) && (!hasNonEmptyString(order.addressVaultRef) || !hasValidTimestamp(order.addressVerifiedAt))) return { valid: false, reason: 'verified_address_required' };
+  if (['fulfilment_authorized', 'dispatched', 'delivered', 'delivery_failed'].includes(order.status) && (!hasValidTimestamp(order.fulfilmentAuthorizedAt) || !['authorized', 'captured'].includes(order.paymentStatus))) return { valid: false, reason: 'fulfilment_payment_authorization_required' };
+  if (order.status === 'dispatched' && !hasValidTimestamp(order.dispatchedAt)) return { valid: false, reason: 'dispatch_timestamp_required' };
+  if (order.status === 'delivered' && !hasValidTimestamp(order.deliveredAt)) return { valid: false, reason: 'delivery_timestamp_required' };
   if (order.status === 'refunded' && order.paymentStatus !== 'refunded') return { valid: false, reason: 'refunded_payment_state_required' };
   if (order.status === 'refund_pending' && order.paymentStatus !== 'refund_pending') return { valid: false, reason: 'pending_refund_payment_state_required' };
   if (order.status === 'declined' && order.paymentStatus !== 'not_started' && order.paymentStatus !== 'voided' && order.paymentStatus !== 'failed') return { valid: false, reason: 'declined_order_payment_must_be_inactive' };
