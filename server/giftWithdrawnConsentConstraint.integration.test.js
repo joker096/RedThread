@@ -17,7 +17,7 @@ test('withdrawn gift consent blocks fulfilment progression at the database bound
        WHERE conrelid = 'gift_delivery_orders'::regclass
          AND conname = 'gift_orders_withdrawn_consent_cannot_progress'`
     );
-    assert.equal(constraint.rowCount, 1, 'migration 028 should install the withdrawn-consent constraint');
+    assert.equal(constraint.rowCount, 1, 'migration 030 should install the withdrawn-consent constraint');
     const constraintDefinition = constraint.rows[0]?.definition;
     assert.equal(typeof constraintDefinition, 'string', 'PostgreSQL should expose the installed constraint definition');
 
@@ -59,8 +59,8 @@ test('withdrawn gift consent blocks fulfilment progression at the database bound
       );
 
       for (const status of [
-        'recipient_accepted', 'address_verified', 'fulfilment_authorized',
-        'dispatched', 'delivered', 'delivery_failed'
+        'awaiting_recipient_consent', 'recipient_accepted', 'address_verified',
+        'fulfilment_authorized', 'dispatched', 'delivered', 'delivery_failed'
       ]) {
         await client.query('SAVEPOINT withdrawn_consent_insert');
         let insertError;
