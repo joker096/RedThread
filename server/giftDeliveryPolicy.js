@@ -37,6 +37,7 @@ export function evaluateGiftRequestEligibility({ sender, recipient, relationship
 export function evaluateGiftFulfilmentEligibility({ request, sender, recipient, address, payment, relationship, safetyEvents, safetySnapshotAt, now = Date.now() } = {}) {
   if (!request || !sender || !recipient || !address || !payment || !relationship || !Array.isArray(safetyEvents) || !safetySnapshotAt) return deny('missing_context');
   if (!Number.isFinite(now)) return deny('invalid_validation_clock');
+  if (typeof safetySnapshotAt !== 'string' || safetySnapshotAt.trim().length === 0) return deny('safety_snapshot_stale_or_invalid');
   const snapshotTime = Date.parse(safetySnapshotAt);
   if (!Number.isFinite(snapshotTime) || snapshotTime > now || now - snapshotTime > GIFT_SAFETY_SNAPSHOT_MAX_AGE_MS) return deny('safety_snapshot_stale_or_invalid');
   if (safetyEvents.some((event) => !['block', 'report', 'restriction', 'account_deleted', 'consent_withdrawn'].includes(event))) return deny('safety_state_unavailable_or_invalid');
@@ -91,6 +92,7 @@ export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecord
   if (['declined', 'expired', 'cancelled'].includes(to) && !['not_started', 'voided', 'failed'].includes(paymentStatus)) return false;
   // High-impact transitions require a fresh, explicit safety snapshot; unknown/stale safety state fails closed.
   if (to === 'fulfilment_authorized' || to === 'dispatched') {
+    if (typeof safetySnapshotAt !== 'string' || safetySnapshotAt.trim().length === 0) return false;
     const snapshotTime = Date.parse(safetySnapshotAt);
     if (!Array.isArray(safetyEvents) || safetyEvents.some((event) => !['block', 'report', 'restriction', 'account_deleted', 'consent_withdrawn'].includes(event))) return false;
     if (safetyEvents.length > 0 || !Number.isFinite(snapshotTime) || snapshotTime > now || now - snapshotTime > GIFT_SAFETY_SNAPSHOT_MAX_AGE_MS) return false;
