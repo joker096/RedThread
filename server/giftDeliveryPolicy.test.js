@@ -169,6 +169,50 @@ test('persisted order and payment states must satisfy the migration invariants',
   assert.equal(validateGiftOrderPersistenceState({ ...base, status: 'expired', paymentStatus: 'refund_pending' }).reason, 'expired_order_payment_requires_reconciliation');
   assert.deepEqual(validateGiftOrderPersistenceState({ ...base, status: 'expired', paymentStatus: 'voided' }), { valid: true, reason: 'persistence_state_consistent' });
 });
+test('persistence validator rejects malformed evidence timestamps and address references', () => {
+  const base = { status: 'awaiting_recipient_consent', paymentStatus: 'not_started' };
+  const consented = { ...base, status: 'recipient_accepted', recipientConsentAt: '2026-10-20T12:00:00Z' };
+  assert.deepEqual(validateGiftOrderPersistenceState(consented), { valid: true, reason: 'persistence_state_consistent' });
+  for (const recipientConsentAt of ['', 'not-a-date', 123, true]) {
+    assert.equal(validateGiftOrderPersistenceState({ ...consented, recipientConsentAt }).reason, 'recipient_consent_required');
+  }
+
+  const verified = {
+    ...consented,
+    status: 'address_verified',
+    addressVaultRef: 'vault_ref_123',
+    addressVerifiedAt: '2026-10-20T12:01:00Z'
+  };
+  assert.deepEqual(validateGiftOrderPersistenceState(verified), { valid: true, reason: 'persistence_state_consistent' });
+  for (const addressVaultRef of ['', '   ', 123, { ref: 'vault_ref_123' }]) {
+    assert.equal(validateGiftOrderPersistenceState({ ...verified, addressVaultRef }).reason, 'verified_address_required');
+  }
+  for (const addressVerifiedAt of ['', 'not-a-date', 123, true]) {
+    assert.equal(validateGiftOrderPersistenceState({ ...verified, addressVerifiedAt }).reason, 'verified_address_required');
+  }
+
+  const authorized = {
+    ...verified,
+    status: 'fulfilment_authorized',
+    fulfilmentAuthorizedAt: '2026-10-20T12:02:00Z',
+    paymentStatus: 'authorized'
+  };
+  assert.deepEqual(validateGiftOrderPersistenceState(authorized), { valid: true, reason: 'persistence_state_consistent' });
+  for (const fulfilmentAuthorizedAt of ['', 'not-a-date', 123, true]) {
+    assert.equal(validateGiftOrderPersistenceState({ ...authorized, fulfilmentAuthorizedAt }).reason, 'fulfilment_payment_authorization_required');
+  }
+
+  const deliveryFailed = {
+    ...authorized,
+    status: 'delivery_failed'
+  };
+  assert.deepEqual(validateGiftOrderPersistenceState(deliveryFailed), { valid: true, reason: 'persistence_state_consistent' });
+  assert.equal(validateGiftOrderPersistenceState({ ...deliveryFailed, recipientConsentAt: undefined }).reason, 'recipient_consent_required');
+  assert.equal(validateGiftOrderPersistenceState({ ...deliveryFailed, addressVaultRef: undefined }).reason, 'verified_address_required');
+  assert.equal(validateGiftOrderPersistenceState({ ...deliveryFailed, fulfilmentAuthorizedAt: undefined }).reason, 'fulfilment_payment_authorization_required');
+  assert.equal(validateGiftOrderPersistenceState({ ...deliveryFailed, paymentStatus: 'failed' }).reason, 'fulfilment_payment_authorization_required');
+});
+
 test('refund policy is fail-closed, state-bound, amount-matched and idempotency-keyed', () => {
   const refundRequest = { ...order, status: 'delivery_failed' };
   const capturedPayment = { ...payment, status: 'captured' };
