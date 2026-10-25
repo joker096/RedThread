@@ -1214,6 +1214,53 @@ test('auth API supports registration, session lookup, logout and login', {
         [reportSafetyOrderId]
       );
       assert.deepEqual(reportAudit.rows, [{ from_status: 'address_verified', to_status: 'reported' }]);
+
+      // Run the dispatched-block case before moderator suspension makes the
+      // target account unavailable; the block endpoint must still quarantine
+      // the dispatched order and clear address metadata.
+      const dispatchedBlockSafetyOrder = await giftSafetyDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, recipient_consent_at,
+            recipient_consent_version, address_vault_ref, address_verified_at,
+            fulfilment_authorized_at, dispatched_at, idempotency_key)
+         VALUES ($1, $2, $3, 'Dispatched block safety test chocolate', 'chocolate', 1200, 'USD',
+                 'dispatched', 'captured', NOW(), 1, 'test-dispatched-block-vault-reference',
+                 NOW(), NOW(), NOW(), $4)
+         RETURNING id`,
+        [matchPayload.match.id, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      const dispatchedBlockSafetyOrderId = dispatchedBlockSafetyOrder.rows[0].id;
+      try {
+        const blockAfterDispatch = await request(`/api/blocks/${maleRegistered.user.id}`, {
+          method: 'POST',
+          headers: { Cookie: secondCookie },
+          body: JSON.stringify({})
+        });
+        assert.equal(blockAfterDispatch.status, 204);
+        const blockedDispatchedGift = await giftSafetyDb.query(
+          'SELECT status, payment_status, address_vault_ref, address_verified_at FROM gift_delivery_orders WHERE id = $1',
+          [dispatchedBlockSafetyOrderId]
+        );
+        assert.equal(blockedDispatchedGift.rows[0].status, 'reported');
+        assert.equal(blockedDispatchedGift.rows[0].payment_status, 'captured',
+          'blocking after dispatch must not pretend a captured payment was refunded');
+        assert.equal(blockedDispatchedGift.rows[0].address_vault_ref, null);
+        assert.equal(blockedDispatchedGift.rows[0].address_verified_at, null);
+        const dispatchedBlockAudit = await giftSafetyDb.query(
+          'SELECT event_type, from_status, to_status FROM gift_delivery_order_events WHERE order_id = $1',
+          [dispatchedBlockSafetyOrderId]
+        );
+        assert.deepEqual(dispatchedBlockAudit.rows, [{
+          event_type: 'reported',
+          from_status: 'dispatched',
+          to_status: 'reported'
+        }]);
+      } finally {
+        await giftSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [dispatchedBlockSafetyOrderId]).catch(() => {});
+        await giftSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [dispatchedBlockSafetyOrderId]).catch(() => {});
+      }
+
     } finally {
       if (reportId) await giftSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [reportId]).catch(() => {});
       for (const orderId of [blockSafetyOrderId, reportSafetyOrderId].filter(Boolean)) {
@@ -1440,50 +1487,6 @@ test('auth API supports registration, session lookup, logout and login', {
         if (dispatchedReportId) await deletionSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [dispatchedReportId]).catch(() => {});
         await deletionSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [dispatchedReportSafetyOrderId]).catch(() => {});
         await deletionSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [dispatchedReportSafetyOrderId]).catch(() => {});
-      }
-
-      // Blocking after dispatch must quarantine the order for review, not leave
-      // the address-vault pointer available or force it into a pre-dispatch state.
-      const dispatchedBlockSafetyOrder = await deletionSafetyDb.query(
-        `INSERT INTO gift_delivery_orders
-           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
-            total_minor_units, currency, status, payment_status, recipient_consent_at,
-            recipient_consent_version, address_vault_ref, address_verified_at,
-            fulfilment_authorized_at, dispatched_at, idempotency_key)
-         VALUES ($1, $2, $3, 'Dispatched block safety test chocolate', 'chocolate', 1200, 'USD',
-                 'dispatched', 'captured', NOW(), 1, 'test-dispatched-block-vault-reference',
-                 NOW(), NOW(), NOW(), $4)
-         RETURNING id`,
-        [matchPayload.match.id, maleRegistered.user.id, registered.user.id, randomUUID()]
-      );
-      const dispatchedBlockSafetyOrderId = dispatchedBlockSafetyOrder.rows[0].id;
-      try {
-        const blockAfterDispatch = await request(`/api/blocks/${registered.user.id}`, {
-          method: 'POST',
-          headers: { Cookie: maleCookie }
-        });
-        assert.equal(blockAfterDispatch.status, 204);
-        const blockedDispatchedGift = await deletionSafetyDb.query(
-          'SELECT status, payment_status, address_vault_ref, address_verified_at FROM gift_delivery_orders WHERE id = $1',
-          [dispatchedBlockSafetyOrderId]
-        );
-        assert.equal(blockedDispatchedGift.rows[0].status, 'reported');
-        assert.equal(blockedDispatchedGift.rows[0].payment_status, 'captured',
-          'blocking after dispatch must not pretend a captured payment was refunded');
-        assert.equal(blockedDispatchedGift.rows[0].address_vault_ref, null);
-        assert.equal(blockedDispatchedGift.rows[0].address_verified_at, null);
-        const dispatchedBlockAudit = await deletionSafetyDb.query(
-          'SELECT event_type, from_status, to_status FROM gift_delivery_order_events WHERE order_id = $1',
-          [dispatchedBlockSafetyOrderId]
-        );
-        assert.deepEqual(dispatchedBlockAudit.rows, [{
-          event_type: 'reported',
-          from_status: 'dispatched',
-          to_status: 'reported'
-        }]);
-      } finally {
-        await deletionSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [dispatchedBlockSafetyOrderId]).catch(() => {});
-        await deletionSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [dispatchedBlockSafetyOrderId]).catch(() => {});
       }
 
       const deleteAccount = await request('/api/account', {
