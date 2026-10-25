@@ -70,4 +70,4 @@ The pure `validateGiftOrderPersistenceState()` helper cross-checks order and pay
 
 ## Latest verification
 
-The previously checked PR head passed [CI](https://github.com/joker096/RedThread/actions/runs/40168102881) and [Browser E2E](https://github.com/joker096/RedThread/actions/runs/40168102897). Additional payment-state guards and migration `025_gift_terminal_payment_reconciliation.sql` were added afterward; those new commits require fresh CI and Browser E2E runs before the PR can be considered verified. No real gift-order creation, payment authorization, address disclosure, or delivery is enabled.
+Commit `254d69e5302b4caff3eb7225a5733015612fd1e5` passed [CI](https://github.com/joker096/RedThread/actions/runs/40168852103) and [Browser E2E](https://github.com/joker096/RedThread/actions/runs/40168852167) after the payment-state guards and migration `025_gift_terminal_payment_reconciliation.sql` were added. Any subsequent commit must pass both checks again before the PR can be considered verified. No real gift-order creation, payment authorization, address disclosure, or delivery is enabled.
