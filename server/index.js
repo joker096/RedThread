@@ -1797,7 +1797,7 @@ app.post('/api/reports', reportLimiter, validateRequestOrigin, requireSession, a
          SELECT id, status AS previous_status
          FROM gift_delivery_orders
          WHERE ((sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1))
-           AND status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized')
+           AND status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched')
          ORDER BY id
          FOR UPDATE
        )
