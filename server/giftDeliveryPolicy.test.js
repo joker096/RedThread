@@ -15,7 +15,7 @@ test('request eligibility rejects missing, invalid, future, and stale safety sna
   const evaluate = (safetySnapshotAt) => evaluateGiftRequestEligibility({
     sender, recipient, relationship: { ...relationship, safetySnapshotAt }, product, delivery, now
   });
-  for (const safetySnapshotAt of [undefined, null, '', 'not-a-date', new Date(now + 1).toISOString()]) {
+  for (const safetySnapshotAt of [undefined, null, '', 'not-a-date', 0, {}, new Date(now), true, new Date(now + 1).toISOString()]) {
     assert.equal(evaluate(safetySnapshotAt).reason, 'safety_snapshot_stale_or_invalid', String(safetySnapshotAt));
   }
   assert.equal(evaluate(new Date(now - GIFT_SAFETY_SNAPSHOT_MAX_AGE_MS - 1).toISOString()).reason, 'safety_snapshot_stale_or_invalid');
