@@ -12,17 +12,18 @@ function request(overrides = {}) { return evaluateGiftRequestEligibility({ sende
 test('valid request remains pending until recipient consent', () => assert.deepEqual(request(), { eligible: true, reason: 'request_allowed_pending_recipient_consent', fulfilmentAuthorized: false }));
 test('request eligibility rejects malformed or future sender account timestamps', () => {
   const now = Date.parse('2026-10-25T00:00:00Z');
+  const freshRelationship = { ...relationship, safetySnapshotAt: new Date(now).toISOString() };
   for (const accountCreatedAt of ['', '   ', 'not-a-date', 0, 123, {}, new Date('2026-01-01T00:00:00Z'), '2026-10-25T00:00:01Z']) {
     assert.equal(evaluateGiftRequestEligibility({
-      sender: { ...sender, accountCreatedAt }, recipient, relationship, product, delivery, now
+      sender: { ...sender, accountCreatedAt }, recipient, relationship: freshRelationship, product, delivery, now
     }).reason, 'invalid_sender_account_age', String(accountCreatedAt));
   }
   assert.equal(evaluateGiftRequestEligibility({
-    sender: { ...sender, accountCreatedAt: '2026-01-01T00:00:00Z' }, recipient, relationship, product, delivery, now
+    sender: { ...sender, accountCreatedAt: '2026-01-01T00:00:00Z' }, recipient, relationship: freshRelationship, product, delivery, now
   }).eligible, true);
   for (const accountCreatedAt of [undefined, null]) {
     assert.equal(evaluateGiftRequestEligibility({
-      sender: { ...sender, accountCreatedAt }, recipient, relationship, product, delivery, now
+      sender: { ...sender, accountCreatedAt }, recipient, relationship: freshRelationship, product, delivery, now
     }).eligible, true);
   }
 });
