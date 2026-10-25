@@ -477,6 +477,31 @@ test('auth API supports registration, session lookup, logout and login', {
           error: 'gift_payment_requires_reconciliation'
         });
 
+        await giftTestDb.query(
+          'UPDATE gift_delivery_orders SET expires_at = NOW() - INTERVAL \'1 minute\' WHERE id = $1',
+          [activePaymentOrderId]
+        );
+        const expireActivePayment = await request(
+          `/api/gifts/orders/${activePaymentReference}/decision`,
+          {
+            method: 'POST',
+            headers: { Cookie: secondCookie },
+            body: JSON.stringify({ action: 'decline' })
+          }
+        );
+        assert.equal(expireActivePayment.status, 409);
+        assert.deepEqual(await expireActivePayment.json(), {
+          error: 'gift_payment_requires_reconciliation'
+        });
+        const afterExpiryGuard = await giftTestDb.query(
+          'SELECT status, payment_status FROM gift_delivery_orders WHERE id = $1',
+          [activePaymentOrderId]
+        );
+        assert.deepEqual(afterExpiryGuard.rows[0], {
+          status: 'awaiting_recipient_consent',
+          payment_status: 'authorized'
+        }, 'expiry must not silently abandon an active payment');
+
         const optOutWithActivePayment = await request('/api/gifts/preferences', {
           method: 'PUT',
           headers: { Cookie: secondCookie },
