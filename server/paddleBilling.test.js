@@ -97,6 +97,8 @@ test('subscription updates compare source timestamps and do not bypass ordering 
   assert.doesNotMatch(update.sql, /\$8::timestamptz IS NULL/);
   assert.match(update.sql, /other\.paddle_subscription_id = \$3 AND other\.id <> users\.id/);
   assert.match(update.sql, /other\.paddle_customer_id = \$2 AND other\.id <> users\.id/);
+  assert.match(update.sql, /paddle_subscription_id IS NULL OR paddle_subscription_id = \$3/);
+  assert.match(update.sql, /paddle_customer_id IS NULL OR paddle_customer_id = \$2/);
   assert.equal(update.params[7], '2026-10-24T20:00:00Z');
 });
 
@@ -161,8 +163,36 @@ test('does not grant lifetime Premium when the transaction price does not match 
     assert.ok(identityUpdate, 'expected the non-lifetime transaction identity update');
     assert.match(identityUpdate.sql, /other\.paddle_subscription_id = \$3 AND other\.id <> users\.id/);
     assert.match(identityUpdate.sql, /other\.paddle_customer_id = \$2 AND other\.id <> users\.id/);
+    assert.match(identityUpdate.sql, /paddle_customer_id IS NULL OR paddle_customer_id = \$2/);
+    assert.match(identityUpdate.sql, /paddle_subscription_id IS NULL OR paddle_subscription_id = \$3/);
   } finally {
     if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
     else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
   }
+});
+
+
+test('customer webhook cannot replace an account customer ID once established', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) return { rowCount: 1, rows: [{ event_id: 'evt_customer_identity' }] };
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  await processPaddleEvent({ async connect() { return client; } }, {
+    eventId: 'evt_customer_identity',
+    eventType: 'customer.updated',
+    data: {
+      id: 'ctm_new_identity',
+      customData: { userId: '00000000-0000-4000-8000-000000000001' },
+      email: 'person@example.com'
+    }
+  });
+  const update = queries.find(query => query.sql.includes('lower(email) = lower($3)'));
+  assert.ok(update, 'expected customer identity update');
+  assert.match(update.sql, /paddle_customer_id IS NULL OR paddle_customer_id = \$2/);
 });
