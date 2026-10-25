@@ -211,6 +211,33 @@ test('persistence validator rejects malformed evidence timestamps and address re
   assert.equal(validateGiftOrderPersistenceState({ ...deliveryFailed, addressVaultRef: undefined }).reason, 'verified_address_required');
   assert.equal(validateGiftOrderPersistenceState({ ...deliveryFailed, fulfilmentAuthorizedAt: undefined }).reason, 'fulfilment_payment_authorization_required');
   assert.equal(validateGiftOrderPersistenceState({ ...deliveryFailed, paymentStatus: 'failed' }).reason, 'fulfilment_payment_authorization_required');
+
+  // Pin the validator's clock so future-evidence checks do not depend on wall time.
+  const now = Date.parse('2026-10-25T00:00:00Z');
+  assert.equal(validateGiftOrderPersistenceState({
+    ...consented,
+    recipientConsentAt: '2026-10-26T12:00:00Z'
+  }, { now }).reason, 'recipient_consent_required');
+  assert.equal(validateGiftOrderPersistenceState({
+    ...verified,
+    addressVerifiedAt: '2026-10-26T12:01:00Z'
+  }, { now }).reason, 'verified_address_required');
+  assert.equal(validateGiftOrderPersistenceState({
+    ...authorized,
+    fulfilmentAuthorizedAt: '2026-10-26T12:02:00Z'
+  }, { now }).reason, 'fulfilment_payment_authorization_required');
+  assert.equal(validateGiftOrderPersistenceState({
+    ...authorized,
+    status: 'dispatched',
+    dispatchedAt: '2026-10-26T12:03:00Z'
+  }, { now }).reason, 'dispatch_timestamp_required');
+  assert.equal(validateGiftOrderPersistenceState({
+    ...authorized,
+    status: 'delivered',
+    paymentStatus: 'captured',
+    dispatchedAt: '2026-10-20T12:03:00Z',
+    deliveredAt: '2026-10-26T12:04:00Z'
+  }, { now }).reason, 'delivery_timestamp_required');
 });
 
 test('refund policy is fail-closed, state-bound, amount-matched and idempotency-keyed', () => {
