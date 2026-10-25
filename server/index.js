@@ -1655,21 +1655,32 @@ app.post('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, r
     await client.query('DELETE FROM profile_passes WHERE (passer_id = $1 AND passed_user_id = $2) OR (passer_id = $2 AND passed_user_id = $1)', [req.authUser.id, targetId]);
     await client.query(`UPDATE matches SET status = 'blocked'
       WHERE user_a_id = LEAST($1::uuid, $2::uuid) AND user_b_id = GREATEST($1::uuid, $2::uuid) AND status = 'active'`, [req.authUser.id, targetId]);
-    // Close pending gift requests in the same pair-locked transaction. Do not
-    // touch accepted/in-flight orders here; their fulfilment must re-check safety.
-    const pendingGifts = await client.query(
-      `UPDATE gift_delivery_orders
-       SET status = 'blocked', updated_at = NOW()
-       WHERE ((sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1))
-         AND status = 'awaiting_recipient_consent'
-       RETURNING id, sender_id, recipient_id`,
+    // Block all pre-dispatch gifts for this pair, including accepted orders with
+    // a verified address. Clear the address-vault reference in the same transaction
+    // so a later worker cannot use stale address access after the safety event.
+    // Payment is deliberately not simulated or rewritten here; active payment states
+    // require provider reconciliation before any refund/void is recorded.
+    const blockedGifts = await client.query(
+      `WITH candidates AS (
+         SELECT id, status AS previous_status
+         FROM gift_delivery_orders
+         WHERE ((sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1))
+           AND status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized')
+         ORDER BY id
+         FOR UPDATE
+       )
+       UPDATE gift_delivery_orders AS o
+       SET status = 'blocked', address_vault_ref = NULL, address_verified_at = NULL, updated_at = NOW()
+       FROM candidates AS c
+       WHERE o.id = c.id
+       RETURNING o.id, o.sender_id, o.recipient_id, c.previous_status`,
       [req.authUser.id, targetId]
     );
-    for (const gift of pendingGifts.rows) {
+    for (const gift of blockedGifts.rows) {
       await client.query(
         `INSERT INTO gift_delivery_order_events (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
-         VALUES ($1, $2, $3, 'blocked', 'awaiting_recipient_consent', 'blocked')`,
-        [gift.id, req.authUser.id, gift.sender_id === req.authUser.id ? 'sender' : 'recipient']
+         VALUES ($1, $2, $3, 'blocked', $4, 'blocked')`,
+        [gift.id, req.authUser.id, gift.sender_id === req.authUser.id ? 'sender' : 'recipient', gift.previous_status]
       );
     }
     await client.query('COMMIT');
@@ -1726,22 +1737,30 @@ app.post('/api/reports', reportLimiter, validateRequestOrigin, requireSession, a
        VALUES ($1, $2, $3, $4) RETURNING id, status, created_at AS "createdAt"`,
       [req.authUser.id, reportedUserId, category, details]
     );
-    // A report immediately closes only requests still awaiting consent. Accepted
-    // orders require a separate safety/fulfilment review and are never dispatched
-    // by this endpoint.
-    const pendingGifts = await client.query(
-      `UPDATE gift_delivery_orders
-       SET status = 'reported', updated_at = NOW()
-       WHERE ((sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1))
-         AND status = 'awaiting_recipient_consent'
-       RETURNING id, sender_id, recipient_id`,
+    // A report immediately suspends every pre-dispatch gift for this pair,
+    // including accepted/address-verified orders. Remove the address-vault reference
+    // atomically; do not simulate a payment void/refund without provider reconciliation.
+    const reportedGifts = await client.query(
+      `WITH candidates AS (
+         SELECT id, status AS previous_status
+         FROM gift_delivery_orders
+         WHERE ((sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1))
+           AND status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized')
+         ORDER BY id
+         FOR UPDATE
+       )
+       UPDATE gift_delivery_orders AS o
+       SET status = 'reported', address_vault_ref = NULL, address_verified_at = NULL, updated_at = NOW()
+       FROM candidates AS c
+       WHERE o.id = c.id
+       RETURNING o.id, o.sender_id, o.recipient_id, c.previous_status`,
       [req.authUser.id, reportedUserId]
     );
-    for (const gift of pendingGifts.rows) {
+    for (const gift of reportedGifts.rows) {
       await client.query(
         `INSERT INTO gift_delivery_order_events (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
-         VALUES ($1, $2, $3, 'reported', 'awaiting_recipient_consent', 'reported')`,
-        [gift.id, req.authUser.id, gift.sender_id === req.authUser.id ? 'sender' : 'recipient']
+         VALUES ($1, $2, $3, 'reported', $4, 'reported')`,
+        [gift.id, req.authUser.id, gift.sender_id === req.authUser.id ? 'sender' : 'recipient', gift.previous_status]
       );
     }
     await client.query('COMMIT');
