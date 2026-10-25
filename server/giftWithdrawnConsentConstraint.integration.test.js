@@ -50,6 +50,19 @@ test('withdrawn gift consent blocks fulfilment progression at the database bound
       );
       assert.deepEqual(preserved.rows, [{ status: 'cancelled', payment_status: 'authorization_pending' }]);
 
+      // Reopening an already-cancelled order must fail on UPDATE as well as
+      // INSERT; this is the concrete stale-consent regression the migration guards.
+      await client.query('SAVEPOINT withdrawn_consent_reopen');
+      let reopenError;
+      try {
+        await client.query("UPDATE gift_withdrawn_consent_constraint_test SET status = 'awaiting_recipient_consent' WHERE status = 'cancelled'");
+      } catch (error) {
+        reopenError = error;
+      }
+      assert.equal(reopenError?.code, '23514', 'a withdrawn order must not return to the recipient-consent queue');
+      await client.query('ROLLBACK TO SAVEPOINT withdrawn_consent_reopen');
+      await client.query('RELEASE SAVEPOINT withdrawn_consent_reopen');
+
       // Without a withdrawal timestamp, ordinary eligible states are not
       // blocked by this specific constraint.
       await client.query(
