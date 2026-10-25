@@ -1715,22 +1715,24 @@ app.post('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, r
          SELECT id, status AS previous_status
          FROM gift_delivery_orders
          WHERE ((sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1))
-           AND status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized')
+           AND status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched')
          ORDER BY id
          FOR UPDATE
        )
        UPDATE gift_delivery_orders AS o
-       SET status = 'blocked', address_vault_ref = NULL, address_verified_at = NULL, updated_at = NOW()
+       SET status = CASE WHEN c.previous_status = 'dispatched' THEN 'reported' ELSE 'blocked' END,
+           address_vault_ref = NULL, address_verified_at = NULL, updated_at = NOW()
        FROM candidates AS c
        WHERE o.id = c.id
-       RETURNING o.id, o.sender_id, o.recipient_id, c.previous_status`,
+       RETURNING o.id, o.sender_id, o.recipient_id, c.previous_status, o.status AS next_status`,
       [req.authUser.id, targetId]
     );
     for (const gift of blockedGifts.rows) {
+      const eventType = gift.next_status === 'reported' ? 'reported' : 'blocked';
       await client.query(
         `INSERT INTO gift_delivery_order_events (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
-         VALUES ($1, $2, $3, 'blocked', $4, 'blocked')`,
-        [gift.id, req.authUser.id, gift.sender_id === req.authUser.id ? 'sender' : 'recipient', gift.previous_status]
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [gift.id, req.authUser.id, gift.sender_id === req.authUser.id ? 'sender' : 'recipient', eventType, gift.previous_status, gift.next_status]
       );
     }
     await client.query('COMMIT');
