@@ -1962,7 +1962,7 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
     // the order/preference lock sequence and creating a deadlock.
     if (!validation.value.requestsEnabled) {
       await client.query(
-        `SELECT id FROM gift_delivery_orders
+        `SELECT id, payment_status FROM gift_delivery_orders
          WHERE recipient_id = $1 AND status = 'awaiting_recipient_consent'
          ORDER BY id
          FOR UPDATE`,
@@ -1984,7 +1984,9 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
       const cancelled = await client.query(
         `UPDATE gift_delivery_orders
          SET status = 'cancelled', updated_at = NOW()
-         WHERE recipient_id = $1 AND status = 'awaiting_recipient_consent'
+         WHERE recipient_id = $1
+           AND status = 'awaiting_recipient_consent'
+           AND payment_status IN ('not_started', 'voided', 'failed')
          RETURNING id, sender_id`,
         [req.authUser.id]
       );
@@ -2041,7 +2043,7 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
     }
 
     const selected = await client.query(
-      `SELECT o.id, o.match_id, o.sender_id, o.recipient_id, o.status, o.expires_at,
+      `SELECT o.id, o.match_id, o.sender_id, o.recipient_id, o.status, o.payment_status, o.expires_at,
               m.status AS match_status,
               sender.status AS sender_status,
               recipient.status AS recipient_status,
@@ -2130,6 +2132,15 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
         await client.query('ROLLBACK');
         return res.status(409).json({ error: 'gift_request_not_actionable' });
       }
+    }
+
+    // A decline must not silently abandon an active payment. Gift payment
+    // processing is not integrated yet, so fail closed rather than simulating
+    // a void/refund or relying on a database constraint to raise a 500.
+    if (action === 'decline' &&
+        !['not_started', 'voided', 'failed'].includes(order.payment_status)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_payment_requires_reconciliation' });
     }
 
     const nextStatus = action === 'accept' ? 'recipient_accepted' : 'declined';
