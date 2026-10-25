@@ -92,6 +92,8 @@ export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecord
   // State transitions must not bypass the payment lifecycle enforced by persistence constraints.
   if (to === 'fulfilment_authorized' && !['authorized', 'captured'].includes(paymentStatus)) return false;
   if (to === 'dispatched' && !['authorized', 'captured'].includes(paymentStatus)) return false;
+  // Delivery must not be marked complete while payment state is missing or inactive.
+  if (to === 'delivered' && !['authorized', 'captured'].includes(paymentStatus)) return false;
   if (to === 'refund_pending' && paymentStatus !== 'captured') return false;
   if (to === 'refunded' && paymentStatus !== 'refund_pending') return false;
 
