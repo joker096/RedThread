@@ -22,6 +22,12 @@ export async function processPaddleEvent(pool, rawEvent) {
   if (!event) throw new Error('invalid_paddle_event');
 
   const { eventId, eventType, data, occurredAt } = event;
+  const subscriptionLifecycleEvent = ['subscription.created', 'subscription.updated', 'subscription.canceled'].includes(eventType);
+  // Paddle lifecycle events must carry their source timestamp. Without it we cannot
+  // safely order updates, so fail closed instead of allowing an older event to win.
+  if (subscriptionLifecycleEvent && (!occurredAt || !Number.isFinite(Date.parse(occurredAt)))) {
+    throw new Error('invalid_paddle_event_timestamp');
+  }
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -62,7 +68,7 @@ export async function processPaddleEvent(pool, rawEvent) {
           premium_lifetime = CASE WHEN $6::boolean THEN FALSE ELSE premium_lifetime END,
           updated_at = NOW()
         WHERE id = COALESCE($1::uuid, (SELECT id FROM users WHERE paddle_subscription_id = $3 LIMIT 1))
-          AND (paddle_subscription_updated_at IS NULL OR $8::timestamptz IS NULL OR $8::timestamptz >= paddle_subscription_updated_at)`,
+          AND (paddle_subscription_updated_at IS NULL OR $8::timestamptz >= paddle_subscription_updated_at)`,
         [customUserId, customerId, subscriptionId, status, priceId, active, active ? periodEnd : null, occurredAt]
       );
     } else if (eventType === 'transaction.completed') {
