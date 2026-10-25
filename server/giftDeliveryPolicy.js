@@ -45,7 +45,12 @@ export function evaluateGiftFulfilmentEligibility({ request, sender, recipient, 
   if (address.ownerUserId !== recipient.id || address.verified !== true || address.recipientEntered !== true) return deny('recipient_address_not_verified');
   if (relationship.status !== 'active_match' || relationship.blocked !== false || relationship.reported !== false || relationship.paused !== false || relationship.safetyRestricted !== false) return deny('relationship_safety_state_unavailable_or_restricted');
   if (recipient.safetyRestricted !== false || recipient.accountStatus !== 'active' || recipient.isAdult !== true) return deny('recipient_safety_state_unavailable_or_restricted');
-  if (payment.status !== 'authorized' || payment.orderId !== request.id || payment.amountMinorUnits !== request.totalMinorUnits || payment.currency !== request.currency) return deny('payment_not_authorized_for_order');
+  if (typeof request.id !== 'string' || request.id.length === 0 ||
+      !Number.isSafeInteger(request.totalMinorUnits) || request.totalMinorUnits <= 0 ||
+      typeof request.currency !== 'string' || !/^[A-Z]{3}$/.test(request.currency)) return deny('invalid_order_payment_context');
+  if (payment.status !== 'authorized' || payment.orderId !== request.id ||
+      !Number.isSafeInteger(payment.amountMinorUnits) || payment.amountMinorUnits !== request.totalMinorUnits ||
+      payment.currency !== request.currency) return deny('payment_not_authorized_for_order');
   if (request.fulfilmentAuthorized === true) return deny('fulfilment_already_authorized');
   return { eligible: true, reason: 'recipient_consent_and_verified_address', fulfilmentAuthorized: true };
 }
