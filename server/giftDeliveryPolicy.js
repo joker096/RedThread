@@ -139,6 +139,7 @@ export function validateGiftOrderPersistenceState(order = {}, { now = Date.now()
   const hasNonEmptyString = (value) => typeof value === 'string' && value.trim().length > 0;
   if (!Number.isFinite(now)) return { valid: false, reason: 'invalid_validation_clock' };
   if (!validStatuses.has(order.status) || !validPaymentStatuses.has(order.paymentStatus)) return { valid: false, reason: 'unknown_persisted_state' };
+  if (order.consentWithdrawnAt != null && ['recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivered', 'delivery_failed'].includes(order.status)) return { valid: false, reason: 'consent_withdrawn_order_cannot_progress' };
   if (['recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivered', 'delivery_failed'].includes(order.status) && !hasNonFutureTimestamp(order.recipientConsentAt)) return { valid: false, reason: 'recipient_consent_required' };
   if (['address_verified', 'fulfilment_authorized', 'dispatched', 'delivered', 'delivery_failed'].includes(order.status) && (!hasNonEmptyString(order.addressVaultRef) || !hasNonFutureTimestamp(order.addressVerifiedAt))) return { valid: false, reason: 'verified_address_required' };
   if (['fulfilment_authorized', 'dispatched', 'delivered', 'delivery_failed'].includes(order.status) && (!hasNonFutureTimestamp(order.fulfilmentAuthorizedAt) || !['authorized', 'captured'].includes(order.paymentStatus))) return { valid: false, reason: 'fulfilment_payment_authorization_required' };
