@@ -67,7 +67,7 @@ export function redactGiftOrderForSender(order) {
   };
 }
 
-export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecorded = false, addressVerified = false, paymentStatus } = {}) {
+export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecorded = false, addressVerified = false, paymentStatus, safetyEvents, safetySnapshotAt, now = Date.now() } = {}) {
   const transitions = {
     awaiting_recipient_consent: new Set(['recipient_accepted', 'declined', 'expired', 'reported', 'blocked', 'cancelled']),
     recipient_accepted: new Set(['address_verified', 'declined', 'reported', 'blocked', 'cancelled']),
@@ -83,6 +83,12 @@ export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecord
   if (!transitions[from]?.has(to)) return false;
   // Terminalize only after payment is known to be inactive; callers must reconcile active payments first.
   if (['declined', 'expired', 'cancelled'].includes(to) && !['not_started', 'voided', 'failed'].includes(paymentStatus)) return false;
+  // High-impact transitions require a fresh, explicit safety snapshot; unknown/stale safety state fails closed.
+  if (to === 'fulfilment_authorized' || to === 'dispatched') {
+    const snapshotTime = Date.parse(safetySnapshotAt);
+    if (!Array.isArray(safetyEvents) || safetyEvents.some((event) => !['block', 'report', 'restriction', 'account_deleted', 'consent_withdrawn'].includes(event))) return false;
+    if (safetyEvents.length > 0 || !Number.isFinite(snapshotTime) || snapshotTime > now || now - snapshotTime > GIFT_SAFETY_SNAPSHOT_MAX_AGE_MS) return false;
+  }
   // State transitions must not bypass the payment lifecycle enforced by persistence constraints.
   if (to === 'fulfilment_authorized' && !['authorized', 'captured'].includes(paymentStatus)) return false;
   if (to === 'dispatched' && !['authorized', 'captured'].includes(paymentStatus)) return false;
