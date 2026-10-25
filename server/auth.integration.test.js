@@ -1297,6 +1297,66 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(deleteWrongPassword.status, 401);
 
+    // Moderator suspension must also revoke gift address access while keeping
+    // provider payment state truthful.
+    const moderationSafetyDb = new Pool({ connectionString: process.env.DATABASE_URL });
+    let moderationSafetyOrderId;
+    let moderationSafetyReportId;
+    try {
+      await moderationSafetyDb.query("UPDATE users SET role = 'moderator' WHERE id = $1", [registered.user.id]);
+      const safetyReport = await moderationSafetyDb.query(
+        `INSERT INTO user_reports (reporter_id, reported_user_id, category, details)
+         VALUES ($1, $2, 'safety', 'Integration test: moderator suspension gift safety')
+         RETURNING id`,
+        [registered.user.id, maleRegistered.user.id]
+      );
+      moderationSafetyReportId = safetyReport.rows[0].id;
+      const moderationSafetyOrder = await moderationSafetyDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, recipient_consent_at,
+            recipient_consent_version, address_vault_ref, address_verified_at, idempotency_key)
+         VALUES ($1, $2, $3, 'Moderator safety test chocolate', 'chocolate', 1000, 'USD',
+                 'address_verified', 'captured', NOW(), 1, 'test-moderator-vault-reference',
+                 NOW(), $4)
+         RETURNING id`,
+        [matchPayload.match.id, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      moderationSafetyOrderId = moderationSafetyOrder.rows[0].id;
+      const suspend = await request(`/api/admin/reports/${moderationSafetyReportId}/action`, {
+        method: 'POST',
+        headers: { Cookie: secondCookie },
+        body: JSON.stringify({ action: 'suspend_user', confirmed: true, reason: 'integration safety test' })
+      });
+      assert.equal(suspend.status, 200);
+      const suspendedGift = await moderationSafetyDb.query(
+        'SELECT status, payment_status, address_vault_ref, address_verified_at FROM gift_delivery_orders WHERE id = $1',
+        [moderationSafetyOrderId]
+      );
+      assert.equal(suspendedGift.rows[0].status, 'blocked');
+      assert.equal(suspendedGift.rows[0].payment_status, 'captured',
+        'moderator suspension must not pretend a captured payment was refunded');
+      assert.equal(suspendedGift.rows[0].address_vault_ref, null);
+      assert.equal(suspendedGift.rows[0].address_verified_at, null);
+      const moderationAudit = await moderationSafetyDb.query(
+        `SELECT actor_type, event_type, from_status, to_status, metadata
+         FROM gift_delivery_order_events WHERE order_id = $1 AND event_type = 'safety_hold'`,
+        [moderationSafetyOrderId]
+      );
+      assert.equal(moderationAudit.rowCount, 1);
+      assert.equal(moderationAudit.rows[0].actor_type, 'moderator');
+      assert.equal(moderationAudit.rows[0].from_status, 'address_verified');
+      assert.equal(moderationAudit.rows[0].to_status, 'blocked');
+      assert.equal(moderationAudit.rows[0].metadata.reason, 'moderator_suspension');
+    } finally {
+      if (moderationSafetyReportId) await moderationSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [moderationSafetyReportId]).catch(() => {});
+      if (moderationSafetyOrderId) {
+        await moderationSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [moderationSafetyOrderId]).catch(() => {});
+        await moderationSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [moderationSafetyOrderId]).catch(() => {});
+      }
+      await moderationSafetyDb.end();
+    }
+
     // Account deletion must revoke gift address access transactionally without
     // pretending an active payment authorization was voided.
     const deletionSafetyDb = new Pool({ connectionString: process.env.DATABASE_URL });
