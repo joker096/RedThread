@@ -35,12 +35,12 @@ test('withdrawn gift consent blocks fulfilment progression at the database bound
         ) ON COMMIT DROP
       `);
 
-      // A withdrawn request may remain in a safe terminal state. Payment
-      // reconciliation is separate, so the database rule must not rewrite it.
+      // A withdrawn request may remain in a safe terminal state. Use a payment
+      // state accepted by the full production schema's terminal-state constraints.
       await client.query(
         `INSERT INTO gift_withdrawn_consent_constraint_test
           (status, consent_withdrawn_at, payment_status)
-         VALUES ('cancelled', $1, 'authorization_pending')`,
+         VALUES ('cancelled', $1, 'voided')`,
         ['2026-10-25T10:00:00Z']
       );
       const preserved = await client.query(
@@ -48,7 +48,7 @@ test('withdrawn gift consent blocks fulfilment progression at the database bound
          FROM gift_withdrawn_consent_constraint_test
          WHERE status = 'cancelled'`
       );
-      assert.deepEqual(preserved.rows, [{ status: 'cancelled', payment_status: 'authorization_pending' }]);
+      assert.deepEqual(preserved.rows, [{ status: 'cancelled', payment_status: 'voided' }]);
 
       // Reopening an already-cancelled order must fail on UPDATE as well as
       // INSERT; this is the concrete stale-consent regression the migration guards.
