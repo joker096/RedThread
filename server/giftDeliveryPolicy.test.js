@@ -169,6 +169,20 @@ test('persisted order and payment states must satisfy the migration invariants',
   assert.equal(validateGiftOrderPersistenceState({ ...base, status: 'expired', paymentStatus: 'refund_pending' }).reason, 'expired_order_payment_requires_reconciliation');
   assert.deepEqual(validateGiftOrderPersistenceState({ ...base, status: 'expired', paymentStatus: 'voided' }), { valid: true, reason: 'persistence_state_consistent' });
 });
+test('persistence validator fails closed when the validation clock is invalid', () => {
+  const consented = { status: 'recipient_accepted', paymentStatus: 'not_started', recipientConsentAt: '2026-10-20T12:00:00Z' };
+  for (const now of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, '2026-10-25T00:00:00Z', null]) {
+    assert.deepEqual(validateGiftOrderPersistenceState(consented, { now }), {
+      valid: false,
+      reason: 'invalid_validation_clock'
+    });
+  }
+  assert.deepEqual(validateGiftOrderPersistenceState(consented, { now: Date.parse('2026-10-25T00:00:00Z') }), {
+    valid: true,
+    reason: 'persistence_state_consistent'
+  });
+});
+
 test('persistence validator rejects malformed evidence timestamps and address references', () => {
   const base = { status: 'awaiting_recipient_consent', paymentStatus: 'not_started' };
   const consented = { ...base, status: 'recipient_accepted', recipientConsentAt: '2026-10-20T12:00:00Z' };
