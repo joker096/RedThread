@@ -74,7 +74,13 @@ test('state transitions enforce actors, consent, persisted states, and terminal 
   assert.equal(canTransitionGiftOrder({ from: 'awaiting_recipient_consent', to: 'recipient_accepted', actor: 'recipient' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'awaiting_recipient_consent', to: 'recipient_accepted', actor: 'recipient', recipientConsentRecorded: true }), true);
   assert.equal(canTransitionGiftOrder({ from: 'recipient_accepted', to: 'declined', actor: 'sender' }), false);
-  assert.equal(canTransitionGiftOrder({ from: 'recipient_accepted', to: 'declined', actor: 'recipient' }), true);
+  assert.equal(canTransitionGiftOrder({ from: 'recipient_accepted', to: 'declined', actor: 'recipient' }), false);
+  assert.equal(canTransitionGiftOrder({ from: 'recipient_accepted', to: 'declined', actor: 'recipient', paymentStatus: 'authorized' }), false);
+  assert.equal(canTransitionGiftOrder({ from: 'recipient_accepted', to: 'declined', actor: 'recipient', paymentStatus: 'not_started' }), true);
+  assert.equal(canTransitionGiftOrder({ from: 'awaiting_recipient_consent', to: 'expired', actor: 'system', paymentStatus: 'captured' }), false);
+  assert.equal(canTransitionGiftOrder({ from: 'awaiting_recipient_consent', to: 'expired', actor: 'system', paymentStatus: 'voided' }), true);
+  assert.equal(canTransitionGiftOrder({ from: 'address_verified', to: 'cancelled', actor: 'recipient', paymentStatus: 'refund_pending' }), false);
+  assert.equal(canTransitionGiftOrder({ from: 'address_verified', to: 'cancelled', actor: 'recipient', paymentStatus: 'failed' }), true);
   assert.equal(canTransitionGiftOrder({ from: 'address_verified', to: 'fulfilment_authorized', actor: 'system', recipientConsentRecorded: true, addressVerified: true }), true);
   assert.equal(canTransitionGiftOrder({ from: 'address_verified', to: 'fulfilment_authorized', actor: 'sender', recipientConsentRecorded: true, addressVerified: true }), false);
   assert.equal(canTransitionGiftOrder({ from: 'address_verified', to: 'fulfilment_authorized', actor: 'system', recipientConsentRecorded: false, addressVerified: true }), false);
