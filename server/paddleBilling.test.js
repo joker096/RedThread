@@ -95,6 +95,8 @@ test('subscription updates compare source timestamps and do not bypass ordering 
   assert.ok(update, 'expected subscription lifecycle update');
   assert.match(update.sql, /paddle_subscription_updated_at IS NULL OR \$8::timestamptz >= paddle_subscription_updated_at/);
   assert.doesNotMatch(update.sql, /\$8::timestamptz IS NULL/);
+  assert.match(update.sql, /other\.paddle_subscription_id = \$3 AND other\.id <> users\.id/);
+  assert.match(update.sql, /other\.paddle_customer_id = \$2 AND other\.id <> users\.id/);
   assert.equal(update.params[7], '2026-10-24T20:00:00Z');
 });
 
