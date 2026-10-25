@@ -1458,9 +1458,9 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       const dispatchedBlockSafetyOrderId = dispatchedBlockSafetyOrder.rows[0].id;
       try {
-        const blockAfterDispatch = await request(`/api/blocks/${maleRegistered.user.id}`, {
+        const blockAfterDispatch = await request(`/api/blocks/${registered.user.id}`, {
           method: 'POST',
-          headers: { Cookie: secondCookie }
+          headers: { Cookie: maleCookie }
         });
         assert.equal(blockAfterDispatch.status, 204);
         const blockedDispatchedGift = await deletionSafetyDb.query(
