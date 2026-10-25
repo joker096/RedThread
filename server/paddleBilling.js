@@ -28,6 +28,11 @@ export async function processPaddleEvent(pool, rawEvent) {
   if (subscriptionLifecycleEvent && (!occurredAt || !Number.isFinite(Date.parse(occurredAt)))) {
     throw new Error('invalid_paddle_event_timestamp');
   }
+  // Never grant or revoke subscription entitlement from a lifecycle envelope
+  // that cannot identify the Paddle subscription being reconciled.
+  if (subscriptionLifecycleEvent && (typeof data.id !== 'string' || !/^sub_[A-Za-z0-9]+$/.test(data.id))) {
+    throw new Error('invalid_paddle_subscription_id');
+  }
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
