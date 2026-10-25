@@ -44,6 +44,8 @@ test('fulfilment requires recipient acceptance, unexpired request, verified addr
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, address: { ...address, recipientEntered: false }, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'recipient_address_not_verified');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, payment: { ...payment, amountMinorUnits: 1 }, address, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'payment_not_authorized_for_order');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, address, payment, relationship: { ...relationship, reported: true }, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'relationship_safety_state_unavailable_or_restricted');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, address, payment, relationship: { ...relationship, status: 'ended_match' }, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'relationship_safety_state_unavailable_or_restricted');
+  assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, address, payment, relationship: { ...relationship, status: undefined }, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'relationship_safety_state_unavailable_or_restricted');
 });
 test('fulfilment rejects missing, future-dated, and stale safety snapshots', () => {
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, address, payment, relationship, safetyEvents: [] }).reason, 'missing_context');
