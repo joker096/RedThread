@@ -9,8 +9,9 @@ test('gift event metadata guard rejects sensitive keys recursively at the databa
   timeout: 10_000
 }, async () => {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const client = await pool.connect();
   try {
-    const constraint = await pool.query(
+    const constraint = await client.query(
       `SELECT 1
        FROM pg_constraint
        WHERE conname = 'gift_order_events_metadata_no_sensitive_keys'
@@ -28,13 +29,48 @@ test('gift event metadata guard rejects sensitive keys recursively at the databa
     ];
 
     for (const item of cases) {
-      const result = await pool.query(
+      const result = await client.query(
         'SELECT gift_event_metadata_has_forbidden_key($1::jsonb) AS forbidden',
         [JSON.stringify(item.value)]
       );
       assert.equal(result.rows[0].forbidden, item.expected, item.label);
     }
+
+    // Exercise PostgreSQL CHECK enforcement itself, not only the helper function.
+    await client.query('BEGIN');
+    try {
+      await client.query(`
+        CREATE TEMP TABLE gift_metadata_constraint_test (
+          metadata jsonb NOT NULL,
+          CONSTRAINT gift_metadata_constraint_test_no_sensitive_keys
+            CHECK (NOT gift_event_metadata_has_forbidden_key(metadata))
+        ) ON COMMIT DROP
+      `);
+      await client.query(
+        'INSERT INTO gift_metadata_constraint_test (metadata) VALUES ($1::jsonb)',
+        [JSON.stringify({ reason: 'account_deleted', context: { source: 'moderation' } })]
+      );
+
+      await client.query('SAVEPOINT forbidden_metadata_insert');
+      let insertError;
+      try {
+        await client.query(
+          'INSERT INTO gift_metadata_constraint_test (metadata) VALUES ($1::jsonb)',
+          [JSON.stringify({ context: [{ recipient_phone: '+995000000' }] })]
+        );
+      } catch (error) {
+        insertError = error;
+      }
+      assert.equal(insertError?.code, '23514', 'CHECK constraint must reject a sensitive nested key');
+      await client.query('ROLLBACK TO SAVEPOINT forbidden_metadata_insert');
+      await client.query('RELEASE SAVEPOINT forbidden_metadata_insert');
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    }
   } finally {
+    client.release();
     await pool.end();
   }
 });
