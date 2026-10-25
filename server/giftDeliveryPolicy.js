@@ -126,6 +126,7 @@ export function validateGiftOrderPersistenceState(order = {}, { now = Date.now()
   const hasValidTimestamp = (value) => typeof value === 'string' && value.trim().length > 0 && Number.isFinite(Date.parse(value));
   const hasNonFutureTimestamp = (value) => hasValidTimestamp(value) && Date.parse(value) <= now;
   const hasNonEmptyString = (value) => typeof value === 'string' && value.trim().length > 0;
+  if (!Number.isFinite(now)) return { valid: false, reason: 'invalid_validation_clock' };
   if (!validStatuses.has(order.status) || !validPaymentStatuses.has(order.paymentStatus)) return { valid: false, reason: 'unknown_persisted_state' };
   if (['recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivered', 'delivery_failed'].includes(order.status) && !hasNonFutureTimestamp(order.recipientConsentAt)) return { valid: false, reason: 'recipient_consent_required' };
   if (['address_verified', 'fulfilment_authorized', 'dispatched', 'delivered', 'delivery_failed'].includes(order.status) && (!hasNonEmptyString(order.addressVaultRef) || !hasNonFutureTimestamp(order.addressVerifiedAt))) return { valid: false, reason: 'verified_address_required' };
