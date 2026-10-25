@@ -1151,7 +1151,7 @@ test('auth API supports registration, session lookup, logout and login', {
             total_minor_units, currency, status, payment_status, recipient_consent_at,
             recipient_consent_version, address_vault_ref, address_verified_at, idempotency_key)
          VALUES ($1, $2, $3, 'Block safety test chocolate', 'chocolate', 1000, 'USD',
-                 'address_verified', 'not_started', NOW(), 1, 'test-block-vault-reference',
+                 'address_verified', 'authorized', NOW(), 1, 'test-block-vault-reference',
                  NOW(), $4)
          RETURNING id`,
         [matchPayload.match.id, maleRegistered.user.id, registered.user.id, randomUUID()]
@@ -1163,10 +1163,11 @@ test('auth API supports registration, session lookup, logout and login', {
       });
       assert.equal(block.status, 204);
       const blockedGift = await giftSafetyDb.query(
-        'SELECT status, address_vault_ref, address_verified_at FROM gift_delivery_orders WHERE id = $1',
+        'SELECT status, payment_status, address_vault_ref, address_verified_at FROM gift_delivery_orders WHERE id = $1',
         [blockSafetyOrderId]
       );
       assert.equal(blockedGift.rows[0].status, 'blocked');
+      assert.equal(blockedGift.rows[0].payment_status, 'authorized', 'block must not pretend an active authorization was voided');
       assert.equal(blockedGift.rows[0].address_vault_ref, null);
       assert.equal(blockedGift.rows[0].address_verified_at, null);
       const blockAudit = await giftSafetyDb.query(
@@ -1182,7 +1183,7 @@ test('auth API supports registration, session lookup, logout and login', {
             total_minor_units, currency, status, payment_status, recipient_consent_at,
             recipient_consent_version, address_vault_ref, address_verified_at, idempotency_key)
          VALUES ($1, $2, $3, 'Report safety test chocolate', 'chocolate', 1000, 'USD',
-                 'address_verified', 'not_started', NOW(), 1, 'test-report-vault-reference',
+                 'address_verified', 'captured', NOW(), 1, 'test-report-vault-reference',
                  NOW(), $4)
          RETURNING id`,
         [matchPayload.match.id, maleRegistered.user.id, registered.user.id, randomUUID()]
@@ -1200,10 +1201,11 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.equal(report.status, 201);
       reportId = (await report.json()).report.id;
       const reportedGift = await giftSafetyDb.query(
-        'SELECT status, address_vault_ref, address_verified_at FROM gift_delivery_orders WHERE id = $1',
+        'SELECT status, payment_status, address_vault_ref, address_verified_at FROM gift_delivery_orders WHERE id = $1',
         [reportSafetyOrderId]
       );
       assert.equal(reportedGift.rows[0].status, 'reported');
+      assert.equal(reportedGift.rows[0].payment_status, 'captured', 'report must not pretend a captured payment was refunded');
       assert.equal(reportedGift.rows[0].address_vault_ref, null);
       assert.equal(reportedGift.rows[0].address_verified_at, null);
       const reportAudit = await giftSafetyDb.query(
