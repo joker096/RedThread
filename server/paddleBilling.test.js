@@ -196,3 +196,34 @@ test('customer webhook cannot replace an account customer ID once established', 
   assert.ok(update, 'expected customer identity update');
   assert.match(update.sql, /paddle_customer_id IS NULL OR paddle_customer_id = \$2/);
 });
+
+
+test('duplicate Paddle webhook IDs commit without replaying entitlement updates', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 0, rows: [] };
+      }
+      return { rowCount: 0, rows: [] };
+    },
+    release() {}
+  };
+
+  const result = await processPaddleEvent({ async connect() { return client; } }, {
+    eventId: 'evt_already_processed',
+    eventType: 'transaction.completed',
+    data: {
+      customData: { userId: '00000000-0000-4000-8000-000000000001', plan: 'lifetime' },
+      items: [{ price: { id: 'pri_lifetime_test' } }]
+    }
+  });
+
+  assert.deepEqual(result, { duplicate: true, handled: false });
+  assert.equal(queries.filter(query => query.sql.includes('INSERT INTO paddle_webhook_events')).length, 1);
+  assert.equal(queries.some(query => query.sql.includes('UPDATE users')), false);
+  assert.equal(queries.some(query => query.sql === 'COMMIT'), true);
+  assert.equal(queries.some(query => query.sql === 'ROLLBACK'), false);
+});
