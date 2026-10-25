@@ -78,6 +78,11 @@ export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecord
   if (!transitions[from]?.has(to)) return false;
   // Terminalize only after payment is known to be inactive; callers must reconcile active payments first.
   if (['declined', 'expired', 'cancelled'].includes(to) && !['not_started', 'voided', 'failed'].includes(paymentStatus)) return false;
+  // State transitions must not bypass the payment lifecycle enforced by persistence constraints.
+  if (to === 'fulfilment_authorized' && !['authorized', 'captured'].includes(paymentStatus)) return false;
+  if (to === 'dispatched' && !['authorized', 'captured'].includes(paymentStatus)) return false;
+  if (to === 'refund_pending' && paymentStatus !== 'captured') return false;
+  if (to === 'refunded' && paymentStatus !== 'refund_pending') return false;
 
   if (to === 'awaiting_recipient_consent' && actor !== 'sender') return false;
   if (to === 'recipient_accepted' && (actor !== 'recipient' || !recipientConsentRecorded)) return false;
