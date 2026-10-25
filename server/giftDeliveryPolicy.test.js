@@ -10,6 +10,14 @@ const delivery = { coverageVerified: true, countrySupported: true, regionAllowed
 function request(overrides = {}) { return evaluateGiftRequestEligibility({ sender: { ...sender, ...overrides.sender }, recipient: { ...recipient, ...overrides.recipient }, relationship: { ...relationship, ...overrides.relationship }, product: { ...product, ...overrides.product }, delivery: { ...delivery, ...overrides.delivery } }); }
 
 test('valid request remains pending until recipient consent', () => assert.deepEqual(request(), { eligible: true, reason: 'request_allowed_pending_recipient_consent', fulfilmentAuthorized: false }));
+test('request eligibility fails closed when the validation clock is invalid', () => {
+  for (const now of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, '2026-10-25T00:00:00Z', null]) {
+    assert.deepEqual(evaluateGiftRequestEligibility({ sender, recipient, relationship, product, delivery, now }), {
+      eligible: false, reason: 'invalid_validation_clock', fulfilmentAuthorized: false
+    });
+  }
+});
+
 test('request fails closed on missing context, identity, consent, safety, or relationship facts', () => {
   assert.equal(evaluateGiftRequestEligibility().reason, 'missing_context');
   assert.equal(request({ sender: { identityVerified: false } }).reason, 'verification_or_safety_gate_failed');
@@ -33,6 +41,15 @@ test('rate limits and product restrictions block coercion and unsafe categories'
 const order = { id: 'internal-order-1', publicReference: 'gift_7f2a', status: 'address_verified', recipientId: recipient.id, consentRecordedAt: '2026-10-20T12:00:00Z', expiresAt: '2026-10-30T12:00:00Z', totalMinorUnits: 2500, currency: 'GEL', fulfilmentAuthorized: false, productName: 'Chocolate box' };
 const address = { ownerUserId: recipient.id, verified: true, recipientEntered: true };
 const payment = { status: 'authorized', orderId: order.id, amountMinorUnits: 2500, currency: 'GEL' };
+test('fulfilment eligibility fails closed when the validation clock is invalid', () => {
+  for (const now of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, '2026-10-25T00:00:00Z', null]) {
+    assert.deepEqual(evaluateGiftFulfilmentEligibility({
+      request: order, sender, recipient, address, payment, relationship,
+      safetyEvents: [], safetySnapshotAt: new Date().toISOString(), now
+    }), { eligible: false, reason: 'invalid_validation_clock', fulfilmentAuthorized: false });
+  }
+});
+
 test('fulfilment requires recipient acceptance, unexpired request, verified address and matching payment', () => {
   assert.equal(evaluateGiftFulfilmentEligibility({ request: order, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).eligible, true);
   assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, status: 'awaiting_recipient_consent' }, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'verified_address_state_required');
@@ -71,6 +88,19 @@ test('future gift preference opt-out does not revoke an already accepted order; 
   assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, status: 'cancelled', consentWithdrawnAt: '2026-10-23T12:00:00Z' }, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'recipient_consent_withdrawn');
   assert.equal(evaluateGiftFulfilmentEligibility({ request: { ...order, fulfilmentAuthorized: true }, sender, recipient, address, payment, relationship, safetyEvents: [], safetySnapshotAt: new Date().toISOString() }).reason, 'fulfilment_already_authorized');
 });
+test('state transitions fail closed when the validation clock is invalid', () => {
+  for (const now of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, '2026-10-25T00:00:00Z', null]) {
+    assert.equal(canTransitionGiftOrder({
+      from: 'awaiting_recipient_consent', to: 'recipient_accepted',
+      actor: 'recipient', recipientConsentRecorded: true, now
+    }), false);
+  }
+  assert.equal(canTransitionGiftOrder({
+    from: 'awaiting_recipient_consent', to: 'recipient_accepted',
+    actor: 'recipient', recipientConsentRecorded: true, now: Date.now()
+  }), true);
+});
+
 test('state transitions enforce actors, consent, persisted states, and terminal states', () => {
   assert.equal(canTransitionGiftOrder({ from: 'draft', to: 'awaiting_recipient_consent', actor: 'sender' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'awaiting_recipient_consent', to: 'recipient_accepted', actor: 'sender', recipientConsentRecorded: true }), false);
