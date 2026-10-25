@@ -2073,6 +2073,15 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'gift_request_not_available' });
     }
+    if (order.status === 'awaiting_recipient_consent' &&
+        new Date(order.expires_at).getTime() <= Date.now() &&
+        !['not_started', 'voided', 'failed'].includes(order.payment_status)) {
+      // Expiry cannot stand in for a payment void/refund. Keep the order state
+      // unchanged until a real payment service can reconcile the active state.
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_payment_requires_reconciliation' });
+    }
+
     if (order.status !== 'awaiting_recipient_consent' || new Date(order.expires_at).getTime() <= Date.now()) {
       if (order.status === 'awaiting_recipient_consent') {
         await client.query(
