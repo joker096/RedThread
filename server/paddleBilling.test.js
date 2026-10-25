@@ -227,3 +227,40 @@ test('duplicate Paddle webhook IDs commit without replaying entitlement updates'
   assert.equal(queries.some(query => query.sql === 'COMMIT'), true);
   assert.equal(queries.some(query => query.sql === 'ROLLBACK'), false);
 });
+
+test('malformed Paddle custom user IDs are ignored instead of poisoning webhook retries', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
+  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_lifetime_test';
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) return { rowCount: 1, rows: [{ event_id: 'evt_bad_custom_user_id' }] };
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+
+  try {
+    const result = await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_bad_custom_user_id',
+      eventType: 'transaction.completed',
+      data: {
+        customData: { userId: 'not-a-uuid', plan: 'lifetime' },
+        items: [{ price: { id: 'pri_lifetime_test' } }]
+      }
+    });
+
+    assert.equal(result.handled, true);
+    assert.equal(queries.some(query => query.sql.includes('premium_lifetime = TRUE')), false);
+    const identityUpdate = queries.find(query => query.sql.includes('paddle_subscription_id = COALESCE($3, paddle_subscription_id)'));
+    assert.ok(identityUpdate, 'expected safe no-op identity reconciliation');
+    assert.equal(identityUpdate.params[0], null);
+    assert.equal(queries.some(query => query.sql === 'COMMIT'), true);
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
+    else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
+  }
+});
+
