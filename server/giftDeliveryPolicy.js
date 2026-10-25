@@ -62,7 +62,7 @@ export function redactGiftOrderForSender(order) {
   };
 }
 
-export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecorded = false, addressVerified = false } = {}) {
+export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecorded = false, addressVerified = false, paymentStatus } = {}) {
   const transitions = {
     awaiting_recipient_consent: new Set(['recipient_accepted', 'declined', 'expired', 'reported', 'blocked', 'cancelled']),
     recipient_accepted: new Set(['address_verified', 'declined', 'reported', 'blocked', 'cancelled']),
@@ -76,6 +76,8 @@ export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecord
   };
   // Keep the policy state graph aligned with persisted statuses; `draft` is not a DB state.
   if (!transitions[from]?.has(to)) return false;
+  // Terminalize only after payment is known to be inactive; callers must reconcile active payments first.
+  if (['declined', 'expired', 'cancelled'].includes(to) && !['not_started', 'voided', 'failed'].includes(paymentStatus)) return false;
 
   if (to === 'awaiting_recipient_consent' && actor !== 'sender') return false;
   if (to === 'recipient_accepted' && (actor !== 'recipient' || !recipientConsentRecorded)) return false;
