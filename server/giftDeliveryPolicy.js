@@ -95,16 +95,16 @@ export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecord
   // Delivery must not be marked complete while payment state is missing or inactive.
   if (to === 'delivered' && !['authorized', 'captured'].includes(paymentStatus)) return false;
   // Delivery outcomes must retain evidence of recipient consent and a verified address.
-  if (['delivered', 'delivery_failed'].includes(to) && (!recipientConsentRecorded || !addressVerified)) return false;
+  if (['delivered', 'delivery_failed'].includes(to) && (recipientConsentRecorded !== true || addressVerified !== true)) return false;
   if (to === 'delivery_failed' && !['authorized', 'captured'].includes(paymentStatus)) return false;
   if (to === 'refund_pending' && paymentStatus !== 'captured') return false;
   if (to === 'refunded' && paymentStatus !== 'refund_pending') return false;
 
   if (to === 'awaiting_recipient_consent' && actor !== 'sender') return false;
-  if (to === 'recipient_accepted' && (actor !== 'recipient' || !recipientConsentRecorded)) return false;
-  if (to === 'address_verified' && (actor !== 'recipient' || !recipientConsentRecorded || !addressVerified)) return false;
-  if (to === 'fulfilment_authorized' && (actor !== 'system' || !recipientConsentRecorded || !addressVerified)) return false;
-  if (to === 'dispatched' && (!recipientConsentRecorded || !addressVerified)) return false;
+  if (to === 'recipient_accepted' && (actor !== 'recipient' || recipientConsentRecorded !== true)) return false;
+  if (to === 'address_verified' && (actor !== 'recipient' || recipientConsentRecorded !== true || addressVerified !== true)) return false;
+  if (to === 'fulfilment_authorized' && (actor !== 'system' || recipientConsentRecorded !== true || addressVerified !== true)) return false;
+  if (to === 'dispatched' && (recipientConsentRecorded !== true || addressVerified !== true)) return false;
   if (to === 'declined' && actor !== 'recipient') return false;
   if (to === 'expired' && actor !== 'system') return false;
   if (to === 'cancelled' && !['sender', 'recipient', 'moderator', 'system'].includes(actor)) return false;
