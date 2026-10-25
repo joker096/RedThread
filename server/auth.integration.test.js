@@ -1390,6 +1390,58 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       dispatchedDeletionSafetyOrderId = dispatchedDeletionSafetyOrder.rows[0].id;
 
+      // A report submitted after dispatch must also quarantine the order and
+      // revoke address metadata without simulating a refund.
+      const dispatchedReportSafetyOrder = await deletionSafetyDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, recipient_consent_at,
+            recipient_consent_version, address_vault_ref, address_verified_at,
+            fulfilment_authorized_at, dispatched_at, idempotency_key)
+         VALUES ($1, $2, $3, 'Dispatched report safety test chocolate', 'chocolate', 1100, 'USD',
+                 'dispatched', 'captured', NOW(), 1, 'test-dispatched-report-vault-reference',
+                 NOW(), NOW(), NOW(), $4)
+         RETURNING id`,
+        [matchPayload.match.id, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      const dispatchedReportSafetyOrderId = dispatchedReportSafetyOrder.rows[0].id;
+      let dispatchedReportId;
+      try {
+        const reportAfterDispatch = await request('/api/reports', {
+          method: 'POST',
+          headers: { Cookie: secondCookie },
+          body: JSON.stringify({
+            reportedUserId: maleRegistered.user.id,
+            category: 'safety',
+            details: 'Integration test: safety report after gift dispatch.'
+          })
+        });
+        assert.equal(reportAfterDispatch.status, 201);
+        dispatchedReportId = (await reportAfterDispatch.json()).report.id;
+        const reportedDispatchedGift = await deletionSafetyDb.query(
+          'SELECT status, payment_status, address_vault_ref, address_verified_at FROM gift_delivery_orders WHERE id = $1',
+          [dispatchedReportSafetyOrderId]
+        );
+        assert.equal(reportedDispatchedGift.rows[0].status, 'reported');
+        assert.equal(reportedDispatchedGift.rows[0].payment_status, 'captured',
+          'a report after dispatch must not pretend a captured payment was refunded');
+        assert.equal(reportedDispatchedGift.rows[0].address_vault_ref, null);
+        assert.equal(reportedDispatchedGift.rows[0].address_verified_at, null);
+        const dispatchedReportAudit = await deletionSafetyDb.query(
+          'SELECT event_type, from_status, to_status FROM gift_delivery_order_events WHERE order_id = $1',
+          [dispatchedReportSafetyOrderId]
+        );
+        assert.deepEqual(dispatchedReportAudit.rows, [{
+          event_type: 'reported',
+          from_status: 'dispatched',
+          to_status: 'reported'
+        }]);
+      } finally {
+        if (dispatchedReportId) await deletionSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [dispatchedReportId]).catch(() => {});
+        await deletionSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [dispatchedReportSafetyOrderId]).catch(() => {});
+        await deletionSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [dispatchedReportSafetyOrderId]).catch(() => {});
+      }
+
       // Blocking after dispatch must quarantine the order for review, not leave
       // the address-vault pointer available or force it into a pre-dispatch state.
       const dispatchedBlockSafetyOrder = await deletionSafetyDb.query(
