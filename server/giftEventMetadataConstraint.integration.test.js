@@ -25,6 +25,10 @@ test('gift event metadata guard rejects sensitive keys recursively at the databa
       { value: { context: { recipient_phone: '+995000000' } }, expected: true, label: 'nested phone key' },
       { value: { context: [{ safe: true }, { chatMessage: 'private text' }] }, expected: true, label: 'sensitive key in an array object' },
       { value: { address_vault_ref: 'opaque-reference' }, expected: true, label: 'address vault pointer key' },
+      { value: { delivery_address: 'private' }, expected: true, label: 'delivery address alias' },
+      { value: { shippingAddress: 'private' }, expected: true, label: 'shipping address alias' },
+      { value: { recipient_full_name: 'private' }, expected: true, label: 'recipient full name alias' },
+      { value: { contact_email: 'private@example.test' }, expected: true, label: 'contact email alias' },
       { value: { safe: [{ reason: 'consent_withdrawn' }] }, expected: false, label: 'safe nested audit values' }
     ];
 
@@ -56,7 +60,7 @@ test('gift event metadata guard rejects sensitive keys recursively at the databa
       try {
         await client.query(
           'INSERT INTO gift_metadata_constraint_test (metadata) VALUES ($1::jsonb)',
-          [JSON.stringify({ context: [{ recipient_phone: '+995000000' }] })]
+          [JSON.stringify({ context: [{ delivery_address: 'private' }] })]
         );
       } catch (error) {
         insertError = error;
