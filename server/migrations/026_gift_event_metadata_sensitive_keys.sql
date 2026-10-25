@@ -14,13 +14,17 @@ BEGIN
     FOR entry IN SELECT key, value FROM jsonb_each(value_json) LOOP
       normalized_key := lower(regexp_replace(entry.key, '[^a-zA-Z0-9]', '', 'g'));
       IF normalized_key = ANY (ARRAY[
-        'address', 'street', 'streetaddress', 'recipientaddress', 'addressvaultref',
-        'phone', 'phonenumber', 'recipientphone',
-        'email', 'emailaddress', 'recipientemail',
+        'address', 'street', 'streetaddress', 'streetaddress1', 'streetaddress2',
+        'addressline', 'addressline1', 'addressline2', 'shippingaddress', 'deliveryaddress',
+        'recipientaddress', 'recipientfullname', 'recipientname', 'addressvaultref',
+        'phone', 'phonenumber', 'recipientphone', 'recipientphonenumber',
+        'contactphone', 'deliveryphone',
+        'email', 'emailaddress', 'recipientemail', 'contactemail', 'deliveryemail',
+        'contactdetails', 'recipientcontact',
         'coordinates', 'gpscoordinates', 'geolocation', 'latitude', 'longitude', 'lat', 'lon', 'lng',
         'postalcode', 'postcode', 'zipcode',
         'deliveryinstructions', 'chattext', 'chatmessage', 'messagebody',
-        'recipientname', 'recipientsecret', 'password', 'authorizationheader', 'accesstoken'
+        'recipientsecret', 'password', 'authorizationheader', 'accesstoken'
       ]) THEN
         RETURN TRUE;
       END IF;
