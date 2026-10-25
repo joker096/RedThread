@@ -25,6 +25,61 @@ test('malformed and unknown-status subscription events cannot be entitled', () =
 });
 
 
+
+test('subscription lifecycle events require a valid source timestamp before database access', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  let connectCalls = 0;
+  const pool = { async connect() { connectCalls += 1; throw new Error('should_not_connect'); } };
+
+  await assert.rejects(
+    processPaddleEvent(pool, {
+      eventId: 'evt_missing_timestamp',
+      eventType: 'subscription.updated',
+      data: { id: 'sub_1', status: 'active', currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' } }
+    }),
+    { message: 'invalid_paddle_event_timestamp' }
+  );
+  await assert.rejects(
+    processPaddleEvent(pool, {
+      eventId: 'evt_invalid_timestamp',
+      eventType: 'subscription.updated',
+      occurredAt: 'not-a-timestamp',
+      data: { id: 'sub_1', status: 'active', currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' } }
+    }),
+    { message: 'invalid_paddle_event_timestamp' }
+  );
+  assert.equal(connectCalls, 0);
+});
+
+test('subscription updates compare source timestamps and do not bypass ordering when missing', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) return { rowCount: 1, rows: [{ event_id: 'evt_ordered' }] };
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  await processPaddleEvent({ async connect() { return client; } }, {
+    eventId: 'evt_ordered',
+    eventType: 'subscription.updated',
+    occurredAt: '2026-10-24T20:00:00Z',
+    data: {
+      id: 'sub_ordered',
+      status: 'active',
+      currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' },
+      items: []
+    }
+  });
+  const update = queries.find(query => query.sql.includes('paddle_subscription_updated_at = COALESCE'));
+  assert.ok(update, 'expected subscription lifecycle update');
+  assert.match(update.sql, /paddle_subscription_updated_at IS NULL OR \$8::timestamptz >= paddle_subscription_updated_at/);
+  assert.doesNotMatch(update.sql, /\$8::timestamptz IS NULL/);
+  assert.equal(update.params[7], '2026-10-24T20:00:00Z');
+});
+
 test('grants lifetime Premium only for a verified matching transaction price', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
