@@ -679,25 +679,24 @@ test('auth API supports registration, session lookup, logout and login', {
           }, 'the safety block must leave the order blocked and clear address access');
           const safetyRaceEvents = await giftTestDb.query(
             `SELECT event_type, from_status, to_status
-             FROM gift_delivery_order_events WHERE order_id = $1
-             ORDER BY created_at, id`,
+             FROM gift_delivery_order_events WHERE order_id = $1`,
             [safetyRaceOrderId]
           );
+          const acceptedEvent = safetyRaceEvents.rows.find(event => event.event_type === 'accepted');
+          const blockedEvent = safetyRaceEvents.rows.find(event => event.event_type === 'blocked');
           assert.ok(
             (safetyRaceDecision.status === 200 &&
               safetyRaceEvents.rows.length === 2 &&
-              safetyRaceEvents.rows[0].event_type === 'accepted' &&
-              safetyRaceEvents.rows[0].from_status === 'awaiting_recipient_consent' &&
-              safetyRaceEvents.rows[0].to_status === 'recipient_accepted' &&
-              safetyRaceEvents.rows[1].event_type === 'blocked' &&
-              safetyRaceEvents.rows[1].from_status === 'awaiting_recipient_consent' &&
-              safetyRaceEvents.rows[1].to_status === 'blocked') ||
+              acceptedEvent?.from_status === 'awaiting_recipient_consent' &&
+              acceptedEvent?.to_status === 'recipient_accepted' &&
+              blockedEvent?.from_status === 'recipient_accepted' &&
+              blockedEvent?.to_status === 'blocked') ||
             (safetyRaceDecision.status === 409 &&
               safetyRaceEvents.rows.length === 1 &&
-              safetyRaceEvents.rows[0].event_type === 'blocked' &&
-              safetyRaceEvents.rows[0].from_status === 'awaiting_recipient_consent' &&
-              safetyRaceEvents.rows[0].to_status === 'blocked'),
-            'audit events must describe only committed transitions in order'
+              !acceptedEvent &&
+              blockedEvent?.from_status === 'awaiting_recipient_consent' &&
+              blockedEvent?.to_status === 'blocked'),
+            'audit events must describe the actual committed state transitions'
           );
         } finally {
           await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [safetyRaceOrderId]).catch(() => {});
