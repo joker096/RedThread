@@ -12,28 +12,26 @@ test('withdrawn gift consent blocks fulfilment progression at the database bound
   const client = await pool.connect();
   try {
     const constraint = await client.query(
-      `SELECT conname
+      `SELECT pg_get_constraintdef(oid) AS definition
        FROM pg_constraint
        WHERE conrelid = 'gift_delivery_orders'::regclass
          AND conname = 'gift_orders_withdrawn_consent_cannot_progress'`
     );
     assert.equal(constraint.rowCount, 1, 'migration 028 should install the withdrawn-consent constraint');
+    const constraintDefinition = constraint.rows[0]?.definition;
+    assert.equal(typeof constraintDefinition, 'string', 'PostgreSQL should expose the installed constraint definition');
 
     await client.query('BEGIN');
     try {
+      // Exercise the exact CHECK expression installed on the production table,
+      // not a separately maintained copy of the policy.
       await client.query(`
         CREATE TEMP TABLE gift_withdrawn_consent_constraint_test (
           status text NOT NULL,
           consent_withdrawn_at timestamptz,
           payment_status text NOT NULL,
           CONSTRAINT gift_orders_withdrawn_consent_cannot_progress
-            CHECK (
-              consent_withdrawn_at IS NULL
-              OR status NOT IN (
-                'recipient_accepted', 'address_verified', 'fulfilment_authorized',
-                'dispatched', 'delivered', 'delivery_failed'
-              )
-            )
+            ${constraintDefinition}
         ) ON COMMIT DROP
       `);
 
