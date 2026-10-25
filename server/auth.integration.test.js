@@ -1259,6 +1259,16 @@ test('auth API supports registration, session lookup, logout and login', {
       } finally {
         await giftSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [dispatchedBlockSafetyOrderId]).catch(() => {});
         await giftSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [dispatchedBlockSafetyOrderId]).catch(() => {});
+        // Isolate this block test from later account-deletion assertions that
+        // intentionally exercise a separate safety action on the same fixture.
+        await giftSafetyDb.query(
+          'DELETE FROM user_blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1)',
+          [registered.user.id, maleRegistered.user.id]
+        ).catch(() => {});
+        await giftSafetyDb.query(
+          "UPDATE matches SET status = 'active' WHERE id = $1",
+          [matchPayload.match.id]
+        ).catch(() => {});
       }
 
     } finally {
