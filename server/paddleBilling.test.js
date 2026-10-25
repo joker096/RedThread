@@ -48,6 +48,24 @@ test('subscription lifecycle events require a valid source timestamp before data
     }),
     { message: 'invalid_paddle_event_timestamp' }
   );
+  await assert.rejects(
+    processPaddleEvent(pool, {
+      eventId: 'evt_missing_subscription_id',
+      eventType: 'subscription.updated',
+      occurredAt: '2026-10-24T20:00:00Z',
+      data: { status: 'active', currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' } }
+    }),
+    { message: 'invalid_paddle_subscription_id' }
+  );
+  await assert.rejects(
+    processPaddleEvent(pool, {
+      eventId: 'evt_malformed_subscription_id',
+      eventType: 'subscription.updated',
+      occurredAt: '2026-10-24T20:00:00Z',
+      data: { id: 'txn_not_a_subscription', status: 'active', currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' } }
+    }),
+    { message: 'invalid_paddle_subscription_id' }
+  );
   assert.equal(connectCalls, 0);
 });
 
