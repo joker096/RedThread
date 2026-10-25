@@ -73,7 +73,16 @@ export async function processPaddleEvent(pool, rawEvent) {
           premium_lifetime = CASE WHEN $6::boolean THEN FALSE ELSE premium_lifetime END,
           updated_at = NOW()
         WHERE id = COALESCE($1::uuid, (SELECT id FROM users WHERE paddle_subscription_id = $3 LIMIT 1))
-          AND (paddle_subscription_updated_at IS NULL OR $8::timestamptz >= paddle_subscription_updated_at)`,
+          AND (paddle_subscription_updated_at IS NULL OR $8::timestamptz >= paddle_subscription_updated_at)
+          -- Never let custom_data reassign a subscription or customer already owned by another account.
+          AND ($3::text IS NULL OR NOT EXISTS (
+            SELECT 1 FROM users AS other
+            WHERE other.paddle_subscription_id = $3 AND other.id <> users.id
+          ))
+          AND ($2::text IS NULL OR NOT EXISTS (
+            SELECT 1 FROM users AS other
+            WHERE other.paddle_customer_id = $2 AND other.id <> users.id
+          ))`,
         [customUserId, customerId, subscriptionId, status, priceId, active, active ? periodEnd : null, occurredAt]
       );
     } else if (eventType === 'transaction.completed') {
