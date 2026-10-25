@@ -386,6 +386,82 @@ test('auth API supports registration, session lookup, logout and login', {
         await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [concurrentGiftOrderId]).catch(() => {});
       }
 
+      // A safety report racing with recipient acceptance must win the final state:
+      // either acceptance commits first and the report transitions accepted -> reported,
+      // or the report commits first and acceptance is rejected. Address metadata is
+      // cleared in either ordering and the audit must reflect only committed transitions.
+      const reportRaceOrderResult = await giftTestDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, idempotency_key,
+            address_vault_ref, address_verified_at)
+         VALUES ($1, $2, $3, 'Concurrent report race test gift', 'chocolate', 1000, 'USD',
+                 'awaiting_recipient_consent', 'not_started', $4,
+                 'test-only-report-race-vault-reference', NOW())
+         RETURNING id, public_reference`,
+        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      const reportRaceOrderId = reportRaceOrderResult.rows[0].id;
+      const reportRaceReference = reportRaceOrderResult.rows[0].public_reference;
+      let reportRaceReportId;
+      try {
+        const [raceAcceptResponse, raceReportResponse] = await Promise.all([
+          request(`/api/gifts/orders/${reportRaceReference}/decision`, {
+            method: 'POST',
+            headers: { Cookie: secondCookie },
+            body: JSON.stringify({ action: 'accept' })
+          }),
+          request('/api/reports', {
+            method: 'POST',
+            headers: { Cookie: maleCookie },
+            body: JSON.stringify({
+              reportedUserId: registered.user.id,
+              category: 'safety',
+              details: 'Integration test: acceptance racing with safety report'
+            })
+          })
+        ]);
+        assert.ok([200, 409].includes(raceAcceptResponse.status),
+          'acceptance must either commit before the report or reject after the report');
+        assert.equal(raceReportResponse.status, 201,
+          'the safety report must be persisted successfully');
+        reportRaceReportId = (await raceReportResponse.json()).report.id;
+
+        const reportRacePersisted = await giftTestDb.query(
+          `SELECT status, payment_status, address_vault_ref, address_verified_at
+           FROM gift_delivery_orders WHERE id = $1`,
+          [reportRaceOrderId]
+        );
+        assert.deepEqual(reportRacePersisted.rows[0], {
+          status: 'reported',
+          payment_status: 'not_started',
+          address_vault_ref: null,
+          address_verified_at: null
+        });
+        const reportRaceAudit = await giftTestDb.query(
+          `SELECT event_type, from_status, to_status
+           FROM gift_delivery_order_events WHERE order_id = $1`,
+          [reportRaceOrderId]
+        );
+        const actualTransitions = reportRaceAudit.rows.map(row =>
+          `${row.event_type}:${row.from_status}->${row.to_status}`
+        ).sort();
+        assert.ok(
+          JSON.stringify(actualTransitions) === JSON.stringify(['reported:awaiting_recipient_consent->reported']) ||
+          JSON.stringify(actualTransitions) === JSON.stringify([
+            'accepted:awaiting_recipient_consent->recipient_accepted',
+            'reported:recipient_accepted->reported'
+          ]),
+          `unexpected report/accept audit transitions: ${actualTransitions.join(', ')}`
+        );
+      } finally {
+        if (reportRaceReportId) {
+          await giftTestDb.query('DELETE FROM user_reports WHERE id = $1', [reportRaceReportId]).catch(() => {});
+        }
+        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [reportRaceOrderId]).catch(() => {});
+        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [reportRaceOrderId]).catch(() => {});
+      }
+
       // Turning off gift requests must atomically close all pending requests
       // and record a durable audit event, so a stale notification cannot be accepted later.
       const pendingPreferenceOrder = await giftTestDb.query(
