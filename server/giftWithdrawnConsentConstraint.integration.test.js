@@ -89,3 +89,105 @@ test('withdrawn gift consent blocks fulfilment progression at the database bound
     await pool.end();
   }
 });
+
+test('gift consent withdrawal timestamp is immutable without rewriting payment state', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 10_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const client = await pool.connect();
+  try {
+    const installedTrigger = await client.query(
+      `SELECT t.tgname, p.proname, pg_get_functiondef(p.oid) AS definition
+       FROM pg_trigger t
+       JOIN pg_proc p ON p.oid = t.tgfoid
+       WHERE t.tgrelid = 'gift_delivery_orders'::regclass
+         AND t.tgname = 'gift_orders_consent_withdrawal_immutable'
+         AND NOT t.tgisinternal`
+    );
+    assert.equal(installedTrigger.rowCount, 1, 'migration 029 should install the immutable-withdrawal trigger');
+    assert.equal(installedTrigger.rows[0].proname, 'prevent_gift_consent_withdrawal_reversal');
+    assert.match(installedTrigger.rows[0].definition, /gift consent withdrawal timestamp is immutable/);
+
+    await client.query('BEGIN');
+    try {
+      // Attach the installed production trigger function to an isolated table,
+      // so its actual PL/pgSQL behavior can be exercised without mutating a real order.
+      await client.query(`
+        CREATE TEMP TABLE gift_withdrawal_immutable_test (
+          id integer PRIMARY KEY,
+          status text NOT NULL,
+          consent_withdrawn_at timestamptz,
+          payment_status text NOT NULL
+        ) ON COMMIT DROP
+      `);
+      await client.query(`
+        CREATE TRIGGER gift_withdrawal_immutable_test_trigger
+        BEFORE UPDATE OF consent_withdrawn_at ON gift_withdrawal_immutable_test
+        FOR EACH ROW EXECUTE FUNCTION prevent_gift_consent_withdrawal_reversal()
+      `);
+
+      // First recording a withdrawal is allowed.
+      await client.query(
+        `INSERT INTO gift_withdrawal_immutable_test
+          (id, status, consent_withdrawn_at, payment_status)
+         VALUES (1, 'cancelled', NULL, 'authorization_pending')`
+      );
+      await client.query(
+        `UPDATE gift_withdrawal_immutable_test
+         SET consent_withdrawn_at = $1 WHERE id = 1`,
+        ['2026-10-25T10:00:00Z']
+      );
+
+      for (const replacement of [null, '2026-10-25T11:00:00Z']) {
+        await client.query('SAVEPOINT immutable_withdrawal_attempt');
+        let updateError;
+        try {
+          await client.query(
+            `UPDATE gift_withdrawal_immutable_test
+             SET consent_withdrawn_at = $1 WHERE id = 1`,
+            [replacement]
+          );
+        } catch (error) {
+          updateError = error;
+        }
+        assert.equal(updateError?.code, '23514', `withdrawal timestamp mutation must be rejected: ${replacement}`);
+        await client.query('ROLLBACK TO SAVEPOINT immutable_withdrawal_attempt');
+        await client.query('RELEASE SAVEPOINT immutable_withdrawal_attempt');
+      }
+
+      // Reapplying the same timestamp and changing an unrelated payment field
+      // remain valid; the trigger must not silently rewrite payment state.
+      await client.query(
+        `UPDATE gift_withdrawal_immutable_test
+         SET consent_withdrawn_at = $1 WHERE id = 1`,
+        ['2026-10-25T10:00:00Z']
+      );
+      const unchanged = await client.query(
+        `SELECT consent_withdrawn_at, payment_status
+         FROM gift_withdrawal_immutable_test WHERE id = 1`
+      );
+      assert.equal(new Date(unchanged.rows[0].consent_withdrawn_at).toISOString(), '2026-10-25T10:00:00.000Z');
+      assert.equal(unchanged.rows[0].payment_status, 'authorization_pending');
+
+      await client.query(
+        `UPDATE gift_withdrawal_immutable_test
+         SET payment_status = 'reconciliation_required' WHERE id = 1`
+      );
+      const payment = await client.query(
+        `SELECT consent_withdrawn_at, payment_status
+         FROM gift_withdrawal_immutable_test WHERE id = 1`
+      );
+      assert.equal(new Date(payment.rows[0].consent_withdrawn_at).toISOString(), '2026-10-25T10:00:00.000Z');
+      assert.equal(payment.rows[0].payment_status, 'reconciliation_required');
+
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    }
+  } finally {
+    client.release();
+    await pool.end();
+  }
+});
