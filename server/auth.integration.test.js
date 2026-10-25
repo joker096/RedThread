@@ -1420,19 +1420,6 @@ test('auth API supports registration, session lookup, logout and login', {
     let deletionSafetyOrderId;
     let dispatchedDeletionSafetyOrderId;
     try {
-      const deletionSafetyOrder = await deletionSafetyDb.query(
-        `INSERT INTO gift_delivery_orders
-           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
-            total_minor_units, currency, status, payment_status, recipient_consent_at,
-            recipient_consent_version, address_vault_ref, address_verified_at, idempotency_key)
-         VALUES ($1, $2, $3, 'Account deletion safety test chocolate', 'chocolate', 1000, 'USD',
-                 'address_verified', 'authorized', NOW(), 1, 'test-deletion-vault-reference',
-                 NOW(), $4)
-         RETURNING id`,
-        [matchPayload.match.id, maleRegistered.user.id, registered.user.id, randomUUID()]
-      );
-      deletionSafetyOrderId = deletionSafetyOrder.rows[0].id;
-
       const dispatchedDeletionSafetyOrder = await deletionSafetyDb.query(
         `INSERT INTO gift_delivery_orders
            (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
@@ -1498,6 +1485,19 @@ test('auth API supports registration, session lookup, logout and login', {
         await deletionSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [dispatchedReportSafetyOrderId]).catch(() => {});
         await deletionSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [dispatchedReportSafetyOrderId]).catch(() => {});
       }
+
+      const deletionSafetyOrder = await deletionSafetyDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, recipient_consent_at,
+            recipient_consent_version, address_vault_ref, address_verified_at, idempotency_key)
+         VALUES ($1, $2, $3, 'Account deletion safety test chocolate', 'chocolate', 1000, 'USD',
+                 'address_verified', 'authorized', NOW(), 1, 'test-deletion-vault-reference',
+                 NOW(), $4)
+         RETURNING id`,
+        [matchPayload.match.id, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      deletionSafetyOrderId = deletionSafetyOrder.rows[0].id;
 
       const deleteAccount = await request('/api/account', {
         method: 'DELETE',
