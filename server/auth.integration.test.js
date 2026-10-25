@@ -448,6 +448,67 @@ test('auth API supports registration, session lookup, logout and login', {
         body: JSON.stringify({ requestsEnabled: true })
       });
       assert.equal(enableGiftRequests.status, 200);
+
+      // Active payment states must not be silently declined or cancelled.
+      // Gift payment processing is not integrated, so these requests stay
+      // pending for explicit reconciliation rather than faking a void/refund.
+      const activePaymentOrder = await giftTestDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, idempotency_key)
+         VALUES ($1, $2, $3, 'Active payment guard test gift', 'chocolate', 1000, 'USD',
+                 'awaiting_recipient_consent', 'authorized', $4)
+         RETURNING id, public_reference`,
+        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      const activePaymentOrderId = activePaymentOrder.rows[0].id;
+      const activePaymentReference = activePaymentOrder.rows[0].public_reference;
+      try {
+        const declineActivePayment = await request(
+          `/api/gifts/orders/${activePaymentReference}/decision`,
+          {
+            method: 'POST',
+            headers: { Cookie: secondCookie },
+            body: JSON.stringify({ action: 'decline' })
+          }
+        );
+        assert.equal(declineActivePayment.status, 409);
+        assert.deepEqual(await declineActivePayment.json(), {
+          error: 'gift_payment_requires_reconciliation'
+        });
+
+        const optOutWithActivePayment = await request('/api/gifts/preferences', {
+          method: 'PUT',
+          headers: { Cookie: secondCookie },
+          body: JSON.stringify({ requestsEnabled: false })
+        });
+        assert.equal(optOutWithActivePayment.status, 200);
+        const activePaymentState = await giftTestDb.query(
+          'SELECT status, payment_status FROM gift_delivery_orders WHERE id = $1',
+          [activePaymentOrderId]
+        );
+        assert.deepEqual(activePaymentState.rows[0], {
+          status: 'awaiting_recipient_consent',
+          payment_status: 'authorized'
+        });
+        const activePaymentAudit = await giftTestDb.query(
+          `SELECT event_type FROM gift_delivery_order_events WHERE order_id = $1`,
+          [activePaymentOrderId]
+        );
+        assert.deepEqual(activePaymentAudit.rows, [],
+          'no cancellation event should be recorded when active payment requires reconciliation');
+      } finally {
+        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [activePaymentOrderId]).catch(() => {});
+        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [activePaymentOrderId]).catch(() => {});
+      }
+
+      const reenableAfterActivePayment = await request('/api/gifts/preferences', {
+        method: 'PUT',
+        headers: { Cookie: secondCookie },
+        body: JSON.stringify({ requestsEnabled: true })
+      });
+      assert.equal(reenableAfterActivePayment.status, 200);
+
       const raceOrderResult = await giftTestDb.query(
         `INSERT INTO gift_delivery_orders
            (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
