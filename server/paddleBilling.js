@@ -131,7 +131,10 @@ export async function processPaddleEvent(pool, rawEvent) {
             AND ($2::text IS NULL OR NOT EXISTS (
               SELECT 1 FROM users AS other
               WHERE other.paddle_customer_id = $2 AND other.id <> users.id
-            ))`,
+            ))
+            -- A transaction may confirm existing identities, not replace them.
+            AND ($2::text IS NULL OR paddle_customer_id IS NULL OR paddle_customer_id = $2)
+            AND ($3::text IS NULL OR paddle_subscription_id IS NULL OR paddle_subscription_id = $3)`,
           [customUserId, customerId, subscriptionId]
         );
       }
