@@ -10,7 +10,9 @@ const BLOCKED_GIFT_CATEGORIES = new Set(['cash', 'gift_card', 'alcohol', 'tobacc
 export function evaluateGiftRequestEligibility({ sender, recipient, relationship, product, delivery, now = Date.now() } = {}) {
   if (!sender || !recipient || !relationship || !product || !delivery) return deny('missing_context');
   if (!Number.isFinite(now)) return deny('invalid_validation_clock');
-  const safetySnapshotTime = Date.parse(relationship.safetySnapshotAt);
+  const safetySnapshotAt = relationship.safetySnapshotAt;
+  if (typeof safetySnapshotAt !== 'string' || safetySnapshotAt.trim().length === 0) return deny('safety_snapshot_stale_or_invalid');
+  const safetySnapshotTime = Date.parse(safetySnapshotAt);
   if (!Number.isFinite(safetySnapshotTime) || safetySnapshotTime > now || now - safetySnapshotTime > GIFT_SAFETY_SNAPSHOT_MAX_AGE_MS) return deny('safety_snapshot_stale_or_invalid');
   if (sender.accountStatus !== 'active' || recipient.accountStatus !== 'active') return deny('account_ineligible');
   if (sender.isAdult !== true || recipient.isAdult !== true) return deny('adult_accounts_required');
