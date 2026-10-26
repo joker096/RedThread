@@ -98,7 +98,9 @@ export async function processPaddleEvent(pool, rawEvent) {
           ))
           -- Do not silently replace this account's established Paddle identities.
           AND ($3::text IS NULL OR paddle_subscription_id IS NULL OR paddle_subscription_id = $3)
-          AND ($2::text IS NULL OR paddle_customer_id IS NULL OR paddle_customer_id = $2)`,
+          AND ($2::text IS NULL OR paddle_customer_id IS NULL OR paddle_customer_id = $2)
+          -- A delayed or newly delivered subscription event must not revoke or replace lifetime Premium.
+          AND premium_lifetime IS NOT TRUE`,
         [customUserId, customerId, subscriptionId, status, priceId, active, active ? periodEnd : null, occurredAt]
       );
     } else if (eventType === 'transaction.completed') {
