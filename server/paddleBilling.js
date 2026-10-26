@@ -66,7 +66,15 @@ export async function processPaddleEvent(pool, rawEvent) {
       const periodEnd = data.currentBillingPeriod?.endsAt || data.current_billing_period?.ends_at || null;
       const firstItem = Array.isArray(data.items) ? data.items[0] : null;
       const priceId = firstItem?.price?.id || firstItem?.priceId || firstItem?.price_id || null;
-      const active = isPaddleSubscriptionEntitled(status, periodEnd);
+      // A valid Paddle subscription is not sufficient by itself: only the recurring
+      // price IDs explicitly configured for Vow Premium may grant subscription access.
+      // Missing configuration or an unrelated Paddle product must fail closed.
+      const allowedRecurringPriceIds = new Set([
+        process.env.PADDLE_PRICE_ID_1MONTH,
+        process.env.PADDLE_PRICE_ID_3MONTHS
+      ].filter(value => typeof value === 'string' && /^pri_[A-Za-z0-9]+$/.test(value)));
+      const active = allowedRecurringPriceIds.has(priceId)
+        && isPaddleSubscriptionEntitled(status, periodEnd);
       await client.query(
         `UPDATE users SET
           paddle_customer_id = COALESCE($2, paddle_customer_id),
