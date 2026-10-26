@@ -80,7 +80,7 @@ test('gift order uniqueness constraints prevent concurrent duplicate inserts', {
       `SELECT conname, pg_get_constraintdef(oid) AS definition
        FROM pg_constraint
        WHERE conrelid = 'gift_delivery_orders'::regclass
-         AND conname = 'gift_orders_sender_idempotency_key_key'`
+         AND contype = 'u'`
     );
     // Constraint names can vary between PostgreSQL-created and explicitly named
     // schemas; identify the live unique constraint by its columns if necessary.
@@ -151,7 +151,7 @@ test('gift order uniqueness constraints prevent concurrent duplicate inserts', {
          WHERE idempotency_key = $1 OR match_id = $2`,
         [first[4], first[1]]
       );
-      assert.ok(count.rows[0].count >= 1);
+      assert.equal(count.rows[0].count, 1, 'only one row may survive each uniqueness race');
     };
 
     const idA = randomUUID(), idB = randomUUID();
