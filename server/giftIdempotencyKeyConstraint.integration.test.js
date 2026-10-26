@@ -65,3 +65,115 @@ test('gift idempotency keys are non-empty and normalized at the database boundar
     await pool.end();
   }
 });
+
+
+test('gift order uniqueness constraints prevent concurrent duplicate inserts', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
+  const setup = await pool.connect();
+  const schema = `gift_race_test_${randomUUID().replaceAll('-', '')}`;
+  let clients = [];
+  try {
+    const definitions = await setup.query(
+      `SELECT conname, pg_get_constraintdef(oid) AS definition
+       FROM pg_constraint
+       WHERE conrelid = 'gift_delivery_orders'::regclass
+         AND conname = 'gift_orders_sender_idempotency_key_key'`
+    );
+    // Constraint names can vary between PostgreSQL-created and explicitly named
+    // schemas; identify the live unique constraint by its columns if necessary.
+    const uniqueKey = definitions.rows.find(row =>
+      row.definition?.replaceAll(' ', '') === 'UNIQUE(sender_id,idempotency_key)'
+    );
+    assert.ok(uniqueKey, 'production table must enforce UNIQUE(sender_id, idempotency_key)');
+
+    const pairIndex = await setup.query(
+      `SELECT pg_get_indexdef(indexrelid) AS definition
+       FROM pg_index
+       WHERE indrelid = 'gift_delivery_orders'::regclass
+         AND indexrelid = to_regclass('gift_orders_one_pending_per_unordered_pair_idx')`
+    );
+    assert.equal(pairIndex.rowCount, 1, 'production unordered-pair unique index must be installed');
+    assert.match(pairIndex.rows[0].definition, /LEAST\s*\(sender_id, recipient_id\)/i);
+    assert.match(pairIndex.rows[0].definition, /GREATEST\s*\(sender_id, recipient_id\)/i);
+    assert.match(pairIndex.rows[0].definition, /awaiting_recipient_consent/);
+
+    await setup.query(`CREATE SCHEMA "${schema}"`);
+    await setup.query(`
+      CREATE TABLE "${schema}".gift_orders_race (
+        id uuid PRIMARY KEY,
+        match_id uuid NOT NULL,
+        sender_id uuid NOT NULL,
+        recipient_id uuid NOT NULL,
+        status text NOT NULL,
+        idempotency_key varchar(128) NOT NULL,
+        CONSTRAINT gift_race_sender_key_unique ${uniqueKey.definition}
+      )
+    `);
+    await setup.query(`
+      CREATE UNIQUE INDEX gift_race_one_pending_pair
+      ON "${schema}".gift_orders_race (
+        match_id, LEAST(sender_id, recipient_id), GREATEST(sender_id, recipient_id)
+      )
+      WHERE status = 'awaiting_recipient_consent'
+    `);
+
+    const raceInsert = async (first, second, expectedConstraint) => {
+      const a = await pool.connect();
+      const b = await pool.connect();
+      clients.push(a, b);
+      await a.query('BEGIN');
+      await a.query(
+        `INSERT INTO "${schema}".gift_orders_race
+          (id, match_id, sender_id, recipient_id, status, idempotency_key)
+         VALUES ($1, $2, $3, $4, 'awaiting_recipient_consent', $5)`,
+        first
+      );
+      await b.query('BEGIN');
+      const competingInsert = b.query(
+        `INSERT INTO "${schema}".gift_orders_race
+          (id, match_id, sender_id, recipient_id, status, idempotency_key)
+         VALUES ($1, $2, $3, $4, 'awaiting_recipient_consent', $5)`,
+        second
+      ).then(() => ({ error: null }), error => ({ error }));
+      // The second transaction reaches the unique index while the first row is
+      // uncommitted; committing the first makes PostgreSQL resolve the race.
+      await new Promise(resolve => setTimeout(resolve, 100));
+      await a.query('COMMIT');
+      const outcome = await competingInsert;
+      assert.equal(outcome.error?.code, '23505', 'the competing insert must lose the uniqueness race');
+      assert.match(outcome.error?.constraint || '', new RegExp(expectedConstraint));
+      await b.query('ROLLBACK').catch(() => {});
+      const count = await setup.query(
+        `SELECT count(*)::int AS count FROM "${schema}".gift_orders_race
+         WHERE idempotency_key = $1 OR match_id = $2`,
+        [first[4], first[1]]
+      );
+      assert.ok(count.rows[0].count >= 1);
+    };
+
+    const idA = randomUUID(), idB = randomUUID();
+    const sender = randomUUID(), recipientA = randomUUID(), recipientB = randomUUID();
+    await raceInsert(
+      [idA, randomUUID(), sender, recipientA, 'same-request-key'],
+      [idB, randomUUID(), sender, recipientB, 'same-request-key'],
+      'gift_race_sender_key_unique'
+    );
+
+    const match = randomUUID(), left = randomUUID(), right = randomUUID();
+    await raceInsert(
+      [randomUUID(), match, left, right, 'key-left'],
+      [randomUUID(), match, right, left, 'key-right'],
+      'gift_race_one_pending_pair'
+    );
+  } finally {
+    for (const client of clients) {
+      client.release();
+    }
+    await setup.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`).catch(() => {});
+    setup.release();
+    await pool.end();
+  }
+});
