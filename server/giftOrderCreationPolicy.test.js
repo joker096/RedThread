@@ -77,6 +77,19 @@ test('fails closed when identity, consent preference, safety, or regional covera
   }
 });
 
+test('safety snapshot freshness uses a deterministic clock and rejects invalid clocks', () => {
+  const now = Date.parse('2026-10-26T12:00:00.000Z');
+  const atBoundary = validContext();
+  atBoundary.safety.snapshotAt = new Date(now - 5 * 60 * 1000).toISOString();
+  assert.equal(evaluateGiftOrderCreation(atBoundary, { now }).eligible, true);
+
+  const justStale = validContext();
+  justStale.safety.snapshotAt = new Date(now - 5 * 60 * 1000 - 1).toISOString();
+  assert.equal(evaluateGiftOrderCreation(justStale, { now }).reason, 'safety_snapshot_stale_or_invalid');
+
+  assert.equal(evaluateGiftOrderCreation(validContext(), { now: NaN }).reason, 'invalid_validation_clock');
+});
+
 test('rejects unsafe catalog entries and rate-limit violations', () => {
   const blocked = validContext();
   blocked.product.category = 'gift_card';
