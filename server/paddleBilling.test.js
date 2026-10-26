@@ -142,6 +142,15 @@ test('subscription lifecycle only grants Premium for explicitly configured Vow r
     assert.ok(unrelatedUpdate, 'expected the unrelated subscription update');
     assert.equal(unrelatedUpdate.params[5], false, 'an unrelated Paddle price must not grant Premium');
     assert.equal(unrelatedUpdate.params[6], null, 'an unrelated Paddle price must not set premium_until');
+
+    // Missing server configuration must fail closed even when the event carries
+    // a price ID that would otherwise be accepted by the configured catalogue.
+    delete process.env.PADDLE_PRICE_ID_1MONTH;
+    delete process.env.PADDLE_PRICE_ID_3MONTHS;
+    const unconfiguredUpdate = await runSubscription('pri_vowmonthly', 'evt_unconfigured_price');
+    assert.ok(unconfiguredUpdate, 'expected the unconfigured subscription update');
+    assert.equal(unconfiguredUpdate.params[5], false, 'missing Vow price configuration must not grant Premium');
+    assert.equal(unconfiguredUpdate.params[6], null, 'missing Vow price configuration must not set premium_until');
   } finally {
     if (originalOneMonth === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
     else process.env.PADDLE_PRICE_ID_1MONTH = originalOneMonth;
