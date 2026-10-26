@@ -1321,7 +1321,7 @@ test('auth API supports registration, session lookup, logout and login', {
          VALUES ($1, $2, $3, 'Report safety test chocolate', 'chocolate', 1000, 'USD',
                  'address_verified', 'captured', NOW(), 1, 'test-report-vault-reference',
                  NOW(), $4)
-         RETURNING id`,
+         RETURNING id, public_reference`,
         [matchPayload.match.id, maleRegistered.user.id, registered.user.id, randomUUID()]
       );
       reportSafetyOrderId = reportSafetyOrder.rows[0].id;
@@ -1350,6 +1350,26 @@ test('auth API supports registration, session lookup, logout and login', {
         [reportSafetyOrderId]
       );
       assert.deepEqual(reportAudit.rows, [{ from_status: 'address_verified', to_status: 'reported' }]);
+
+      const senderOrdersAfterReport = await request('/api/gifts/orders', {
+        headers: { Cookie: maleCookie }
+      });
+      assert.equal(senderOrdersAfterReport.status, 200);
+      const senderReportedOrder = (await senderOrdersAfterReport.json()).orders.find(
+        order => order.publicReference === reportSafetyOrder.rows[0].public_reference
+      );
+      assert.equal(senderReportedOrder?.status, 'not_available',
+        'the sender must not infer that a safety report was filed');
+
+      const recipientOrdersAfterReport = await request('/api/gifts/orders', {
+        headers: { Cookie: secondCookie }
+      });
+      assert.equal(recipientOrdersAfterReport.status, 200);
+      const recipientReportedOrder = (await recipientOrdersAfterReport.json()).orders.find(
+        order => order.publicReference === reportSafetyOrder.rows[0].public_reference
+      );
+      assert.equal(recipientReportedOrder?.status, 'reported',
+        'the recipient may see the safety outcome in their own order history');
 
       // Run the dispatched-block case before moderator suspension makes the
       // target account unavailable; the block endpoint must still quarantine
