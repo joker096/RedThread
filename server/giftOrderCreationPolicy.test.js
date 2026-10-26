@@ -41,7 +41,26 @@ test('fails closed when identity, consent preference, safety, or regional covera
     c => { c.delivery.partnerVerified = false; },
     c => { c.match.status = 'closed'; },
     c => { c.activity.pendingRequestsForPair = 1; },
-    c => { c.idempotency.duplicate = true; }
+    c => { c.idempotency.duplicate = true; },
+    c => { delete c.sender.isAdult; },
+    c => { c.sender.isAdult = 'true'; },
+    c => { delete c.recipient.isAdult; },
+    c => { c.recipient.isAdult = 1; },
+    c => { delete c.sender.safetyRestricted; },
+    c => { c.sender.safetyRestricted = null; },
+    c => { delete c.recipient.safetyRestricted; },
+    c => { c.recipient.safetyRestricted = 'false'; },
+    c => { delete c.safety.blocked; },
+    c => { c.safety.blocked = null; },
+    c => { delete c.safety.openReport; },
+    c => { c.safety.openReport = 0; },
+    c => { c.product.active = 'true'; },
+    c => { c.product.approved = 1; },
+    c => { c.product.supplierVerified = 'true'; },
+    c => { c.delivery.coverageActive = 1; },
+    c => { c.delivery.countryCodeMatches = 'true'; },
+    c => { c.match.includesSender = 1; },
+    c => { c.match.includesRecipient = 'true'; }
   ];
   for (const mutate of cases) {
     const context = validContext();
