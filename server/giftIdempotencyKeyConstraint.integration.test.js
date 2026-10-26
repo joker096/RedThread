@@ -12,20 +12,24 @@ test('gift idempotency keys are non-empty and normalized at the database boundar
   const client = await pool.connect();
   try {
     const constraint = await client.query(
-      `SELECT 1
+      `SELECT pg_get_constraintdef(oid) AS definition
        FROM pg_constraint
        WHERE conname = 'gift_orders_idempotency_key_normalized'
          AND conrelid = 'gift_delivery_orders'::regclass`
     );
     assert.equal(constraint.rowCount, 1, 'migration 031 should install the idempotency-key constraint');
+    const constraintDefinition = constraint.rows[0]?.definition;
+    assert.equal(typeof constraintDefinition, 'string', 'PostgreSQL should expose the installed constraint definition');
 
     await client.query('BEGIN');
     try {
+      // Exercise the exact CHECK expression installed on the production table,
+      // rather than maintaining a second copy of the policy in this test.
       await client.query(`
         CREATE TEMP TABLE gift_idempotency_key_constraint_test (
           idempotency_key varchar(128) NOT NULL,
           CONSTRAINT gift_orders_idempotency_key_normalized
-            CHECK (btrim(idempotency_key) <> '' AND idempotency_key = btrim(idempotency_key))
+            ${constraintDefinition}
         ) ON COMMIT DROP
       `);
 
@@ -47,7 +51,7 @@ test('gift idempotency keys are non-empty and normalized at the database boundar
         } catch (error) {
           insertError = error;
         }
-        assert.equal(insertError?.code, '23514', `database must reject malformed idempotency key: ${JSON.stringify(invalidKey)}`);
+        assert.equal(insertError?.code, '23514', `installed CHECK constraint must reject malformed idempotency key: ${JSON.stringify(invalidKey)}`);
         await client.query('ROLLBACK TO SAVEPOINT invalid_idempotency_key');
         await client.query('RELEASE SAVEPOINT invalid_idempotency_key');
       }
