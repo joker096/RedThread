@@ -186,6 +186,8 @@ test('grants lifetime Premium only for a verified matching transaction price', a
     const update = queries.find(query => query.sql.includes('premium_lifetime = TRUE'));
     assert.ok(update, 'expected the lifetime entitlement update');
     assert.equal(update.params[2], 'pri_lifetime_test');
+    assert.match(update.sql, /paddle_subscription_id IS NULL OR lower\(paddle_subscription_status\) IN \('canceled', 'completed'\)/,
+      'lifetime Premium must not detach an active subscription before cancellation/reconciliation');
   } finally {
     if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
     else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
