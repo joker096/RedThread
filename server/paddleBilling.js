@@ -124,6 +124,9 @@ export async function processPaddleEvent(pool, rawEvent) {
               SELECT 1 FROM users AS other
               WHERE other.paddle_customer_id = $2 AND other.id <> users.id
             ))
+            -- Do not detach an existing active subscription to grant lifetime access.
+            -- Subscription cancellation/reconciliation must be handled separately first.
+            AND (paddle_subscription_id IS NULL OR lower(paddle_subscription_status) IN ('canceled', 'completed'))
             -- A transaction may confirm the same customer, but cannot swap account identity.
             AND ($2::text IS NULL OR paddle_customer_id IS NULL OR paddle_customer_id = $2)`,
           [customUserId, customerId, lifetimePriceId]
