@@ -99,6 +99,7 @@ test('subscription updates compare source timestamps and do not bypass ordering 
   assert.match(update.sql, /other\.paddle_customer_id = \$2 AND other\.id <> users\.id/);
   assert.match(update.sql, /paddle_subscription_id IS NULL OR paddle_subscription_id = \$3/);
   assert.match(update.sql, /paddle_customer_id IS NULL OR paddle_customer_id = \$2/);
+  assert.match(update.sql, /premium_lifetime IS NOT TRUE/, 'subscription webhooks must not overwrite lifetime Premium');
   assert.equal(update.params[7], '2026-10-24T20:00:00Z');
 });
 
