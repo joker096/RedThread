@@ -102,6 +102,54 @@ test('subscription updates compare source timestamps and do not bypass ordering 
   assert.equal(update.params[7], '2026-10-24T20:00:00Z');
 });
 
+test('subscription lifecycle only grants Premium for explicitly configured Vow recurring prices', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalOneMonth = process.env.PADDLE_PRICE_ID_1MONTH;
+  const originalThreeMonths = process.env.PADDLE_PRICE_ID_3MONTHS;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_vow_monthly';
+  process.env.PADDLE_PRICE_ID_3MONTHS = 'pri_vow_quarterly';
+
+  async function runSubscription(priceId, eventId) {
+    const queries = [];
+    const client = {
+      async query(sql, params) {
+        queries.push({ sql: String(sql), params });
+        if (String(sql).includes('INSERT INTO paddle_webhook_events')) return { rowCount: 1, rows: [{ event_id: eventId }] };
+        return { rowCount: 1, rows: [] };
+      },
+      release() {}
+    };
+    await processPaddleEvent({ async connect() { return client; } }, {
+      eventId,
+      eventType: 'subscription.updated',
+      occurredAt: '2026-10-25T20:00:00Z',
+      data: {
+        id: 'sub_' + eventId.replace(/[^A-Za-z0-9]/g, ''),
+        status: 'active',
+        currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' },
+        items: [{ price: { id: priceId } }]
+      }
+    });
+    return queries.find(query => query.sql.includes('premium_until = CASE'));
+  }
+
+  try {
+    const approvedUpdate = await runSubscription('pri_vow_monthly', 'evt_vow_price');
+    assert.ok(approvedUpdate, 'expected the approved subscription update');
+    assert.equal(approvedUpdate.params[5], true, 'configured Vow recurring price should grant active Premium');
+
+    const unrelatedUpdate = await runSubscription('pri_other_product', 'evt_other_price');
+    assert.ok(unrelatedUpdate, 'expected the unrelated subscription update');
+    assert.equal(unrelatedUpdate.params[5], false, 'an unrelated Paddle price must not grant Premium');
+    assert.equal(unrelatedUpdate.params[6], null, 'an unrelated Paddle price must not set premium_until');
+  } finally {
+    if (originalOneMonth === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalOneMonth;
+    if (originalThreeMonths === undefined) delete process.env.PADDLE_PRICE_ID_3MONTHS;
+    else process.env.PADDLE_PRICE_ID_3MONTHS = originalThreeMonths;
+  }
+});
+
 test('grants lifetime Premium only for a verified matching transaction price', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
