@@ -10,7 +10,7 @@ function validContext() {
     product: { category: 'chocolate', active: true, approved: true, supplierVerified: true, totalMinorUnits: 2500, currency: 'GEL' },
     delivery: { partnerVerified: true, coverageActive: true, countryCodeMatches: true, cityKeyMatches: true },
     activity: { senderMessages: 4, recipientMessages: 4, pendingRequestsForPair: 0, senderRequestsLast30Days: 0, acceptedGiftsToRecipientLast7Days: 0 },
-    safety: { blocked: false, openReport: false },
+    safety: { blocked: false, openReport: false, snapshotAt: new Date().toISOString() },
     idempotency: { valid: true, duplicate: false }
   };
 }
@@ -54,6 +54,10 @@ test('fails closed when identity, consent preference, safety, or regional covera
     c => { c.safety.blocked = null; },
     c => { delete c.safety.openReport; },
     c => { c.safety.openReport = 0; },
+    c => { delete c.safety.snapshotAt; },
+    c => { c.safety.snapshotAt = 'not-a-timestamp'; },
+    c => { c.safety.snapshotAt = new Date(Date.now() - 6 * 60 * 1000).toISOString(); },
+    c => { c.safety.snapshotAt = new Date(Date.now() + 60 * 1000).toISOString(); },
     c => { c.product.active = 'true'; },
     c => { c.product.approved = 1; },
     c => { c.product.supplierVerified = 'true'; },
