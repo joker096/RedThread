@@ -28,6 +28,11 @@ test('eligible trusted context remains pending recipient consent and never autho
 
 test('fails closed when identity, consent preference, safety, or regional coverage is missing', () => {
   const cases = [
+    c => { delete c.sender.identityVerified; },
+    c => { c.sender.identityVerified = null; },
+    c => { c.sender.identityVerified = 'true'; },
+    c => { c.sender.identityVerified = 1; },
+    c => { c.sender.identityVerified = {}; },
     c => { c.sender.identityVerified = false; },
     c => { c.recipient.giftRequestsEnabled = false; },
     c => { c.safety.blocked = true; },
