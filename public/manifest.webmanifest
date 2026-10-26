@@ -1,0 +1,21 @@
+{
+  "id": "/",
+  "name": "Vow — serious relationships",
+  "short_name": "Vow",
+  "description": "Vow — serious relationships, shared values and family goals",
+  "lang": "en",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0c0a09",
+  "theme_color": "#991b1b",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

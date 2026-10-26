@@ -1,0 +1,326 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { normalizePaddleEvent, isPaddleSubscriptionEntitled } from './paddleBilling.js';
+
+test('normalizes Paddle webhook snake_case and SDK camelCase envelopes', () => {
+  assert.deepEqual(normalizePaddleEvent({ event_id: 'evt_1', event_type: 'subscription.updated', data: {} }), {
+    eventId: 'evt_1', eventType: 'subscription.updated', data: {}, occurredAt: null
+  });
+  assert.equal(normalizePaddleEvent({ eventId: 'evt_2', eventType: 'transaction.completed', data: {} }).eventId, 'evt_2');
+  assert.equal(normalizePaddleEvent({ event_type: 'subscription.updated' }), null);
+});
+
+test('only active or trialing subscriptions with a future billing period grant access', () => {
+  const now = Date.parse('2026-01-01T00:00:00Z');
+  assert.equal(isPaddleSubscriptionEntitled('active', '2026-02-01T00:00:00Z', now), true);
+  assert.equal(isPaddleSubscriptionEntitled('trialing', '2026-02-01T00:00:00Z', now), true);
+  assert.equal(isPaddleSubscriptionEntitled('canceled', '2026-02-01T00:00:00Z', now), false);
+  assert.equal(isPaddleSubscriptionEntitled('active', '2025-12-31T00:00:00Z', now), false);
+  assert.equal(isPaddleSubscriptionEntitled('active', null, now), false);
+});
+
+test('malformed and unknown-status subscription events cannot be entitled', () => {
+  assert.equal(normalizePaddleEvent(null), null);
+  assert.equal(isPaddleSubscriptionEntitled('past_due', '2027-01-01T00:00:00Z', 0), false);
+});
+
+
+
+test('subscription lifecycle events require a valid source timestamp before database access', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  let connectCalls = 0;
+  const pool = { async connect() { connectCalls += 1; throw new Error('should_not_connect'); } };
+
+  await assert.rejects(
+    processPaddleEvent(pool, {
+      eventId: 'evt_missing_timestamp',
+      eventType: 'subscription.updated',
+      data: { id: 'sub_1', status: 'active', currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' } }
+    }),
+    { message: 'invalid_paddle_event_timestamp' }
+  );
+  await assert.rejects(
+    processPaddleEvent(pool, {
+      eventId: 'evt_invalid_timestamp',
+      eventType: 'subscription.updated',
+      occurredAt: 'not-a-timestamp',
+      data: { id: 'sub_1', status: 'active', currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' } }
+    }),
+    { message: 'invalid_paddle_event_timestamp' }
+  );
+  await assert.rejects(
+    processPaddleEvent(pool, {
+      eventId: 'evt_missing_subscription_id',
+      eventType: 'subscription.updated',
+      occurredAt: '2026-10-24T20:00:00Z',
+      data: { status: 'active', currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' } }
+    }),
+    { message: 'invalid_paddle_subscription_id' }
+  );
+  await assert.rejects(
+    processPaddleEvent(pool, {
+      eventId: 'evt_malformed_subscription_id',
+      eventType: 'subscription.updated',
+      occurredAt: '2026-10-24T20:00:00Z',
+      data: { id: 'txn_not_a_subscription', status: 'active', currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' } }
+    }),
+    { message: 'invalid_paddle_subscription_id' }
+  );
+  assert.equal(connectCalls, 0);
+});
+
+test('subscription updates compare source timestamps and do not bypass ordering when missing', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) return { rowCount: 1, rows: [{ event_id: 'evt_ordered' }] };
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  await processPaddleEvent({ async connect() { return client; } }, {
+    eventId: 'evt_ordered',
+    eventType: 'subscription.updated',
+    occurredAt: '2026-10-24T20:00:00Z',
+    data: {
+      id: 'sub_ordered',
+      status: 'active',
+      currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' },
+      items: []
+    }
+  });
+  const update = queries.find(query => query.sql.includes('paddle_subscription_updated_at = COALESCE'));
+  assert.ok(update, 'expected subscription lifecycle update');
+  assert.match(update.sql, /paddle_subscription_updated_at IS NULL OR \$8::timestamptz >= paddle_subscription_updated_at/);
+  assert.doesNotMatch(update.sql, /\$8::timestamptz IS NULL/);
+  assert.match(update.sql, /other\.paddle_subscription_id = \$3 AND other\.id <> users\.id/);
+  assert.match(update.sql, /other\.paddle_customer_id = \$2 AND other\.id <> users\.id/);
+  assert.match(update.sql, /paddle_subscription_id IS NULL OR paddle_subscription_id = \$3/);
+  assert.match(update.sql, /paddle_customer_id IS NULL OR paddle_customer_id = \$2/);
+  assert.match(update.sql, /premium_lifetime IS NOT TRUE/, 'subscription webhooks must not overwrite lifetime Premium');
+  assert.equal(update.params[7], '2026-10-24T20:00:00Z');
+});
+
+test('subscription lifecycle only grants Premium for explicitly configured Vow recurring prices', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalOneMonth = process.env.PADDLE_PRICE_ID_1MONTH;
+  const originalThreeMonths = process.env.PADDLE_PRICE_ID_3MONTHS;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_vowmonthly';
+  process.env.PADDLE_PRICE_ID_3MONTHS = 'pri_vowquarterly';
+
+  async function runSubscription(priceId, eventId) {
+    const queries = [];
+    const client = {
+      async query(sql, params) {
+        queries.push({ sql: String(sql), params });
+        if (String(sql).includes('INSERT INTO paddle_webhook_events')) return { rowCount: 1, rows: [{ event_id: eventId }] };
+        return { rowCount: 1, rows: [] };
+      },
+      release() {}
+    };
+    await processPaddleEvent({ async connect() { return client; } }, {
+      eventId,
+      eventType: 'subscription.updated',
+      occurredAt: '2026-10-25T20:00:00Z',
+      data: {
+        id: 'sub_' + eventId.replace(/[^A-Za-z0-9]/g, ''),
+        status: 'active',
+        currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' },
+        items: [{ price: { id: priceId } }]
+      }
+    });
+    return queries.find(query => query.sql.includes('premium_until = CASE'));
+  }
+
+  try {
+    const approvedUpdate = await runSubscription('pri_vowmonthly', 'evt_vow_price');
+    assert.ok(approvedUpdate, 'expected the approved subscription update');
+    assert.equal(approvedUpdate.params[5], true, 'configured Vow recurring price should grant active Premium');
+
+    const unrelatedUpdate = await runSubscription('pri_other_product', 'evt_other_price');
+    assert.ok(unrelatedUpdate, 'expected the unrelated subscription update');
+    assert.equal(unrelatedUpdate.params[5], false, 'an unrelated Paddle price must not grant Premium');
+    assert.equal(unrelatedUpdate.params[6], null, 'an unrelated Paddle price must not set premium_until');
+
+    // Missing server configuration must fail closed even when the event carries
+    // a price ID that would otherwise be accepted by the configured catalogue.
+    delete process.env.PADDLE_PRICE_ID_1MONTH;
+    delete process.env.PADDLE_PRICE_ID_3MONTHS;
+    const unconfiguredUpdate = await runSubscription('pri_vowmonthly', 'evt_unconfigured_price');
+    assert.ok(unconfiguredUpdate, 'expected the unconfigured subscription update');
+    assert.equal(unconfiguredUpdate.params[5], false, 'missing Vow price configuration must not grant Premium');
+    assert.equal(unconfiguredUpdate.params[6], null, 'missing Vow price configuration must not set premium_until');
+  } finally {
+    if (originalOneMonth === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalOneMonth;
+    if (originalThreeMonths === undefined) delete process.env.PADDLE_PRICE_ID_3MONTHS;
+    else process.env.PADDLE_PRICE_ID_3MONTHS = originalThreeMonths;
+  }
+});
+
+test('grants lifetime Premium only for a verified matching transaction price', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
+  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_lifetime_test';
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) return { rowCount: 1, rows: [{ event_id: 'evt_lifetime' }] };
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    const pool = { async connect() { return client; } };
+    const result = await processPaddleEvent(pool, {
+      eventId: 'evt_lifetime',
+      eventType: 'transaction.completed',
+      data: {
+        customData: { userId: '00000000-0000-4000-8000-000000000001', plan: 'lifetime' },
+        items: [{ price: { id: 'pri_lifetime_test' } }]
+      }
+    });
+    assert.equal(result.handled, true);
+    const update = queries.find(query => query.sql.includes('premium_lifetime = TRUE'));
+    assert.ok(update, 'expected the lifetime entitlement update');
+    assert.equal(update.params[2], 'pri_lifetime_test');
+    assert.match(update.sql, /paddle_subscription_id IS NULL OR lower\(paddle_subscription_status\) IN \('canceled', 'completed'\)/,
+      'lifetime Premium must not detach an active subscription before cancellation/reconciliation');
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
+    else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
+  }
+});
+
+test('does not grant lifetime Premium when the transaction price does not match configuration', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
+  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_expected';
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) return { rowCount: 1, rows: [{ event_id: 'evt_wrong_price' }] };
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    const pool = { async connect() { return client; } };
+    await processPaddleEvent(pool, {
+      eventId: 'evt_wrong_price',
+      eventType: 'transaction.completed',
+      data: {
+        customData: { userId: '00000000-0000-4000-8000-000000000001', plan: 'lifetime' },
+        items: [{ price: { id: 'pri_unexpected' } }]
+      }
+    });
+    assert.equal(queries.some(query => query.sql.includes('premium_lifetime = TRUE')), false);
+    const identityUpdate = queries.find(query => query.sql.includes('paddle_subscription_id = COALESCE($3, paddle_subscription_id)'));
+    assert.ok(identityUpdate, 'expected the non-lifetime transaction identity update');
+    assert.match(identityUpdate.sql, /other\.paddle_subscription_id = \$3 AND other\.id <> users\.id/);
+    assert.match(identityUpdate.sql, /other\.paddle_customer_id = \$2 AND other\.id <> users\.id/);
+    assert.match(identityUpdate.sql, /paddle_customer_id IS NULL OR paddle_customer_id = \$2/);
+    assert.match(identityUpdate.sql, /paddle_subscription_id IS NULL OR paddle_subscription_id = \$3/);
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
+    else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
+  }
+});
+
+
+test('customer webhook cannot replace an account customer ID once established', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) return { rowCount: 1, rows: [{ event_id: 'evt_customer_identity' }] };
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  await processPaddleEvent({ async connect() { return client; } }, {
+    eventId: 'evt_customer_identity',
+    eventType: 'customer.updated',
+    data: {
+      id: 'ctm_new_identity',
+      customData: { userId: '00000000-0000-4000-8000-000000000001' },
+      email: 'person@example.com'
+    }
+  });
+  const update = queries.find(query => query.sql.includes('lower(email) = lower($3)'));
+  assert.ok(update, 'expected customer identity update');
+  assert.match(update.sql, /paddle_customer_id IS NULL OR paddle_customer_id = \$2/);
+});
+
+
+test('duplicate Paddle webhook IDs commit without replaying entitlement updates', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 0, rows: [] };
+      }
+      return { rowCount: 0, rows: [] };
+    },
+    release() {}
+  };
+
+  const result = await processPaddleEvent({ async connect() { return client; } }, {
+    eventId: 'evt_already_processed',
+    eventType: 'transaction.completed',
+    data: {
+      customData: { userId: '00000000-0000-4000-8000-000000000001', plan: 'lifetime' },
+      items: [{ price: { id: 'pri_lifetime_test' } }]
+    }
+  });
+
+  assert.deepEqual(result, { duplicate: true, handled: false });
+  assert.equal(queries.filter(query => query.sql.includes('INSERT INTO paddle_webhook_events')).length, 1);
+  assert.equal(queries.some(query => query.sql.includes('UPDATE users')), false);
+  assert.equal(queries.some(query => query.sql === 'COMMIT'), true);
+  assert.equal(queries.some(query => query.sql === 'ROLLBACK'), false);
+});
+
+test('malformed Paddle custom user IDs are ignored instead of poisoning webhook retries', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
+  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_lifetime_test';
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) return { rowCount: 1, rows: [{ event_id: 'evt_bad_custom_user_id' }] };
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+
+  try {
+    const result = await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_bad_custom_user_id',
+      eventType: 'transaction.completed',
+      data: {
+        customData: { userId: 'not-a-uuid', plan: 'lifetime' },
+        items: [{ price: { id: 'pri_lifetime_test' } }]
+      }
+    });
+
+    assert.equal(result.handled, true);
+    assert.equal(queries.some(query => query.sql.includes('premium_lifetime = TRUE')), false);
+    const identityUpdate = queries.find(query => query.sql.includes('paddle_subscription_id = COALESCE($3, paddle_subscription_id)'));
+    assert.ok(identityUpdate, 'expected safe no-op identity reconciliation');
+    assert.equal(identityUpdate.params[0], null);
+    assert.equal(queries.some(query => query.sql === 'COMMIT'), true);
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
+    else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
+  }
+});
+
