@@ -33,7 +33,8 @@ test('auth API supports registration, session lookup, logout and login', {
       ...process.env,
       API_PORT: String(port),
       APP_ORIGIN: origin,
-      NODE_ENV: 'test'
+      NODE_ENV: 'test',
+      PG_STATEMENT_TIMEOUT_MS: '8000'
     },
     stdio: 'ignore'
   });
@@ -55,7 +56,7 @@ test('auth API supports registration, session lookup, logout and login', {
     for (let attempt = 0; attempt < 80; attempt += 1) {
       if (child.exitCode !== null) throw new Error(`API process exited with code ${child.exitCode}`);
       try {
-        const response = await fetch(`${api}/api/health`);
+        const response = await fetch(`${api}/api/health`, { signal: AbortSignal.timeout(2_000) });
         if (response.ok) {
           healthy = true;
           break;
@@ -255,7 +256,12 @@ test('auth API supports registration, session lookup, logout and login', {
 
     // Exercise withdrawal against real PostgreSQL rows, not only the pure policy helper.
     // This integration case is skipped with the enclosing auth test when DATABASE_URL is absent.
-    const giftTestDb = new Pool({ connectionString: process.env.DATABASE_URL });
+    const giftTestDb = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      connectionTimeoutMillis: 5_000,
+      statement_timeout: 8_000,
+      query_timeout: 10_000
+    });
     let giftOrderId;
     let giftMatchId;
     let giftMatchCreated = false;
@@ -1251,7 +1257,12 @@ test('auth API supports registration, session lookup, logout and login', {
 
     // A block/report must also suspend already accepted, pre-dispatch gift orders
     // and clear address-vault references, not just close pending consent requests.
-    const giftSafetyDb = new Pool({ connectionString: process.env.DATABASE_URL });
+    const giftSafetyDb = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      connectionTimeoutMillis: 5_000,
+      statement_timeout: 8_000,
+      query_timeout: 10_000
+    });
     let blockSafetyOrderId;
     let reportSafetyOrderId;
     let reportId;
@@ -1563,7 +1574,12 @@ test('auth API supports registration, session lookup, logout and login', {
 
     // Moderator suspension must also revoke gift address access while keeping
     // provider payment state truthful.
-    const moderationSafetyDb = new Pool({ connectionString: process.env.DATABASE_URL });
+    const moderationSafetyDb = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      connectionTimeoutMillis: 5_000,
+      statement_timeout: 8_000,
+      query_timeout: 10_000
+    });
     let moderationSafetyOrderId;
     let moderationSafetyReportId;
     try {
@@ -1623,7 +1639,12 @@ test('auth API supports registration, session lookup, logout and login', {
 
     // Account deletion must revoke gift address access transactionally without
     // pretending an active payment authorization was voided.
-    const deletionSafetyDb = new Pool({ connectionString: process.env.DATABASE_URL });
+    const deletionSafetyDb = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      connectionTimeoutMillis: 5_000,
+      statement_timeout: 8_000,
+      query_timeout: 10_000
+    });
     let deletionSafetyOrderId;
     let dispatchedDeletionSafetyOrderId;
     try {
@@ -1762,9 +1783,18 @@ test('auth API supports registration, session lookup, logout and login', {
       'a deleted account must not retain access to previously authorized conversations');
 
   } finally {
-    if (child.exitCode === null) {
+    if (child.exitCode === null && child.signalCode === null) {
       child.kill('SIGTERM');
-      await once(child, 'exit');
+      let exitTimer;
+      await Promise.race([
+        once(child, 'exit'),
+        new Promise(resolve => { exitTimer = setTimeout(resolve, 2_000); })
+      ]);
+      clearTimeout(exitTimer);
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGKILL');
+        await once(child, 'exit');
+      }
     }
   }
 });

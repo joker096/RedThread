@@ -40,6 +40,8 @@ const pool = databaseUrl
       max: 10,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 5_000,
+      // Integration tests can opt into a bounded query wait to surface lock/query stalls.
+      statement_timeout: Number.parseInt(process.env.PG_STATEMENT_TIMEOUT_MS || '0', 10) || undefined,
       ssl: process.env.PGSSL === 'true' ? { rejectUnauthorized: true } : undefined
     })
   : null;
