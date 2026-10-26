@@ -121,10 +121,31 @@ test('gift order uniqueness constraints prevent concurrent duplicate inserts', {
       WHERE status = 'awaiting_recipient_consent'
     `);
 
+    const waitForUniqueIndexLock = async (applicationName) => {
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline) {
+        const waiting = await setup.query(
+          `SELECT 1
+           FROM pg_stat_activity
+           WHERE application_name = $1
+             AND state = 'active'
+             AND wait_event_type = 'Lock'
+             AND query ILIKE '%gift_orders_race%'
+           LIMIT 1`,
+          [applicationName]
+        );
+        if (waiting.rowCount === 1) return;
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      assert.fail('competing insert did not reach the unique-index lock within 5 seconds');
+    };
+
     const raceInsert = async (first, second, expectedConstraint) => {
       const a = await pool.connect();
       const b = await pool.connect();
       clients.push(a, b);
+      const applicationName = `gift_race_${randomUUID().replaceAll('-', '')}`;
+      await b.query('SELECT set_config(\'application_name\', $1, false)', [applicationName]);
       await a.query('BEGIN');
       await a.query(
         `INSERT INTO "${schema}".gift_orders_race
@@ -139,9 +160,9 @@ test('gift order uniqueness constraints prevent concurrent duplicate inserts', {
          VALUES ($1, $2, $3, $4, 'awaiting_recipient_consent', $5)`,
         second
       ).then(() => ({ error: null }), error => ({ error }));
-      // The second transaction reaches the unique index while the first row is
-      // uncommitted; committing the first makes PostgreSQL resolve the race.
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Wait until PostgreSQL confirms the competing insert is blocked on a
+      // lock held by the first transaction; avoid timing-only race assertions.
+      await waitForUniqueIndexLock(applicationName);
       await a.query('COMMIT');
       const outcome = await competingInsert;
       assert.equal(outcome.error?.code, '23505', 'the competing insert must lose the uniqueness race');
