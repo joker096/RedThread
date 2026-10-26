@@ -204,3 +204,59 @@ test('gift consent withdrawal timestamp is immutable without rewriting payment s
     await pool.end();
   }
 });
+
+test('consent withdrawal audit event is allowed by the installed database constraint', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 10_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const client = await pool.connect();
+  try {
+    const result = await client.query(
+      `SELECT pg_get_constraintdef(oid) AS definition
+       FROM pg_constraint
+       WHERE conrelid = 'gift_delivery_order_events'::regclass
+         AND conname = 'gift_delivery_order_events_event_type_check'`
+    );
+    assert.equal(result.rowCount, 1, 'migration 032 should install the gift event type constraint');
+    const definition = result.rows[0]?.definition;
+    assert.equal(typeof definition, 'string', 'PostgreSQL should expose the installed event type constraint');
+    assert.match(definition, /consent_withdrawn/, 'withdrawal audit events must be accepted by the production constraint');
+
+    await client.query('BEGIN');
+    try {
+      // Reuse the actual production CHECK definition so this regression test
+      // fails if a later migration accidentally removes consent_withdrawn.
+      await client.query(`
+        CREATE TEMP TABLE gift_withdrawal_event_type_test (
+          event_type text NOT NULL,
+          CONSTRAINT gift_withdrawal_event_type_test_check ${definition}
+        ) ON COMMIT DROP
+      `);
+      await client.query(
+        `INSERT INTO gift_withdrawal_event_type_test (event_type)
+         VALUES ('consent_withdrawn')`
+      );
+      await client.query('SAVEPOINT unknown_event_type');
+      let invalidEventError;
+      try {
+        await client.query(
+          `INSERT INTO gift_withdrawal_event_type_test (event_type)
+           VALUES ('consent_withdrawal_typo')`
+        );
+      } catch (error) {
+        invalidEventError = error;
+      }
+      assert.equal(invalidEventError?.code, '23514', 'unknown event types must remain rejected');
+      await client.query('ROLLBACK TO SAVEPOINT unknown_event_type');
+      await client.query('RELEASE SAVEPOINT unknown_event_type');
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    }
+  } finally {
+    client.release();
+    await pool.end();
+  }
+});
