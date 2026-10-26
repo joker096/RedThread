@@ -1371,6 +1371,56 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.equal(recipientReportedOrder?.status, 'reported',
         'the recipient may see the safety outcome in their own order history');
 
+      // All neutral terminal outcomes must be masked for the sender, not just
+      // block/report outcomes. Recipients retain their own accurate order history.
+      const neutralTerminalStatuses = ['declined', 'expired', 'cancelled'];
+      const neutralTerminalOrders = [];
+      try {
+        for (const terminalStatus of neutralTerminalStatuses) {
+          const terminalOrder = await giftSafetyDb.query(
+            `INSERT INTO gift_delivery_orders
+               (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+                total_minor_units, currency, status, payment_status, idempotency_key)
+             VALUES ($1, $2, $3, $4, 'chocolate', 900, 'USD', $5, 'not_started', $6)
+             RETURNING id, public_reference`,
+            [matchPayload.match.id, maleRegistered.user.id, registered.user.id,
+              `Terminal privacy test gift (${terminalStatus})`, terminalStatus, randomUUID()]
+          );
+          neutralTerminalOrders.push(terminalOrder.rows[0]);
+        }
+
+        const senderTerminalOrders = await request('/api/gifts/orders', {
+          headers: { Cookie: maleCookie }
+        });
+        assert.equal(senderTerminalOrders.status, 200);
+        const senderTerminalList = (await senderTerminalOrders.json()).orders;
+        for (const order of neutralTerminalOrders) {
+          assert.equal(
+            senderTerminalList.find(item => item.publicReference === order.public_reference)?.status,
+            'not_available',
+            'the sender must not infer whether the recipient declined or the request expired/cancelled'
+          );
+        }
+
+        const recipientTerminalOrders = await request('/api/gifts/orders', {
+          headers: { Cookie: secondCookie }
+        });
+        assert.equal(recipientTerminalOrders.status, 200);
+        const recipientTerminalList = (await recipientTerminalOrders.json()).orders;
+        for (const [index, order] of neutralTerminalOrders.entries()) {
+          assert.equal(
+            recipientTerminalList.find(item => item.publicReference === order.public_reference)?.status,
+            neutralTerminalStatuses[index],
+            'the recipient should retain the accurate terminal status'
+          );
+        }
+      } finally {
+        for (const order of neutralTerminalOrders) {
+          await giftSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [order.id]).catch(() => {});
+          await giftSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [order.id]).catch(() => {});
+        }
+      }
+
       // Run the dispatched-block case before moderator suspension makes the
       // target account unavailable; the block endpoint must still quarantine
       // the dispatched order and clear address metadata.
