@@ -106,8 +106,8 @@ test('subscription lifecycle only grants Premium for explicitly configured Vow r
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const originalOneMonth = process.env.PADDLE_PRICE_ID_1MONTH;
   const originalThreeMonths = process.env.PADDLE_PRICE_ID_3MONTHS;
-  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_vow_monthly';
-  process.env.PADDLE_PRICE_ID_3MONTHS = 'pri_vow_quarterly';
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_vowmonthly';
+  process.env.PADDLE_PRICE_ID_3MONTHS = 'pri_vowquarterly';
 
   async function runSubscription(priceId, eventId) {
     const queries = [];
@@ -134,7 +134,7 @@ test('subscription lifecycle only grants Premium for explicitly configured Vow r
   }
 
   try {
-    const approvedUpdate = await runSubscription('pri_vow_monthly', 'evt_vow_price');
+    const approvedUpdate = await runSubscription('pri_vowmonthly', 'evt_vow_price');
     assert.ok(approvedUpdate, 'expected the approved subscription update');
     assert.equal(approvedUpdate.params[5], true, 'configured Vow recurring price should grant active Premium');
 
