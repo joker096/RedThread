@@ -41,6 +41,7 @@ test('auth API supports registration, session lookup, logout and login', {
   async function request(path, options = {}) {
     return fetch(`${api}${path}`, {
       ...options,
+      signal: options.signal || AbortSignal.timeout(10_000),
       headers: {
         ...(options.body ? { 'Content-Type': 'application/json' } : {}),
         Origin: origin,
