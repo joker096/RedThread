@@ -3,14 +3,16 @@ const MAX_REQUESTS_PER_30_DAYS = 3;
 const MAX_ACCEPTED_PER_RECIPIENT_PER_7_DAYS = 1;
 const MIN_MATCH_AGE_DAYS = 3;
 const MIN_MESSAGES_PER_PERSON = 3;
+const SAFETY_SNAPSHOT_MAX_AGE_MS = 5 * 60 * 1000;
 
 /**
  * Pure fail-closed gate for gift-order creation.
  * Every field must be loaded from trusted server-side records; never pass request-body claims here.
  * This helper does not create an order, authorize payment, or grant address access.
  */
-export function evaluateGiftOrderCreation(context) {
+export function evaluateGiftOrderCreation(context, { now = Date.now() } = {}) {
   if (!context || typeof context !== 'object') return deny('missing_context');
+  if (!Number.isFinite(now)) return deny('invalid_validation_clock');
   const { sender, recipient, match, product, delivery, activity, safety, idempotency } = context;
   if (!sender || !recipient || !match || !product || !delivery || !activity || !safety || !idempotency) {
     return deny('missing_context');
@@ -20,6 +22,9 @@ export function evaluateGiftOrderCreation(context) {
   if (sender.isAdult !== true || recipient.isAdult !== true) return deny('adult_accounts_required');
   if (sender.identityVerified !== true) return deny('sender_identity_not_verified');
   if (sender.safetyRestricted !== false || recipient.safetyRestricted !== false) return deny('safety_state_unavailable_or_restricted');
+  if (typeof safety.snapshotAt !== 'string' || safety.snapshotAt.trim().length === 0) return deny('safety_snapshot_stale_or_invalid');
+  const safetySnapshotTime = Date.parse(safety.snapshotAt);
+  if (!Number.isFinite(safetySnapshotTime) || safetySnapshotTime > now || now - safetySnapshotTime > SAFETY_SNAPSHOT_MAX_AGE_MS) return deny('safety_snapshot_stale_or_invalid');
   if (match.status !== 'active' || match.includesSender !== true || match.includesRecipient !== true) return deny('active_match_required');
   if (!Number.isInteger(match.ageDays) || match.ageDays < MIN_MATCH_AGE_DAYS) return deny('match_too_new');
   if (!Number.isInteger(activity.senderMessages) || !Number.isInteger(activity.recipientMessages) || activity.senderMessages < MIN_MESSAGES_PER_PERSON || activity.recipientMessages < MIN_MESSAGES_PER_PERSON) return deny('insufficient_mutual_conversation');
