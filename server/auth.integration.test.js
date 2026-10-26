@@ -1268,7 +1268,7 @@ test('auth API supports registration, session lookup, logout and login', {
          VALUES ($1, $2, $3, 'Block safety test chocolate', 'chocolate', 1000, 'USD',
                  'address_verified', 'authorized', NOW(), 1, 'test-block-vault-reference',
                  NOW(), $4)
-         RETURNING id`,
+         RETURNING id, public_reference`,
         [matchPayload.match.id, maleRegistered.user.id, registered.user.id, randomUUID()]
       );
       blockSafetyOrderId = blockSafetyOrder.rows[0].id;
@@ -1291,6 +1291,27 @@ test('auth API supports registration, session lookup, logout and login', {
         [blockSafetyOrderId]
       );
       assert.deepEqual(blockAudit.rows, [{ from_status: 'address_verified', to_status: 'blocked' }]);
+
+      // The sender must not learn whether the recipient blocked or reported them.
+      // The recipient can see their own safety outcome; the sender gets only a
+      // generic unavailable state, never the underlying terminal status.
+      const senderGiftOrders = await request('/api/gifts/orders', {
+        headers: { Cookie: maleCookie }
+      });
+      assert.equal(senderGiftOrders.status, 200);
+      const senderBlockedOrder = (await senderGiftOrders.json()).orders.find(
+        order => order.publicReference === blockSafetyOrder.rows[0].public_reference
+      );
+      assert.equal(senderBlockedOrder?.status, 'not_available');
+
+      const recipientGiftOrders = await request('/api/gifts/orders', {
+        headers: { Cookie: secondCookie }
+      });
+      assert.equal(recipientGiftOrders.status, 200);
+      const recipientBlockedOrder = (await recipientGiftOrders.json()).orders.find(
+        order => order.publicReference === blockSafetyOrder.rows[0].public_reference
+      );
+      assert.equal(recipientBlockedOrder?.status, 'blocked');
 
       const reportSafetyOrder = await giftSafetyDb.query(
         `INSERT INTO gift_delivery_orders
