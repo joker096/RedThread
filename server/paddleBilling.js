@@ -22,6 +22,17 @@ export async function processPaddleEvent(pool, rawEvent) {
   if (!event) throw new Error('invalid_paddle_event');
 
   const { eventId, eventType, data, occurredAt } = event;
+  const subscriptionLifecycleEvent = ['subscription.created', 'subscription.updated', 'subscription.canceled'].includes(eventType);
+  // Paddle lifecycle events must carry their source timestamp. Without it we cannot
+  // safely order updates, so fail closed instead of allowing an older event to win.
+  if (subscriptionLifecycleEvent && (!occurredAt || !Number.isFinite(Date.parse(occurredAt)))) {
+    throw new Error('invalid_paddle_event_timestamp');
+  }
+  // Never grant or revoke subscription entitlement from a lifecycle envelope
+  // that cannot identify the Paddle subscription being reconciled.
+  if (subscriptionLifecycleEvent && (typeof data.id !== 'string' || !/^sub_[A-Za-z0-9]+$/.test(data.id))) {
+    throw new Error('invalid_paddle_subscription_id');
+  }
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -35,8 +46,13 @@ export async function processPaddleEvent(pool, rawEvent) {
     }
 
     const customData = data.customData || data.custom_data || {};
-    const customUserId = typeof customData.userId === 'string' ? customData.userId
+    const rawCustomUserId = typeof customData.userId === 'string' ? customData.userId
       : typeof customData.user_id === 'string' ? customData.user_id : null;
+    // Paddle custom_data is external input; avoid passing malformed identifiers into
+    // PostgreSQL UUID casts, which would turn a bad metadata value into endless webhook retries.
+    const customUserId = rawCustomUserId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawCustomUserId)
+      ? rawCustomUserId
+      : null;
     const subscriptionId = typeof data.id === 'string' && eventType.startsWith('subscription.')
       ? data.id
       : typeof data.subscriptionId === 'string' ? data.subscriptionId
@@ -50,7 +66,15 @@ export async function processPaddleEvent(pool, rawEvent) {
       const periodEnd = data.currentBillingPeriod?.endsAt || data.current_billing_period?.ends_at || null;
       const firstItem = Array.isArray(data.items) ? data.items[0] : null;
       const priceId = firstItem?.price?.id || firstItem?.priceId || firstItem?.price_id || null;
-      const active = isPaddleSubscriptionEntitled(status, periodEnd);
+      // A valid Paddle subscription is not sufficient by itself: only the recurring
+      // price IDs explicitly configured for Vow Premium may grant subscription access.
+      // Missing configuration or an unrelated Paddle product must fail closed.
+      const allowedRecurringPriceIds = new Set([
+        process.env.PADDLE_PRICE_ID_1MONTH,
+        process.env.PADDLE_PRICE_ID_3MONTHS
+      ].filter(value => typeof value === 'string' && /^pri_[A-Za-z0-9]+$/.test(value)));
+      const active = allowedRecurringPriceIds.has(priceId)
+        && isPaddleSubscriptionEntitled(status, periodEnd);
       await client.query(
         `UPDATE users SET
           paddle_customer_id = COALESCE($2, paddle_customer_id),
@@ -62,7 +86,21 @@ export async function processPaddleEvent(pool, rawEvent) {
           premium_lifetime = CASE WHEN $6::boolean THEN FALSE ELSE premium_lifetime END,
           updated_at = NOW()
         WHERE id = COALESCE($1::uuid, (SELECT id FROM users WHERE paddle_subscription_id = $3 LIMIT 1))
-          AND (paddle_subscription_updated_at IS NULL OR $8::timestamptz IS NULL OR $8::timestamptz >= paddle_subscription_updated_at)`,
+          AND (paddle_subscription_updated_at IS NULL OR $8::timestamptz >= paddle_subscription_updated_at)
+          -- Never let custom_data reassign a subscription or customer already owned by another account.
+          AND ($3::text IS NULL OR NOT EXISTS (
+            SELECT 1 FROM users AS other
+            WHERE other.paddle_subscription_id = $3 AND other.id <> users.id
+          ))
+          AND ($2::text IS NULL OR NOT EXISTS (
+            SELECT 1 FROM users AS other
+            WHERE other.paddle_customer_id = $2 AND other.id <> users.id
+          ))
+          -- Do not silently replace this account's established Paddle identities.
+          AND ($3::text IS NULL OR paddle_subscription_id IS NULL OR paddle_subscription_id = $3)
+          AND ($2::text IS NULL OR paddle_customer_id IS NULL OR paddle_customer_id = $2)
+          -- A delayed or newly delivered subscription event must not revoke or replace lifetime Premium.
+          AND premium_lifetime IS NOT TRUE`,
         [customUserId, customerId, subscriptionId, status, priceId, active, active ? periodEnd : null, occurredAt]
       );
     } else if (eventType === 'transaction.completed') {
@@ -83,7 +121,16 @@ export async function processPaddleEvent(pool, rawEvent) {
             premium_lifetime = TRUE,
             premium_until = NULL,
             updated_at = NOW()
-          WHERE id = $1::uuid`,
+          WHERE id = $1::uuid
+            AND ($2::text IS NULL OR NOT EXISTS (
+              SELECT 1 FROM users AS other
+              WHERE other.paddle_customer_id = $2 AND other.id <> users.id
+            ))
+            -- Do not detach an existing active subscription to grant lifetime access.
+            -- Subscription cancellation/reconciliation must be handled separately first.
+            AND (paddle_subscription_id IS NULL OR lower(paddle_subscription_status) IN ('canceled', 'completed'))
+            -- A transaction may confirm the same customer, but cannot swap account identity.
+            AND ($2::text IS NULL OR paddle_customer_id IS NULL OR paddle_customer_id = $2)`,
           [customUserId, customerId, lifetimePriceId]
         );
       } else {
@@ -94,7 +141,18 @@ export async function processPaddleEvent(pool, rawEvent) {
             paddle_customer_id = COALESCE($2, paddle_customer_id),
             paddle_subscription_id = COALESCE($3, paddle_subscription_id),
             updated_at = NOW()
-          WHERE id = COALESCE($1::uuid, (SELECT id FROM users WHERE paddle_subscription_id = $3 LIMIT 1))`,
+          WHERE id = COALESCE($1::uuid, (SELECT id FROM users WHERE paddle_subscription_id = $3 LIMIT 1))
+            AND ($3::text IS NULL OR NOT EXISTS (
+              SELECT 1 FROM users AS other
+              WHERE other.paddle_subscription_id = $3 AND other.id <> users.id
+            ))
+            AND ($2::text IS NULL OR NOT EXISTS (
+              SELECT 1 FROM users AS other
+              WHERE other.paddle_customer_id = $2 AND other.id <> users.id
+            ))
+            -- A transaction may confirm existing identities, not replace them.
+            AND ($2::text IS NULL OR paddle_customer_id IS NULL OR paddle_customer_id = $2)
+            AND ($3::text IS NULL OR paddle_subscription_id IS NULL OR paddle_subscription_id = $3)`,
           [customUserId, customerId, subscriptionId]
         );
       }
@@ -102,7 +160,13 @@ export async function processPaddleEvent(pool, rawEvent) {
       const customerEmail = data.email;
       if (customUserId && customerId && typeof customerEmail === 'string') {
         await client.query(
-          'UPDATE users SET paddle_customer_id = COALESCE($2, paddle_customer_id), updated_at = NOW() WHERE id = $1::uuid AND lower(email) = lower($3)',
+          `UPDATE users SET paddle_customer_id = COALESCE($2, paddle_customer_id), updated_at = NOW()
+           WHERE id = $1::uuid AND lower(email) = lower($3)
+             AND (paddle_customer_id IS NULL OR paddle_customer_id = $2)
+             AND NOT EXISTS (
+               SELECT 1 FROM users AS other
+               WHERE other.paddle_customer_id = $2 AND other.id <> users.id
+             )`,
           [customUserId, customerId, customerEmail]
         );
       }
