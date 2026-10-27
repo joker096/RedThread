@@ -384,3 +384,89 @@ test('concurrent gift requests cannot exceed the sender rolling 30-day cap', {
     await pool.end();
   }
 });
+
+
+test('concurrent acceptances from different pairs cannot exceed recipient weekly gift limit', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 25_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
+  let fixture;
+  try {
+    fixture = await seedFixture(pool);
+    const { ids } = fixture;
+    ids.matchC = randomUUID();
+    fixture.matchIds.push(ids.matchC);
+
+    await pool.query(
+      "INSERT INTO user_identity_verifications (user_id, verification_level, status, provider_key, verified_at, expires_at) VALUES ($1, 1, 'approved', 'test_provider', NOW() - INTERVAL '1 day', NOW() + INTERVAL '30 days')",
+      [ids.recipientB]
+    );
+    await pool.query(
+      "INSERT INTO matches (id, user_a_id, user_b_id, status, created_at) VALUES ($1, LEAST($2::uuid, $3::uuid), GREATEST($2::uuid, $3::uuid), 'active', NOW() - INTERVAL '4 days')",
+      [ids.matchC, ids.recipientA, ids.recipientB]
+    );
+    for (let i = 0; i < 3; i++) {
+      await pool.query(
+        "INSERT INTO messages (match_id, sender_id, body) VALUES ($1, $2, $3), ($1, $4, $5)",
+        [ids.matchC, ids.recipientA, "Recipient A message " + (i + 1), ids.recipientB, "Recipient B message " + (i + 1)]
+      );
+    }
+
+    const insertPending = "INSERT INTO gift_delivery_orders (match_id, sender_id, recipient_id, catalog_item_id, product_name_snapshot, product_category, item_price_minor_units, delivery_fee_minor_units, delivery_fee_currency, total_minor_units, currency, delivery_partner_id, status, payment_status, idempotency_key) VALUES ($1, $2, $3, $4, 'Test chocolate', 'chocolate', 2500, 300, 'GEL', 2800, 'GEL', $5, 'awaiting_recipient_consent', 'not_started', $6) RETURNING id";
+    const [orderA, orderB] = await Promise.all([
+      pool.query(insertPending, [ids.matchA, ids.sender, ids.recipientA, ids.catalogItem, ids.deliveryPartner, "accept-race-" + randomUUID()]),
+      pool.query(insertPending, [ids.matchC, ids.recipientB, ids.recipientA, ids.catalogItem, ids.deliveryPartner, "accept-race-" + randomUUID()])
+    ]);
+
+    const accept = async (orderId, senderId) => {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await acquireGiftOrderRateLocks(client, senderId, ids.recipientA);
+        await acquireGiftSafetyPairLock(client, senderId, ids.recipientA);
+        const selected = await client.query(
+          "SELECT id, status FROM gift_delivery_orders WHERE id = $1 AND recipient_id = $2 FOR UPDATE",
+          [orderId, ids.recipientA]
+        );
+        if (!selected.rows[0] || selected.rows[0].status !== 'awaiting_recipient_consent') {
+          await client.query('ROLLBACK');
+          return 'not_actionable';
+        }
+        if (await recipientGiftAcceptanceLimitReached(client, ids.recipientA)) {
+          await client.query('ROLLBACK');
+          return 'rate_limited';
+        }
+        const updated = await client.query(
+          "UPDATE gift_delivery_orders SET status = 'recipient_accepted', recipient_consent_at = NOW(), recipient_consent_version = 1, updated_at = NOW() WHERE id = $1 AND status = 'awaiting_recipient_consent' RETURNING id",
+          [orderId]
+        );
+        assert.equal(updated.rowCount, 1);
+        await client.query('COMMIT');
+        return 'accepted';
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
+    };
+
+    const results = await Promise.all([
+      accept(orderA.rows[0].id, ids.sender),
+      accept(orderB.rows[0].id, ids.recipientB)
+    ]);
+    assert.equal(results.filter(result => result === 'accepted').length, 1);
+    assert.equal(results.filter(result => result === 'rate_limited').length, 1);
+
+    const counts = await pool.query(
+      "SELECT COUNT(*) FILTER (WHERE status = 'recipient_accepted' AND recipient_consent_at >= NOW() - INTERVAL '7 days')::int AS accepted_recently, COUNT(*) FILTER (WHERE status = 'awaiting_recipient_consent')::int AS pending FROM gift_delivery_orders WHERE recipient_id = $1",
+      [ids.recipientA]
+    );
+    assert.equal(counts.rows[0].accepted_recently, 1);
+    assert.equal(counts.rows[0].pending, 1);
+  } finally {
+    if (fixture) await cleanupFixture(pool, fixture);
+    await pool.end();
+  }
+});
