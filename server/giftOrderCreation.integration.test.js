@@ -34,6 +34,26 @@ test('gift order totals project PostgreSQL BIGINT values as exact safe JavaScrip
 
 
 
+test('gift safety user locks acquire unique user IDs in deterministic sorted order', async () => {
+  const calls = [];
+  const client = {
+    async query(sql, values) {
+      calls.push({ sql, values });
+      return { rows: [] };
+    }
+  };
+  const upper = 'F0000000-0000-4000-8000-000000000001';
+  const middle = 'a0000000-0000-4000-8000-000000000002';
+  const lower = '10000000-0000-4000-8000-000000000003';
+
+  await acquireGiftSafetyUserLocks(client, upper, lower, middle, upper, lower);
+
+  assert.deepEqual(calls.map(call => call.values[0]), [lower, middle, upper].map(id => id.toLowerCase()));
+  assert.equal(calls.length, 3, 'duplicate user IDs must not acquire the same lock twice');
+  assert.ok(calls.every(call => call.sql.includes("gift-safety-user:")),
+    'all locks must use the gift safety user lock namespace');
+});
+
 test('gift acceptance safety user lock serializes against a concurrent screening writer', {
   skip: !process.env.DATABASE_URL,
   timeout: 10_000
