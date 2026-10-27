@@ -2355,7 +2355,7 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
          AND status = 'awaiting_recipient_consent'
          AND ($3::boolean = FALSE OR expires_at > NOW())
        RETURNING public_reference AS "publicReference", status`,
-      [order.id, nextStatus]
+      [order.id, nextStatus, action === 'accept']
     );
     if (updated.rowCount !== 1) {
       await client.query('ROLLBACK');
