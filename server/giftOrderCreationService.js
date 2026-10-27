@@ -22,6 +22,7 @@ export async function recipientGiftAcceptanceLimitReached(client, recipientId) {
   return Number(accepted.rows[0]?.count ?? 0) >= 1;
 }
 
+/** Expects an open transaction holding the pair's user-rate locks and unordered-pair safety lock. */
 export async function expireStaleGiftRequestsForPair(client, { matchId, senderId, recipientId }) {
   const candidates = await client.query(
     `SELECT id, payment_status
