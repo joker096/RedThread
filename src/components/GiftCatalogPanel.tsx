@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
+import { formatMinorCurrency } from '../utils/currency.ts';
 
 type GiftMatch = { id: string; displayName: string };
 type GiftCatalogItem = {
@@ -173,14 +174,8 @@ export const GiftCatalogPanel: React.FC = () => {
     };
   }, [selectedMatchId, catalogRevision]);
 
-  const money = (minorUnits: number, currency: string) => {
-    if (!Number.isSafeInteger(minorUnits) || minorUnits < 0 || !/^[A-Z]{3}$/.test(currency)) return t('giftOrdersPriceUnavailable');
-    try {
-      return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(minorUnits / 100);
-    } catch {
-      return t('giftOrdersPriceUnavailable');
-    }
-  };
+  const money = (minorUnits: number, currency: string) =>
+    formatMinorCurrency(minorUnits, currency) ?? t('giftOrdersPriceUnavailable');
 
   const categoryLabel = (category: GiftCatalogItem['category']) => {
     const labels: Record<GiftCatalogItem['category'], string> = {

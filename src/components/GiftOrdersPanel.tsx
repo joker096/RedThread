@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
+import { formatMinorCurrency } from '../utils/currency.ts';
 
 type GiftOrder = {
   publicReference: string;
@@ -187,14 +188,8 @@ export const GiftOrdersPanel: React.FC = () => {
     }
   };
 
-  const money = (order: GiftOrder) => {
-    if (!Number.isSafeInteger(order.totalMinorUnits) || order.totalMinorUnits < 0 || !/^[A-Z]{3}$/.test(order.currency)) return t('giftOrdersPriceUnavailable');
-    try {
-      return new Intl.NumberFormat(undefined, { style: 'currency', currency: order.currency }).format(order.totalMinorUnits / 100);
-    } catch {
-      return t('giftOrdersPriceUnavailable');
-    }
-  };
+  const money = (order: GiftOrder) =>
+    formatMinorCurrency(order.totalMinorUnits, order.currency) ?? t('giftOrdersPriceUnavailable');
 
   const statusLabel = (status: string) => {
     const labels: Record<string, string> = {
