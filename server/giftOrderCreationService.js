@@ -189,7 +189,11 @@ export async function createGiftOrderRequest(client, {
            AND iv.status = 'approved'
            AND iv.verified_at <= NOW()
            AND iv.expires_at > NOW()
-           AND iv.verification_level >= CASE WHEN sender_profile.gender = 'male' THEN 3 ELSE 1 END
+           AND iv.verification_level >= CASE
+             WHEN sender_profile.gender = 'male' THEN 3
+             WHEN sender_profile.gender = 'female' THEN 1
+             ELSE 2147483647
+           END
        ) AS sender_identity_verified,
        EXISTS (
          SELECT 1 FROM user_safety_screenings ss
@@ -479,7 +483,11 @@ export async function listGiftCatalogForMatch(client, { senderId, matchId }) {
            AND iv.status = 'approved'
            AND iv.verified_at <= NOW()
            AND iv.expires_at > NOW()
-           AND iv.verification_level >= CASE WHEN sender_profile.gender = 'male' THEN 3 ELSE 1 END
+           AND iv.verification_level >= CASE
+             WHEN sender_profile.gender = 'male' THEN 3
+             WHEN sender_profile.gender = 'female' THEN 1
+             ELSE 2147483647
+           END
        ) AS sender_identity_verified,
        EXISTS (
          SELECT 1 FROM user_safety_screenings ss
