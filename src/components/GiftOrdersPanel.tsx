@@ -84,13 +84,16 @@ export const GiftOrdersPanel: React.FC = () => {
   const [loadFailed, setLoadFailed] = useState(false);
   const [busyReference, setBusyReference] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
+  const loadRequestId = useRef(0);
 
   const load = useCallback(async () => {
+    const requestId = ++loadRequestId.current;
     setLoading(true);
     setLoadFailed(false);
     try {
       const response = await fetch('/api/gifts/orders', { credentials: 'include' });
       const payload: unknown = await response.json().catch(() => null);
+      if (requestId !== loadRequestId.current) return;
       if (!response.ok) {
         throw new Error(response.status === 401 ? t('giftOrdersSignInRequired') : t('giftOrdersLoadError'));
       }
@@ -98,14 +101,35 @@ export const GiftOrdersPanel: React.FC = () => {
       setOrders(normalizeGiftOrders(payload));
       setNotice('');
     } catch (error) {
+      if (requestId !== loadRequestId.current) return;
       setLoadFailed(true);
       setNotice(error instanceof Error ? error.message : t('giftOrdersLoadError'));
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestId.current) setLoading(false);
     }
   }, [t]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+    const refresh = () => { void load(); };
+    const sessionChanged = () => {
+      loadRequestId.current += 1;
+      setOrders([]);
+      setNotice('');
+      setLoadFailed(false);
+      setBusyReference(null);
+      void load();
+    };
+    window.addEventListener('focus', refresh);
+    window.addEventListener('vow:gift-orders-changed', refresh);
+    window.addEventListener('vow:session-changed', sessionChanged);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('vow:gift-orders-changed', refresh);
+      window.removeEventListener('vow:session-changed', sessionChanged);
+      loadRequestId.current += 1;
+    };
+  }, [load]);
 
   const submitDecision = async (order: GiftOrder, action: 'accept' | 'decline') => {
     setBusyReference(order.publicReference);

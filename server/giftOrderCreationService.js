@@ -375,3 +375,227 @@ export async function createGiftOrderRequest(client, {
     }
   };
 }
+
+
+/**
+ * Lists only server-approved items that pass the same fail-closed eligibility
+ * policy as order creation. It deliberately omits recipient region, carrier
+ * identity, address and contact data from the response.
+ */
+export async function listGiftCatalogForMatch(client, { senderId, matchId }) {
+  const profileResult = await client.query(
+    `SELECT
+       m.id AS match_id,
+       m.status AS match_status,
+       FLOOR(EXTRACT(EPOCH FROM (NOW() - m.created_at)) / 86400)::int AS match_age_days,
+       NOW() AS safety_snapshot_at,
+       sender.id AS sender_id,
+       sender.status AS sender_status,
+       sender_profile.gender AS sender_gender,
+       (sender_profile.birth_date IS NOT NULL AND sender_profile.birth_date <= (CURRENT_DATE - INTERVAL '18 years')::date) AS sender_is_adult,
+       EXISTS (
+         SELECT 1 FROM user_identity_verifications iv
+         WHERE iv.user_id = sender.id
+           AND iv.status = 'approved'
+           AND iv.verified_at <= NOW()
+           AND iv.expires_at > NOW()
+           AND iv.verification_level >= CASE WHEN sender_profile.gender = 'male' THEN 3 ELSE 1 END
+       ) AS sender_identity_verified,
+       EXISTS (
+         SELECT 1 FROM user_safety_screenings ss
+         WHERE ss.user_id = sender.id AND ss.severity = 'high'
+           AND ss.review_status IN ('pending', 'reviewing', 'actioned')
+       ) AS sender_safety_restricted,
+       recipient.id AS recipient_id,
+       recipient.status AS recipient_status,
+       recipient_profile.birth_date AS recipient_birth_date,
+       recipient_profile.country AS recipient_country,
+       recipient_profile.city AS recipient_city,
+       (recipient_profile.birth_date IS NOT NULL AND recipient_profile.birth_date <= (CURRENT_DATE - INTERVAL '18 years')::date) AS recipient_is_adult,
+       EXISTS (
+         SELECT 1 FROM user_safety_screenings ss
+         WHERE ss.user_id = recipient.id AND ss.severity = 'high'
+           AND ss.review_status IN ('pending', 'reviewing', 'actioned')
+       ) AS recipient_safety_restricted,
+       COALESCE(pref.requests_enabled, FALSE) AS requests_enabled,
+       EXISTS (
+         SELECT 1 FROM user_blocks b
+         WHERE (b.blocker_id = sender.id AND b.blocked_id = recipient.id)
+            OR (b.blocker_id = recipient.id AND b.blocked_id = sender.id)
+       ) AS has_block,
+       EXISTS (
+         SELECT 1 FROM user_reports r
+         WHERE r.status IN ('open', 'reviewing')
+           AND ((r.reporter_id = sender.id AND r.reported_user_id = recipient.id)
+             OR (r.reporter_id = recipient.id AND r.reported_user_id = sender.id))
+       ) AS has_open_report
+     FROM matches m
+     JOIN users sender ON sender.id = $2
+     JOIN profiles sender_profile ON sender_profile.user_id = sender.id
+     JOIN users recipient ON recipient.id = CASE WHEN m.user_a_id = sender.id THEN m.user_b_id ELSE m.user_a_id END
+     JOIN profiles recipient_profile ON recipient_profile.user_id = recipient.id
+     LEFT JOIN gift_receiving_preferences pref ON pref.user_id = recipient.id
+     WHERE m.id = $1 AND m.status = 'active'
+       AND (m.user_a_id = sender.id OR m.user_b_id = sender.id)`,
+    [matchId, senderId]
+  );
+  const row = profileResult.rows[0];
+  if (!row) return { status: 404, items: [] };
+
+  const countryCode = resolveProfileCountryCode(row.recipient_country);
+  if (!countryCode || typeof row.recipient_city !== 'string' || !row.recipient_city.trim()) {
+    return { status: 200, items: [] };
+  }
+
+  const activityResult = await client.query(
+    `SELECT
+       COUNT(*) FILTER (
+         WHERE sender_id = $1 AND created_at >= NOW() - INTERVAL '30 days'
+       )::int AS sender_requests_last_30_days,
+       COUNT(*) FILTER (
+         WHERE recipient_id = $2
+           AND recipient_consent_at >= NOW() - INTERVAL '7 days'
+       )::int AS accepted_gifts_to_recipient_last_7_days
+     FROM gift_delivery_orders`,
+    [senderId, row.recipient_id]
+  );
+  const pendingResult = await client.query(
+    `SELECT COUNT(*)::int AS pending_requests_for_pair
+     FROM gift_delivery_orders
+     WHERE match_id = $1
+       AND LEAST(sender_id, recipient_id) = LEAST($2::uuid, $3::uuid)
+       AND GREATEST(sender_id, recipient_id) = GREATEST($2::uuid, $3::uuid)
+       AND status = 'awaiting_recipient_consent'`,
+    [matchId, senderId, row.recipient_id]
+  );
+  const messageResult = await client.query(
+    `SELECT
+       COUNT(*) FILTER (WHERE sender_id = $2)::int AS sender_messages,
+       COUNT(*) FILTER (WHERE sender_id = $3)::int AS recipient_messages
+     FROM messages
+     WHERE match_id = $1 AND deleted_at IS NULL`,
+    [matchId, senderId, row.recipient_id]
+  );
+
+  const baseContext = {
+    sender: {
+      id: row.sender_id,
+      accountStatus: row.sender_status,
+      isAdult: row.sender_is_adult === true,
+      identityVerified: row.sender_identity_verified === true,
+      safetyRestricted: row.sender_safety_restricted === true
+    },
+    recipient: {
+      id: row.recipient_id,
+      accountStatus: row.recipient_status,
+      isAdult: row.recipient_is_adult === true,
+      safetyRestricted: row.recipient_safety_restricted === true,
+      giftRequestsEnabled: row.requests_enabled === true
+    },
+    match: {
+      status: row.match_status,
+      includesSender: String(row.sender_id).toLowerCase() === String(senderId).toLowerCase(),
+      includesRecipient: String(row.recipient_id).toLowerCase() !== String(senderId).toLowerCase(),
+      ageDays: Number(row.match_age_days)
+    },
+    activity: {
+      senderMessages: Number(messageResult.rows[0]?.sender_messages ?? 0),
+      recipientMessages: Number(messageResult.rows[0]?.recipient_messages ?? 0),
+      pendingRequestsForPair: Number(pendingResult.rows[0]?.pending_requests_for_pair ?? 0),
+      senderRequestsLast30Days: Number(activityResult.rows[0]?.sender_requests_last_30_days ?? 0),
+      acceptedGiftsToRecipientLast7Days: Number(activityResult.rows[0]?.accepted_gifts_to_recipient_last_7_days ?? 0)
+    },
+    safety: {
+      blocked: row.has_block === true,
+      openReport: row.has_open_report === true,
+      snapshotAt: new Date(row.safety_snapshot_at).toISOString()
+    },
+    idempotency: { valid: true, duplicate: false }
+  };
+
+  const catalogResult = await client.query(
+    `SELECT
+       item.id AS id,
+       item.category,
+       item.display_name AS "displayName",
+       item.price_minor_units::text AS "itemPriceMinorUnits",
+       item.currency,
+       supplier.status AS supplier_status,
+       supplier.privacy_reviewed_at AS supplier_privacy_reviewed_at,
+       supplier.contract_reviewed_at AS supplier_contract_reviewed_at,
+       coverage.delivery_fee_minor_units::text AS "deliveryFeeMinorUnits",
+       coverage.delivery_fee_currency,
+       coverage.country_code,
+       coverage.city_key,
+       coverage.active AS coverage_active,
+       coverage.verified_at AS coverage_verified_at,
+       partner.status AS partner_status,
+       partner.privacy_reviewed_at AS partner_privacy_reviewed_at,
+       partner.contract_reviewed_at AS partner_contract_reviewed_at
+     FROM gift_catalog_items item
+     JOIN gift_suppliers supplier ON supplier.supplier_key = item.supplier_key
+     JOIN gift_delivery_partner_coverage coverage
+       ON coverage.country_code = $1
+      AND LOWER(REGEXP_REPLACE(BTRIM(coverage.city_key), '[[:space:]]+', ' ', 'g')) =
+          LOWER(REGEXP_REPLACE(BTRIM($2), '[[:space:]]+', ' ', 'g'))
+      AND coverage.active = TRUE
+      AND coverage.verified_at IS NOT NULL
+      AND coverage.verified_at <= NOW()
+     JOIN gift_delivery_partners partner ON partner.id = coverage.partner_id
+     WHERE item.active = TRUE AND item.approved = TRUE
+       AND supplier.status = 'verified'
+       AND supplier.privacy_reviewed_at IS NOT NULL
+       AND supplier.contract_reviewed_at IS NOT NULL
+       AND partner.status = 'verified'
+       AND partner.privacy_reviewed_at IS NOT NULL
+       AND partner.contract_reviewed_at IS NOT NULL
+       AND coverage.delivery_fee_minor_units IS NOT NULL
+       AND coverage.delivery_fee_currency = item.currency
+     ORDER BY item.category, item.display_name
+     LIMIT 50`,
+    [countryCode, row.recipient_city]
+  );
+
+  const items = [];
+  for (const product of catalogResult.rows) {
+    const itemPrice = Number(product.itemPriceMinorUnits);
+    const deliveryFee = Number(product.deliveryFeeMinorUnits);
+    const totalPrice = itemPrice + deliveryFee;
+    if (!Number.isSafeInteger(itemPrice) || itemPrice <= 0 ||
+        !Number.isSafeInteger(deliveryFee) || deliveryFee < 0 ||
+        !Number.isSafeInteger(totalPrice) || totalPrice <= 0) continue;
+
+    const eligibility = evaluateGiftOrderCreation({
+      ...baseContext,
+      product: {
+        category: product.category,
+        active: true,
+        approved: true,
+        supplierVerified: product.supplier_status === 'verified' &&
+          Boolean(product.supplier_privacy_reviewed_at) && Boolean(product.supplier_contract_reviewed_at),
+        totalMinorUnits: totalPrice,
+        currency: product.currency
+      },
+      delivery: {
+        partnerVerified: product.partner_status === 'verified' &&
+          Boolean(product.partner_privacy_reviewed_at) && Boolean(product.partner_contract_reviewed_at),
+        coverageActive: product.coverage_active === true && Boolean(product.coverage_verified_at),
+        countryCodeMatches: product.country_code === countryCode,
+        cityKeyMatches: typeof product.city_key === 'string' &&
+          product.city_key.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US') ===
+            row.recipient_city.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
+      }
+    });
+    if (!eligibility.eligible) continue;
+    items.push({
+      id: product.id,
+      category: product.category,
+      displayName: product.displayName,
+      itemPriceMinorUnits: itemPrice,
+      deliveryFeeMinorUnits: deliveryFee,
+      totalMinorUnits: totalPrice,
+      currency: product.currency
+    });
+  }
+  return { status: 200, items };
+}

@@ -7,7 +7,7 @@ import { evaluateAdCampaignEligibility, isCampaignCountryAllowed, resolveProfile
 import { AD_EVENT_FREQUENCY_COUNTS_SQL } from './adEventFrequencyQuery.js';
 import { validateGiftDecisionInput } from './giftDecisionInput.js';
 import { normalizeGiftRequestInput } from './giftRequestInput.js';
-import { createGiftOrderRequest, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock } from './giftOrderCreationService.js';
+import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock } from './giftOrderCreationService.js';
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
@@ -2008,6 +2008,52 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
   }
 });
 
+app.get('/api/gifts/matches', requireSession, requirePaidFeatures, profileActionLimiter, async (req, res) => {
+  try {
+    // This minimal projection deliberately omits recipient country/city and other
+    // profile details. Only existing active matches can be selected for a gift.
+    const result = await pool.query(
+      `SELECT m.id, other.display_name AS "displayName"
+       FROM matches m
+       JOIN profiles other
+         ON other.user_id = CASE WHEN m.user_a_id = $1 THEN m.user_b_id ELSE m.user_a_id END
+       WHERE (m.user_a_id = $1 OR m.user_b_id = $1)
+         AND m.status = 'active'
+       ORDER BY m.created_at DESC
+       LIMIT 100`,
+      [req.authUser.id]
+    );
+    return res.json({ matches: result.rows });
+  } catch (error) {
+    console.error('Gift match list failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_matches_unavailable' });
+  }
+});
+
+app.get('/api/gifts/catalog', requireSession, requirePaidFeatures, profileActionLimiter, async (req, res) => {
+  const matchId = typeof req.query.matchId === 'string' ? req.query.matchId : '';
+  if (!isUuid(matchId)) return res.status(400).json({ error: 'invalid_match_id' });
+
+  let client;
+  try {
+    client = await pool.connect();
+    // Eligibility checks and item prices use one consistent database snapshot.
+    await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    const result = await listGiftCatalogForMatch(client, {
+      senderId: req.authUser.id,
+      matchId: matchId.toLowerCase()
+    });
+    await client.query('COMMIT');
+    return res.status(result.status).json({ items: result.items });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Gift catalog read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_catalog_unavailable' });
+  } finally {
+    client?.release();
+  }
+});
+
 app.get('/api/gifts/preferences', requireSession, async (req, res) => {
   try {
     const result = await pool.query(
@@ -2088,7 +2134,7 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
   }
 });
 
-app.post('/api/gifts/orders', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+app.post('/api/gifts/orders', validateRequestOrigin, requireSession, requirePaidFeatures, profileActionLimiter, async (req, res) => {
   const validation = normalizeGiftRequestInput(req.body);
   if (!validation.ok) {
     return res.status(400).json({

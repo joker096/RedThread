@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
-import { createGiftOrderRequest } from './giftOrderCreationService.js';
+import { createGiftOrderRequest, listGiftCatalogForMatch } from './giftOrderCreationService.js';
 
 const { Pool } = pg;
 
@@ -146,6 +146,89 @@ async function cleanupFixture(pool, fixture) {
   await pool.query('DELETE FROM profiles WHERE user_id = ANY($1::uuid[])', [userIds]);
   await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [userIds]);
 }
+
+test('gift catalog only returns reviewed items and omits recipient location metadata', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 20_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
+  let fixture;
+  try {
+    fixture = await seedFixture(pool);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+      const result = await listGiftCatalogForMatch(client, {
+        senderId: fixture.ids.sender,
+        matchId: fixture.ids.matchA
+      });
+      await client.query('COMMIT');
+      assert.equal(result.status, 200);
+      assert.deepEqual(result.items.map(item => ({
+        id: item.id,
+        category: item.category,
+        displayName: item.displayName,
+        itemPriceMinorUnits: item.itemPriceMinorUnits,
+        deliveryFeeMinorUnits: item.deliveryFeeMinorUnits,
+        totalMinorUnits: item.totalMinorUnits,
+        currency: item.currency
+      })), [{
+        id: fixture.ids.catalogItem,
+        category: 'chocolate',
+        displayName: 'Test chocolate',
+        itemPriceMinorUnits: 2500,
+        deliveryFeeMinorUnits: 300,
+        totalMinorUnits: 2800,
+        currency: 'GEL'
+      }]);
+      for (const key of ['country', 'city', 'recipientCity', 'address', 'phone', 'partnerId', 'deliveryPartnerId']) {
+        assert.equal(Object.hasOwn(result.items[0], key), false, 'catalog projection must not expose ' + key);
+      }
+    } finally {
+      client.release();
+    }
+  } finally {
+    if (fixture) await cleanupFixture(pool, fixture);
+    await pool.end();
+  }
+});
+
+test('gift catalog fails closed when recipient preference is disabled or pair safety is restricted', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 20_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
+  let fixture;
+  try {
+    fixture = await seedFixture(pool);
+    const { ids } = fixture;
+    const client = await pool.connect();
+    const list = async () => {
+      await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+      try {
+        const result = await listGiftCatalogForMatch(client, { senderId: ids.sender, matchId: ids.matchA });
+        await client.query('COMMIT');
+        return result.items;
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw error;
+      }
+    };
+    try {
+      assert.equal((await list()).length, 1);
+      await pool.query('UPDATE gift_receiving_preferences SET requests_enabled = FALSE WHERE user_id = $1', [ids.recipientA]);
+      assert.deepEqual(await list(), []);
+      await pool.query('UPDATE gift_receiving_preferences SET requests_enabled = TRUE WHERE user_id = $1', [ids.recipientA]);
+      await pool.query('INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2)', [ids.sender, ids.recipientA]);
+      assert.deepEqual(await list(), []);
+    } finally {
+      client.release();
+    }
+  } finally {
+    if (fixture) await cleanupFixture(pool, fixture);
+    await pool.end();
+  }
+});
 
 test('concurrent gift requests cannot create two pending requests for the same pair', {
   skip: !process.env.DATABASE_URL,

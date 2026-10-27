@@ -21,6 +21,7 @@ import { ModeratorConsolePanel } from './components/ModeratorConsolePanel.tsx';
 import { NotificationCenterPanel } from './components/NotificationCenterPanel.tsx';
 import { AdConsentPanel } from './components/AdConsentPanel.tsx';
 import { GiftReceivingPreferencesPanel } from './components/GiftReceivingPreferencesPanel.tsx';
+import { GiftCatalogPanel } from './components/GiftCatalogPanel.tsx';
 import { GiftOrdersPanel } from './components/GiftOrdersPanel.tsx';
 import type { 
   UserProfile, 
@@ -605,8 +606,6 @@ export default function App() {
             <NotificationCenterPanel />
             <ProfileEditorPanel key={assessmentRevision} onOpenAccount={() => setActiveTab('tests')} />
             <AdConsentPanel />
-            <GiftReceivingPreferencesPanel />
-            <GiftOrdersPanel />
             <ModeratorConsolePanel />
             <RelationshipAssessmentPanel key={assessmentRevision} />
             <GenderSpecificTests
@@ -624,6 +623,9 @@ export default function App() {
         return (
           <>
             <ServerMatchesPanel onOpenAccount={() => setActiveTab('tests')} />
+            <GiftReceivingPreferencesPanel />
+            <GiftCatalogPanel />
+            <GiftOrdersPanel />
             {!showDemoChats ? (
               <section className="mx-auto mt-4 w-full max-w-md rounded-2xl border border-white/10 bg-stone-900 p-4 text-left">
                 <h3 className="font-semibold text-white">{t('demoChatsHiddenTitle')}</h3>
