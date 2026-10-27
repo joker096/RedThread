@@ -482,7 +482,7 @@ test('expired unpaid pending request is closed and audited before a replacement 
     fixture = await seedFixture(pool);
     const { ids } = fixture;
     const stale = await pool.query(
-      \`INSERT INTO gift_delivery_orders (
+      `INSERT INTO gift_delivery_orders (
          match_id, sender_id, recipient_id, catalog_item_id, product_name_snapshot,
          product_category, item_price_minor_units, delivery_fee_minor_units,
          delivery_fee_currency, total_minor_units, currency, delivery_partner_id,
@@ -491,7 +491,7 @@ test('expired unpaid pending request is closed and audited before a replacement 
                  2500, 300, 'GEL', 2800, 'GEL', $5,
                  'awaiting_recipient_consent', 'not_started', $6,
                  NOW() - INTERVAL '4 days', NOW() - INTERVAL '1 second')
-       RETURNING id\`,
+       RETURNING id`,
       [ids.matchA, ids.sender, ids.recipientA, ids.catalogItem, ids.deliveryPartner, 'expired-test-' + randomUUID()]
     );
     const result = await runRequest(pool, {
@@ -529,7 +529,7 @@ test('expired requests with unresolved payment state fail closed and remain unch
     fixture = await seedFixture(pool);
     const { ids } = fixture;
     const stale = await pool.query(
-      \`INSERT INTO gift_delivery_orders (
+      `INSERT INTO gift_delivery_orders (
          match_id, sender_id, recipient_id, catalog_item_id, product_name_snapshot,
          product_category, item_price_minor_units, delivery_fee_minor_units,
          delivery_fee_currency, total_minor_units, currency, delivery_partner_id,
@@ -538,7 +538,7 @@ test('expired requests with unresolved payment state fail closed and remain unch
                  2500, 300, 'GEL', 2800, 'GEL', $5,
                  'awaiting_recipient_consent', 'authorization_pending', $6,
                  NOW() - INTERVAL '4 days', NOW() - INTERVAL '1 second')
-       RETURNING id\`,
+       RETURNING id`,
       [ids.matchA, ids.sender, ids.recipientA, ids.catalogItem, ids.deliveryPartner, 'expired-payment-test-' + randomUUID()]
     );
     const result = await runRequest(pool, {
