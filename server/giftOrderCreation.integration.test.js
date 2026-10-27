@@ -217,6 +217,81 @@ test('gift creation rechecks account and match safety after waiting for safety l
   }
 });
 
+
+test('gift creation rechecks recipient opt-out after waiting for preference safety lock', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 20_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
+  let fixture;
+  let holder;
+  let creationPromise;
+  try {
+    fixture = await seedFixture(pool);
+    const { ids } = fixture;
+    holder = await pool.connect();
+    await holder.query('BEGIN');
+    await acquireGiftSafetyUserLocks(holder, ids.recipientA);
+
+    creationPromise = runRequest(pool, {
+      senderId: ids.sender,
+      matchId: ids.matchA,
+      catalogItemId: ids.catalogItem,
+      idempotencyKey: 'safety-lock-opt-out-' + randomUUID()
+    }).then(value => ({ value }), error => ({ error }));
+
+    const deadline = Date.now() + 5_000;
+    let waitingOnSafetyLock = false;
+    while (Date.now() < deadline && !waitingOnSafetyLock) {
+      await pool.query('SELECT pg_sleep(0.05)');
+      const waiting = await pool.query(
+        `SELECT 1
+         FROM pg_stat_activity
+         WHERE pid <> pg_backend_pid()
+           AND wait_event_type = 'Lock'
+           AND query LIKE '%gift-safety-user:%'
+         LIMIT 1`
+      );
+      waitingOnSafetyLock = waiting.rowCount > 0;
+    }
+    assert.equal(waitingOnSafetyLock, true,
+      'gift creation must wait while recipient opt-out holds the same safety lock');
+
+    // Model the opt-out transaction while it owns the recipient safety lock.
+    await holder.query(
+      'UPDATE gift_receiving_preferences SET requests_enabled = FALSE WHERE user_id = $1',
+      [ids.recipientA]
+    );
+    await holder.query(
+      `UPDATE gift_delivery_orders
+       SET recipient_requests_disabled_at = NOW()
+       WHERE recipient_id = $1 AND status = 'awaiting_recipient_consent'`,
+      [ids.recipientA]
+    );
+    await holder.query('COMMIT');
+
+    const outcome = await creationPromise;
+    if (outcome.error) throw outcome.error;
+    assert.equal(outcome.value.status, 409);
+    assert.equal(outcome.value.body.error, 'gift_request_unavailable');
+
+    const orders = await pool.query(
+      'SELECT COUNT(*)::int AS count FROM gift_delivery_orders WHERE match_id = $1',
+      [ids.matchA]
+    );
+    assert.equal(orders.rows[0].count, 0,
+      'a queued creation must not insert a gift request after the recipient opts out');
+  } finally {
+    if (holder) {
+      await holder.query('ROLLBACK').catch(() => {});
+      holder.release();
+    }
+    if (creationPromise) await creationPromise;
+    if (fixture) await cleanupFixture(pool, fixture);
+    await pool.end();
+  }
+});
+
 async function seedFixture(pool) {
   const client = await pool.connect();
   const ids = {
