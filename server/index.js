@@ -7,7 +7,7 @@ import { evaluateAdCampaignEligibility, isCampaignCountryAllowed, resolveProfile
 import { AD_EVENT_FREQUENCY_COUNTS_SQL } from './adEventFrequencyQuery.js';
 import { validateGiftDecisionInput } from './giftDecisionInput.js';
 import { normalizeGiftRequestInput } from './giftRequestInput.js';
-import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, recipientGiftAcceptanceLimitReached, expireStaleGiftRequestsForPair, notifyGiftRequestUpdate } from './giftOrderCreationService.js';
+import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, acquireGiftSafetyUserLocks, recipientGiftAcceptanceLimitReached, expireStaleGiftRequestsForPair, notifyGiftRequestUpdate } from './giftOrderCreationService.js';
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
@@ -315,9 +315,9 @@ async function requireSession(req, res, next) {
   }
 }
 
-async function persistScreening(userId, scope, result) {
+async function persistScreening(userId, scope, result, client = pool) {
   // Persist only the minimal classification metadata. Do not persist source text or text-derived hashes.
-  await pool.query('INSERT INTO user_safety_screenings (user_id, scope, flags, severity, review_status) VALUES ($1, $2, $3::jsonb, $4, $5)', [userId, scope, JSON.stringify(result.flags), result.severity, result.requiresReview ? 'pending' : 'not_required']);
+  await client.query('INSERT INTO user_safety_screenings (user_id, scope, flags, severity, review_status) VALUES ($1, $2, $3::jsonb, $4, $5)', [userId, scope, JSON.stringify(result.flags), result.severity, result.requiresReview ? 'pending' : 'not_required']);
 }
 
 async function createNotification(userId, type, metadata = {}, dedupeKey = null, client = pool) {
@@ -1196,8 +1196,14 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
   }
   if (updates.length === 0) return res.status(400).json({ error: 'no_valid_profile_fields' });
 
+  let client;
+  let removedAssets = [];
   try {
-    const result = await pool.query(
+    client = await pool.connect();
+    await client.query('BEGIN');
+    // Serialize profile changes + screening against gift acceptance for this user.
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const result = await client.query(
       `UPDATE profiles SET ${updates.join(', ')}, updated_at = NOW()
        WHERE user_id = $1
        RETURNING user_id AS id, display_name AS "displayName", gender, country, city, bio,
@@ -1208,20 +1214,28 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
          wants_children AS "wantsChildren", children_living_arrangement AS "childrenLivingArrangement"`,
       values
     );
-    if (!result.rows[0]) return res.status(404).json({ error: 'profile_not_found' });
+    if (!result.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'profile_not_found' });
+    }
     if (Object.hasOwn(body, 'photoUrls')) {
-      const removed = await pool.query(
+      const removed = await client.query(
         "DELETE FROM photo_assets WHERE user_id = $1 AND NOT (('/api/photos/' || id::text) = ANY($2::text[])) RETURNING storage_path AS \"storagePath\"",
         [req.authUser.id, body.photoUrls.filter(url => url.startsWith('/api/photos/'))]
       );
-      await Promise.all(removed.rows.map(asset => unlink(asset.storagePath).catch(() => {})));
+      removedAssets = removed.rows;
     }
     const screening = await screenProfilePrivate(result.rows[0]);
-    await persistScreening(req.authUser.id, 'profile', screening);
+    await persistScreening(req.authUser.id, 'profile', screening, client);
+    await client.query('COMMIT');
+    await Promise.all(removedAssets.map(asset => unlink(asset.storagePath).catch(() => {})));
     return res.json({ profile: result.rows[0], screening: { engine: screening.engine, externalProcessing: false, flags: screening.flags, requiresReview: screening.requiresReview } });
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Profile update failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'profile_update_failed' });
+  } finally {
+    client?.release();
   }
 });
 
@@ -1606,27 +1620,37 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
   const body = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
   if (!body || body.length > 4000) return res.status(400).json({ error: 'message_must_be_1_to_4000_characters' });
 
+  let client;
   try {
-    const access = await pool.query(
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const access = await client.query(
       `SELECT user_a_id, user_b_id FROM matches WHERE id = $1 AND status = 'active'
        AND (user_a_id = $2 OR user_b_id = $2) LIMIT 1`,
       [req.params.matchId, req.authUser.id]
     );
-    if (access.rowCount === 0) return res.status(404).json({ error: 'match_not_found' });
+    if (access.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'match_not_found' });
+    }
     const recipientId = access.rows[0].user_a_id === req.authUser.id ? access.rows[0].user_b_id : access.rows[0].user_a_id;
-
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
     const screening = await screenTextPrivate(body, 'message');
-    const result = await pool.query(
+    const result = await client.query(
       `INSERT INTO messages (match_id, sender_id, body) VALUES ($1, $2, $3)
        RETURNING id, sender_id AS "senderId", body AS text, created_at AS "createdAt"`,
       [req.params.matchId, req.authUser.id, body]
     );
-    await persistScreening(req.authUser.id, 'message', screening);
+    await persistScreening(req.authUser.id, 'message', screening, client);
+    await client.query('COMMIT');
     await createNotification(recipientId, 'new_message', { matchId: req.params.matchId }).catch(error => console.error('Message notification failed:', error?.message || 'unknown error'));
     return res.status(201).json({ message: result.rows[0], screening: { engine: screening.engine, externalProcessing: false, flaggedForReview: screening.requiresReview } });
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Message send failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'message_send_failed' });
+  } finally {
+    client?.release();
   }
 });
 
@@ -2231,6 +2255,7 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
         return res.status(404).json({ error: 'gift_request_not_available' });
       }
       await acquireGiftOrderRateLocks(client, pair.rows[0].sender_id, pair.rows[0].recipient_id);
+      await acquireGiftSafetyUserLocks(client, pair.rows[0].sender_id, pair.rows[0].recipient_id);
       await acquireGiftSafetyPairLock(client, pair.rows[0].sender_id, pair.rows[0].recipient_id);
     }
 
