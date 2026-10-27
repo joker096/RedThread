@@ -2104,10 +2104,21 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
     // the order/preference lock sequence and creating a deadlock.
     if (!validation.value.requestsEnabled) {
       await client.query(
-        `SELECT id, payment_status FROM gift_delivery_orders
+        `SELECT id FROM gift_delivery_orders
          WHERE recipient_id = $1 AND status = 'awaiting_recipient_consent'
          ORDER BY id
          FOR UPDATE`,
+        [req.authUser.id]
+      );
+      // Permanently invalidate every request that was still awaiting consent at
+      // opt-out time, including orders whose payment state needs reconciliation.
+      // Re-enabling future requests must never revive these old requests.
+      await client.query(
+        `UPDATE gift_delivery_orders
+         SET recipient_requests_disabled_at = COALESCE(recipient_requests_disabled_at, NOW()),
+             updated_at = NOW()
+         WHERE recipient_id = $1
+           AND status = 'awaiting_recipient_consent'`,
         [req.authUser.id]
       );
     }
@@ -2225,6 +2236,7 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
 
     const selected = await client.query(
       `SELECT o.id, o.match_id, o.sender_id, o.recipient_id, o.status, o.payment_status, o.expires_at,
+              o.recipient_requests_disabled_at,
               m.status AS match_status,
               sender.status AS sender_status,
               recipient.status AS recipient_status,
@@ -2253,6 +2265,10 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
     if (!order) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'gift_request_not_available' });
+    }
+    if (order.recipient_requests_disabled_at != null) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_request_not_actionable' });
     }
     if (order.status === 'awaiting_recipient_consent' &&
         new Date(order.expires_at).getTime() <= Date.now() &&
