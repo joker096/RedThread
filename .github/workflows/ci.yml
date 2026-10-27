@@ -13,6 +13,7 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:16
@@ -40,7 +41,8 @@ jobs:
         run: npm run store-assets:validate
       - run: npm run db:migrate
       - run: npm run lint
-      - run: npm test
+      - name: Run test suite with a hard timeout
+        run: timeout --signal=TERM --kill-after=30s 25m npm test
       - name: Report translation coverage
         run: npm run i18n:report
       - run: npm run build
