@@ -147,6 +147,7 @@ export async function createGiftOrderRequest(client, {
   const existing = await client.query(
     `SELECT public_reference AS "publicReference", match_id AS "matchId",
             catalog_item_id AS "catalogItemId", status,
+            recipient_requests_disabled_at AS "recipientRequestsDisabledAt",
             product_name_snapshot AS "productName",
             total_minor_units::text AS "totalMinorUnits", currency
      FROM gift_delivery_orders
@@ -161,6 +162,7 @@ export async function createGiftOrderRequest(client, {
       return reject(409, 'gift_idempotency_key_conflict');
     }
     if (row.status === 'expired') return reject(409, 'gift_request_expired');
+    if (row.recipientRequestsDisabledAt != null) return reject(409, 'gift_request_unavailable');
 
     // Idempotency must not disclose an old order after the relationship's
     // safety state changes. Re-check current account and pair restrictions
