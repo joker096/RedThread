@@ -357,6 +357,15 @@ export async function createGiftOrderRequest(client, {
     })]
   );
 
+  // Notify the recipient inside the same transaction as the order and audit event.
+  // Metadata contains only the public order reference, never location or contact data.
+  await client.query(
+    `INSERT INTO user_notifications (user_id, type, metadata, dedupe_key)
+     VALUES ($1, 'gift_request', $2::jsonb, $3)
+     ON CONFLICT (user_id, dedupe_key) DO NOTHING`,
+    [recipientId, JSON.stringify({ orderReference: order.id }), `gift_request:${order.id}`]
+  );
+
   return {
     status: 201,
     commit: true,

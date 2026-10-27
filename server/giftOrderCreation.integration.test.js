@@ -257,6 +257,45 @@ test('gift catalog fails closed when recipient preference is disabled or pair sa
   }
 });
 
+test('creating a gift request atomically notifies only its recipient without location data', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 20_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
+  let fixture;
+  try {
+    fixture = await seedFixture(pool);
+    const { ids } = fixture;
+    const result = await runRequest(pool, {
+      senderId: ids.sender,
+      matchId: ids.matchA,
+      catalogItemId: ids.catalogItem,
+      idempotencyKey: `notification-test-${randomUUID()}`
+    });
+    assert.equal(result.status, 201);
+    const senderNotifications = await pool.query(
+      `SELECT type, metadata FROM user_notifications WHERE user_id = $1 AND type = 'gift_request'`,
+      [ids.sender]
+    );
+    const recipientNotifications = await pool.query(
+      `SELECT type, metadata, dedupe_key FROM user_notifications WHERE user_id = $1 AND type = 'gift_request'`,
+      [ids.recipientA]
+    );
+    assert.equal(senderNotifications.rowCount, 0, 'gift request notification must not be sent back to the sender');
+    assert.equal(recipientNotifications.rowCount, 1);
+    assert.equal(recipientNotifications.rows[0].type, 'gift_request');
+    assert.deepEqual(recipientNotifications.rows[0].metadata, { orderReference: result.body.order.id });
+    assert.equal(recipientNotifications.rows[0].dedupe_key, `gift_request:${result.body.order.id}`);
+    const metadataText = JSON.stringify(recipientNotifications.rows[0].metadata).toLowerCase();
+    for (const privateField of ['address', 'phone', 'email', 'city', 'country', 'coordinates']) {
+      assert.equal(metadataText.includes(privateField), false, `notification metadata must not include ${privateField}`);
+    }
+  } finally {
+    if (fixture) await cleanupFixture(pool, fixture);
+    await pool.end();
+  }
+});
+
 test('concurrent gift requests cannot create two pending requests for the same pair', {
   skip: !process.env.DATABASE_URL,
   timeout: 20_000

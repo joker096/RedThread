@@ -67,6 +67,12 @@ export default function App() {
   // Navigation tab
   const [activeTab, setActiveTab] = useState<'discovery' | 'tests' | 'chats' | 'safety' | 'monetization'>('discovery');
 
+  useEffect(() => {
+    const openGiftRequests = () => setActiveTab('chats');
+    window.addEventListener('vow:open-gifts', openGiftRequests);
+    return () => window.removeEventListener('vow:open-gifts', openGiftRequests);
+  }, []);
+
   // Candidate profiles
   const [profiles, setProfiles] = useState<UserProfile[]>(initialProfiles);
 
@@ -603,7 +609,6 @@ export default function App() {
         return (
           <>
             <AccountAccessPanel onAuthenticated={() => setAssessmentRevision(value => value + 1)} />
-            <NotificationCenterPanel />
             <ProfileEditorPanel key={assessmentRevision} onOpenAccount={() => setActiveTab('tests')} />
             <AdConsentPanel />
             <ModeratorConsolePanel />
@@ -623,9 +628,10 @@ export default function App() {
         return (
           <>
             <ServerMatchesPanel onOpenAccount={() => setActiveTab('tests')} />
+            <NotificationCenterPanel />
+            <GiftOrdersPanel />
             <GiftReceivingPreferencesPanel />
             <GiftCatalogPanel />
-            <GiftOrdersPanel />
             {!showDemoChats ? (
               <section className="mx-auto mt-4 w-full max-w-md rounded-2xl border border-white/10 bg-stone-900 p-4 text-left">
                 <h3 className="font-semibold text-white">{t('demoChatsHiddenTitle')}</h3>
