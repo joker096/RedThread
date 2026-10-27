@@ -152,6 +152,10 @@ export const AdConsentPanel: React.FC = () => {
       </div>
       {loading ? (
         <div role="status" className="py-4 text-sm text-stone-300">{t('adConsentLoading')}</div>
+      ) : loadFailed ? (
+        <div className="py-2">
+          <button type="button" onClick={() => void load()} className="min-h-11 w-full rounded-xl border border-white/15 px-4 py-2 text-sm font-semibold text-stone-100 transition hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300">{t('retry')}</button>
+        </div>
       ) : (
         <form onSubmit={save} className="space-y-3">
           {toggle(t('adConsentMaster'), preferences.adsConsent, value => update('adsConsent', value), false, t('adConsentMasterDescription'))}
@@ -180,7 +184,6 @@ export const AdConsentPanel: React.FC = () => {
         </form>
       )}
       {notice && <p role="status" aria-live="polite" className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-stone-200">{notice}</p>}
-      {loadFailed && !loading && <button type="button" onClick={() => void load()} className="mt-3 min-h-11 w-full rounded-xl border border-white/15 px-4 py-2 text-sm font-semibold text-stone-100 transition hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300">{t('retry')}</button>}
     </section>
   );
 };
