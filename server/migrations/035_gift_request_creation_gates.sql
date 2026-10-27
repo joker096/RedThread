@@ -57,7 +57,8 @@ BEGIN
           delivery_fee_minor_units IS NOT NULL
           AND delivery_fee_currency IS NOT NULL
           AND delivery_fee_minor_units >= 0
-          AND delivery_fee_currency ~ '^[A-Z]{3}
+          AND delivery_fee_currency ~ '^[A-Z]{3}$'
+        )
       );
   END IF;
 END $$;
@@ -84,44 +85,6 @@ BEGIN
           AND delivery_fee_minor_units IS NOT NULL
           AND delivery_fee_minor_units >= 0
           AND delivery_fee_currency IS NOT NULL
-          AND delivery_fee_currency = currency
-          AND total_minor_units = item_price_minor_units + delivery_fee_minor_units
-        )
-      );
-  END IF;
-END $$;
-
-COMMENT ON COLUMN gift_delivery_orders.item_price_minor_units IS
-  'Price snapshot for the selected catalog item at request creation; NULL only on legacy rows created before migration 035.';
-COMMENT ON COLUMN gift_delivery_orders.delivery_fee_minor_units IS
-  'Verified delivery fee snapshot from the selected partner coverage record. This is not payment authorization.';
-COMMENT ON COLUMN gift_delivery_partner_coverage.delivery_fee_minor_units IS
-  'Reviewed local delivery fee; NULL means coverage must fail closed until a price is configured.';
-
-        )
-      );
-  END IF;
-END $$;
-
-ALTER TABLE gift_delivery_orders
-  ADD COLUMN IF NOT EXISTS item_price_minor_units BIGINT,
-  ADD COLUMN IF NOT EXISTS delivery_fee_minor_units BIGINT,
-  ADD COLUMN IF NOT EXISTS delivery_fee_currency CHAR(3);
-
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conname = 'gift_orders_price_snapshot_consistency'
-      AND conrelid = 'gift_delivery_orders'::regclass
-  ) THEN
-    ALTER TABLE gift_delivery_orders
-      ADD CONSTRAINT gift_orders_price_snapshot_consistency
-      CHECK (
-        (item_price_minor_units IS NULL AND delivery_fee_minor_units IS NULL AND delivery_fee_currency IS NULL)
-        OR (
-          item_price_minor_units > 0
-          AND delivery_fee_minor_units >= 0
           AND delivery_fee_currency = currency
           AND total_minor_units = item_price_minor_units + delivery_fee_minor_units
         )
