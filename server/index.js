@@ -2321,7 +2321,13 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
                   WHERE r.status IN ('open', 'reviewing')
                     AND ((r.reporter_id = $1 AND r.reported_user_id = $2)
                       OR (r.reporter_id = $2 AND r.reported_user_id = $1))
-                ) AS has_open_report
+                ) AS has_open_report,
+                EXISTS (
+                  SELECT 1 FROM user_safety_screenings ss
+                  WHERE ss.user_id IN ($1, $2)
+                    AND ss.severity = 'high'
+                    AND ss.review_status IN ('pending', 'reviewing', 'actioned')
+                ) AS safety_restricted
          FROM matches m
          JOIN users sender ON sender.id = $1
          JOIN users recipient ON recipient.id = $2
@@ -2334,7 +2340,8 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
       if (!safety || safety.match_status !== 'active' ||
           safety.sender_status !== 'active' || safety.recipient_status !== 'active' ||
           !requestsEnabled || safety.requests_enabled !== true ||
-          safety.has_block === true || safety.has_open_report === true) {
+          safety.has_block === true || safety.has_open_report === true ||
+          safety.safety_restricted === true) {
         await client.query('ROLLBACK');
         return res.status(409).json({ error: 'gift_request_not_actionable' });
       }
