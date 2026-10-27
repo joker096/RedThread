@@ -2351,7 +2351,9 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
            recipient_consent_at = CASE WHEN $2 = 'recipient_accepted' THEN NOW() ELSE recipient_consent_at END,
            recipient_consent_version = CASE WHEN $2 = 'recipient_accepted' THEN 1 ELSE recipient_consent_version END,
            updated_at = NOW()
-       WHERE id = $1 AND status = 'awaiting_recipient_consent'
+       WHERE id = $1
+         AND status = 'awaiting_recipient_consent'
+         AND ($3::boolean = FALSE OR expires_at > NOW())
        RETURNING public_reference AS "publicReference", status`,
       [order.id, nextStatus]
     );
