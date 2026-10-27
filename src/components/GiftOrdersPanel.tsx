@@ -85,6 +85,7 @@ export const GiftOrdersPanel: React.FC = () => {
   const [busyReference, setBusyReference] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
   const loadRequestId = useRef(0);
+  const panelRef = useRef<HTMLElement | null>(null);
 
   const load = useCallback(async () => {
     const requestId = ++loadRequestId.current;
@@ -108,6 +109,17 @@ export const GiftOrdersPanel: React.FC = () => {
       if (requestId === loadRequestId.current) setLoading(false);
     }
   }, [t]);
+
+  useEffect(() => {
+    const focusGiftOrders = () => {
+      const element = panelRef.current;
+      if (!element) return;
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      element.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
+    };
+    window.addEventListener('vow:open-gifts', focusGiftOrders);
+    return () => window.removeEventListener('vow:open-gifts', focusGiftOrders);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -206,7 +218,7 @@ export const GiftOrdersPanel: React.FC = () => {
   };
 
   return (
-    <section className="mx-auto mt-4 w-full max-w-md rounded-2xl border border-white/10 bg-stone-900 p-4 text-left text-white" aria-labelledby="gift-orders-title">
+    <section ref={panelRef} id="gift-orders-panel" className="mx-auto mt-4 w-full max-w-md scroll-mt-20 rounded-2xl border border-white/10 bg-stone-900 p-4 text-left text-white" aria-labelledby="gift-orders-title">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 id="gift-orders-title" className="text-lg font-semibold">{t('giftOrdersTitle')}</h2>
