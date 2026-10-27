@@ -141,3 +141,18 @@ Persisted consent is valid only when its `consent_version` matches the current s
 ### Engagement-event rate limits
 
 The current authenticated event endpoint applies a server-side cap of 3 impression events and 5 click events per user per campaign in a rolling 24-hour window. Event IDs and the per-user/campaign advisory lock serialize concurrent attempts so parallel requests cannot simply race past the counters. The click cap limits event spam; it does not prove a genuine human click, viewability, attribution, or billable engagement. The endpoint remains an anti-abuse/frequency-control mechanism only.
+
+## Release blockers — must be implemented before enabling ads
+
+The current event endpoint is a consented, frequency-limited event collector only. It is **not** an ad-serving authorization system or a billing ledger. Do not enable campaigns or bill advertisers until all of these server-side controls are shipped and tested:
+
+1. **Approved campaign registry:** create a server-owned campaign record with advertiser verification, campaign status (`pending`, `approved`, `paused`, `rejected`, `expired`), approved creative/version, category, allowed regions, start/end times, budget and landing-page review. At event ingestion, resolve the supplied campaign ID against this registry and reject unknown IDs, non-approved status, out-of-window campaigns, disallowed regions/categories and revoked creatives. A syntactically valid client-supplied ID is not evidence that a campaign exists or is approved.
+2. **Serving authorization:** implement a separate server-side eligibility decision using the current viewer consent, category preferences, region, date/milestone state and safety restrictions. The event endpoint must not be treated as a way to make an otherwise ineligible offer eligible.
+3. **Independent measurement proof:** client-submitted impressions/clicks are analytics signals only. Billing requires trusted server-side viewability and attribution evidence, invalid-traffic screening, deduplication and auditable budget accounting. Never derive a charge solely from `ad_events`.
+4. **Operational retention:** deploy and monitor the documented daily 90-day cleanup job; alert on missed runs and verify actual deletion.
+5. **Launch review:** security, privacy, moderation, legal and billing owners must sign off before production serving or charging is enabled.
+
+## Gift-delivery release blockers
+
+The gift creation policy helper is a pure eligibility check; it does not create an order or enforce limits atomically. The sender request limit (3 per 30 days) and recipient acceptance limit (1 per 7 days) must be checked against trusted database rows inside a transaction serialized by deterministic pair, sender and recipient locks. Add concurrent integration tests proving parallel requests cannot exceed either limit. Until an order-creation endpoint, transactional limits, encrypted recipient-address vault, payment authorization/void/refund reconciliation, and vetted courier handoff exist, keep order creation, payment and dispatch disabled. Never expose recipient address or live courier location to the sender.
+
