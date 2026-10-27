@@ -3,6 +3,7 @@ import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { validateAdEventPayload, classifyDuplicateAdEvent, hasExplicitAdConsent, evaluateAdEventFrequency } from './adEvents.js';
+import { evaluateAdCampaignEligibility } from './adCampaignRegistry.js';
 import { AD_EVENT_FREQUENCY_COUNTS_SQL } from './adEventFrequencyQuery.js';
 import { validateGiftDecisionInput } from './giftDecisionInput.js';
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
@@ -2505,6 +2506,35 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
     // Distinct event IDs for this user/campaign serialize before frequency and
     // click-after-impression checks, preventing parallel requests bypassing either.
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`ad-campaign:${user.id}:${campaignId}`]);
+
+    // A well-formed client ID is not authority to track an arbitrary campaign.
+    // Resolve every new event against the server-owned approval registry.
+    const campaignResult = await client.query(
+      `SELECT id, status, advertiser_verified, creative_version, creative_approved,
+              category, starts_at, ends_at
+       FROM ad_campaigns
+       WHERE id = $1
+       FOR SHARE`,
+      [campaignId]
+    );
+    const row = campaignResult.rows[0];
+    const campaignEligibility = evaluateAdCampaignEligibility(row ? {
+      id: row.id,
+      status: row.status,
+      advertiserVerified: row.advertiser_verified,
+      creativeVersion: row.creative_version,
+      creativeApproved: row.creative_approved,
+      category: row.category,
+      startsAt: row.starts_at instanceof Date ? row.starts_at.toISOString() : row.starts_at,
+      endsAt: row.ends_at instanceof Date ? row.ends_at.toISOString() : row.ends_at
+    } : null);
+    if (!campaignEligibility.eligible) {
+      await client.query('ROLLBACK');
+      const unknown = campaignEligibility.reason === 'campaign_unknown';
+      return res.status(unknown ? 404 : 403).json({
+        error: unknown ? 'ad_campaign_not_found' : 'ad_campaign_not_eligible'
+      });
+    }
 
     const counts = await client.query(AD_EVENT_FREQUENCY_COUNTS_SQL, [user.id, campaignId]);
     const eventCounts = counts.rows[0];
