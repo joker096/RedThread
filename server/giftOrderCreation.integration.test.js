@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
-import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, recipientGiftAcceptanceLimitReached } from './giftOrderCreationService.js';
+import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, recipientGiftAcceptanceLimitReached, notifyGiftRequestUpdate } from './giftOrderCreationService.js';
 
 const { Pool } = pg;
 
@@ -290,6 +290,50 @@ test('creating a gift request atomically notifies only its recipient without loc
     for (const privateField of ['address', 'phone', 'email', 'city', 'country', 'coordinates']) {
       assert.equal(metadataText.includes(privateField), false, `notification metadata must not include ${privateField}`);
     }
+  } finally {
+    if (fixture) await cleanupFixture(pool, fixture);
+    await pool.end();
+  }
+});
+
+test('gift request updates notify only the sender with generic, idempotent metadata', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 20_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
+  let fixture;
+  try {
+    fixture = await seedFixture(pool);
+    const { ids } = fixture;
+    const request = await runRequest(pool, {
+      senderId: ids.sender,
+      matchId: ids.matchA,
+      catalogItemId: ids.catalogItem,
+      idempotencyKey: 'gift-update-notification-' + randomUUID()
+    });
+    assert.equal(request.status, 201);
+    await notifyGiftRequestUpdate(pool, ids.sender, request.body.order.id, 'recipient_decision');
+    await notifyGiftRequestUpdate(pool, ids.sender, request.body.order.id, 'recipient_decision');
+    const sent = await pool.query(
+      "SELECT type, metadata, dedupe_key FROM user_notifications WHERE user_id = $1 AND type = 'gift_request_update'",
+      [ids.sender]
+    );
+    const recipientUpdates = await pool.query(
+      "SELECT 1 FROM user_notifications WHERE user_id = $1 AND type = 'gift_request_update'",
+      [ids.recipientA]
+    );
+    assert.equal(sent.rowCount, 1, 'replayed update event must not duplicate the notification');
+    assert.equal(recipientUpdates.rowCount, 0, 'update notification goes to the sender, not the recipient');
+    assert.deepEqual(sent.rows[0].metadata, { orderReference: request.body.order.id });
+    assert.equal(sent.rows[0].dedupe_key, 'gift_request_update:' + request.body.order.id + ':recipient_decision');
+    const metadataText = JSON.stringify(sent.rows[0].metadata).toLowerCase();
+    for (const forbidden of ['address', 'phone', 'email', 'city', 'country', 'coordinates', 'decision', 'reason']) {
+      assert.equal(metadataText.includes(forbidden), false, 'notification metadata must not include ' + forbidden);
+    }
+    await assert.rejects(
+      notifyGiftRequestUpdate(pool, ids.sender, request.body.order.id, 'unknown-transition'),
+      /invalid_gift_request_update_notification/
+    );
   } finally {
     if (fixture) await cleanupFixture(pool, fixture);
     await pool.end();

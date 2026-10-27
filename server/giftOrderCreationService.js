@@ -23,6 +23,17 @@ export async function recipientGiftAcceptanceLimitReached(client, recipientId) {
 }
 
 /** Expects an open transaction holding the pair's user-rate locks and unordered-pair safety lock. */
+export async function notifyGiftRequestUpdate(client, userId, orderReference, transition) {
+  if (typeof orderReference !== 'string' || !/^gift_[a-f0-9]{32}$/i.test(orderReference) ||
+      !['recipient_decision', 'consent_withdrawn'].includes(transition)) {
+    throw new Error('invalid_gift_request_update_notification');
+  }
+  const dedupeKey = 'gift_request_update:' + orderReference + ':' + transition;
+  return client.query(
+    "INSERT INTO user_notifications (user_id, type, metadata, dedupe_key) VALUES ($1, 'gift_request_update', $2::jsonb, $3) ON CONFLICT (user_id, dedupe_key) DO NOTHING",
+    [userId, JSON.stringify({ orderReference }), dedupeKey]
+  );
+}
 export async function expireStaleGiftRequestsForPair(client, { matchId, senderId, recipientId }) {
   const candidates = await client.query(
     `SELECT id, payment_status

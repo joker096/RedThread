@@ -7,7 +7,7 @@ import { evaluateAdCampaignEligibility, isCampaignCountryAllowed, resolveProfile
 import { AD_EVENT_FREQUENCY_COUNTS_SQL } from './adEventFrequencyQuery.js';
 import { validateGiftDecisionInput } from './giftDecisionInput.js';
 import { normalizeGiftRequestInput } from './giftRequestInput.js';
-import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, recipientGiftAcceptanceLimitReached, expireStaleGiftRequestsForPair } from './giftOrderCreationService.js';
+import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, recipientGiftAcceptanceLimitReached, expireStaleGiftRequestsForPair, notifyGiftRequestUpdate } from './giftOrderCreationService.js';
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
@@ -2364,6 +2364,9 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
        VALUES ($1, $2, 'recipient', $3, 'awaiting_recipient_consent', $4)`,
       [order.id, req.authUser.id, action === 'accept' ? 'accepted' : 'declined', nextStatus]
     );
+    // Sender gets a deliberately generic update. Neither the exact decision nor
+    // any safety/moderation details are copied into notification metadata.
+    await notifyGiftRequestUpdate(client, order.sender_id, updated.rows[0].publicReference, 'recipient_decision');
     await client.query('COMMIT');
     // A decision records consent only; it does not authorize payment, address access, or fulfilment.
     return res.json({
@@ -2453,6 +2456,7 @@ app.post('/api/gifts/orders/:publicReference/withdraw-consent', validateRequestO
        VALUES ($1, $2, 'recipient', 'consent_withdrawn', $3, 'cancelled')`,
       [order.id, req.authUser.id, order.status]
     );
+    await notifyGiftRequestUpdate(client, pair.rows[0].sender_id, updated.rows[0].public_reference, 'consent_withdrawn');
     await client.query('COMMIT');
     return res.json({ order: { id: updated.rows[0].public_reference, status: 'cancelled', consentWithdrawn: true } });
   } catch (error) {
