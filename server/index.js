@@ -6,6 +6,8 @@ import { validateAdEventPayload, classifyDuplicateAdEvent, hasExplicitAdConsent,
 import { evaluateAdCampaignEligibility, isCampaignCountryAllowed, resolveProfileCountryCode } from './adCampaignRegistry.js';
 import { AD_EVENT_FREQUENCY_COUNTS_SQL } from './adEventFrequencyQuery.js';
 import { validateGiftDecisionInput } from './giftDecisionInput.js';
+import { normalizeGiftRequestInput } from './giftRequestInput.js';
+import { createGiftOrderRequest, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock } from './giftOrderCreationService.js';
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
@@ -2086,6 +2088,47 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
   }
 });
 
+app.post('/api/gifts/orders', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  const validation = normalizeGiftRequestInput(req.body);
+  if (!validation.ok) {
+    return res.status(400).json({
+      error: validation.error,
+      ...(validation.field ? { field: validation.field } : {})
+    });
+  }
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const result = await createGiftOrderRequest(client, {
+      senderId: req.authUser.id,
+      matchId: validation.value.matchId,
+      catalogItemId: validation.value.catalogItemId,
+      idempotencyKey: validation.value.idempotencyKey
+    });
+    await client.query(result.commit ? 'COMMIT' : 'ROLLBACK');
+    return res.status(result.status).json(result.body);
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (error?.code === '23505') {
+      const constraint = String(error.constraint || '');
+      return res.status(409).json({
+        error: constraint.includes('pending_per_unordered_pair')
+          ? 'gift_request_already_pending'
+          : 'gift_idempotency_key_conflict'
+      });
+    }
+    if (error?.code === '23503' || error?.code === '23514') {
+      return res.status(409).json({ error: 'gift_request_unavailable' });
+    }
+    console.error('Gift request creation failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_request_creation_unavailable' });
+  } finally {
+    client?.release();
+  }
+});
+
 app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
   const validation = validateGiftDecisionInput(req.body, req.params.publicReference);
   if (!validation.valid) {
@@ -2111,10 +2154,8 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
         await client.query('ROLLBACK');
         return res.status(404).json({ error: 'gift_request_not_available' });
       }
-      await client.query(
-        "SELECT pg_advisory_xact_lock(hashtext('gift-safety:' || LEAST($1::uuid, $2::uuid)::text || ':' || GREATEST($1::uuid, $2::uuid)::text))",
-        [pair.rows[0].sender_id, pair.rows[0].recipient_id]
-      );
+      await acquireGiftOrderRateLocks(client, pair.rows[0].sender_id, pair.rows[0].recipient_id);
+      await acquireGiftSafetyPairLock(client, pair.rows[0].sender_id, pair.rows[0].recipient_id);
     }
 
     const selected = await client.query(
@@ -2225,6 +2266,23 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
         !['not_started', 'voided', 'failed'].includes(order.payment_status)) {
       await client.query('ROLLBACK');
       return res.status(409).json({ error: 'gift_payment_requires_reconciliation' });
+    }
+
+    if (action === 'accept') {
+      // The same recipient-level rate lock is used by request creation. Count
+      // historical consent events (including later withdrawn/cancelled requests)
+      // so parallel acceptances cannot exceed one accepted gift per 7 days.
+      const acceptedRecently = await client.query(
+        `SELECT COUNT(*)::int AS count
+         FROM gift_delivery_orders
+         WHERE recipient_id = $1
+           AND recipient_consent_at >= NOW() - INTERVAL '7 days'`,
+        [order.recipient_id]
+      );
+      if (Number(acceptedRecently.rows[0]?.count ?? 0) >= 1) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'gift_recipient_rate_limit' });
+      }
     }
 
     const nextStatus = action === 'accept' ? 'recipient_accepted' : 'declined';
