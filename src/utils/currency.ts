@@ -14,6 +14,7 @@ export function formatMinorCurrency(
     // JPY commonly has zero, while KWD has three). Use the formatter's currency
     // precision so the UI matches the minor-unit scale used by the database.
     const fractionDigits = formatter.resolvedOptions().maximumFractionDigits;
+    if (typeof fractionDigits !== 'number' || !Number.isInteger(fractionDigits) || fractionDigits < 0 || fractionDigits > 6) return null;
     const scale = 10 ** fractionDigits;
     const majorUnits = minorUnits / scale;
     if (!Number.isFinite(majorUnits)) return null;
