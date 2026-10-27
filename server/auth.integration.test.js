@@ -456,6 +456,59 @@ test('auth API supports registration, session lookup, logout and login', {
       });
       assert.equal(enableGiftRequests.status, 200);
 
+      // A request that expires before acceptance must remain unaccepted even if the
+      // request handler's initial read raced with the expiry boundary.
+      const expiredAcceptanceResult = await giftTestDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, idempotency_key)
+         VALUES ($1, $2, $3, 'Expired acceptance race test', 'chocolate', 1000, 'USD',
+                 'awaiting_recipient_consent', 'not_started', $4)
+         RETURNING id, public_reference`,
+        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      const expiredAcceptanceOrderId = expiredAcceptanceResult.rows[0].id;
+      const expiredAcceptanceReference = expiredAcceptanceResult.rows[0].public_reference;
+      try {
+        await giftTestDb.query(
+          "UPDATE gift_delivery_orders SET expires_at = NOW() - INTERVAL '1 second' WHERE id = $1",
+          [expiredAcceptanceOrderId]
+        );
+        const expiredAcceptance = await request(
+          `/api/gifts/orders/${expiredAcceptanceReference}/decision`,
+          {
+            method: 'POST',
+            headers: { Cookie: secondCookie },
+            body: JSON.stringify({ action: 'accept' })
+          }
+        );
+        assert.equal(expiredAcceptance.status, 409,
+          'an expired gift request must not be accepted');
+        const expiredAcceptanceState = await giftTestDb.query(
+          `SELECT status, recipient_consent_at, payment_status
+           FROM gift_delivery_orders WHERE id = $1`,
+          [expiredAcceptanceOrderId]
+        );
+        assert.deepEqual(expiredAcceptanceState.rows[0], {
+          status: 'expired',
+          recipient_consent_at: null,
+          payment_status: 'not_started'
+        }, 'the expiry transition must not persist recipient acceptance or consent');
+        const expiredAcceptanceAudit = await giftTestDb.query(
+          `SELECT event_type, from_status, to_status
+           FROM gift_delivery_order_events WHERE order_id = $1`,
+          [expiredAcceptanceOrderId]
+        );
+        assert.deepEqual(expiredAcceptanceAudit.rows, [{
+          event_type: 'expired',
+          from_status: 'awaiting_recipient_consent',
+          to_status: 'expired'
+        }], 'an expired request must record expiry, never an acceptance event');
+      } finally {
+        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [expiredAcceptanceOrderId]).catch(() => {});
+        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [expiredAcceptanceOrderId]).catch(() => {});
+      }
+
       // Active payment states must not be silently declined or cancelled.
       // Gift payment processing is not integrated, so these requests stay
       // pending for explicit reconciliation rather than faking a void/refund.
