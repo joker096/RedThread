@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
-import { createGiftOrderRequest, listGiftCatalogForMatch } from './giftOrderCreationService.js';
+import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, recipientGiftAcceptanceLimitReached } from './giftOrderCreationService.js';
 
 const { Pool } = pg;
 
