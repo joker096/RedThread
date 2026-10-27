@@ -2133,6 +2133,11 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
     client = await pool.connect();
     await client.query('BEGIN');
 
+    // Serialize preference changes with gift creation and acceptance. Without
+    // this lock, creation could read the old opt-in after opt-out has scanned
+    // pending orders, then insert a request that the opt-out transaction misses.
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+
     // Lock pending orders before the preference row. Gift acceptance locks an
     // order before reading the preference, so this ordering avoids reversing
     // the order/preference lock sequence and creating a deadlock.
