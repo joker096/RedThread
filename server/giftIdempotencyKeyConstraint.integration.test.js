@@ -75,7 +75,6 @@ test('gift order uniqueness constraints prevent concurrent duplicate inserts', {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
   const setup = await pool.connect();
   const schema = `gift_race_test_${randomUUID().replaceAll('-', '')}`;
-  let clients = [];
   try {
     const definitions = await setup.query(
       `SELECT conname, pg_get_constraintdef(oid) AS definition
@@ -143,8 +142,8 @@ test('gift order uniqueness constraints prevent concurrent duplicate inserts', {
     const raceInsert = async (first, second, expectedConstraint) => {
       const a = await pool.connect();
       const b = await pool.connect();
-      clients.push(a, b);
       const applicationName = `gift_race_${randomUUID().replaceAll('-', '')}`;
+      try {
       await b.query('SELECT set_config(\'application_name\', $1, false)', [applicationName]);
       await a.query('BEGIN');
       await a.query(
@@ -174,6 +173,12 @@ test('gift order uniqueness constraints prevent concurrent duplicate inserts', {
         [first[4], first[1]]
       );
       assert.equal(count.rows[0].count, 1, 'only one row may survive each uniqueness race');
+      } finally {
+        // Return both connections before the next race; otherwise the setup
+        // client plus two leaked clients exhausts the four-connection pool.
+        b.release();
+        a.release();
+      }
     };
 
     const idA = randomUUID(), idB = randomUUID();
@@ -191,9 +196,6 @@ test('gift order uniqueness constraints prevent concurrent duplicate inserts', {
       'gift_race_one_pending_pair'
     );
   } finally {
-    for (const client of clients) {
-      client.release();
-    }
     await setup.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`).catch(() => {});
     setup.release();
     await pool.end();
