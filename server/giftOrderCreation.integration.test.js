@@ -6,6 +6,33 @@ import { createGiftOrderRequest, listGiftCatalogForMatch } from './giftOrderCrea
 
 const { Pool } = pg;
 
+test('gift order totals project PostgreSQL BIGINT values as exact safe JavaScript numbers', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 10_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+  try {
+    const result = await pool.query(
+      `SELECT value,
+         CASE
+           WHEN value BETWEEN 0 AND 9007199254740991::bigint
+             THEN value::double precision
+           ELSE NULL
+         END AS "totalMinorUnits"
+       FROM UNNEST($1::bigint[]) AS values_table(value)`,
+      [['2500', '9007199254740991', '9007199254740992']]
+    );
+    assert.equal(result.rows[0].totalMinorUnits, 2500);
+    assert.equal(typeof result.rows[0].totalMinorUnits, 'number');
+    assert.equal(result.rows[1].totalMinorUnits, Number.MAX_SAFE_INTEGER);
+    assert.equal(typeof result.rows[1].totalMinorUnits, 'number');
+    assert.equal(result.rows[2].totalMinorUnits, null, 'unsafe BIGINT amounts should be excluded rather than rounded');
+  } finally {
+    await pool.end();
+  }
+});
+
+
 async function seedFixture(pool) {
   const client = await pool.connect();
   const ids = {

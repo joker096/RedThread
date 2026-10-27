@@ -2455,7 +2455,11 @@ app.get('/api/gifts/orders', requireSession, profileActionLimiter, async (req, r
   try {
     const result = await pool.query(
       `SELECT public_reference AS "publicReference", product_name_snapshot AS "productName",
-              product_category AS "productCategory", total_minor_units AS "totalMinorUnits",
+              product_category AS "productCategory", CASE
+                WHEN total_minor_units BETWEEN 0 AND 9007199254740991::bigint
+                  THEN total_minor_units::double precision
+                ELSE NULL
+              END AS "totalMinorUnits",
               currency,
               CASE
                 WHEN sender_id = $1 AND status IN ('declined', 'expired', 'cancelled', 'blocked', 'reported')
@@ -2472,7 +2476,12 @@ app.get('/api/gifts/orders', requireSession, profileActionLimiter, async (req, r
        LIMIT 50`,
       [req.authUser.id]
     );
-    return res.json({ orders: result.rows });
+    // PostgreSQL int8 values otherwise serialize as decimal strings, which the
+    // privacy-safe UI intentionally rejects. Keep only exact safe-integer prices.
+    const orders = result.rows.filter(order =>
+      Number.isSafeInteger(order.totalMinorUnits) && order.totalMinorUnits >= 0
+    );
+    return res.json({ orders });
   } catch (error) {
     console.error('Gift order list failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'gift_orders_unavailable' });
