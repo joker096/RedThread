@@ -91,6 +91,64 @@ test('gift acceptance safety user lock serializes against a concurrent screening
   }
 });
 
+test('gift creation waits for the user safety lock before creating an order', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 20_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
+  let fixture;
+  let holder;
+  let creationPromise;
+  try {
+    fixture = await seedFixture(pool);
+    const { ids } = fixture;
+    holder = await pool.connect();
+    await holder.query('BEGIN');
+    await acquireGiftSafetyUserLocks(holder, ids.sender, ids.recipientA);
+
+    // Start the real creation service while a separate transaction holds both
+    // participants' safety locks. Observe PostgreSQL's lock wait rather than
+    // relying on a timing-only assertion.
+    creationPromise = runRequest(pool, {
+      senderId: ids.sender,
+      matchId: ids.matchA,
+      catalogItemId: ids.catalogItem,
+      idempotencyKey: 'safety-lock-create-' + randomUUID()
+    }).then(value => ({ value }), error => ({ error }));
+
+    const deadline = Date.now() + 5_000;
+    let waitingOnSafetyLock = false;
+    while (Date.now() < deadline && !waitingOnSafetyLock) {
+      await pool.query('SELECT pg_sleep(0.05)');
+      const waiting = await pool.query(
+        `SELECT 1
+         FROM pg_stat_activity
+         WHERE pid <> pg_backend_pid()
+           AND wait_event_type = 'Lock'
+           AND query LIKE '%gift-safety-user:%'
+         LIMIT 1`
+      );
+      waitingOnSafetyLock = waiting.rowCount > 0;
+    }
+    assert.equal(waitingOnSafetyLock, true,
+      'gift creation must wait on the participant safety lock before proceeding');
+
+    await holder.query('COMMIT');
+    const outcome = await creationPromise;
+    if (outcome.error) throw outcome.error;
+    assert.equal(outcome.value.status, 201,
+      'creation should proceed after the safety decision transaction commits');
+  } finally {
+    if (holder) {
+      await holder.query('ROLLBACK').catch(() => {});
+      holder.release();
+    }
+    if (creationPromise) await creationPromise;
+    if (fixture) await cleanupFixture(pool, fixture);
+    await pool.end();
+  }
+});
+
 async function seedFixture(pool) {
   const client = await pool.connect();
   const ids = {
