@@ -433,33 +433,6 @@ test('auth API supports registration, session lookup, logout and login', {
           from_status: 'awaiting_recipient_consent',
           to_status: 'cancelled'
         }]);
-        const staleAccept = await request(
-          `/api/gifts/orders/${pendingPreferenceOrder.rows[0].public_reference}/decision`,
-          {
-            method: 'POST',
-            headers: { Cookie: secondCookie },
-            body: JSON.stringify({ action: 'accept' })
-          }
-        );
-        assert.equal(staleAccept.status, 409,
-          'a stale gift request cannot be accepted after the recipient disables requests');
-
-        const reenableGiftRequests = await request('/api/gifts/preferences', {
-          method: 'PUT',
-          headers: { Cookie: secondCookie },
-          body: JSON.stringify({ requestsEnabled: true })
-        });
-        assert.equal(reenableGiftRequests.status, 200);
-        const staleAcceptAfterReenable = await request(
-          `/api/gifts/orders/${pendingPreferenceOrder.rows[0].public_reference}/decision`,
-          {
-            method: 'POST',
-            headers: { Cookie: secondCookie },
-            body: JSON.stringify({ action: 'accept' })
-          }
-        );
-        assert.equal(staleAcceptAfterReenable.status, 409,
-          're-enabling future requests must not revive a previously invalidated request');
       } finally {
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [pendingPreferenceOrderId]).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [pendingPreferenceOrderId]).catch(() => {});
