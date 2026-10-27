@@ -3,7 +3,7 @@ import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { validateAdEventPayload, classifyDuplicateAdEvent, hasExplicitAdConsent, evaluateAdEventFrequency } from './adEvents.js';
-import { evaluateAdCampaignEligibility } from './adCampaignRegistry.js';
+import { evaluateAdCampaignEligibility, isCampaignCountryAllowed, resolveProfileCountryCode } from './adCampaignRegistry.js';
 import { AD_EVENT_FREQUENCY_COUNTS_SQL } from './adEventFrequencyQuery.js';
 import { validateGiftDecisionInput } from './giftDecisionInput.js';
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
@@ -2511,7 +2511,7 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
     // Resolve every new event against the server-owned approval registry.
     const campaignResult = await client.query(
       `SELECT id, status, advertiser_verified, creative_version, creative_approved,
-              category, starts_at, ends_at
+              category, allowed_country_codes, starts_at, ends_at
        FROM ad_campaigns
        WHERE id = $1
        FOR SHARE`,
@@ -2534,6 +2534,14 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
       return res.status(unknown ? 404 : 403).json({
         error: unknown ? 'ad_campaign_not_found' : 'ad_campaign_not_eligible'
       });
+    }
+
+    // Country targeting uses only the profile's declared country for now. It is
+    // a fail-closed campaign targeting guard, not proof of physical location.
+    const profileCountryCode = resolveProfileCountryCode(user.country);
+    if (!isCampaignCountryAllowed(row.allowed_country_codes, profileCountryCode)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'ad_campaign_region_not_allowed' });
     }
 
     const counts = await client.query(AD_EVENT_FREQUENCY_COUNTS_SQL, [user.id, campaignId]);
