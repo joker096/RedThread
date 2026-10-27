@@ -144,6 +144,9 @@ export async function createGiftOrderRequest(client, {
   // acceptance path takes these locks before the pair lock, preventing
   // concurrent senders from bypassing the sender/recipient rolling limits.
   await acquireGiftOrderRateLocks(client, senderId, recipientId);
+  // Serialize creation with profile screening, account deletion, and moderator
+  // suspension before taking the shared pair lock.
+  await acquireGiftSafetyUserLocks(client, senderId, recipientId);
   await acquireGiftSafetyPairLock(client, senderId, recipientId);
 
   const expiration = await expireStaleGiftRequestsForPair(client, { matchId, senderId, recipientId });
