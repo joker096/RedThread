@@ -470,3 +470,97 @@ test('concurrent acceptances from different pairs cannot exceed recipient weekly
     await pool.end();
   }
 });
+
+
+test('expired unpaid pending request is closed and audited before a replacement request', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 20_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
+  let fixture;
+  try {
+    fixture = await seedFixture(pool);
+    const { ids } = fixture;
+    const stale = await pool.query(
+      \`INSERT INTO gift_delivery_orders (
+         match_id, sender_id, recipient_id, catalog_item_id, product_name_snapshot,
+         product_category, item_price_minor_units, delivery_fee_minor_units,
+         delivery_fee_currency, total_minor_units, currency, delivery_partner_id,
+         status, payment_status, idempotency_key, created_at, expires_at
+       ) VALUES ($1, $2, $3, $4, 'Old chocolate', 'chocolate',
+                 2500, 300, 'GEL', 2800, 'GEL', $5,
+                 'awaiting_recipient_consent', 'not_started', $6,
+                 NOW() - INTERVAL '4 days', NOW() - INTERVAL '1 second')
+       RETURNING id\`,
+      [ids.matchA, ids.sender, ids.recipientA, ids.catalogItem, ids.deliveryPartner, 'expired-test-' + randomUUID()]
+    );
+    const result = await runRequest(pool, {
+      senderId: ids.sender,
+      matchId: ids.matchA,
+      catalogItemId: ids.catalogItem,
+      idempotencyKey: 'replacement-test-' + randomUUID()
+    });
+    assert.equal(result.status, 201);
+    const expired = await pool.query('SELECT status FROM gift_delivery_orders WHERE id = $1', [stale.rows[0].id]);
+    assert.equal(expired.rows[0].status, 'expired');
+    const event = await pool.query(
+      "SELECT 1 FROM gift_delivery_order_events WHERE order_id = $1 AND event_type = 'expired'",
+      [stale.rows[0].id]
+    );
+    assert.equal(event.rowCount, 1, 'expiration must be recorded in the audit trail');
+    const pending = await pool.query(
+      "SELECT COUNT(*)::int AS count FROM gift_delivery_orders WHERE match_id = $1 AND status = 'awaiting_recipient_consent'",
+      [ids.matchA]
+    );
+    assert.equal(pending.rows[0].count, 1);
+  } finally {
+    if (fixture) await cleanupFixture(pool, fixture);
+    await pool.end();
+  }
+});
+
+test('expired requests with unresolved payment state fail closed and remain unchanged', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 20_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
+  let fixture;
+  try {
+    fixture = await seedFixture(pool);
+    const { ids } = fixture;
+    const stale = await pool.query(
+      \`INSERT INTO gift_delivery_orders (
+         match_id, sender_id, recipient_id, catalog_item_id, product_name_snapshot,
+         product_category, item_price_minor_units, delivery_fee_minor_units,
+         delivery_fee_currency, total_minor_units, currency, delivery_partner_id,
+         status, payment_status, idempotency_key, created_at, expires_at
+       ) VALUES ($1, $2, $3, $4, 'Old chocolate', 'chocolate',
+                 2500, 300, 'GEL', 2800, 'GEL', $5,
+                 'awaiting_recipient_consent', 'authorization_pending', $6,
+                 NOW() - INTERVAL '4 days', NOW() - INTERVAL '1 second')
+       RETURNING id\`,
+      [ids.matchA, ids.sender, ids.recipientA, ids.catalogItem, ids.deliveryPartner, 'expired-payment-test-' + randomUUID()]
+    );
+    const result = await runRequest(pool, {
+      senderId: ids.sender,
+      matchId: ids.matchA,
+      catalogItemId: ids.catalogItem,
+      idempotencyKey: 'blocked-replacement-test-' + randomUUID()
+    });
+    assert.equal(result.status, 409);
+    assert.equal(result.body.error, 'gift_payment_requires_reconciliation');
+    const order = await pool.query('SELECT status, payment_status FROM gift_delivery_orders WHERE id = $1', [stale.rows[0].id]);
+    assert.deepEqual(order.rows[0], {
+      status: 'awaiting_recipient_consent',
+      payment_status: 'authorization_pending'
+    });
+    const count = await pool.query(
+      "SELECT COUNT(*)::int AS count FROM gift_delivery_orders WHERE match_id = $1 AND status = 'awaiting_recipient_consent'",
+      [ids.matchA]
+    );
+    assert.equal(count.rows[0].count, 1);
+  } finally {
+    if (fixture) await cleanupFixture(pool, fixture);
+    await pool.end();
+  }
+});

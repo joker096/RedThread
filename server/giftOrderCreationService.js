@@ -22,6 +22,45 @@ export async function recipientGiftAcceptanceLimitReached(client, recipientId) {
   return Number(accepted.rows[0]?.count ?? 0) >= 1;
 }
 
+export async function expireStaleGiftRequestsForPair(client, { matchId, senderId, recipientId }) {
+  const candidates = await client.query(
+    `SELECT id, payment_status
+     FROM gift_delivery_orders
+     WHERE match_id = $1
+       AND LEAST(sender_id, recipient_id) = LEAST($2::uuid, $3::uuid)
+       AND GREATEST(sender_id, recipient_id) = GREATEST($2::uuid, $3::uuid)
+       AND status = 'awaiting_recipient_consent'
+       AND expires_at <= NOW()
+     ORDER BY id
+     FOR UPDATE`,
+    [matchId, senderId, recipientId]
+  );
+  if (candidates.rows.some(row => !['not_started', 'voided', 'failed'].includes(row.payment_status))) {
+    return { ok: false, error: 'gift_payment_requires_reconciliation', expiredOrders: [] };
+  }
+  if (candidates.rows.length === 0) return { ok: true, expiredOrders: [] };
+
+  const expired = await client.query(
+    `UPDATE gift_delivery_orders
+     SET status = 'expired', updated_at = NOW()
+     WHERE id = ANY($1::uuid[])
+       AND status = 'awaiting_recipient_consent'
+       AND expires_at <= NOW()
+       AND payment_status IN ('not_started', 'voided', 'failed')
+     RETURNING id, public_reference AS "publicReference"`,
+    [candidates.rows.map(row => row.id)]
+  );
+  for (const order of expired.rows) {
+    await client.query(
+      `INSERT INTO gift_delivery_order_events
+         (order_id, actor_type, event_type, from_status, to_status)
+       VALUES ($1, 'system', 'expired', 'awaiting_recipient_consent', 'expired')`,
+      [order.id]
+    );
+  }
+  return { ok: true, expiredOrders: expired.rows };
+}
+
 export async function acquireGiftSafetyPairLock(client, firstUserId, secondUserId) {
   await client.query(
     "SELECT pg_advisory_xact_lock(hashtext('gift-safety:' || LEAST($1::uuid, $2::uuid)::text || ':' || GREATEST($1::uuid, $2::uuid)::text))",
@@ -85,6 +124,14 @@ export async function createGiftOrderRequest(client, {
   await acquireGiftOrderRateLocks(client, senderId, recipientId);
   await acquireGiftSafetyPairLock(client, senderId, recipientId);
 
+  const expiration = await expireStaleGiftRequestsForPair(client, { matchId, senderId, recipientId });
+  if (!expiration.ok) return deny(409, expiration.error);
+  const reject = (status, error) => ({
+    status,
+    commit: expiration.expiredOrders.length > 0,
+    body: { error }
+  });
+
   const existing = await client.query(
     `SELECT public_reference AS "publicReference", match_id AS "matchId",
             catalog_item_id AS "catalogItemId", status,
@@ -99,8 +146,9 @@ export async function createGiftOrderRequest(client, {
     const row = existing.rows[0];
     if (String(row.matchId).toLowerCase() !== String(matchId).toLowerCase() ||
         String(row.catalogItemId || '').toLowerCase() !== String(catalogItemId).toLowerCase()) {
-      return deny(409, 'gift_idempotency_key_conflict');
+      return reject(409, 'gift_idempotency_key_conflict');
     }
+    if (row.status === 'expired') return reject(409, 'gift_request_expired');
     return replayResult(row);
   }
 
@@ -169,7 +217,7 @@ export async function createGiftOrderRequest(client, {
     [matchId, senderId]
   );
   const contextRow = contextResult.rows[0];
-  if (!contextRow) return deny(404, 'gift_match_not_available');
+  if (!contextRow) return reject(404, 'gift_match_not_available');
 
   const preferenceResult = await client.query(
     'SELECT requests_enabled FROM gift_receiving_preferences WHERE user_id = $1 FOR SHARE',
@@ -179,7 +227,7 @@ export async function createGiftOrderRequest(client, {
 
   const countryCode = resolveProfileCountryCode(contextRow.recipient_country);
   if (!countryCode || typeof contextRow.recipient_city !== 'string' || !contextRow.recipient_city.trim()) {
-    return deny(409, 'gift_request_unavailable');
+    return reject(409, 'gift_request_unavailable');
   }
 
   // Both supplier and carrier must be reviewed and the carrier's local fee
@@ -228,7 +276,7 @@ export async function createGiftOrderRequest(client, {
     [catalogItemId, countryCode, contextRow.recipient_city]
   );
   const productRow = productResult.rows[0];
-  if (!productRow) return deny(409, 'gift_request_unavailable');
+  if (!productRow) return reject(409, 'gift_request_unavailable');
 
   const itemPrice = Number(productRow.item_price_minor_units);
   const deliveryFee = Number(productRow.delivery_fee_minor_units);
@@ -236,7 +284,7 @@ export async function createGiftOrderRequest(client, {
   if (!Number.isSafeInteger(itemPrice) || itemPrice <= 0 ||
       !Number.isSafeInteger(deliveryFee) || deliveryFee < 0 ||
       !Number.isSafeInteger(totalPrice) || totalPrice <= 0) {
-    return deny(409, 'gift_request_unavailable');
+    return reject(409, 'gift_request_unavailable');
   }
 
   const activityResult = await client.query(
@@ -325,10 +373,10 @@ export async function createGiftOrderRequest(client, {
   const eligibility = evaluateGiftOrderCreation(context);
   if (!eligibility.eligible) {
     if (eligibility.reason === 'sender_request_rate_limit' || eligibility.reason === 'recipient_gift_rate_limit') {
-      return deny(429, 'gift_request_rate_limited');
+      return reject(429, 'gift_request_rate_limited');
     }
-    if (eligibility.reason === 'pending_request_exists') return deny(409, 'gift_request_already_pending');
-    return deny(409, 'gift_request_unavailable');
+    if (eligibility.reason === 'pending_request_exists') return reject(409, 'gift_request_already_pending');
+    return reject(409, 'gift_request_unavailable');
   }
 
   const inserted = await client.query(

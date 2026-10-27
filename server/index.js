@@ -7,7 +7,7 @@ import { evaluateAdCampaignEligibility, isCampaignCountryAllowed, resolveProfile
 import { AD_EVENT_FREQUENCY_COUNTS_SQL } from './adEventFrequencyQuery.js';
 import { validateGiftDecisionInput } from './giftDecisionInput.js';
 import { normalizeGiftRequestInput } from './giftRequestInput.js';
-import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, recipientGiftAcceptanceLimitReached } from './giftOrderCreationService.js';
+import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, recipientGiftAcceptanceLimitReached, expireStaleGiftRequestsForPair } from './giftOrderCreationService.js';
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
@@ -2037,11 +2037,30 @@ app.get('/api/gifts/catalog', requireSession, requirePaidFeatures, profileAction
   let client;
   try {
     client = await pool.connect();
-    // Eligibility checks and item prices use one consistent database snapshot.
-    await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    await client.query('BEGIN');
+    const pairResult = await client.query(
+      `SELECT user_a_id, user_b_id
+       FROM matches
+       WHERE id = $1 AND (user_a_id = $2 OR user_b_id = $2)`,
+      [matchId.toLowerCase(), req.authUser.id]
+    );
+    const pair = pairResult.rows[0];
+    if (pair) {
+      const recipientId = String(pair.user_a_id).toLowerCase() === String(req.authUser.id).toLowerCase()
+        ? pair.user_b_id
+        : pair.user_a_id;
+      await acquireGiftOrderRateLocks(client, req.authUser.id, recipientId);
+      await acquireGiftSafetyPairLock(client, req.authUser.id, recipientId);
+      const expiration = await expireStaleGiftRequestsForPair(client, {
+        matchId: matchId.toLowerCase(), senderId: req.authUser.id, recipientId
+      });
+      if (!expiration.ok) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'gift_catalog_unavailable' });
+      }
+    }
     const result = await listGiftCatalogForMatch(client, {
-      senderId: req.authUser.id,
-      matchId: matchId.toLowerCase()
+      senderId: req.authUser.id, matchId: matchId.toLowerCase()
     });
     await client.query('COMMIT');
     return res.status(result.status).json({ items: result.items });
@@ -2456,8 +2475,13 @@ app.get('/api/gifts/orders', requireSession, profileActionLimiter, async (req, r
               END AS "totalMinorUnits",
               currency,
               CASE
-                WHEN sender_id = $1 AND status IN ('declined', 'expired', 'cancelled', 'blocked', 'reported')
-                  THEN 'not_available'
+                WHEN sender_id = $1 AND (
+                  status IN ('declined', 'expired', 'cancelled', 'blocked', 'reported')
+                  OR (status = 'awaiting_recipient_consent' AND expires_at <= NOW()
+                    AND payment_status IN ('not_started', 'voided', 'failed'))
+                ) THEN 'not_available'
+                WHEN status = 'awaiting_recipient_consent' AND expires_at <= NOW()
+                  AND payment_status IN ('not_started', 'voided', 'failed') THEN 'expired'
                 ELSE status
               END AS status,
               created_at AS "createdAt",
