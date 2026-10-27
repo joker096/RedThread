@@ -429,6 +429,15 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
       ? await createAccountActionToken(client, user.id, 'email_verification', 60)
       : null;
     const token = emailVerificationRequired ? null : await createSession(client, user.id);
+
+    // The transaction can see its own user/profile rows; keep registration screening
+    // under the same user safety lock used by gift acceptance.
+    await acquireGiftSafetyUserLocks(client, user.id);
+    const registrationScreening = await screenProfilePrivate({
+      displayName, country, city, bio: '', occupation: '', education: '',
+      hasChildren, childrenLivingArrangement
+    });
+    await persistScreening(user.id, 'profile', registrationScreening, client);
     await client.query('COMMIT');
 
     if (verificationToken) {
@@ -443,17 +452,6 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
         console.error('Verification email delivery failed:', mailError?.message || 'unknown error');
         return res.status(503).json({ error: 'verification_email_delivery_failed', accountCreated: true });
       }
-    }
-
-    // Screen after commit so the separate screening insert can see the new user row.
-    try {
-      const registrationScreening = await screenProfilePrivate({
-        displayName, country, city, bio: '', occupation: '', education: '',
-        hasChildren, childrenLivingArrangement
-      });
-      await persistScreening(user.id, 'profile', registrationScreening);
-    } catch (screeningError) {
-      console.error('Registration screening failed:', screeningError?.message || 'unknown error');
     }
 
     if (emailVerificationRequired) {
@@ -1957,6 +1955,12 @@ app.post('/api/admin/screenings/:screeningId/resolve', validateRequestOrigin, re
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+    const pending = await client.query(
+      "SELECT user_id FROM user_safety_screenings WHERE id = $1 AND review_status = 'pending' FOR UPDATE",
+      [req.params.screeningId]
+    );
+    if (!pending.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'pending_screening_not_found' }); }
+    await acquireGiftSafetyUserLocks(client, pending.rows[0].user_id);
     const result = await client.query(
       "UPDATE user_safety_screenings SET review_status = 'cleared', reviewed_at = NOW(), reviewed_by = $2 WHERE id = $1 AND review_status = 'pending' RETURNING id, user_id AS \"userId\", review_status AS \"reviewStatus\"",
       [req.params.screeningId, req.authUser.id]
