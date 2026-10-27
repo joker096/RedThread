@@ -690,3 +690,51 @@ test('expired requests with unresolved payment state fail closed and remain unch
     await pool.end();
   }
 });
+
+
+test('database rejects reverse-direction pending gift request for the same match pair', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 20_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
+  let fixture;
+  try {
+    fixture = await seedFixture(pool);
+    const { ids } = fixture;
+    const insertPending = `INSERT INTO gift_delivery_orders (
+      match_id, sender_id, recipient_id, catalog_item_id, product_name_snapshot,
+      product_category, item_price_minor_units, delivery_fee_minor_units,
+      delivery_fee_currency, total_minor_units, currency, delivery_partner_id,
+      status, payment_status, idempotency_key
+    ) VALUES ($1, $2, $3, $4, 'Direction race chocolate', 'chocolate',
+              2500, 300, 'GEL', 2800, 'GEL', $5,
+              'awaiting_recipient_consent', 'not_started', $6) RETURNING id`;
+
+    await pool.query(insertPending, [
+      ids.matchA, ids.sender, ids.recipientA, ids.catalogItem,
+      ids.deliveryPartner, 'direction-forward-' + randomUUID()
+    ]);
+
+    await assert.rejects(
+      () => pool.query(insertPending, [
+        ids.matchA, ids.recipientA, ids.sender, ids.catalogItem,
+        ids.deliveryPartner, 'direction-reverse-' + randomUUID()
+      ]),
+      error => error?.code === '23505' &&
+        error?.constraint === 'gift_orders_one_pending_per_unordered_pair_idx',
+      'the database must reject a second pending order even when the participants reverse direction'
+    );
+
+    const pending = await pool.query(
+      `SELECT COUNT(*)::int AS count
+       FROM gift_delivery_orders
+       WHERE match_id = $1
+         AND status = 'awaiting_recipient_consent'`,
+      [ids.matchA]
+    );
+    assert.equal(pending.rows[0].count, 1);
+  } finally {
+    if (fixture) await cleanupFixture(pool, fixture);
+    await pool.end();
+  }
+});
