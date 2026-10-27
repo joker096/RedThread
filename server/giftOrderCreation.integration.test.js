@@ -214,6 +214,15 @@ test('gift catalog only returns reviewed items and omits recipient location meta
       for (const key of ['country', 'city', 'recipientCity', 'address', 'phone', 'partnerId', 'deliveryPartnerId']) {
         assert.equal(Object.hasOwn(result.items[0], key), false, 'catalog projection must not expose ' + key);
       }
+      // A different city must not inherit the approved coverage from Tbilisi.
+      await pool.query("UPDATE profiles SET city = 'Batumi' WHERE user_id = $1", [fixture.ids.recipientA]);
+      await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+      const outOfCoverage = await listGiftCatalogForMatch(client, {
+        senderId: fixture.ids.sender,
+        matchId: fixture.ids.matchA
+      });
+      await client.query('COMMIT');
+      assert.deepEqual(outOfCoverage.items, [], 'catalog must fail closed when no exact city coverage exists');
     } finally {
       client.release();
     }
