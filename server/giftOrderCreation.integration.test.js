@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
-import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, recipientGiftAcceptanceLimitReached, notifyGiftRequestUpdate } from './giftOrderCreationService.js';
+import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, acquireGiftSafetyUserLocks, recipientGiftAcceptanceLimitReached, notifyGiftRequestUpdate } from './giftOrderCreationService.js';
 
 const { Pool } = pg;
 
@@ -32,6 +32,44 @@ test('gift order totals project PostgreSQL BIGINT values as exact safe JavaScrip
   }
 });
 
+
+
+test('gift acceptance safety user lock serializes against a concurrent screening writer', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 10_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+  const first = await pool.connect();
+  const second = await pool.connect();
+  const userId = randomUUID();
+  try {
+    await first.query('BEGIN');
+    await acquireGiftSafetyUserLocks(first, userId);
+
+    await second.query('BEGIN');
+    const blockedWhileHeld = await second.query(
+      "SELECT pg_try_advisory_xact_lock(hashtext('gift-safety-user:' || $1::uuid::text)) AS acquired",
+      [userId]
+    );
+    assert.equal(blockedWhileHeld.rows[0].acquired, false,
+      'a screening/gift decision must not pass while another transaction holds the user safety lock');
+
+    await first.query('COMMIT');
+    const acquiredAfterRelease = await second.query(
+      "SELECT pg_try_advisory_xact_lock(hashtext('gift-safety-user:' || $1::uuid::text)) AS acquired",
+      [userId]
+    );
+    assert.equal(acquiredAfterRelease.rows[0].acquired, true,
+      'the safety lock must become available after the transaction commits');
+    await second.query('COMMIT');
+  } finally {
+    await first.query('ROLLBACK').catch(() => {});
+    await second.query('ROLLBACK').catch(() => {});
+    first.release();
+    second.release();
+    await pool.end();
+  }
+});
 
 async function seedFixture(pool) {
   const client = await pool.connect();
