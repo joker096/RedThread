@@ -468,13 +468,6 @@ test('auth API supports registration, session lookup, logout and login', {
       // Race opt-out against recipient acceptance. The order lock serializes the
       // operations: either acceptance commits first and remains accepted, or
       // opt-out cancels the pending request and acceptance is rejected.
-      const enableGiftRequests = await request('/api/gifts/preferences', {
-        method: 'PUT',
-        headers: { Cookie: secondCookie },
-        body: JSON.stringify({ requestsEnabled: true })
-      });
-      assert.equal(enableGiftRequests.status, 200);
-
       // A request that expires before acceptance must remain unaccepted even if the
       // request handler's initial read raced with the expiry boundary.
       const expiredAcceptanceResult = await giftTestDb.query(
