@@ -581,13 +581,28 @@ test('auth API supports registration, session lookup, logout and login', {
         });
         assert.equal(optOutWithActivePayment.status, 200);
         const activePaymentState = await giftTestDb.query(
-          'SELECT status, payment_status FROM gift_delivery_orders WHERE id = $1',
+          'SELECT status, payment_status, recipient_requests_disabled_at FROM gift_delivery_orders WHERE id = $1',
           [activePaymentOrderId]
         );
-        assert.deepEqual(activePaymentState.rows[0], {
+        assert.deepEqual({
+          status: activePaymentState.rows[0].status,
+          payment_status: activePaymentState.rows[0].payment_status
+        }, {
           status: 'awaiting_recipient_consent',
           payment_status: 'authorized'
         });
+        assert.ok(activePaymentState.rows[0].recipient_requests_disabled_at,
+          'opt-out must invalidate a pending request even while payment reconciliation is required');
+        const acceptAfterPaymentOptOut = await request(
+          `/api/gifts/orders/${activePaymentReference}/decision`,
+          {
+            method: 'POST',
+            headers: { Cookie: secondCookie },
+            body: JSON.stringify({ action: 'accept' })
+          }
+        );
+        assert.equal(acceptAfterPaymentOptOut.status, 409,
+          'a request with unresolved payment must not become actionable after recipient opt-out');
         const activePaymentAudit = await giftTestDb.query(
           `SELECT event_type FROM gift_delivery_order_events WHERE order_id = $1`,
           [activePaymentOrderId]
