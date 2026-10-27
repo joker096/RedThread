@@ -168,6 +168,23 @@ export async function createGiftOrderRequest(client, {
     const replaySafety = await client.query(
       `SELECT
          sender.status = 'active' AND recipient.status = 'active' AS accounts_active,
+         m.status = 'active' AS match_active,
+         COALESCE(gp.requests_enabled, FALSE) AS recipient_requests_enabled,
+         (sender_profile.birth_date IS NOT NULL AND sender_profile.birth_date <= (CURRENT_DATE - INTERVAL '18 years')::date)
+           AND (recipient_profile.birth_date IS NOT NULL AND recipient_profile.birth_date <= (CURRENT_DATE - INTERVAL '18 years')::date)
+           AS both_users_adult,
+         EXISTS (
+           SELECT 1 FROM user_identity_verifications iv
+           WHERE iv.user_id = sender.id
+             AND iv.status = 'approved'
+             AND iv.verified_at <= NOW()
+             AND iv.expires_at > NOW()
+             AND iv.verification_level >= CASE
+               WHEN sender_profile.gender = 'male' THEN 3
+               WHEN sender_profile.gender = 'female' THEN 1
+               ELSE 2147483647
+             END
+         ) AS sender_identity_verified,
          EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = sender.id AND b.blocked_id = recipient.id)
@@ -187,12 +204,20 @@ export async function createGiftOrderRequest(client, {
          ) AS safety_restricted
        FROM users sender
        JOIN users recipient ON recipient.id = $2
+       JOIN matches m ON m.id = $3
+         AND ((m.user_a_id = sender.id AND m.user_b_id = recipient.id)
+           OR (m.user_b_id = sender.id AND m.user_a_id = recipient.id))
+       JOIN profiles sender_profile ON sender_profile.user_id = sender.id
+       JOIN profiles recipient_profile ON recipient_profile.user_id = recipient.id
+       LEFT JOIN gift_receiving_preferences gp ON gp.user_id = recipient.id
        WHERE sender.id = $1
-       FOR UPDATE OF sender, recipient`,
-      [senderId, recipientId]
+       FOR UPDATE OF sender, recipient, m, sender_profile, recipient_profile`,
+      [senderId, recipientId, matchId]
     );
     const safety = replaySafety.rows[0];
-    if (!safety || !safety.accounts_active || safety.has_block ||
+    if (!safety || !safety.accounts_active || !safety.match_active ||
+        !safety.recipient_requests_enabled || !safety.both_users_adult ||
+        !safety.sender_identity_verified || safety.has_block ||
         safety.has_open_report || safety.safety_restricted) {
       return reject(409, 'gift_request_unavailable');
     }
