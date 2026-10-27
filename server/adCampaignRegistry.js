@@ -1,4 +1,8 @@
 const VALID_STATUSES = new Set(['pending', 'approved', 'paused', 'rejected', 'expired']);
+const ALLOWED_CATEGORIES = new Set([
+  'restaurant', 'cafe', 'date_experience', 'flowers', 'gift',
+  'fashion', 'beauty', 'travel', 'general_local'
+]);
 
 export function evaluateAdCampaignEligibility(campaign, { now = Date.now() } = {}) {
   if (!campaign || typeof campaign !== 'object') return deny('campaign_unknown');
@@ -8,7 +12,7 @@ export function evaluateAdCampaignEligibility(campaign, { now = Date.now() } = {
   if (campaign.status !== 'approved') return deny(campaign.status === 'expired' ? 'campaign_expired' : 'campaign_not_approved');
   if (campaign.advertiserVerified !== true) return deny('advertiser_not_verified');
   if (campaign.creativeApproved !== true || typeof campaign.creativeVersion !== 'string' || !campaign.creativeVersion.trim()) return deny('creative_not_approved');
-  if (typeof campaign.category !== 'string' || !campaign.category.trim()) return deny('campaign_category_invalid');
+  if (typeof campaign.category !== 'string' || !ALLOWED_CATEGORIES.has(campaign.category)) return deny('campaign_category_not_allowed');
   const startsAt = typeof campaign.startsAt === 'string' ? Date.parse(campaign.startsAt) : NaN;
   const endsAt = typeof campaign.endsAt === 'string' ? Date.parse(campaign.endsAt) : NaN;
   if (!Number.isFinite(startsAt) || !Number.isFinite(endsAt) || endsAt <= startsAt) return deny('campaign_window_invalid');
