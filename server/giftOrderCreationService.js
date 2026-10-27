@@ -22,7 +22,7 @@ export async function recipientGiftAcceptanceLimitReached(client, recipientId) {
   return Number(accepted.rows[0]?.count ?? 0) >= 1;
 }
 
-/** Expects an open transaction holding the pair's user-rate locks and unordered-pair safety lock. */
+/** Call inside the order-transition transaction so notification and state cannot diverge. */
 export async function notifyGiftRequestUpdate(client, userId, orderReference, transition) {
   if (typeof orderReference !== 'string' || !/^gift_[a-f0-9]{32}$/i.test(orderReference) ||
       !['recipient_decision', 'consent_withdrawn'].includes(transition)) {

@@ -331,7 +331,7 @@ test('gift request updates notify only the sender with generic, idempotent metad
       assert.equal(metadataText.includes(forbidden), false, 'notification metadata must not include ' + forbidden);
     }
     await assert.rejects(
-      notifyGiftRequestUpdate(pool, ids.sender, request.body.order.id, 'unknown-transition'),
+      () => notifyGiftRequestUpdate(pool, ids.sender, request.body.order.id, 'unknown-transition'),
       /invalid_gift_request_update_notification/
     );
   } finally {
