@@ -7,7 +7,7 @@ import { evaluateAdCampaignEligibility, isCampaignCountryAllowed, resolveProfile
 import { AD_EVENT_FREQUENCY_COUNTS_SQL } from './adEventFrequencyQuery.js';
 import { validateGiftDecisionInput } from './giftDecisionInput.js';
 import { normalizeGiftRequestInput } from './giftRequestInput.js';
-import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock } from './giftOrderCreationService.js';
+import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, recipientGiftAcceptanceLimitReached } from './giftOrderCreationService.js';
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
@@ -2318,14 +2318,8 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
       // The same recipient-level rate lock is used by request creation. Count
       // historical consent events (including later withdrawn/cancelled requests)
       // so parallel acceptances cannot exceed one accepted gift per 7 days.
-      const acceptedRecently = await client.query(
-        `SELECT COUNT(*)::int AS count
-         FROM gift_delivery_orders
-         WHERE recipient_id = $1
-           AND recipient_consent_at >= NOW() - INTERVAL '7 days'`,
-        [order.recipient_id]
-      );
-      if (Number(acceptedRecently.rows[0]?.count ?? 0) >= 1) {
+      const acceptanceLimitReached = await recipientGiftAcceptanceLimitReached(client, order.recipient_id);
+      if (acceptanceLimitReached) {
         await client.query('ROLLBACK');
         return res.status(409).json({ error: 'gift_recipient_rate_limit' });
       }

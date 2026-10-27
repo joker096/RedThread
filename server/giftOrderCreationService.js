@@ -11,6 +11,17 @@ export async function acquireGiftOrderRateLocks(client, ...userIds) {
   }
 }
 
+export async function recipientGiftAcceptanceLimitReached(client, recipientId) {
+  const accepted = await client.query(
+    `SELECT COUNT(*)::int AS count
+     FROM gift_delivery_orders
+     WHERE recipient_id = $1
+       AND recipient_consent_at >= NOW() - INTERVAL '7 days'`,
+    [recipientId]
+  );
+  return Number(accepted.rows[0]?.count ?? 0) >= 1;
+}
+
 export async function acquireGiftSafetyPairLock(client, firstUserId, secondUserId) {
   await client.query(
     "SELECT pg_advisory_xact_lock(hashtext('gift-safety:' || LEAST($1::uuid, $2::uuid)::text || ':' || GREATEST($1::uuid, $2::uuid)::text))",
