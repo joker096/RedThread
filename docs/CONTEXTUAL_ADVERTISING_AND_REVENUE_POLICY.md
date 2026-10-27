@@ -74,6 +74,8 @@ Advertisers may narrow eligibility or add stricter rules, never weaken platform 
 
 ## Event and eligibility model
 
+**Implementation audit (2026-10-27):** the current `ChatMessenger` date-invite callbacks are wired in `src/App.tsx` to `handleSendDateInvite` and `handleAcceptDateInvite`, which update the in-memory `chatThreads` state with `setChatThreads`. These handlers do not persist an invite or acceptance through an authenticated server endpoint. Therefore the displayed `accepted` state is UI/demo state, not trusted evidence of mutual consent; it may be lost on reload and must never authorize contextual ads. Keep date-context ads disabled until date invitations, both participants' decisions, cancellation, and an auditable state transition are stored and checked server-side.
+
 Suggested server-side states: date invite sent → accepted → confirmed → cancelled/completed. Bridal eligibility is computed at request time from match creation time, distinct active days, per-side message counts, explicit opt-ins, self-described profile settings and safety state. Never store a permanent inferred “marriage intent”.
 
 Use category allowlists and a rules version. If required data is missing, stale, contradictory or the eligibility service fails, return no ad. Log minimal eligible/impression/click/dismiss/report/redemption events with idempotency keys and bounded retention. An impression is billable only under a contractually agreed viewability definition and fraud checks, not merely because an API returned an ad.
