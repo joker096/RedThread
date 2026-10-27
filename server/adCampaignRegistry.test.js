@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateAdCampaignEligibility } from './adCampaignRegistry.js';
+import { evaluateAdCampaignEligibility, isCampaignCountryAllowed, resolveProfileCountryCode } from './adCampaignRegistry.js';
 
 const now = Date.parse('2026-10-27T10:00:00.000Z');
 const approved = {
@@ -43,4 +43,21 @@ test('campaign registry rejects malformed windows and missing creative version',
 test('campaign registry rejects categories outside the approved allowlist', () => {
   assert.equal(evaluateAdCampaignEligibility({ ...approved, category: 'political' }, { now }).reason, 'campaign_category_not_allowed');
   assert.equal(evaluateAdCampaignEligibility({ ...approved, category: 'unreviewed_health' }, { now }).reason, 'campaign_category_not_allowed');
+});
+
+
+test('campaign country allowlists fail closed for missing, unknown and non-matching countries', () => {
+  assert.equal(isCampaignCountryAllowed(['GE'], 'GE'), true);
+  assert.equal(isCampaignCountryAllowed(['GE'], 'US'), false);
+  assert.equal(isCampaignCountryAllowed([], 'GE'), false);
+  assert.equal(isCampaignCountryAllowed(['GE'], null), false);
+  assert.equal(isCampaignCountryAllowed(['GE'], 'Georgia'), false);
+});
+
+test('profile country normalization supports known aliases and fails closed for unknown labels', () => {
+  assert.equal(resolveProfileCountryCode('Грузия'), 'GE');
+  assert.equal(resolveProfileCountryCode('Georgia'), 'GE');
+  assert.equal(resolveProfileCountryCode('GE'), 'GE');
+  assert.equal(resolveProfileCountryCode('Unlisted country'), null);
+  assert.equal(resolveProfileCountryCode(''), null);
 });
