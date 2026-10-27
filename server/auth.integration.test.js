@@ -415,11 +415,13 @@ test('auth API supports registration, session lookup, logout and login', {
         assert.deepEqual((await disableGiftRequests.json()).preferences, { requestsEnabled: false });
 
         const pendingPreferenceState = await giftTestDb.query(
-          'SELECT status FROM gift_delivery_orders WHERE id = $1',
+          'SELECT status, recipient_requests_disabled_at FROM gift_delivery_orders WHERE id = $1',
           [pendingPreferenceOrderId]
         );
         assert.equal(pendingPreferenceState.rows[0].status, 'cancelled',
           'disabling gift requests must cancel pending requests in the same transaction');
+        assert.ok(pendingPreferenceState.rows[0].recipient_requests_disabled_at,
+          'opt-out must durably mark the old request as invalidated');
         const preferenceAudit = await giftTestDb.query(
           `SELECT actor_type, event_type, from_status, to_status
            FROM gift_delivery_order_events WHERE order_id = $1`,
@@ -441,6 +443,23 @@ test('auth API supports registration, session lookup, logout and login', {
         );
         assert.equal(staleAccept.status, 409,
           'a stale gift request cannot be accepted after the recipient disables requests');
+
+        const reenableGiftRequests = await request('/api/gifts/preferences', {
+          method: 'PUT',
+          headers: { Cookie: secondCookie },
+          body: JSON.stringify({ requestsEnabled: true })
+        });
+        assert.equal(reenableGiftRequests.status, 200);
+        const staleAcceptAfterReenable = await request(
+          `/api/gifts/orders/${pendingPreferenceOrder.rows[0].public_reference}/decision`,
+          {
+            method: 'POST',
+            headers: { Cookie: secondCookie },
+            body: JSON.stringify({ action: 'accept' })
+          }
+        );
+        assert.equal(staleAcceptAfterReenable.status, 409,
+          're-enabling future requests must not revive a previously invalidated request');
       } finally {
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [pendingPreferenceOrderId]).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [pendingPreferenceOrderId]).catch(() => {});
