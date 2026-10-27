@@ -224,6 +224,16 @@ test('gift catalog only returns reviewed items and omits recipient location meta
       await client.query('COMMIT');
       assert.deepEqual(outOfCountry.items, [], 'catalog must fail closed when country coverage does not match');
 
+      // An unrecognized country must not fall back to a default region.
+      await pool.query("UPDATE profiles SET country = 'Atlantis' WHERE user_id = $1", [fixture.ids.recipientA]);
+      await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+      const unknownCountry = await listGiftCatalogForMatch(client, {
+        senderId: fixture.ids.sender,
+        matchId: fixture.ids.matchA
+      });
+      await client.query('COMMIT');
+      assert.deepEqual(unknownCountry.items, [], 'catalog must fail closed for an unrecognized recipient country');
+
       // A different city must not inherit the approved coverage from Tbilisi.
       await pool.query("UPDATE profiles SET country = 'Georgia', city = 'Batumi' WHERE user_id = $1", [fixture.ids.recipientA]);
       await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
