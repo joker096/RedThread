@@ -73,6 +73,16 @@ export async function expireStaleGiftRequestsForPair(client, { matchId, senderId
   return { ok: true, expiredOrders: expired.rows };
 }
 
+export async function acquireGiftSafetyUserLocks(client, ...userIds) {
+  const orderedIds = [...new Set(userIds.map(value => String(value).toLowerCase()))].sort();
+  for (const userId of orderedIds) {
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext('gift-safety-user:' || $1::uuid::text))",
+      [userId]
+    );
+  }
+}
+
 export async function acquireGiftSafetyPairLock(client, firstUserId, secondUserId) {
   await client.query(
     "SELECT pg_advisory_xact_lock(hashtext('gift-safety:' || LEAST($1::uuid, $2::uuid)::text || ':' || GREATEST($1::uuid, $2::uuid)::text))",
