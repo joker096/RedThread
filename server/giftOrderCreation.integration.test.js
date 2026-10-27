@@ -588,6 +588,63 @@ test('idempotent gift replay is denied after a mutual block is added', {
   }
 });
 
+test('gift request opt-out permanently invalidates pending requests even after re-enabling', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 20_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
+  let fixture;
+  try {
+    fixture = await seedFixture(pool);
+    const { ids } = fixture;
+    const input = {
+      senderId: ids.sender,
+      matchId: ids.matchA,
+      catalogItemId: ids.catalogItem,
+      idempotencyKey: 'optout-replay-' + randomUUID()
+    };
+    const first = await runRequest(pool, input);
+    assert.equal(first.status, 201);
+
+    // Mirror the recipient preference endpoint's transaction: opting out
+    // permanently marks all pending requests, while later opt-in only permits
+    // new requests and must not revive old ones.
+    await pool.query(
+      `UPDATE gift_delivery_orders
+       SET recipient_requests_disabled_at = COALESCE(recipient_requests_disabled_at, NOW()),
+           updated_at = NOW()
+       WHERE recipient_id = $1 AND status = 'awaiting_recipient_consent'`,
+      [ids.recipientA]
+    );
+    await pool.query(
+      'UPDATE gift_receiving_preferences SET requests_enabled = FALSE WHERE user_id = $1',
+      [ids.recipientA]
+    );
+    await pool.query(
+      'UPDATE gift_receiving_preferences SET requests_enabled = TRUE WHERE user_id = $1',
+      [ids.recipientA]
+    );
+
+    const replay = await runRequest(pool, input);
+    assert.equal(replay.status, 409);
+    assert.deepEqual(replay.body, { error: 'gift_request_unavailable' });
+    assert.equal(Object.hasOwn(replay.body, 'order'), false, 'invalidated replay must not disclose old order details');
+
+    const stored = await pool.query(
+      `SELECT status, payment_status, recipient_requests_disabled_at
+       FROM gift_delivery_orders WHERE sender_id = $1 AND idempotency_key = $2`,
+      [ids.sender, input.idempotencyKey]
+    );
+    assert.equal(stored.rowCount, 1);
+    assert.equal(stored.rows[0].status, 'awaiting_recipient_consent');
+    assert.equal(stored.rows[0].payment_status, 'not_started');
+    assert.ok(stored.rows[0].recipient_requests_disabled_at);
+  } finally {
+    if (fixture) await cleanupFixture(pool, fixture);
+    await pool.end();
+  }
+});
+
 test('expired unpaid pending request is closed and audited before a replacement request', {
   skip: !process.env.DATABASE_URL,
   timeout: 20_000
