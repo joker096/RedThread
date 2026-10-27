@@ -161,6 +161,41 @@ export async function createGiftOrderRequest(client, {
       return reject(409, 'gift_idempotency_key_conflict');
     }
     if (row.status === 'expired') return reject(409, 'gift_request_expired');
+
+    // Idempotency must not disclose an old order after the relationship's
+    // safety state changes. Re-check current account and pair restrictions
+    // before returning any previously stored order details.
+    const replaySafety = await client.query(
+      `SELECT
+         sender.status = 'active' AND recipient.status = 'active' AS accounts_active,
+         EXISTS (
+           SELECT 1 FROM user_blocks b
+           WHERE (b.blocker_id = sender.id AND b.blocked_id = recipient.id)
+              OR (b.blocker_id = recipient.id AND b.blocked_id = sender.id)
+         ) AS has_block,
+         EXISTS (
+           SELECT 1 FROM user_reports r
+           WHERE r.status IN ('open', 'reviewing')
+             AND ((r.reporter_id = sender.id AND r.reported_user_id = recipient.id)
+               OR (r.reporter_id = recipient.id AND r.reported_user_id = sender.id))
+         ) AS has_open_report,
+         EXISTS (
+           SELECT 1 FROM user_safety_screenings ss
+           WHERE ss.user_id IN (sender.id, recipient.id)
+             AND ss.severity = 'high'
+             AND ss.review_status IN ('pending', 'reviewing', 'actioned')
+         ) AS safety_restricted
+       FROM users sender
+       JOIN users recipient ON recipient.id = $2
+       WHERE sender.id = $1
+       FOR UPDATE OF sender, recipient`,
+      [senderId, recipientId]
+    );
+    const safety = replaySafety.rows[0];
+    if (!safety || !safety.accounts_active || safety.has_block ||
+        safety.has_open_report || safety.safety_restricted) {
+      return reject(409, 'gift_request_unavailable');
+    }
     return replayResult(row);
   }
 
