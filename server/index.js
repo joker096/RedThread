@@ -774,6 +774,9 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
 
     client = await pool.connect();
     await client.query('BEGIN');
+    // Exclude concurrent gift creation/acceptance while account deletion suspends
+    // existing orders and closes the account in this same transaction.
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
     await suspendGiftOrdersForUser(client, req.authUser.id, { reason: 'account_deleted' });
     const photoFiles = await client.query('SELECT storage_path FROM photo_assets WHERE user_id = $1', [req.authUser.id]);
     privatePhotoPaths = photoFiles.rows.map(row => row.storage_path);
@@ -2009,6 +2012,9 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'category_not_eligible_for_suspension' });
       }
+      // Match gift creation/acceptance's user-before-pair lock order so a new
+      // request cannot slip in while the account is being suspended.
+      await acquireGiftSafetyUserLocks(client, report.reported_user_id);
       await suspendGiftOrdersForUser(client, report.reported_user_id, { actorUserId: req.authUser.id, actorType: 'moderator', reason: 'moderator_suspension' });
       await client.query("UPDATE users SET status = 'suspended', updated_at = NOW() WHERE id = $1", [report.reported_user_id]);
       await client.query('UPDATE profiles SET is_visible = FALSE, updated_at = NOW() WHERE user_id = $1', [report.reported_user_id]);
