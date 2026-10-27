@@ -182,6 +182,9 @@ test('gift catalog only returns reviewed items and omits recipient location meta
   let fixture;
   try {
     fixture = await seedFixture(pool);
+    // Region matching should tolerate harmless ASCII casing and repeated/outer spaces.
+    await pool.query("UPDATE profiles SET city = '  tBiLiSi   ' WHERE user_id = $1", [fixture.ids.recipientA]);
+    await pool.query("UPDATE gift_delivery_partner_coverage SET city_key = 'Tbilisi  ' WHERE partner_id = $1", [fixture.ids.deliveryPartner]);
     const client = await pool.connect();
     try {
       await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
