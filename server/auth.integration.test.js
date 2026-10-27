@@ -904,6 +904,32 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.deepEqual(await replayedAdEvent.json(), { accepted: true, duplicate: true },
       'same-user same-payload retries must be idempotent');
 
+    const regionTestDb = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      connectionTimeoutMillis: 5_000,
+      statement_timeout: 8_000,
+      query_timeout: 10_000
+    });
+    try {
+      await regionTestDb.query(
+        `UPDATE ad_campaigns SET allowed_country_codes = ARRAY['US'] WHERE id = 'consent-gate-test'`
+      );
+    } finally {
+      await regionTestDb.end();
+    }
+    const disallowedRegionEvent = await request('/api/ads/events', {
+      method: 'POST',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({
+        eventId: randomUUID(),
+        campaignId: 'consent-gate-test',
+        eventType: 'impression'
+      })
+    });
+    assert.equal(disallowedRegionEvent.status, 403,
+      'campaign events must be rejected when the profile country is outside the campaign allowlist');
+    assert.equal((await disallowedRegionEvent.json()).error, 'ad_campaign_region_not_allowed');
+
     const foreignTargetAttempt = await request('/api/ads/consent', {
       method: 'PUT',
       headers: { Cookie: maleCookie },
