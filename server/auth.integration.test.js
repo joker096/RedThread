@@ -851,6 +851,27 @@ test('auth API supports registration, session lookup, logout and login', {
       categoryConsents: { travel: true, fashion: true }
     });
 
+    // The registry is server-owned: only an explicitly approved, active campaign
+    // may accept events after the user has opted in.
+    await pool.query(
+      `INSERT INTO ad_campaigns
+         (id, advertiser_id, advertiser_verified, status, category, creative_version,
+          creative_approved, allowed_country_codes, starts_at, ends_at)
+       VALUES ('consent-gate-test', $1, TRUE, 'approved', 'travel', 'test-v1',
+               TRUE, ARRAY['GE'], NOW() - INTERVAL '1 hour', NOW() + INTERVAL '1 day')
+       ON CONFLICT (id) DO UPDATE SET
+         advertiser_id = EXCLUDED.advertiser_id,
+         advertiser_verified = TRUE,
+         status = 'approved',
+         category = 'travel',
+         creative_version = 'test-v1',
+         creative_approved = TRUE,
+         allowed_country_codes = ARRAY['GE'],
+         starts_at = NOW() - INTERVAL '1 hour',
+         ends_at = NOW() + INTERVAL '1 day'`,
+      [registered.user.id]
+    );
+
     const consentedAdEventId = randomUUID();
     const consentedAdEventPayload = {
       eventId: consentedAdEventId,
