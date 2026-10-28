@@ -34,6 +34,28 @@ export async function notifyGiftRequestUpdate(client, userId, orderReference, tr
     [userId, JSON.stringify({ orderReference }), dedupeKey]
   );
 }
+/** Queue durable provider reconciliation without claiming a void or refund occurred. */
+export async function enqueueExpiredGiftPaymentReconciliation(client, orderId) {
+  const task = await client.query(
+    `INSERT INTO gift_payment_reconciliation_tasks (order_id, reason)
+     VALUES ($1, 'expired_active_payment')
+     ON CONFLICT (order_id, reason) DO NOTHING
+     RETURNING order_id`,
+    [orderId]
+  );
+  if (task.rowCount === 1) {
+    await client.query(
+      `INSERT INTO gift_delivery_order_events
+         (order_id, actor_type, event_type, from_status, to_status, metadata)
+       SELECT id, 'system', 'payment_reconciliation_required', status, status,
+              jsonb_build_object('reason', 'expired_active_payment')
+       FROM gift_delivery_orders WHERE id = $1`,
+      [orderId]
+    );
+  }
+  return task.rowCount === 1;
+}
+
 export async function expireStaleGiftRequestsForPair(client, { matchId, senderId, recipientId }) {
   const candidates = await client.query(
     `SELECT id, payment_status
@@ -47,7 +69,11 @@ export async function expireStaleGiftRequestsForPair(client, { matchId, senderId
      FOR UPDATE`,
     [matchId, senderId, recipientId]
   );
-  if (candidates.rows.some(row => !['not_started', 'voided', 'failed'].includes(row.payment_status))) {
+  const unresolved = candidates.rows.filter(row => !['not_started', 'voided', 'failed'].includes(row.payment_status));
+  for (const order of unresolved) {
+    await enqueueExpiredGiftPaymentReconciliation(client, order.id);
+  }
+  if (unresolved.length > 0) {
     return { ok: false, error: 'gift_payment_requires_reconciliation', expiredOrders: [] };
   }
   if (candidates.rows.length === 0) return { ok: true, expiredOrders: [] };

@@ -407,6 +407,14 @@ async function runRequest(pool, input) {
 async function cleanupFixture(pool, fixture) {
   const { ids, userIds, matchIds } = fixture;
   await pool.query(
+    `DELETE FROM gift_payment_reconciliation_tasks
+     WHERE order_id IN (
+       SELECT id FROM gift_delivery_orders
+       WHERE sender_id = ANY($1::uuid[]) OR recipient_id = ANY($1::uuid[])
+     )`,
+    [userIds]
+  );
+  await pool.query(
     `DELETE FROM gift_delivery_order_events
      WHERE order_id IN (
        SELECT id FROM gift_delivery_orders
@@ -1050,6 +1058,25 @@ test('expired requests with unresolved payment state fail closed and remain unch
       status: 'awaiting_recipient_consent',
       payment_status: 'authorization_pending'
     });
+    const reconciliation = await pool.query(
+      `SELECT reason, status, attempt_count
+       FROM gift_payment_reconciliation_tasks WHERE order_id = $1`,
+      [stale.rows[0].id]
+    );
+    assert.deepEqual(reconciliation.rows, [{
+      reason: 'expired_active_payment',
+      status: 'pending',
+      attempt_count: 0
+    }], 'expired orders with active payment must be queued for provider reconciliation');
+    const reconciliationAudit = await pool.query(
+      `SELECT event_type, metadata FROM gift_delivery_order_events
+       WHERE order_id = $1 AND event_type = 'payment_reconciliation_required'`,
+      [stale.rows[0].id]
+    );
+    assert.deepEqual(reconciliationAudit.rows, [{
+      event_type: 'payment_reconciliation_required',
+      metadata: { reason: 'expired_active_payment' }
+    }]);
     const count = await pool.query(
       "SELECT COUNT(*)::int AS count FROM gift_delivery_orders WHERE match_id = $1 AND status = 'awaiting_recipient_consent'",
       [ids.matchA]

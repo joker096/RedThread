@@ -7,7 +7,7 @@ import { evaluateAdCampaignEligibility, isCampaignCountryAllowed, resolveProfile
 import { AD_EVENT_FREQUENCY_COUNTS_SQL } from './adEventFrequencyQuery.js';
 import { validateGiftDecisionInput } from './giftDecisionInput.js';
 import { normalizeGiftRequestInput } from './giftRequestInput.js';
-import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, acquireGiftSafetyUserLocks, recipientGiftAcceptanceLimitReached, expireStaleGiftRequestsForPair, notifyGiftRequestUpdate } from './giftOrderCreationService.js';
+import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, acquireGiftSafetyUserLocks, recipientGiftAcceptanceLimitReached, expireStaleGiftRequestsForPair, enqueueExpiredGiftPaymentReconciliation, notifyGiftRequestUpdate } from './giftOrderCreationService.js';
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
@@ -2377,9 +2377,10 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
     if (order.status === 'awaiting_recipient_consent' &&
         new Date(order.expires_at).getTime() <= Date.now() &&
         !['not_started', 'voided', 'failed'].includes(order.payment_status)) {
-      // Expiry cannot stand in for a payment void/refund. Keep the order state
-      // unchanged until a real payment service can reconcile the active state.
-      await client.query('ROLLBACK');
+      // Expiry cannot stand in for a payment void/refund. Persist provider
+      // reconciliation work in this transaction before returning the conflict.
+      await enqueueExpiredGiftPaymentReconciliation(client, order.id);
+      await client.query('COMMIT');
       return res.status(409).json({ error: 'gift_payment_requires_reconciliation' });
     }
 
