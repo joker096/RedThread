@@ -73,18 +73,10 @@ export async function expireStaleGiftRequestsForPair(client, { matchId, senderId
   for (const order of unresolved) {
     await enqueueExpiredGiftPaymentReconciliation(client, order.id);
   }
-  if (unresolved.length > 0) {
-    // The caller must commit the durable queue/audit writes even though the
-    // requested replacement is rejected.
-    return {
-      ok: false,
-      commit: true,
-      error: 'gift_payment_requires_reconciliation',
-      expiredOrders: []
-    };
-  }
   if (candidates.rows.length === 0) return { ok: true, expiredOrders: [] };
 
+  // Expire orders whose payment is definitively inactive even if another
+  // expired request for this pair needs provider reconciliation.
   const expired = await client.query(
     `UPDATE gift_delivery_orders
      SET status = 'expired', updated_at = NOW()
@@ -105,6 +97,16 @@ export async function expireStaleGiftRequestsForPair(client, { matchId, senderId
     // Keep the generic sender notification in the shared expiry transaction so
     // every caller (creation, catalog, and future paths) gets the same behavior.
     await notifyGiftRequestUpdate(client, order.sender_id, order.publicReference, 'request_expired');
+  }
+  if (unresolved.length > 0) {
+    // Commit both safe expirations and durable reconciliation work while
+    // rejecting the requested replacement until uncertain payments are resolved.
+    return {
+      ok: false,
+      commit: true,
+      error: 'gift_payment_requires_reconciliation',
+      expiredOrders: expired.rows
+    };
   }
   return { ok: true, expiredOrders: expired.rows };
 }
