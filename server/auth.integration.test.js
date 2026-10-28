@@ -1566,6 +1566,31 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.deepEqual(reportReconciliation.rows, [{ reason: 'safety_hold', status: 'pending' }],
         'reporting a gift with a captured payment must enqueue provider reconciliation');
 
+      // A later report for the same pair must not reopen the already safety-held
+      // order or create a second reconciliation task/event for the same order.
+      const repeatedReport = await request('/api/reports', {
+        method: 'POST',
+        headers: { Cookie: maleCookie },
+        body: JSON.stringify({
+          reportedUserId: registered.user.id,
+          category: 'safety',
+          details: 'Integration test: repeated report must not duplicate gift reconciliation'
+        })
+      });
+      assert.equal(repeatedReport.status, 201);
+      const repeatedReportQueue = await giftSafetyDb.query(
+        "SELECT count(*)::int AS count FROM gift_payment_reconciliation_tasks WHERE order_id = $1 AND reason = 'safety_hold'",
+        [reportSafetyOrderId]
+      );
+      assert.equal(repeatedReportQueue.rows[0].count, 1,
+        'repeated reports must not duplicate the safety reconciliation task');
+      const repeatedReportEvents = await giftSafetyDb.query(
+        "SELECT count(*)::int AS count FROM gift_delivery_order_events WHERE order_id = $1 AND event_type = 'payment_reconciliation_required'",
+        [reportSafetyOrderId]
+      );
+      assert.equal(repeatedReportEvents.rows[0].count, 1,
+        'repeated reports must not duplicate the reconciliation audit event');
+
       const senderOrdersAfterReport = await request('/api/gifts/orders', {
         headers: { Cookie: maleCookie }
       });
