@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { validateAdEventPayload, classifyDuplicateAdEvent, hasExplicitAdConsent, evaluateAdEventFrequency } from './adEvents.js';
+import { validateAdEventPayload, classifyDuplicateAdEvent, hasExplicitAdConsent, evaluateAdEventFrequency, isAdEventCollectionEnabled } from './adEvents.js';
 import { evaluateAdCampaignEligibility, isCampaignCountryAllowed, resolveProfileCountryCode } from './adCampaignRegistry.js';
 import { AD_EVENT_FREQUENCY_COUNTS_SQL } from './adEventFrequencyQuery.js';
 import { validateGiftDecisionInput } from './giftDecisionInput.js';
@@ -2733,6 +2733,13 @@ app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileAction
 });
 
 app.post('/api/ads/events', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  // No production ad-serving endpoint currently issues trusted placement receipts.
+  // Keep ingestion closed so clients cannot manufacture impressions/clicks for an
+  // approved campaign without proving that contextual eligibility allowed delivery.
+  if (!isAdEventCollectionEnabled()) {
+    return res.status(503).json({ error: 'ad_event_collection_unavailable' });
+  }
+
   const validation = validateAdEventPayload(req.body);
   if (!validation.ok) return res.status(400).json({ error: validation.error });
 

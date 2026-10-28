@@ -1,5 +1,15 @@
 import { AD_CONSENT_VERSION } from './adConsentPreferences.js';
 
+/**
+ * Event ingestion remains disabled until a trusted server-side ad delivery path
+ * can bind each event to an authorized placement and contextual eligibility decision.
+ * This flag is deliberately opt-in; client consent and campaign IDs alone are not proof
+ * that an eligible ad was actually delivered.
+ */
+export function isAdEventCollectionEnabled(value = process.env.AD_EVENT_COLLECTION_ENABLED) {
+  return value === 'true';
+}
+
 export const AD_IMPRESSION_CAP_24H = 3;
 // Separate cap prevents a single user from generating unlimited click events.
 export const AD_CLICK_CAP_24H = 5;

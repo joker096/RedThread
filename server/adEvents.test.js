@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AD_CLICK_CAP_24H, AD_IMPRESSION_CAP_24H, classifyDuplicateAdEvent, evaluateAdEventBillingEligibility, evaluateAdEventFrequency, hasExplicitAdConsent, validateAdEventPayload } from './adEvents.js';
+import { isAdEventCollectionEnabled, AD_CLICK_CAP_24H, AD_IMPRESSION_CAP_24H, classifyDuplicateAdEvent, evaluateAdEventBillingEligibility, evaluateAdEventFrequency, hasExplicitAdConsent, validateAdEventPayload } from './adEvents.js';
+
+test('ad event collection is disabled unless explicitly enabled after delivery integration', () => {
+  assert.equal(isAdEventCollectionEnabled(undefined), false);
+  assert.equal(isAdEventCollectionEnabled('false'), false);
+  assert.equal(isAdEventCollectionEnabled('TRUE'), false);
+  assert.equal(isAdEventCollectionEnabled('true'), true);
+});
 
 test('ad event payload accepts valid impression and click events', () => {
   const base = { eventId: 'b5e8d1a0-5c2b-4f39-8f04-3db6a1e32d88', campaignId: 'restaurant_summer-1' };
