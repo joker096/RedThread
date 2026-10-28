@@ -45,6 +45,9 @@ export function evaluateGiftFulfilmentEligibility({ request, sender, recipient, 
   if (sender.accountStatus !== 'active' || sender.isAdult !== true || sender.identityVerified !== true || sender.safetyRestricted !== false) return deny('sender_safety_state_unavailable_or_restricted');
   if (request.consentWithdrawnAt != null) return deny('recipient_consent_withdrawn');
   if (request.status !== 'address_verified') return deny('verified_address_state_required');
+  // Bind fulfilment authorization to the actual sender as well as the recipient.
+  // A valid payment/order tuple must never be paired with another verified account.
+  if (request.senderId !== sender.id) return deny('sender_authorization_failed');
   if (request.recipientId !== recipient.id || recipient.authenticatedUserId !== recipient.id) return deny('recipient_authorization_failed');
   if (typeof request.expiresAt !== 'string' || request.expiresAt.trim().length === 0) return deny('request_expired');
   const expiresAt = Date.parse(request.expiresAt);
