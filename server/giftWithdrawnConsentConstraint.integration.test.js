@@ -185,14 +185,14 @@ test('gift consent withdrawal timestamp is immutable without rewriting payment s
 
       await client.query(
         `UPDATE gift_withdrawal_immutable_test
-         SET payment_status = 'reconciliation_required' WHERE id = 1`
+         SET payment_status = 'authorization_pending' WHERE id = 1`
       );
       const payment = await client.query(
         `SELECT consent_withdrawn_at, payment_status
          FROM gift_withdrawal_immutable_test WHERE id = 1`
       );
       assert.equal(new Date(payment.rows[0].consent_withdrawn_at).toISOString(), '2026-10-25T10:00:00.000Z');
-      assert.equal(payment.rows[0].payment_status, 'reconciliation_required');
+      assert.equal(payment.rows[0].payment_status, 'authorization_pending');
 
       await client.query('COMMIT');
     } catch (error) {

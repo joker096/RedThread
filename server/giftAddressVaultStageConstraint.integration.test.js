@@ -12,7 +12,7 @@ test('gift address-vault pointer is restricted to post-verification order states
   const client = await pool.connect();
   try {
     const constraints = await client.query(
-      `SELECT conname, convalidated FROM pg_constraint
+      `SELECT conname, convalidated, pg_get_constraintdef(oid) AS definition FROM pg_constraint
        WHERE conname IN (
          'gift_orders_address_vault_requires_verified_stage',
          'gift_orders_address_vault_reference_nonempty'
@@ -22,6 +22,7 @@ test('gift address-vault pointer is restricted to post-verification order states
     assert.equal(constraints.rowCount, 2, 'migrations 041 and 042 should install both address-vault constraints');
     assert.equal(constraints.rows.find(row => row.conname === 'gift_orders_address_vault_requires_verified_stage')?.convalidated, false, 'legacy rows remain explicitly subject to audit');
     assert.equal(constraints.rows.find(row => row.conname === 'gift_orders_address_vault_reference_nonempty')?.convalidated, false, 'legacy rows remain explicitly subject to audit');
+    assert.ok(constraints.rows.every(row => typeof row.definition === 'string'), 'tests must reuse the installed production CHECK expressions');
 
     await client.query('BEGIN');
     try {
@@ -32,16 +33,8 @@ test('gift address-vault pointer is restricted to post-verification order states
           recipient_consent_at timestamptz,
           recipient_consent_version smallint,
           address_verified_at timestamptz,
-          CONSTRAINT gift_address_vault_stage_test_check CHECK (
-            address_vault_ref IS NULL OR (
-              btrim(address_vault_ref) <> ''
-              AND status IN ('address_verified', 'fulfilment_authorized', 'dispatched', 'delivered', 'delivery_failed')
-              AND recipient_consent_at IS NOT NULL
-              AND recipient_consent_version IS NOT NULL
-              AND recipient_consent_version > 0
-              AND address_verified_at IS NOT NULL
-            )
-          )
+          CONSTRAINT gift_address_vault_stage_test_check ${constraints.rows.find(row => row.conname === 'gift_orders_address_vault_requires_verified_stage').definition},
+          CONSTRAINT gift_address_vault_nonempty_test_check ${constraints.rows.find(row => row.conname === 'gift_orders_address_vault_reference_nonempty').definition}
         ) ON COMMIT DROP
       `);
       await client.query(
