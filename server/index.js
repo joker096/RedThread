@@ -2352,16 +2352,22 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
 
     if (order.status !== 'awaiting_recipient_consent' || new Date(order.expires_at).getTime() <= Date.now()) {
       if (order.status === 'awaiting_recipient_consent') {
-        await client.query(
+        const expiredOrder = await client.query(
           `UPDATE gift_delivery_orders SET status = 'expired', updated_at = NOW()
-           WHERE id = $1 AND status = 'awaiting_recipient_consent'`,
+           WHERE id = $1 AND status = 'awaiting_recipient_consent'
+           RETURNING public_reference AS "publicReference"`,
           [order.id]
         );
-        await client.query(
-          `INSERT INTO gift_delivery_order_events (order_id, actor_type, event_type, from_status, to_status)
-           VALUES ($1, 'system', 'expired', 'awaiting_recipient_consent', 'expired')`,
-          [order.id]
-        );
+        if (expiredOrder.rowCount === 1) {
+          await client.query(
+            `INSERT INTO gift_delivery_order_events (order_id, actor_type, event_type, from_status, to_status)
+             VALUES ($1, 'system', 'expired', 'awaiting_recipient_consent', 'expired')`,
+            [order.id]
+          );
+          await notifyGiftRequestUpdate(
+            client, order.sender_id, expiredOrder.rows[0].publicReference, 'request_expired'
+          );
+        }
       }
       await client.query('COMMIT');
       return res.status(409).json({ error: 'gift_request_not_actionable' });
