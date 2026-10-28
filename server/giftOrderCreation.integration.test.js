@@ -605,18 +605,20 @@ test('gift request updates notify only the sender with generic, idempotent metad
     assert.equal(request.status, 201);
     await notifyGiftRequestUpdate(pool, ids.sender, request.body.order.id, 'recipient_decision');
     await notifyGiftRequestUpdate(pool, ids.sender, request.body.order.id, 'recipient_decision');
+    await notifyGiftRequestUpdate(pool, ids.sender, request.body.order.id, 'request_expired');
+    await notifyGiftRequestUpdate(pool, ids.sender, request.body.order.id, 'request_expired');
     const sent = await pool.query(
-      "SELECT type, metadata, dedupe_key FROM user_notifications WHERE user_id = $1 AND type = 'gift_request_update'",
+      "SELECT type, metadata, dedupe_key FROM user_notifications WHERE user_id = $1 AND type = 'gift_request_update' ORDER BY dedupe_key",
       [ids.sender]
     );
     const recipientUpdates = await pool.query(
       "SELECT 1 FROM user_notifications WHERE user_id = $1 AND type = 'gift_request_update'",
       [ids.recipientA]
     );
-    assert.equal(sent.rowCount, 1, 'replayed update event must not duplicate the notification');
+    assert.equal(sent.rowCount, 2, 'each distinct update transition should notify once, even when replayed');
     assert.equal(recipientUpdates.rowCount, 0, 'update notification goes to the sender, not the recipient');
     assert.deepEqual(sent.rows[0].metadata, { orderReference: request.body.order.id });
-    assert.equal(sent.rows[0].dedupe_key, 'gift_request_update:' + request.body.order.id + ':recipient_decision');
+    assert.deepEqual(sent.rows.map(row => row.dedupe_key), [\n      'gift_request_update:' + request.body.order.id + ':recipient_decision',\n      'gift_request_update:' + request.body.order.id + ':request_expired'\n    ]);
     const metadataText = JSON.stringify(sent.rows[0].metadata).toLowerCase();
     for (const forbidden of ['address', 'phone', 'email', 'city', 'country', 'coordinates', 'decision', 'reason']) {
       assert.equal(metadataText.includes(forbidden), false, 'notification metadata must not include ' + forbidden);

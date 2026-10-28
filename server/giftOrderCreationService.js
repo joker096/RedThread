@@ -25,7 +25,7 @@ export async function recipientGiftAcceptanceLimitReached(client, recipientId) {
 /** Call inside the order-transition transaction so notification and state cannot diverge. */
 export async function notifyGiftRequestUpdate(client, userId, orderReference, transition) {
   if (typeof orderReference !== 'string' || !/^gift_[a-f0-9]{32}$/i.test(orderReference) ||
-      !['recipient_decision', 'consent_withdrawn', 'recipient_opted_out'].includes(transition)) {
+      !['recipient_decision', 'consent_withdrawn', 'recipient_opted_out', 'request_expired'].includes(transition)) {
     throw new Error('invalid_gift_request_update_notification');
   }
   const dedupeKey = 'gift_request_update:' + orderReference + ':' + transition;
@@ -59,7 +59,7 @@ export async function expireStaleGiftRequestsForPair(client, { matchId, senderId
        AND status = 'awaiting_recipient_consent'
        AND expires_at <= NOW()
        AND payment_status IN ('not_started', 'voided', 'failed')
-     RETURNING id, public_reference AS "publicReference"`,
+     RETURNING id, public_reference AS "publicReference", sender_id`,
     [candidates.rows.map(row => row.id)]
   );
   for (const order of expired.rows) {
