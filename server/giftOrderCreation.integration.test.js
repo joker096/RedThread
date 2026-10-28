@@ -994,6 +994,15 @@ test('expired request cannot be replayed with its original idempotency key', {
       [stale.rows[0].id]
     );
     assert.deepEqual(order.rows[0], { status: 'expired', payment_status: 'not_started' });
+    const expiryNotification = await pool.query(
+      `SELECT 1 FROM user_notifications
+       WHERE user_id = $1 AND type = 'gift_request_update'
+         AND dedupe_key = 'gift_request_update:' ||
+           (SELECT public_reference FROM gift_delivery_orders WHERE id = $2) ||
+           ':request_expired'`,
+      [ids.sender, stale.rows[0].id]
+    );
+    assert.equal(expiryNotification.rowCount, 1, 'the shared expiry path must notify the sender exactly once');
     const count = await pool.query(
       'SELECT COUNT(*)::int AS count FROM gift_delivery_orders WHERE match_id = $1',
       [ids.matchA]

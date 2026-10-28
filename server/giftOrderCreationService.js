@@ -69,6 +69,9 @@ export async function expireStaleGiftRequestsForPair(client, { matchId, senderId
        VALUES ($1, 'system', 'expired', 'awaiting_recipient_consent', 'expired')`,
       [order.id]
     );
+    // Keep the generic sender notification in the shared expiry transaction so
+    // every caller (creation, catalog, and future paths) gets the same behavior.
+    await notifyGiftRequestUpdate(client, order.sender_id, order.publicReference, 'request_expired');
   }
   return { ok: true, expiredOrders: expired.rows };
 }

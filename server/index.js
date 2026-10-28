@@ -2092,13 +2092,6 @@ app.get('/api/gifts/catalog', requireSession, requirePaidFeatures, profileAction
         await client.query('ROLLBACK');
         return res.status(409).json({ error: 'gift_catalog_unavailable' });
       }
-      // Expiry is a state change too: notify each actual sender in this pair,
-      // without exposing recipient details, in the same transaction.
-      for (const order of expiration.expiredOrders) {
-        await notifyGiftRequestUpdate(
-          client, order.sender_id, order.publicReference, 'request_expired'
-        );
-      }
     }
     const result = await listGiftCatalogForMatch(client, {
       senderId: req.authUser.id, matchId: matchId.toLowerCase()
