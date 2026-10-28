@@ -74,7 +74,14 @@ export async function expireStaleGiftRequestsForPair(client, { matchId, senderId
     await enqueueExpiredGiftPaymentReconciliation(client, order.id);
   }
   if (unresolved.length > 0) {
-    return { ok: false, error: 'gift_payment_requires_reconciliation', expiredOrders: [] };
+    // The caller must commit the durable queue/audit writes even though the
+    // requested replacement is rejected.
+    return {
+      ok: false,
+      commit: true,
+      error: 'gift_payment_requires_reconciliation',
+      expiredOrders: []
+    };
   }
   if (candidates.rows.length === 0) return { ok: true, expiredOrders: [] };
 
@@ -179,7 +186,13 @@ export async function createGiftOrderRequest(client, {
   await acquireGiftSafetyPairLock(client, senderId, recipientId);
 
   const expiration = await expireStaleGiftRequestsForPair(client, { matchId, senderId, recipientId });
-  if (!expiration.ok) return deny(409, expiration.error);
+  if (!expiration.ok) {
+    return {
+      status: 409,
+      commit: expiration.commit === true,
+      body: { error: expiration.error }
+    };
+  }
   const reject = (status, error) => ({
     status,
     commit: expiration.expiredOrders.length > 0,

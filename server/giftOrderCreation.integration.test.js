@@ -1053,6 +1053,8 @@ test('expired requests with unresolved payment state fail closed and remain unch
     });
     assert.equal(result.status, 409);
     assert.equal(result.body.error, 'gift_payment_requires_reconciliation');
+    assert.equal(result.commit, true,
+      'the caller must commit reconciliation work while rejecting replacement creation');
     const order = await pool.query('SELECT status, payment_status FROM gift_delivery_orders WHERE id = $1', [stale.rows[0].id]);
     assert.deepEqual(order.rows[0], {
       status: 'awaiting_recipient_consent',
