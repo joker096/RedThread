@@ -670,6 +670,12 @@ test('auth API supports registration, session lookup, logout and login', {
           from_status: 'awaiting_recipient_consent',
           to_status: 'cancelled'
         }]);
+        const inactiveSiblingReconciliation = await giftTestDb.query(
+          'SELECT reason FROM gift_payment_reconciliation_tasks WHERE order_id = $1',
+          [inactiveSiblingOrderId]
+        );
+        assert.deepEqual(inactiveSiblingReconciliation.rows, [],
+          'an order whose payment never started must not create provider reconciliation work');
       } finally {
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [inactiveSiblingOrderId]).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [inactiveSiblingOrderId]).catch(() => {});
