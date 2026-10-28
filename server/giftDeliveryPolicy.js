@@ -142,6 +142,8 @@ export function validateGiftOrderPersistenceState(order = {}, { now = Date.now()
   const hasNonEmptyString = (value) => typeof value === 'string' && value.trim().length > 0;
   if (!Number.isFinite(now)) return { valid: false, reason: 'invalid_validation_clock' };
   if (!validStatuses.has(order.status) || !validPaymentStatuses.has(order.paymentStatus)) return { valid: false, reason: 'unknown_persisted_state' };
+  if (order.paymentStatus === 'refunded' && order.status !== 'refunded') return { valid: false, reason: 'refunded_payment_requires_refunded_order_state' };
+  if (order.status === 'refunded' && order.paymentStatus !== 'refunded') return { valid: false, reason: 'refunded_payment_state_required' };
   if (order.consentWithdrawnAt != null && ['recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivered', 'delivery_failed'].includes(order.status)) return { valid: false, reason: 'consent_withdrawn_order_cannot_progress' };
   const addressVaultAllowedStatuses = ['address_verified', 'fulfilment_authorized', 'dispatched', 'delivered', 'delivery_failed'];
   if (order.addressVaultRef != null && !addressVaultAllowedStatuses.includes(order.status)) return { valid: false, reason: 'address_vault_ref_forbidden_in_order_state' };
@@ -150,8 +152,6 @@ export function validateGiftOrderPersistenceState(order = {}, { now = Date.now()
   if (['fulfilment_authorized', 'dispatched', 'delivered', 'delivery_failed'].includes(order.status) && (!hasNonFutureTimestamp(order.fulfilmentAuthorizedAt) || !['authorized', 'captured'].includes(order.paymentStatus))) return { valid: false, reason: 'fulfilment_payment_authorization_required' };
   if (order.status === 'dispatched' && !hasNonFutureTimestamp(order.dispatchedAt)) return { valid: false, reason: 'dispatch_timestamp_required' };
   if (order.status === 'delivered' && !hasNonFutureTimestamp(order.deliveredAt)) return { valid: false, reason: 'delivery_timestamp_required' };
-  if (order.paymentStatus === 'refunded' && order.status !== 'refunded') return { valid: false, reason: 'refunded_payment_requires_refunded_order_state' };
-  if (order.status === 'refunded' && order.paymentStatus !== 'refunded') return { valid: false, reason: 'refunded_payment_state_required' };
   if (order.status === 'refund_pending' && order.paymentStatus !== 'refund_pending') return { valid: false, reason: 'pending_refund_payment_state_required' };
   if (order.status === 'declined' && order.paymentStatus !== 'not_started' && order.paymentStatus !== 'voided' && order.paymentStatus !== 'failed') return { valid: false, reason: 'declined_order_payment_must_be_inactive' };
   if (order.status === 'expired' && ['authorization_pending', 'authorized', 'captured', 'refund_pending'].includes(order.paymentStatus)) return { valid: false, reason: 'expired_order_payment_requires_reconciliation' };
