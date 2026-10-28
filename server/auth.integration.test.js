@@ -745,11 +745,9 @@ test('auth API supports registration, session lookup, logout and login', {
         const safetyRaceOrder = await giftTestDb.query(
           `INSERT INTO gift_delivery_orders
              (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
-              total_minor_units, currency, status, payment_status, idempotency_key,
-              address_vault_ref, address_verified_at)
+              total_minor_units, currency, status, payment_status, idempotency_key)
            VALUES ($1, $2, $3, 'Safety race test gift', 'chocolate', 1000, 'USD',
-                   'awaiting_recipient_consent', 'not_started', $4,
-                   'test-only-safety-race-vault-reference', NOW())
+                   'awaiting_recipient_consent', 'not_started', $4)
            RETURNING id, public_reference`,
           [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
         );
