@@ -257,12 +257,12 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
         <div className="p-3.5 rounded-2xl bg-stone-950/50 border border-white/5 text-xs text-stone-300 mb-5">
           <div className="font-bold text-white mb-1.5 flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-rose-400" />
-            <span>Форматы монетизации в приложении:</span>
+            <span>Планируемые форматы (не активны в production):</span>
           </div>
           <ul className="space-y-1 text-[11px] text-stone-400">
-            <li>• <strong>Нативные спонсорские карточки</strong> в ленте (рестораны, цветы, романтические поездки).</li>
-            <li>• <strong>Rewarded-ролики</strong>: получение бустов и супер-лайков бесплатно.</li>
-            <li>• <strong>Lady VIP</strong>: платный переход, полностью отключающий любую рекламу.</li>
+            <li>• <strong>Контекстные предложения</strong> — только на отдельно разрешённых поверхностях. Не в ленте знакомств, личных чатах, звонках, проверке, жалобах, блокировках и оплате.</li>
+            <li>• <strong>Rewarded-видео</strong> — сейчас доступна только локальная симуляция награды; реальный ролик и рекламный SDK не подключены.</li>
+            <li>• <strong>Lady VIP</strong> — отключение рекламы должно обеспечиваться production-политикой; эта демонстрационная панель не подтверждает работу реальной рекламной выдачи.</li>
           </ul>
         </div>
 
