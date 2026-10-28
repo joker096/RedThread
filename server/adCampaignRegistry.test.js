@@ -41,8 +41,13 @@ test('campaign registry rejects malformed windows and missing creative version',
 });
 
 test('campaign registry rejects categories outside the approved allowlist', () => {
-  assert.equal(evaluateAdCampaignEligibility({ ...approved, category: 'political' }, { now }).reason, 'campaign_category_not_allowed');
-  assert.equal(evaluateAdCampaignEligibility({ ...approved, category: 'unreviewed_health' }, { now }).reason, 'campaign_category_not_allowed');
+  for (const category of ['political', 'unreviewed_health', 'bridal_dress', 'wedding_venue', 'legal', 'family_law']) {
+    assert.equal(
+      evaluateAdCampaignEligibility({ ...approved, category }, { now }).reason,
+      'campaign_category_not_allowed',
+      category
+    );
+  }
 });
 
 
