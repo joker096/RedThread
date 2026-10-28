@@ -433,7 +433,23 @@ test('auth API supports registration, session lookup, logout and login', {
           from_status: 'awaiting_recipient_consent',
           to_status: 'cancelled'
         }]);
+        const senderNotification = await giftTestDb.query(
+          `SELECT type, metadata, dedupe_key
+           FROM user_notifications
+           WHERE user_id = $1 AND dedupe_key = $2`,
+          [maleRegistered.user.id, `gift_request_update:${pendingPreferenceOrder.rows[0].public_reference}:recipient_opted_out`]
+        );
+        assert.equal(senderNotification.rowCount, 1,
+          'the sender must be notified when recipient opt-out invalidates the request');
+        assert.equal(senderNotification.rows[0].type, 'gift_request_update');
+        assert.deepEqual(senderNotification.rows[0].metadata, {
+          orderReference: pendingPreferenceOrder.rows[0].public_reference
+        }, 'the notification must not expose recipient location or contact details');
       } finally {
+        await giftTestDb.query(
+          'DELETE FROM user_notifications WHERE dedupe_key = $1',
+          [`gift_request_update:${pendingPreferenceOrder.rows[0].public_reference}:recipient_opted_out`]
+        ).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [pendingPreferenceOrderId]).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [pendingPreferenceOrderId]).catch(() => {});
       }
@@ -593,8 +609,22 @@ test('auth API supports registration, session lookup, logout and login', {
           status: 'pending',
           attempt_count: 0
         }], 'active payment opt-out must create one durable, retryable reconciliation task');
+        const activeSenderNotification = await giftTestDb.query(
+          `SELECT type, metadata FROM user_notifications
+           WHERE user_id = $1 AND dedupe_key = $2`,
+          [maleRegistered.user.id, `gift_request_update:${activePaymentReference}:recipient_opted_out`]
+        );
+        assert.equal(activeSenderNotification.rowCount, 1,
+          'sender must also be notified when the request awaits payment reconciliation');
+        assert.deepEqual(activeSenderNotification.rows[0].metadata, {
+          orderReference: activePaymentReference
+        });
 
       } finally {
+        await giftTestDb.query(
+          'DELETE FROM user_notifications WHERE dedupe_key = $1',
+          [`gift_request_update:${activePaymentReference}:recipient_opted_out`]
+        ).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [activePaymentOrderId]).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [activePaymentOrderId]).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [activePaymentOrderId]).catch(() => {});

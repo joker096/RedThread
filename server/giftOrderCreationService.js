@@ -25,7 +25,7 @@ export async function recipientGiftAcceptanceLimitReached(client, recipientId) {
 /** Call inside the order-transition transaction so notification and state cannot diverge. */
 export async function notifyGiftRequestUpdate(client, userId, orderReference, transition) {
   if (typeof orderReference !== 'string' || !/^gift_[a-f0-9]{32}$/i.test(orderReference) ||
-      !['recipient_decision', 'consent_withdrawn'].includes(transition)) {
+      !['recipient_decision', 'consent_withdrawn', 'recipient_opted_out'].includes(transition)) {
     throw new Error('invalid_gift_request_update_notification');
   }
   const dedupeKey = 'gift_request_update:' + orderReference + ':' + transition;

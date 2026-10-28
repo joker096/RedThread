@@ -2152,14 +2152,22 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
       // Permanently invalidate every request that was still awaiting consent at
       // opt-out time, including orders whose payment state needs reconciliation.
       // Re-enabling future requests must never revive these old requests.
-      await client.query(
+      const invalidatedOrders = await client.query(
         `UPDATE gift_delivery_orders
          SET recipient_requests_disabled_at = COALESCE(recipient_requests_disabled_at, NOW()),
              updated_at = NOW()
          WHERE recipient_id = $1
-           AND status = 'awaiting_recipient_consent'`,
+           AND status = 'awaiting_recipient_consent'
+         RETURNING id, sender_id, public_reference`,
         [req.authUser.id]
       );
+      // Notify every affected sender, including requests awaiting payment
+      // reconciliation. The generic notification exposes no address or contact data.
+      for (const order of invalidatedOrders.rows) {
+        await notifyGiftRequestUpdate(
+          client, order.sender_id, order.public_reference, 'recipient_opted_out'
+        );
+      }
       // Durable outbox entry for requests that cannot be cancelled safely because
       // their payment may still be active. Enqueueing is not a payment outcome.
       const reconciliationTasks = await client.query(
