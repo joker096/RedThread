@@ -595,6 +595,31 @@ test('auth API supports registration, session lookup, logout and login', {
         );
         assert.equal(acceptAfterPaymentOptOut.status, 409,
           'a request with unresolved payment must not become actionable after recipient opt-out');
+
+        // Re-enabling future requests must not revive this previously invalidated
+        // order, even though its payment reconciliation is still pending.
+        await giftTestDb.query(
+          'UPDATE gift_receiving_preferences SET requests_enabled = TRUE WHERE user_id = $1',
+          [registered.user.id]
+        );
+        const acceptAfterReEnable = await request(
+          `/api/gifts/orders/${activePaymentReference}/decision`,
+          {
+            method: 'POST',
+            headers: { Cookie: secondCookie },
+            body: JSON.stringify({ action: 'accept' })
+          }
+        );
+        assert.equal(acceptAfterReEnable.status, 409,
+          're-enabling gift requests must not revive a request invalidated by an earlier opt-out');
+        assert.deepEqual(await acceptAfterReEnable.json(), {
+          error: 'gift_request_not_actionable'
+        });
+        await giftTestDb.query(
+          'UPDATE gift_receiving_preferences SET requests_enabled = FALSE WHERE user_id = $1',
+          [registered.user.id]
+        );
+
         const activePaymentAudit = await giftTestDb.query(
           `SELECT event_type FROM gift_delivery_order_events WHERE order_id = $1`,
           [activePaymentOrderId]
