@@ -545,6 +545,26 @@ test('auth API supports registration, session lookup, logout and login', {
           'UPDATE gift_delivery_orders SET expires_at = NOW() - INTERVAL \'1 minute\' WHERE id = $1',
           [activePaymentOrderId]
         );
+        const catalogWithExpiredActivePayment = await request(
+          `/api/gifts/catalog?matchId=${giftMatchId}`,
+          { headers: { Cookie: secondCookie } }
+        );
+        assert.equal(catalogWithExpiredActivePayment.status, 409);
+        assert.deepEqual(await catalogWithExpiredActivePayment.json(), {
+          error: 'gift_payment_requires_reconciliation'
+        }, 'catalog expiry must report unresolved payment rather than generic unavailability');
+        const queuedByCatalog = await giftTestDb.query(
+          `SELECT reason, status, attempt_count
+           FROM gift_payment_reconciliation_tasks
+           WHERE order_id = $1 AND reason = 'expired_active_payment'`,
+          [activePaymentOrderId]
+        );
+        assert.deepEqual(queuedByCatalog.rows, [{
+          reason: 'expired_active_payment',
+          status: 'pending',
+          attempt_count: 0
+        }], 'catalog expiry must commit its payment reconciliation task');
+
         const expireActivePayment = await request(
           `/api/gifts/orders/${activePaymentReference}/decision`,
           {

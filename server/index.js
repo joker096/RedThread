@@ -2122,8 +2122,13 @@ app.get('/api/gifts/catalog', requireSession, requirePaidFeatures, profileAction
         matchId: matchId.toLowerCase(), senderId: req.authUser.id, recipientId
       });
       if (!expiration.ok) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({ error: 'gift_catalog_unavailable' });
+        // Expiry may have enqueued durable payment reconciliation work. Commit
+        // that outbox record before rejecting the catalog request.
+        if (expiration.commit === true) await client.query('COMMIT');
+        else await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: expiration.error || 'gift_catalog_unavailable'
+        });
       }
     }
     const result = await listGiftCatalogForMatch(client, {
