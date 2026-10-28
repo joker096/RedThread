@@ -1796,6 +1796,12 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.equal(moderationAudit.rows[0].from_status, 'address_verified');
       assert.equal(moderationAudit.rows[0].to_status, 'blocked');
       assert.equal(moderationAudit.rows[0].metadata.reason, 'moderator_suspension');
+      const moderationReconciliation = await moderationSafetyDb.query(
+        "SELECT reason, status FROM gift_payment_reconciliation_tasks WHERE order_id = $1",
+        [moderationSafetyOrderId]
+      );
+      assert.deepEqual(moderationReconciliation.rows, [{ reason: 'safety_hold', status: 'pending' }],
+        'moderation suspension must enqueue provider reconciliation without claiming the captured payment was refunded');
     } finally {
       if (moderationSafetyReportId) await moderationSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [moderationSafetyReportId]).catch(() => {});
       if (moderationSafetyOrderId) {
@@ -1884,6 +1890,12 @@ test('auth API supports registration, session lookup, logout and login', {
             to_status: 'reported'
           }
         ]);
+        const dispatchedReportReconciliation = await deletionSafetyDb.query(
+          "SELECT reason, status FROM gift_payment_reconciliation_tasks WHERE order_id = $1",
+          [dispatchedReportSafetyOrderId]
+        );
+        assert.deepEqual(dispatchedReportReconciliation.rows, [{ reason: 'safety_hold', status: 'pending' }],
+          'a safety report after dispatch must enqueue reconciliation for the captured payment');
       } finally {
         if (dispatchedReportId) await deletionSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [dispatchedReportId]).catch(() => {});
         await deletionSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [dispatchedReportSafetyOrderId]).catch(() => {});
@@ -1929,6 +1941,12 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.equal(deletionAudit.rows[0].from_status, 'address_verified');
       assert.equal(deletionAudit.rows[0].to_status, 'blocked');
       assert.equal(deletionAudit.rows[0].metadata.reason, 'account_deleted');
+      const deletionReconciliation = await deletionSafetyDb.query(
+        "SELECT reason, status FROM gift_payment_reconciliation_tasks WHERE order_id = $1",
+        [deletionSafetyOrderId]
+      );
+      assert.deepEqual(deletionReconciliation.rows, [{ reason: 'safety_hold', status: 'pending' }],
+        'account deletion must enqueue provider reconciliation for the still-authorized payment');
       const dispatchedGift = await deletionSafetyDb.query(
         'SELECT status, payment_status, address_vault_ref, address_verified_at FROM gift_delivery_orders WHERE id = $1',
         [dispatchedDeletionSafetyOrderId]
