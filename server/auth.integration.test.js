@@ -624,8 +624,10 @@ test('auth API supports registration, session lookup, logout and login', {
           `SELECT event_type FROM gift_delivery_order_events WHERE order_id = $1`,
           [activePaymentOrderId]
         );
-        assert.deepEqual(activePaymentAudit.rows, [{ event_type: 'payment_reconciliation_required' }],
-          'active payment opt-out must enqueue reconciliation without recording a false cancellation');
+        assert.deepEqual(activePaymentAudit.rows, [
+          { event_type: 'payment_reconciliation_required' },
+          { event_type: 'payment_reconciliation_required' }
+        ], 'expiry and recipient opt-out must each be audited without recording a false cancellation');
         const reconciliationTask = await giftTestDb.query(
           `SELECT reason, status, attempt_count
            FROM gift_payment_reconciliation_tasks
