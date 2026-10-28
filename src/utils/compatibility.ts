@@ -255,3 +255,12 @@ export function filterBinaryCandidates(
   const targetGender = currentUserGender === 'female' ? 'male' : 'female';
   return profiles.filter(p => p.isSponsorAd || p.gender === targetGender);
 }
+
+
+/**
+ * Keeps sponsored placements out of the dating discovery pool until a
+ * separately approved, policy-compliant contextual ad surface is implemented.
+ */
+export function excludeSponsoredDiscoveryProfiles<T extends { isSponsorAd?: boolean }>(profiles: T[]): T[] {
+  return profiles.filter(profile => profile.isSponsorAd !== true);
+}

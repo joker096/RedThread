@@ -30,7 +30,7 @@ import type {
   ChatThread, 
   AdStats 
 } from './types/index.ts';
-import { calculateCompatibility, shouldShowAds, filterBinaryCandidates } from './utils/compatibility.ts';
+import { calculateCompatibility, shouldShowAds, filterBinaryCandidates, excludeSponsoredDiscoveryProfiles } from './utils/compatibility.ts';
 import { matchesProfileLocation } from './utils/location.ts';
 import { HeaderNav } from './components/HeaderNav.tsx';
 import { PWAInstallBanner } from './components/PWAInstallBanner.tsx';
@@ -582,12 +582,8 @@ export default function App() {
   };
 
   // Filtered profiles strictly binary (Women see Men, Men see Women)
-  const binaryPool = filterBinaryCandidates(profiles, currentGender);
+  const binaryPool = excludeSponsoredDiscoveryProfiles(filterBinaryCandidates(profiles, currentGender));
   const filteredProfiles = binaryPool.filter(p => {
-    // Contextual ad delivery is not implemented yet. Platform policy prohibits
-    // sponsored placements in discovery, so demo and server-backed ads stay out
-    // of this feed until a separately approved, policy-compliant surface exists.
-    if (p.isSponsorAd) return false;
     if (onlyVerified && !p.verification.isVerified) return false;
     if (!matchesProfileLocation(p, selectedCountry, selectedCity)) return false;
     if (p.age < minAge || p.age > maxAge) return false;

@@ -5,7 +5,8 @@ import {
   detectBotRisk,
   checkAntiChitChatDeadline,
   shouldShowAds,
-  filterBinaryCandidates
+  filterBinaryCandidates,
+  excludeSponsoredDiscoveryProfiles
 } from './compatibility.ts';
 import type { UserProfile, CrucialAnswers } from '../types/index.ts';
 import { matchesProfileLocation } from './location.ts';
@@ -207,4 +208,14 @@ test('location filters allow all locations and do not guess missing country', ()
   assert.equal(matchesProfileLocation({ city: 'Москва' }, 'all', 'all'), true);
   assert.equal(matchesProfileLocation({ city: 'Москва' }, 'Россия', 'all'), false);
   assert.equal(matchesProfileLocation({ country: 'ОАЭ / Россия', city: 'Дубай / Москва' }, 'ОАЭ', 'Дубай'), true);
+});
+
+
+test('excludeSponsoredDiscoveryProfiles removes sponsored cards but keeps ordinary candidates', () => {
+  const sponsored = { ...mockTargetProfile, id: 'ad_1', isSponsorAd: true };
+  const ordinary = { ...mockTargetProfile, id: 'person_1', isSponsorAd: false };
+  const withoutSponsorFlag = { ...mockTargetProfile, id: 'person_2' };
+
+  const result = excludeSponsoredDiscoveryProfiles([sponsored, ordinary, withoutSponsorFlag]);
+  assert.deepEqual(result.map(profile => profile.id), ['person_1', 'person_2']);
 });
