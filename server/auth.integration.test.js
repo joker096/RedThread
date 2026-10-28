@@ -565,6 +565,29 @@ test('auth API supports registration, session lookup, logout and login', {
           attempt_count: 0
         }], 'catalog expiry must commit its payment reconciliation task');
 
+        const repeatedCatalogWithExpiredActivePayment = await request(
+          `/api/gifts/catalog?matchId=${giftMatchId}`,
+          { headers: { Cookie: secondCookie } }
+        );
+        assert.equal(repeatedCatalogWithExpiredActivePayment.status, 409);
+        assert.deepEqual(await repeatedCatalogWithExpiredActivePayment.json(), {
+          error: 'gift_payment_requires_reconciliation'
+        }, 'repeated catalog reads must keep failing closed until payment reconciliation');
+        const reconciliationWrites = await giftTestDb.query(
+          `SELECT
+             (SELECT COUNT(*)::int FROM gift_payment_reconciliation_tasks
+              WHERE order_id = $1 AND reason = 'expired_active_payment') AS task_count,
+             (SELECT COUNT(*)::int FROM gift_delivery_order_events
+              WHERE order_id = $1
+                AND event_type = 'payment_reconciliation_required'
+                AND metadata->>'reason' = 'expired_active_payment') AS event_count`,
+          [activePaymentOrderId]
+        );
+        assert.deepEqual(reconciliationWrites.rows[0], {
+          task_count: 1,
+          event_count: 1
+        }, 'repeated catalog reads must not duplicate reconciliation tasks or audit events');
+
         const expireActivePayment = await request(
           `/api/gifts/orders/${activePaymentReference}/decision`,
           {
