@@ -1489,6 +1489,24 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.deepEqual(blockReconciliation.rows, [{ reason: 'safety_hold', status: 'pending' }],
         'blocking a gift with an active authorization must enqueue provider reconciliation');
 
+      // Repeating the same safety action must not duplicate the durable queue
+      // entry or its audit event.
+      const repeatedBlock = await request(`/api/blocks/${maleRegistered.user.id}`, {
+        method: 'POST', headers: { Cookie: secondCookie }, body: JSON.stringify({})
+      });
+      assert.equal(repeatedBlock.status, 204);
+      const repeatedBlockQueue = await giftSafetyDb.query(
+        "SELECT count(*)::int AS count FROM gift_payment_reconciliation_tasks WHERE order_id = $1 AND reason = 'safety_hold'",
+        [blockSafetyOrderId]
+      );
+      assert.equal(repeatedBlockQueue.rows[0].count, 1);
+      const repeatedBlockReconciliationEvents = await giftSafetyDb.query(
+        "SELECT count(*)::int AS count FROM gift_delivery_order_events WHERE order_id = $1 AND event_type = 'payment_reconciliation_required'",
+        [blockSafetyOrderId]
+      );
+      assert.equal(repeatedBlockReconciliationEvents.rows[0].count, 1,
+        'repeated blocking must not duplicate the reconciliation audit event');
+
       const authorizationPendingState = await giftSafetyDb.query(
         'SELECT status, payment_status FROM gift_delivery_orders WHERE id = $1',
         [authorizationPendingSafetyOrderId]
