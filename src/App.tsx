@@ -584,8 +584,10 @@ export default function App() {
   // Filtered profiles strictly binary (Women see Men, Men see Women)
   const binaryPool = filterBinaryCandidates(profiles, currentGender);
   const filteredProfiles = binaryPool.filter(p => {
-    // Premium members browse without sponsored placements.
-    if (p.isSponsorAd) return !isLadyPremium;
+    // Contextual ad delivery is not implemented yet. Platform policy prohibits
+    // sponsored placements in discovery, so demo and server-backed ads stay out
+    // of this feed until a separately approved, policy-compliant surface exists.
+    if (p.isSponsorAd) return false;
     if (onlyVerified && !p.verification.isVerified) return false;
     if (!matchesProfileLocation(p, selectedCountry, selectedCity)) return false;
     if (p.age < minAge || p.age > maxAge) return false;
