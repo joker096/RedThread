@@ -24,6 +24,7 @@ test('gift payment reconciliation outbox is installed with retryable states and 
     const definitions = result.rows.map(row => row.definition || '').join('\n');
     assert.match(definitions, /recipient_opted_out/, 'recipient opt-out reconciliation should be supported');
     assert.match(definitions, /safety_hold/, 'block, report, and account-safety transitions should queue reconciliation');
+    assert.match(definitions, /expired_active_payment/, 'expired requests with unresolved payment must be reconcilable');
     assert.match(definitions, /pending/, 'tasks should support retryable pending work');
     assert.match(definitions, /completed_at/, 'completion timestamp must be constrained to completed tasks');
 
@@ -43,7 +44,7 @@ test('gift payment reconciliation outbox is installed with retryable states and 
         ) ON COMMIT DROP
       `);
       await client.query(
-        "INSERT INTO gift_reconciliation_reason_constraint_test (reason) VALUES ('recipient_opted_out'), ('safety_hold')"
+        "INSERT INTO gift_reconciliation_reason_constraint_test (reason) VALUES ('recipient_opted_out'), ('safety_hold'), ('expired_active_payment')"
       );
       await client.query('SAVEPOINT invalid_reconciliation_reason');
       let invalidReasonError;
