@@ -1428,6 +1428,7 @@ test('auth API supports registration, session lookup, logout and login', {
       query_timeout: 10_000
     });
     let blockSafetyOrderId;
+    let authorizationPendingSafetyOrderId;
     let reportSafetyOrderId;
     let reportId;
     try {
@@ -1448,6 +1449,20 @@ test('auth API supports registration, session lookup, logout and login', {
         [matchPayload.match.id, maleRegistered.user.id, registered.user.id, randomUUID()]
       );
       blockSafetyOrderId = blockSafetyOrder.rows[0].id;
+
+      // Authorization may still be pending when a safety block arrives; it
+      // must enter the same durable reconciliation queue as an authorization
+      // that has already completed.
+      const authorizationPendingSafetyOrder = await giftSafetyDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, idempotency_key)
+         VALUES ($1, $2, $3, 'Pending authorization safety test', 'chocolate', 1000, 'USD',
+                 'awaiting_recipient_consent', 'authorization_pending', $4)
+         RETURNING id`,
+        [matchPayload.match.id, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      authorizationPendingSafetyOrderId = authorizationPendingSafetyOrder.rows[0].id;
 
       const block = await request(`/api/blocks/${maleRegistered.user.id}`, {
         method: 'POST', headers: { Cookie: secondCookie }, body: JSON.stringify({})
@@ -1473,6 +1488,21 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       assert.deepEqual(blockReconciliation.rows, [{ reason: 'safety_hold', status: 'pending' }],
         'blocking a gift with an active authorization must enqueue provider reconciliation');
+
+      const authorizationPendingState = await giftSafetyDb.query(
+        'SELECT status, payment_status FROM gift_delivery_orders WHERE id = $1',
+        [authorizationPendingSafetyOrderId]
+      );
+      assert.deepEqual(authorizationPendingState.rows[0], {
+        status: 'blocked',
+        payment_status: 'authorization_pending'
+      }, 'a safety block must not invent a successful authorization or silently reset its payment state');
+      const authorizationPendingReconciliation = await giftSafetyDb.query(
+        'SELECT reason, status FROM gift_payment_reconciliation_tasks WHERE order_id = $1',
+        [authorizationPendingSafetyOrderId]
+      );
+      assert.deepEqual(authorizationPendingReconciliation.rows, [{ reason: 'safety_hold', status: 'pending' }],
+        'an in-flight authorization must be queued for provider reconciliation');
 
       // The sender must not learn whether the recipient blocked or reported them.
       // The recipient can see their own safety outcome; the sender gets only a
@@ -1676,7 +1706,7 @@ test('auth API supports registration, session lookup, logout and login', {
 
     } finally {
       if (reportId) await giftSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [reportId]).catch(() => {});
-      for (const orderId of [blockSafetyOrderId, reportSafetyOrderId].filter(Boolean)) {
+      for (const orderId of [blockSafetyOrderId, authorizationPendingSafetyOrderId, reportSafetyOrderId].filter(Boolean)) {
         await giftSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [orderId]).catch(() => {});
         await giftSafetyDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [orderId]).catch(() => {});
         await giftSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [orderId]).catch(() => {});
