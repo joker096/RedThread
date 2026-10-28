@@ -710,6 +710,30 @@ app.post('/api/auth/logout', validateRequestOrigin, requireDatabase, async (req,
 });
 
 
+
+/** Queue provider reconciliation for safety-held orders without pretending a void/refund occurred. */
+async function enqueueGiftSafetyPaymentReconciliation(client, gift, { actorUserId = null, actorType = 'system' } = {}) {
+  if (!['authorization_pending', 'authorized', 'captured', 'refund_pending'].includes(gift.payment_status)) return false;
+  const task = await client.query(
+    `INSERT INTO gift_payment_reconciliation_tasks (order_id, reason)
+     VALUES ($1, 'safety_hold')
+     ON CONFLICT (order_id, reason) DO NOTHING
+     RETURNING order_id`,
+    [gift.id]
+  );
+  if (task.rowCount === 1) {
+    await client.query(
+      `INSERT INTO gift_delivery_order_events
+         (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
+       SELECT id, $2, $3, 'payment_reconciliation_required', status, status,
+              jsonb_build_object('reason', 'safety_hold')
+       FROM gift_delivery_orders WHERE id = $1`,
+      [gift.id, actorUserId, actorType]
+    );
+  }
+  return task.rowCount === 1;
+}
+
 async function suspendGiftOrdersForUser(client, userId, { actorUserId = null, actorType = 'system', reason = 'account_safety_event' } = {}) {
   // Use the same pair-level lock as accept/block/report, in stable order, before
   // touching gift rows. This prevents a concurrent acceptance from restoring
@@ -744,7 +768,7 @@ async function suspendGiftOrdersForUser(client, userId, { actorUserId = null, ac
          address_vault_ref = NULL, address_verified_at = NULL, updated_at = NOW()
      FROM candidates AS c
      WHERE o.id = c.id
-     RETURNING o.id, c.previous_status, o.status AS next_status`,
+     RETURNING o.id, c.previous_status, o.status AS next_status, o.payment_status`,
     [userId]
   );
   for (const gift of suspended.rows) {
@@ -754,6 +778,7 @@ async function suspendGiftOrdersForUser(client, userId, { actorUserId = null, ac
        VALUES ($1, $2, $3, 'safety_hold', $4, $5, $6::jsonb)`,
       [gift.id, actorUserId, actorType, gift.previous_status, gift.next_status, JSON.stringify({ reason: normalizeGiftSafetyAuditReason(reason) })]
     );
+    await enqueueGiftSafetyPaymentReconciliation(client, gift, { actorUserId, actorType });
   }
   return suspended.rowCount;
 }
@@ -1754,7 +1779,7 @@ app.post('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, r
            address_vault_ref = NULL, address_verified_at = NULL, updated_at = NOW()
        FROM candidates AS c
        WHERE o.id = c.id
-       RETURNING o.id, o.sender_id, o.recipient_id, c.previous_status, o.status AS next_status`,
+       RETURNING o.id, o.sender_id, o.recipient_id, c.previous_status, o.status AS next_status, o.payment_status`,
       [req.authUser.id, targetId]
     );
     for (const gift of blockedGifts.rows) {
@@ -1764,6 +1789,10 @@ app.post('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, r
          VALUES ($1, $2, $3, $4, $5, $6)`,
         [gift.id, req.authUser.id, gift.sender_id === req.authUser.id ? 'sender' : 'recipient', eventType, gift.previous_status, gift.next_status]
       );
+      await enqueueGiftSafetyPaymentReconciliation(client, gift, {
+        actorUserId: req.authUser.id,
+        actorType: gift.sender_id === req.authUser.id ? 'sender' : 'recipient'
+      });
     }
     await client.query('COMMIT');
     return res.status(204).end();
@@ -1835,7 +1864,7 @@ app.post('/api/reports', reportLimiter, validateRequestOrigin, requireSession, a
        SET status = 'reported', address_vault_ref = NULL, address_verified_at = NULL, updated_at = NOW()
        FROM candidates AS c
        WHERE o.id = c.id
-       RETURNING o.id, o.sender_id, o.recipient_id, c.previous_status`,
+       RETURNING o.id, o.sender_id, o.recipient_id, c.previous_status, o.payment_status`,
       [req.authUser.id, reportedUserId]
     );
     for (const gift of reportedGifts.rows) {
@@ -1844,6 +1873,10 @@ app.post('/api/reports', reportLimiter, validateRequestOrigin, requireSession, a
          VALUES ($1, $2, $3, 'reported', $4, 'reported')`,
         [gift.id, req.authUser.id, gift.sender_id === req.authUser.id ? 'sender' : 'recipient', gift.previous_status]
       );
+      await enqueueGiftSafetyPaymentReconciliation(client, gift, {
+        actorUserId: req.authUser.id,
+        actorType: gift.sender_id === req.authUser.id ? 'sender' : 'recipient'
+      });
     }
     await client.query('COMMIT');
     return res.status(201).json({ report: result.rows[0] });

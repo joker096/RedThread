@@ -22,7 +22,8 @@ test('gift payment reconciliation outbox is installed with retryable states and 
     );
     assert.ok(result.rowCount >= 1, 'migration 043 should create the reconciliation outbox');
     const definitions = result.rows.map(row => row.definition || '').join('\n');
-    assert.match(definitions, /recipient_opted_out/, 'only supported reconciliation reasons should be accepted');
+    assert.match(definitions, /recipient_opted_out/, 'recipient opt-out reconciliation should be supported');
+    assert.match(definitions, /safety_hold/, 'block, report, and account-safety transitions should queue reconciliation');
     assert.match(definitions, /pending/, 'tasks should support retryable pending work');
     assert.match(definitions, /completed_at/, 'completion timestamp must be constrained to completed tasks');
 
