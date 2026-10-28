@@ -618,7 +618,10 @@ test('gift request updates notify only the sender with generic, idempotent metad
     assert.equal(sent.rowCount, 2, 'each distinct update transition should notify once, even when replayed');
     assert.equal(recipientUpdates.rowCount, 0, 'update notification goes to the sender, not the recipient');
     assert.deepEqual(sent.rows[0].metadata, { orderReference: request.body.order.id });
-    assert.deepEqual(sent.rows.map(row => row.dedupe_key), [\n      'gift_request_update:' + request.body.order.id + ':recipient_decision',\n      'gift_request_update:' + request.body.order.id + ':request_expired'\n    ]);
+    assert.deepEqual(sent.rows.map(row => row.dedupe_key), [
+      'gift_request_update:' + request.body.order.id + ':recipient_decision',
+      'gift_request_update:' + request.body.order.id + ':request_expired'
+    ]);
     const metadataText = JSON.stringify(sent.rows[0].metadata).toLowerCase();
     for (const forbidden of ['address', 'phone', 'email', 'city', 'country', 'coordinates', 'decision', 'reason']) {
       assert.equal(metadataText.includes(forbidden), false, 'notification metadata must not include ' + forbidden);
