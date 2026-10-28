@@ -60,7 +60,7 @@ Implemented in this branch: policy and eligibility helpers; database tables for 
 
 ### Refund authorization policy (not connected to a payment provider)
 
-The pure refund eligibility policy is fail-closed: only a system or moderator may request evaluation for an order in `delivery_failed`, `reported`, or `refund_pending`; payment must be captured/settled and match the exact order, amount, and currency; an idempotency key and bounded reason are mandatory; already-refunded orders are denied. The helper does not issue refunds or contact a payment provider. A production integration must enforce a unique durable idempotency key and transactional order/payment ledger, verify provider webhooks, reconcile uncertain outcomes, and ensure retrying a refund never pays twice. Until those controls and tests exist, no real gift payments or refunds are enabled.
+The pure refund eligibility policy is fail-closed: only a system or moderator may request evaluation for an order in `delivery_failed` or `reported`; payment must be captured/settled. Once an order is `refund_pending`, it must be reconciled with the provider rather than starting another refund and match the exact order, amount, and currency; an idempotency key and bounded reason are mandatory; already-refunded orders are denied. The helper does not issue refunds or contact a payment provider. A production integration must enforce a unique durable idempotency key and transactional order/payment ledger, verify provider webhooks, reconcile uncertain outcomes, and ensure retrying a refund never pays twice. Until those controls and tests exist, no real gift payments or refunds are enabled.
 
 
 ### Persisted state consistency
