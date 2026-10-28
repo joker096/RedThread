@@ -10,6 +10,7 @@ import {
 } from './compatibility.ts';
 import type { UserProfile, CrucialAnswers } from '../types/index.ts';
 import { matchesProfileLocation } from './location.ts';
+import { createAdEventId } from './adEvents.ts';
 
 const mockAnswers: CrucialAnswers = {
   marriage_and_kids: 'Хочу семью и детей в ближайшие 1-2 года',
@@ -218,4 +219,10 @@ test('excludeSponsoredDiscoveryProfiles removes sponsored cards but keeps ordina
 
   const result = excludeSponsoredDiscoveryProfiles([sponsored, ordinary, withoutSponsorFlag]);
   assert.deepEqual(result.map(profile => profile.id), ['person_1', 'person_2']);
+});
+
+
+test('createAdEventId always returns a UUID accepted by the ad event API', () => {
+  const eventId = createAdEventId();
+  assert.match(eventId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
 });

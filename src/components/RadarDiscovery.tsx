@@ -22,6 +22,7 @@ import {
 import type { UserProfile, CrucialAnswers } from '../types/index.ts';
 import { calculateCompatibility } from '../utils/compatibility.ts';
 import { getSwipeActionFromDelta } from '../utils/swipe.ts';
+import { createAdEventId } from '../utils/adEvents.ts';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 
 interface RadarDiscoveryProps {
@@ -89,14 +90,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
 
   const sendAdEvent = (campaignId: string, eventType: 'impression' | 'click'): Promise<boolean> => {
     if (!campaignId) return Promise.resolve(false);
-    let eventId: string;
-    try {
-      eventId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-        ? crypto.randomUUID()
-        : `vow-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    } catch {
-      eventId = `vow-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    }
+    const eventId = createAdEventId();
     return fetch('/api/ads/events', {
       method: 'POST',
       credentials: 'same-origin',
