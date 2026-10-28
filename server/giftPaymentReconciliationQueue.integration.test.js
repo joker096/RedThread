@@ -34,7 +34,7 @@ test('gift payment reconciliation outbox is installed with retryable states and 
        WHERE conrelid = 'gift_payment_reconciliation_tasks'::regclass
          AND conname = 'gift_payment_reconciliation_tasks_reason_check'`
     );
-    assert.equal(reasonConstraint.rowCount, 1, 'migration 044 should install the reason constraint');
+    assert.equal(reasonConstraint.rowCount, 1, 'migration 045 should install the reason constraint');
     await client.query('BEGIN');
     try {
       await client.query(`
