@@ -1470,7 +1470,7 @@ test('auth API supports registration, session lookup, logout and login', {
            (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
             total_minor_units, currency, status, payment_status, idempotency_key)
          VALUES ($1, $2, $3, 'Pending refund safety test', 'chocolate', 1000, 'USD',
-                 'recipient_accepted', 'refund_pending', $4)
+                 'awaiting_recipient_consent', 'refund_pending', $4)
          RETURNING id`,
         [matchPayload.match.id, maleRegistered.user.id, registered.user.id, randomUUID()]
       );
