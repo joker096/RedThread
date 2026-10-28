@@ -580,10 +580,22 @@ test('auth API supports registration, session lookup, logout and login', {
           `SELECT event_type FROM gift_delivery_order_events WHERE order_id = $1`,
           [activePaymentOrderId]
         );
-        assert.deepEqual(activePaymentAudit.rows, [],
-          'no cancellation event should be recorded when active payment requires reconciliation');
+        assert.deepEqual(activePaymentAudit.rows, [{ event_type: 'payment_reconciliation_required' }],
+          'active payment opt-out must enqueue reconciliation without recording a false cancellation');
+        const reconciliationTask = await giftTestDb.query(
+          `SELECT reason, status, attempt_count
+           FROM gift_payment_reconciliation_tasks
+           WHERE order_id = $1`,
+          [activePaymentOrderId]
+        );
+        assert.deepEqual(reconciliationTask.rows, [{
+          reason: 'recipient_opted_out',
+          status: 'pending',
+          attempt_count: 0
+        }], 'active payment opt-out must create one durable, retryable reconciliation task');
 
       } finally {
+        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [activePaymentOrderId]).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [activePaymentOrderId]).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [activePaymentOrderId]).catch(() => {});
       }

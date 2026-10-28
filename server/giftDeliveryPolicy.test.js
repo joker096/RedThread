@@ -242,7 +242,7 @@ test('persisted order and payment states must satisfy the migration invariants',
   for (const status of ['recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivered', 'delivery_failed']) {
     assert.equal(validateGiftOrderPersistenceState({ ...verified, status, consentWithdrawnAt: '2026-10-24T12:00:00Z' }).reason, 'consent_withdrawn_order_cannot_progress', status);
   }
-  assert.deepEqual(validateGiftOrderPersistenceState({ ...verified, status: 'cancelled', paymentStatus: 'voided', consentWithdrawnAt: '2026-10-24T12:00:00Z' }), { valid: true, reason: 'persistence_state_consistent' });
+  assert.deepEqual(validateGiftOrderPersistenceState({ ...verified, status: 'cancelled', paymentStatus: 'voided', addressVaultRef: null, addressVerifiedAt: null, consentWithdrawnAt: '2026-10-24T12:00:00Z' }), { valid: true, reason: 'persistence_state_consistent' });
   for (const status of ['awaiting_recipient_consent', 'recipient_accepted', 'declined', 'expired', 'cancelled', 'blocked', 'reported', 'refund_pending', 'refunded']) {
     const paymentStatus = status === 'refund_pending' ? 'refund_pending' : status === 'refunded' ? 'refunded' : 'voided';
     assert.equal(validateGiftOrderPersistenceState({ ...verified, status, paymentStatus }).reason, 'address_vault_ref_forbidden_in_order_state', status);
