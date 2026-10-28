@@ -150,6 +150,7 @@ export function validateGiftOrderPersistenceState(order = {}, { now = Date.now()
   if (['fulfilment_authorized', 'dispatched', 'delivered', 'delivery_failed'].includes(order.status) && (!hasNonFutureTimestamp(order.fulfilmentAuthorizedAt) || !['authorized', 'captured'].includes(order.paymentStatus))) return { valid: false, reason: 'fulfilment_payment_authorization_required' };
   if (order.status === 'dispatched' && !hasNonFutureTimestamp(order.dispatchedAt)) return { valid: false, reason: 'dispatch_timestamp_required' };
   if (order.status === 'delivered' && !hasNonFutureTimestamp(order.deliveredAt)) return { valid: false, reason: 'delivery_timestamp_required' };
+  if (order.paymentStatus === 'refunded' && order.status !== 'refunded') return { valid: false, reason: 'refunded_payment_requires_refunded_order_state' };
   if (order.status === 'refunded' && order.paymentStatus !== 'refunded') return { valid: false, reason: 'refunded_payment_state_required' };
   if (order.status === 'refund_pending' && order.paymentStatus !== 'refund_pending') return { valid: false, reason: 'pending_refund_payment_state_required' };
   if (order.status === 'declined' && order.paymentStatus !== 'not_started' && order.paymentStatus !== 'voided' && order.paymentStatus !== 'failed') return { valid: false, reason: 'declined_order_payment_must_be_inactive' };

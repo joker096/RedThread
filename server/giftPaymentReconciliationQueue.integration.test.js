@@ -34,6 +34,15 @@ test('gift payment reconciliation outbox is installed with retryable states and 
     assert.equal(eventConstraint.rowCount, 1);
     assert.match(eventConstraint.rows[0].definition, /payment_reconciliation_required/,
       'queued reconciliation must have a permitted audit event');
+
+    const refundConstraint = await pool.query(
+      `SELECT pg_get_constraintdef(oid) AS definition
+       FROM pg_constraint
+       WHERE conrelid = 'gift_delivery_orders'::regclass
+         AND conname = 'gift_orders_refunded_status_payment_consistency'`
+    );
+    assert.equal(refundConstraint.rowCount, 1, 'migration 043 should enforce refund/order state consistency');
+    assert.match(refundConstraint.rows[0].definition, /refunded/);
   } finally {
     await pool.end();
   }

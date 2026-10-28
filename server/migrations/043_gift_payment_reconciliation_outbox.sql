@@ -23,6 +23,30 @@ CREATE INDEX IF NOT EXISTS gift_payment_reconciliation_due_idx
 COMMENT ON TABLE gift_payment_reconciliation_tasks IS
   'Durable outbox of gift payment states requiring provider reconciliation. A task is not proof of cancellation or refund; workers must confirm the provider and update the order idempotently.';
 
+-- A confirmed refund must be reflected by the terminal refunded order state, and vice versa.
+-- Fail visibly rather than silently rewriting any legacy financial records.
+DO $
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM gift_delivery_orders
+    WHERE (payment_status = 'refunded' AND status <> 'refunded')
+       OR (status = 'refunded' AND payment_status <> 'refunded')
+  ) THEN
+    RAISE EXCEPTION
+      'gift order refund state reconciliation required before migration 043: order and payment statuses disagree';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'gift_orders_refunded_status_payment_consistency'
+      AND conrelid = 'gift_delivery_orders'::regclass
+  ) THEN
+    ALTER TABLE gift_delivery_orders
+      ADD CONSTRAINT gift_orders_refunded_status_payment_consistency
+      CHECK ((status = 'refunded') = (payment_status = 'refunded'));
+  END IF;
+END $;
+
 ALTER TABLE gift_delivery_order_events
   DROP CONSTRAINT IF EXISTS gift_delivery_order_events_event_type_check;
 

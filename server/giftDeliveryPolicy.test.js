@@ -251,6 +251,9 @@ test('persisted order and payment states must satisfy the migration invariants',
   assert.equal(validateGiftOrderPersistenceState({ ...verified, status: 'dispatched', paymentStatus: 'authorized', fulfilmentAuthorizedAt: '2026-10-20T12:02:00Z' }).reason, 'dispatch_timestamp_required');
   assert.equal(validateGiftOrderPersistenceState({ ...verified, status: 'delivered', paymentStatus: 'captured', fulfilmentAuthorizedAt: '2026-10-20T12:02:00Z', dispatchedAt: '2026-10-20T12:03:00Z' }).reason, 'delivery_timestamp_required');
   assert.equal(validateGiftOrderPersistenceState({ ...base, status: 'refunded', paymentStatus: 'captured' }).reason, 'refunded_payment_state_required');
+  for (const status of ['awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivered', 'declined', 'expired', 'cancelled', 'blocked', 'reported', 'delivery_failed', 'refund_pending']) {
+    assert.equal(validateGiftOrderPersistenceState({ ...base, status, paymentStatus: 'refunded' }).reason, 'refunded_payment_requires_refunded_order_state', status);
+  }
   assert.equal(validateGiftOrderPersistenceState({ ...base, status: 'refund_pending', paymentStatus: 'captured' }).reason, 'pending_refund_payment_state_required');
   assert.equal(validateGiftOrderPersistenceState({ ...base, status: 'declined', paymentStatus: 'captured' }).reason, 'declined_order_payment_must_be_inactive');
   assert.equal(validateGiftOrderPersistenceState({ ...base, status: 'cancelled', paymentStatus: 'captured' }).reason, 'cancelled_order_payment_must_be_voided_or_refunded');
