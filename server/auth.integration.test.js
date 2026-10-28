@@ -1461,6 +1461,12 @@ test('auth API supports registration, session lookup, logout and login', {
         [blockSafetyOrderId]
       );
       assert.deepEqual(blockAudit.rows, [{ from_status: 'address_verified', to_status: 'blocked' }]);
+      const blockReconciliation = await giftSafetyDb.query(
+        "SELECT reason, status FROM gift_payment_reconciliation_tasks WHERE order_id = $1",
+        [blockSafetyOrderId]
+      );
+      assert.deepEqual(blockReconciliation.rows, [{ reason: 'safety_hold', status: 'pending' }],
+        'blocking a gift with an active authorization must enqueue provider reconciliation');
 
       // The sender must not learn whether the recipient blocked or reported them.
       // The recipient can see their own safety outcome; the sender gets only a
@@ -1520,6 +1526,12 @@ test('auth API supports registration, session lookup, logout and login', {
         [reportSafetyOrderId]
       );
       assert.deepEqual(reportAudit.rows, [{ from_status: 'address_verified', to_status: 'reported' }]);
+      const reportReconciliation = await giftSafetyDb.query(
+        "SELECT reason, status FROM gift_payment_reconciliation_tasks WHERE order_id = $1",
+        [reportSafetyOrderId]
+      );
+      assert.deepEqual(reportReconciliation.rows, [{ reason: 'safety_hold', status: 'pending' }],
+        'reporting a gift with a captured payment must enqueue provider reconciliation');
 
       const senderOrdersAfterReport = await request('/api/gifts/orders', {
         headers: { Cookie: maleCookie }
