@@ -27,6 +27,41 @@ test('gift payment reconciliation outbox is installed with retryable states and 
     assert.match(definitions, /pending/, 'tasks should support retryable pending work');
     assert.match(definitions, /completed_at/, 'completion timestamp must be constrained to completed tasks');
 
+    const reasonConstraint = await client.query(
+      `SELECT pg_get_constraintdef(oid) AS definition
+       FROM pg_constraint
+       WHERE conrelid = 'gift_payment_reconciliation_tasks'::regclass
+         AND conname = 'gift_payment_reconciliation_tasks_reason_check'`
+    );
+    assert.equal(reasonConstraint.rowCount, 1, 'migration 044 should install the reason constraint');
+    await client.query('BEGIN');
+    try {
+      await client.query(`
+        CREATE TEMP TABLE gift_reconciliation_reason_constraint_test (
+          reason text NOT NULL,
+          CONSTRAINT gift_reconciliation_reason_constraint_test_check ${reasonConstraint.rows[0].definition}
+        ) ON COMMIT DROP
+      `);
+      await client.query(
+        "INSERT INTO gift_reconciliation_reason_constraint_test (reason) VALUES ('recipient_opted_out'), ('safety_hold')"
+      );
+      await client.query('SAVEPOINT invalid_reconciliation_reason');
+      let invalidReasonError;
+      try {
+        await client.query(
+          "INSERT INTO gift_reconciliation_reason_constraint_test (reason) VALUES ('unsupported_reason')"
+        );
+      } catch (error) { invalidReasonError = error; }
+      assert.equal(invalidReasonError?.code, '23514',
+        'database must reject reconciliation reasons that are not explicitly supported');
+      await client.query('ROLLBACK TO SAVEPOINT invalid_reconciliation_reason');
+      await client.query('RELEASE SAVEPOINT invalid_reconciliation_reason');
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    }
+
     const eventConstraint = await client.query(
       `SELECT pg_get_constraintdef(oid) AS definition
        FROM pg_constraint
