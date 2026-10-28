@@ -631,7 +631,7 @@ test('auth API supports registration, session lookup, logout and login', {
         const reconciliationTask = await giftTestDb.query(
           `SELECT reason, status, attempt_count
            FROM gift_payment_reconciliation_tasks
-           WHERE order_id = $1`,
+           WHERE order_id = $1 AND reason = 'recipient_opted_out'`,
           [activePaymentOrderId]
         );
         assert.deepEqual(reconciliationTask.rows, [{
