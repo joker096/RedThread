@@ -1619,13 +1619,21 @@ test('auth API supports registration, session lookup, logout and login', {
           'SELECT event_type, from_status, to_status FROM gift_delivery_order_events WHERE order_id = $1',
           [dispatchedBlockSafetyOrderId]
         );
-        assert.deepEqual(dispatchedBlockAudit.rows, [{
-          event_type: 'reported',
-          from_status: 'dispatched',
-          to_status: 'reported'
-        }]);
+        assert.deepEqual(dispatchedBlockAudit.rows, [
+          {
+            event_type: 'reported',
+            from_status: 'dispatched',
+            to_status: 'reported'
+          },
+          {
+            event_type: 'payment_reconciliation_required',
+            from_status: 'reported',
+            to_status: 'reported'
+          }
+        ]);
       } finally {
         await giftSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [dispatchedBlockSafetyOrderId]).catch(() => {});
+        await giftSafetyDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [dispatchedBlockSafetyOrderId]).catch(() => {});
         await giftSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [dispatchedBlockSafetyOrderId]).catch(() => {});
         // Isolate this block test from later account-deletion assertions that
         // intentionally exercise a separate safety action on the same fixture.
@@ -1853,14 +1861,22 @@ test('auth API supports registration, session lookup, logout and login', {
           'SELECT event_type, from_status, to_status FROM gift_delivery_order_events WHERE order_id = $1',
           [dispatchedReportSafetyOrderId]
         );
-        assert.deepEqual(dispatchedReportAudit.rows, [{
-          event_type: 'reported',
-          from_status: 'dispatched',
-          to_status: 'reported'
-        }]);
+        assert.deepEqual(dispatchedReportAudit.rows, [
+          {
+            event_type: 'reported',
+            from_status: 'dispatched',
+            to_status: 'reported'
+          },
+          {
+            event_type: 'payment_reconciliation_required',
+            from_status: 'reported',
+            to_status: 'reported'
+          }
+        ]);
       } finally {
         if (dispatchedReportId) await deletionSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [dispatchedReportId]).catch(() => {});
         await deletionSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [dispatchedReportSafetyOrderId]).catch(() => {});
+        await deletionSafetyDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [dispatchedReportSafetyOrderId]).catch(() => {});
         await deletionSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [dispatchedReportSafetyOrderId]).catch(() => {});
       }
 
