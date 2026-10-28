@@ -25,7 +25,7 @@ COMMENT ON TABLE gift_payment_reconciliation_tasks IS
 
 -- A confirmed refund must be reflected by the terminal refunded order state, and vice versa.
 -- Fail visibly rather than silently rewriting any legacy financial records.
-DO $
+DO $migration$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM gift_delivery_orders
@@ -45,7 +45,7 @@ BEGIN
       ADD CONSTRAINT gift_orders_refunded_status_payment_consistency
       CHECK ((status = 'refunded') = (payment_status = 'refunded'));
   END IF;
-END $;
+END $migration$;
 
 ALTER TABLE gift_delivery_order_events
   DROP CONSTRAINT IF EXISTS gift_delivery_order_events_event_type_check;
