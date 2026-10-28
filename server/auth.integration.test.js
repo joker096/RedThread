@@ -390,6 +390,7 @@ test('auth API supports registration, session lookup, logout and login', {
           'concurrent requests must not duplicate the audit event');
       } finally {
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [concurrentGiftOrderId]).catch(() => {});
+        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [concurrentGiftOrderId]).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [concurrentGiftOrderId]).catch(() => {});
       }
 
@@ -451,6 +452,7 @@ test('auth API supports registration, session lookup, logout and login', {
           [`gift_request_update:${pendingPreferenceOrder.rows[0].public_reference}:recipient_opted_out`]
         ).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [pendingPreferenceOrderId]).catch(() => {});
+        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [pendingPreferenceOrderId]).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [pendingPreferenceOrderId]).catch(() => {});
       }
 
@@ -507,6 +509,7 @@ test('auth API supports registration, session lookup, logout and login', {
         }], 'an expired request must record expiry, never an acceptance event');
       } finally {
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [expiredAcceptanceOrderId]).catch(() => {});
+        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [expiredAcceptanceOrderId]).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [expiredAcceptanceOrderId]).catch(() => {});
       }
 
@@ -669,6 +672,7 @@ test('auth API supports registration, session lookup, logout and login', {
         }]);
       } finally {
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [inactiveSiblingOrderId]).catch(() => {});
+        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [inactiveSiblingOrderId]).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [inactiveSiblingOrderId]).catch(() => {});
       }
 
@@ -731,6 +735,7 @@ test('auth API supports registration, session lookup, logout and login', {
         );
       } finally {
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [raceOrderId]).catch(() => {});
+        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [raceOrderId]).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [raceOrderId]).catch(() => {});
       }
 
@@ -778,6 +783,7 @@ test('auth API supports registration, session lookup, logout and login', {
         }], 'opting out of future requests must preserve the existing consent audit event without adding cancellation');
       } finally {
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [acceptedOrderId]).catch(() => {});
+        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [acceptedOrderId]).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [acceptedOrderId]).catch(() => {});
       }
 
@@ -843,6 +849,7 @@ test('auth API supports registration, session lookup, logout and login', {
           );
         } finally {
           await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [safetyRaceOrderId]).catch(() => {});
+          await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [safetyRaceOrderId]).catch(() => {});
           await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [safetyRaceOrderId]).catch(() => {});
           await giftTestDb.query(
             'DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2',
@@ -853,6 +860,7 @@ test('auth API supports registration, session lookup, logout and login', {
     } finally {
       if (giftOrderId) {
         await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [giftOrderId]).catch(() => {});
+        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [giftOrderId]).catch(() => {});
         await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [giftOrderId]).catch(() => {});
       }
       if (giftMatchId && giftMatchCreated) {
@@ -1579,6 +1587,7 @@ test('auth API supports registration, session lookup, logout and login', {
       } finally {
         for (const order of neutralTerminalOrders) {
           await giftSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [order.id]).catch(() => {});
+          await giftSafetyDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [order.id]).catch(() => {});
           await giftSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [order.id]).catch(() => {});
         }
       }
@@ -1651,6 +1660,7 @@ test('auth API supports registration, session lookup, logout and login', {
       if (reportId) await giftSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [reportId]).catch(() => {});
       for (const orderId of [blockSafetyOrderId, reportSafetyOrderId].filter(Boolean)) {
         await giftSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [orderId]).catch(() => {});
+        await giftSafetyDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [orderId]).catch(() => {});
         await giftSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [orderId]).catch(() => {});
       }
       await giftSafetyDb.end();
@@ -1790,6 +1800,7 @@ test('auth API supports registration, session lookup, logout and login', {
       if (moderationSafetyReportId) await moderationSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [moderationSafetyReportId]).catch(() => {});
       if (moderationSafetyOrderId) {
         await moderationSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [moderationSafetyOrderId]).catch(() => {});
+        await moderationSafetyDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [moderationSafetyOrderId]).catch(() => {});
         await moderationSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [moderationSafetyOrderId]).catch(() => {});
       }
       await moderationSafetyDb.end();
@@ -1930,6 +1941,7 @@ test('auth API supports registration, session lookup, logout and login', {
     } finally {
       for (const orderId of [deletionSafetyOrderId, dispatchedDeletionSafetyOrderId].filter(Boolean)) {
         await deletionSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [orderId]).catch(() => {});
+        await deletionSafetyDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [orderId]).catch(() => {});
         await deletionSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [orderId]).catch(() => {});
       }
       await deletionSafetyDb.end();
