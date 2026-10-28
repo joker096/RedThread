@@ -243,6 +243,10 @@ test('persisted order and payment states must satisfy the migration invariants',
     assert.equal(validateGiftOrderPersistenceState({ ...verified, status, consentWithdrawnAt: '2026-10-24T12:00:00Z' }).reason, 'consent_withdrawn_order_cannot_progress', status);
   }
   assert.deepEqual(validateGiftOrderPersistenceState({ ...verified, status: 'cancelled', paymentStatus: 'voided', consentWithdrawnAt: '2026-10-24T12:00:00Z' }), { valid: true, reason: 'persistence_state_consistent' });
+  for (const status of ['awaiting_recipient_consent', 'recipient_accepted', 'declined', 'expired', 'cancelled', 'blocked', 'reported', 'refund_pending', 'refunded']) {
+    const paymentStatus = status === 'refund_pending' ? 'refund_pending' : status === 'refunded' ? 'refunded' : 'voided';
+    assert.equal(validateGiftOrderPersistenceState({ ...verified, status, paymentStatus }).reason, 'address_vault_ref_forbidden_in_order_state', status);
+  }
   assert.equal(validateGiftOrderPersistenceState({ ...verified, status: 'fulfilment_authorized' }).reason, 'fulfilment_payment_authorization_required');
   assert.equal(validateGiftOrderPersistenceState({ ...verified, status: 'dispatched', paymentStatus: 'authorized', fulfilmentAuthorizedAt: '2026-10-20T12:02:00Z' }).reason, 'dispatch_timestamp_required');
   assert.equal(validateGiftOrderPersistenceState({ ...verified, status: 'delivered', paymentStatus: 'captured', fulfilmentAuthorizedAt: '2026-10-20T12:02:00Z', dispatchedAt: '2026-10-20T12:03:00Z' }).reason, 'delivery_timestamp_required');

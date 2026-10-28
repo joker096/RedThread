@@ -2160,6 +2160,29 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
            AND status = 'awaiting_recipient_consent'`,
         [req.authUser.id]
       );
+      // Durable outbox entry for requests that cannot be cancelled safely because
+      // their payment may still be active. Enqueueing is not a payment outcome.
+      const reconciliationTasks = await client.query(
+        `INSERT INTO gift_payment_reconciliation_tasks (order_id, reason)
+         SELECT id, 'recipient_opted_out'
+         FROM gift_delivery_orders
+         WHERE recipient_id = $1
+           AND status = 'awaiting_recipient_consent'
+           AND payment_status IN ('authorization_pending', 'authorized', 'captured', 'refund_pending')
+         ON CONFLICT (order_id, reason) DO NOTHING
+         RETURNING order_id`,
+        [req.authUser.id]
+      );
+      for (const task of reconciliationTasks.rows) {
+        await client.query(
+          `INSERT INTO gift_delivery_order_events
+             (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
+           SELECT id, $2, 'recipient', 'payment_reconciliation_required', status, status,
+                  jsonb_build_object('reason', 'recipient_opted_out')
+           FROM gift_delivery_orders WHERE id = $1`,
+          [task.order_id, req.authUser.id]
+        );
+      }
     }
 
     const result = await client.query(
