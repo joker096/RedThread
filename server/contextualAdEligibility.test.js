@@ -154,7 +154,7 @@ test('safety states, blocked categories, unsupported categories and invalid date
   assert.equal(evaluate({ match: { partnerAccountEligible: false } }).reason, 'partner_safety_state_unavailable_or_restricted');
   assert.equal(evaluate({ match: { partnerSafetyRestricted: true } }).reason, 'partner_safety_state_unavailable_or_restricted');
   assert.equal(evaluate({ match: { partnerSafetyRestricted: undefined } }).reason, 'partner_safety_state_unavailable_or_restricted');
-  assert.equal(evaluate({ campaign: { category: 'gambling' } }).reason, 'category_blocked');
+  assert.equal(evaluate({ campaign: { category: 'gambling' } }).reason, 'campaign_category_not_allowed');
   assert.equal(evaluate({ campaign: { category: 'unknown_kind' } }).reason, 'category_not_supported');
   assert.equal(evaluate({ campaign: { startsAt: 'not-a-date' } }).reason, 'invalid_campaign_start');
   assert.equal(evaluate({ campaign: { startsAt: '1' } }).reason, 'invalid_campaign_start');
