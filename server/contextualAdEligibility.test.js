@@ -101,6 +101,8 @@ test('restaurant and cafe offers require an explicitly confirmed mutual date', (
   assert.equal(evaluate({ viewer: { dateOffersConsent: undefined } }).reason, 'date_offer_consent_required');
   assert.equal(evaluate({ match: { partnerAdsConsent: false } }).reason, 'both_participants_consent_required');
   assert.equal(evaluate({ match: { partnerDateOffersConsent: false } }).reason, 'both_participants_consent_required');
+  assert.equal(evaluate({ match: { regionAllowed: false } }).reason, 'match_region_not_allowed');
+  assert.equal(evaluate({ match: { regionAllowed: undefined } }).reason, 'match_region_not_allowed');
   assert.equal(evaluate({ match: { partnerAdsConsent: undefined } }).reason, 'both_participants_consent_required');
   assert.equal(evaluate({ surface: 'private_chat' }).reason, 'surface_excluded');
   assert.equal(evaluate({ surface: 'offers' }).reason, 'date_surface_required');
