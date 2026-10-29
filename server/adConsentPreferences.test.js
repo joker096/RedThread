@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
+  AD_CONSENT_CATEGORIES,
   AD_CONSENT_VERSION,
   normalizeAdConsentPreferences,
   serializeAdConsentPreferences
@@ -13,6 +15,20 @@ const valid = {
   marriagePlanningOptIn: false,
   categoryConsents: {}
 };
+
+
+test('consent category allowlists match both database snapshot validators', () => {
+  for (const migrationName of [
+    '044_ad_consent_history_snapshot_validation.sql',
+    '046_ad_consent_canonical_category_values.sql'
+  ]) {
+    const migration = readFileSync(new URL(`./migrations/${migrationName}`, import.meta.url), 'utf8');
+    const declaration = migration.match(/allowed_categories CONSTANT TEXT\[\] := ARRAY\[([^\]]+)\]/);
+    assert.ok(declaration, `${migrationName} must define allowed consent categories`);
+    const databaseCategories = [...declaration[1].matchAll(/'([a-z][a-z0-9_]*)'/g)].map(match => match[1]);
+    assert.deepEqual(databaseCategories, [...AD_CONSENT_CATEGORIES], migrationName);
+  }
+});
 
 test('consent preferences require explicit booleans and known fields', () => {
   assert.equal(normalizeAdConsentPreferences(null).error, 'invalid_preferences');
