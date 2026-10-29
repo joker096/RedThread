@@ -42,6 +42,32 @@ test('master consent revocation clears all dependent preferences atomically', ()
   });
 });
 
+test('master consent revocation succeeds despite stale or malformed dependent category values', () => {
+  for (const categoryConsents of [
+    { political: true },
+    { travel: 'true' },
+    ['travel']
+  ]) {
+    const result = normalizeAdConsentPreferences({
+      adsConsent: false,
+      dateOffersConsent: true,
+      weddingOffersConsent: true,
+      marriagePlanningOptIn: true,
+      categoryConsents
+    });
+    assert.deepEqual(result, {
+      ok: true,
+      value: {
+        adsConsent: false,
+        dateOffersConsent: false,
+        weddingOffersConsent: false,
+        marriagePlanningOptIn: false,
+        categoryConsents: {}
+      }
+    });
+  }
+});
+
 test('rejects marriage planning without wedding-offer consent', () => {
   assert.equal(normalizeAdConsentPreferences({
     ...valid,

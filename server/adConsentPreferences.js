@@ -41,18 +41,8 @@ export function normalizeAdConsentPreferences(input) {
     return { ok: false, error: 'invalid_category_consents' };
   }
 
-  const categoryConsents = {};
-  for (const [category, enabled] of Object.entries(input.categoryConsents)) {
-    if (!AD_CONSENT_CATEGORIES.includes(category)) {
-      return { ok: false, error: 'unsupported_ad_category', category };
-    }
-    if (typeof enabled !== 'boolean') {
-      return { ok: false, error: 'boolean_category_consent_required', category };
-    }
-    if (enabled) categoryConsents[category] = true;
-  }
-
-  // Revoking the master consent atomically clears every dependent opt-in.
+  // Revocation takes precedence over dependent category data. An outdated or
+  // malformed category list must never prevent a user from withdrawing consent.
   if (input.adsConsent === false) {
     return {
       ok: true,
@@ -64,6 +54,17 @@ export function normalizeAdConsentPreferences(input) {
         categoryConsents: {}
       }
     };
+  }
+
+  const categoryConsents = {};
+  for (const [category, enabled] of Object.entries(input.categoryConsents)) {
+    if (!AD_CONSENT_CATEGORIES.includes(category)) {
+      return { ok: false, error: 'unsupported_ad_category', category };
+    }
+    if (typeof enabled !== 'boolean') {
+      return { ok: false, error: 'boolean_category_consent_required', category };
+    }
+    if (enabled) categoryConsents[category] = true;
   }
 
   if (input.marriagePlanningOptIn && !input.weddingOffersConsent) {
