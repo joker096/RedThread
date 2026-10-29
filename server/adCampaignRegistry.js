@@ -12,7 +12,7 @@ const COUNTRY_ALIASES = new Map([
   ['RU', 'RU'], ['RUSSIA', 'RU'], ['РОССИЯ', 'RU'],
   ['AM', 'AM'], ['ARMENIA', 'AM'], ['АРМЕНИЯ', 'AM'],
   ['AZ', 'AZ'], ['AZERBAIJAN', 'AZ'], ['АЗЕРБАЙДЖАН', 'AZ'],
-  ['TR', 'TR'], ['TURKEY', 'TR'], ['TÜRKIYE', 'TR'], ['ТУРЦИЯ', 'TR'],
+  ['TR', 'TR'], ['TURKEY', 'TR'], ['TÜRKIYE', 'TR'], ['TÜRKİYE', 'TR'], ['ТУРЦИЯ', 'TR'],
   ['DE', 'DE'], ['GERMANY', 'DE'], ['ГЕРМАНИЯ', 'DE'],
   ['FR', 'FR'], ['FRANCE', 'FR'], ['ФРАНЦИЯ', 'FR'],
   ['IT', 'IT'], ['ITALY', 'IT'], ['ИТАЛИЯ', 'IT'],
