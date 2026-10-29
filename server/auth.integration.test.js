@@ -1153,8 +1153,8 @@ test('auth API supports registration, session lookup, logout and login', {
         eventType: 'click'
       })
     });
-    assert.equal(postRevocationAdEvent.status, 403,
-      'revoking persisted master consent must immediately block new ad engagement events');
+    assert.equal(postRevocationAdEvent.status, 503,
+      'ad event ingestion must remain unavailable until trusted delivery receipts are implemented');
 
     const pendingPhotoReadByOtherAccount = await request(uploadedPhoto.photoUrl, { headers: { Cookie: maleCookie } });
     assert.equal(pendingPhotoReadByOtherAccount.status, 404, 'pending photos must not be visible to other accounts');
