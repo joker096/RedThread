@@ -36,11 +36,6 @@ export function normalizeAdConsentPreferences(input) {
     }
   }
 
-  if (!input.categoryConsents || typeof input.categoryConsents !== 'object' ||
-      Array.isArray(input.categoryConsents)) {
-    return { ok: false, error: 'invalid_category_consents' };
-  }
-
   // Revocation takes precedence over dependent category data. An outdated or
   // malformed category list must never prevent a user from withdrawing consent.
   if (input.adsConsent === false) {
@@ -54,6 +49,11 @@ export function normalizeAdConsentPreferences(input) {
         categoryConsents: {}
       }
     };
+  }
+
+  if (!input.categoryConsents || typeof input.categoryConsents !== 'object' ||
+      Array.isArray(input.categoryConsents)) {
+    return { ok: false, error: 'invalid_category_consents' };
   }
 
   const categoryConsents = {};
