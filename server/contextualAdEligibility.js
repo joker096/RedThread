@@ -101,7 +101,9 @@ function isValidDate(value) {
   const year = Number(match[1]);
   const month = Number(match[2]);
   const day = Number(match[3]);
-  const calendarDate = new Date(Date.UTC(year, month - 1, day));
+  // setUTCFullYear avoids Date.UTC's special treatment of years 0–99 as 1900–1999.
+  const calendarDate = new Date(0);
+  calendarDate.setUTCFullYear(year, month - 1, day);
   if (calendarDate.getUTCFullYear() !== year || calendarDate.getUTCMonth() + 1 !== month || calendarDate.getUTCDate() !== day) return false;
   const hour = Number(match[4]);
   const minute = Number(match[5]);

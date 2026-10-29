@@ -182,4 +182,5 @@ test('safety states, blocked categories, unsupported categories and invalid date
   assert.equal(evaluate({ campaign: { startsAt: '2026-11-01T00:00:00Z', endsAt: '2026-10-01T00:00:00Z' } }).reason, 'campaign_window_invalid');
   assert.equal(evaluate({ campaign: { endsAt: '2026-09-01T00:00:00Z' } }).reason, 'campaign_expired');
   assert.equal(evaluate({ campaign: { startsAt: '2026-11-01T00:00:00Z' } }).reason, 'campaign_not_started');
+  assert.equal(evaluate({ campaign: { startsAt: '0099-01-01T00:00:00Z', endsAt: '0099-12-31T23:59:59Z', now: Date.parse('0099-06-01T00:00:00Z') } }).eligible, true);
 });
