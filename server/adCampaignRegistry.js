@@ -1,4 +1,5 @@
-const VALID_STATUSES = new Set(['pending', 'approved', 'paused', 'rejected', 'expired']);
+export const VALID_AD_CAMPAIGN_STATUSES = Object.freeze(['pending', 'approved', 'paused', 'rejected', 'expired']);
+const VALID_STATUSES = new Set(VALID_AD_CAMPAIGN_STATUSES);
 export const ALLOWED_AD_CAMPAIGN_CATEGORIES = Object.freeze([
   'restaurant', 'cafe', 'date_experience', 'flowers', 'gift',
   'fashion', 'beauty', 'travel', 'general_local'

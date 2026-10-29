@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { ALLOWED_AD_CAMPAIGN_CATEGORIES, evaluateAdCampaignEligibility, isCampaignCountryAllowed, resolveProfileCountryCode } from './adCampaignRegistry.js';
+import { ALLOWED_AD_CAMPAIGN_CATEGORIES, VALID_AD_CAMPAIGN_STATUSES, evaluateAdCampaignEligibility, isCampaignCountryAllowed, resolveProfileCountryCode } from './adCampaignRegistry.js';
 
 const now = Date.parse('2026-10-27T10:00:00.000Z');
 const approved = {
@@ -44,6 +44,11 @@ test('campaign registry allows only approved, verified, active campaigns', () =>
   assert.equal(evaluateAdCampaignEligibility({ ...approved, active: undefined }, { now }).reason, 'campaign_not_active');
   assert.equal(evaluateAdCampaignEligibility({ ...approved, advertiserVerified: false }, { now }).reason, 'advertiser_not_verified');
   assert.equal(evaluateAdCampaignEligibility({ ...approved, creativeApproved: false }, { now }).reason, 'creative_not_approved');
+});
+
+test('campaign registry rejects statuses outside the declared status set', () => {
+  assert.ok(VALID_AD_CAMPAIGN_STATUSES.includes('approved'));
+  assert.equal(evaluateAdCampaignEligibility({ ...approved, status: 'unknown' }, { now }).reason, 'campaign_status_invalid');
 });
 
 test('campaign registry rejects pending, paused, rejected and expired statuses', () => {

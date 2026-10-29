@@ -64,6 +64,7 @@ function evaluate(overrides = {}) {
 
 test('fails closed when required context or campaign approval is missing', () => {
   assert.equal(evaluateContextualAdEligibility().reason, 'missing_context');
+  assert.equal(evaluate({ campaign: { status: 'unknown' } }).reason, 'campaign_status_invalid');
   assert.equal(evaluate({ campaign: { status: 'pending' } }).reason, 'campaign_not_approved');
   assert.equal(evaluate({ campaign: { status: 'paused' } }).reason, 'campaign_not_approved');
   assert.equal(evaluate({ campaign: { status: 'expired' } }).reason, 'campaign_expired');

@@ -1,4 +1,4 @@
-import { ALLOWED_AD_CAMPAIGN_CATEGORIES } from './adCampaignRegistry.js';
+import { ALLOWED_AD_CAMPAIGN_CATEGORIES, VALID_AD_CAMPAIGN_STATUSES } from './adCampaignRegistry.js';
 
 // Keep this gate aligned with server/adCampaignRegistry.js and migration 039.
 // Context rules must not authorize categories that the campaign registry rejects.
@@ -33,6 +33,7 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
   }
   if (!APPROVED_CAMPAIGN_CATEGORIES.has(category)) return deny('campaign_category_not_allowed');
   if (typeof campaign.id !== 'string' || campaign.id.trim().length === 0) return deny('campaign_unknown');
+  if (!VALID_AD_CAMPAIGN_STATUSES.includes(campaign.status)) return deny('campaign_status_invalid');
   if (campaign.status !== 'approved') return deny(campaign.status === 'expired' ? 'campaign_expired' : 'campaign_not_approved');
   if (campaign.active !== true) return deny('campaign_not_active');
   if (!isValidDate(campaign.startsAt)) return deny('invalid_campaign_start');
