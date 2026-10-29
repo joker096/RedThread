@@ -178,6 +178,8 @@ test('safety states, blocked categories, unsupported categories and invalid date
   assert.equal(evaluate({ campaign: { startsAt: '1' } }).reason, 'invalid_campaign_start');
   assert.equal(evaluate({ campaign: { startsAt: '2026-02-31T12:00:00Z' } }).reason, 'invalid_campaign_start');
   assert.equal(evaluate({ campaign: { endsAt: '2026-10-01T12:00:00+14:01' } }).reason, 'invalid_campaign_end');
+  assert.equal(evaluate({ campaign: { startsAt: '2026-10-01T00:00:00Z', endsAt: '2026-10-01T00:00:00Z' } }).reason, 'campaign_window_invalid');
+  assert.equal(evaluate({ campaign: { startsAt: '2026-11-01T00:00:00Z', endsAt: '2026-10-01T00:00:00Z' } }).reason, 'campaign_window_invalid');
   assert.equal(evaluate({ campaign: { endsAt: '2026-09-01T00:00:00Z' } }).reason, 'campaign_expired');
   assert.equal(evaluate({ campaign: { startsAt: '2026-11-01T00:00:00Z' } }).reason, 'campaign_not_started');
 });

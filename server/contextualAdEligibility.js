@@ -36,6 +36,9 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
   if (campaign.status !== 'approved' || campaign.active !== true) return deny('campaign_not_active');
   if (!isValidDate(campaign.startsAt)) return deny('invalid_campaign_start');
   if (!isValidDate(campaign.endsAt)) return deny('invalid_campaign_end');
+  const startsAt = Date.parse(campaign.startsAt);
+  const endsAt = Date.parse(campaign.endsAt);
+  if (endsAt <= startsAt) return deny('campaign_window_invalid');
   if (campaign.now !== undefined && !Number.isFinite(campaign.now)) return deny('invalid_validation_clock');
   const now = campaign.now === undefined ? Date.now() : campaign.now;
   if (campaign.startsAt && Date.parse(campaign.startsAt) > now) return deny('campaign_not_started');
