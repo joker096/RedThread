@@ -27,7 +27,7 @@ const COUNTRY_ALIASES = new Map([
 
 export function resolveProfileCountryCode(country) {
   if (typeof country !== 'string') return null;
-  const normalized = country.trim().toLocaleUpperCase('en-US');
+  const normalized = country.normalize('NFC').trim().replace(/\s+/g, ' ').toLocaleUpperCase('en-US').normalize('NFC');
   if (!normalized) return null;
   return COUNTRY_ALIASES.get(normalized) || null;
 }

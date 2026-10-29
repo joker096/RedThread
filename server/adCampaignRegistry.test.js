@@ -78,6 +78,8 @@ test('profile country normalization supports known aliases and fails closed for 
   assert.equal(resolveProfileCountryCode('GE'), 'GE');
   assert.equal(resolveProfileCountryCode('Türkiye'), 'TR');
   assert.equal(resolveProfileCountryCode('TÜRKİYE'), 'TR');
+  assert.equal(resolveProfileCountryCode('Tu\u0308rkiye'), 'TR');
+  assert.equal(resolveProfileCountryCode('  United   States  '), 'US');
   assert.equal(resolveProfileCountryCode('Unlisted country'), null);
   assert.equal(resolveProfileCountryCode(''), null);
 });
