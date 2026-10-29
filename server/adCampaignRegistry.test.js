@@ -7,6 +7,7 @@ const now = Date.parse('2026-10-27T10:00:00.000Z');
 const approved = {
   id: 'cafe_autumn_01',
   status: 'approved',
+  active: true,
   advertiserVerified: true,
   creativeApproved: true,
   creativeVersion: 'creative-v3',
@@ -39,6 +40,8 @@ test('campaign registry denies unknown campaign ids', () => {
 
 test('campaign registry allows only approved, verified, active campaigns', () => {
   assert.equal(evaluateAdCampaignEligibility(approved, { now }).eligible, true);
+  assert.equal(evaluateAdCampaignEligibility({ ...approved, active: false }, { now }).reason, 'campaign_not_active');
+  assert.equal(evaluateAdCampaignEligibility({ ...approved, active: undefined }, { now }).reason, 'campaign_not_active');
   assert.equal(evaluateAdCampaignEligibility({ ...approved, advertiserVerified: false }, { now }).reason, 'advertiser_not_verified');
   assert.equal(evaluateAdCampaignEligibility({ ...approved, creativeApproved: false }, { now }).reason, 'creative_not_approved');
 });

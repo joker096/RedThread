@@ -45,6 +45,7 @@ export function evaluateAdCampaignEligibility(campaign, { now = Date.now() } = {
   if (typeof campaign.id !== 'string' || campaign.id.trim().length === 0) return deny('campaign_unknown');
   if (!VALID_STATUSES.has(campaign.status)) return deny('campaign_status_invalid');
   if (campaign.status !== 'approved') return deny(campaign.status === 'expired' ? 'campaign_expired' : 'campaign_not_approved');
+  if (campaign.active !== true) return deny('campaign_not_active');
   if (campaign.advertiserVerified !== true) return deny('advertiser_not_verified');
   if (campaign.creativeApproved !== true || typeof campaign.creativeVersion !== 'string' || !campaign.creativeVersion.trim()) return deny('creative_not_approved');
   if (typeof campaign.category !== 'string' || !ALLOWED_CATEGORIES.has(campaign.category)) return deny('campaign_category_not_allowed');
