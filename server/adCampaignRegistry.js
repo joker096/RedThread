@@ -5,6 +5,7 @@ export const ALLOWED_AD_CAMPAIGN_CATEGORIES = Object.freeze([
   'fashion', 'beauty', 'travel', 'general_local'
 ]);
 const ALLOWED_CATEGORIES = new Set(ALLOWED_AD_CAMPAIGN_CATEGORIES);
+const SUPPORTED_COUNTRY_CODES = new Set(COUNTRY_ALIASES.values());
 
 const COUNTRY_ALIASES = new Map([
   ['GE', 'GE'], ['GEORGIA', 'GE'], ['ГРУЗИЯ', 'GE'], ['SAKARTVELO', 'GE'],
@@ -35,8 +36,11 @@ export function resolveProfileCountryCode(country) {
 
 export function isCampaignCountryAllowed(allowedCountryCodes, countryCode) {
   if (!Array.isArray(allowedCountryCodes) || allowedCountryCodes.length === 0) return false;
-  if (typeof countryCode !== 'string' || !/^[A-Z]{2}$/.test(countryCode)) return false;
-  const normalizedAllowlist = allowedCountryCodes.filter(code => typeof code === 'string').map(code => code.trim().toUpperCase());
+  if (typeof countryCode !== 'string' || !SUPPORTED_COUNTRY_CODES.has(countryCode)) return false;
+  const normalizedAllowlist = allowedCountryCodes
+    .filter(code => typeof code === 'string')
+    .map(code => code.trim().toUpperCase())
+    .filter(code => SUPPORTED_COUNTRY_CODES.has(code));
   return normalizedAllowlist.includes(countryCode);
 }
 

@@ -91,6 +91,8 @@ test('campaign country allowlists fail closed for missing, unknown and non-match
   assert.equal(isCampaignCountryAllowed([], 'GE'), false);
   assert.equal(isCampaignCountryAllowed(['GE'], null), false);
   assert.equal(isCampaignCountryAllowed(['GE'], 'Georgia'), false);
+  assert.equal(isCampaignCountryAllowed(['ZZ'], 'ZZ'), false);
+  assert.equal(isCampaignCountryAllowed(['GE', 'ZZ'], 'GE'), true);
 });
 
 test('profile country normalization supports known aliases and fails closed for unknown labels', () => {
