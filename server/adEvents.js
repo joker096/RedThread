@@ -1,13 +1,12 @@
 import { AD_CONSENT_VERSION } from './adConsentPreferences.js';
 
 /**
- * Event ingestion remains disabled until a trusted server-side ad delivery path
- * can bind each event to an authorized placement and contextual eligibility decision.
- * This flag is deliberately opt-in; client consent and campaign IDs alone are not proof
- * that an eligible ad was actually delivered.
+ * Event ingestion is hard-disabled until a trusted server-side delivery path
+ * can issue and validate placement receipts bound to contextual eligibility.
+ * An environment flag must not bypass that security prerequisite.
  */
-export function isAdEventCollectionEnabled(value = process.env.AD_EVENT_COLLECTION_ENABLED) {
-  return value === 'true';
+export function isAdEventCollectionEnabled() {
+  return false;
 }
 
 export const AD_IMPRESSION_CAP_24H = 3;

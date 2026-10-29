@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { isAdEventCollectionEnabled, AD_CLICK_CAP_24H, AD_IMPRESSION_CAP_24H, classifyDuplicateAdEvent, evaluateAdEventBillingEligibility, evaluateAdEventFrequency, hasExplicitAdConsent, validateAdEventPayload } from './adEvents.js';
 
-test('ad event collection is disabled unless explicitly enabled after delivery integration', () => {
-  assert.equal(isAdEventCollectionEnabled(undefined), false);
+test('ad event collection stays disabled until trusted delivery receipts exist', () => {
+  assert.equal(isAdEventCollectionEnabled(), false);
+  // Legacy/environment input must never be able to bypass the delivery-proof gate.
+  assert.equal(isAdEventCollectionEnabled('true'), false);
   assert.equal(isAdEventCollectionEnabled('false'), false);
-  assert.equal(isAdEventCollectionEnabled('TRUE'), false);
-  assert.equal(isAdEventCollectionEnabled('true'), true);
 });
 
 test('ad event payload accepts valid impression and click events', () => {
