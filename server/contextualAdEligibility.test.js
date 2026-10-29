@@ -84,6 +84,9 @@ test('fails closed when required context or campaign approval is missing', () =>
   assert.equal(evaluate({ campaign: { now: Number.NaN } }).reason, 'invalid_validation_clock');
   assert.equal(evaluate({ campaign: { now: Infinity } }).reason, 'invalid_validation_clock');
   assert.equal(evaluate({ campaign: { regionAllowed: false } }).reason, 'region_not_allowed');
+  assert.equal(evaluate({ campaign: { regionAllowed: undefined } }).reason, 'region_not_allowed');
+  assert.equal(evaluate({ campaign: { creativeApproved: undefined } }).reason, 'advertiser_or_creative_not_approved');
+  assert.equal(evaluate({ campaign: { advertiserVerified: undefined } }).reason, 'advertiser_or_creative_not_approved');
   assert.equal(evaluate({ viewer: { adsConsent: false } }).reason, 'viewer_not_consented_or_eligible');
   assert.equal(evaluate({ viewer: { adsConsent: undefined } }).reason, 'viewer_not_consented_or_eligible');
   assert.equal(evaluate({ viewer: { accountEligible: false } }).reason, 'viewer_not_consented_or_eligible');
