@@ -17,6 +17,7 @@ test('PostgreSQL ad frequency query computes the expiry that actually clears eac
     // no persistent users, events, or production data are touched.
     await client.query(`
       CREATE TEMP TABLE ad_events (
+        event_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id text NOT NULL,
         campaign_id text NOT NULL,
         event_type text NOT NULL,

@@ -4,7 +4,7 @@ export const AD_EVENT_FREQUENCY_COUNTS_SQL = `WITH recent_events AS (
            event_type,
            created_at,
            COUNT(*) OVER (PARTITION BY event_type)::int AS event_count,
-           ROW_NUMBER() OVER (PARTITION BY event_type ORDER BY created_at ASC) AS event_position
+           ROW_NUMBER() OVER (PARTITION BY event_type ORDER BY created_at ASC, event_id ASC) AS event_position
          FROM ad_events
          WHERE user_id = $1 AND campaign_id = $2
            AND created_at >= NOW() - INTERVAL '24 hours'
