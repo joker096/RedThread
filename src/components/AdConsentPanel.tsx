@@ -25,8 +25,15 @@ export function normalizeAdConsentPayload(value: unknown): Preferences {
   }
 
   const candidate = value as Partial<Preferences>;
-  if (typeof candidate.adsConsent !== 'boolean' ||
-      typeof candidate.dateOffersConsent !== 'boolean' ||
+  if (typeof candidate.adsConsent !== 'boolean') {
+    return { ...defaults, categoryConsents: {} };
+  }
+
+  // A master opt-out must take effect even when stale dependent fields are
+  // malformed or absent; never let child preferences block withdrawal.
+  if (candidate.adsConsent === false) return { ...defaults, categoryConsents: {} };
+
+  if (typeof candidate.dateOffersConsent !== 'boolean' ||
       typeof candidate.weddingOffersConsent !== 'boolean' ||
       typeof candidate.marriagePlanningOptIn !== 'boolean') {
     return { ...defaults, categoryConsents: {} };

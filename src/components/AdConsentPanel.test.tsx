@@ -61,3 +61,20 @@ test('marriage-planning opt-in cannot remain enabled without wedding-offer conse
     categoryConsents: {}
   });
 });
+
+
+test('master consent withdrawal overrides malformed or missing dependent preferences', () => {
+  for (const value of [
+    { adsConsent: false, dateOffersConsent: 'yes', weddingOffersConsent: true, marriagePlanningOptIn: true, categoryConsents: {} },
+    { adsConsent: false, dateOffersConsent: true, weddingOffersConsent: null, marriagePlanningOptIn: true, categoryConsents: {} },
+    { adsConsent: false, categoryConsents: {} }
+  ]) {
+    assert.deepEqual(normalizeAdConsentPayload(value), {
+      adsConsent: false,
+      dateOffersConsent: false,
+      weddingOffersConsent: false,
+      marriagePlanningOptIn: false,
+      categoryConsents: {}
+    });
+  }
+});
