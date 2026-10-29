@@ -73,7 +73,7 @@ test('fails closed when required context or campaign approval is missing', () =>
   assert.equal(evaluate({ campaign: { id: '' } }).reason, 'campaign_unknown');
   assert.equal(evaluate({ campaign: { id: undefined } }).reason, 'campaign_unknown');
   assert.equal(evaluate({ campaign: { id: '   ' } }).reason, 'campaign_unknown');
-  assert.equal(evaluate({ campaign: { id: '\\t\\n' } }).reason, 'campaign_unknown');
+  assert.equal(evaluate({ campaign: { id: '\t\n' } }).reason, 'campaign_unknown');
   assert.equal(evaluate({ campaign: { regionAllowed: false } }).reason, 'region_not_allowed');
   assert.equal(evaluate({ viewer: { adsConsent: false } }).reason, 'viewer_not_consented_or_eligible');
 });
