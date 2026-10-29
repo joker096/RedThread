@@ -99,6 +99,27 @@ test('campaign registry categories gate contextual eligibility before specialize
   }
 });
 
+test('private and safety-critical surfaces reject every contextual ad category', () => {
+  const excludedSurfaces = [
+    'discovery', 'private_chat', 'voice_call', 'video_call',
+    'verification', 'reporting', 'blocking', 'checkout', 'payment'
+  ];
+  const categories = [...DATE_CONTEXT_AD_CATEGORIES, ...OPT_IN_AD_CATEGORIES];
+
+  for (const category of categories) {
+    for (const surface of excludedSurfaces) {
+      const result = evaluateContextualAdEligibility({
+        campaign: { ...campaign, category },
+        viewer,
+        match: confirmedMatch,
+        surface
+      });
+      assert.equal(result.eligible, false, `${category} must be denied on ${surface}`);
+      assert.equal(result.reason, 'surface_excluded', `${category} on ${surface}`);
+    }
+  }
+});
+
 test('user-requested gift discovery does not require a match or date', () => {
   const result = evaluateContextualAdEligibility({
     campaign: { ...campaign, category: 'flowers' },
