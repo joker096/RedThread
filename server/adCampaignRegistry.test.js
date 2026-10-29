@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateAdCampaignEligibility, isCampaignCountryAllowed, resolveProfileCountryCode } from './adCampaignRegistry.js';
+import { readFileSync } from 'node:fs';
+import { ALLOWED_AD_CAMPAIGN_CATEGORIES, evaluateAdCampaignEligibility, isCampaignCountryAllowed, resolveProfileCountryCode } from './adCampaignRegistry.js';
 
 const now = Date.parse('2026-10-27T10:00:00.000Z');
 const approved = {
@@ -13,6 +14,14 @@ const approved = {
   startsAt: '2026-10-01T00:00:00.000Z',
   endsAt: '2026-11-01T00:00:00.000Z'
 };
+
+test('campaign category allowlist matches the database constraint', () => {
+  const migration = readFileSync(new URL('./migrations/039_ad_campaign_category_allowlist.sql', import.meta.url), 'utf8');
+  const constraint = migration.match(/CHECK \(category IN \(([\s\S]*?)\) NOT VALID\)/);
+  assert.ok(constraint, 'migration must define the campaign category allowlist');
+  const databaseCategories = [...constraint[1].matchAll(/'([a-z][a-z0-9_]*)'/g)].map(match => match[1]);
+  assert.deepEqual(databaseCategories, [...ALLOWED_AD_CAMPAIGN_CATEGORIES]);
+});
 
 test('campaign registry denies unknown campaign ids', () => {
   assert.deepEqual(evaluateAdCampaignEligibility(null, { now }), { eligible: false, reason: 'campaign_unknown' });

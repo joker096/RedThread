@@ -1,8 +1,9 @@
 const VALID_STATUSES = new Set(['pending', 'approved', 'paused', 'rejected', 'expired']);
-const ALLOWED_CATEGORIES = new Set([
+export const ALLOWED_AD_CAMPAIGN_CATEGORIES = Object.freeze([
   'restaurant', 'cafe', 'date_experience', 'flowers', 'gift',
   'fashion', 'beauty', 'travel', 'general_local'
 ]);
+const ALLOWED_CATEGORIES = new Set(ALLOWED_AD_CAMPAIGN_CATEGORIES);
 
 const COUNTRY_ALIASES = new Map([
   ['GE', 'GE'], ['GEORGIA', 'GE'], ['ГРУЗИЯ', 'GE'], ['SAKARTVELO', 'GE'],
