@@ -116,6 +116,14 @@ test('ad frequency policy rejects non-safe-integer values for either persisted c
   }
 });
 
+test('ad frequency policy rejects null and non-object input without throwing', () => {
+  for (const input of [null, [], 'impression', 3]) {
+    assert.deepEqual(evaluateAdEventFrequency(input), {
+      allowed: false, reason: 'invalid_event_type'
+    });
+  }
+});
+
 test('ad frequency policy fails closed when either persisted counter is missing', () => {
   assert.deepEqual(evaluateAdEventFrequency({ eventType: 'impression', clickCount: 0 }), {
     allowed: false, reason: 'invalid_event_counts'

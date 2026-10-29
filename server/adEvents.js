@@ -76,7 +76,9 @@ export function evaluateAdEventBillingEligibility({ event } = {}) {
  * Pure frequency decision shared by the endpoint and unit tests.
  * Counts must come from trusted persisted rows, never request payloads.
  */
-export function evaluateAdEventFrequency({ eventType, impressionCount, clickCount } = {}) {
+export function evaluateAdEventFrequency(input = {}) {
+  const { eventType, impressionCount, clickCount } =
+    input && typeof input === 'object' && !Array.isArray(input) ? input : {};
   if (eventType !== 'impression' && eventType !== 'click') {
     return { allowed: false, reason: 'invalid_event_type' };
   }
