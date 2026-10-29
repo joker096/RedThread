@@ -39,6 +39,14 @@ test('PostgreSQL ad frequency query computes the expiry that actually clears eac
       [userId, campaignId]
     );
 
+    // Future-dated rows must not count toward the current rolling window.
+    await client.query(
+      `INSERT INTO ad_events (user_id, campaign_id, event_type, created_at)
+       VALUES ($1, $2, 'impression', NOW() + INTERVAL '1 hour'),
+              ($1, $2, 'click', NOW() + INTERVAL '2 hours')`,
+      [userId, campaignId]
+    );
+
     const result = await client.query(AD_EVENT_FREQUENCY_COUNTS_SQL, [userId, campaignId]);
     const counts = result.rows[0];
 

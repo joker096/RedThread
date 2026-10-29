@@ -8,6 +8,7 @@ export const AD_EVENT_FREQUENCY_COUNTS_SQL = `WITH recent_events AS (
          FROM ad_events
          WHERE user_id = $1 AND campaign_id = $2
            AND created_at >= NOW() - INTERVAL '24 hours'
+           AND created_at <= NOW()
        )
        SELECT
          COUNT(*) FILTER (WHERE event_type = 'impression')::int AS impressions,
