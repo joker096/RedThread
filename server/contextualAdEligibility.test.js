@@ -98,6 +98,7 @@ test('restaurant and cafe offers require an explicitly confirmed mutual date', (
   assert.equal(evaluate({ match: { dateCancelled: true } }).reason, 'date_cancelled');
   assert.equal(evaluate({ match: { dateCancelled: undefined } }).reason, 'date_cancellation_state_unknown');
   assert.equal(evaluate({ viewer: { dateOffersConsent: false } }).reason, 'date_offer_consent_required');
+  assert.equal(evaluate({ viewer: { dateOffersConsent: undefined } }).reason, 'date_offer_consent_required');
   assert.equal(evaluate({ match: { partnerAdsConsent: false } }).reason, 'both_participants_consent_required');
   assert.equal(evaluate({ match: { partnerDateOffersConsent: false } }).reason, 'both_participants_consent_required');
   assert.equal(evaluate({ match: { partnerAdsConsent: undefined } }).reason, 'both_participants_consent_required');
@@ -159,6 +160,7 @@ test('user-requested gift discovery does not require a match or date', () => {
 test('approved opt-in categories require their own consent and entry points, not a match', () => {
   assert.equal(evaluate({ campaign: { category: 'fashion' }, surface: 'offers' }).reason, 'category_opt_in');
   assert.equal(evaluate({ campaign: { category: 'fashion' }, viewer: { categoryConsents: {} }, surface: 'offers' }).reason, 'category_consent_required');
+  assert.equal(evaluate({ campaign: { category: 'fashion' }, viewer: { categoryConsents: undefined }, surface: 'offers' }).reason, 'category_consent_required');
 
   const withoutMatch = (category, surface, viewerChanges = {}) => evaluateContextualAdEligibility({
     campaign: { ...campaign, category },
