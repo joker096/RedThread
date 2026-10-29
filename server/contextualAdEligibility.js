@@ -2,6 +2,12 @@ export const BRIDAL_MIN_MATCH_AGE_DAYS = 14;
 export const BRIDAL_MIN_ACTIVE_DAYS_PER_PERSON = 3;
 export const BRIDAL_MIN_MESSAGES_PER_PERSON = 20;
 
+// Keep this gate aligned with server/adCampaignRegistry.js and migration 039.
+// Context rules must not authorize categories that the campaign registry rejects.
+const APPROVED_CAMPAIGN_CATEGORIES = new Set([
+  'restaurant', 'cafe', 'date_experience', 'flowers', 'gift',
+  'fashion', 'beauty', 'travel', 'general_local'
+]);
 const DATE_CONTEXT_CATEGORIES = new Set(['restaurant', 'cafe', 'date_experience', 'flowers', 'gift']);
 const OPT_IN_CATEGORIES = new Set(['fashion', 'beauty', 'travel', 'general_local']);
 const BRIDAL_CATEGORIES = new Set(['bridal_dress', 'bridal_beauty', 'wedding_planner', 'wedding_photography', 'wedding_venue']);
@@ -26,6 +32,7 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
   if (typeof category !== 'string' || !/^[a-z][a-z0-9_]{1,47}$/.test(category)) {
     return deny('invalid_category');
   }
+  if (!APPROVED_CAMPAIGN_CATEGORIES.has(category)) return deny('campaign_category_not_allowed');
   if (campaign.status !== 'approved' || campaign.active !== true) return deny('campaign_not_active');
   if (!isValidDate(campaign.startsAt)) return deny('invalid_campaign_start');
   if (!isValidDate(campaign.endsAt)) return deny('invalid_campaign_end');
