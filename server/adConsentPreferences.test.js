@@ -68,6 +68,25 @@ test('master consent revocation succeeds despite stale or malformed dependent ca
   }
 });
 
+test('master consent revocation overrides malformed or missing dependent booleans', () => {
+  for (const input of [
+    { adsConsent: false, dateOffersConsent: 'yes', weddingOffersConsent: true, marriagePlanningOptIn: true, categoryConsents: {} },
+    { adsConsent: false, dateOffersConsent: true, weddingOffersConsent: null, marriagePlanningOptIn: true, categoryConsents: {} },
+    { adsConsent: false, categoryConsents: {} }
+  ]) {
+    assert.deepEqual(normalizeAdConsentPreferences(input), {
+      ok: true,
+      value: {
+        adsConsent: false,
+        dateOffersConsent: false,
+        weddingOffersConsent: false,
+        marriagePlanningOptIn: false,
+        categoryConsents: {}
+      }
+    });
+  }
+});
+
 test('rejects marriage planning without wedding-offer consent', () => {
   assert.equal(normalizeAdConsentPreferences({
     ...valid,

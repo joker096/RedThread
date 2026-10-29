@@ -30,14 +30,12 @@ export function normalizeAdConsentPreferences(input) {
     return { ok: false, error: 'unknown_preference_field' };
   }
 
-  for (const key of ['adsConsent', 'dateOffersConsent', 'weddingOffersConsent', 'marriagePlanningOptIn']) {
-    if (typeof input[key] !== 'boolean') {
-      return { ok: false, error: 'boolean_preference_required', field: key };
-    }
+  if (typeof input.adsConsent !== 'boolean') {
+    return { ok: false, error: 'boolean_preference_required', field: 'adsConsent' };
   }
 
-  // Revocation takes precedence over dependent category data. An outdated or
-  // malformed category list must never prevent a user from withdrawing consent.
+  // An explicit master opt-out must not be blocked by stale or malformed child
+  // preferences. Clear all dependent choices before validating their values.
   if (input.adsConsent === false) {
     return {
       ok: true,
@@ -49,6 +47,12 @@ export function normalizeAdConsentPreferences(input) {
         categoryConsents: {}
       }
     };
+  }
+
+  for (const key of ['dateOffersConsent', 'weddingOffersConsent', 'marriagePlanningOptIn']) {
+    if (typeof input[key] !== 'boolean') {
+      return { ok: false, error: 'boolean_preference_required', field: key };
+    }
   }
 
   if (!input.categoryConsents || typeof input.categoryConsents !== 'object' ||
