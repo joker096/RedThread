@@ -24,7 +24,7 @@ test('campaign category allowlist matches the database constraint', () => {
 });
 
 test('campaign registry denies missing, empty and whitespace-only campaign ids', () => {
-  for (const id of [undefined, null, '', '   ', '\\t\\n']) {
+  for (const id of [undefined, null, '', '   ', '\t\n']) {
     assert.equal(
       evaluateAdCampaignEligibility({ ...approved, id }, { now }).reason,
       'campaign_unknown',
