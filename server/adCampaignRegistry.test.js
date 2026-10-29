@@ -62,6 +62,17 @@ test('campaign registry rejects campaigns outside their validity window', () => 
   assert.equal(evaluateAdCampaignEligibility({ ...approved, endsAt: '2026-10-27T10:00:00.000Z' }, { now }).reason, 'campaign_expired');
 });
 
+test('campaign registry validates its clock and includes the exact start boundary', () => {
+  assert.equal(evaluateAdCampaignEligibility(approved, { now: Number.NaN }).reason, 'invalid_validation_clock');
+  assert.equal(evaluateAdCampaignEligibility(approved, { now: Infinity }).reason, 'invalid_validation_clock');
+  assert.equal(evaluateAdCampaignEligibility(approved, { now: -Infinity }).reason, 'invalid_validation_clock');
+  assert.equal(
+    evaluateAdCampaignEligibility({ ...approved, startsAt: '2026-10-27T10:00:00.000Z' }, { now }).eligible,
+    true,
+    'a campaign is eligible at its exact start instant'
+  );
+});
+
 test('campaign registry rejects malformed windows and missing creative version', () => {
   assert.equal(evaluateAdCampaignEligibility({ ...approved, endsAt: 'invalid' }, { now }).reason, 'campaign_window_invalid');
   assert.equal(evaluateAdCampaignEligibility({ ...approved, startsAt: '1' }, { now }).reason, 'campaign_window_invalid');
