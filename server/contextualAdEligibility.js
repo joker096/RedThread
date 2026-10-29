@@ -33,7 +33,8 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
   }
   if (!APPROVED_CAMPAIGN_CATEGORIES.has(category)) return deny('campaign_category_not_allowed');
   if (typeof campaign.id !== 'string' || campaign.id.trim().length === 0) return deny('campaign_unknown');
-  if (campaign.status !== 'approved' || campaign.active !== true) return deny('campaign_not_active');
+  if (campaign.status !== 'approved') return deny(campaign.status === 'expired' ? 'campaign_expired' : 'campaign_not_approved');
+  if (campaign.active !== true) return deny('campaign_not_active');
   if (!isValidDate(campaign.startsAt)) return deny('invalid_campaign_start');
   if (!isValidDate(campaign.endsAt)) return deny('invalid_campaign_end');
   const startsAt = Date.parse(campaign.startsAt);
