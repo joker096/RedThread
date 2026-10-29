@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateContextualAdEligibility } from './contextualAdEligibility.js';
+import { AD_CONSENT_CATEGORIES } from './adConsentPreferences.js';
+import { ALLOWED_AD_CAMPAIGN_CATEGORIES } from './adCampaignRegistry.js';
+import {
+  DATE_CONTEXT_AD_CATEGORIES,
+  OPT_IN_AD_CATEGORIES,
+  evaluateContextualAdEligibility
+} from './contextualAdEligibility.js';
 
 const campaign = {
   category: 'cafe',
@@ -38,6 +44,13 @@ const confirmedMatch = {
   reported: false,
   paused: false
 };
+test('context and opt-in category sets partition the campaign registry allowlist', () => {
+  assert.deepEqual([...OPT_IN_AD_CATEGORIES], [...AD_CONSENT_CATEGORIES]);
+  const partition = [...DATE_CONTEXT_AD_CATEGORIES, ...OPT_IN_AD_CATEGORIES];
+  assert.equal(new Set(partition).size, partition.length, 'policy category groups must not overlap');
+  assert.deepEqual([...partition].sort(), [...ALLOWED_AD_CAMPAIGN_CATEGORIES].sort());
+});
+
 function evaluate(overrides = {}) {
   return evaluateContextualAdEligibility({
     campaign: { ...campaign, ...overrides.campaign },

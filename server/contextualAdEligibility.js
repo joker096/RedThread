@@ -2,9 +2,16 @@ import { ALLOWED_AD_CAMPAIGN_CATEGORIES } from './adCampaignRegistry.js';
 
 // Keep this gate aligned with server/adCampaignRegistry.js and migration 039.
 // Context rules must not authorize categories that the campaign registry rejects.
+export const DATE_CONTEXT_AD_CATEGORIES = Object.freeze([
+  'restaurant', 'cafe', 'date_experience', 'flowers', 'gift'
+]);
+export const OPT_IN_AD_CATEGORIES = Object.freeze([
+  'fashion', 'beauty', 'travel', 'general_local'
+]);
+
 const APPROVED_CAMPAIGN_CATEGORIES = new Set(ALLOWED_AD_CAMPAIGN_CATEGORIES);
-const DATE_CONTEXT_CATEGORIES = new Set(['restaurant', 'cafe', 'date_experience', 'flowers', 'gift']);
-const OPT_IN_CATEGORIES = new Set(['fashion', 'beauty', 'travel', 'general_local']);
+const DATE_CONTEXT_CATEGORIES = new Set(DATE_CONTEXT_AD_CATEGORIES);
+const OPT_IN_CATEGORIES = new Set(OPT_IN_AD_CATEGORIES);
 
 const isNonNegativeInteger = value => Number.isInteger(value) && value >= 0;
 
