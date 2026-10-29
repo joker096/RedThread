@@ -37,6 +37,10 @@ test('campaign registry rejects campaigns outside their validity window', () => 
 
 test('campaign registry rejects malformed windows and missing creative version', () => {
   assert.equal(evaluateAdCampaignEligibility({ ...approved, endsAt: 'invalid' }, { now }).reason, 'campaign_window_invalid');
+  assert.equal(evaluateAdCampaignEligibility({ ...approved, startsAt: '1' }, { now }).reason, 'campaign_window_invalid');
+  assert.equal(evaluateAdCampaignEligibility({ ...approved, startsAt: '2026-10-01T00:00:00' }, { now }).reason, 'campaign_window_invalid');
+  assert.equal(evaluateAdCampaignEligibility({ ...approved, startsAt: '2026-02-31T12:00:00Z' }, { now }).reason, 'campaign_window_invalid');
+  assert.equal(evaluateAdCampaignEligibility({ ...approved, endsAt: '2026-10-01T12:00:00+14:01' }, { now }).reason, 'campaign_window_invalid');
   assert.equal(evaluateAdCampaignEligibility({ ...approved, creativeVersion: '' }, { now }).reason, 'creative_not_approved');
 });
 

@@ -47,12 +47,39 @@ export function evaluateAdCampaignEligibility(campaign, { now = Date.now() } = {
   if (campaign.advertiserVerified !== true) return deny('advertiser_not_verified');
   if (campaign.creativeApproved !== true || typeof campaign.creativeVersion !== 'string' || !campaign.creativeVersion.trim()) return deny('creative_not_approved');
   if (typeof campaign.category !== 'string' || !ALLOWED_CATEGORIES.has(campaign.category)) return deny('campaign_category_not_allowed');
-  const startsAt = typeof campaign.startsAt === 'string' ? Date.parse(campaign.startsAt) : NaN;
-  const endsAt = typeof campaign.endsAt === 'string' ? Date.parse(campaign.endsAt) : NaN;
+  const startsAt = isValidTimestamp(campaign.startsAt) ? Date.parse(campaign.startsAt) : NaN;
+  const endsAt = isValidTimestamp(campaign.endsAt) ? Date.parse(campaign.endsAt) : NaN;
   if (!Number.isFinite(startsAt) || !Number.isFinite(endsAt) || endsAt <= startsAt) return deny('campaign_window_invalid');
   if (startsAt > now) return deny('campaign_not_started');
   if (endsAt <= now) return deny('campaign_expired');
   return { eligible: true, reason: 'approved_campaign_active', campaignId: campaign.id, category: campaign.category, creativeVersion: campaign.creativeVersion };
+}
+
+function isValidTimestamp(value) {
+  if (typeof value !== 'string') return false;
+  // Require an explicit ISO-8601 timestamp with timezone; Date.parse accepts ambiguous inputs such as "1".
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(Z|[+-]\d{2}:\d{2})$/i.exec(value);
+  if (!match || !Number.isFinite(Date.parse(value))) return false;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const calendarDate = new Date(0);
+  calendarDate.setUTCFullYear(year, month - 1, day);
+  calendarDate.setUTCHours(hour, minute, second, 0);
+  if (calendarDate.getUTCFullYear() !== year || calendarDate.getUTCMonth() + 1 !== month
+    || calendarDate.getUTCDate() !== day || hour > 23 || minute > 59 || second > 59) return false;
+
+  const offset = match[8];
+  if (offset.toUpperCase() !== 'Z') {
+    const offsetHour = Number(offset.slice(1, 3));
+    const offsetMinute = Number(offset.slice(4, 6));
+    if (offsetHour > 14 || offsetMinute > 59 || (offsetHour === 14 && offsetMinute !== 0)) return false;
+  }
+  return true;
 }
 
 function deny(reason) {
