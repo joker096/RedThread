@@ -42,7 +42,7 @@ export function isCampaignCountryAllowed(allowedCountryCodes, countryCode) {
 export function evaluateAdCampaignEligibility(campaign, { now = Date.now() } = {}) {
   if (!campaign || typeof campaign !== 'object') return deny('campaign_unknown');
   if (!Number.isFinite(now)) return deny('invalid_validation_clock');
-  if (typeof campaign.id !== 'string' || campaign.id.length === 0) return deny('campaign_unknown');
+  if (typeof campaign.id !== 'string' || campaign.id.trim().length === 0) return deny('campaign_unknown');
   if (!VALID_STATUSES.has(campaign.status)) return deny('campaign_status_invalid');
   if (campaign.status !== 'approved') return deny(campaign.status === 'expired' ? 'campaign_expired' : 'campaign_not_approved');
   if (campaign.advertiserVerified !== true) return deny('advertiser_not_verified');

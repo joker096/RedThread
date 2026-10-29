@@ -23,6 +23,16 @@ test('campaign category allowlist matches the database constraint', () => {
   assert.deepEqual(databaseCategories, [...ALLOWED_AD_CAMPAIGN_CATEGORIES]);
 });
 
+test('campaign registry denies missing, empty and whitespace-only campaign ids', () => {
+  for (const id of [undefined, null, '', '   ', '\\t\\n']) {
+    assert.equal(
+      evaluateAdCampaignEligibility({ ...approved, id }, { now }).reason,
+      'campaign_unknown',
+      JSON.stringify(id)
+    );
+  }
+});
+
 test('campaign registry denies unknown campaign ids', () => {
   assert.deepEqual(evaluateAdCampaignEligibility(null, { now }), { eligible: false, reason: 'campaign_unknown' });
 });
