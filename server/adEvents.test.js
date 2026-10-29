@@ -87,10 +87,10 @@ test('client-provided billing claims cannot make events billable before trusted 
 
 
 test('ad frequency policy enforces impression and click caps from persisted counts', () => {
-  assert.deepEqual(evaluateAdEventFrequency({ eventType: 'impression', impressionCount: 2 }), {
+  assert.deepEqual(evaluateAdEventFrequency({ eventType: 'impression', impressionCount: 2, clickCount: 0 }), {
     allowed: true, reason: null
   });
-  assert.deepEqual(evaluateAdEventFrequency({ eventType: 'impression', impressionCount: 3 }), {
+  assert.deepEqual(evaluateAdEventFrequency({ eventType: 'impression', impressionCount: 3, clickCount: 0 }), {
     allowed: false, reason: 'ad_frequency_cap_reached'
   });
   assert.deepEqual(evaluateAdEventFrequency({ eventType: 'click', impressionCount: 1, clickCount: 4 }), {
@@ -114,6 +114,21 @@ test('ad frequency policy rejects non-safe-integer values for either persisted c
       `invalid click count: ${String(invalidCount)}`
     );
   }
+});
+
+test('ad frequency policy fails closed when either persisted counter is missing', () => {
+  assert.deepEqual(evaluateAdEventFrequency({ eventType: 'impression', clickCount: 0 }), {
+    allowed: false, reason: 'invalid_event_counts'
+  });
+  assert.deepEqual(evaluateAdEventFrequency({ eventType: 'impression', impressionCount: 0 }), {
+    allowed: false, reason: 'invalid_event_counts'
+  });
+  assert.deepEqual(evaluateAdEventFrequency({ eventType: 'click', impressionCount: 1 }), {
+    allowed: false, reason: 'invalid_event_counts'
+  });
+  assert.deepEqual(evaluateAdEventFrequency({ eventType: 'click', clickCount: 0 }), {
+    allowed: false, reason: 'invalid_event_counts'
+  });
 });
 
 test('ad click policy requires an impression and rejects invalid persisted counts', () => {
