@@ -65,8 +65,13 @@ export function classifyDuplicateAdEvent(row, { userId, campaignId, eventType })
  * Caller-supplied booleans and a string label are not proof of verification,
  * so no event can become billable through this helper alone.
  */
-export function evaluateAdEventBillingEligibility({ event } = {}) {
-  if (!event || !['impression', 'click'].includes(event.event_type)) {
+export function evaluateAdEventBillingEligibility(input = {}) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { billable: false, reason: 'invalid_event' };
+  }
+  const { event } = input;
+  if (!event || typeof event !== 'object' || Array.isArray(event) ||
+      !['impression', 'click'].includes(event.event_type)) {
     return { billable: false, reason: 'invalid_event' };
   }
   return { billable: false, reason: 'billing_pipeline_unavailable' };

@@ -86,6 +86,23 @@ test('client-provided billing claims cannot make events billable before trusted 
 });
 
 
+test('billing eligibility rejects malformed top-level input without throwing', () => {
+  for (const input of [null, [], 'invalid', 42]) {
+    assert.deepEqual(evaluateAdEventBillingEligibility(input), {
+      billable: false, reason: 'invalid_event'
+    });
+  }
+  assert.deepEqual(evaluateAdEventBillingEligibility({ event: null }), {
+    billable: false, reason: 'invalid_event'
+  });
+  assert.deepEqual(evaluateAdEventBillingEligibility({ event: [] }), {
+    billable: false, reason: 'invalid_event'
+  });
+  assert.deepEqual(evaluateAdEventBillingEligibility({ event: 'impression' }), {
+    billable: false, reason: 'invalid_event'
+  });
+});
+
 test('ad frequency policy enforces impression and click caps from persisted counts', () => {
   assert.deepEqual(evaluateAdEventFrequency({ eventType: 'impression', impressionCount: 2, clickCount: 0 }), {
     allowed: true, reason: null
