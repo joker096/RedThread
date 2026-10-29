@@ -66,19 +66,19 @@ test('ad event idempotency accepts only an exact retry by the same user', () => 
 });
 
 
-test('persisted client engagement alone is never billable', () => {
+test('client-provided billing claims cannot make events billable before trusted verification exists', () => {
   const event = { event_type: 'impression' };
   assert.deepEqual(evaluateAdEventBillingEligibility({ event }), {
-    billable: false, reason: 'billing_evidence_incomplete'
+    billable: false, reason: 'billing_pipeline_unavailable'
   });
   assert.deepEqual(evaluateAdEventBillingEligibility({
     event, campaignApproved: true, viewabilityVerified: true,
-    invalidTrafficChecked: true, attributionValid: true, proofSource: 'client'
-  }), { billable: false, reason: 'untrusted_billing_evidence' });
+    invalidTrafficChecked: true, attributionValid: true, proofSource: 'trusted_server_measurement'
+  }), { billable: false, reason: 'billing_pipeline_unavailable' });
   assert.deepEqual(evaluateAdEventBillingEligibility({
     event, campaignApproved: true, viewabilityVerified: true,
-    invalidTrafficChecked: true, attributionValid: true, proofSource: 'trusted_server_measurement'
-  }), { billable: true, reason: 'verified_billing_evidence' });
+    invalidTrafficChecked: true, attributionValid: true, proofSource: 'client'
+  }), { billable: false, reason: 'billing_pipeline_unavailable' });
   assert.deepEqual(evaluateAdEventBillingEligibility({
     event: { event_type: 'unknown' }, campaignApproved: true, viewabilityVerified: true,
     invalidTrafficChecked: true, attributionValid: true, proofSource: 'trusted_server_measurement'

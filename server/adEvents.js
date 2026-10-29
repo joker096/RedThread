@@ -35,7 +35,6 @@ export function validateAdEventPayload(body) {
   return { ok: true, value: { eventId, campaignId, eventType } };
 }
 
-
 /**
  * Ad engagement events are permitted only when a persisted, explicit opt-in exists.
  * Missing rows and every value other than boolean true fail closed.
@@ -44,7 +43,6 @@ export function hasExplicitAdConsent(rows) {
   return Array.isArray(rows) && rows[0]?.ads_consent === true &&
     rows[0]?.consent_version === AD_CONSENT_VERSION;
 }
-
 
 /**
  * Idempotency keys are scoped to the exact authenticated event payload.
@@ -62,25 +60,17 @@ export function classifyDuplicateAdEvent(row, { userId, campaignId, eventType })
   return 'conflict';
 }
 
-
 /**
- * Persisted engagement rows alone are not billing evidence. A billing pipeline
- * must supply separately verified campaign, viewability, invalid-traffic and
- * attribution evidence; missing or client-provided proof is never sufficient.
+ * No trusted measurement verifier or billing pipeline is implemented yet.
+ * Caller-supplied booleans and a string label are not proof of verification,
+ * so no event can become billable through this helper alone.
  */
-export function evaluateAdEventBillingEligibility({ event, campaignApproved, viewabilityVerified, invalidTrafficChecked, attributionValid, proofSource } = {}) {
+export function evaluateAdEventBillingEligibility({ event } = {}) {
   if (!event || !['impression', 'click'].includes(event.event_type)) {
     return { billable: false, reason: 'invalid_event' };
   }
-  if (campaignApproved !== true || viewabilityVerified !== true || invalidTrafficChecked !== true || attributionValid !== true) {
-    return { billable: false, reason: 'billing_evidence_incomplete' };
-  }
-  if (proofSource !== 'trusted_server_measurement') {
-    return { billable: false, reason: 'untrusted_billing_evidence' };
-  }
-  return { billable: true, reason: 'verified_billing_evidence' };
+  return { billable: false, reason: 'billing_pipeline_unavailable' };
 }
-
 
 /**
  * Pure frequency decision shared by the endpoint and unit tests.
