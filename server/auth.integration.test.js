@@ -1005,8 +1005,8 @@ test('auth API supports registration, session lookup, logout and login', {
       headers: { Cookie: secondCookie },
       body: JSON.stringify({ eventId: preConsentAdEventId, campaignId: 'consent-gate-test', eventType: 'impression' })
     });
-    assert.equal(preConsentAdEvent.status, 403,
-      'an ad event must be rejected until persisted explicit consent exists');
+    assert.equal(preConsentAdEvent.status, 503,
+      'ad event collection must remain unavailable until trusted server-side delivery proof is implemented');
 
     const savedAdConsent = await request('/api/ads/consent', {
       method: 'PUT',
