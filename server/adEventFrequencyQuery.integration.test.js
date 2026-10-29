@@ -48,6 +48,16 @@ test('PostgreSQL ad frequency query computes the expiry that actually clears eac
       [userId, campaignId]
     );
 
+    // Events from other users or campaigns must not consume this viewer's cap.
+    await client.query(
+      `INSERT INTO ad_events (user_id, campaign_id, event_type, created_at)
+       VALUES ($1, $2, 'impression', NOW()),
+              ($1, $2, 'click', NOW()),
+              ($3, $4, 'impression', NOW()),
+              ($3, $4, 'click', NOW())`,
+      [userId, 'other-campaign', 'other-user', campaignId]
+    );
+
     const result = await client.query(AD_EVENT_FREQUENCY_COUNTS_SQL, [userId, campaignId]);
     const counts = result.rows[0];
 
