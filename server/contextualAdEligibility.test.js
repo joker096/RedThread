@@ -1,11 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  BRIDAL_MIN_ACTIVE_DAYS_PER_PERSON,
-  BRIDAL_MIN_MATCH_AGE_DAYS,
-  BRIDAL_MIN_MESSAGES_PER_PERSON,
-  evaluateContextualAdEligibility
-} from './contextualAdEligibility.js';
+import { evaluateContextualAdEligibility } from './contextualAdEligibility.js';
 
 const campaign = {
   category: 'cafe',
@@ -43,15 +38,6 @@ const confirmedMatch = {
   reported: false,
   paused: false
 };
-const bridalMatch = {
-  ...confirmedMatch,
-  ageDays: BRIDAL_MIN_MATCH_AGE_DAYS,
-  viewerActiveDays: BRIDAL_MIN_ACTIVE_DAYS_PER_PERSON,
-  partnerActiveDays: BRIDAL_MIN_ACTIVE_DAYS_PER_PERSON,
-  viewerMessagesSent: BRIDAL_MIN_MESSAGES_PER_PERSON,
-  partnerMessagesSent: BRIDAL_MIN_MESSAGES_PER_PERSON
-};
-
 function evaluate(overrides = {}) {
   return evaluateContextualAdEligibility({
     campaign: { ...campaign, ...overrides.campaign },
@@ -92,7 +78,6 @@ test('campaign registry categories gate contextual eligibility before specialize
       evaluateContextualAdEligibility({
         campaign: { ...campaign, category },
         viewer,
-        match: bridalMatchForUnsupportedCategories(),
         surface: 'relationship_offers'
       }).reason,
       'campaign_category_not_allowed',
@@ -100,17 +85,6 @@ test('campaign registry categories gate contextual eligibility before specialize
     );
   }
 });
-
-function bridalMatchForUnsupportedCategories() {
-  return {
-    ...confirmedMatch,
-    ageDays: BRIDAL_MIN_MATCH_AGE_DAYS,
-    viewerActiveDays: BRIDAL_MIN_ACTIVE_DAYS_PER_PERSON,
-    partnerActiveDays: BRIDAL_MIN_ACTIVE_DAYS_PER_PERSON,
-    viewerMessagesSent: BRIDAL_MIN_MESSAGES_PER_PERSON,
-    partnerMessagesSent: BRIDAL_MIN_MESSAGES_PER_PERSON
-  };
-}
 
 test('user-requested gift discovery does not require a match or date', () => {
   const result = evaluateContextualAdEligibility({

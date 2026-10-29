@@ -1,17 +1,10 @@
 import { ALLOWED_AD_CAMPAIGN_CATEGORIES } from './adCampaignRegistry.js';
 
-export const BRIDAL_MIN_MATCH_AGE_DAYS = 14;
-export const BRIDAL_MIN_ACTIVE_DAYS_PER_PERSON = 3;
-export const BRIDAL_MIN_MESSAGES_PER_PERSON = 20;
-
 // Keep this gate aligned with server/adCampaignRegistry.js and migration 039.
 // Context rules must not authorize categories that the campaign registry rejects.
 const APPROVED_CAMPAIGN_CATEGORIES = new Set(ALLOWED_AD_CAMPAIGN_CATEGORIES);
 const DATE_CONTEXT_CATEGORIES = new Set(['restaurant', 'cafe', 'date_experience', 'flowers', 'gift']);
 const OPT_IN_CATEGORIES = new Set(['fashion', 'beauty', 'travel', 'general_local']);
-const BRIDAL_CATEGORIES = new Set(['bridal_dress', 'bridal_beauty', 'wedding_planner', 'wedding_photography', 'wedding_venue']);
-const LEGAL_CATEGORIES = new Set(['legal', 'family_law']);
-const FORBIDDEN_CATEGORIES = new Set(['gambling', 'tobacco', 'adult_services', 'political', 'religious', 'unreviewed_health', 'unreviewed_finance']);
 
 const isNonNegativeInteger = value => Number.isInteger(value) && value >= 0;
 
@@ -42,7 +35,6 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
   if (campaign.creativeApproved !== true || campaign.advertiserVerified !== true) {
     return deny('advertiser_or_creative_not_approved');
   }
-  if (FORBIDDEN_CATEGORIES.has(category)) return deny('category_blocked');
   if (viewer.accountEligible !== true || viewer.adsConsent !== true) return deny('viewer_not_consented_or_eligible');
   // Safety state must be explicitly loaded from trusted server records; unknown is not equivalent to safe.
   if (viewer.safetyRestricted !== false) return deny('safety_state_unavailable_or_restricted');
@@ -78,40 +70,10 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
     return allow('confirmed_date');
   }
 
-  if (BRIDAL_CATEGORIES.has(category)) {
-    if (!match) return deny('missing_context');
-    if (match.safetyRestricted !== false || match.blocked !== false
-      || match.reported !== false || match.paused !== false) {
-      return deny('safety_state_unavailable_or_restricted');
-    }
-    if (match.partnerAccountEligible !== true || match.partnerSafetyRestricted !== false) {
-      return deny('partner_safety_state_unavailable_or_restricted');
-    }
-    if (surface !== 'relationship_offers') return deny('relationship_offers_surface_required');
-    if (viewer.selfDescribedGender !== 'woman') return deny('bridal_audience_ineligible');
-    if (viewer.weddingOffersConsent !== true) return deny('wedding_consent_required');
-    if (viewer.marriagePlanningOptIn !== true) return deny('marriage_planning_opt_in_required');
-    if (!isNonNegativeInteger(match.ageDays) || match.ageDays < BRIDAL_MIN_MATCH_AGE_DAYS) return deny('match_too_new');
-    if (!isNonNegativeInteger(match.viewerActiveDays) || !isNonNegativeInteger(match.partnerActiveDays)
-      || match.viewerActiveDays < BRIDAL_MIN_ACTIVE_DAYS_PER_PERSON
-      || match.partnerActiveDays < BRIDAL_MIN_ACTIVE_DAYS_PER_PERSON) return deny('insufficient_mutual_activity');
-    if (!isNonNegativeInteger(match.viewerMessagesSent) || !isNonNegativeInteger(match.partnerMessagesSent)
-      || match.viewerMessagesSent < BRIDAL_MIN_MESSAGES_PER_PERSON
-      || match.partnerMessagesSent < BRIDAL_MIN_MESSAGES_PER_PERSON) return deny('insufficient_mutual_conversation');
-    if (match.regionAllowed !== true) return deny('match_region_not_allowed');
-    return allow('bridal_opt_in_and_mutual_activity');
-  }
-
   if (OPT_IN_CATEGORIES.has(category)) {
     if (surface !== 'offers' && surface !== 'relationship_offers') return deny('offers_surface_required');
     if (viewer.categoryConsents?.[category] !== true) return deny('category_consent_required');
     return allow('category_opt_in');
-  }
-
-  if (LEGAL_CATEGORIES.has(category)) {
-    if (surface !== 'user_requested_legal_help') return deny('user_requested_legal_help_required');
-    if (viewer.legalOffersConsent !== true) return deny('legal_consent_required');
-    return allow('user_requested_legal_help');
   }
 
   // Unknown categories are never implicitly eligible.
