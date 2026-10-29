@@ -32,6 +32,7 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
     return deny('invalid_category');
   }
   if (!APPROVED_CAMPAIGN_CATEGORIES.has(category)) return deny('campaign_category_not_allowed');
+  if (typeof campaign.id !== 'string' || campaign.id.trim().length === 0) return deny('campaign_unknown');
   if (campaign.status !== 'approved' || campaign.active !== true) return deny('campaign_not_active');
   if (!isValidDate(campaign.startsAt)) return deny('invalid_campaign_start');
   if (!isValidDate(campaign.endsAt)) return deny('invalid_campaign_end');
@@ -39,7 +40,8 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
   if (campaign.startsAt && Date.parse(campaign.startsAt) > now) return deny('campaign_not_started');
   if (campaign.endsAt && Date.parse(campaign.endsAt) <= now) return deny('campaign_expired');
   if (campaign.regionAllowed !== true) return deny('region_not_allowed');
-  if (campaign.creativeApproved !== true || campaign.advertiserVerified !== true) {
+  if (campaign.creativeApproved !== true || campaign.advertiserVerified !== true ||
+      typeof campaign.creativeVersion !== 'string' || !campaign.creativeVersion.trim()) {
     return deny('advertiser_or_creative_not_approved');
   }
   if (viewer.accountEligible !== true || viewer.adsConsent !== true) return deny('viewer_not_consented_or_eligible');

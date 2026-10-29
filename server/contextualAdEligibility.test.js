@@ -9,6 +9,8 @@ import {
 } from './contextualAdEligibility.js';
 
 const campaign = {
+  id: 'cafe_autumn_01',
+  creativeVersion: 'creative-v3',
   category: 'cafe',
   status: 'approved',
   active: true,
@@ -66,6 +68,10 @@ test('fails closed when required context or campaign approval is missing', () =>
   assert.equal(evaluate({ campaign: { startsAt: undefined } }).reason, 'invalid_campaign_start');
   assert.equal(evaluate({ campaign: { endsAt: undefined } }).reason, 'invalid_campaign_end');
   assert.equal(evaluate({ campaign: { advertiserVerified: false } }).reason, 'advertiser_or_creative_not_approved');
+  assert.equal(evaluate({ campaign: { creativeVersion: '' } }).reason, 'advertiser_or_creative_not_approved');
+  assert.equal(evaluate({ campaign: { creativeVersion: undefined } }).reason, 'advertiser_or_creative_not_approved');
+  assert.equal(evaluate({ campaign: { id: '' } }).reason, 'campaign_unknown');
+  assert.equal(evaluate({ campaign: { id: undefined } }).reason, 'campaign_unknown');
   assert.equal(evaluate({ campaign: { regionAllowed: false } }).reason, 'region_not_allowed');
   assert.equal(evaluate({ viewer: { adsConsent: false } }).reason, 'viewer_not_consented_or_eligible');
 });
