@@ -87,6 +87,26 @@ test('master consent revocation overrides malformed or missing dependent boolean
   }
 });
 
+test('master consent revocation overrides unknown future fields', () => {
+  assert.deepEqual(normalizeAdConsentPreferences({
+    adsConsent: false,
+    dateOffersConsent: true,
+    weddingOffersConsent: true,
+    marriagePlanningOptIn: true,
+    categoryConsents: { travel: true },
+    futurePreference: 'unknown'
+  }), {
+    ok: true,
+    value: {
+      adsConsent: false,
+      dateOffersConsent: false,
+      weddingOffersConsent: false,
+      marriagePlanningOptIn: false,
+      categoryConsents: {}
+    }
+  });
+});
+
 test('rejects marriage planning without wedding-offer consent', () => {
   assert.equal(normalizeAdConsentPreferences({
     ...valid,

@@ -19,17 +19,6 @@ export function normalizeAdConsentPreferences(input) {
     return { ok: false, error: 'invalid_preferences' };
   }
 
-  const allowedFields = new Set([
-    'adsConsent',
-    'dateOffersConsent',
-    'weddingOffersConsent',
-    'marriagePlanningOptIn',
-    'categoryConsents'
-  ]);
-  if (Object.keys(input).some(key => !allowedFields.has(key))) {
-    return { ok: false, error: 'unknown_preference_field' };
-  }
-
   if (typeof input.adsConsent !== 'boolean') {
     return { ok: false, error: 'boolean_preference_required', field: 'adsConsent' };
   }
@@ -47,6 +36,17 @@ export function normalizeAdConsentPreferences(input) {
         categoryConsents: {}
       }
     };
+  }
+
+  const allowedFields = new Set([
+    'adsConsent',
+    'dateOffersConsent',
+    'weddingOffersConsent',
+    'marriagePlanningOptIn',
+    'categoryConsents'
+  ]);
+  if (Object.keys(input).some(key => !allowedFields.has(key))) {
+    return { ok: false, error: 'unknown_preference_field' };
   }
 
   for (const key of ['dateOffersConsent', 'weddingOffersConsent', 'marriagePlanningOptIn']) {
