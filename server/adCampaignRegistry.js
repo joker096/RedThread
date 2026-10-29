@@ -5,7 +5,6 @@ export const ALLOWED_AD_CAMPAIGN_CATEGORIES = Object.freeze([
   'fashion', 'beauty', 'travel', 'general_local'
 ]);
 const ALLOWED_CATEGORIES = new Set(ALLOWED_AD_CAMPAIGN_CATEGORIES);
-const SUPPORTED_COUNTRY_CODES = new Set(COUNTRY_ALIASES.values());
 
 const COUNTRY_ALIASES = new Map([
   ['GE', 'GE'], ['GEORGIA', 'GE'], ['ГРУЗИЯ', 'GE'], ['SAKARTVELO', 'GE'],
@@ -26,6 +25,8 @@ const COUNTRY_ALIASES = new Map([
   ['CN', 'CN'], ['CHINA', 'CN'], ['КИТАЙ', 'CN'],
   ['UA', 'UA'], ['UKRAINE', 'UA'], ['УКРАИНА', 'UA']
 ]);
+
+const SUPPORTED_COUNTRY_CODES = new Set(COUNTRY_ALIASES.values());
 
 export function resolveProfileCountryCode(country) {
   if (typeof country !== 'string') return null;
