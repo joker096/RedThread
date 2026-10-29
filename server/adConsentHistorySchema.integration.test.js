@@ -34,6 +34,7 @@ test('PostgreSQL consent history accepts normalized snapshots and rejects malfor
       [{ ...valid, dateOffersConsent: 'true' }, false],
       [{ ...valid, categoryConsents: { political: true } }, false],
       [{ ...valid, categoryConsents: { travel: 'true' } }, false],
+      [{ ...valid, categoryConsents: { travel: false } }, false],
       [{ ...valid, marriagePlanningOptIn: true }, false],
       [{ ...valid, adsConsent: false }, false],
       [{ ...valid, categoryConsents: [] }, false]
