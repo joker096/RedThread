@@ -1028,8 +1028,9 @@ test('auth API supports registration, session lookup, logout and login', {
       categoryConsents: { travel: true, fashion: true }
     });
 
-    // The registry is server-owned: only an explicitly approved, active campaign
-    // may accept events after the user has opted in.
+    // Keep the campaign fixture for policy coverage, but the HTTP ingestion route
+    // remains unavailable until trusted server-side delivery proof exists. Consent
+    // and campaign approval alone must never enable client-submitted analytics.
     const adRegistryDb = new Pool({
       connectionString: process.env.DATABASE_URL,
       connectionTimeoutMillis: 5_000,
@@ -1059,27 +1060,18 @@ test('auth API supports registration, session lookup, logout and login', {
       await adRegistryDb.end();
     }
 
-    const consentedAdEventId = randomUUID();
-    const consentedAdEventPayload = {
-      eventId: consentedAdEventId,
-      campaignId: 'consent-gate-test',
-      eventType: 'impression'
-    };
     const consentedAdEvent = await request('/api/ads/events', {
       method: 'POST',
       headers: { Cookie: secondCookie },
-      body: JSON.stringify(consentedAdEventPayload)
+      body: JSON.stringify({
+        eventId: randomUUID(),
+        campaignId: 'consent-gate-test',
+        eventType: 'impression'
+      })
     });
-    assert.equal(consentedAdEvent.status, 201);
-    assert.deepEqual(await consentedAdEvent.json(), { accepted: true, duplicate: false });
-    const replayedAdEvent = await request('/api/ads/events', {
-      method: 'POST',
-      headers: { Cookie: secondCookie },
-      body: JSON.stringify(consentedAdEventPayload)
-    });
-    assert.equal(replayedAdEvent.status, 200);
-    assert.deepEqual(await replayedAdEvent.json(), { accepted: true, duplicate: true },
-      'same-user same-payload retries must be idempotent');
+    assert.equal(consentedAdEvent.status, 503);
+    assert.deepEqual(await consentedAdEvent.json(), { error: 'ad_event_collection_unavailable' },
+      'persisted consent and an approved campaign are not proof that an eligible placement was delivered');
 
     const regionTestDb = new Pool({
       connectionString: process.env.DATABASE_URL,
@@ -1103,9 +1095,9 @@ test('auth API supports registration, session lookup, logout and login', {
         eventType: 'impression'
       })
     });
-    assert.equal(disallowedRegionEvent.status, 403,
-      'campaign events must be rejected when the profile country is outside the campaign allowlist');
-    assert.equal((await disallowedRegionEvent.json()).error, 'ad_campaign_region_not_allowed');
+    assert.equal(disallowedRegionEvent.status, 503,
+      'the disabled ingestion gate must reject events before campaign or region processing');
+    assert.equal((await disallowedRegionEvent.json()).error, 'ad_event_collection_unavailable');
 
     const foreignTargetAttempt = await request('/api/ads/consent', {
       method: 'PUT',
