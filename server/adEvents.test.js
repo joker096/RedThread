@@ -101,6 +101,21 @@ test('ad frequency policy enforces impression and click caps from persisted coun
   });
 });
 
+test('ad frequency policy rejects non-safe-integer values for either persisted counter', () => {
+  for (const invalidCount of [Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1, 1.5, -1, null]) {
+    assert.deepEqual(
+      evaluateAdEventFrequency({ eventType: 'impression', impressionCount: invalidCount, clickCount: 0 }),
+      { allowed: false, reason: 'invalid_event_counts' },
+      `invalid impression count: ${String(invalidCount)}`
+    );
+    assert.deepEqual(
+      evaluateAdEventFrequency({ eventType: 'click', impressionCount: 1, clickCount: invalidCount }),
+      { allowed: false, reason: 'invalid_event_counts' },
+      `invalid click count: ${String(invalidCount)}`
+    );
+  }
+});
+
 test('ad click policy requires an impression and rejects invalid persisted counts', () => {
   assert.deepEqual(evaluateAdEventFrequency({ eventType: 'click', impressionCount: 0, clickCount: 0 }), {
     allowed: false, reason: 'impression_required_before_click'
