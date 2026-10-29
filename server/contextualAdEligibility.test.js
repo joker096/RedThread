@@ -67,6 +67,8 @@ test('fails closed when required context or campaign approval is missing', () =>
   assert.equal(evaluate({ campaign: { status: 'unknown' } }).reason, 'campaign_status_invalid');
   assert.equal(evaluate({ campaign: { status: 'pending' } }).reason, 'campaign_not_approved');
   assert.equal(evaluate({ campaign: { status: 'paused' } }).reason, 'campaign_not_approved');
+  assert.equal(evaluate({ campaign: { status: 'rejected' } }).reason, 'campaign_not_approved');
+  assert.equal(evaluate({ campaign: { status: undefined } }).reason, 'campaign_status_invalid');
   assert.equal(evaluate({ campaign: { status: 'expired' } }).reason, 'campaign_expired');
   assert.equal(evaluate({ campaign: { active: false } }).reason, 'campaign_not_active');
   assert.equal(evaluate({ campaign: { active: undefined } }).reason, 'campaign_not_active');
