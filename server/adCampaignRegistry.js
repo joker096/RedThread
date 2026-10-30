@@ -5,6 +5,7 @@ export const ALLOWED_AD_CAMPAIGN_CATEGORIES = Object.freeze([
   'fashion', 'beauty', 'travel', 'general_local'
 ]);
 const ALLOWED_CATEGORIES = new Set(ALLOWED_AD_CAMPAIGN_CATEGORIES);
+const BRIDAL_CAMPAIGN_CATEGORIES = new Set(['fashion', 'beauty', 'general_local']);
 
 const COUNTRY_ALIASES = new Map([
   ['GE', 'GE'], ['GEORGIA', 'GE'], ['ГРУЗИЯ', 'GE'], ['SAKARTVELO', 'GE'],
@@ -57,6 +58,7 @@ export function evaluateAdCampaignEligibility(campaign, { now = Date.now() } = {
   if (campaign.creativeContext === undefined || campaign.creativeContext === null || campaign.creativeContext === '') return deny('creative_context_unclassified');
   if (campaign.creativeContext !== 'general' && campaign.creativeContext !== 'bridal') return deny('creative_context_invalid');
   if (typeof campaign.category !== 'string' || !ALLOWED_CATEGORIES.has(campaign.category)) return deny('campaign_category_not_allowed');
+  if (campaign.creativeContext === 'bridal' && !BRIDAL_CAMPAIGN_CATEGORIES.has(campaign.category)) return deny('bridal_category_not_supported');
   const startsAt = isValidTimestamp(campaign.startsAt) ? Date.parse(campaign.startsAt) : NaN;
   const endsAt = isValidTimestamp(campaign.endsAt) ? Date.parse(campaign.endsAt) : NaN;
   if (!Number.isFinite(startsAt) || !Number.isFinite(endsAt) || endsAt <= startsAt) return deny('campaign_window_invalid');
