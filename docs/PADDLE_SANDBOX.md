@@ -7,7 +7,7 @@ This integration is intentionally locked to Paddle Sandbox. It does not switch p
 Copy these into the server's secret environment (never commit actual values):
 
 - `PADDLE_ENVIRONMENT=sandbox`
-- `PADDLE_API_KEY`: sandbox API key with permission to create transactions.
+- `PADDLE_API_KEY`: sandbox API key with permissions to create transactions (`transaction.write`), create Customer Portal sessions (`customer_portal_session.write`), and immediately cancel subscriptions during account deletion (`subscription.write`).
 - `PADDLE_WEBHOOK_SECRET`: signing secret from a sandbox notification destination pointing to `https://YOUR_PUBLIC_SANDBOX_HOST/api/paddle/webhook`.
 - `PADDLE_CLIENT_TOKEN`: sandbox client-side token beginning with `test_`.
 - `PADDLE_PRICE_ID_1MONTH`, `PADDLE_PRICE_ID_3MONTHS`, and optionally `PADDLE_PRICE_ID_LIFETIME`: sandbox price IDs beginning with `pri_`.
