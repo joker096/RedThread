@@ -113,7 +113,9 @@ test('subscription updates compare source timestamps and do not bypass ordering 
   assert.match(update.sql, /\$9::boolean AND lower\(paddle_subscription_status\) IN \('canceled', 'completed'\)/);
   assert.equal(update.params[8], false, 'ordinary updates must not replace an established subscription ID');
   assert.match(update.sql, /paddle_customer_id IS NULL OR paddle_customer_id = \$2/);
+  assert.match(update.sql, /users\.status = 'active'/, 'customer webhooks must not mutate deleted accounts');
   assert.match(update.sql, /premium_lifetime IS NOT TRUE/, 'subscription webhooks must not overwrite lifetime Premium');
+  assert.match(update.sql, /users\.status = 'active'/, 'subscription webhooks must not revive deleted accounts');
   assert.equal(update.params[7], '2026-10-24T20:00:00Z');
 });
 
@@ -201,6 +203,7 @@ test('grants lifetime Premium only for a verified matching transaction price', a
     const update = queries.find(query => query.sql.includes('premium_lifetime = TRUE'));
     assert.ok(update, 'expected the lifetime entitlement update');
     assert.equal(update.params[2], 'pri_lifetime_test');
+    assert.match(update.sql, /users\.status = 'active'/, 'lifetime transactions must not revive deleted accounts');
     assert.match(update.sql, /paddle_subscription_id IS NULL OR lower\(paddle_subscription_status\) IN \('canceled', 'completed'\)/,
       'lifetime Premium must not detach an active subscription before cancellation/reconciliation');
   } finally {
@@ -239,6 +242,7 @@ test('does not grant lifetime Premium when the transaction price does not match 
     assert.match(identityUpdate.sql, /other\.paddle_customer_id = \$2 AND other\.id <> users\.id/);
     assert.match(identityUpdate.sql, /paddle_customer_id IS NULL OR paddle_customer_id = \$2/);
     assert.match(identityUpdate.sql, /paddle_subscription_id IS NULL OR paddle_subscription_id = \$3/);
+    assert.match(identityUpdate.sql, /users\.status = 'active'/, 'transaction webhooks must not mutate deleted accounts');
   } finally {
     if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
     else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
