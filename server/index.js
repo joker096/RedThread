@@ -2807,6 +2807,7 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
     const campaignEligibility = evaluateAdCampaignEligibility(row ? {
       id: row.id,
       status: row.status,
+      active: row.status === 'approved',
       advertiserVerified: row.advertiser_verified,
       creativeVersion: row.creative_version,
       creativeApproved: row.creative_approved,
