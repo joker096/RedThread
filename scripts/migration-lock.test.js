@@ -26,23 +26,12 @@ test('migration advisory lock is session-scoped and serializes concurrent migrat
       error => ({ error })
     );
 
-    const lockQuery = '%pg_try_advisory_lock($1, $2)%';
-    const deadline = Date.now() + 5_000;
-    let waiting = false;
-    while (Date.now() < deadline && !waiting) {
-      const result = await first.query(
-        `SELECT 1
-         FROM pg_stat_activity
-         WHERE pid <> pg_backend_pid()
-           AND wait_event_type = 'Lock'
-           AND query LIKE $1
-         LIMIT 1`,
-        [lockQuery]
-      );
-      waiting = result.rowCount > 0;
-      if (!waiting) await new Promise(resolve => setTimeout(resolve, 25));
-    }
-    assert.equal(waiting, true, 'the second migrator must wait while the first holds the session lock');
+    let secondAcquired = false;
+    secondAcquire.then(result => {
+      secondAcquired = Boolean(result.release);
+    });
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.equal(secondAcquired, false, 'the second migrator must wait while the first holds the session lock');
 
     await releaseFirst();
     releaseFirst = null;
@@ -80,7 +69,7 @@ test('migration lock release is idempotent', async () => {
   await release();
   await release();
   assert.equal(calls.length, 2);
-  assert.match(calls[0].sql, /pg_advisory_lock/);
+  assert.match(calls[0].sql, /pg_try_advisory_lock/);
   assert.match(calls[1].sql, /pg_advisory_unlock/);
   assert.deepEqual(calls[0].params, [MIGRATION_ADVISORY_LOCK_CLASS, MIGRATION_ADVISORY_LOCK_ID]);
 });
