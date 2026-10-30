@@ -893,13 +893,19 @@ test('only a verified new subscription event links a completed recurring checkou
         status: 'active',
         customerId: 'ctm_0123456789abcdef01234567',
         customData: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month' },
+        transaction_id: 'txn_0123456789abcdef01234567',
         currentBillingPeriod: { endsAt: '2026-11-30T18:00:00Z' },
         items: [{ price: { id: 'pri_month_test' } }]
       }
     });
     const attemptUpdate = queries.find(query => query.sql.includes('UPDATE paddle_checkout_attempts'));
     assert.ok(attemptUpdate, 'expected the new subscription event to link the checkout attempt');
-    assert.deepEqual(attemptUpdate.params, ['00000000-0000-4000-8000-000000000001', '1month']);
+    assert.deepEqual(attemptUpdate.params, [
+      '00000000-0000-4000-8000-000000000001',
+      '1month',
+      'txn_0123456789abcdef01234567'
+    ]);
+    assert.match(attemptUpdate.sql, /transaction_id IS NULL OR transaction_id = \$3/);
   } finally {
     if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
     else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
@@ -927,4 +933,52 @@ test('transaction.canceled webhook clears a pending checkout attempt', async () 
   const attemptUpdate = queries.find(query => query.sql.includes('UPDATE paddle_checkout_attempts'));
   assert.ok(attemptUpdate, 'expected the canceled transaction to release the pending checkout lock');
   assert.equal(attemptUpdate.params[0], 'txn_0123456789abcdef01234567');
+});
+
+
+test('subscription.created cannot claim a checkout attempt for a different transaction', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_test';
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      const query = { sql: String(sql), params };
+      queries.push(query);
+      if (query.sql.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: 'evt_stale_subscription' }] };
+      }
+      if (query.sql.includes('UPDATE paddle_checkout_attempts')) return { rowCount: 0, rows: [] };
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_stale_subscription',
+      eventType: 'subscription.created',
+      occurredAt: '2026-10-30T18:00:00Z',
+      data: {
+        id: 'sub_0123456789abcdef01234567',
+        status: 'active',
+        customerId: 'ctm_0123456789abcdef01234567',
+        customData: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month' },
+        transaction_id: 'txn_aaaaaaaaaaaaaaaaaaaaaaaaaa',
+        currentBillingPeriod: { endsAt: '2026-11-30T18:00:00Z' },
+        items: [{ price: { id: 'pri_month_test' } }]
+      }
+    });
+    const attemptUpdate = queries.find(query => query.sql.includes('UPDATE paddle_checkout_attempts'));
+    assert.ok(attemptUpdate, 'expected the handler to attempt a transaction-bound claim');
+    assert.deepEqual(attemptUpdate.params, [
+      '00000000-0000-4000-8000-000000000001',
+      '1month',
+      'txn_aaaaaaaaaaaaaaaaaaaaaaaaaa'
+    ]);
+    assert.equal(queries.some(query => query.sql.includes('UPDATE users')), false,
+      'a subscription for a different transaction must not attach or grant Premium');
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
+  }
 });
