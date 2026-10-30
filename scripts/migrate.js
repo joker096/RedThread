@@ -24,63 +24,88 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDir = path.join(currentDir, '..', 'server', 'migrations');
 
 async function runMigrations() {
-  const client = await pool.connect();
+  let client;
   let releaseMigrationLock;
   let releaseError;
+  let shutdownSignal;
+  const handleShutdownSignal = signal => {
+    if (!shutdownSignal) {
+      shutdownSignal = signal;
+      console.warn(`Received ${signal}; finishing the current migration before shutting down.`);
+    }
+  };
+
+  process.on('SIGINT', handleShutdownSignal);
+  process.on('SIGTERM', handleShutdownSignal);
+
   try {
+    client = await pool.connect();
     releaseMigrationLock = await acquireMigrationLock(client);
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS schema_migrations (
-        name TEXT PRIMARY KEY,
-        applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `);
 
-    const files = (await readdir(migrationsDir))
-      .filter(name => name.endsWith('.sql'))
-      .sort();
+    if (!shutdownSignal) {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+          name TEXT PRIMARY KEY,
+          applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
 
-    for (const name of files) {
-      const existing = await client.query(
-        'SELECT 1 FROM schema_migrations WHERE name = $1',
-        [name]
-      );
-      if (existing.rowCount) {
-        console.log(`Skipping already applied migration: ${name}`);
-        continue;
-      }
+      const files = (await readdir(migrationsDir))
+        .filter(name => name.endsWith('.sql'))
+        .sort();
 
-      const sql = await readFile(path.join(migrationsDir, name), 'utf8');
-      await client.query('BEGIN');
-      try {
-        await client.query(sql);
-        await client.query('INSERT INTO schema_migrations (name) VALUES ($1)', [name]);
-        await client.query('COMMIT');
-        console.log(`Applied migration: ${name}`);
-      } catch (error) {
-        try {
-          await client.query('ROLLBACK');
-        } catch (rollbackError) {
-          releaseError = rollbackError;
-          throw new AggregateError(
-            [error, rollbackError],
-            `Migration ${name} failed and its transaction could not be rolled back`,
-            { cause: error }
-          );
+      for (const name of files) {
+        if (shutdownSignal) break;
+
+        const existing = await client.query(
+          'SELECT 1 FROM schema_migrations WHERE name = $1',
+          [name]
+        );
+        if (existing.rowCount) {
+          console.log(`Skipping already applied migration: ${name}`);
+          continue;
         }
-        throw error;
+
+        const sql = await readFile(path.join(migrationsDir, name), 'utf8');
+        await client.query('BEGIN');
+        try {
+          await client.query(sql);
+          await client.query('INSERT INTO schema_migrations (name) VALUES ($1)', [name]);
+          await client.query('COMMIT');
+          console.log(`Applied migration: ${name}`);
+        } catch (error) {
+          try {
+            await client.query('ROLLBACK');
+          } catch (rollbackError) {
+            releaseError = rollbackError;
+            throw new AggregateError(
+              [error, rollbackError],
+              `Migration ${name} failed and its transaction could not be rolled back`,
+              { cause: error }
+            );
+          }
+          throw error;
+        }
       }
     }
   } finally {
-    if (releaseMigrationLock && !releaseError) {
-      try {
-        await releaseMigrationLock();
-      } catch (error) {
-        releaseError = error;
+    if (client) {
+      if (releaseMigrationLock && !releaseError) {
+        try {
+          await releaseMigrationLock();
+        } catch (error) {
+          releaseError = error;
+        }
       }
+      client.release(releaseError);
     }
-    client.release(releaseError);
+    process.off('SIGINT', handleShutdownSignal);
+    process.off('SIGTERM', handleShutdownSignal);
     await pool.end();
+
+    if (shutdownSignal) {
+      process.exitCode = shutdownSignal === 'SIGINT' ? 130 : 143;
+    }
   }
 }
 
