@@ -57,6 +57,7 @@ export async function processExpiredGiftRequestBatch(pool, {
   const summary = { pairsScanned: candidates.rows.length, expiredOrders: 0, reconciliationRequired: 0, pairFailures: 0 };
   for (const pair of candidates.rows) {
     const client = await pool.connect();
+    let releaseError;
     try {
       await client.query('BEGIN');
       await acquireRateLocks(client, pair.senderId, pair.recipientId);
@@ -76,14 +77,20 @@ export async function processExpiredGiftRequestBatch(pool, {
         summary.reconciliationRequired += 1;
       }
     } catch (error) {
-      await client.query('ROLLBACK').catch(() => {});
+      // Discard a client after any failed transaction operation. In particular,
+      // a failed COMMIT/ROLLBACK can leave its protocol state uncertain; it must
+      // not be handed back to the pool as a healthy connection.
+      releaseError = error;
+      await client.query('ROLLBACK').catch(rollbackError => {
+        releaseError = rollbackError;
+      });
       summary.pairFailures += 1;
       // Isolate a broken pair: a transient database/application error must not
       // abort the remaining bounded batch and starve unrelated expired requests.
       const safeErrorCode = typeof error?.code === 'string' ? error.code : 'unexpected_error';
       console.error('Gift request expiry pair failed:', safeErrorCode);
     } finally {
-      client.release();
+      client.release(releaseError);
     }
   }
   return summary;
