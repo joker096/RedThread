@@ -51,6 +51,7 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
   const [notice, setNotice] = useState('');
   const [premiumActive, setPremiumActive] = useState(false);
   const [premiumLifetime, setPremiumLifetime] = useState(false);
+  const [portalBusy, setPortalBusy] = useState(false);
   const paddleRef = useRef<PaddleRuntime | null>(null);
   const mountedRef = useRef(true);
 
@@ -111,6 +112,34 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
     };
   }, []);
 
+
+  const openCustomerPortal = async () => {
+    if (portalBusy) return;
+    setPortalBusy(true);
+    setNotice('');
+    try {
+      const response = await fetch('/api/paddle/portal', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}'
+      });
+      const result = await response.json() as { url?: string; error?: string };
+      if (!response.ok || typeof result.url !== 'string') {
+        throw new Error(result.error || 'paddle_portal_unavailable');
+      }
+      const portalUrl = new URL(result.url);
+      if (portalUrl.protocol !== 'https:' || portalUrl.hostname !== 'customer-portal.paddle.com') {
+        throw new Error('paddle_portal_url_invalid');
+      }
+      window.location.assign(portalUrl.toString());
+    } catch {
+      if (mountedRef.current) setNotice('Не удалось открыть управление подпиской Paddle. Попробуйте ещё раз.');
+    } finally {
+      if (mountedRef.current) setPortalBusy(false);
+    }
+  };
+
   const startCheckout = async (plan: Plan) => {
     if (busyPlan || !paddleRef.current) return;
     setBusyPlan(plan.id);
@@ -150,7 +179,7 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
   };
 
   return (
-    <section aria-busy={loading || Boolean(busyPlan)} className="rounded-xl border border-rose-500/20 bg-rose-950/20 p-3">
+    <section aria-busy={loading || Boolean(busyPlan) || portalBusy} className="rounded-xl border border-rose-500/20 bg-rose-950/20 p-3">
       <div className="flex items-start justify-between gap-2">
         <div>
           <h4 className="text-sm font-semibold text-white">Vow Premium</h4>
@@ -159,7 +188,12 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
         <span className="shrink-0 rounded-full border border-amber-400/30 px-2 py-1 text-[10px] font-semibold text-amber-200">SANDBOX</span>
       </div>
       {loading ? <p className="mt-3 text-xs text-stone-400">Подключаем тестовый checkout…</p> : premiumActive ? (
-        <p className="mt-3 text-xs leading-relaxed text-emerald-300">{premiumLifetime ? 'Пожизненный Premium уже активен.' : 'Premium уже активен. Повторная покупка отключена.'}</p>
+        <div className="mt-3">
+          <p className="text-xs leading-relaxed text-emerald-300">{premiumLifetime ? 'Пожизненный Premium уже активен.' : 'Premium уже активен. Повторная покупка отключена.'}</p>
+          <button type="button" onClick={() => void openCustomerPortal()} disabled={portalBusy} className="mt-3 min-h-11 w-full rounded-lg border border-amber-400/30 px-3 py-2 text-xs font-semibold text-amber-100 disabled:opacity-50">
+            {portalBusy ? 'Открываем управление…' : 'Управлять подпиской и платежами'}
+          </button>
+        </div>
       ) : !config?.configured ? (
         <p className="mt-3 text-xs leading-relaxed text-stone-400">Paddle Sandbox пока не настроен. Добавьте test client token и Price ID тарифов в серверное окружение.</p>
       ) : (
