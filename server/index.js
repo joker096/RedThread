@@ -1076,6 +1076,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
 
   let client;
   let checkoutLockAcquired = false;
+  let paddleSubscriptionCancellation = null;
   const checkoutLockKey = `paddle-checkout:${req.authUser.id}`;
   try {
     const account = await pool.query("SELECT password_hash FROM users WHERE id = $1 AND status = 'active'", [req.authUser.id]);
@@ -1167,7 +1168,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
       }
       try {
         const { cancelPaddleSubscription } = await import('./paddleBilling.js');
-        await cancelPaddleSubscription({
+        paddleSubscriptionCancellation = await cancelPaddleSubscription({
           apiKey: process.env.PADDLE_API_KEY,
           environment: process.env.PADDLE_ENVIRONMENT,
           subscriptionId,
@@ -1181,6 +1182,24 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
         billingState?.premium_until && new Date(billingState.premium_until).getTime() > Date.now()) {
       // Timed Premium without its provider subscription ID cannot be safely cancelled.
       return res.status(409).json({ error: 'paddle_subscription_reconciliation_required' });
+    }
+
+    if (paddleSubscriptionCancellation) {
+      const cancellationState = await client.query(
+        `UPDATE users
+         SET paddle_subscription_status = 'canceled',
+             premium_until = NULL,
+             paddle_subscription_updated_at = COALESCE($4::timestamptz, NOW()),
+             updated_at = NOW()
+         WHERE id = $1 AND status = 'active'
+           AND paddle_subscription_id = $2 AND paddle_customer_id = $3
+         RETURNING id`,
+        [req.authUser.id, paddleSubscriptionCancellation.subscriptionId,
+          paddleSubscriptionCancellation.customerId, paddleSubscriptionCancellation.updatedAt]
+      );
+      if (!cancellationState.rowCount) {
+        return res.status(409).json({ error: 'paddle_subscription_reconciliation_required' });
+      }
     }
 
     await client.query('BEGIN');
