@@ -34,6 +34,7 @@ export const GiftReceivingPreferencesPanel: React.FC = () => {
         if (epoch === requestEpoch.current) {
           confirmedPreferences.current = { ...defaults };
           setPreferences({ ...defaults });
+          setSaving(false);
         }
         throw new Error(t('giftPreferencesSignInRequired'));
       }
