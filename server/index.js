@@ -842,6 +842,37 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
       return res.status(401).json({ error: 'password_confirmation_failed' });
     }
 
+    // Stop recurring Paddle billing before deleting the account. A local account
+    // deletion must never leave an active external subscription renewing silently.
+    const billingStateResult = await pool.query(
+      `SELECT paddle_subscription_id, paddle_subscription_status, premium_until, premium_lifetime
+       FROM users WHERE id = $1 AND status = 'active'`,
+      [req.authUser.id]
+    );
+    const billingState = billingStateResult.rows[0];
+    const subscriptionId = billingState?.paddle_subscription_id;
+    const subscriptionStatus = String(billingState?.paddle_subscription_status || '').toLowerCase();
+    if (typeof subscriptionId === 'string' && !['canceled', 'completed'].includes(subscriptionStatus)) {
+      if (process.env.PADDLE_ENVIRONMENT !== 'sandbox' || !process.env.PADDLE_API_KEY) {
+        return res.status(503).json({ error: 'paddle_subscription_cancellation_not_configured' });
+      }
+      try {
+        const { cancelPaddleSubscription } = await import('./paddleBilling.js');
+        await cancelPaddleSubscription({
+          apiKey: process.env.PADDLE_API_KEY,
+          environment: process.env.PADDLE_ENVIRONMENT,
+          subscriptionId
+        });
+      } catch (error) {
+        console.error('Paddle cancellation before account deletion failed:', error?.message || 'unknown error');
+        return res.status(502).json({ error: 'paddle_subscription_cancellation_failed' });
+      }
+    } else if (!subscriptionId && billingState?.premium_lifetime !== true &&
+        billingState?.premium_until && new Date(billingState.premium_until).getTime() > Date.now()) {
+      // Timed Premium without its provider subscription ID cannot be safely cancelled.
+      return res.status(409).json({ error: 'paddle_subscription_reconciliation_required' });
+    }
+
     client = await pool.connect();
     await client.query('BEGIN');
     // Exclude concurrent gift creation/acceptance while account deletion suspends
@@ -872,7 +903,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     await client.query(
       `UPDATE users SET status = 'deleted', email = $2, password_hash = NULL,
          phone_e164 = NULL, phone_verified_at = NULL, female_trial_ends_at = NULL,
-         premium_until = NULL, updated_at = NOW()
+         premium_until = NULL, premium_lifetime = FALSE, updated_at = NOW()
        WHERE id = $1`,
       [req.authUser.id, 'deleted+' + req.authUser.id + '@deleted.invalid']
     );
