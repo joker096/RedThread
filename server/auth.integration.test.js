@@ -2030,6 +2030,13 @@ test('auth API supports registration, session lookup, logout and login', {
       deletionSafetyOrderId = deletionSafetyOrder.rows[0].id;
 
       await deletionSafetyDb.query(
+        `INSERT INTO ad_consent_preferences
+           (user_id, ads_consent, date_offers_consent, wedding_offers_consent,
+            marriage_planning_opt_in, category_consents, consent_version)
+         VALUES ($1, FALSE, FALSE, FALSE, FALSE, '{}'::jsonb, 1)`,
+        [registered.user.id]
+      );
+      await deletionSafetyDb.query(
         `INSERT INTO ad_consent_history (user_id, consent_version, preferences)
          VALUES ($1, 1, $2::jsonb)`,
         [registered.user.id, JSON.stringify({
@@ -2058,6 +2065,12 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       assert.equal(consentHistoryAfterDeletion.rows[0].count, 0,
         'account deletion must purge user-linked advertising consent history');
+      const consentPreferencesAfterDeletion = await deletionSafetyDb.query(
+        'SELECT COUNT(*)::int AS count FROM ad_consent_preferences WHERE user_id = $1',
+        [registered.user.id]
+      );
+      assert.equal(consentPreferencesAfterDeletion.rows[0].count, 0,
+        'account deletion must purge the current advertising consent state as well');
       const deletedGift = await deletionSafetyDb.query(
         'SELECT status, payment_status, address_vault_ref, address_verified_at FROM gift_delivery_orders WHERE id = $1',
         [deletionSafetyOrderId]
