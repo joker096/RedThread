@@ -378,3 +378,135 @@ test('a new subscription may replace a terminal prior subscription but not an ac
   assert.ok(updated, 'expected the ordinary subscription lifecycle update');
   assert.equal(updated.params[8], false, 'subscription.updated must not replace an established subscription ID');
 });
+
+
+test('Paddle customer portal sessions return only a trusted authenticated portal URL', async () => {
+  const { createPaddleCustomerPortalSession } = await import('./paddleBilling.js');
+  let request;
+  const result = await createPaddleCustomerPortalSession({
+    apiKey: 'sandbox_api_key',
+    customerId: 'ctm_0123456789abcdef01234567',
+    subscriptionId: 'sub_0123456789abcdef01234567',
+    fetchImpl: async (url, options) => {
+      request = { url, options };
+      return {
+        ok: true,
+        async json() {
+          return { data: {
+            customer_id: 'ctm_0123456789abcdef01234567',
+            urls: {
+              general: { overview: 'https://customer-portal.paddle.com/session?token=secret' },
+              subscriptions: [{
+                id: 'sub_0123456789abcdef01234567',
+                cancel_subscription: 'https://customer-portal.paddle.com/session?token=secret&action=cancel',
+                view_subscription: 'https://customer-portal.paddle.com/session?token=secret&action=view'
+              }]
+            }
+          } };
+        }
+      };
+    }
+  });
+  assert.equal(request.url, 'https://sandbox-api.paddle.com/customers/ctm_0123456789abcdef01234567/portal-sessions');
+  assert.equal(request.options.method, 'POST');
+  assert.equal(request.options.headers['Paddle-Version'], '1');
+  assert.deepEqual(JSON.parse(request.options.body), { subscription_ids: ['sub_0123456789abcdef01234567'] });
+  assert.equal(result.url, 'https://customer-portal.paddle.com/session?token=secret&action=cancel');
+});
+
+test('Paddle portal rejects mismatched customers and untrusted redirect URLs', async () => {
+  const { createPaddleCustomerPortalSession } = await import('./paddleBilling.js');
+  const makeFetch = payload => async () => ({
+    ok: true,
+    async json() { return payload; }
+  });
+  await assert.rejects(
+    createPaddleCustomerPortalSession({
+      apiKey: 'sandbox_api_key',
+      customerId: 'ctm_0123456789abcdef01234567',
+      fetchImpl: makeFetch({ data: {
+        customer_id: 'ctm_another_customer',
+        urls: { general: { overview: 'https://customer-portal.paddle.com/session' } }
+      } })
+    }),
+    { message: 'paddle_portal_session_failed' }
+  );
+  await assert.rejects(
+    createPaddleCustomerPortalSession({
+      apiKey: 'sandbox_api_key',
+      customerId: 'ctm_0123456789abcdef01234567',
+      fetchImpl: makeFetch({ data: {
+        customer_id: 'ctm_0123456789abcdef01234567',
+        urls: { general: { overview: 'https://attacker.example/steal-token' } }
+      } })
+    }),
+    { message: 'paddle_portal_url_invalid' }
+  );
+});
+
+test('Paddle subscription cancellation requires a confirmed immediate cancellation response', async () => {
+  const { cancelPaddleSubscription } = await import('./paddleBilling.js');
+  let request;
+  const result = await cancelPaddleSubscription({
+    apiKey: 'sandbox_api_key',
+    subscriptionId: 'sub_0123456789abcdef01234567',
+    fetchImpl: async (url, options) => {
+      request = { url, options };
+      return {
+        ok: true,
+        async json() {
+          return { data: { id: 'sub_0123456789abcdef01234567', status: 'canceled' } };
+        }
+      };
+    }
+  });
+  assert.equal(request.url, 'https://sandbox-api.paddle.com/subscriptions/sub_0123456789abcdef01234567/cancel');
+  assert.equal(request.options.method, 'POST');
+  assert.deepEqual(JSON.parse(request.options.body), { effective_from: 'immediately' });
+  assert.deepEqual(result, { subscriptionId: 'sub_0123456789abcdef01234567', status: 'canceled' });
+
+  await assert.rejects(
+    cancelPaddleSubscription({
+      apiKey: 'sandbox_api_key',
+      subscriptionId: 'sub_0123456789abcdef01234567',
+      fetchImpl: async () => ({
+        ok: true,
+        async json() { return { data: { id: 'sub_0123456789abcdef01234567', status: 'active' } }; }
+      })
+    }),
+    { message: 'paddle_subscription_cancel_unconfirmed' }
+  );
+});
+
+test('Paddle portal and cancellation helpers reject live environment and malformed IDs before network access', async () => {
+  const { createPaddleCustomerPortalSession, cancelPaddleSubscription } = await import('./paddleBilling.js');
+  let calls = 0;
+  const fetchImpl = async () => { calls += 1; throw new Error('unexpected_network_call'); };
+  await assert.rejects(
+    createPaddleCustomerPortalSession({
+      apiKey: 'api_key',
+      environment: 'production',
+      customerId: 'ctm_0123456789abcdef01234567',
+      fetchImpl
+    }),
+    { message: 'paddle_portal_not_configured' }
+  );
+  await assert.rejects(
+    cancelPaddleSubscription({
+      apiKey: 'api_key',
+      environment: 'production',
+      subscriptionId: 'sub_0123456789abcdef01234567',
+      fetchImpl
+    }),
+    { message: 'paddle_cancellation_not_configured' }
+  );
+  await assert.rejects(
+    cancelPaddleSubscription({
+      apiKey: 'api_key',
+      subscriptionId: 'not-a-subscription',
+      fetchImpl
+    }),
+    { message: 'paddle_cancellation_not_configured' }
+  );
+  assert.equal(calls, 0);
+});
