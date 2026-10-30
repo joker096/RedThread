@@ -58,7 +58,16 @@ async function runMigrations() {
         await client.query('COMMIT');
         console.log(`Applied migration: ${name}`);
       } catch (error) {
-        await client.query('ROLLBACK');
+        try {
+          await client.query('ROLLBACK');
+        } catch (rollbackError) {
+          releaseError = rollbackError;
+          throw new AggregateError(
+            [error, rollbackError],
+            `Migration ${name} failed and its transaction could not be rolled back`,
+            { cause: error }
+          );
+        }
         throw error;
       }
     }
