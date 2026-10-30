@@ -99,16 +99,27 @@ export async function processPaddleEvent(pool, rawEvent) {
       // A newly-created subscription is the event that grants recurring access.
       // Require a matching durable checkout attempt; custom_data and a known price
       // alone are not proof that this account initiated this Vow checkout.
+      // Paddle includes the transaction that created a subscription in the
+      // subscription.created payload. Match that exact transaction so a delayed
+      // event from an older subscription cannot claim a newer checkout attempt
+      // for the same account and plan. This also handles the webhook racing the
+      // checkout HTTP response while the attempt transaction_id is still NULL.
+      const subscriptionTransactionId = typeof data.transactionId === 'string'
+        ? data.transactionId
+        : typeof data.transaction_id === 'string' ? data.transaction_id : null;
+      const validSubscriptionTransactionId = typeof subscriptionTransactionId === 'string'
+        && /^txn_[A-Za-z0-9]+$/.test(subscriptionTransactionId);
       let subscriptionAttemptClaim = { rowCount: 0, rows: [] };
       if (eventType === 'subscription.created' && customUserId &&
-          checkoutPlan && customData.plan === checkoutPlan) {
+          checkoutPlan && customData.plan === checkoutPlan && validSubscriptionTransactionId) {
         subscriptionAttemptClaim = await client.query(
           `UPDATE paddle_checkout_attempts
-           SET status = 'completed', updated_at = NOW()
+           SET transaction_id = $3, status = 'completed', updated_at = NOW()
            WHERE user_id = $1 AND plan = $2
              AND status IN ('creating', 'pending', 'completed', 'reconciliation_required')
+             AND (transaction_id IS NULL OR transaction_id = $3)
            RETURNING user_id`,
-          [customUserId, checkoutPlan]
+          [customUserId, checkoutPlan, subscriptionTransactionId]
         );
       }
       if (eventType === 'subscription.created' && subscriptionAttemptClaim.rowCount !== 1) {
