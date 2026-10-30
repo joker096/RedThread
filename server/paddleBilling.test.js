@@ -215,10 +215,64 @@ test('grants lifetime Premium only for a verified matching transaction price', a
     assert.match(update.sql, /users\.status = 'active'/, 'lifetime transactions must not revive deleted accounts');
     assert.match(update.sql, /paddle_subscription_id IS NULL OR lower\(paddle_subscription_status\) IN \('canceled', 'completed'\)/,
       'lifetime Premium must not detach an active subscription before cancellation/reconciliation');
-    const attemptUpdate = queries.find(query => query.sql.includes('UPDATE paddle_checkout_attempts'));
+    const attemptClaim = queries.find(query =>
+      query.sql.includes('SET transaction_id = $1, status = \'completed\'') &&
+      query.sql.includes('status IN (\'creating\', \'pending\', \'completed\', \'reconciliation_required\')')
+    );
+    assert.ok(attemptClaim, 'expected the verified transaction to claim a durable checkout attempt');
+    assert.deepEqual(attemptClaim.params, [
+      'txn_0123456789abcdef01234567',
+      '00000000-0000-4000-8000-000000000001',
+      'lifetime'
+    ]);
+    const attemptUpdate = queries.find(query =>
+      query.sql.includes('WHERE transaction_id = $1 AND user_id = $3')
+    );
     assert.ok(attemptUpdate, 'expected the completed lifetime checkout attempt to be settled');
-    assert.equal(attemptUpdate.params[0], 'txn_0123456789abcdef01234567');
-    assert.equal(attemptUpdate.params[2], 'linked');
+    assert.deepEqual(attemptUpdate.params, [
+      'txn_0123456789abcdef01234567',
+      'linked',
+      '00000000-0000-4000-8000-000000000001'
+    ]);
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
+    else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
+  }
+});
+
+test('does not grant lifetime Premium when no matching durable checkout attempt exists', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
+  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_lifetime_test';
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      const query = { sql: String(sql), params };
+      queries.push(query);
+      if (query.sql.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: 'evt_unowned_lifetime' }] };
+      }
+      if (query.sql.includes('SET transaction_id = $1, status = \'completed\'')) {
+        return { rowCount: 0, rows: [] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_unowned_lifetime',
+      eventType: 'transaction.completed',
+      data: {
+        id: 'txn_0123456789abcdef01234567',
+        customData: { userId: '00000000-0000-4000-8000-000000000001', plan: 'lifetime' },
+        items: [{ price: { id: 'pri_lifetime_test' } }]
+      }
+    });
+    assert.equal(queries.some(query => query.sql.includes('premium_lifetime = TRUE')), false,
+      'matching price and custom_data must not grant Premium without a server-created attempt');
+    assert.equal(queries.some(query => query.sql.includes('UPDATE users')), false);
+    assert.equal(queries.some(query => query.sql.includes('WHERE transaction_id = $1 AND user_id = $3')), false);
   } finally {
     if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
     else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
@@ -711,11 +765,15 @@ test('verified recurring transaction completion is held until its subscription w
         items: [{ price: { id: 'pri_month_test' } }]
       }
     });
-    const attemptUpdate = queries.find(query => query.sql.includes('UPDATE paddle_checkout_attempts'));
+    const attemptUpdate = queries.find(query =>
+      query.sql.includes('WHERE transaction_id = $1 AND user_id = $3')
+    );
     assert.ok(attemptUpdate, 'expected recurring checkout attempt to enter completed state');
-    assert.equal(attemptUpdate.params[0], 'txn_0123456789abcdef01234567');
-    assert.equal(attemptUpdate.params[1], '00000000-0000-4000-8000-000000000001');
-    assert.equal(attemptUpdate.params[2], 'completed');
+    assert.deepEqual(attemptUpdate.params, [
+      'txn_0123456789abcdef01234567',
+      'completed',
+      '00000000-0000-4000-8000-000000000001'
+    ]);
   } finally {
     if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
     else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
