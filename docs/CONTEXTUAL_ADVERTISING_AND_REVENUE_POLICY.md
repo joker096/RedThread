@@ -37,7 +37,9 @@ Ordinary fashion/beauty offers require category opt-in. Bridal dresses, wedding 
 4. Both people were active in that match on at least 3 distinct days.
 5. Each person sent at least 20 messages in that conversation; count messages only, never inspect/classify their content.
 6. Viewer explicitly selected a serious relationship/marriage-planning interest in a dedicated optional setting.
-7. Consent, region, safety, moderation, frequency and campaign-expiry checks all pass.
+7. The creative is explicitly moderator-classified as `bridal`; missing classification is denied.
+8. Both participants have explicitly consented to master ad use because activity from both sides contributes to the eligibility decision.
+9. Consent, region, safety, moderation, frequency and campaign-expiry checks all pass.
 
 These are conservative starting defaults, configurable by Vow policy but never weakened by advertisers. They are not proof the couple plans to marry. Do not expose eligibility signals or partner identity to advertisers. Do not infer pregnancy, fertility, religion or sexual orientation. If the match is blocked, reported, paused or safety-restricted, suppress all match-contextual offers.
 
@@ -76,7 +78,7 @@ Advertisers may narrow eligibility or add stricter rules, never weaken platform 
 
 **Implementation audit (2026-10-27):** the current `ChatMessenger` date-invite callbacks are wired in `src/App.tsx` to `handleSendDateInvite` and `handleAcceptDateInvite`, which update the in-memory `chatThreads` state with `setChatThreads`. These handlers do not persist an invite or acceptance through an authenticated server endpoint. Therefore the displayed `accepted` state is UI/demo state, not trusted evidence of mutual consent; it may be lost on reload and must never authorize contextual ads. Keep date-context ads disabled until date invitations, both participants' decisions, cancellation, and an auditable state transition are stored and checked server-side.
 
-Suggested server-side states: date invite sent → accepted → confirmed → cancelled/completed. Bridal eligibility is computed at request time from match creation time, distinct active days, per-side message counts, explicit opt-ins, self-described profile settings and safety state. Never store a permanent inferred “marriage intent”.
+Suggested server-side states: date invite sent → accepted → confirmed → cancelled/completed. Bridal eligibility is computed at request time from match creation time, distinct active days, per-side message counts, explicit opt-ins, self-described profile settings and safety state. The campaign registry requires a moderator-owned creative-purpose classification (`general` or `bridal`) independent of the broad category. Bridal creatives fail closed unless the viewer is an adult woman by self-description, has both wedding-offer and marriage-planning opt-ins, and the match meets the 14-day / 3-active-day / 20-messages-per-person thresholds. The other participant's master ad consent is required before their activity can contribute to this decision. Never store a permanent inferred “marriage intent”.
 
 Use category allowlists and a rules version. If required data is missing, stale, contradictory or the eligibility service fails, return no ad. Log minimal eligible/impression/click/dismiss/report/redemption events with idempotency keys and bounded retention. An impression is billable only under a contractually agreed viewability definition and fraud checks, not merely because an API returned an ad.
 
