@@ -247,7 +247,8 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
       signal: AbortSignal.timeout(10_000)
     });
     const payload = await response.json().catch(() => null);
-    const transactionId = payload?.data?.id;
+    const transaction = payload?.data;
+    const transactionId = transaction?.id;
     if (!response.ok) {
       const nextStatus = response.status >= 500 ? 'reconciliation_required' : 'canceled';
       await pool.query(
@@ -258,7 +259,9 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
       console.error('Paddle sandbox transaction rejected:', response.status, payload?.error?.code || 'unknown_error');
       return res.status(502).json({ error: 'paddle_checkout_session_failed' });
     }
-    if (typeof transactionId !== 'string' || !/^txn_[A-Za-z0-9]+$/.test(transactionId)) {
+    if (typeof transactionId !== 'string' || !/^txn_[A-Za-z0-9]+$/.test(transactionId) ||
+        transaction?.custom_data?.userId !== req.authUser.id ||
+        transaction?.custom_data?.plan !== plan) {
       await pool.query(
         `UPDATE paddle_checkout_attempts SET status = 'reconciliation_required', updated_at = NOW()
          WHERE user_id = $1 AND status = 'creating'`,
@@ -266,26 +269,35 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
       );
       return res.status(502).json({ error: 'paddle_checkout_session_failed' });
     }
+    const providerStatus = String(transaction.status || '').toLowerCase();
+    const attemptStatus = ['draft', 'ready'].includes(providerStatus) ? 'pending'
+      : ['completed', 'paid'].includes(providerStatus) ? 'completed'
+        : providerStatus === 'canceled' ? 'canceled' : 'reconciliation_required';
     const savedAttempt = await pool.query(
       `UPDATE paddle_checkout_attempts
-       SET transaction_id = $2, status = 'pending', updated_at = NOW()
+       SET transaction_id = $2, status = $3, updated_at = NOW()
        WHERE user_id = $1 AND status = 'creating'
          AND EXISTS (SELECT 1 FROM users WHERE id = $1 AND status = 'active')
        RETURNING transaction_id`,
-      [req.authUser.id, transactionId]
+      [req.authUser.id, transactionId, attemptStatus]
     );
     if (!savedAttempt.rowCount) {
-      const { cancelPaddleCheckoutTransaction } = await import('./paddleBilling.js');
-      await cancelPaddleCheckoutTransaction({
-        apiKey: process.env.PADDLE_API_KEY,
-        environment: process.env.PADDLE_ENVIRONMENT,
-        transactionId,
-        expectedUserId: req.authUser.id,
-        expectedPlan: plan
-      });
+      if (['draft', 'ready'].includes(providerStatus)) {
+        const { cancelPaddleCheckoutTransaction } = await import('./paddleBilling.js');
+        await cancelPaddleCheckoutTransaction({
+          apiKey: process.env.PADDLE_API_KEY,
+          environment: process.env.PADDLE_ENVIRONMENT,
+          transactionId,
+          expectedUserId: req.authUser.id,
+          expectedPlan: plan
+        });
+      }
       return res.status(409).json({ error: 'account_not_available' });
     }
-    return res.json({ transactionId, environment: 'sandbox' });
+    if (attemptStatus === 'pending') return res.json({ transactionId, environment: 'sandbox' });
+    if (attemptStatus === 'completed') return res.status(409).json({ error: 'paddle_checkout_processing' });
+    if (attemptStatus === 'canceled') return res.status(409).json({ error: 'paddle_checkout_cancelled' });
+    return res.status(409).json({ error: 'paddle_checkout_reconciliation_required' });
   } catch (error) {
     if (client) {
       try { await client.query('ROLLBACK'); } catch {}
