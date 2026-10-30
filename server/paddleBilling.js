@@ -97,11 +97,14 @@ export async function processPaddleEvent(pool, rawEvent) {
             WHERE other.paddle_customer_id = $2 AND other.id <> users.id
           ))
           -- Do not silently replace this account's established Paddle identities.
-          AND ($3::text IS NULL OR paddle_subscription_id IS NULL OR paddle_subscription_id = $3)
+          AND ($3::text IS NULL OR paddle_subscription_id IS NULL OR paddle_subscription_id = $3
+            OR ($9::boolean AND lower(paddle_subscription_status) IN ('canceled', 'completed')))
           AND ($2::text IS NULL OR paddle_customer_id IS NULL OR paddle_customer_id = $2)
+          -- A new subscription may replace only a terminal prior subscription, never an active one.
+          -- The source timestamp guard above prevents a delayed old lifecycle event from winning.
           -- A delayed or newly delivered subscription event must not revoke or replace lifetime Premium.
           AND premium_lifetime IS NOT TRUE`,
-        [customUserId, customerId, subscriptionId, status, priceId, active, active ? periodEnd : null, occurredAt]
+        [customUserId, customerId, subscriptionId, status, priceId, active, active ? periodEnd : null, occurredAt, eventType === 'subscription.created']
       );
     } else if (eventType === 'transaction.completed') {
       // A verified completed transaction can grant the one-time lifetime plan,
