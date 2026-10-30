@@ -151,7 +151,7 @@ export async function processPaddleEvent(pool, rawEvent) {
         (item?.priceId || item?.price_id || item?.price?.id) === expectedRecurringPriceId
       );
       if (customData.plan === 'lifetime' && includesLifetimePrice && customUserId) {
-        await client.query(
+        const lifetimeUpdate = await client.query(
           `UPDATE users SET
             paddle_customer_id = COALESCE($2, paddle_customer_id),
             paddle_subscription_id = NULL,
@@ -198,10 +198,13 @@ export async function processPaddleEvent(pool, rawEvent) {
       }
       if (typeof data.id === 'string' && customUserId &&
           ((customData.plan === 'lifetime' && includesLifetimePrice) || includesRecurringPrice)) {
+        const nextCheckoutStatus = customData.plan === 'lifetime'
+          ? (lifetimeUpdate?.rowCount > 0 ? 'linked' : 'reconciliation_required')
+          : 'completed';
         await client.query(
-          `UPDATE paddle_checkout_attempts SET status = 'completed', updated_at = NOW()
+          `UPDATE paddle_checkout_attempts SET status = $3, updated_at = NOW()
            WHERE transaction_id = $1 AND user_id = $2 AND status = 'pending'`,
-          [data.id, customUserId]
+          [data.id, customUserId, nextCheckoutStatus]
         );
       }
     } else if (eventType === 'customer.created' || eventType === 'customer.updated') {
