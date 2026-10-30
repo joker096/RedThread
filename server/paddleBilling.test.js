@@ -489,6 +489,18 @@ test('Paddle subscription cancellation requires a confirmed immediate cancellati
     }),
     { message: 'paddle_subscription_cancel_unconfirmed' }
   );
+  await assert.rejects(
+    cancelPaddleSubscription({
+      apiKey: 'sandbox_api_key',
+      subscriptionId: 'sub_0123456789abcdef01234567',
+      customerId: 'ctm_0123456789abcdef01234567',
+      fetchImpl: async () => ({
+        ok: true,
+        async json() { return { data: { id: 'sub_0123456789abcdef01234567', customer_id: 'ctm_other_customer', status: 'canceled' } }; }
+      })
+    }),
+    { message: 'paddle_subscription_cancel_unconfirmed' }
+  );
 });
 
 test('Paddle portal and cancellation helpers reject live environment and malformed IDs before network access', async () => {
