@@ -2047,6 +2047,11 @@ test('auth API supports registration, session lookup, logout and login', {
           categoryConsents: {}
         })]
       );
+      const adEventId = randomUUID();
+      await deletionSafetyDb.query(
+        "INSERT INTO ad_events (event_id, user_id, campaign_id, event_type) VALUES ($1, $2, 'privacy-delete-test', 'impression')",
+        [adEventId, registered.user.id]
+      );
       const consentHistoryBeforeDeletion = await deletionSafetyDb.query(
         'SELECT COUNT(*)::int AS count FROM ad_consent_history WHERE user_id = $1',
         [registered.user.id]
@@ -2071,6 +2076,12 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       assert.equal(consentPreferencesAfterDeletion.rows[0].count, 0,
         'account deletion must purge the current advertising consent state as well');
+      const adEventsAfterDeletion = await deletionSafetyDb.query(
+        'SELECT COUNT(*)::int AS count FROM ad_events WHERE user_id = $1',
+        [registered.user.id]
+      );
+      assert.equal(adEventsAfterDeletion.rows[0].count, 0,
+        'account deletion must purge user-linked ad engagement events');
       const deletedGift = await deletionSafetyDb.query(
         'SELECT status, payment_status, address_vault_ref, address_verified_at FROM gift_delivery_orders WHERE id = $1',
         [deletionSafetyOrderId]
