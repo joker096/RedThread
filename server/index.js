@@ -282,6 +282,36 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
       [req.authUser.id, transactionId, attemptStatus]
     );
     if (!savedAttempt.rowCount) {
+      // A verified transaction/subscription webhook can win the race and settle
+      // the durable attempt before this HTTP response stores the transaction ID.
+      // Preserve that provider-confirmed result instead of treating it as an
+      // account failure or attempting to cancel an already-linked subscription.
+      const linkedAttempt = await pool.query(
+        `UPDATE paddle_checkout_attempts
+         SET transaction_id = COALESCE(transaction_id, $3), updated_at = NOW()
+         WHERE user_id = $1 AND plan = $2 AND status = 'linked'
+           AND (transaction_id IS NULL OR transaction_id = $3)
+         RETURNING status`,
+        [req.authUser.id, plan, transactionId]
+      );
+      if (linkedAttempt.rowCount === 1) {
+        return res.status(409).json({ error: 'premium_already_active' });
+      }
+      const completedAttempt = await pool.query(
+        `SELECT status FROM paddle_checkout_attempts
+         WHERE user_id = $1 AND plan = $2 AND transaction_id = $3
+           AND status IN ('completed', 'reconciliation_required', 'canceled')`,
+        [req.authUser.id, plan, transactionId]
+      );
+      if (completedAttempt.rows[0]?.status === 'completed') {
+        return res.status(409).json({ error: 'paddle_checkout_processing' });
+      }
+      if (completedAttempt.rows[0]?.status === 'reconciliation_required') {
+        return res.status(409).json({ error: 'paddle_checkout_reconciliation_required' });
+      }
+      if (completedAttempt.rows[0]?.status === 'canceled') {
+        return res.status(409).json({ error: 'paddle_checkout_cancelled' });
+      }
       if (['draft', 'ready'].includes(providerStatus)) {
         const { cancelPaddleCheckoutTransaction } = await import('./paddleBilling.js');
         await cancelPaddleCheckoutTransaction({
