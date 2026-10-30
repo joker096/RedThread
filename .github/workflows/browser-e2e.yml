@@ -44,17 +44,6 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run db:migrate
       - run: npm run build
-      - name: Start API for browser tests
-        run: |
-          npm run start:api > /tmp/vow-api.log 2>&1 &
-          for attempt in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:3001/api/health >/dev/null; then
-              exit 0
-            fi
-            sleep 1
-          done
-          cat /tmp/vow-api.log
-          exit 1
       - run: npm run test:e2e
       - name: Generate feature graphic
         run: node scripts/generate-store-assets.mjs
