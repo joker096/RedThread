@@ -1086,8 +1086,8 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     client = await pool.connect();
     // Serialize checkout creation against account deletion. The checkout route
     // uses the matching transaction-scoped advisory lock.
-    await client.query('SELECT pg_advisory_lock(hashtext($1))', [checkoutLockKey]);
     checkoutLockAcquired = true;
+    await client.query('SELECT pg_advisory_lock(hashtext($1))', [checkoutLockKey]);
 
     const billingStateResult = await client.query(
       `SELECT paddle_customer_id, paddle_subscription_id, paddle_subscription_status, premium_until, premium_lifetime
