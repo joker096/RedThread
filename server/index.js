@@ -299,7 +299,8 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
       }
       const completedAttempt = await client.query(
         `SELECT status FROM paddle_checkout_attempts
-         WHERE user_id = $1 AND plan = $2 AND transaction_id = $3
+         WHERE user_id = $1 AND plan = $2
+           AND (transaction_id = $3 OR (transaction_id IS NULL AND status = 'reconciliation_required'))
            AND status IN ('completed', 'reconciliation_required', 'canceled')`,
         [req.authUser.id, plan, transactionId]
       );
