@@ -1,6 +1,11 @@
 import { evaluateGiftOrderCreation } from './giftOrderCreationPolicy.js';
 import { resolveProfileCountryCode } from './adCampaignRegistry.js';
 
+export function normalizeGiftCityKey(value) {
+  if (typeof value !== 'string') return null;
+  return value.normalize('NFC').trim().replace(/\\s+/gu, ' ').toLocaleLowerCase('en-US');
+}
+
 export async function acquireGiftOrderRateLocks(client, ...userIds) {
   const orderedIds = [...new Set(userIds.map(value => String(value).toLowerCase()))].sort();
   for (const userId of orderedIds) {
@@ -389,8 +394,8 @@ export async function createGiftOrderRequest(client, {
      JOIN gift_suppliers supplier ON supplier.supplier_key = item.supplier_key
      JOIN gift_delivery_partner_coverage coverage
        ON coverage.country_code = $2
-      AND LOWER(REGEXP_REPLACE(BTRIM(coverage.city_key), '[[:space:]]+', ' ', 'g')) =
-          LOWER(REGEXP_REPLACE(BTRIM($3), '[[:space:]]+', ' ', 'g'))
+      AND LOWER(REGEXP_REPLACE(BTRIM(normalize(coverage.city_key, NFC)), '[[:space:]]+', ' ', 'g')) =
+          LOWER(REGEXP_REPLACE(BTRIM(normalize($3, NFC)), '[[:space:]]+', ' ', 'g'))
       AND coverage.active = TRUE
       AND coverage.verified_at IS NOT NULL
       AND coverage.verified_at <= NOW()
@@ -486,9 +491,8 @@ export async function createGiftOrderRequest(client, {
       partnerVerified: productRow.partner_status === 'verified',
       coverageActive: productRow.coverage_active === true && Boolean(productRow.coverage_verified_at),
       countryCodeMatches: productRow.country_code === countryCode,
-      cityKeyMatches: typeof productRow.city_key === 'string' &&
-        productRow.city_key.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US') ===
-          contextRow.recipient_city.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
+      cityKeyMatches: normalizeGiftCityKey(productRow.city_key) !== null &&
+        normalizeGiftCityKey(productRow.city_key) === normalizeGiftCityKey(contextRow.recipient_city)
     },
     activity: {
       senderMessages: Number(messageResult.rows[0]?.sender_messages ?? 0),
@@ -743,8 +747,8 @@ export async function listGiftCatalogForMatch(client, { senderId, matchId }) {
      JOIN gift_suppliers supplier ON supplier.supplier_key = item.supplier_key
      JOIN gift_delivery_partner_coverage coverage
        ON coverage.country_code = $1
-      AND LOWER(REGEXP_REPLACE(BTRIM(coverage.city_key), '[[:space:]]+', ' ', 'g')) =
-          LOWER(REGEXP_REPLACE(BTRIM($2), '[[:space:]]+', ' ', 'g'))
+      AND LOWER(REGEXP_REPLACE(BTRIM(normalize(coverage.city_key, NFC)), '[[:space:]]+', ' ', 'g')) =
+          LOWER(REGEXP_REPLACE(BTRIM(normalize($2, NFC)), '[[:space:]]+', ' ', 'g'))
       AND coverage.active = TRUE
       AND coverage.verified_at IS NOT NULL
       AND coverage.verified_at <= NOW()
@@ -788,9 +792,8 @@ export async function listGiftCatalogForMatch(client, { senderId, matchId }) {
           Boolean(product.partner_privacy_reviewed_at) && Boolean(product.partner_contract_reviewed_at),
         coverageActive: product.coverage_active === true && Boolean(product.coverage_verified_at),
         countryCodeMatches: product.country_code === countryCode,
-        cityKeyMatches: typeof product.city_key === 'string' &&
-          product.city_key.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US') ===
-            row.recipient_city.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
+        cityKeyMatches: normalizeGiftCityKey(product.city_key) !== null &&
+          normalizeGiftCityKey(product.city_key) === normalizeGiftCityKey(row.recipient_city)
       }
     });
     if (!eligibility.eligible) continue;
