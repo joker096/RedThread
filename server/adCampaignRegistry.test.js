@@ -39,7 +39,9 @@ test('campaign registry denies missing, empty and whitespace-only campaign ids',
 test('campaign registry creative-context classification is constrained by the database migration', () => {
   const migration = readFileSync(new URL('./migrations/047_ad_campaign_creative_context.sql', import.meta.url), 'utf8');
   assert.match(migration, /ADD COLUMN IF NOT EXISTS creative_context TEXT/);
-  assert.match(migration, /creative_context IS NULL OR creative_context IN \('general', 'bridal'\)/);
+  assert.match(migration, /creative_context IS NOT NULL AND creative_context IN \('general', 'bridal'\)/);
+  assert.match(migration, /NEW\.creative_approved := FALSE/);
+  assert.match(migration, /NEW\.status := 'pending'/);
   assert.match(migration, /NULL legacy rows are not eligible for serving/);
 });
 
