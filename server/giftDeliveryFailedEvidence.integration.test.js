@@ -12,7 +12,7 @@ test('delivery_failed gift orders require persisted consent, address and fulfilm
   const client = await pool.connect();
   try {
     const constraints = await client.query(
-      `SELECT conname
+      `SELECT conname, pg_get_constraintdef(oid) AS definition
        FROM pg_constraint
        WHERE conrelid = 'gift_delivery_orders'::regclass
          AND conname = ANY($1::text[])`,
@@ -22,8 +22,9 @@ test('delivery_failed gift orders require persisted consent, address and fulfilm
         'gift_orders_delivery_failed_fulfilment_payment_required'
       ]]
     );
+    const definitions = new Map(constraints.rows.map(row => [row.conname, row.definition]));
     assert.deepEqual(
-      constraints.rows.map((row) => row.conname).sort(),
+      [...definitions.keys()].sort(),
       [
         'gift_orders_delivery_failed_address_required',
         'gift_orders_delivery_failed_consent_required',
@@ -34,9 +35,8 @@ test('delivery_failed gift orders require persisted consent, address and fulfilm
 
     await client.query('BEGIN');
     try {
-      // Keep this fixture independent of unrelated user/match foreign keys and
-      // NOT NULL columns. The live table's constraint installation is checked
-      // above; this table exercises the same three CHECK expressions directly.
+      // Exercise the exact CHECK expressions installed on the production table,
+      // while keeping the fixture independent of unrelated user/match foreign keys.
       await client.query(`
         CREATE TEMP TABLE gift_delivery_failed_constraint_test (
           status text NOT NULL,
@@ -45,25 +45,9 @@ test('delivery_failed gift orders require persisted consent, address and fulfilm
           address_verified_at timestamptz,
           fulfilment_authorized_at timestamptz,
           payment_status text,
-          CONSTRAINT gift_orders_delivery_failed_consent_required
-            CHECK (status <> 'delivery_failed' OR recipient_consent_at IS NOT NULL),
-          CONSTRAINT gift_orders_delivery_failed_address_required
-            CHECK (
-              status <> 'delivery_failed'
-              OR (
-                address_vault_ref IS NOT NULL
-                AND btrim(address_vault_ref) <> ''
-                AND address_verified_at IS NOT NULL
-              )
-            ),
-          CONSTRAINT gift_orders_delivery_failed_fulfilment_payment_required
-            CHECK (
-              status <> 'delivery_failed'
-              OR (
-                fulfilment_authorized_at IS NOT NULL
-                AND payment_status IN ('authorized', 'captured')
-              )
-            )
+          CONSTRAINT gift_orders_delivery_failed_consent_required ${definitions.get('gift_orders_delivery_failed_consent_required')},
+          CONSTRAINT gift_orders_delivery_failed_address_required ${definitions.get('gift_orders_delivery_failed_address_required')},
+          CONSTRAINT gift_orders_delivery_failed_fulfilment_payment_required ${definitions.get('gift_orders_delivery_failed_fulfilment_payment_required')}
         ) ON COMMIT DROP
       `);
 
