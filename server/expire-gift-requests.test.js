@@ -51,6 +51,10 @@ test('expiry worker takes creation locks in the established order and commits sa
       return { ok: true, expiredOrders: [{ id: 'order-1' }, { id: 'order-2' }] };
     }
   });
+  const discovery = pool.calls.find(call => typeof call === 'object');
+  assert.match(discovery.sql, /NOT EXISTS/);
+  assert.match(discovery.sql, /expired_active_payment/);
+  assert.match(discovery.sql, /payment_status IN \\('not_started', 'voided', 'failed'\\)/);
   assert.deepEqual(order, ['rate', 'safety-users', 'pair', 'expire']);
   assert.deepEqual(result, { pairsScanned: 1, expiredOrders: 2, reconciliationRequired: 0 });
   assert.ok(pool.calls.includes('COMMIT'));
