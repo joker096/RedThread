@@ -128,7 +128,7 @@ export async function processPaddleEvent(pool, rawEvent) {
       );
       const checkoutPlan = priceId === process.env.PADDLE_PRICE_ID_1MONTH ? '1month'
         : priceId === process.env.PADDLE_PRICE_ID_3MONTHS ? '3months' : null;
-      if (customUserId && checkoutPlan && subscriptionUpdate.rowCount > 0) {
+      if (eventType === 'subscription.created' && active && customUserId && checkoutPlan && subscriptionUpdate.rowCount > 0) {
         await client.query(
           `UPDATE paddle_checkout_attempts
            SET status = 'linked', updated_at = NOW()
