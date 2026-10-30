@@ -118,3 +118,29 @@ test('expiry worker does not open transactions when no expired pairs exist', asy
   assert.deepEqual(result, { pairsScanned: 0, expiredOrders: 0, reconciliationRequired: 0, pairFailures: 0 });
   assert.equal(pool.calls.filter(call => call === 'CONNECT').length, 0);
 });
+test('expiry worker discards a connection when transaction rollback fails', async () => {
+  const releases = [];
+  const failure = Object.assign(new Error('connection protocol failed'), { code: '08P01' });
+  const pool = {
+    async query() { return { rows: [pair] }; },
+    async connect() {
+      return {
+        async query(sql) {
+          if (sql === 'ROLLBACK') throw failure;
+          if (sql === 'BEGIN') return { rows: [] };
+          return { rows: [] };
+        },
+        release(error) { releases.push(error); }
+      };
+    }
+  };
+  const result = await processExpiredGiftRequestBatch(pool, {
+    acquireRateLocks: async () => { throw new Error('simulated transaction failure'); },
+    acquireSafetyLocks: async () => {},
+    acquirePairLock: async () => {},
+    expirePair: async () => ({ ok: true, expiredOrders: [] })
+  });
+  assert.equal(result.pairFailures, 1);
+  assert.equal(releases.length, 1);
+  assert.equal(releases[0], failure);
+});
