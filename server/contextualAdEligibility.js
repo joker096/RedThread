@@ -50,7 +50,6 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
   const now = campaign.now === undefined ? Date.now() : campaign.now;
   if (campaign.startsAt && Date.parse(campaign.startsAt) > now) return deny('campaign_not_started');
   if (campaign.endsAt && Date.parse(campaign.endsAt) <= now) return deny('campaign_expired');
-  if (campaign.regionAllowed !== true) return deny('region_not_allowed');
   if (campaign.creativeApproved !== true || campaign.advertiserVerified !== true ||
       typeof campaign.creativeVersion !== 'string' || !campaign.creativeVersion.trim()) {
     return deny('advertiser_or_creative_not_approved');
@@ -62,6 +61,9 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
     return deny('creative_context_invalid');
   }
   if (viewer.accountEligible !== true || viewer.adsConsent !== true) return deny('viewer_not_consented_or_eligible');
+  // Campaign targeting applies to every placement, including user-requested gift discovery
+  // and category-opt-in offers. A specialized surface must never bypass geography.
+  if (campaign.regionAllowed !== true) return deny('region_not_allowed');
   // Safety state must be explicitly loaded from trusted server records; unknown is not equivalent to safe.
   if (viewer.safetyRestricted !== false) return deny('safety_state_unavailable_or_restricted');
   const userRequestedGiftDiscovery = campaign.creativeContext === 'general'
