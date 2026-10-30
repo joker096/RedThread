@@ -1047,15 +1047,21 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
   }
 
   let client;
+  let checkoutLockAcquired = false;
+  const checkoutLockKey = `paddle-checkout:${req.authUser.id}`;
   try {
     const account = await pool.query("SELECT password_hash FROM users WHERE id = $1 AND status = 'active'", [req.authUser.id]);
     if (!account.rows[0] || typeof account.rows[0].password_hash !== 'string' || !(await verifyPassword(password, account.rows[0].password_hash))) {
       return res.status(401).json({ error: 'password_confirmation_failed' });
     }
 
-    // Stop recurring Paddle billing before deleting the account. A local account
-    // deletion must never leave an active external subscription renewing silently.
-    const billingStateResult = await pool.query(
+    client = await pool.connect();
+    // Serialize checkout creation against account deletion. The checkout route
+    // uses the matching transaction-scoped advisory lock.
+    await client.query('SELECT pg_advisory_lock(hashtext($1))', [checkoutLockKey]);
+    checkoutLockAcquired = true;
+
+    const billingStateResult = await client.query(
       `SELECT paddle_customer_id, paddle_subscription_id, paddle_subscription_status, premium_until, premium_lifetime
        FROM users WHERE id = $1 AND status = 'active'`,
       [req.authUser.id]
@@ -1064,6 +1070,66 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     const subscriptionId = billingState?.paddle_subscription_id;
     const customerId = billingState?.paddle_customer_id;
     const subscriptionStatus = String(billingState?.paddle_subscription_status || '').toLowerCase();
+
+    // A pending checkout must be canceled at Paddle before the account can be deleted.
+    const checkoutAttemptResult = await client.query(
+      `SELECT transaction_id, plan, status
+       FROM paddle_checkout_attempts WHERE user_id = $1`,
+      [req.authUser.id]
+    );
+    const checkoutAttempt = checkoutAttemptResult.rows[0];
+    if (checkoutAttempt && ['creating', 'reconciliation_required'].includes(checkoutAttempt.status)) {
+      return res.status(409).json({ error: 'paddle_checkout_reconciliation_required' });
+    }
+    if (checkoutAttempt?.status === 'pending') {
+      if (typeof checkoutAttempt.transaction_id !== 'string' ||
+          process.env.PADDLE_ENVIRONMENT !== 'sandbox' || !process.env.PADDLE_API_KEY) {
+        return res.status(409).json({ error: 'paddle_checkout_reconciliation_required' });
+      }
+      try {
+        const { cancelPaddleCheckoutTransaction } = await import('./paddleBilling.js');
+        const providerTransaction = await cancelPaddleCheckoutTransaction({
+          apiKey: process.env.PADDLE_API_KEY,
+          environment: process.env.PADDLE_ENVIRONMENT,
+          transactionId: checkoutAttempt.transaction_id,
+          expectedUserId: req.authUser.id,
+          expectedPlan: checkoutAttempt.plan
+        });
+        if (providerTransaction.status === 'canceled') {
+          await client.query(
+            `UPDATE paddle_checkout_attempts SET status = 'canceled', updated_at = NOW()
+             WHERE user_id = $1 AND transaction_id = $2 AND status = 'pending'`,
+            [req.authUser.id, checkoutAttempt.transaction_id]
+          );
+        } else if (['completed', 'paid', 'past_due'].includes(providerTransaction.status)) {
+          await client.query(
+            `UPDATE paddle_checkout_attempts SET status = $2, updated_at = NOW()
+             WHERE user_id = $1 AND status = 'pending'`,
+            [req.authUser.id, providerTransaction.status === 'past_due' ? 'reconciliation_required' : 'completed']
+          );
+          if (checkoutAttempt.plan !== 'lifetime' && !subscriptionId) {
+            return res.status(409).json({ error: 'paddle_checkout_processing' });
+          }
+        } else {
+          await client.query(
+            `UPDATE paddle_checkout_attempts SET status = 'reconciliation_required', updated_at = NOW()
+             WHERE user_id = $1 AND status = 'pending'`,
+            [req.authUser.id]
+          );
+          return res.status(409).json({ error: 'paddle_checkout_reconciliation_required' });
+        }
+      } catch (error) {
+        console.error('Paddle checkout cancellation before account deletion failed:', error?.message || 'unknown error');
+        return res.status(502).json({ error: 'paddle_checkout_cancellation_failed' });
+      }
+    } else if (checkoutAttempt?.status === 'completed' && checkoutAttempt.plan !== 'lifetime' && !subscriptionId) {
+      return res.status(409).json({ error: 'paddle_checkout_processing' });
+    } else if (checkoutAttempt?.status === 'linked' && checkoutAttempt.plan !== 'lifetime' && !subscriptionId) {
+      return res.status(409).json({ error: 'paddle_subscription_reconciliation_required' });
+    }
+
+    // Stop recurring Paddle billing before deleting the account. A local account
+    // deletion must never leave an active external subscription renewing silently.
     if (typeof subscriptionId === 'string' && !['canceled', 'completed'].includes(subscriptionStatus)) {
       if (typeof customerId !== 'string' || !/^ctm_[A-Za-z0-9]+$/.test(customerId)) {
         return res.status(409).json({ error: 'paddle_subscription_reconciliation_required' });
@@ -1089,7 +1155,6 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
       return res.status(409).json({ error: 'paddle_subscription_reconciliation_required' });
     }
 
-    client = await pool.connect();
     await client.query('BEGIN');
     // Exclude concurrent gift creation/acceptance while account deletion suspends
     // existing orders and closes the account in this same transaction.
@@ -1136,6 +1201,9 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     console.error('Account deletion failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'account_deletion_failed' });
   } finally {
+    if (client && checkoutLockAcquired) {
+      await client.query('SELECT pg_advisory_unlock(hashtext($1))', [checkoutLockKey]).catch(() => {});
+    }
     client?.release();
   }
 });
