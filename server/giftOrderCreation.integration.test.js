@@ -905,11 +905,11 @@ test('idempotent replay fails closed when a stored BIGINT total is not safely re
     const first = await runRequest(pool, input);
     assert.equal(first.status, 201);
     await pool.query(
-      'UPDATE gift_delivery_orders
+      `UPDATE gift_delivery_orders
        SET item_price_minor_units = 9007199254740992::bigint,
            delivery_fee_minor_units = 0,
            total_minor_units = 9007199254740992::bigint
-       WHERE public_reference = $1',
+       WHERE public_reference = $1`,
       [first.body.order.id]
     );
 
