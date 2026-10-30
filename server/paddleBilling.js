@@ -264,7 +264,7 @@ export async function createPaddleCustomerPortalSession({
     ? data.urls.subscriptions.find(item => item?.id === subscriptionId)
     : null;
   const url = trustedPaddlePortalUrl(
-    subscriptionLink?.cancel_subscription || data.urls?.general?.overview
+    subscriptionLink?.view_subscription || subscriptionLink?.cancel_subscription || data.urls?.general?.overview
   );
   if (!url) throw new Error('paddle_portal_url_invalid');
   return { url, subscriptionId: subscriptionId || null };
