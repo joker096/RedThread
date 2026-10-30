@@ -203,6 +203,7 @@ test('grants lifetime Premium only for a verified matching transaction price', a
       eventId: 'evt_lifetime',
       eventType: 'transaction.completed',
       data: {
+        id: 'txn_0123456789abcdef01234567',
         customData: { userId: '00000000-0000-4000-8000-000000000001', plan: 'lifetime' },
         items: [{ price: { id: 'pri_lifetime_test' } }]
       }
@@ -214,6 +215,10 @@ test('grants lifetime Premium only for a verified matching transaction price', a
     assert.match(update.sql, /users\.status = 'active'/, 'lifetime transactions must not revive deleted accounts');
     assert.match(update.sql, /paddle_subscription_id IS NULL OR lower\(paddle_subscription_status\) IN \('canceled', 'completed'\)/,
       'lifetime Premium must not detach an active subscription before cancellation/reconciliation');
+    const attemptUpdate = queries.find(query => query.sql.includes('UPDATE paddle_checkout_attempts'));
+    assert.ok(attemptUpdate, 'expected the completed lifetime checkout attempt to be settled');
+    assert.equal(attemptUpdate.params[0], 'txn_0123456789abcdef01234567');
+    assert.equal(attemptUpdate.params[2], 'linked');
   } finally {
     if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
     else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
