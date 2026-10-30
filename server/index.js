@@ -1129,7 +1129,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
              WHERE user_id = $1 AND transaction_id = $2 AND status = 'pending'`,
             [req.authUser.id, checkoutAttempt.transaction_id]
           );
-        } else if (['completed', 'paid', 'past_due'].includes(providerTransaction.status)) {
+        } else if (['completed', 'paid'].includes(providerTransaction.status)) {
           await client.query(
             `UPDATE paddle_checkout_attempts SET status = $2, updated_at = NOW()
              WHERE user_id = $1 AND status = 'pending'`,
