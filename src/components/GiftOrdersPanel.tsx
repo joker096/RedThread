@@ -96,6 +96,7 @@ export const GiftOrdersPanel: React.FC = () => {
       const response = await fetch('/api/gifts/orders', { credentials: 'include' });
       const payload: unknown = await response.json().catch(() => null);
       if (requestId !== loadRequestId.current) return;
+      if (response.status === 401) setOrders([]);
       if (!response.ok) {
         throw new Error(response.status === 401 ? t('giftOrdersSignInRequired') : t('giftOrdersLoadError'));
       }
@@ -155,6 +156,13 @@ export const GiftOrdersPanel: React.FC = () => {
         body: JSON.stringify({ action })
       });
       const payload: unknown = await response.json().catch(() => null);
+      if (response.status === 401) {
+        loadRequestId.current += 1;
+        setOrders([]);
+        setLoadFailed(true);
+        setNotice(t('giftOrdersSignInRequired'));
+        return;
+      }
       if (!response.ok) {
         throw new Error(response.status === 409 ? t('giftOrdersStaleRequest') : t('giftOrdersDecisionError'));
       }
@@ -176,6 +184,13 @@ export const GiftOrdersPanel: React.FC = () => {
         method: 'POST',
         credentials: 'include'
       });
+      if (response.status === 401) {
+        loadRequestId.current += 1;
+        setOrders([]);
+        setLoadFailed(true);
+        setNotice(t('giftOrdersSignInRequired'));
+        return;
+      }
       if (!response.ok) {
         throw new Error(response.status === 409 ? t('giftOrdersWithdrawUnavailable') : t('giftOrdersDecisionError'));
       }
