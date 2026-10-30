@@ -368,7 +368,12 @@ async function fetchPaddleTransaction({ apiKey, transactionId, expectedUserId, e
       data?.custom_data?.plan !== expectedPlan) {
     throw new Error('paddle_transaction_ownership_unconfirmed');
   }
-  return { id: transactionId, status: String(data.status || '').toLowerCase() };
+  return {
+    id: transactionId,
+    status: String(data.status || '').toLowerCase(),
+    origin: String(data.origin || '').toLowerCase(),
+    subscriptionId: typeof data.subscription_id === 'string' ? data.subscription_id : null
+  };
 }
 
 /** Read provider state before reusing or canceling a previously-created checkout transaction. */
@@ -399,6 +404,9 @@ export async function cancelPaddleCheckoutTransaction({
   });
   if (transaction.status === 'canceled') return transaction;
   if (!['draft', 'ready'].includes(transaction.status)) return transaction;
+  if (transaction.subscriptionId || transaction.origin.startsWith('subscription_')) {
+    return { ...transaction, status: 'subscription_transaction' };
+  }
 
   const response = await fetchImpl(
     `https://sandbox-api.paddle.com/transactions/${encodeURIComponent(transactionId)}`,
