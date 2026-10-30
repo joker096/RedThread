@@ -23,6 +23,12 @@ The server refuses checkout unless `PADDLE_ENVIRONMENT=sandbox` and the client t
 5. Use Paddle's sandbox successful test card `4242 4242 4242 4242` with any future expiry date; also test declined card `4000 0000 0000 0002`. Verify the overlay, completed transaction, webhook 2xx delivery, and database state. Do not use real card data.
 6. Exercise an upgrade with `do_not_bill`, a scheduled cancellation effective at `next_billing_period`, and an immediate cancellation. Confirm scheduled cancellation preserves access through the current period and immediate cancellation removes it.
 
+## Checkout transaction safety
+
+Only one checkout attempt is allowed per account at a time. Repeated requests for the same plan reuse the same provider transaction; selecting another plan requires the pending transaction to be canceled or reconciled first. The server verifies the transaction's Paddle ID, signed-in user metadata, and plan before reuse or cancellation. Uncertain provider/network outcomes are persisted as a reconciliation hold rather than silently creating another transaction. Paddle does not offer general idempotency keys for these transaction-creation requests, so an unresolved attempt must be checked with the provider before retrying.
+
+The user can cancel an unpaid draft/ready transaction from the panel when Paddle permits it. Paddle does not allow API cancellation of every automatically-collected subscription transaction (in particular subscription-origin and some past-due transactions); those cases fail closed and require subscription management or provider-side reconciliation. Account deletion also refuses to proceed while a payment outcome is unresolved.
+
 ## Customer portal and cancellation
 
 The active Premium panel can request a short-lived authenticated Customer Portal session through `POST /api/paddle/portal`. The server derives the Paddle customer and subscription IDs from the signed-in account; the browser cannot supply or substitute them. The sandbox API key must include Paddle's `customer_portal_session.write` permission. Portal URLs are temporary, restricted to Paddle's customer-portal host, and must not be stored or cached.
