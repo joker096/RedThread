@@ -119,7 +119,10 @@ test('subscription updates compare source timestamps and do not bypass ordering 
   assert.match(update.sql, /other\.paddle_subscription_id = \$3 AND other\.id <> users\.id/);
   assert.match(update.sql, /other\.paddle_customer_id = \$2 AND other\.id <> users\.id/);
   assert.match(update.sql, /paddle_subscription_id IS NULL OR paddle_subscription_id = \$3/);
-  assert.match(update.sql, /\$9::boolean AND lower\(paddle_subscription_status\) IN \('canceled', 'completed'\)/);
+  assert.match(update.sql, /\$9::boolean AND \(/, 'only subscription.created may attach a new subscription ID');
+  assert.match(update.sql, /NOT \$9::boolean AND paddle_subscription_id = \$3/,
+    'subscription.updated/canceled must match the already-owned subscription ID');
+  assert.match(update.sql, /lower\(paddle_subscription_status\) IN \('canceled', 'completed'\)/);
   assert.equal(update.params[8], false, 'ordinary updates must not replace an established subscription ID');
   assert.match(update.sql, /paddle_customer_id IS NULL OR paddle_customer_id = \$2/);
   assert.match(update.sql, /premium_lifetime IS NOT TRUE/, 'subscription webhooks must not overwrite lifetime Premium');
@@ -415,6 +418,8 @@ test('malformed Paddle custom user IDs are ignored instead of poisoning webhook 
 
 test('a new subscription may replace a terminal prior subscription but not an active one', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_test';
 
   async function capture(eventType, eventId) {
     const queries = [];
@@ -434,22 +439,27 @@ test('a new subscription may replace a terminal prior subscription but not an ac
         id: 'sub_' + eventId.replace(/[^A-Za-z0-9]/g, ''),
         status: 'active',
         customerId: 'ctm_existing',
-        customData: { userId: '00000000-0000-4000-8000-000000000001' },
+        customData: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month' },
         currentBillingPeriod: { endsAt: '2027-01-30T18:00:00Z' },
-        items: []
+        items: [{ price: { id: 'pri_month_test' } }]
       }
     });
     return queries.find(query => query.sql.includes('paddle_subscription_updated_at = COALESCE'));
   }
 
-  const created = await capture('subscription.created', 'evt_new_subscription');
-  assert.ok(created, 'expected the new subscription lifecycle update');
-  assert.equal(created.params[8], true, 'subscription.created may replace an already terminal subscription');
-  assert.match(created.sql, /lower\(paddle_subscription_status\) IN \('canceled', 'completed'\)/);
+  try {
+    const created = await capture('subscription.created', 'evt_new_subscription');
+    assert.ok(created, 'expected the new subscription lifecycle update');
+    assert.equal(created.params[8], true, 'subscription.created may replace an already terminal subscription');
+    assert.match(created.sql, /lower\(paddle_subscription_status\) IN \('canceled', 'completed'\)/);
 
-  const updated = await capture('subscription.updated', 'evt_updated_subscription');
-  assert.ok(updated, 'expected the ordinary subscription lifecycle update');
-  assert.equal(updated.params[8], false, 'subscription.updated must not replace an established subscription ID');
+    const updated = await capture('subscription.updated', 'evt_updated_subscription');
+    assert.ok(updated, 'expected the ordinary subscription lifecycle update');
+    assert.equal(updated.params[8], false, 'subscription.updated must not replace an established subscription ID');
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
+  }
 });
 
 
@@ -774,6 +784,46 @@ test('verified recurring transaction completion is held until its subscription w
       'completed',
       '00000000-0000-4000-8000-000000000001'
     ]);
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
+  }
+});
+
+test('subscription.created cannot grant Premium without a matching server checkout attempt', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_test';
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      const query = { sql: String(sql), params };
+      queries.push(query);
+      if (query.sql.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: 'evt_unowned_subscription' }] };
+      }
+      if (query.sql.includes('UPDATE paddle_checkout_attempts')) return { rowCount: 0, rows: [] };
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_unowned_subscription',
+      eventType: 'subscription.created',
+      occurredAt: '2026-10-30T18:00:00Z',
+      data: {
+        id: 'sub_0123456789abcdef01234567',
+        status: 'active',
+        customerId: 'ctm_0123456789abcdef01234567',
+        customData: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month' },
+        currentBillingPeriod: { endsAt: '2026-11-30T18:00:00Z' },
+        items: [{ price: { id: 'pri_month_test' } }]
+      }
+    });
+    assert.equal(queries.some(query => query.sql.includes('paddle_subscription_updated_at = COALESCE')), false,
+      'a subscription without a matching checkout attempt must not attach or grant Premium');
+    assert.equal(queries.some(query => query.sql.includes('UPDATE users')), false);
   } finally {
     if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
     else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
