@@ -3141,6 +3141,17 @@ app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileAction
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+    // Serialize preference writes against account deletion. If this request wins,
+    // deletion waits and purges the newly written history afterwards; if deletion
+    // wins, this lock observes the deleted status and refuses to recreate history.
+    const activeAccount = await client.query(
+      "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (activeAccount.rowCount !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
     // The upsert takes a row-level write lock. Ad-event requests hold FOR SHARE
     // on the same preference row until their transaction finishes, so a concurrent
     // revocation and event are serialized: either the event finishes before the
