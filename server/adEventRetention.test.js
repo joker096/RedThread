@@ -132,3 +132,20 @@ test('cleanup options accept documented endpoints and reject non-integer values'
   assert.throws(() => normalizeCleanupOptions({ batchSize: 1.5 }), /batchSize/);
   assert.throws(() => normalizeCleanupOptions({ batchSize: Number.NaN }), /batchSize/);
 });
+
+test('cleanup counts returned deleted IDs when the driver omits rowCount', async () => {
+  const responses = [
+    { rowCount: null, rows: [{ event_id: 'one' }, { event_id: 'two' }] },
+    { rowCount: null, rows: [{ event_id: 'three' }] }
+  ];
+  let calls = 0;
+  const fakePool = {
+    async query() {
+      return responses[calls++] ?? { rowCount: null, rows: [] };
+    }
+  };
+
+  const deleted = await cleanupExpiredAdEvents(fakePool, { retentionDays: 90, batchSize: 2 });
+  assert.equal(deleted, 3);
+  assert.equal(calls, 2);
+});
