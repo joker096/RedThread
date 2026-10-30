@@ -56,7 +56,7 @@ test('expiry worker takes creation locks in the established order and commits sa
   assert.match(discovery.sql, /expired_active_payment/);
   assert.match(discovery.sql, /payment_status IN \('not_started', 'voided', 'failed'\)/);
   assert.deepEqual(order, ['rate', 'safety-users', 'pair', 'expire']);
-  assert.deepEqual(result, { pairsScanned: 1, expiredOrders: 2, reconciliationRequired: 0 });
+  assert.deepEqual(result, { pairsScanned: 1, expiredOrders: 2, reconciliationRequired: 0, pairFailures: 0 });
   assert.ok(pool.calls.includes('COMMIT'));
   assert.ok(pool.calls.includes('RELEASE'));
 });
@@ -74,7 +74,7 @@ test('expiry worker commits reconciliation outbox work without expiring uncertai
       expiredOrders: [{ id: 'inactive-order' }]
     })
   });
-  assert.deepEqual(result, { pairsScanned: 1, expiredOrders: 1, reconciliationRequired: 1 });
+  assert.deepEqual(result, { pairsScanned: 1, expiredOrders: 1, reconciliationRequired: 1, pairFailures: 0 });
   assert.ok(pool.calls.includes('COMMIT'));
   assert.ok(!pool.calls.includes('ROLLBACK'));
 });
@@ -87,26 +87,34 @@ test('expiry worker rolls back denied work and releases its connection', async (
     acquirePairLock: async () => {},
     expirePair: async () => ({ ok: false, commit: false, expiredOrders: [] })
   });
-  assert.deepEqual(result, { pairsScanned: 1, expiredOrders: 0, reconciliationRequired: 0 });
+  assert.deepEqual(result, { pairsScanned: 1, expiredOrders: 0, reconciliationRequired: 0, pairFailures: 0 });
   assert.ok(pool.calls.includes('ROLLBACK'));
   assert.ok(pool.calls.includes('RELEASE'));
 });
 
-test('expiry worker rolls back and releases when a pair fails', async () => {
-  const pool = mockPool();
-  await assert.rejects(processExpiredGiftRequestBatch(pool, {
+test('expiry worker isolates a failed pair and continues the bounded batch', async () => {
+  const secondPair = { ...pair, matchId: 'match-2' };
+  const pool = mockPool([pair, secondPair]);
+  const processed = [];
+  const result = await processExpiredGiftRequestBatch(pool, {
     acquireRateLocks: async () => {},
     acquireSafetyLocks: async () => {},
     acquirePairLock: async () => {},
-    expirePair: async () => { throw new Error('database unavailable'); }
-  }), /database unavailable/);
+    expirePair: async (_client, candidate) => {
+      processed.push(candidate.matchId);
+      if (candidate.matchId === pair.matchId) throw new Error('database unavailable');
+      return { ok: true, expiredOrders: [{ id: 'order-2' }] };
+    }
+  });
+  assert.deepEqual(processed, ['match-1', 'match-2']);
+  assert.deepEqual(result, { pairsScanned: 2, expiredOrders: 1, reconciliationRequired: 0, pairFailures: 1 });
   assert.ok(pool.calls.includes('ROLLBACK'));
-  assert.ok(pool.calls.includes('RELEASE'));
+  assert.equal(pool.calls.filter(call => call === 'RELEASE').length, 2);
 });
 
 test('expiry worker does not open transactions when no expired pairs exist', async () => {
   const pool = mockPool([]);
   const result = await processExpiredGiftRequestBatch(pool);
-  assert.deepEqual(result, { pairsScanned: 0, expiredOrders: 0, reconciliationRequired: 0 });
+  assert.deepEqual(result, { pairsScanned: 0, expiredOrders: 0, reconciliationRequired: 0, pairFailures: 0 });
   assert.equal(pool.calls.filter(call => call === 'CONNECT').length, 0);
 });
