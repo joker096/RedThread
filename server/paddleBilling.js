@@ -94,7 +94,7 @@ export async function processPaddleEvent(pool, rawEvent) {
       ].filter(value => typeof value === 'string' && /^pri_[A-Za-z0-9]+$/.test(value)));
       const active = allowedRecurringPriceIds.has(priceId)
         && isPaddleSubscriptionEntitled(status, periodEnd);
-      await client.query(
+      const subscriptionUpdate = await client.query(
         `UPDATE users SET
           paddle_customer_id = COALESCE($2, paddle_customer_id),
           paddle_subscription_id = COALESCE($3, paddle_subscription_id),
@@ -126,6 +126,16 @@ export async function processPaddleEvent(pool, rawEvent) {
           AND premium_lifetime IS NOT TRUE`,
         [customUserId, customerId, subscriptionId, status, priceId, active, active ? periodEnd : null, occurredAt, eventType === 'subscription.created']
       );
+      const checkoutPlan = priceId === process.env.PADDLE_PRICE_ID_1MONTH ? '1month'
+        : priceId === process.env.PADDLE_PRICE_ID_3MONTHS ? '3months' : null;
+      if (active && customUserId && checkoutPlan && subscriptionUpdate.rowCount > 0) {
+        await client.query(
+          `UPDATE paddle_checkout_attempts
+           SET status = 'linked', updated_at = NOW()
+           WHERE user_id = $1 AND plan = $2 AND status IN ('pending', 'completed')`,
+          [customUserId, checkoutPlan]
+        );
+      }
     } else if (eventType === 'transaction.completed') {
       // A verified completed transaction can grant the one-time lifetime plan,
       // but only when its server-configured Paddle price matches the expected price.
@@ -178,6 +188,13 @@ export async function processPaddleEvent(pool, rawEvent) {
             AND ($2::text IS NULL OR paddle_customer_id IS NULL OR paddle_customer_id = $2)
             AND ($3::text IS NULL OR paddle_subscription_id IS NULL OR paddle_subscription_id = $3)`,
           [customUserId, customerId, subscriptionId]
+        );
+      }
+      if (typeof data.id === 'string') {
+        await client.query(
+          `UPDATE paddle_checkout_attempts SET status = 'completed', updated_at = NOW()
+           WHERE transaction_id = $1 AND status = 'pending'`,
+          [data.id]
         );
       }
     } else if (eventType === 'customer.created' || eventType === 'customer.updated') {
