@@ -847,6 +847,79 @@ test('concurrent acceptances from different pairs cannot exceed recipient weekly
 });
 
 
+test('idempotent replay of an accepted order survives opting out of future requests', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 20_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
+  let fixture;
+  try {
+    fixture = await seedFixture(pool);
+    const { ids } = fixture;
+    const input = {
+      senderId: ids.sender,
+      matchId: ids.matchA,
+      catalogItemId: ids.catalogItem,
+      idempotencyKey: 'accepted-optout-replay-' + randomUUID()
+    };
+    const first = await runRequest(pool, input);
+    assert.equal(first.status, 201);
+
+    await pool.query(
+      `UPDATE gift_delivery_orders
+       SET status = 'recipient_accepted', recipient_consent_at = NOW()
+       WHERE public_reference = $1`,
+      [first.body.order.id]
+    );
+    await pool.query(
+      'UPDATE gift_receiving_preferences SET requests_enabled = FALSE WHERE user_id = $1',
+      [ids.recipientA]
+    );
+
+    const replay = await runRequest(pool, input);
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.replayed, true);
+    assert.equal(replay.body.order.status, 'recipient_accepted',
+      'future opt-out must not hide or undo a previously accepted order');
+  } finally {
+    if (fixture) await cleanupFixture(pool, fixture);
+    await pool.end();
+  }
+});
+
+test('idempotent replay fails closed when a stored BIGINT total is not safely representable', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 20_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
+  let fixture;
+  try {
+    fixture = await seedFixture(pool);
+    const { ids } = fixture;
+    const input = {
+      senderId: ids.sender,
+      matchId: ids.matchA,
+      catalogItemId: ids.catalogItem,
+      idempotencyKey: 'unsafe-total-replay-' + randomUUID()
+    };
+    const first = await runRequest(pool, input);
+    assert.equal(first.status, 201);
+    await pool.query(
+      'UPDATE gift_delivery_orders SET total_minor_units = 9007199254740992::bigint WHERE public_reference = $1',
+      [first.body.order.id]
+    );
+
+    const replay = await runRequest(pool, input);
+    assert.equal(replay.status, 409);
+    assert.deepEqual(replay.body, { error: 'gift_request_unavailable' });
+    assert.equal(Object.hasOwn(replay.body, 'order'), false,
+      'unsafe persisted amounts must never be rounded into an idempotent response');
+  } finally {
+    if (fixture) await cleanupFixture(pool, fixture);
+    await pool.end();
+  }
+});
+
 test('idempotent gift replay is denied after a mutual block is added', {
   skip: !process.env.DATABASE_URL,
   timeout: 20_000
