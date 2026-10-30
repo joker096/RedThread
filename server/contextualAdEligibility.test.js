@@ -11,6 +11,7 @@ import {
 const campaign = {
   id: 'cafe_autumn_01',
   creativeVersion: 'creative-v3',
+  creativeContext: 'general',
   category: 'cafe',
   status: 'approved',
   active: true,
@@ -160,6 +161,48 @@ test('user-requested gift discovery does not require a match or date', () => {
     campaign: { ...campaign, category: 'gift' }, viewer: { ...viewer, safetyRestricted: undefined },
     surface: 'user_requested_gift_discovery'
   }).reason, 'safety_state_unavailable_or_restricted');
+});
+
+test('bridal creatives require explicit classification, opted-in adult women, and the full relationship threshold', () => {
+  const bridalCampaign = { ...campaign, category: 'fashion', creativeContext: 'bridal' };
+  const eligibleViewer = {
+    ...viewer, selfDescribedGender: 'woman', age: 28,
+    weddingOffersConsent: true, marriagePlanningOptIn: true
+  };
+  const eligibleMatch = {
+    ...confirmedMatch,
+    createdAt: '2026-09-01T00:00:00Z',
+    activeDays: 3,
+    viewerMessageCount: 20,
+    partnerMessageCount: 20,
+    partnerAdsConsent: true
+  };
+  const evaluateBridal = (campaignChanges = {}, viewerChanges = {}, matchChanges = {}, surface = 'relationship_offers') =>
+    evaluateContextualAdEligibility({
+      campaign: { ...bridalCampaign, ...campaignChanges },
+      viewer: { ...eligibleViewer, ...viewerChanges },
+      match: { ...eligibleMatch, ...matchChanges },
+      surface
+    });
+
+  assert.deepEqual(evaluateBridal(), { eligible: true, reason: 'bridal_relationship' });
+  assert.equal(evaluateBridal({ creativeContext: undefined }).reason, 'creative_context_unclassified');
+  assert.equal(evaluateBridal({ creativeContext: 'general' }, { categoryConsents: { fashion: true } }).reason, 'category_opt_in');
+  assert.equal(evaluateBridal({}, { selfDescribedGender: 'man' }).reason, 'bridal_audience_not_eligible');
+  assert.equal(evaluateBridal({}, { age: 17 }).reason, 'bridal_audience_not_eligible');
+  assert.equal(evaluateBridal({}, { age: undefined }).reason, 'bridal_audience_not_eligible');
+  assert.equal(evaluateBridal({}, { weddingOffersConsent: false }).reason, 'bridal_consent_required');
+  assert.equal(evaluateBridal({}, { marriagePlanningOptIn: false }).reason, 'bridal_consent_required');
+  assert.equal(evaluateBridal({}, {}, { createdAt: 'invalid' }).reason, 'bridal_match_age_unavailable');
+  assert.equal(evaluateBridal({}, {}, { createdAt: '2026-10-01T00:00:00Z' }).reason, 'bridal_match_too_new');
+  assert.equal(evaluateBridal({}, {}, { activeDays: 2 }).reason, 'bridal_activity_insufficient');
+  assert.equal(evaluateBridal({}, {}, { viewerMessageCount: 19 }).reason, 'bridal_conversation_insufficient');
+  assert.equal(evaluateBridal({}, {}, { partnerMessageCount: 19 }).reason, 'bridal_conversation_insufficient');
+  assert.equal(evaluateBridal({}, {}, { partnerAdsConsent: false }).reason, 'both_participants_consent_required');
+  assert.equal(evaluateBridal({}, {}, { blocked: true }).reason, 'safety_state_unavailable_or_restricted');
+  assert.equal(evaluateBridal({}, {}, { partnerSafetyRestricted: true }).reason, 'partner_safety_state_unavailable_or_restricted');
+  assert.equal(evaluateBridal({}, {}, {}, 'offers').reason, 'bridal_surface_required');
+  assert.equal(evaluateBridal({ category: 'travel' }).reason, 'bridal_category_not_supported');
 });
 
 test('approved opt-in categories require their own consent and entry points, not a match', () => {
