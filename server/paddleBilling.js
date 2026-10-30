@@ -270,7 +270,7 @@ export async function processPaddleEvent(pool, rawEvent) {
       if (typeof data.id === 'string') {
         await client.query(
           `UPDATE paddle_checkout_attempts SET status = 'canceled', updated_at = NOW()
-           WHERE transaction_id = $1 AND status IN ('pending', 'completed', 'reconciliation_required')`,
+           WHERE transaction_id = $1 AND status IN ('pending', 'reconciliation_required')`,
           [data.id]
         );
       }
