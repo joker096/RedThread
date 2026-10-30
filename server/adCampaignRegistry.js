@@ -54,13 +54,15 @@ export function evaluateAdCampaignEligibility(campaign, { now = Date.now() } = {
   if (campaign.active !== true) return deny('campaign_not_active');
   if (campaign.advertiserVerified !== true) return deny('advertiser_not_verified');
   if (campaign.creativeApproved !== true || typeof campaign.creativeVersion !== 'string' || !campaign.creativeVersion.trim()) return deny('creative_not_approved');
+  if (campaign.creativeContext === undefined || campaign.creativeContext === null || campaign.creativeContext === '') return deny('creative_context_unclassified');
+  if (campaign.creativeContext !== 'general' && campaign.creativeContext !== 'bridal') return deny('creative_context_invalid');
   if (typeof campaign.category !== 'string' || !ALLOWED_CATEGORIES.has(campaign.category)) return deny('campaign_category_not_allowed');
   const startsAt = isValidTimestamp(campaign.startsAt) ? Date.parse(campaign.startsAt) : NaN;
   const endsAt = isValidTimestamp(campaign.endsAt) ? Date.parse(campaign.endsAt) : NaN;
   if (!Number.isFinite(startsAt) || !Number.isFinite(endsAt) || endsAt <= startsAt) return deny('campaign_window_invalid');
   if (startsAt > now) return deny('campaign_not_started');
   if (endsAt <= now) return deny('campaign_expired');
-  return { eligible: true, reason: 'approved_campaign_active', campaignId: campaign.id, category: campaign.category, creativeVersion: campaign.creativeVersion };
+  return { eligible: true, reason: 'approved_campaign_active', campaignId: campaign.id, category: campaign.category, creativeVersion: campaign.creativeVersion, creativeContext: campaign.creativeContext };
 }
 
 function isValidTimestamp(value) {
