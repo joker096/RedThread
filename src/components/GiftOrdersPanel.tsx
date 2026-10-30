@@ -86,6 +86,7 @@ export const GiftOrdersPanel: React.FC = () => {
   const [busyReference, setBusyReference] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
   const loadRequestId = useRef(0);
+  const sessionEpoch = useRef(0);
   const panelRef = useRef<HTMLElement | null>(null);
 
   const load = useCallback(async () => {
@@ -96,7 +97,11 @@ export const GiftOrdersPanel: React.FC = () => {
       const response = await fetch('/api/gifts/orders', { credentials: 'include' });
       const payload: unknown = await response.json().catch(() => null);
       if (requestId !== loadRequestId.current) return;
-      if (response.status === 401) setOrders([]);
+      if (response.status === 401) {
+        sessionEpoch.current += 1;
+        setBusyReference(null);
+        setOrders([]);
+      }
       if (!response.ok) {
         throw new Error(response.status === 401 ? t('giftOrdersSignInRequired') : t('giftOrdersLoadError'));
       }
@@ -127,6 +132,7 @@ export const GiftOrdersPanel: React.FC = () => {
     void load();
     const refresh = () => { void load(); };
     const sessionChanged = () => {
+      sessionEpoch.current += 1;
       loadRequestId.current += 1;
       setOrders([]);
       setNotice('');
@@ -141,11 +147,13 @@ export const GiftOrdersPanel: React.FC = () => {
       window.removeEventListener('focus', refresh);
       window.removeEventListener('vow:gift-orders-changed', refresh);
       window.removeEventListener('vow:session-changed', sessionChanged);
+      sessionEpoch.current += 1;
       loadRequestId.current += 1;
     };
   }, [load]);
 
   const submitDecision = async (order: GiftOrder, action: 'accept' | 'decline') => {
+    const actionEpoch = sessionEpoch.current;
     setBusyReference(order.publicReference);
     setNotice('');
     try {
@@ -155,8 +163,11 @@ export const GiftOrdersPanel: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action })
       });
+      if (actionEpoch !== sessionEpoch.current) return;
       const payload: unknown = await response.json().catch(() => null);
+      if (actionEpoch !== sessionEpoch.current) return;
       if (response.status === 401) {
+        sessionEpoch.current += 1;
         loadRequestId.current += 1;
         setOrders([]);
         setLoadFailed(true);
@@ -169,14 +180,17 @@ export const GiftOrdersPanel: React.FC = () => {
       setNotice(action === 'accept' ? t('giftOrdersAcceptedNoDelivery') : t('giftOrdersDeclined'));
       await load();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('giftOrdersDecisionError'));
+      if (actionEpoch === sessionEpoch.current) {
+        setNotice(error instanceof Error ? error.message : t('giftOrdersDecisionError'));
+      }
     } finally {
-      setBusyReference(null);
+      if (actionEpoch === sessionEpoch.current) setBusyReference(null);
     }
   };
 
   const withdrawConsent = async (order: GiftOrder) => {
     if (!window.confirm(t('giftOrdersWithdrawConfirm'))) return;
+    const actionEpoch = sessionEpoch.current;
     setBusyReference(order.publicReference);
     setNotice('');
     try {
@@ -184,7 +198,9 @@ export const GiftOrdersPanel: React.FC = () => {
         method: 'POST',
         credentials: 'include'
       });
+      if (actionEpoch !== sessionEpoch.current) return;
       if (response.status === 401) {
+        sessionEpoch.current += 1;
         loadRequestId.current += 1;
         setOrders([]);
         setLoadFailed(true);
@@ -197,9 +213,11 @@ export const GiftOrdersPanel: React.FC = () => {
       setNotice(t('giftOrdersConsentWithdrawn'));
       await load();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('giftOrdersDecisionError'));
+      if (actionEpoch === sessionEpoch.current) {
+        setNotice(error instanceof Error ? error.message : t('giftOrdersDecisionError'));
+      }
     } finally {
-      setBusyReference(null);
+      if (actionEpoch === sessionEpoch.current) setBusyReference(null);
     }
   };
 
