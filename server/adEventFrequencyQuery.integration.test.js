@@ -255,3 +255,45 @@ test('PostgreSQL ad frequency query returns zero counts for a user with no event
     await client.end();
   }
 });
+
+test('PostgreSQL ad frequency query includes the exact 24-hour boundary and excludes older rows', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  await client.connect();
+
+  try {
+    await client.query('BEGIN');
+    await client.query(`
+      CREATE TEMP TABLE ad_events (
+        event_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id text NOT NULL,
+        campaign_id text NOT NULL,
+        event_type text NOT NULL,
+        created_at timestamptz NOT NULL
+      ) ON COMMIT PRESERVE ROWS
+    `);
+
+    const userId = 'frequency-window-boundary-user';
+    const campaignId = 'frequency-window-boundary-campaign';
+    await client.query(
+      `INSERT INTO ad_events (user_id, campaign_id, event_type, created_at)
+       VALUES ($1, $2, 'impression', NOW() - INTERVAL '24 hours'),
+              ($1, $2, 'impression', NOW() - INTERVAL '24 hours 1 second'),
+              ($1, $2, 'click', NOW()),
+              ($1, $2, 'click', NOW() + INTERVAL '1 second')`,
+      [userId, campaignId]
+    );
+
+    const result = await client.query(AD_EVENT_FREQUENCY_COUNTS_SQL, [userId, campaignId]);
+    assert.equal(result.rows[0].impressions, 1, 'event exactly 24 hours old remains in the window');
+    assert.equal(result.rows[0].clicks, 1, 'event exactly at NOW remains in the window');
+    await client.query('ROLLBACK');
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    await client.end();
+  }
+});
