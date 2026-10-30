@@ -125,8 +125,10 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
       const result = await response.json() as { transactionId?: string; environment?: string; error?: string };
       if (!response.ok || !result.transactionId || result.environment !== 'sandbox') {
         if (response.status === 409 && result.error === 'premium_already_active') {
-          setPremiumActive(true);
-          setNotice('Premium уже активен для этого аккаунта. Повторная оплата отключена.');
+          if (mountedRef.current) {
+            setPremiumActive(true);
+            setNotice('Premium уже активен для этого аккаунта. Повторная оплата отключена.');
+          }
           return;
         }
         throw new Error(result.error || 'paddle_checkout_unavailable');
