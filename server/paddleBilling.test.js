@@ -722,3 +722,26 @@ test('only a verified new subscription event links a completed recurring checkou
     else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
   }
 });
+
+
+test('transaction.canceled webhook clears a pending checkout attempt', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) return { rowCount: 1, rows: [{ event_id: 'evt_transaction_canceled' }] };
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  const result = await processPaddleEvent({ async connect() { return client; } }, {
+    eventId: 'evt_transaction_canceled',
+    eventType: 'transaction.canceled',
+    data: { id: 'txn_0123456789abcdef01234567' }
+  });
+  assert.equal(result.handled, true);
+  const attemptUpdate = queries.find(query => query.sql.includes('UPDATE paddle_checkout_attempts'));
+  assert.ok(attemptUpdate, 'expected the canceled transaction to release the pending checkout lock');
+  assert.equal(attemptUpdate.params[0], 'txn_0123456789abcdef01234567');
+});
