@@ -14,6 +14,25 @@ test('gift delivery city keys compare canonically across Unicode, case, and whit
   assert.equal(normalizeGiftCityKey('   '), '');
 });
 
+test('gift delivery city SQL matching normalizes Unicode and whitespace', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 10_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+  try {
+    const result = await pool.query(
+      `SELECT
+         LOWER(REGEXP_REPLACE(BTRIM(normalize($1, NFC)), '[[:space:]]+', ' ', 'g')) =
+         LOWER(REGEXP_REPLACE(BTRIM(normalize($2, NFC)), '[[:space:]]+', ' ', 'g')) AS matches`,
+      ['  Café   Tbilisi  ', 'Cafe\\u0301 Tbilisi']
+    );
+    assert.equal(result.rows[0].matches, true,
+      'database coverage lookup must match canonically equivalent city names');
+  } finally {
+    await pool.end();
+  }
+});
+
 test('gift order totals project PostgreSQL BIGINT values as exact safe JavaScript numbers', {
   skip: !process.env.DATABASE_URL,
   timeout: 10_000
