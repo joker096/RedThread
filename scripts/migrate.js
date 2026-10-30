@@ -3,6 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { acquireMigrationLock } from './migration-lock.js';
 
 const { Pool } = pg;
 const databaseUrl = process.env.DATABASE_URL;
@@ -24,7 +25,10 @@ const migrationsDir = path.join(currentDir, '..', 'server', 'migrations');
 
 async function runMigrations() {
   const client = await pool.connect();
+  let releaseMigrationLock;
+  let releaseError;
   try {
+    releaseMigrationLock = await acquireMigrationLock(client);
     await client.query(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
         name TEXT PRIMARY KEY,
@@ -59,7 +63,14 @@ async function runMigrations() {
       }
     }
   } finally {
-    client.release();
+    if (releaseMigrationLock) {
+      try {
+        await releaseMigrationLock();
+      } catch (error) {
+        releaseError = error;
+      }
+    }
+    client.release(releaseError);
     await pool.end();
   }
 }
