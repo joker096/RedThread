@@ -26,7 +26,7 @@ test('migration advisory lock is session-scoped and serializes concurrent migrat
       error => ({ error })
     );
 
-    const lockQuery = '%pg_advisory_lock($1, $2)%';
+    const lockQuery = '%pg_try_advisory_lock($1, $2)%';
     const deadline = Date.now() + 5_000;
     let waiting = false;
     while (Date.now() < deadline && !waiting) {
@@ -72,6 +72,7 @@ test('migration lock release is idempotent', async () => {
   const client = {
     async query(sql, params) {
       calls.push({ sql, params });
+      if (sql.includes('pg_try_advisory_lock')) return { rows: [{ acquired: true }] };
       return { rows: [{ unlocked: true }] };
     }
   };
@@ -82,4 +83,21 @@ test('migration lock release is idempotent', async () => {
   assert.match(calls[0].sql, /pg_advisory_lock/);
   assert.match(calls[1].sql, /pg_advisory_unlock/);
   assert.deepEqual(calls[0].params, [MIGRATION_ADVISORY_LOCK_CLASS, MIGRATION_ADVISORY_LOCK_ID]);
+});
+
+test('migration lock acquisition can be cancelled before acquiring a lock', async () => {
+  let calls = 0;
+  const client = {
+    async query() {
+      calls += 1;
+      return { rows: [{ acquired: false }] };
+    }
+  };
+
+  const release = await acquireMigrationLock(client, {
+    shouldAbort: () => true
+  });
+
+  assert.equal(release, null);
+  assert.equal(calls, 0);
 });
