@@ -26,11 +26,11 @@ test('migration advisory lock is session-scoped and serializes concurrent migrat
       error => ({ error })
     );
 
-    const lockQuery = `%pg_advisory_lock(${MIGRATION_ADVISORY_LOCK_CLASS}, ${MIGRATION_ADVISORY_LOCK_ID})%`;
+    const lockQuery = '%pg_advisory_lock($1, $2)%';
     const deadline = Date.now() + 5_000;
     let waiting = false;
     while (Date.now() < deadline && !waiting) {
-      const result = await pool.query(
+      const result = await first.query(
         `SELECT 1
          FROM pg_stat_activity
          WHERE pid <> pg_backend_pid()
