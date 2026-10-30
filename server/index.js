@@ -493,12 +493,13 @@ async function requireSession(req, res, next) {
 
   try {
     const result = await pool.query(
-      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.female_trial_ends_at, u.premium_until, u.premium_lifetime, u.paddle_customer_id, u.paddle_subscription_id, u.paddle_subscription_status, u.phone_verified_at,
+      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.female_trial_ends_at, u.premium_until, u.premium_lifetime, u.paddle_customer_id, u.paddle_subscription_id, u.paddle_subscription_status, pca.status AS paddle_checkout_status, pca.plan AS paddle_checkout_plan, u.phone_verified_at,
               p.display_name, p.gender, p.country, p.city, p.relationship_intent, s.id AS session_id
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        JOIN profiles p ON p.user_id = u.id
-       WHERE s.token_hash = $1 AND s.expires_at > NOW()
+        LEFT JOIN paddle_checkout_attempts pca ON pca.user_id = u.id
+        WHERE s.token_hash = $1 AND s.expires_at > NOW()
        LIMIT 1`,
       [hashSessionToken(token)]
     );
@@ -1122,6 +1123,8 @@ app.get('/api/billing/status', requireSession, async (req, res) => {
     billingManageable: Boolean(req.authUser.paddle_customer_id),
     billingNeedsAttention: Boolean(req.authUser.paddle_subscription_id &&
       !['canceled', 'completed'].includes(String(req.authUser.paddle_subscription_status || '').toLowerCase())),
+    pendingCheckoutStatus: req.authUser.paddle_checkout_status || null,
+    pendingCheckoutPlan: req.authUser.paddle_checkout_plan || null,
     paymentConfigured, availablePlans, note
   });
 });
