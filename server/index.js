@@ -105,8 +105,8 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
   }
   if (req.authUser.gender !== 'female') return res.status(403).json({ error: 'premium_checkout_not_available' });
 
-  const { isPremiumEntitlementActive } = await import('./paddleBilling.js');
-  if (isPremiumEntitlementActive(req.authUser)) {
+  const { isPremiumCheckoutBlocked } = await import('./paddleBilling.js');
+  if (isPremiumCheckoutBlocked(req.authUser)) {
     return res.status(409).json({ error: 'premium_already_active' });
   }
 
@@ -334,7 +334,7 @@ async function requireSession(req, res, next) {
 
   try {
     const result = await pool.query(
-      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.female_trial_ends_at, u.premium_until, u.premium_lifetime, u.phone_verified_at,
+      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.female_trial_ends_at, u.premium_until, u.premium_lifetime, u.paddle_customer_id, u.paddle_subscription_id, u.paddle_subscription_status, u.phone_verified_at,
               p.display_name, p.gender, p.country, p.city, p.relationship_intent, s.id AS session_id
        FROM sessions s
        JOIN users u ON u.id = s.user_id
@@ -959,7 +959,11 @@ app.get('/api/billing/status', requireSession, async (req, res) => {
     premiumUntil: req.authUser.premium_lifetime ? null : premiumUntil?.toISOString() || null,
     premiumLifetime: Boolean(req.authUser.premium_lifetime),
     access: req.authUser.gender !== 'female' || isTrialActive || hasPremium ? 'full' : 'premium_required',
-    trialActive: Boolean(isTrialActive), premiumActive: hasPremium, paymentConfigured, availablePlans, note
+    trialActive: Boolean(isTrialActive), premiumActive: hasPremium,
+    billingManageable: Boolean(req.authUser.paddle_customer_id),
+    billingNeedsAttention: Boolean(req.authUser.paddle_subscription_id &&
+      !['canceled', 'completed'].includes(String(req.authUser.paddle_subscription_status || '').toLowerCase())),
+    paymentConfigured, availablePlans, note
   });
 });
 app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req, res) => {
