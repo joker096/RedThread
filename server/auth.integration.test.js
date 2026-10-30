@@ -2149,11 +2149,17 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(deletedAccountConsentUpdate.status, 401,
       'a deleted account must not recreate consent history after the deletion transaction');
-    const deletedAccountConsentHistory = await deletionSafetyDb.query(
-      'SELECT COUNT(*)::int AS count FROM ad_consent_history WHERE user_id = $1',
-      [registered.user.id]
-    );
-    assert.equal(deletedAccountConsentHistory.rows[0].count, 0);
+    const postDeletionConsentPool = new Pool({ connectionString: process.env.DATABASE_URL });
+    try {
+      const deletedAccountConsentHistory = await postDeletionConsentPool.query(
+        'SELECT COUNT(*)::int AS count FROM ad_consent_history WHERE user_id = $1',
+        [registered.user.id]
+      );
+      assert.equal(deletedAccountConsentHistory.rows[0].count, 0,
+        'a deleted session must not recreate consent history after account deletion');
+    } finally {
+      await postDeletionConsentPool.end();
+    }
 
     const deletedAccountMatches = await request('/api/matches', { headers: { Cookie: secondCookie } });
     assert.equal(deletedAccountMatches.status, 401,
