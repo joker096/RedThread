@@ -146,11 +146,12 @@ test('filterBinaryCandidates strictly ensures women see men and men see women', 
   const forFemaleUser = filterBinaryCandidates(sampleProfiles, 'female');
   assert.equal(forFemaleUser.some(p => p.id === 'woman_1'), false, 'Female user must NOT see female candidates');
   assert.equal(forFemaleUser.some(p => p.id === 'man_1'), true, 'Female user must see male candidates');
-  assert.equal(forFemaleUser.some(p => p.isSponsorAd), true, 'Sponsor ad should be visible');
+  assert.equal(forFemaleUser.some(p => p.isSponsorAd), false, 'Sponsored placements must never enter discovery');
 
   const forMaleUser = filterBinaryCandidates(sampleProfiles, 'male');
   assert.equal(forMaleUser.some(p => p.id === 'man_1'), false, 'Male user must NOT see male candidates');
   assert.equal(forMaleUser.some(p => p.id === 'woman_1'), true, 'Male user must see female candidates');
+  assert.equal(forMaleUser.some(p => p.isSponsorAd), false, 'Sponsored placements must never enter discovery for men either');
 });
 
 
