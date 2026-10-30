@@ -305,3 +305,82 @@ export async function cancelPaddleSubscription({
   }
   return { subscriptionId, status: 'canceled' };
 }
+
+
+function isValidPaddleTransactionId(value) {
+  return typeof value === 'string' && /^txn_[A-Za-z0-9]+$/.test(value);
+}
+
+async function fetchPaddleTransaction({ apiKey, transactionId, expectedUserId, expectedPlan, fetchImpl }) {
+  if (typeof apiKey !== 'string' || !apiKey || !isValidPaddleTransactionId(transactionId) ||
+      typeof expectedUserId !== 'string' || !expectedUserId ||
+      !['1month', '3months', 'lifetime'].includes(expectedPlan) || typeof fetchImpl !== 'function') {
+    throw new Error('paddle_transaction_lookup_not_configured');
+  }
+  const response = await fetchImpl(
+    `https://sandbox-api.paddle.com/transactions/${encodeURIComponent(transactionId)}`,
+    {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Paddle-Version': '1' },
+      signal: AbortSignal.timeout(10_000)
+    }
+  );
+  const payload = await response.json().catch(() => null);
+  const data = payload?.data;
+  if (!response.ok || data?.id !== transactionId ||
+      data?.custom_data?.userId !== expectedUserId ||
+      data?.custom_data?.plan !== expectedPlan) {
+    throw new Error('paddle_transaction_ownership_unconfirmed');
+  }
+  return { id: transactionId, status: String(data.status || '').toLowerCase() };
+}
+
+/** Read provider state before reusing or canceling a previously-created checkout transaction. */
+export async function getPaddleCheckoutTransaction({
+  apiKey,
+  environment = 'sandbox',
+  transactionId,
+  expectedUserId,
+  expectedPlan,
+  fetchImpl = globalThis.fetch
+} = {}) {
+  if (environment !== 'sandbox') throw new Error('paddle_transaction_lookup_not_configured');
+  return fetchPaddleTransaction({ apiKey, transactionId, expectedUserId, expectedPlan, fetchImpl });
+}
+
+/** Cancel only an unpaid draft/ready transaction that is proven to belong to this user and plan. */
+export async function cancelPaddleCheckoutTransaction({
+  apiKey,
+  environment = 'sandbox',
+  transactionId,
+  expectedUserId,
+  expectedPlan,
+  fetchImpl = globalThis.fetch
+} = {}) {
+  if (environment !== 'sandbox') throw new Error('paddle_transaction_cancel_not_configured');
+  const transaction = await fetchPaddleTransaction({
+    apiKey, transactionId, expectedUserId, expectedPlan, fetchImpl
+  });
+  if (transaction.status === 'canceled') return transaction;
+  if (!['draft', 'ready'].includes(transaction.status)) return transaction;
+
+  const response = await fetchImpl(
+    `https://sandbox-api.paddle.com/transactions/${encodeURIComponent(transactionId)}`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'Paddle-Version': '1'
+      },
+      body: JSON.stringify({ status: 'canceled' }),
+      signal: AbortSignal.timeout(10_000)
+    }
+  );
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || payload?.data?.id !== transactionId ||
+      String(payload?.data?.status || '').toLowerCase() !== 'canceled') {
+    throw new Error('paddle_transaction_cancel_unconfirmed');
+  }
+  return { id: transactionId, status: 'canceled' };
+}
