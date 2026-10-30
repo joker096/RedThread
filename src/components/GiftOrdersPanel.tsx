@@ -51,9 +51,11 @@ export function normalizeGiftOrders(value: unknown): GiftOrder[] {
       || typeof order.productCategory !== 'string'
       || typeof order.status !== 'string'
       || (order.myRole !== 'recipient' && order.myRole !== 'sender')
-      || typeof order.totalMinorUnits !== 'number'
-      || typeof order.currency !== 'string'
+      || !Number.isSafeInteger(order.totalMinorUnits) || order.totalMinorUnits <= 0
+      || typeof order.currency !== 'string' || !/^[A-Z]{3}$/.test(order.currency)
       || typeof order.createdAt !== 'string') return [];
+    const createdAt = normalizeOptionalDate(order.createdAt);
+    if (!createdAt) return [];
     // Explicitly project the API response into the small display allowlist.
     // Accidental future fields (especially address/contact data) are discarded.
     const estimatedDeliveryStart = normalizeOptionalDate(order.estimatedDeliveryStart);
@@ -70,7 +72,7 @@ export function normalizeGiftOrders(value: unknown): GiftOrder[] {
       totalMinorUnits: order.totalMinorUnits,
       currency: order.currency,
       status: order.status.slice(0, 64),
-      createdAt: order.createdAt,
+      createdAt,
       estimatedDeliveryStart,
       estimatedDeliveryEnd,
       myRole: order.myRole
