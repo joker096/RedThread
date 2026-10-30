@@ -40,9 +40,11 @@ async function runMigrations() {
 
   try {
     client = await pool.connect();
-    releaseMigrationLock = await acquireMigrationLock(client);
+    releaseMigrationLock = await acquireMigrationLock(client, {
+      shouldAbort: () => Boolean(shutdownSignal)
+    });
 
-    if (!shutdownSignal) {
+    if (releaseMigrationLock && !shutdownSignal) {
       await client.query(`
         CREATE TABLE IF NOT EXISTS schema_migrations (
           name TEXT PRIMARY KEY,
