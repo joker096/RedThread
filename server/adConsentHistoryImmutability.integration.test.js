@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
+import { randomUUID } from 'node:crypto';
 
 const { Pool } = pg;
 
@@ -56,6 +57,58 @@ test('PostgreSQL consent history rejects direct updates and deletes', {
       await client.query('ROLLBACK').catch(() => {});
       throw error;
     }
+  } finally {
+    client.release();
+    await pool.end();
+  }
+});
+
+
+test('PostgreSQL consent history can be purged only after the account is marked deleted', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 10_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const client = await pool.connect();
+  const userId = randomUUID();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      'INSERT INTO users (id, email) VALUES ($1, $2)',
+      [userId, `consent-purge-${userId}@example.invalid`]
+    );
+    await client.query(
+      `INSERT INTO ad_consent_history (user_id, consent_version, preferences)
+       VALUES ($1, 1, $2::jsonb)`,
+      [userId, JSON.stringify({
+        adsConsent: false,
+        dateOffersConsent: false,
+        weddingOffersConsent: false,
+        marriagePlanningOptIn: false,
+        categoryConsents: {}
+      })]
+    );
+
+    await client.query('SAVEPOINT active_account_history_delete');
+    let activeDeleteError;
+    try {
+      await client.query('DELETE FROM ad_consent_history WHERE user_id = $1', [userId]);
+    } catch (error) {
+      activeDeleteError = error;
+    }
+    assert.equal(activeDeleteError?.code, '55000', 'active-account consent history must remain immutable');
+    await client.query('ROLLBACK TO SAVEPOINT active_account_history_delete');
+    await client.query('RELEASE SAVEPOINT active_account_history_delete');
+
+    await client.query("UPDATE users SET status = 'deleted' WHERE id = $1", [userId]);
+    const purged = await client.query('DELETE FROM ad_consent_history WHERE user_id = $1', [userId]);
+    assert.equal(purged.rowCount, 1, 'deleted-account consent history must be purged');
+    const remaining = await client.query('SELECT 1 FROM ad_consent_history WHERE user_id = $1', [userId]);
+    assert.equal(remaining.rowCount, 0);
+    await client.query('ROLLBACK');
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
   } finally {
     client.release();
     await pool.end();
