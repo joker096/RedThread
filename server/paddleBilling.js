@@ -267,10 +267,12 @@ export async function cancelPaddleSubscription({
   apiKey,
   environment = 'sandbox',
   subscriptionId,
+  customerId,
   fetchImpl = globalThis.fetch
 } = {}) {
   if (environment !== 'sandbox' || typeof apiKey !== 'string' || !apiKey ||
-      !isValidPaddleSubscriptionId(subscriptionId) || typeof fetchImpl !== 'function') {
+      !isValidPaddleSubscriptionId(subscriptionId) || !isValidPaddleCustomerId(customerId) ||
+      typeof fetchImpl !== 'function') {
     throw new Error('paddle_cancellation_not_configured');
   }
 
@@ -287,7 +289,7 @@ export async function cancelPaddleSubscription({
     }
   );
   const payload = await response.json().catch(() => null);
-  if (!response.ok || payload?.data?.id !== subscriptionId ||
+  if (!response.ok || payload?.data?.id !== subscriptionId || payload?.data?.customer_id !== customerId ||
       String(payload?.data?.status || '').toLowerCase() !== 'canceled') {
     throw new Error('paddle_subscription_cancel_unconfirmed');
   }
