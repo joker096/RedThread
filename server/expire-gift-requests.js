@@ -120,7 +120,10 @@ async function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch(error => {
-    console.error('Gift request expiry failed:', error.message);
+    // Database/client errors can contain SQL details or sensitive values.
+    // Keep the top-level process log to a stable, non-sensitive error code.
+    const safeErrorCode = typeof error?.code === 'string' ? error.code : 'unexpected_error';
+    console.error('Gift request expiry failed:', safeErrorCode);
     process.exitCode = 1;
   });
 }
