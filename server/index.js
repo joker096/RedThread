@@ -1230,7 +1230,12 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     return res.status(500).json({ error: 'account_deletion_failed' });
   } finally {
     if (client && checkoutLockAcquired) {
-      await client.query('SELECT pg_advisory_unlock(hashtext($1))', [checkoutLockKey]).catch(() => {});
+      try {
+        await client.query('SELECT pg_advisory_unlock(hashtext($1))', [checkoutLockKey]);
+      } catch {
+        client.release(new Error('advisory_lock_release_failed'));
+        client = null;
+      }
     }
     client?.release();
   }
