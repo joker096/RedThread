@@ -40,9 +40,14 @@ test('campaign registry creative-context classification is constrained by the da
   const migration = readFileSync(new URL('./migrations/047_ad_campaign_creative_context.sql', import.meta.url), 'utf8');
   assert.match(migration, /ADD COLUMN IF NOT EXISTS creative_context TEXT/);
   assert.match(migration, /creative_context IS NOT NULL AND creative_context IN \('general', 'bridal'\)/);
-  assert.match(migration, /NEW\.creative_approved := FALSE/);
-  assert.match(migration, /NEW\.status := 'pending'/);
   assert.match(migration, /NULL legacy rows are not eligible for serving/);
+  const reapprovalMigration = readFileSync(new URL('./migrations/048_ad_campaign_creative_reapproval.sql', import.meta.url), 'utf8');
+  assert.match(reapprovalMigration, /NEW\.creative_version IS DISTINCT FROM OLD\.creative_version/);
+  assert.match(reapprovalMigration, /NEW\.category IS DISTINCT FROM OLD\.category/);
+  assert.match(reapprovalMigration, /NEW\.creative_context IS DISTINCT FROM OLD\.creative_context/);
+  assert.match(reapprovalMigration, /BEFORE UPDATE OF creative_context, creative_version, category/);
+  assert.match(reapprovalMigration, /NEW\.creative_approved := FALSE/);
+  assert.match(reapprovalMigration, /NEW\.status := 'pending'/);
 });
 
 test('campaign registry denies unknown campaign ids', () => {
