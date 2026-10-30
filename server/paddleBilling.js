@@ -154,7 +154,9 @@ export async function processPaddleEvent(pool, rawEvent) {
       // entitlement: bind the provider transaction to this account's durable,
       // server-created checkout attempt first. Also accept a webhook that races
       // the checkout HTTP response while the attempt is still in "creating".
-      const attemptClaim = customUserId && data.id
+      const transactionPlanMatches =
+        (customData.plan === 'lifetime' && includesLifetimePrice) || includesRecurringPrice;
+      const attemptClaim = transactionPlanMatches && customUserId && data.id
         ? await client.query(
           `UPDATE paddle_checkout_attempts
            SET transaction_id = $1, status = 'completed', updated_at = NOW()
