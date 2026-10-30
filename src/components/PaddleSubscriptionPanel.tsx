@@ -244,7 +244,7 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
   };
 
   return (
-    <section aria-busy={loading || Boolean(busyPlan) || portalBusy} className="rounded-xl border border-rose-500/20 bg-rose-950/20 p-3">
+    <section aria-busy={loading || Boolean(busyPlan) || portalBusy || pendingCancelBusy} className="rounded-xl border border-rose-500/20 bg-rose-950/20 p-3">
       <div className="flex items-start justify-between gap-2">
         <div>
           <h4 className="text-sm font-semibold text-white">Vow Premium</h4>
