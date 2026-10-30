@@ -1041,9 +1041,9 @@ test('auth API supports registration, session lookup, logout and login', {
       await adRegistryDb.query(
         `INSERT INTO ad_campaigns
            (id, advertiser_id, advertiser_verified, status, category, creative_version,
-            creative_approved, allowed_country_codes, starts_at, ends_at)
+            creative_approved, creative_context, allowed_country_codes, starts_at, ends_at)
          VALUES ('consent-gate-test', $1, TRUE, 'approved', 'travel', 'test-v1',
-                 TRUE, ARRAY['GE'], NOW() - INTERVAL '1 hour', NOW() + INTERVAL '1 day')
+                 TRUE, 'general', ARRAY['GE'], NOW() - INTERVAL '1 hour', NOW() + INTERVAL '1 day')
          ON CONFLICT (id) DO UPDATE SET
            advertiser_id = EXCLUDED.advertiser_id,
            advertiser_verified = TRUE,
@@ -1051,10 +1051,16 @@ test('auth API supports registration, session lookup, logout and login', {
            category = 'travel',
            creative_version = 'test-v1',
            creative_approved = TRUE,
+           creative_context = EXCLUDED.creative_context,
            allowed_country_codes = ARRAY['GE'],
            starts_at = NOW() - INTERVAL '1 hour',
            ends_at = NOW() + INTERVAL '1 day'`,
         [registered.user.id]
+      );
+      // Reclassification intentionally invalidates prior creative approval;
+      // the fixture then models a separate moderator approval action.
+      await adRegistryDb.query(
+        "UPDATE ad_campaigns SET status = 'approved', creative_approved = TRUE WHERE id = 'consent-gate-test'"
       );
     } finally {
       await adRegistryDb.end();
