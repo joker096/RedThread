@@ -29,6 +29,28 @@ services:
         condition: service_healthy
     networks: [private]
 
+  ad-event-retention:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
+      PGSSL: "false"
+      AD_EVENT_CLEANUP_BATCH_SIZE: ${AD_EVENT_CLEANUP_BATCH_SIZE:-1000}
+    command:
+      - sh
+      - -c
+      - |
+        while :; do
+          node scripts/cleanup-ad-events.js || echo "Ad-event cleanup failed; retrying on the next daily cycle."
+          sleep 86400
+        done
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [private]
+
   api:
     build:
       context: .
