@@ -150,8 +150,9 @@ export async function processPaddleEvent(pool, rawEvent) {
       const includesRecurringPrice = Boolean(expectedRecurringPriceId) && transactionItems.some(item =>
         (item?.priceId || item?.price_id || item?.price?.id) === expectedRecurringPriceId
       );
+      let lifetimeUpdate = null;
       if (customData.plan === 'lifetime' && includesLifetimePrice && customUserId) {
-        const lifetimeUpdate = await client.query(
+        lifetimeUpdate = await client.query(
           `UPDATE users SET
             paddle_customer_id = COALESCE($2, paddle_customer_id),
             paddle_subscription_id = NULL,
