@@ -391,6 +391,7 @@ test('Paddle customer portal sessions return only a trusted authenticated portal
     apiKey: 'sandbox_api_key',
     customerId: 'ctm_0123456789abcdef01234567',
     subscriptionId: 'sub_0123456789abcdef01234567',
+    customerId: 'ctm_0123456789abcdef01234567',
     fetchImpl: async (url, options) => {
       request = { url, options };
       return {
@@ -465,7 +466,7 @@ test('Paddle subscription cancellation requires a confirmed immediate cancellati
       return {
         ok: true,
         async json() {
-          return { data: { id: 'sub_0123456789abcdef01234567', status: 'canceled' } };
+          return { data: { id: 'sub_0123456789abcdef01234567', customer_id: 'ctm_0123456789abcdef01234567', status: 'canceled' } };
         }
       };
     }
@@ -479,9 +480,10 @@ test('Paddle subscription cancellation requires a confirmed immediate cancellati
     cancelPaddleSubscription({
       apiKey: 'sandbox_api_key',
       subscriptionId: 'sub_0123456789abcdef01234567',
+      customerId: 'ctm_0123456789abcdef01234567',
       fetchImpl: async () => ({
         ok: true,
-        async json() { return { data: { id: 'sub_0123456789abcdef01234567', status: 'active' } }; }
+        async json() { return { data: { id: 'sub_0123456789abcdef01234567', customer_id: 'ctm_0123456789abcdef01234567', status: 'active' } }; }
       })
     }),
     { message: 'paddle_subscription_cancel_unconfirmed' }
@@ -506,6 +508,7 @@ test('Paddle portal and cancellation helpers reject live environment and malform
       apiKey: 'api_key',
       environment: 'production',
       subscriptionId: 'sub_0123456789abcdef01234567',
+      customerId: 'ctm_0123456789abcdef01234567',
       fetchImpl
     }),
     { message: 'paddle_cancellation_not_configured' }
@@ -514,6 +517,7 @@ test('Paddle portal and cancellation helpers reject live environment and malform
     cancelPaddleSubscription({
       apiKey: 'api_key',
       subscriptionId: 'not-a-subscription',
+      customerId: 'ctm_0123456789abcdef01234567',
       fetchImpl
     }),
     { message: 'paddle_cancellation_not_configured' }
