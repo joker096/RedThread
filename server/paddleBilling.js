@@ -141,8 +141,13 @@ export async function processPaddleEvent(pool, rawEvent) {
             WHERE other.paddle_customer_id = $2 AND other.id <> users.id
           ))
           -- Do not silently replace this account's established Paddle identities.
-          AND ($3::text IS NULL OR paddle_subscription_id IS NULL OR paddle_subscription_id = $3
-            OR ($9::boolean AND lower(paddle_subscription_status) IN ('canceled', 'completed')))
+          AND (
+            ($9::boolean AND (
+              paddle_subscription_id IS NULL OR paddle_subscription_id = $3
+              OR lower(paddle_subscription_status) IN ('canceled', 'completed')
+            ))
+            OR (NOT $9::boolean AND paddle_subscription_id = $3)
+          )
           AND ($2::text IS NULL OR paddle_customer_id IS NULL OR paddle_customer_id = $2)
           -- A new subscription may replace only a terminal prior subscription, never an active one.
           -- The source timestamp guard above prevents a delayed old lifecycle event from winning.
