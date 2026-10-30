@@ -82,3 +82,19 @@ test('gift order list accepts only ISO timezone offsets within ±14:00', () => {
   assert.equal(orders[1].estimatedDeliveryStart, '2026-11-10T12:00:00-14:00');
   assert.equal(orders[1].estimatedDeliveryEnd, null);
 });
+
+
+test('gift order list rejects unsafe amounts, invalid currencies, and malformed creation timestamps', () => {
+  const invalidOrders = [
+    { ...validOrder, totalMinorUnits: Number.MAX_SAFE_INTEGER + 1 },
+    { ...validOrder, totalMinorUnits: Number.POSITIVE_INFINITY },
+    { ...validOrder, totalMinorUnits: 0 },
+    { ...validOrder, totalMinorUnits: -1 },
+    { ...validOrder, currency: 'usd' },
+    { ...validOrder, currency: 'USDT' },
+    { ...validOrder, currency: 'US' },
+    { ...validOrder, createdAt: 'not-a-date' },
+    { ...validOrder, createdAt: '2026-02-31T12:00:00.000Z' }
+  ];
+  assert.deepEqual(normalizeGiftOrders({ orders: invalidOrders }), []);
+});
