@@ -25,7 +25,7 @@ test('PostgreSQL consent history rejects direct updates and deletes', {
     await client.query('BEGIN');
     try {
       await client.query(`
-        CREATE TEMP TABLE consent_history_immutability_test (id integer PRIMARY KEY, value text)
+        CREATE TEMP TABLE consent_history_immutability_test (id integer PRIMARY KEY, value text, user_id uuid)
       `);
       await client.query(`
         CREATE TRIGGER consent_history_immutability_test_trigger
