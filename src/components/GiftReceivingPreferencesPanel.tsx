@@ -51,7 +51,21 @@ export const GiftReceivingPreferencesPanel: React.FC = () => {
 
   useEffect(() => {
     void load();
-    return () => { requestEpoch.current += 1; };
+    const refreshOnSession = () => {
+      // Preferences belong to the authenticated recipient, not this mounted panel.
+      requestEpoch.current += 1;
+      confirmedPreferences.current = { ...defaults };
+      setPreferences({ ...defaults });
+      setSaving(false);
+      setLoadFailed(false);
+      setNotice('');
+      void load();
+    };
+    window.addEventListener('vow:session-changed', refreshOnSession);
+    return () => {
+      window.removeEventListener('vow:session-changed', refreshOnSession);
+      requestEpoch.current += 1;
+    };
   }, [load]);
 
   const save = async (next: Preferences) => {
