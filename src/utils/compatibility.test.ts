@@ -140,7 +140,8 @@ test('filterBinaryCandidates strictly ensures women see men and men see women', 
     { ...mockTargetProfile, id: 'man_1', gender: 'male' },
     { ...mockTargetProfile, id: 'man_2', gender: 'male' },
     { ...mockTargetProfile, id: 'woman_1', gender: 'female' },
-    { ...mockTargetProfile, id: 'ad_1', isSponsorAd: true, gender: 'male' }
+    { ...mockTargetProfile, id: 'ad_1', isSponsorAd: true, gender: 'male' },
+    { ...mockTargetProfile, id: 'ad_2', isSponsorAd: 'true' as unknown as boolean, gender: 'male' }
   ];
 
   const forFemaleUser = filterBinaryCandidates(sampleProfiles, 'female');
