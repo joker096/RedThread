@@ -150,9 +150,26 @@ export async function processPaddleEvent(pool, rawEvent) {
       const includesRecurringPrice = Boolean(expectedRecurringPriceId) && transactionItems.some(item =>
         (item?.priceId || item?.price_id || item?.price?.id) === expectedRecurringPriceId
       );
-      let lifetimeUpdate = null;
-      if (customData.plan === 'lifetime' && includesLifetimePrice && customUserId) {
-        lifetimeUpdate = await client.query(
+      // A valid Paddle signature and matching price are not enough to grant an
+      // entitlement: bind the provider transaction to this account's durable,
+      // server-created checkout attempt first. Also accept a webhook that races
+      // the checkout HTTP response while the attempt is still in "creating".
+      const attemptClaim = customUserId && data.id
+        ? await client.query(
+          `UPDATE paddle_checkout_attempts
+           SET transaction_id = $1, status = 'completed', updated_at = NOW()
+           WHERE user_id = $2 AND plan = $3
+             AND status IN ('creating', 'pending', 'completed', 'reconciliation_required')
+             AND (transaction_id IS NULL OR transaction_id = $1)
+           RETURNING user_id`,
+          [data.id, customUserId, customData.plan]
+        )
+        : { rowCount: 0, rows: [] };
+      const ownsCheckoutAttempt = attemptClaim.rowCount === 1;
+
+      let entitlementLinked = false;
+      if (ownsCheckoutAttempt && customData.plan === 'lifetime' && includesLifetimePrice) {
+        const lifetimeUpdate = await client.query(
           `UPDATE users SET
             paddle_customer_id = COALESCE($2, paddle_customer_id),
             paddle_subscription_id = NULL,
@@ -173,7 +190,8 @@ export async function processPaddleEvent(pool, rawEvent) {
             AND ($2::text IS NULL OR paddle_customer_id IS NULL OR paddle_customer_id = $2)`,
           [customUserId, customerId, lifetimePriceId]
         );
-      } else if (customUserId && includesRecurringPrice) {
+        entitlementLinked = lifetimeUpdate.rowCount > 0;
+      } else if (ownsCheckoutAttempt && includesRecurringPrice) {
         // Recurring subscriptions are provisioned only by verified subscription
         // lifecycle events, never by the checkout redirect or transaction alone.
         await client.query(
@@ -181,8 +199,7 @@ export async function processPaddleEvent(pool, rawEvent) {
             paddle_customer_id = COALESCE($2, paddle_customer_id),
             paddle_subscription_id = COALESCE($3, paddle_subscription_id),
             updated_at = NOW()
-          WHERE id = COALESCE($1::uuid, (SELECT id FROM users WHERE paddle_subscription_id = $3 LIMIT 1))
-            AND users.status = 'active'
+          WHERE id = $1::uuid AND users.status = 'active'
             AND ($3::text IS NULL OR NOT EXISTS (
               SELECT 1 FROM users AS other
               WHERE other.paddle_subscription_id = $3 AND other.id <> users.id
@@ -197,15 +214,16 @@ export async function processPaddleEvent(pool, rawEvent) {
           [customUserId, customerId, subscriptionId]
         );
       }
-      if (typeof data.id === 'string' && customUserId &&
-          ((customData.plan === 'lifetime' && includesLifetimePrice) || includesRecurringPrice)) {
+
+      if (ownsCheckoutAttempt) {
         const nextCheckoutStatus = customData.plan === 'lifetime'
-          ? (lifetimeUpdate?.rowCount > 0 ? 'linked' : 'reconciliation_required')
-          : 'completed';
+          ? (entitlementLinked ? 'linked' : 'reconciliation_required')
+          : (includesRecurringPrice ? 'completed' : 'reconciliation_required');
         await client.query(
-          `UPDATE paddle_checkout_attempts SET status = $3, updated_at = NOW()
-           WHERE transaction_id = $1 AND user_id = $2 AND status = 'pending'`,
-          [data.id, customUserId, nextCheckoutStatus]
+          `UPDATE paddle_checkout_attempts SET status = $2, updated_at = NOW()
+           WHERE transaction_id = $1 AND user_id = $3
+             AND status = 'completed'`,
+          [data.id, nextCheckoutStatus, customUserId]
         );
       }
     } else if (eventType === 'transaction.canceled') {
