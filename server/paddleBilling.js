@@ -195,3 +195,98 @@ export async function processPaddleEvent(pool, rawEvent) {
     client.release();
   }
 }
+
+
+function isValidPaddleCustomerId(value) {
+  return typeof value === 'string' && /^ctm_[A-Za-z0-9]+$/.test(value);
+}
+
+function isValidPaddleSubscriptionId(value) {
+  return typeof value === 'string' && /^sub_[A-Za-z0-9]+$/.test(value);
+}
+
+function trustedPaddlePortalUrl(value) {
+  if (typeof value !== 'string') return null;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'https:' || parsed.hostname !== 'customer-portal.paddle.com') return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+/** Create a short-lived, authenticated Paddle Customer Portal link for the signed-in account. */
+export async function createPaddleCustomerPortalSession({
+  apiKey,
+  environment = 'sandbox',
+  customerId,
+  subscriptionId = null,
+  fetchImpl = globalThis.fetch
+} = {}) {
+  if (environment !== 'sandbox' || typeof apiKey !== 'string' || !apiKey ||
+      !isValidPaddleCustomerId(customerId) ||
+      (subscriptionId !== null && !isValidPaddleSubscriptionId(subscriptionId)) ||
+      typeof fetchImpl !== 'function') {
+    throw new Error('paddle_portal_not_configured');
+  }
+
+  const response = await fetchImpl(
+    `https://sandbox-api.paddle.com/customers/${encodeURIComponent(customerId)}/portal-sessions`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'Paddle-Version': '1'
+      },
+      body: JSON.stringify(subscriptionId ? { subscription_ids: [subscriptionId] } : {})
+    }
+  );
+  const payload = await response.json().catch(() => null);
+  const data = payload?.data;
+  if (!response.ok || data?.customer_id !== customerId) {
+    throw new Error('paddle_portal_session_failed');
+  }
+
+  const subscriptionLink = Array.isArray(data.urls?.subscriptions)
+    ? data.urls.subscriptions.find(item => item?.id === subscriptionId)
+    : null;
+  const url = trustedPaddlePortalUrl(
+    subscriptionLink?.cancel_subscription || data.urls?.general?.overview
+  );
+  if (!url) throw new Error('paddle_portal_url_invalid');
+  return { url, subscriptionId: subscriptionId || null };
+}
+
+/** Immediately stop renewal before account deletion; never report success without Paddle confirmation. */
+export async function cancelPaddleSubscription({
+  apiKey,
+  environment = 'sandbox',
+  subscriptionId,
+  fetchImpl = globalThis.fetch
+} = {}) {
+  if (environment !== 'sandbox' || typeof apiKey !== 'string' || !apiKey ||
+      !isValidPaddleSubscriptionId(subscriptionId) || typeof fetchImpl !== 'function') {
+    throw new Error('paddle_cancellation_not_configured');
+  }
+
+  const response = await fetchImpl(
+    `https://sandbox-api.paddle.com/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'Paddle-Version': '1'
+      },
+      body: JSON.stringify({ effective_from: 'immediately' })
+    }
+  );
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || payload?.data?.id !== subscriptionId ||
+      String(payload?.data?.status || '').toLowerCase() !== 'canceled') {
+    throw new Error('paddle_subscription_cancel_unconfirmed');
+  }
+  return { subscriptionId, status: 'canceled' };
+}
