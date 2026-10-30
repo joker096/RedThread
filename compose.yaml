@@ -47,8 +47,8 @@ services:
           sleep 86400
         done
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks: [private]
 
   api:
