@@ -84,3 +84,20 @@ test('PostgreSQL retention cleanup deletes only events strictly older than the r
     await client.end();
   }
 });
+
+test('cleanup uses deterministic oldest-first ordering and checks for another batch after a full batch', async () => {
+  const calls = [];
+  const fakePool = {
+    async query(sql, params) {
+      assert.match(sql, /ORDER BY created_at, event_id/);
+      assert.match(sql, /LIMIT \$2/);
+      assert.deepEqual(params, [90, 2]);
+      calls.push(sql);
+      return { rowCount: calls.length <= 2 ? 2 : 0 };
+    }
+  };
+
+  const deleted = await cleanupExpiredAdEvents(fakePool, { retentionDays: 90, batchSize: 2 });
+  assert.equal(deleted, 4);
+  assert.equal(calls.length, 3, 'a full final batch is followed by an empty query to prove cleanup is complete');
+});
