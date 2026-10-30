@@ -2,9 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
-import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, acquireGiftSafetyUserLocks, recipientGiftAcceptanceLimitReached, notifyGiftRequestUpdate } from './giftOrderCreationService.js';
+import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, acquireGiftSafetyUserLocks, recipientGiftAcceptanceLimitReached, notifyGiftRequestUpdate, normalizeGiftCityKey } from './giftOrderCreationService.js';
 
 const { Pool } = pg;
+
+test('gift delivery city keys compare canonically across Unicode, case, and whitespace', () => {
+  assert.equal(normalizeGiftCityKey('  Café   Tbilisi  '), 'café tbilisi');
+  assert.equal(normalizeGiftCityKey('Cafe\u0301 Tbilisi'), 'café tbilisi');
+  assert.equal(normalizeGiftCityKey('  STRASSE   '), 'strasse');
+  assert.equal(normalizeGiftCityKey(null), null);
+  assert.equal(normalizeGiftCityKey('   '), '');
+});
 
 test('gift order totals project PostgreSQL BIGINT values as exact safe JavaScript numbers', {
   skip: !process.env.DATABASE_URL,
