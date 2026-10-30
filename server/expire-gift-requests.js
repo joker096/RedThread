@@ -80,7 +80,8 @@ export async function processExpiredGiftRequestBatch(pool, {
       summary.pairFailures += 1;
       // Isolate a broken pair: a transient database/application error must not
       // abort the remaining bounded batch and starve unrelated expired requests.
-      console.error('Gift request expiry pair failed:', error.message);
+      const safeErrorCode = typeof error?.code === 'string' ? error.code : 'unexpected_error';
+      console.error('Gift request expiry pair failed:', safeErrorCode);
     } finally {
       client.release();
     }
@@ -102,6 +103,9 @@ async function main() {
   try {
     const summary = await processExpiredGiftRequestBatch(pool, { batchSize });
     console.log('Gift request expiry batch completed:', JSON.stringify(summary));
+    if (summary.pairFailures > 0) {
+      throw new Error(`gift request expiry batch had ${summary.pairFailures} pair failure(s)`);
+    }
   } finally {
     await pool.end();
   }
