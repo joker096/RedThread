@@ -2797,7 +2797,7 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
     // Resolve every new event against the server-owned approval registry.
     const campaignResult = await client.query(
       `SELECT id, status, advertiser_verified, creative_version, creative_approved,
-              category, allowed_country_codes, starts_at, ends_at
+              creative_context, category, allowed_country_codes, starts_at, ends_at
        FROM ad_campaigns
        WHERE id = $1
        FOR SHARE`,
@@ -2810,6 +2810,7 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
       advertiserVerified: row.advertiser_verified,
       creativeVersion: row.creative_version,
       creativeApproved: row.creative_approved,
+      creativeContext: row.creative_context,
       category: row.category,
       startsAt: row.starts_at instanceof Date ? row.starts_at.toISOString() : row.starts_at,
       endsAt: row.ends_at instanceof Date ? row.ends_at.toISOString() : row.ends_at
