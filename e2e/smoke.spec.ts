@@ -1,5 +1,14 @@
 import { expect, test } from '@playwright/test';
 
+test('browser test environment has a live API connected to PostgreSQL', async ({ request }) => {
+  const response = await request.get('http://127.0.0.1:3001/api/ready');
+  expect(response.ok()).toBe(true);
+  await expect(response.json()).resolves.toMatchObject({
+    status: 'ready',
+    database: 'connected'
+  });
+});
+
 const lightThemeToggle = /switch to light theme|включить светлую тему/i;
 const darkThemeToggle = /switch to dark theme|включить тёмную тему|включить темную тему/i;
 const showDemoChats = /show demo conversations|показать демо-переписки/i;
