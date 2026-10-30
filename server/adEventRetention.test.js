@@ -101,3 +101,34 @@ test('cleanup uses deterministic oldest-first ordering and checks for another ba
   assert.equal(deleted, 4);
   assert.equal(calls.length, 3, 'a full final batch is followed by an empty query to prove cleanup is complete');
 });
+
+test('cleanup stops immediately and propagates a failed batch query', async () => {
+  const failure = new Error('database unavailable');
+  let calls = 0;
+  const fakePool = {
+    async query() {
+      calls += 1;
+      throw failure;
+    }
+  };
+
+  await assert.rejects(
+    cleanupExpiredAdEvents(fakePool, { retentionDays: 90, batchSize: 2 }),
+    error => error === failure
+  );
+  assert.equal(calls, 1, 'a failed batch must not be retried or counted as successful');
+});
+
+test('cleanup options accept documented endpoints and reject non-integer values', () => {
+  assert.deepEqual(normalizeCleanupOptions({ retentionDays: 1, batchSize: 1 }), {
+    retentionDays: 1,
+    batchSize: 1
+  });
+  assert.deepEqual(normalizeCleanupOptions({ retentionDays: 365, batchSize: 5000 }), {
+    retentionDays: 365,
+    batchSize: 5000
+  });
+  assert.throws(() => normalizeCleanupOptions({ retentionDays: 1.5 }), /retentionDays/);
+  assert.throws(() => normalizeCleanupOptions({ batchSize: 1.5 }), /batchSize/);
+  assert.throws(() => normalizeCleanupOptions({ batchSize: Number.NaN }), /batchSize/);
+});
