@@ -208,6 +208,14 @@ export async function processPaddleEvent(pool, rawEvent) {
           [data.id, customUserId, nextCheckoutStatus]
         );
       }
+    } else if (eventType === 'transaction.canceled') {
+      if (typeof data.id === 'string') {
+        await client.query(
+          `UPDATE paddle_checkout_attempts SET status = 'canceled', updated_at = NOW()
+           WHERE transaction_id = $1 AND status IN ('pending', 'completed', 'reconciliation_required')`,
+          [data.id]
+        );
+      }
     } else if (eventType === 'customer.created' || eventType === 'customer.updated') {
       const customerEmail = data.email;
       if (customUserId && customerId && typeof customerEmail === 'string') {
@@ -225,7 +233,7 @@ export async function processPaddleEvent(pool, rawEvent) {
     }
 
     await client.query('COMMIT');
-    return { duplicate: false, handled: ['subscription.created', 'subscription.updated', 'subscription.canceled', 'transaction.completed', 'customer.created', 'customer.updated'].includes(eventType) };
+    return { duplicate: false, handled: ['subscription.created', 'subscription.updated', 'subscription.canceled', 'transaction.completed', 'transaction.canceled', 'customer.created', 'customer.updated'].includes(eventType) };
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     throw error;
