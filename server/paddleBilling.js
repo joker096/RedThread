@@ -128,7 +128,7 @@ export async function processPaddleEvent(pool, rawEvent) {
       );
       const checkoutPlan = priceId === process.env.PADDLE_PRICE_ID_1MONTH ? '1month'
         : priceId === process.env.PADDLE_PRICE_ID_3MONTHS ? '3months' : null;
-      if (active && customUserId && checkoutPlan && subscriptionUpdate.rowCount > 0) {
+      if (customUserId && checkoutPlan && subscriptionUpdate.rowCount > 0) {
         await client.query(
           `UPDATE paddle_checkout_attempts
            SET status = 'linked', updated_at = NOW()
@@ -143,6 +143,12 @@ export async function processPaddleEvent(pool, rawEvent) {
       const lifetimePriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
       const includesLifetimePrice = Boolean(lifetimePriceId) && transactionItems.some(item =>
         (item?.priceId || item?.price_id || item?.price?.id) === lifetimePriceId
+      );
+      const expectedRecurringPriceId = customData.plan === '1month'
+        ? process.env.PADDLE_PRICE_ID_1MONTH
+        : customData.plan === '3months' ? process.env.PADDLE_PRICE_ID_3MONTHS : null;
+      const includesRecurringPrice = Boolean(expectedRecurringPriceId) && transactionItems.some(item =>
+        (item?.priceId || item?.price_id || item?.price?.id) === expectedRecurringPriceId
       );
       if (customData.plan === 'lifetime' && includesLifetimePrice && customUserId) {
         await client.query(
@@ -166,7 +172,7 @@ export async function processPaddleEvent(pool, rawEvent) {
             AND ($2::text IS NULL OR paddle_customer_id IS NULL OR paddle_customer_id = $2)`,
           [customUserId, customerId, lifetimePriceId]
         );
-      } else {
+      } else if (customUserId && includesRecurringPrice) {
         // Recurring subscriptions are provisioned only by verified subscription
         // lifecycle events, never by the checkout redirect or transaction alone.
         await client.query(
@@ -190,11 +196,12 @@ export async function processPaddleEvent(pool, rawEvent) {
           [customUserId, customerId, subscriptionId]
         );
       }
-      if (typeof data.id === 'string') {
+      if (typeof data.id === 'string' && customUserId &&
+          ((customData.plan === 'lifetime' && includesLifetimePrice) || includesRecurringPrice)) {
         await client.query(
           `UPDATE paddle_checkout_attempts SET status = 'completed', updated_at = NOW()
-           WHERE transaction_id = $1 AND status = 'pending'`,
-          [data.id]
+           WHERE transaction_id = $1 AND user_id = $2 AND status = 'pending'`,
+          [data.id, customUserId]
         );
       }
     } else if (eventType === 'customer.created' || eventType === 'customer.updated') {
