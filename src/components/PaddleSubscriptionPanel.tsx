@@ -49,6 +49,8 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
   const [loading, setLoading] = useState(true);
   const [busyPlan, setBusyPlan] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
+  const [premiumActive, setPremiumActive] = useState(false);
+  const [premiumLifetime, setPremiumLifetime] = useState(false);
   const paddleRef = useRef<PaddleRuntime | null>(null);
   const mountedRef = useRef(true);
 
@@ -57,9 +59,20 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
     let cancelled = false;
     const load = async () => {
       try {
-        const response = await fetch('/api/paddle/config', { credentials: 'include' });
-        const next = await response.json() as PaddleConfig;
-        if (!response.ok || !next.configured || next.environment !== 'sandbox' || !next.clientToken?.startsWith('test_')) {
+        const [response, statusResponse] = await Promise.all([
+          fetch('/api/paddle/config', { credentials: 'include' }),
+          fetch('/api/billing/status', { credentials: 'include' })
+        ]);
+        const [next, status] = await Promise.all([
+          response.json() as Promise<PaddleConfig>,
+          statusResponse.json() as Promise<{ premiumActive?: boolean; premiumLifetime?: boolean }>
+        ]);
+        if (!response.ok || !statusResponse.ok) throw new Error('paddle_status_unavailable');
+        if (!cancelled) {
+          setPremiumActive(status.premiumActive === true);
+          setPremiumLifetime(status.premiumLifetime === true);
+        }
+        if (!next.configured || next.environment !== 'sandbox' || !next.clientToken?.startsWith('test_')) {
           if (!cancelled) setConfig({ configured: false, environment: 'sandbox', plans: [] });
           return;
         }
@@ -111,6 +124,11 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
       });
       const result = await response.json() as { transactionId?: string; environment?: string; error?: string };
       if (!response.ok || !result.transactionId || result.environment !== 'sandbox') {
+        if (response.status === 409 && result.error === 'premium_already_active') {
+          setPremiumActive(true);
+          setNotice('Premium уже активен для этого аккаунта. Повторная оплата отключена.');
+          return;
+        }
         throw new Error(result.error || 'paddle_checkout_unavailable');
       }
       paddleRef.current.Checkout.open({
@@ -138,7 +156,9 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
         </div>
         <span className="shrink-0 rounded-full border border-amber-400/30 px-2 py-1 text-[10px] font-semibold text-amber-200">SANDBOX</span>
       </div>
-      {loading ? <p className="mt-3 text-xs text-stone-400">Подключаем тестовый checkout…</p> : !config?.configured ? (
+      {loading ? <p className="mt-3 text-xs text-stone-400">Подключаем тестовый checkout…</p> : premiumActive ? (
+        <p className="mt-3 text-xs leading-relaxed text-emerald-300">{premiumLifetime ? 'Пожизненный Premium уже активен.' : 'Premium уже активен. Повторная покупка отключена.'}</p>
+      ) : !config?.configured ? (
         <p className="mt-3 text-xs leading-relaxed text-stone-400">Paddle Sandbox пока не настроен. Добавьте test client token и Price ID тарифов в серверное окружение.</p>
       ) : (
         <div className="mt-3 grid gap-2">
@@ -148,7 +168,7 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
                 <p className="text-xs font-semibold text-white">{PLAN_LABELS[plan.id].title}</p>
                 <p className="mt-1 text-[10px] text-stone-400">{prices[plan.id] || 'Цена будет показана в Paddle Checkout'}</p>
               </div>
-              <button type="button" onClick={() => void startCheckout(plan)} disabled={Boolean(busyPlan)} className="min-h-11 shrink-0 rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
+              <button type="button" onClick={() => void startCheckout(plan)} disabled={Boolean(busyPlan) || premiumActive} className="min-h-11 shrink-0 rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
                 {busyPlan === plan.id ? 'Открываем…' : 'Тестировать'}
               </button>
             </div>
