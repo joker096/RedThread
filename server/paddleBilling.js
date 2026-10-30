@@ -251,7 +251,8 @@ export async function createPaddleCustomerPortalSession({
         'Content-Type': 'application/json',
         'Paddle-Version': '1'
       },
-      body: JSON.stringify(subscriptionId ? { subscription_ids: [subscriptionId] } : {})
+      body: JSON.stringify(subscriptionId ? { subscription_ids: [subscriptionId] } : {}),
+      signal: AbortSignal.timeout(10_000)
     }
   );
   const payload = await response.json().catch(() => null);
@@ -293,7 +294,8 @@ export async function cancelPaddleSubscription({
         'Content-Type': 'application/json',
         'Paddle-Version': '1'
       },
-      body: JSON.stringify({ effective_from: 'immediately' })
+      body: JSON.stringify({ effective_from: 'immediately' }),
+      signal: AbortSignal.timeout(10_000)
     }
   );
   const payload = await response.json().catch(() => null);
