@@ -193,7 +193,7 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
       </div>
       {loading ? <p className="mt-3 text-xs text-stone-400">Подключаем тестовый checkout…</p> : premiumActive || billingNeedsAttention ? (
         <div className="mt-3">
-          <p className="text-xs leading-relaxed text-emerald-300">
+          <p className={`text-xs leading-relaxed ${premiumActive ? "text-emerald-300" : "text-amber-200"}`}>
             {premiumActive
               ? (premiumLifetime ? 'Пожизненный Premium уже активен.' : 'Premium уже активен. Повторная покупка отключена.')
               : 'У существующей подписки есть незавершённое состояние. Повторная покупка отключена до сверки.'}
