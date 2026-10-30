@@ -1266,8 +1266,9 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
        WHERE id = $1`,
       [req.authUser.id, 'deleted+' + req.authUser.id + '@deleted.invalid']
     );
-    // Consent snapshots are immutable while an account is active. Once the
-    // account is marked deleted, migration 104 permits their explicit purge.
+    // Account deletion removes both the current consent state and its history.
+    // Migration 104 permits history purge only after the account is marked deleted.
+    await client.query('DELETE FROM ad_consent_preferences WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM ad_consent_history WHERE user_id = $1', [req.authUser.id]);
     await client.query(
       "UPDATE matches SET status = 'closed' WHERE user_a_id = $1 OR user_b_id = $1",
