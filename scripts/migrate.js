@@ -72,7 +72,7 @@ async function runMigrations() {
       }
     }
   } finally {
-    if (releaseMigrationLock) {
+    if (releaseMigrationLock && !releaseError) {
       try {
         await releaseMigrationLock();
       } catch (error) {
