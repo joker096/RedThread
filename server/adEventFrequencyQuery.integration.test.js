@@ -256,6 +256,62 @@ test('PostgreSQL ad frequency query returns zero counts for a user with no event
   }
 });
 
+test('PostgreSQL ad frequency query uses event id to order equal timestamps deterministically', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  await client.connect();
+
+  try {
+    await client.query(`
+      CREATE TEMP TABLE ad_events (
+        event_id uuid PRIMARY KEY,
+        user_id text NOT NULL,
+        campaign_id text NOT NULL,
+        event_type text NOT NULL,
+        created_at timestamptz NOT NULL
+      ) ON COMMIT PRESERVE ROWS
+    `);
+
+    const userId = 'frequency-tied-timestamp-user';
+    const campaignId = 'frequency-tied-timestamp-campaign';
+    await client.query(
+      `INSERT INTO ad_events (event_id, user_id, campaign_id, event_type, created_at)
+       VALUES
+         ('00000000-0000-4000-8000-000000000004', $1, $2, 'impression', NOW() - INTERVAL '1 hour'),
+         ('00000000-0000-4000-8000-000000000002', $1, $2, 'impression', NOW() - INTERVAL '1 hour'),
+         ('00000000-0000-4000-8000-000000000003', $1, $2, 'impression', NOW() - INTERVAL '1 hour'),
+         ('00000000-0000-4000-8000-000000000001', $1, $2, 'impression', NOW() - INTERVAL '1 hour')`,
+      [userId, campaignId]
+    );
+
+    const result = await client.query(
+      `SELECT event_id::text,
+              ROW_NUMBER() OVER (ORDER BY created_at ASC, event_id ASC) AS position
+       FROM ad_events
+       WHERE user_id = $1 AND campaign_id = $2`,
+      [userId, campaignId]
+    );
+    assert.deepEqual(
+      result.rows.map(row => [row.event_id, Number(row.position)]),
+      [
+        ['00000000-0000-4000-8000-000000000001', 1],
+        ['00000000-0000-4000-8000-000000000002', 2],
+        ['00000000-0000-4000-8000-000000000003', 3],
+        ['00000000-0000-4000-8000-000000000004', 4]
+      ]
+    );
+
+    const counts = await client.query(AD_EVENT_FREQUENCY_COUNTS_SQL, [userId, campaignId]);
+    assert.equal(counts.rows[0].impressions, 4);
+    assert.ok(counts.rows[0].impression_retry_after_seconds >= 82_790);
+    assert.ok(counts.rows[0].impression_retry_after_seconds <= 82_810);
+  } finally {
+    await client.end();
+  }
+});
+
 test('PostgreSQL ad frequency query includes the exact 24-hour boundary and excludes older rows', {
   skip: !process.env.DATABASE_URL,
   timeout: 15_000
