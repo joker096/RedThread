@@ -105,6 +105,11 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
   }
   if (req.authUser.gender !== 'female') return res.status(403).json({ error: 'premium_checkout_not_available' });
 
+  const { isPremiumEntitlementActive } = await import('./paddleBilling.js');
+  if (isPremiumEntitlementActive(req.authUser)) {
+    return res.status(409).json({ error: 'premium_already_active' });
+  }
+
   const plan = typeof req.body?.plan === 'string' ? req.body.plan : '';
   const plans = {
     '1month': process.env.PADDLE_PRICE_ID_1MONTH,
