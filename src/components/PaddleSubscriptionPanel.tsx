@@ -257,7 +257,22 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
         </div>
         <span className="shrink-0 rounded-full border border-amber-400/30 px-2 py-1 text-[10px] font-semibold text-amber-200">SANDBOX</span>
       </div>
-      {loading ? <p className="mt-3 text-xs text-stone-400">Подключаем тестовый checkout…</p> : pendingCheckoutStatus === 'pending' ? (
+      {loading ? <p className="mt-3 text-xs text-stone-400">Подключаем тестовый checkout…</p> : premiumActive || billingNeedsAttention ? (
+        <div className="mt-3">
+          <p className={`text-xs leading-relaxed ${premiumActive ? "text-emerald-300" : "text-amber-200"}`}>
+            {premiumActive
+              ? (premiumLifetime ? 'Пожизненный Premium уже активен.' : 'Premium уже активен. Повторная покупка отключена.')
+              : 'У существующей подписки есть незавершённое состояние. Повторная покупка отключена до сверки.'}
+          </p>
+          {billingManageable ? (
+            <button type="button" onClick={() => void openCustomerPortal()} disabled={portalBusy} className="mt-3 min-h-11 w-full rounded-lg border border-amber-400/30 px-3 py-2 text-xs font-semibold text-amber-100 disabled:opacity-50">
+              {portalBusy ? 'Открываем управление…' : 'Управлять подпиской и платежами'}
+            </button>
+          ) : (
+            <p className="mt-2 text-xs text-amber-200">Управление подпиской временно недоступно. Обратитесь в поддержку для сверки платежа.</p>
+          )}
+        </div>
+      ) : pendingCheckoutStatus === 'pending' ? (
         <div className="mt-3 space-y-2">
           <p className="text-xs leading-relaxed text-amber-200">
             Незавершённая оплата: {pendingCheckoutPlan ? PLAN_LABELS[pendingCheckoutPlan].title : 'тариф Premium'}.
@@ -281,21 +296,6 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
               ? 'Платёжная сессия создаётся или проверяется в другой вкладке. Подождите и обновите окно Premium.'
               : 'Состояние платёжной транзакции требует проверки. Повторная оплата заблокирована, обратитесь в поддержку.'}
         </p>
-      ) : premiumActive || billingNeedsAttention ? (
-        <div className="mt-3">
-          <p className={`text-xs leading-relaxed ${premiumActive ? "text-emerald-300" : "text-amber-200"}`}>
-            {premiumActive
-              ? (premiumLifetime ? 'Пожизненный Premium уже активен.' : 'Premium уже активен. Повторная покупка отключена.')
-              : 'У существующей подписки есть незавершённое состояние. Повторная покупка отключена до сверки.'}
-          </p>
-          {billingManageable ? (
-            <button type="button" onClick={() => void openCustomerPortal()} disabled={portalBusy} className="mt-3 min-h-11 w-full rounded-lg border border-amber-400/30 px-3 py-2 text-xs font-semibold text-amber-100 disabled:opacity-50">
-              {portalBusy ? 'Открываем управление…' : 'Управлять подпиской и платежами'}
-            </button>
-          ) : (
-            <p className="mt-2 text-xs text-amber-200">Управление подпиской временно недоступно. Обратитесь в поддержку для сверки платежа.</p>
-          )}
-        </div>
       ) : !config?.configured ? (
         <p className="mt-3 text-xs leading-relaxed text-stone-400">Paddle Sandbox пока не настроен. Добавьте test client token и Price ID тарифов в серверное окружение.</p>
       ) : (
