@@ -289,6 +289,8 @@ test('PostgreSQL ad frequency query includes the exact 24-hour boundary and excl
     const result = await client.query(AD_EVENT_FREQUENCY_COUNTS_SQL, [userId, campaignId]);
     assert.equal(result.rows[0].impressions, 1, 'event exactly 24 hours old remains in the window');
     assert.equal(result.rows[0].clicks, 1, 'event exactly at NOW remains in the window');
+    assert.equal(result.rows[0].impression_retry_after_seconds, 1,
+      'an event exactly 24 hours old has already reached its expiry boundary');
     await client.query('ROLLBACK');
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
