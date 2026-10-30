@@ -3,7 +3,7 @@ import { resolveProfileCountryCode } from './adCampaignRegistry.js';
 
 export function normalizeGiftCityKey(value) {
   if (typeof value !== 'string') return null;
-  return value.normalize('NFC').trim().replace(/\\s+/gu, ' ').toLocaleLowerCase('en-US');
+  return value.normalize('NFC').trim().replace(/\s+/gu, ' ').toLocaleLowerCase('en-US');
 }
 
 export async function acquireGiftOrderRateLocks(client, ...userIds) {
