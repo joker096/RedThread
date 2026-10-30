@@ -11,6 +11,14 @@ export function normalizePaddleEvent(event) {
 }
 
 
+export function isPremiumCheckoutBlocked(user, now = Date.now()) {
+  if (isPremiumEntitlementActive(user, now)) return true;
+  const subscriptionId = user?.paddle_subscription_id;
+  const status = String(user?.paddle_subscription_status || '').toLowerCase();
+  return typeof subscriptionId === 'string' && subscriptionId.length > 0 &&
+    !['canceled', 'completed'].includes(status);
+}
+
 export function isPremiumEntitlementActive(user, now = Date.now()) {
   if (!user || typeof user !== 'object' || !Number.isFinite(now)) return true;
   if (user.premium_lifetime === true) return true;
