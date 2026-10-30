@@ -64,7 +64,8 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
   if (viewer.accountEligible !== true || viewer.adsConsent !== true) return deny('viewer_not_consented_or_eligible');
   // Safety state must be explicitly loaded from trusted server records; unknown is not equivalent to safe.
   if (viewer.safetyRestricted !== false) return deny('safety_state_unavailable_or_restricted');
-  const userRequestedGiftDiscovery = surface === 'user_requested_gift_discovery'
+  const userRequestedGiftDiscovery = campaign.creativeContext === 'general'
+    && surface === 'user_requested_gift_discovery'
     && (category === 'flowers' || category === 'gift');
   // A user-opened gift catalog is independent of a match/date and does not
   // reveal anything about another person. Explicit navigation is the opt-in.
