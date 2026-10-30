@@ -99,7 +99,7 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
   if (process.env.PADDLE_ENVIRONMENT !== 'sandbox') {
     return res.status(503).json({ error: 'paddle_environment_must_be_explicitly_set_to_sandbox' });
   }
-  if (!process.env.PADDLE_API_KEY || !process.env.PADDLE_CLIENT_TOKEN || !process.env.PADDLE_CLIENT_TOKEN.startsWith('test_')) {
+  if (!process.env.PADDLE_API_KEY || !process.env.PADDLE_WEBHOOK_SECRET || !process.env.PADDLE_CLIENT_TOKEN || !process.env.PADDLE_CLIENT_TOKEN.startsWith('test_')) {
     return res.status(503).json({ error: 'paddle_sandbox_not_configured' });
   }
   if (req.authUser.gender !== 'female') return res.status(403).json({ error: 'premium_checkout_not_available' });
@@ -140,7 +140,10 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
 });
 
 app.get('/api/paddle/config', requireSession, (req, res) => {
-  if (process.env.PADDLE_ENVIRONMENT !== 'sandbox' || !process.env.PADDLE_CLIENT_TOKEN?.startsWith('test_')) {
+  if (process.env.PADDLE_ENVIRONMENT !== 'sandbox' ||
+      !process.env.PADDLE_API_KEY ||
+      !process.env.PADDLE_WEBHOOK_SECRET ||
+      !process.env.PADDLE_CLIENT_TOKEN?.startsWith('test_')) {
     return res.json({ configured: false, environment: 'sandbox', plans: [] });
   }
   const plans = [
@@ -148,7 +151,7 @@ app.get('/api/paddle/config', requireSession, (req, res) => {
     { id: '3months', priceId: process.env.PADDLE_PRICE_ID_3MONTHS || null, billing: 'quarter' },
     { id: 'lifetime', priceId: process.env.PADDLE_PRICE_ID_LIFETIME || null, billing: 'one-time' }
   ].filter(plan => plan.priceId && /^pri_[A-Za-z0-9]+$/.test(plan.priceId));
-  return res.json({ configured: Boolean(process.env.PADDLE_CLIENT_TOKEN && plans.length), environment: 'sandbox', clientToken: process.env.PADDLE_CLIENT_TOKEN, plans });
+  return res.json({ configured: Boolean(process.env.PADDLE_API_KEY && process.env.PADDLE_WEBHOOK_SECRET && process.env.PADDLE_CLIENT_TOKEN && plans.length), environment: 'sandbox', clientToken: process.env.PADDLE_CLIENT_TOKEN, plans });
 });
 
 const photoStorageDir = path.resolve(process.env.PHOTO_STORAGE_DIR || 'uploads/private-photos');
