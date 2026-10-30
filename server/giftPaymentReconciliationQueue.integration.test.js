@@ -29,8 +29,8 @@ test('gift payment reconciliation outbox is installed with retryable states and 
          AND indexname = 'gift_orders_expired_consent_candidates_idx'`
     );
     assert.equal(expiryIndex.rowCount, 1, 'migration 046 should index scheduled expiry candidate discovery');
-    assert.match(expiryIndex.rows[0].indexdef, /\\(expires_at, match_id, sender_id, recipient_id\\)/i);
-    assert.match(expiryIndex.rows[0].indexdef, /WHERE \\(status = 'awaiting_recipient_consent'::text\\)/i);
+    assert.match(expiryIndex.rows[0].indexdef, /\(expires_at, match_id, sender_id, recipient_id\)/i);
+    assert.match(expiryIndex.rows[0].indexdef, /WHERE \(status = 'awaiting_recipient_consent'::text\)/i);
 
     const definitions = result.rows.map(row => row.definition || '').join('\n');
     assert.match(definitions, /recipient_opted_out/, 'recipient opt-out reconciliation should be supported');
