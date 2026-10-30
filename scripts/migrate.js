@@ -85,9 +85,8 @@ async function runMigrations() {
             await client.query('ROLLBACK');
           } catch (rollbackError) {
             releaseError = rollbackError;
-            throw new AggregateError(
-              [rollbackError],
-              `Shutdown was requested before migration ${name} could start, and its transaction could not be rolled back`,
+            throw new Error(
+              `Shutdown was requested before migration ${name} could start, but its transaction could not be rolled back: ${rollbackError.message}`,
               { cause: rollbackError }
             );
           }
