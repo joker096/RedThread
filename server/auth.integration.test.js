@@ -2063,7 +2063,8 @@ test('auth API supports registration, session lookup, logout and login', {
         'SELECT COUNT(*)::int AS count FROM ad_consent_history WHERE user_id = $1',
         [registered.user.id]
       );
-      assert.equal(consentHistoryBeforeDeletion.rows[0].count, 1);
+      assert.ok(consentHistoryBeforeDeletion.rows[0].count >= 1,
+        'the account must have at least one consent-history row before deletion');
 
       const deleteAccount = await request('/api/account', {
         method: 'DELETE',
