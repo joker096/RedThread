@@ -310,16 +310,27 @@ app.post('/api/paddle/checkout/cancel', validateRequestOrigin, requireSession, a
   if (process.env.PADDLE_ENVIRONMENT !== 'sandbox' || !process.env.PADDLE_API_KEY) {
     return res.status(503).json({ error: 'paddle_checkout_cancel_not_configured' });
   }
+  let client;
   try {
-    const attemptResult = await pool.query(
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`paddle-checkout:${req.authUser.id}`]);
+    const attemptResult = await client.query(
       `SELECT transaction_id, plan, status
-       FROM paddle_checkout_attempts WHERE user_id = $1`,
+       FROM paddle_checkout_attempts WHERE user_id = $1 FOR UPDATE`,
       [req.authUser.id]
     );
     const attempt = attemptResult.rows[0];
-    if (!attempt) return res.status(404).json({ error: 'paddle_checkout_not_found' });
-    if (attempt.status === 'canceled') return res.status(204).end();
+    if (!attempt) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'paddle_checkout_not_found' });
+    }
+    if (attempt.status === 'canceled') {
+      await client.query('COMMIT');
+      return res.status(204).end();
+    }
     if (attempt.status !== 'pending' || typeof attempt.transaction_id !== 'string') {
+      await client.query('COMMIT');
       return res.status(409).json({ error: 'paddle_checkout_reconciliation_required' });
     }
 
@@ -335,24 +346,29 @@ app.post('/api/paddle/checkout/cancel', validateRequestOrigin, requireSession, a
       const status = ['completed', 'paid'].includes(providerTransaction.status)
         ? 'completed'
         : 'reconciliation_required';
-      await pool.query(
+      await client.query(
         `UPDATE paddle_checkout_attempts SET status = $2, updated_at = NOW()
          WHERE user_id = $1 AND status = 'pending'`,
         [req.authUser.id, status]
       );
+      await client.query('COMMIT');
       return res.status(409).json({
         error: status === 'completed' ? 'paddle_checkout_processing' : 'paddle_checkout_reconciliation_required'
       });
     }
-    await pool.query(
+    await client.query(
       `UPDATE paddle_checkout_attempts SET status = 'canceled', updated_at = NOW()
        WHERE user_id = $1 AND transaction_id = $2 AND status = 'pending'`,
       [req.authUser.id, attempt.transaction_id]
     );
+    await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Paddle checkout cancellation failed:', error?.message || 'unknown error');
     return res.status(502).json({ error: 'paddle_checkout_cancel_failed' });
+  } finally {
+    client?.release();
   }
 });
 
