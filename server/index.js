@@ -305,6 +305,57 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
 });
 
 
+
+app.post('/api/paddle/checkout/cancel', validateRequestOrigin, requireSession, async (req, res) => {
+  if (process.env.PADDLE_ENVIRONMENT !== 'sandbox' || !process.env.PADDLE_API_KEY) {
+    return res.status(503).json({ error: 'paddle_checkout_cancel_not_configured' });
+  }
+  try {
+    const attemptResult = await pool.query(
+      `SELECT transaction_id, plan, status
+       FROM paddle_checkout_attempts WHERE user_id = $1`,
+      [req.authUser.id]
+    );
+    const attempt = attemptResult.rows[0];
+    if (!attempt) return res.status(404).json({ error: 'paddle_checkout_not_found' });
+    if (attempt.status === 'canceled') return res.status(204).end();
+    if (attempt.status !== 'pending' || typeof attempt.transaction_id !== 'string') {
+      return res.status(409).json({ error: 'paddle_checkout_reconciliation_required' });
+    }
+
+    const { cancelPaddleCheckoutTransaction } = await import('./paddleBilling.js');
+    const providerTransaction = await cancelPaddleCheckoutTransaction({
+      apiKey: process.env.PADDLE_API_KEY,
+      environment: process.env.PADDLE_ENVIRONMENT,
+      transactionId: attempt.transaction_id,
+      expectedUserId: req.authUser.id,
+      expectedPlan: attempt.plan
+    });
+    if (providerTransaction.status !== 'canceled') {
+      const status = ['completed', 'paid'].includes(providerTransaction.status)
+        ? 'completed'
+        : 'reconciliation_required';
+      await pool.query(
+        `UPDATE paddle_checkout_attempts SET status = $2, updated_at = NOW()
+         WHERE user_id = $1 AND status = 'pending'`,
+        [req.authUser.id, status]
+      );
+      return res.status(409).json({
+        error: status === 'completed' ? 'paddle_checkout_processing' : 'paddle_checkout_reconciliation_required'
+      });
+    }
+    await pool.query(
+      `UPDATE paddle_checkout_attempts SET status = 'canceled', updated_at = NOW()
+       WHERE user_id = $1 AND transaction_id = $2 AND status = 'pending'`,
+      [req.authUser.id, attempt.transaction_id]
+    );
+    return res.status(204).end();
+  } catch (error) {
+    console.error('Paddle checkout cancellation failed:', error?.message || 'unknown error');
+    return res.status(502).json({ error: 'paddle_checkout_cancel_failed' });
+  }
+});
+
 app.post('/api/paddle/portal', validateRequestOrigin, requireSession, async (req, res) => {
   if (process.env.PADDLE_ENVIRONMENT !== 'sandbox' || !process.env.PADDLE_API_KEY) {
     return res.status(503).json({ error: 'paddle_portal_not_configured' });
