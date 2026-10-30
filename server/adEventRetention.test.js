@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import pg from 'pg';
 import {
   AD_EVENT_RETENTION_DAYS,
   DEFAULT_AD_EVENT_CLEANUP_BATCH_SIZE,
@@ -35,4 +36,51 @@ test('cleanup deletes in bounded batches until the last partial batch', async ()
   const deleted = await cleanupExpiredAdEvents(fakePool, { retentionDays: 90, batchSize: 2 });
   assert.equal(deleted, 3);
   assert.deepEqual(batchSizes, [2, 1]);
+});
+
+
+test('PostgreSQL retention cleanup deletes only events strictly older than the retention boundary', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
+  await client.connect();
+
+  try {
+    await client.query('BEGIN');
+    await client.query(`
+      CREATE TEMP TABLE ad_events (
+        event_id uuid PRIMARY KEY,
+        created_at timestamptz NOT NULL
+      ) ON COMMIT PRESERVE ROWS
+    `);
+    await client.query(
+      `INSERT INTO ad_events (event_id, created_at)
+       VALUES
+         ('00000000-0000-4000-8000-000000000001', NOW() - INTERVAL '90 days 1 second'),
+         ('00000000-0000-4000-8000-000000000002', NOW() - INTERVAL '90 days'),
+         ('00000000-0000-4000-8000-000000000003', NOW() - INTERVAL '89 days 23 hours 59 minutes 59 seconds')`
+    );
+
+    const deleted = await cleanupExpiredAdEvents(client, { retentionDays: 90, batchSize: 1 });
+    assert.equal(deleted, 1, 'only the row older than 90 days is removed');
+
+    const remaining = await client.query(
+      'SELECT event_id::text FROM ad_events ORDER BY event_id'
+    );
+    assert.deepEqual(
+      remaining.rows.map(row => row.event_id),
+      [
+        '00000000-0000-4000-8000-000000000002',
+        '00000000-0000-4000-8000-000000000003'
+      ],
+      'the exact 90-day boundary and newer rows are retained'
+    );
+    await client.query('ROLLBACK');
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    await client.end();
+  }
 });
