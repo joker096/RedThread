@@ -51,6 +51,28 @@ services:
         condition: service_completed_successfully
     networks: [private]
 
+  gift-request-expiry:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
+      PGSSL: "false"
+      GIFT_EXPIRY_BATCH_SIZE: ${GIFT_EXPIRY_BATCH_SIZE:-100}
+    command:
+      - sh
+      - -c
+      - |
+        while :; do
+          node server/expire-gift-requests.js || echo "Gift request expiry failed; retrying on the next minute."
+          sleep 60
+        done
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [private]
+
   api:
     build:
       context: .
