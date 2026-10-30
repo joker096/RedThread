@@ -23,6 +23,14 @@ The server refuses checkout unless `PADDLE_ENVIRONMENT=sandbox` and the client t
 5. Use Paddle's sandbox successful test card `4242 4242 4242 4242` with any future expiry date; also test declined card `4000 0000 0000 0002`. Verify the overlay, completed transaction, webhook 2xx delivery, and database state. Do not use real card data.
 6. Exercise an upgrade with `do_not_bill`, a scheduled cancellation effective at `next_billing_period`, and an immediate cancellation. Confirm scheduled cancellation preserves access through the current period and immediate cancellation removes it.
 
+## Customer portal and cancellation
+
+The active Premium panel can request a short-lived authenticated Customer Portal session through `POST /api/paddle/portal`. The server derives the Paddle customer and subscription IDs from the signed-in account; the browser cannot supply or substitute them. The sandbox API key must include Paddle's `customer_portal_session.write` permission. Portal URLs are temporary, restricted to Paddle's customer-portal host, and must not be stored or cached.
+
+The portal link opens the subscription cancellation/manage screen when a subscription ID exists, or the customer overview for a one-time lifetime purchase. Account deletion immediately cancels any non-terminal recurring Paddle subscription before deleting the local account. If Paddle does not confirm cancellation, account deletion fails closed rather than leaving recurring billing active. Webhook updates are ignored for accounts already marked deleted.
+
+Test the portal flow with a sandbox customer, verify that the cancellation link belongs to the same customer/subscription, cancel from the portal, and confirm the signed webhook updates entitlement. Also test account deletion with an active sandbox subscription and confirm Paddle reports it as canceled before the local account is deleted. These operations remain Sandbox-only.
+
 ## Current safety boundaries
 
 - Webhook signature verification uses the Paddle Node SDK and the notification signing secret against the raw request body.
