@@ -54,7 +54,7 @@ export async function processExpiredGiftRequestBatch(pool, {
     [limit]
   );
 
-  const summary = { pairsScanned: candidates.rows.length, expiredOrders: 0, reconciliationRequired: 0 };
+  const summary = { pairsScanned: candidates.rows.length, expiredOrders: 0, reconciliationRequired: 0, pairFailures: 0 };
   for (const pair of candidates.rows) {
     const client = await pool.connect();
     try {
@@ -77,7 +77,10 @@ export async function processExpiredGiftRequestBatch(pool, {
       }
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
-      throw error;
+      summary.pairFailures += 1;
+      // Isolate a broken pair: a transient database/application error must not
+      // abort the remaining bounded batch and starve unrelated expired requests.
+      console.error('Gift request expiry pair failed:', error.message);
     } finally {
       client.release();
     }
