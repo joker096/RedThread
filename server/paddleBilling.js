@@ -339,7 +339,12 @@ export async function cancelPaddleSubscription({
       String(payload?.data?.status || '').toLowerCase() !== 'canceled') {
     throw new Error('paddle_subscription_cancel_unconfirmed');
   }
-  return { subscriptionId, status: 'canceled' };
+  return {
+    subscriptionId,
+    status: 'canceled',
+    customerId,
+    updatedAt: typeof payload?.data?.updated_at === 'string' ? payload.data.updated_at : null
+  };
 }
 
 
