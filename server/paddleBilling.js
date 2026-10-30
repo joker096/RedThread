@@ -343,7 +343,8 @@ export async function cancelPaddleSubscription({
     subscriptionId,
     status: 'canceled',
     customerId,
-    updatedAt: typeof payload?.data?.updated_at === 'string' ? payload.data.updated_at : null
+    updatedAt: typeof payload?.data?.updated_at === 'string' && Number.isFinite(Date.parse(payload.data.updated_at))
+      ? payload.data.updated_at : null
   };
 }
 
