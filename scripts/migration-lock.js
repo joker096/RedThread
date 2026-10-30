@@ -11,16 +11,17 @@ export async function acquireMigrationLock(client, {
   shouldAbort = () => false,
   retryDelayMs = 250
 } = {}) {
-  while (!shouldAbort()) {
+  let acquired = false;
+  while (!acquired && !shouldAbort()) {
     const result = await client.query(
       'SELECT pg_try_advisory_lock($1, $2) AS acquired',
       [MIGRATION_ADVISORY_LOCK_CLASS, MIGRATION_ADVISORY_LOCK_ID]
     );
-    if (result.rows[0]?.acquired === true) break;
-    await delay(retryDelayMs);
+    acquired = result.rows[0]?.acquired === true;
+    if (!acquired && !shouldAbort()) await delay(retryDelayMs);
   }
 
-  if (shouldAbort()) return null;
+  if (!acquired) return null;
 
   let released = false;
   return async function releaseMigrationLock() {
