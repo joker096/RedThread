@@ -1270,6 +1270,9 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     // Migration 104 permits history purge only after the account is marked deleted.
     await client.query('DELETE FROM ad_consent_preferences WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM ad_consent_history WHERE user_id = $1', [req.authUser.id]);
+    // Engagement events are user-linked frequency signals, not billing records;
+    // remove any retained rows immediately when the account is deleted.
+    await client.query('DELETE FROM ad_events WHERE user_id = $1', [req.authUser.id]);
     await client.query(
       "UPDATE matches SET status = 'closed' WHERE user_a_id = $1 OR user_b_id = $1",
       [req.authUser.id]
