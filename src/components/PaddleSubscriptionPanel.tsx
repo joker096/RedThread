@@ -289,13 +289,20 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
           </button>
         </div>
       ) : ['creating', 'completed', 'reconciliation_required'].includes(pendingCheckoutStatus || '') ? (
-        <p className="mt-3 text-xs leading-relaxed text-amber-200">
-          {pendingCheckoutStatus === 'completed'
-            ? 'Платёж уже принят. Ожидается подтверждение подписки от Paddle; повторная оплата заблокирована.'
-            : pendingCheckoutStatus === 'creating'
-              ? 'Платёжная сессия создаётся или проверяется в другой вкладке. Подождите и обновите окно Premium.'
-              : 'Состояние платёжной транзакции требует проверки. Повторная оплата заблокирована, обратитесь в поддержку.'}
-        </p>
+        <div className="mt-3">
+          <p className="text-xs leading-relaxed text-amber-200">
+            {pendingCheckoutStatus === 'completed'
+              ? 'Платёж уже принят. Ожидается подтверждение подписки от Paddle; повторная оплата заблокирована.'
+              : pendingCheckoutStatus === 'creating'
+                ? 'Платёжная сессия создаётся или проверяется в другой вкладке. Подождите и обновите окно Premium.'
+                : 'Состояние платёжной транзакции требует проверки. Повторная оплата заблокирована, обратитесь в поддержку.'}
+          </p>
+          {pendingCheckoutStatus === 'reconciliation_required' && billingManageable && (
+            <button type="button" onClick={() => void openCustomerPortal()} disabled={portalBusy} className="mt-3 min-h-11 w-full rounded-lg border border-amber-400/30 px-3 py-2 text-xs font-semibold text-amber-100 disabled:opacity-50">
+              {portalBusy ? 'Открываем управление…' : 'Открыть управление в Paddle'}
+            </button>
+          )}
+        </div>
       ) : !config?.configured ? (
         <p className="mt-3 text-xs leading-relaxed text-stone-400">Paddle Sandbox пока не настроен. Добавьте test client token и Price ID тарифов в серверное окружение.</p>
       ) : (
