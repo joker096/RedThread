@@ -282,6 +282,46 @@ test('does not grant lifetime Premium when no matching durable checkout attempt 
   }
 });
 
+test('recurring transaction completion cannot bind Paddle identities without its checkout attempt', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_test';
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      const query = { sql: String(sql), params };
+      queries.push(query);
+      if (query.sql.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: 'evt_unowned_recurring' }] };
+      }
+      if (query.sql.includes('SET transaction_id = $1, status = \'completed\'')) {
+        return { rowCount: 0, rows: [] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_unowned_recurring',
+      eventType: 'transaction.completed',
+      data: {
+        id: 'txn_0123456789abcdef01234567',
+        subscriptionId: 'sub_0123456789abcdef01234567',
+        customerId: 'ctm_0123456789abcdef01234567',
+        customData: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month' },
+        items: [{ price: { id: 'pri_month_test' } }]
+      }
+    });
+    assert.equal(queries.some(query => query.sql.includes('UPDATE users')), false,
+      'a recurring transaction without a server-created attempt must not attach customer or subscription IDs');
+    assert.equal(queries.some(query => query.sql.includes('WHERE transaction_id = $1 AND user_id = $3')), false);
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
+  }
+});
+
 test('does not grant lifetime Premium when the transaction price does not match configuration', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
