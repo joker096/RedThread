@@ -651,3 +651,74 @@ test('Paddle checkout cancellation cancels only owned draft or ready transaction
   });
   assert.deepEqual(completed, { id: 'txn_0123456789abcdef01234567', status: 'completed' });
 });
+
+
+test('verified recurring transaction completion is held until its subscription webhook links it', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_test';
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) return { rowCount: 1, rows: [{ event_id: 'evt_month_transaction' }] };
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_month_transaction',
+      eventType: 'transaction.completed',
+      data: {
+        id: 'txn_0123456789abcdef01234567',
+        customData: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month' },
+        items: [{ price: { id: 'pri_month_test' } }]
+      }
+    });
+    const attemptUpdate = queries.find(query => query.sql.includes('UPDATE paddle_checkout_attempts'));
+    assert.ok(attemptUpdate, 'expected recurring checkout attempt to enter completed state');
+    assert.equal(attemptUpdate.params[0], 'txn_0123456789abcdef01234567');
+    assert.equal(attemptUpdate.params[1], '00000000-0000-4000-8000-000000000001');
+    assert.equal(attemptUpdate.params[2], 'completed');
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
+  }
+});
+
+test('only a verified new subscription event links a completed recurring checkout attempt', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_test';
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) return { rowCount: 1, rows: [{ event_id: 'evt_month_subscription' }] };
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_month_subscription',
+      eventType: 'subscription.created',
+      occurredAt: '2026-10-30T18:00:00Z',
+      data: {
+        id: 'sub_0123456789abcdef01234567',
+        status: 'active',
+        customerId: 'ctm_0123456789abcdef01234567',
+        customData: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month' },
+        currentBillingPeriod: { endsAt: '2026-11-30T18:00:00Z' },
+        items: [{ price: { id: 'pri_month_test' } }]
+      }
+    });
+    const attemptUpdate = queries.find(query => query.sql.includes('UPDATE paddle_checkout_attempts'));
+    assert.ok(attemptUpdate, 'expected the new subscription event to link the checkout attempt');
+    assert.deepEqual(attemptUpdate.params, ['00000000-0000-4000-8000-000000000001', '1month']);
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
+  }
+});
