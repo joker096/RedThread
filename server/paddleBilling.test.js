@@ -934,6 +934,9 @@ test('transaction.canceled webhook clears a pending checkout attempt', async () 
   const attemptUpdate = queries.find(query => query.sql.includes('UPDATE paddle_checkout_attempts'));
   assert.ok(attemptUpdate, 'expected the canceled transaction to release the pending checkout lock');
   assert.equal(attemptUpdate.params[0], 'txn_0123456789abcdef01234567');
+  assert.match(attemptUpdate.sql, /status IN \\('pending', 'reconciliation_required'\\)/);
+  assert.doesNotMatch(attemptUpdate.sql, /status IN \\('pending', 'completed'/,
+    'a delayed cancellation must not release an attempt already confirmed completed');
 });
 
 
