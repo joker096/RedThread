@@ -136,3 +136,24 @@ test('migration lock release propagates database query failures', async () => {
   await assert.rejects(release, error => error === failure);
   assert.equal(calls, 2);
 });
+
+
+test('migration lock acquisition stops retrying when shutdown arrives during a failed attempt', async () => {
+  let shutdownRequested = false;
+  let calls = 0;
+  const client = {
+    async query() {
+      calls += 1;
+      shutdownRequested = true;
+      return { rows: [{ acquired: false }] };
+    }
+  };
+
+  const release = await acquireMigrationLock(client, {
+    shouldAbort: () => shutdownRequested,
+    retryDelayMs: 0
+  });
+
+  assert.equal(release, null);
+  assert.equal(calls, 1, 'shutdown must prevent a second advisory-lock query');
+});
