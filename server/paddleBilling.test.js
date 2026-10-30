@@ -546,3 +546,102 @@ test('Paddle portal and cancellation helpers reject live environment and malform
   );
   assert.equal(calls, 0);
 });
+
+
+test('Paddle checkout transaction lookup verifies user and plan ownership', async () => {
+  const { getPaddleCheckoutTransaction } = await import('./paddleBilling.js');
+  const result = await getPaddleCheckoutTransaction({
+    apiKey: 'sandbox_api_key',
+    transactionId: 'txn_0123456789abcdef01234567',
+    expectedUserId: '00000000-0000-4000-8000-000000000001',
+    expectedPlan: '3months',
+    fetchImpl: async (url, options) => {
+      assert.equal(url, 'https://sandbox-api.paddle.com/transactions/txn_0123456789abcdef01234567');
+      assert.equal(options.method, 'GET');
+      return {
+        ok: true,
+        async json() {
+          return { data: {
+            id: 'txn_0123456789abcdef01234567',
+            status: 'ready',
+            custom_data: { userId: '00000000-0000-4000-8000-000000000001', plan: '3months' }
+          } };
+        }
+      };
+    }
+  });
+  assert.deepEqual(result, { id: 'txn_0123456789abcdef01234567', status: 'ready' });
+  await assert.rejects(
+    getPaddleCheckoutTransaction({
+      apiKey: 'sandbox_api_key',
+      transactionId: 'txn_0123456789abcdef01234567',
+      expectedUserId: '00000000-0000-4000-8000-000000000002',
+      expectedPlan: '3months',
+      fetchImpl: async () => ({
+        ok: true,
+        async json() {
+          return { data: {
+            id: 'txn_0123456789abcdef01234567',
+            status: 'ready',
+            custom_data: { userId: '00000000-0000-4000-8000-000000000001', plan: '3months' }
+          } };
+        }
+      })
+    }),
+    { message: 'paddle_transaction_ownership_unconfirmed' }
+  );
+});
+
+test('Paddle checkout cancellation cancels only owned draft or ready transactions', async () => {
+  const { cancelPaddleCheckoutTransaction } = await import('./paddleBilling.js');
+  const requests = [];
+  const result = await cancelPaddleCheckoutTransaction({
+    apiKey: 'sandbox_api_key',
+    transactionId: 'txn_0123456789abcdef01234567',
+    expectedUserId: '00000000-0000-4000-8000-000000000001',
+    expectedPlan: '1month',
+    fetchImpl: async (url, options) => {
+      requests.push({ url, options });
+      if (options.method === 'GET') {
+        return {
+          ok: true,
+          async json() {
+            return { data: {
+              id: 'txn_0123456789abcdef01234567',
+              status: 'ready',
+              custom_data: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month' }
+            } };
+          }
+        };
+      }
+      return {
+        ok: true,
+        async json() {
+          return { data: { id: 'txn_0123456789abcdef01234567', status: 'canceled' } };
+        }
+      };
+    }
+  });
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].options.method, 'PATCH');
+  assert.deepEqual(JSON.parse(requests[1].options.body), { status: 'canceled' });
+  assert.deepEqual(result, { id: 'txn_0123456789abcdef01234567', status: 'canceled' });
+
+  const completed = await cancelPaddleCheckoutTransaction({
+    apiKey: 'sandbox_api_key',
+    transactionId: 'txn_0123456789abcdef01234567',
+    expectedUserId: '00000000-0000-4000-8000-000000000001',
+    expectedPlan: '1month',
+    fetchImpl: async () => ({
+      ok: true,
+      async json() {
+        return { data: {
+          id: 'txn_0123456789abcdef01234567',
+          status: 'completed',
+          custom_data: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month' }
+        } };
+      }
+    })
+  });
+  assert.deepEqual(completed, { id: 'txn_0123456789abcdef01234567', status: 'completed' });
+});
