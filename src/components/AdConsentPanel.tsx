@@ -67,6 +67,9 @@ export const AdConsentPanel: React.FC = () => {
   const [notice, setNotice] = useState('');
   const [loadFailed, setLoadFailed] = useState(false);
   const requestEpoch = useRef(0);
+  // Keep the last server-confirmed choice so a failed revocation is never
+  // presented as if it had already taken effect.
+  const confirmedPreferences = useRef<Preferences>({ ...defaults, categoryConsents: {} });
 
   const load = useCallback(async () => {
     const epoch = ++requestEpoch.current;
@@ -83,7 +86,9 @@ export const AdConsentPanel: React.FC = () => {
       }
       const value = (payload as { preferences: unknown }).preferences;
       if (epoch !== requestEpoch.current) return;
-      setPreferences(normalizeAdConsentPayload(value));
+      const loaded = normalizeAdConsentPayload(value);
+      confirmedPreferences.current = loaded;
+      setPreferences(loaded);
       setNotice('');
       setLoadFailed(false);
     } catch (error) {
@@ -129,11 +134,16 @@ export const AdConsentPanel: React.FC = () => {
         throw new Error(t('adConsentSaveError'));
       }
       if (epoch !== requestEpoch.current) return;
-      setPreferences(normalizeAdConsentPayload(payload?.preferences));
+      const saved = normalizeAdConsentPayload(payload?.preferences);
+      confirmedPreferences.current = saved;
+      setPreferences(saved);
       setLoadFailed(false);
       setNotice(t('adConsentSaved'));
     } catch (error) {
-      if (epoch === requestEpoch.current) setNotice(error instanceof Error ? error.message : t('adConsentSaveError'));
+      if (epoch === requestEpoch.current) {
+        setPreferences({ ...confirmedPreferences.current, categoryConsents: { ...confirmedPreferences.current.categoryConsents } });
+        setNotice(error instanceof Error ? error.message : t('adConsentSaveError'));
+      }
     } finally {
       if (epoch === requestEpoch.current) setSaving(false);
     }
