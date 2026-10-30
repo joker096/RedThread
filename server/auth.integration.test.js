@@ -2033,7 +2033,14 @@ test('auth API supports registration, session lookup, logout and login', {
         `INSERT INTO ad_consent_preferences
            (user_id, ads_consent, date_offers_consent, wedding_offers_consent,
             marriage_planning_opt_in, category_consents, consent_version)
-         VALUES ($1, FALSE, FALSE, FALSE, FALSE, '{}'::jsonb, 1)`,
+         VALUES ($1, FALSE, FALSE, FALSE, FALSE, '{}'::jsonb, 1)
+         ON CONFLICT (user_id) DO UPDATE SET
+           ads_consent = FALSE,
+           date_offers_consent = FALSE,
+           wedding_offers_consent = FALSE,
+           marriage_planning_opt_in = FALSE,
+           category_consents = '{}'::jsonb,
+           consent_version = 1`,
         [registered.user.id]
       );
       await deletionSafetyDb.query(
