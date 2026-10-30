@@ -51,6 +51,8 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
   const [notice, setNotice] = useState('');
   const [premiumActive, setPremiumActive] = useState(false);
   const [premiumLifetime, setPremiumLifetime] = useState(false);
+  const [billingManageable, setBillingManageable] = useState(false);
+  const [billingNeedsAttention, setBillingNeedsAttention] = useState(false);
   const [portalBusy, setPortalBusy] = useState(false);
   const paddleRef = useRef<PaddleRuntime | null>(null);
   const mountedRef = useRef(true);
@@ -72,6 +74,8 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
         if (!cancelled) {
           setPremiumActive(status.premiumActive === true);
           setPremiumLifetime(status.premiumLifetime === true);
+          setBillingManageable(status.billingManageable === true);
+          setBillingNeedsAttention(status.billingNeedsAttention === true);
         }
         if (!next.configured || next.environment !== 'sandbox' || !next.clientToken?.startsWith('test_')) {
           if (!cancelled) setConfig({ configured: false, environment: 'sandbox', plans: [] });
@@ -114,7 +118,7 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
 
 
   const openCustomerPortal = async () => {
-    if (portalBusy) return;
+    if (portalBusy || !billingManageable) return;
     setPortalBusy(true);
     setNotice('');
     try {
@@ -187,12 +191,20 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
         </div>
         <span className="shrink-0 rounded-full border border-amber-400/30 px-2 py-1 text-[10px] font-semibold text-amber-200">SANDBOX</span>
       </div>
-      {loading ? <p className="mt-3 text-xs text-stone-400">Подключаем тестовый checkout…</p> : premiumActive ? (
+      {loading ? <p className="mt-3 text-xs text-stone-400">Подключаем тестовый checkout…</p> : premiumActive || billingNeedsAttention ? (
         <div className="mt-3">
-          <p className="text-xs leading-relaxed text-emerald-300">{premiumLifetime ? 'Пожизненный Premium уже активен.' : 'Premium уже активен. Повторная покупка отключена.'}</p>
-          <button type="button" onClick={() => void openCustomerPortal()} disabled={portalBusy} className="mt-3 min-h-11 w-full rounded-lg border border-amber-400/30 px-3 py-2 text-xs font-semibold text-amber-100 disabled:opacity-50">
-            {portalBusy ? 'Открываем управление…' : 'Управлять подпиской и платежами'}
-          </button>
+          <p className="text-xs leading-relaxed text-emerald-300">
+            {premiumActive
+              ? (premiumLifetime ? 'Пожизненный Premium уже активен.' : 'Premium уже активен. Повторная покупка отключена.')
+              : 'У существующей подписки есть незавершённое состояние. Повторная покупка отключена до сверки.'}
+          </p>
+          {billingManageable ? (
+            <button type="button" onClick={() => void openCustomerPortal()} disabled={portalBusy} className="mt-3 min-h-11 w-full rounded-lg border border-amber-400/30 px-3 py-2 text-xs font-semibold text-amber-100 disabled:opacity-50">
+              {portalBusy ? 'Открываем управление…' : 'Управлять подпиской и платежами'}
+            </button>
+          ) : (
+            <p className="mt-2 text-xs text-amber-200">Управление подпиской временно недоступно. Обратитесь в поддержку для сверки платежа.</p>
+          )}
         </div>
       ) : !config?.configured ? (
         <p className="mt-3 text-xs leading-relaxed text-stone-400">Paddle Sandbox пока не настроен. Добавьте test client token и Price ID тарифов в серверное окружение.</p>
