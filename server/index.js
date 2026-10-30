@@ -153,12 +153,12 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
     const existingAttempt = attemptResult.rows[0];
     if (existingAttempt && ['creating', 'completed', 'reconciliation_required'].includes(existingAttempt.status)) {
       await client.query('COMMIT');
-      return res.status(409).json({
-        error: existingAttempt.status === 'completed'
+      const error = existingAttempt.status === 'creating'
+        ? 'paddle_checkout_creating'
+        : existingAttempt.status === 'completed'
           ? 'paddle_checkout_processing'
-          : 'paddle_checkout_reconciliation_required',
-        pendingPlan: existingAttempt.plan
-      });
+          : 'paddle_checkout_reconciliation_required';
+      return res.status(409).json({ error, pendingPlan: existingAttempt.plan });
     }
     if (existingAttempt?.status === 'pending') {
       if (!existingAttempt.transaction_id) {
