@@ -36,7 +36,9 @@ export async function processExpiredGiftRequestBatch(pool, {
   const candidates = await pool.query(
     `SELECT candidates."matchId", candidates."senderId", candidates."recipientId"
      FROM (
-       SELECT DISTINCT match_id AS "matchId",
+       -- Migration 033 guarantees one pending order per unordered pair
+       -- within a match, so this candidate scan needs no DISTINCT/grouping.
+       SELECT match_id AS "matchId",
               sender_id AS "senderId",
               recipient_id AS "recipientId"
        FROM gift_delivery_orders
