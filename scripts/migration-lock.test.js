@@ -90,3 +90,49 @@ test('migration lock acquisition can be cancelled before acquiring a lock', asyn
   assert.equal(release, null);
   assert.equal(calls, 0);
 });
+
+
+test('migration lock acquisition propagates database query failures', async () => {
+  const failure = new Error('connection lost during advisory lock acquisition');
+  const client = {
+    async query() {
+      throw failure;
+    }
+  };
+
+  await assert.rejects(
+    acquireMigrationLock(client),
+    error => error === failure
+  );
+});
+
+test('migration lock release rejects when PostgreSQL reports that the lock is not held', async () => {
+  let calls = 0;
+  const client = {
+    async query(sql) {
+      calls += 1;
+      if (sql.includes('pg_try_advisory_lock')) return { rows: [{ acquired: true }] };
+      return { rows: [{ unlocked: false }] };
+    }
+  };
+
+  const release = await acquireMigrationLock(client);
+  await assert.rejects(release, /migration advisory lock was not held/);
+  assert.equal(calls, 2);
+});
+
+test('migration lock release propagates database query failures', async () => {
+  const failure = new Error('connection lost during advisory unlock');
+  let calls = 0;
+  const client = {
+    async query(sql) {
+      calls += 1;
+      if (sql.includes('pg_try_advisory_lock')) return { rows: [{ acquired: true }] };
+      throw failure;
+    }
+  };
+
+  const release = await acquireMigrationLock(client);
+  await assert.rejects(release, error => error === failure);
+  assert.equal(calls, 2);
+});
