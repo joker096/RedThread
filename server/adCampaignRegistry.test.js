@@ -19,7 +19,7 @@ const approved = {
 
 test('campaign category allowlist matches the database constraint', () => {
   const migration = readFileSync(new URL('./migrations/039_ad_campaign_category_allowlist.sql', import.meta.url), 'utf8');
-  const constraint = migration.match(/CHECK \(category IN \(([\s\S]*?)\) NOT VALID\)/);
+  const constraint = migration.match(/CHECK \(category IN \(([\s\S]*?)\)\) NOT VALID/);
   assert.ok(constraint, 'migration must define the campaign category allowlist');
   const databaseCategories = [...constraint[1].matchAll(/'([a-z][a-z0-9_]*)'/g)].map(match => match[1]);
   assert.deepEqual(databaseCategories, [...ALLOWED_AD_CAMPAIGN_CATEGORIES]);
@@ -103,7 +103,8 @@ test('campaign registry requires a moderator-classified creative context', () =>
   for (const creativeContext of ['bridal-ish', 'unknown', 'GENERAL']) {
     assert.equal(evaluateAdCampaignEligibility({ ...approved, creativeContext }, { now }).reason, 'creative_context_invalid');
   }
-  assert.equal(evaluateAdCampaignEligibility({ ...approved, creativeContext: 'bridal' }, { now }).eligible, true);
+  assert.equal(evaluateAdCampaignEligibility({ ...approved, creativeContext: 'bridal', category: 'fashion' }, { now }).eligible, true);
+  assert.equal(evaluateAdCampaignEligibility({ ...approved, creativeContext: 'bridal', category: 'cafe' }, { now }).reason, 'bridal_category_not_supported');
 });
 
 test('campaign registry rejects categories outside the approved allowlist', () => {
