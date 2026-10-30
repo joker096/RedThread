@@ -204,6 +204,11 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
           }
           return;
         }
+        if (response.status === 409 && result.error === 'paddle_checkout_creating') {
+          if (mountedRef.current) setPendingCheckoutStatus('creating');
+          setNotice('Создание платёжной сессии уже выполняется в другой вкладке. Подождите и обновите окно Premium.');
+          return;
+        }
         if (response.status === 409 && result.error === 'paddle_checkout_processing') {
           if (mountedRef.current) setPendingCheckoutStatus('completed');
           setNotice('Платёж уже подтверждается. Повторная оплата заблокирована.');
@@ -272,7 +277,9 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
         <p className="mt-3 text-xs leading-relaxed text-amber-200">
           {pendingCheckoutStatus === 'completed'
             ? 'Платёж уже принят. Ожидается подтверждение подписки от Paddle; повторная оплата заблокирована.'
-            : 'Состояние платёжной транзакции требует проверки. Повторная оплата заблокирована, обратитесь в поддержку.'}
+            : pendingCheckoutStatus === 'creating'
+              ? 'Платёжная сессия создаётся или проверяется в другой вкладке. Подождите и обновите окно Premium.'
+              : 'Состояние платёжной транзакции требует проверки. Повторная оплата заблокирована, обратитесь в поддержку.'}
         </p>
       ) : premiumActive || billingNeedsAttention ? (
         <div className="mt-3">
