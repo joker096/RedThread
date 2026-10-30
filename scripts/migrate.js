@@ -40,9 +40,16 @@ async function runMigrations() {
 
   try {
     client = await pool.connect();
-    releaseMigrationLock = await acquireMigrationLock(client, {
-      shouldAbort: () => Boolean(shutdownSignal)
-    });
+    try {
+      releaseMigrationLock = await acquireMigrationLock(client, {
+        shouldAbort: () => Boolean(shutdownSignal)
+      });
+    } catch (error) {
+      // A failed lock query may leave the PostgreSQL connection unusable.
+      // Do not return it to the pool for another borrower.
+      releaseError = error;
+      throw error;
+    }
 
     if (releaseMigrationLock && !shutdownSignal) {
       await client.query(`
