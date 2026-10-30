@@ -30,6 +30,13 @@ export const GiftReceivingPreferencesPanel: React.FC = () => {
     try {
       const response = await fetch('/api/gifts/preferences', { credentials: 'include' });
       const payload: unknown = await response.json().catch(() => null);
+      if (response.status === 401) {
+        if (epoch === requestEpoch.current) {
+          confirmedPreferences.current = { ...defaults };
+          setPreferences({ ...defaults });
+        }
+        throw new Error(t('giftPreferencesSignInRequired'));
+      }
       if (!response.ok || !payload || typeof payload !== 'object' || !('preferences' in payload)) {
         throw new Error(response.status === 401 ? t('giftPreferencesSignInRequired') : t('giftPreferencesLoadError'));
       }
@@ -80,6 +87,15 @@ export const GiftReceivingPreferencesPanel: React.FC = () => {
         body: JSON.stringify(next)
       });
       const payload: unknown = await response.json().catch(() => null);
+      if (response.status === 401) {
+        if (epoch === requestEpoch.current) {
+          confirmedPreferences.current = { ...defaults };
+          setPreferences({ ...defaults });
+          setLoadFailed(true);
+          setNotice(t('giftPreferencesSignInRequired'));
+        }
+        return;
+      }
       if (!response.ok || !payload || typeof payload !== 'object' || !('preferences' in payload)) {
         throw new Error(response.status === 401 ? t('giftPreferencesSignInRequired') : t('giftPreferencesSaveError'));
       }
