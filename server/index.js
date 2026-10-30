@@ -6,6 +6,7 @@ import { validateAdEventPayload, classifyDuplicateAdEvent, hasExplicitAdConsent,
 import { evaluateAdCampaignEligibility, isCampaignCountryAllowed, resolveProfileCountryCode } from './adCampaignRegistry.js';
 import { AD_EVENT_FREQUENCY_COUNTS_SQL } from './adEventFrequencyQuery.js';
 import { validateGiftDecisionInput } from './giftDecisionInput.js';
+import { projectGiftOrderStatus } from './giftOrderStatusProjection.js';
 import { normalizeGiftRequestInput } from './giftRequestInput.js';
 import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, acquireGiftSafetyUserLocks, recipientGiftAcceptanceLimitReached, expireStaleGiftRequestsForPair, enqueueExpiredGiftPaymentReconciliation, notifyGiftRequestUpdate } from './giftOrderCreationService.js';
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
@@ -2621,17 +2622,10 @@ app.get('/api/gifts/orders', requireSession, profileActionLimiter, async (req, r
                   THEN total_minor_units::double precision
                 ELSE NULL
               END AS "totalMinorUnits",
-              currency,
-              CASE
-                WHEN sender_id = $1 AND (
-                  status IN ('declined', 'expired', 'cancelled', 'blocked', 'reported')
-                  OR (status = 'awaiting_recipient_consent' AND expires_at <= NOW()
-                    AND payment_status IN ('not_started', 'voided', 'failed'))
-                ) THEN 'not_available'
-                WHEN status = 'awaiting_recipient_consent' AND expires_at <= NOW()
-                  AND payment_status IN ('not_started', 'voided', 'failed') THEN 'expired'
-                ELSE status
-              END AS status,
+              currency, status, expires_at AS "expiresAt",
+              payment_status AS "paymentStatus",
+              recipient_requests_disabled_at AS "recipientRequestsDisabledAt",
+              NOW() AS "serverNow",
               created_at AS "createdAt",
               estimated_delivery_start AS "estimatedDeliveryStart",
               estimated_delivery_end AS "estimatedDeliveryEnd",
@@ -2644,9 +2638,21 @@ app.get('/api/gifts/orders', requireSession, profileActionLimiter, async (req, r
     );
     // PostgreSQL int8 values otherwise serialize as decimal strings, which the
     // privacy-safe UI intentionally rejects. Keep only exact safe-integer prices.
-    const orders = result.rows.filter(order =>
-      Number.isSafeInteger(order.totalMinorUnits) && order.totalMinorUnits >= 0
-    );
+    // Expiry and recipient opt-out are projected independently of payment state:
+    // a payment awaiting reconciliation must never leave consent actions enabled.
+    const orders = result.rows
+      .filter(order => Number.isSafeInteger(order.totalMinorUnits) && order.totalMinorUnits >= 0)
+      .map(order => {
+        const status = projectGiftOrderStatus(order, new Date(order.serverNow).getTime());
+        const {
+          expiresAt,
+          paymentStatus,
+          recipientRequestsDisabledAt,
+          serverNow,
+          ...safeOrder
+        } = order;
+        return { ...safeOrder, status };
+      });
     return res.json({ orders });
   } catch (error) {
     console.error('Gift order list failed:', error?.message || 'unknown error');
