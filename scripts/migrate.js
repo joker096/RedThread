@@ -74,9 +74,26 @@ async function runMigrations() {
           console.log(`Skipping already applied migration: ${name}`);
           continue;
         }
+        if (shutdownSignal) break;
 
         const sql = await readFile(path.join(migrationsDir, name), 'utf8');
+        if (shutdownSignal) break;
+
         await client.query('BEGIN');
+        if (shutdownSignal) {
+          try {
+            await client.query('ROLLBACK');
+          } catch (rollbackError) {
+            releaseError = rollbackError;
+            throw new AggregateError(
+              [rollbackError],
+              `Shutdown was requested before migration ${name} could start, and its transaction could not be rolled back`,
+              { cause: rollbackError }
+            );
+          }
+          break;
+        }
+
         try {
           await client.query(sql);
           await client.query('INSERT INTO schema_migrations (name) VALUES ($1)', [name]);
