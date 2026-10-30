@@ -253,7 +253,7 @@ export function filterBinaryCandidates(
   currentUserGender: 'female' | 'male'
 ): UserProfile[] {
   const targetGender = currentUserGender === 'female' ? 'male' : 'female';
-  return profiles.filter(p => p.isSponsorAd !== true && p.gender === targetGender);
+  return profiles.filter(p => !p.isSponsorAd && p.gender === targetGender);
 }
 
 
@@ -262,5 +262,5 @@ export function filterBinaryCandidates(
  * separately approved, policy-compliant contextual ad surface is implemented.
  */
 export function excludeSponsoredDiscoveryProfiles<T extends { isSponsorAd?: boolean }>(profiles: T[]): T[] {
-  return profiles.filter(profile => profile.isSponsorAd !== true);
+  return profiles.filter(profile => !profile.isSponsorAd);
 }
