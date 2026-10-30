@@ -34,22 +34,30 @@ export async function processExpiredGiftRequestBatch(pool, {
 } = {}) {
   const limit = normalizeGiftExpiryBatchSize(batchSize);
   const candidates = await pool.query(
-    `SELECT DISTINCT match_id AS "matchId",
-            sender_id AS "senderId",
-            recipient_id AS "recipientId"
-     FROM gift_delivery_orders
-     WHERE status = 'awaiting_recipient_consent'
-       AND expires_at <= NOW()
-       AND (
-         payment_status IN ('not_started', 'voided', 'failed')
-         OR NOT EXISTS (
-           SELECT 1
-           FROM gift_payment_reconciliation_tasks tasks
-           WHERE tasks.order_id = gift_delivery_orders.id
-             AND tasks.reason = 'expired_active_payment'
+    `SELECT candidates."matchId", candidates."senderId", candidates."recipientId"
+     FROM (
+       SELECT DISTINCT match_id AS "matchId",
+              sender_id AS "senderId",
+              recipient_id AS "recipientId"
+       FROM gift_delivery_orders
+       WHERE status = 'awaiting_recipient_consent'
+         AND expires_at <= NOW()
+         AND (
+           payment_status IN ('not_started', 'voided', 'failed')
+           OR NOT EXISTS (
+             SELECT 1
+             FROM gift_payment_reconciliation_tasks tasks
+             WHERE tasks.order_id = gift_delivery_orders.id
+               AND tasks.reason = 'expired_active_payment'
+           )
          )
-       )
-     ORDER BY "matchId", "senderId", "recipientId"
+     ) candidates
+     -- Rotate the bounded window each minute so a persistently failing early
+     -- pair cannot monopolize the same first slots on every worker invocation.
+     ORDER BY md5(concat_ws(':', candidates."matchId"::text,
+                                 candidates."senderId"::text,
+                                 candidates."recipientId"::text,
+                                 date_trunc('minute', NOW())::text))
      LIMIT $1`,
     [limit]
   );
