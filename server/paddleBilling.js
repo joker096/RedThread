@@ -10,6 +10,17 @@ export function normalizePaddleEvent(event) {
   return { eventId, eventType, data, occurredAt };
 }
 
+
+export function isPremiumEntitlementActive(user, now = Date.now()) {
+  if (!user || typeof user !== 'object' || !Number.isFinite(now)) return true;
+  if (user.premium_lifetime === true) return true;
+  const value = user.premium_until;
+  if (value === null || value === undefined || value === '') return false;
+  const end = value instanceof Date ? value.getTime() : Date.parse(value);
+  // Corrupt persisted entitlement data must not permit a second charge.
+  return !Number.isFinite(end) || end > now;
+}
+
 export function isPaddleSubscriptionEntitled(status, periodEnd, now = Date.now()) {
   if (!ACTIVE_PADDLE_SUBSCRIPTION_STATUSES.has(String(status || '').toLowerCase())) return false;
   if (!periodEnd) return false;
