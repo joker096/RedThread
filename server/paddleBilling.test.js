@@ -490,7 +490,12 @@ test('Paddle subscription cancellation requires a confirmed immediate cancellati
   assert.equal(request.url, 'https://sandbox-api.paddle.com/subscriptions/sub_0123456789abcdef01234567/cancel');
   assert.equal(request.options.method, 'POST');
   assert.deepEqual(JSON.parse(request.options.body), { effective_from: 'immediately' });
-  assert.deepEqual(result, { subscriptionId: 'sub_0123456789abcdef01234567', status: 'canceled' });
+  assert.deepEqual(result, {
+    subscriptionId: 'sub_0123456789abcdef01234567',
+    status: 'canceled',
+    customerId: 'ctm_0123456789abcdef01234567',
+    updatedAt: null
+  });
 
   await assert.rejects(
     cancelPaddleSubscription({
