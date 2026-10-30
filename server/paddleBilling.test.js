@@ -435,17 +435,23 @@ test('Paddle portal rejects mismatched customers and untrusted redirect URLs', a
     }),
     { message: 'paddle_portal_session_failed' }
   );
-  await assert.rejects(
-    createPaddleCustomerPortalSession({
-      apiKey: 'sandbox_api_key',
-      customerId: 'ctm_0123456789abcdef01234567',
-      fetchImpl: makeFetch({ data: {
-        customer_id: 'ctm_0123456789abcdef01234567',
-        urls: { general: { overview: 'https://attacker.example/steal-token' } }
-      } })
-    }),
-    { message: 'paddle_portal_url_invalid' }
-  );
+  for (const overview of [
+    'https://attacker.example/steal-token',
+    'https://user@customer-portal.paddle.com/session',
+    'https://customer-portal.paddle.com:444/session'
+  ]) {
+    await assert.rejects(
+      createPaddleCustomerPortalSession({
+        apiKey: 'sandbox_api_key',
+        customerId: 'ctm_0123456789abcdef01234567',
+        fetchImpl: makeFetch({ data: {
+          customer_id: 'ctm_0123456789abcdef01234567',
+          urls: { general: { overview } }
+        } })
+      }),
+      { message: 'paddle_portal_url_invalid' }
+    );
+  }
 });
 
 test('Paddle subscription cancellation requires a confirmed immediate cancellation response', async () => {
