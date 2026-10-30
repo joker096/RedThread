@@ -103,7 +103,23 @@ export const AdConsentPanel: React.FC = () => {
 
   useEffect(() => {
     void load();
-    return () => { requestEpoch.current += 1; };
+    const refreshOnSession = () => {
+      // Never carry one account's consent choices into another account's UI.
+      // Invalidate in-flight reads/writes before loading the new session.
+      requestEpoch.current += 1;
+      const cleared = { ...defaults, categoryConsents: {} };
+      confirmedPreferences.current = cleared;
+      setPreferences(cleared);
+      setSaving(false);
+      setLoadFailed(false);
+      setNotice('');
+      void load();
+    };
+    window.addEventListener('vow:session-changed', refreshOnSession);
+    return () => {
+      window.removeEventListener('vow:session-changed', refreshOnSession);
+      requestEpoch.current += 1;
+    };
   }, [load]);
 
   const update = (key: keyof Omit<Preferences, 'categoryConsents'>, checked: boolean) => {
