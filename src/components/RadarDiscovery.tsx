@@ -48,7 +48,7 @@ interface RadarDiscoveryProps {
 }
 
 export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
-  profiles,
+  profiles: suppliedProfiles,
   myAnswers,
   myIntent,
   myInterests,
@@ -64,6 +64,9 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
   onOpenFilters,
   onAdClicked
 }) => {
+  // Defense in depth: discovery never renders sponsored placements, even if
+  // a caller accidentally bypasses the upstream candidate filters.
+  const profiles = suppliedProfiles.filter(profile => profile.isSponsorAd !== true);
   const { t } = useLocale();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
