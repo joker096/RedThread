@@ -24,7 +24,7 @@ test('gift delivery city SQL matching normalizes Unicode and whitespace', {
       `SELECT
          LOWER(REGEXP_REPLACE(BTRIM(normalize($1, NFC)), '[[:space:]]+', ' ', 'g')) =
          LOWER(REGEXP_REPLACE(BTRIM(normalize($2, NFC)), '[[:space:]]+', ' ', 'g')) AS matches`,
-      ['  Café   Tbilisi  ', 'Cafe\\u0301 Tbilisi']
+      ['  Café   Tbilisi  ', 'Café Tbilisi']
     );
     assert.equal(result.rows[0].matches, true,
       'database coverage lookup must match canonically equivalent city names');
