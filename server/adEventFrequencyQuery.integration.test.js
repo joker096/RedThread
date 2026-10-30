@@ -221,3 +221,37 @@ test('PostgreSQL unordered-pair uniqueness rejects a reverse-direction pending r
     await client.end();
   }
 });
+
+test('PostgreSQL ad frequency query returns zero counts for a user with no events', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  await client.connect();
+
+  try {
+    // Isolate the query from persistent event data.
+    await client.query(`
+      CREATE TEMP TABLE ad_events (
+        event_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id text NOT NULL,
+        campaign_id text NOT NULL,
+        event_type text NOT NULL,
+        created_at timestamptz NOT NULL
+      ) ON COMMIT PRESERVE ROWS
+    `);
+
+    const result = await client.query(
+      AD_EVENT_FREQUENCY_COUNTS_SQL,
+      ['user-with-no-ad-events', 'campaign-with-no-events']
+    );
+    assert.deepEqual(result.rows[0], {
+      impressions: 0,
+      clicks: 0,
+      impression_retry_after_seconds: 1,
+      click_retry_after_seconds: 1
+    });
+  } finally {
+    await client.end();
+  }
+});
