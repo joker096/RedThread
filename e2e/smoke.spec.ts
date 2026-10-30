@@ -3,7 +3,8 @@ import { expect, test } from '@playwright/test';
 test('browser test environment has a live API connected to PostgreSQL', async ({ request }) => {
   const response = await request.get('http://127.0.0.1:3001/api/ready');
   expect(response.ok()).toBe(true);
-  await expect(response.json()).resolves.toMatchObject({
+  const payload = await response.json();
+  expect(payload).toMatchObject({
     status: 'ready',
     database: 'connected'
   });
