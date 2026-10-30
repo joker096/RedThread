@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizePaddleEvent, isPaddleSubscriptionEntitled } from './paddleBilling.js';
+import { normalizePaddleEvent, isPaddleSubscriptionEntitled, isPremiumEntitlementActive } from './paddleBilling.js';
 
 test('normalizes Paddle webhook snake_case and SDK camelCase envelopes', () => {
   assert.deepEqual(normalizePaddleEvent({ event_id: 'evt_1', event_type: 'subscription.updated', data: {} }), {
@@ -8,6 +8,18 @@ test('normalizes Paddle webhook snake_case and SDK camelCase envelopes', () => {
   });
   assert.equal(normalizePaddleEvent({ eventId: 'evt_2', eventType: 'transaction.completed', data: {} }).eventId, 'evt_2');
   assert.equal(normalizePaddleEvent({ event_type: 'subscription.updated' }), null);
+});
+
+
+test('active Premium and corrupt entitlement data block duplicate checkout', () => {
+  const now = Date.parse('2026-10-30T18:00:00Z');
+  assert.equal(isPremiumEntitlementActive({ premium_lifetime: true }, now), true);
+  assert.equal(isPremiumEntitlementActive({ premium_until: new Date('2026-11-01T00:00:00Z') }, now), true);
+  assert.equal(isPremiumEntitlementActive({ premium_until: '2026-11-01T00:00:00Z' }, now), true);
+  assert.equal(isPremiumEntitlementActive({ premium_until: '2026-10-01T00:00:00Z' }, now), false);
+  assert.equal(isPremiumEntitlementActive({ premium_until: null }, now), false);
+  assert.equal(isPremiumEntitlementActive({ premium_until: 'invalid-date' }, now), true);
+  assert.equal(isPremiumEntitlementActive(null, now), true, 'missing user context must fail closed');
 });
 
 test('only active or trialing subscriptions with a future billing period grant access', () => {
