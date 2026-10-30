@@ -40,6 +40,15 @@ export async function processExpiredGiftRequestBatch(pool, {
      FROM gift_delivery_orders
      WHERE status = 'awaiting_recipient_consent'
        AND expires_at <= NOW()
+       AND (
+         payment_status IN ('not_started', 'voided', 'failed')
+         OR NOT EXISTS (
+           SELECT 1
+           FROM gift_payment_reconciliation_tasks tasks
+           WHERE tasks.order_id = gift_delivery_orders.id
+             AND tasks.reason = 'expired_active_payment'
+         )
+       )
      ORDER BY "matchId", "senderId", "recipientId"
      LIMIT $1`,
     [limit]
