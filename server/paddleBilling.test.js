@@ -98,6 +98,8 @@ test('subscription updates compare source timestamps and do not bypass ordering 
   assert.match(update.sql, /other\.paddle_subscription_id = \$3 AND other\.id <> users\.id/);
   assert.match(update.sql, /other\.paddle_customer_id = \$2 AND other\.id <> users\.id/);
   assert.match(update.sql, /paddle_subscription_id IS NULL OR paddle_subscription_id = \$3/);
+  assert.match(update.sql, /\$9::boolean AND lower\(paddle_subscription_status\) IN \('canceled', 'completed'\)/);
+  assert.equal(update.params[8], false, 'ordinary updates must not replace an established subscription ID');
   assert.match(update.sql, /paddle_customer_id IS NULL OR paddle_customer_id = \$2/);
   assert.match(update.sql, /premium_lifetime IS NOT TRUE/, 'subscription webhooks must not overwrite lifetime Premium');
   assert.equal(update.params[7], '2026-10-24T20:00:00Z');
@@ -324,3 +326,43 @@ test('malformed Paddle custom user IDs are ignored instead of poisoning webhook 
   }
 });
 
+
+
+test('a new subscription may replace a terminal prior subscription but not an active one', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+
+  async function capture(eventType, eventId) {
+    const queries = [];
+    const client = {
+      async query(sql, params) {
+        queries.push({ sql: String(sql), params });
+        if (String(sql).includes('INSERT INTO paddle_webhook_events')) return { rowCount: 1, rows: [{ event_id: eventId }] };
+        return { rowCount: 1, rows: [] };
+      },
+      release() {}
+    };
+    await processPaddleEvent({ async connect() { return client; } }, {
+      eventId,
+      eventType,
+      occurredAt: '2026-10-30T18:00:00Z',
+      data: {
+        id: 'sub_new_' + eventId.replace(/[^A-Za-z0-9]/g, ''),
+        status: 'active',
+        customerId: 'ctm_existing',
+        customData: { userId: '00000000-0000-4000-8000-000000000001' },
+        currentBillingPeriod: { endsAt: '2027-01-30T18:00:00Z' },
+        items: []
+      }
+    });
+    return queries.find(query => query.sql.includes('paddle_subscription_updated_at = COALESCE'));
+  }
+
+  const created = await capture('subscription.created', 'evt_new_subscription');
+  assert.ok(created, 'expected the new subscription lifecycle update');
+  assert.equal(created.params[8], true, 'subscription.created may replace an already terminal subscription');
+  assert.match(created.sql, /lower\(paddle_subscription_status\) IN \('canceled', 'completed'\)/);
+
+  const updated = await capture('subscription.updated', 'evt_updated_subscription');
+  assert.ok(updated, 'expected the ordinary subscription lifecycle update');
+  assert.equal(updated.params[8], false, 'subscription.updated must not replace an established subscription ID');
+});
