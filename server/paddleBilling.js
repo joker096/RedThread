@@ -94,6 +94,30 @@ export async function processPaddleEvent(pool, rawEvent) {
       ].filter(value => typeof value === 'string' && /^pri_[A-Za-z0-9]+$/.test(value)));
       const active = allowedRecurringPriceIds.has(priceId)
         && isPaddleSubscriptionEntitled(status, periodEnd);
+      const checkoutPlan = priceId === process.env.PADDLE_PRICE_ID_1MONTH ? '1month'
+        : priceId === process.env.PADDLE_PRICE_ID_3MONTHS ? '3months' : null;
+      // A newly-created subscription is the event that grants recurring access.
+      // Require a matching durable checkout attempt; custom_data and a known price
+      // alone are not proof that this account initiated this Vow checkout.
+      let subscriptionAttemptClaim = { rowCount: 0, rows: [] };
+      if (eventType === 'subscription.created' && customUserId &&
+          checkoutPlan && customData.plan === checkoutPlan) {
+        subscriptionAttemptClaim = await client.query(
+          `UPDATE paddle_checkout_attempts
+           SET status = 'completed', updated_at = NOW()
+           WHERE user_id = $1 AND plan = $2
+             AND status IN ('creating', 'pending', 'completed', 'reconciliation_required')
+           RETURNING user_id`,
+          [customUserId, checkoutPlan]
+        );
+      }
+      if (eventType === 'subscription.created' && subscriptionAttemptClaim.rowCount !== 1) {
+        // Persist the webhook event id, but do not grant an entitlement when no
+        // server-created checkout attempt can be matched. This is fail-closed;
+        // an operator must reconcile any legitimate out-of-band subscription.
+        await client.query('COMMIT');
+        return { duplicate: false, handled: true };
+      }
       const subscriptionUpdate = await client.query(
         `UPDATE users SET
           paddle_customer_id = COALESCE($2, paddle_customer_id),
@@ -126,14 +150,12 @@ export async function processPaddleEvent(pool, rawEvent) {
           AND premium_lifetime IS NOT TRUE`,
         [customUserId, customerId, subscriptionId, status, priceId, active, active ? periodEnd : null, occurredAt, eventType === 'subscription.created']
       );
-      const checkoutPlan = priceId === process.env.PADDLE_PRICE_ID_1MONTH ? '1month'
-        : priceId === process.env.PADDLE_PRICE_ID_3MONTHS ? '3months' : null;
-      if (customUserId && checkoutPlan && customData.plan === checkoutPlan && subscriptionUpdate.rowCount > 0) {
+      if (eventType === 'subscription.created' && customUserId && checkoutPlan) {
         await client.query(
           `UPDATE paddle_checkout_attempts
-           SET status = 'linked', updated_at = NOW()
-           WHERE user_id = $1 AND plan = $2 AND status IN ('pending', 'completed')`,
-          [customUserId, checkoutPlan]
+           SET status = $3, updated_at = NOW()
+           WHERE user_id = $1 AND plan = $2 AND status = 'completed'`,
+          [customUserId, checkoutPlan, subscriptionUpdate.rowCount > 0 ? 'linked' : 'reconciliation_required']
         );
       }
     } else if (eventType === 'transaction.completed') {
