@@ -145,6 +145,42 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
   }
 });
 
+
+app.post('/api/paddle/portal', validateRequestOrigin, requireSession, async (req, res) => {
+  if (process.env.PADDLE_ENVIRONMENT !== 'sandbox' || !process.env.PADDLE_API_KEY) {
+    return res.status(503).json({ error: 'paddle_portal_not_configured' });
+  }
+  try {
+    const account = await pool.query(
+      `SELECT paddle_customer_id, paddle_subscription_id
+       FROM users
+       WHERE id = $1 AND status = 'active'`,
+      [req.authUser.id]
+    );
+    const billing = account.rows[0];
+    if (!billing || typeof billing.paddle_customer_id !== 'string' ||
+        !/^ctm_[A-Za-z0-9]+$/.test(billing.paddle_customer_id)) {
+      return res.status(409).json({ error: 'paddle_customer_unavailable' });
+    }
+    if (billing.paddle_subscription_id !== null &&
+        (typeof billing.paddle_subscription_id !== 'string' ||
+         !/^sub_[A-Za-z0-9]+$/.test(billing.paddle_subscription_id))) {
+      return res.status(409).json({ error: 'paddle_subscription_unavailable' });
+    }
+    const { createPaddleCustomerPortalSession } = await import('./paddleBilling.js');
+    const portal = await createPaddleCustomerPortalSession({
+      apiKey: process.env.PADDLE_API_KEY,
+      environment: process.env.PADDLE_ENVIRONMENT,
+      customerId: billing.paddle_customer_id,
+      subscriptionId: billing.paddle_subscription_id
+    });
+    return res.json({ url: portal.url });
+  } catch (error) {
+    console.error('Paddle customer portal session failed:', error?.message || 'unknown error');
+    return res.status(502).json({ error: 'paddle_portal_unavailable' });
+  }
+});
+
 app.get('/api/paddle/config', requireSession, (req, res) => {
   if (process.env.PADDLE_ENVIRONMENT !== 'sandbox' ||
       !process.env.PADDLE_API_KEY ||
