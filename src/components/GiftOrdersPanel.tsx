@@ -171,6 +171,7 @@ export const GiftOrdersPanel: React.FC = () => {
         loadRequestId.current += 1;
         setOrders([]);
         setLoadFailed(true);
+        setBusyReference(null);
         setNotice(t('giftOrdersSignInRequired'));
         return;
       }
@@ -204,6 +205,7 @@ export const GiftOrdersPanel: React.FC = () => {
         loadRequestId.current += 1;
         setOrders([]);
         setLoadFailed(true);
+        setBusyReference(null);
         setNotice(t('giftOrdersSignInRequired'));
         return;
       }
