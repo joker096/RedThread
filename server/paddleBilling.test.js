@@ -244,13 +244,16 @@ test('does not grant lifetime Premium when the transaction price does not match 
       }
     });
     assert.equal(queries.some(query => query.sql.includes('premium_lifetime = TRUE')), false);
-    const identityUpdate = queries.find(query => query.sql.includes('paddle_subscription_id = COALESCE($3, paddle_subscription_id)'));
-    assert.ok(identityUpdate, 'expected the non-lifetime transaction identity update');
-    assert.match(identityUpdate.sql, /other\.paddle_subscription_id = \$3 AND other\.id <> users\.id/);
-    assert.match(identityUpdate.sql, /other\.paddle_customer_id = \$2 AND other\.id <> users\.id/);
-    assert.match(identityUpdate.sql, /paddle_customer_id IS NULL OR paddle_customer_id = \$2/);
-    assert.match(identityUpdate.sql, /paddle_subscription_id IS NULL OR paddle_subscription_id = \$3/);
-    assert.match(identityUpdate.sql, /users\.status = 'active'/, 'transaction webhooks must not mutate deleted accounts');
+    assert.equal(
+      queries.some(query => query.sql.includes('UPDATE users')),
+      false,
+      'a transaction with an unexpected price must not bind Paddle identities'
+    );
+    assert.equal(
+      queries.some(query => query.sql.includes('UPDATE paddle_checkout_attempts')),
+      false,
+      'a transaction with an unexpected price must not complete a checkout attempt'
+    );
   } finally {
     if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
     else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
@@ -340,10 +343,8 @@ test('malformed Paddle custom user IDs are ignored instead of poisoning webhook 
     });
 
     assert.equal(result.handled, true);
-    assert.equal(queries.some(query => query.sql.includes('premium_lifetime = TRUE')), false);
-    const identityUpdate = queries.find(query => query.sql.includes('paddle_subscription_id = COALESCE($3, paddle_subscription_id)'));
-    assert.ok(identityUpdate, 'expected safe no-op identity reconciliation');
-    assert.equal(identityUpdate.params[0], null);
+    assert.equal(queries.some(query => query.sql.includes('UPDATE users')), false);
+    assert.equal(queries.some(query => query.sql.includes('UPDATE paddle_checkout_attempts')), false);
     assert.equal(queries.some(query => query.sql === 'COMMIT'), true);
   } finally {
     if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
