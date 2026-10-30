@@ -1,16 +1,26 @@
+import { setTimeout as delay } from 'node:timers/promises';
+
 export const MIGRATION_ADVISORY_LOCK_CLASS = 724110;
 export const MIGRATION_ADVISORY_LOCK_ID = 1;
 
 /**
- * Hold a session-level PostgreSQL advisory lock for the complete migration
- * run. Unlike transaction-level locks, this remains held across each
- * migration's BEGIN/COMMIT boundary.
+ * Acquire a session-level lock without blocking the connection indefinitely.
+ * The optional shouldAbort callback lets CLI shutdown stop waiting safely.
  */
-export async function acquireMigrationLock(client) {
-  await client.query(
-    'SELECT pg_advisory_lock($1, $2)',
-    [MIGRATION_ADVISORY_LOCK_CLASS, MIGRATION_ADVISORY_LOCK_ID]
-  );
+export async function acquireMigrationLock(client, {
+  shouldAbort = () => false,
+  retryDelayMs = 250
+} = {}) {
+  while (!shouldAbort()) {
+    const result = await client.query(
+      'SELECT pg_try_advisory_lock($1, $2) AS acquired',
+      [MIGRATION_ADVISORY_LOCK_CLASS, MIGRATION_ADVISORY_LOCK_ID]
+    );
+    if (result.rows[0]?.acquired === true) break;
+    await delay(retryDelayMs);
+  }
+
+  if (shouldAbort()) return null;
 
   let released = false;
   return async function releaseMigrationLock() {
