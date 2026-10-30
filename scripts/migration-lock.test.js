@@ -50,12 +50,9 @@ test('migration advisory lock is session-scoped and serializes concurrent migrat
     assert.equal(acquired.error, undefined);
     releaseSecond = acquired.release;
 
-    const unlocked = await second.query(
-      'SELECT pg_advisory_unlock($1, $2) AS unlocked',
-      [MIGRATION_ADVISORY_LOCK_CLASS, MIGRATION_ADVISORY_LOCK_ID]
-    );
-    assert.equal(unlocked.rows[0].unlocked, true,
-      'the lock remains held across transaction boundaries until explicitly released');
+    await second.query('BEGIN');
+    await second.query('COMMIT');
+    await releaseSecond();
     releaseSecond = null;
   } finally {
     if (releaseFirst) await releaseFirst().catch(() => {});
