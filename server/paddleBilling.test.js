@@ -461,6 +461,7 @@ test('Paddle subscription cancellation requires a confirmed immediate cancellati
   const result = await cancelPaddleSubscription({
     apiKey: 'sandbox_api_key',
     subscriptionId: 'sub_0123456789abcdef01234567',
+    customerId: 'ctm_0123456789abcdef01234567',
     fetchImpl: async (url, options) => {
       request = { url, options };
       return {
