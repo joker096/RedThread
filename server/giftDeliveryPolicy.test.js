@@ -73,7 +73,7 @@ test('rate limits and product restrictions block coercion and unsafe categories'
   assert.equal(request({ product: { totalMinorUnits: 0 } }).reason, 'invalid_total_price');
   assert.equal(request({ delivery: { coverageVerified: false } }).reason, 'delivery_region_unavailable');
 });
-const order = { id: 'internal-order-1', publicReference: 'gift_7f2a', status: 'address_verified', senderId: sender.id, recipientId: recipient.id, consentRecordedAt: '2026-10-20T12:00:00Z', expiresAt: '2026-10-30T12:00:00Z', totalMinorUnits: 2500, currency: 'GEL', fulfilmentAuthorized: false, productName: 'Chocolate box' };
+const order = { id: 'internal-order-1', publicReference: 'gift_7f2a', status: 'address_verified', senderId: sender.id, recipientId: recipient.id, consentRecordedAt: '2026-10-20T12:00:00Z', expiresAt: '2099-10-30T12:00:00Z', totalMinorUnits: 2500, currency: 'GEL', fulfilmentAuthorized: false, productName: 'Chocolate box' };
 const address = { ownerUserId: recipient.id, verified: true, recipientEntered: true };
 const payment = { status: 'authorized', orderId: order.id, amountMinorUnits: 2500, currency: 'GEL' };
 test('fulfilment eligibility fails closed when the validation clock is invalid', () => {
