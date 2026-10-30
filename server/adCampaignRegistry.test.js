@@ -11,6 +11,7 @@ const approved = {
   advertiserVerified: true,
   creativeApproved: true,
   creativeVersion: 'creative-v3',
+  creativeContext: 'general',
   category: 'cafe',
   startsAt: '2026-10-01T00:00:00.000Z',
   endsAt: '2026-11-01T00:00:00.000Z'
@@ -32,6 +33,14 @@ test('campaign registry denies missing, empty and whitespace-only campaign ids',
       JSON.stringify(id)
     );
   }
+});
+
+
+test('campaign registry creative-context classification is constrained by the database migration', () => {
+  const migration = readFileSync(new URL('./migrations/047_ad_campaign_creative_context.sql', import.meta.url), 'utf8');
+  assert.match(migration, /ADD COLUMN IF NOT EXISTS creative_context TEXT/);
+  assert.match(migration, /creative_context IS NULL OR creative_context IN \('general', 'bridal'\)/);
+  assert.match(migration, /NULL legacy rows are not eligible for serving/);
 });
 
 test('campaign registry denies unknown campaign ids', () => {
@@ -83,6 +92,16 @@ test('campaign registry rejects malformed windows and missing creative version',
   assert.equal(evaluateAdCampaignEligibility({ ...approved, startsAt: '2026-10-01T00:00:00+15:00' }, { now }).reason, 'campaign_window_invalid');
   assert.equal(evaluateAdCampaignEligibility({ ...approved, startsAt: '0099-01-01T00:00:00Z', endsAt: '0099-12-31T23:59:59Z' }, { now: Date.parse('0099-06-01T00:00:00Z') }).eligible, true);
   assert.equal(evaluateAdCampaignEligibility({ ...approved, creativeVersion: '' }, { now }).reason, 'creative_not_approved');
+});
+
+test('campaign registry requires a moderator-classified creative context', () => {
+  for (const creativeContext of [undefined, null, '']) {
+    assert.equal(evaluateAdCampaignEligibility({ ...approved, creativeContext }, { now }).reason, 'creative_context_unclassified');
+  }
+  for (const creativeContext of ['bridal-ish', 'unknown', 'GENERAL']) {
+    assert.equal(evaluateAdCampaignEligibility({ ...approved, creativeContext }, { now }).reason, 'creative_context_invalid');
+  }
+  assert.equal(evaluateAdCampaignEligibility({ ...approved, creativeContext: 'bridal' }, { now }).eligible, true);
 });
 
 test('campaign registry rejects categories outside the approved allowlist', () => {
