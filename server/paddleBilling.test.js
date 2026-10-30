@@ -480,6 +480,7 @@ test('a new subscription may replace a terminal prior subscription but not an ac
         status: 'active',
         customerId: 'ctm_existing',
         customData: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month' },
+        transaction_id: 'txn_0123456789abcdef01234567',
         currentBillingPeriod: { endsAt: '2027-01-30T18:00:00Z' },
         items: [{ price: { id: 'pri_month_test' } }]
       }
