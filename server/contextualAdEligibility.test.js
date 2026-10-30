@@ -161,6 +161,10 @@ test('user-requested gift discovery does not require a match or date', () => {
     campaign: { ...campaign, category: 'gift' }, viewer: { ...viewer, safetyRestricted: undefined },
     surface: 'user_requested_gift_discovery'
   }).reason, 'safety_state_unavailable_or_restricted');
+  assert.equal(evaluateContextualAdEligibility({
+    campaign: { ...campaign, category: 'flowers', creativeContext: 'bridal' }, viewer,
+    surface: 'user_requested_gift_discovery'
+  }).reason, 'missing_context', 'bridal creative must not bypass bridal relationship eligibility through gift discovery');
 });
 
 test('bridal creatives require explicit classification, opted-in adult women, and the full relationship threshold', () => {
