@@ -119,7 +119,120 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
   const priceId = plans[plan];
   if (!priceId || !/^pri_[A-Za-z0-9]+$/.test(priceId)) return res.status(503).json({ error: 'paddle_price_not_configured' });
 
+  let client;
+  let attemptStarted = false;
   try {
+    const {
+      isPremiumCheckoutBlocked,
+      getPaddleCheckoutTransaction
+    } = await import('./paddleBilling.js');
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`paddle-checkout:${req.authUser.id}`]);
+    const userResult = await client.query(
+      `SELECT id, gender, status, premium_until, premium_lifetime,
+              paddle_subscription_id, paddle_subscription_status
+       FROM users WHERE id = $1 FOR UPDATE`,
+      [req.authUser.id]
+    );
+    const user = userResult.rows[0];
+    if (!user || user.status !== 'active' || user.gender !== 'female') {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'premium_checkout_not_available' });
+    }
+    if (isPremiumCheckoutBlocked(user)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'premium_already_active' });
+    }
+
+    const attemptResult = await client.query(
+      `SELECT transaction_id, plan, status
+       FROM paddle_checkout_attempts WHERE user_id = $1 FOR UPDATE`,
+      [req.authUser.id]
+    );
+    const existingAttempt = attemptResult.rows[0];
+    if (existingAttempt && ['creating', 'completed', 'reconciliation_required'].includes(existingAttempt.status)) {
+      await client.query('COMMIT');
+      return res.status(409).json({
+        error: existingAttempt.status === 'completed'
+          ? 'paddle_checkout_processing'
+          : 'paddle_checkout_reconciliation_required',
+        pendingPlan: existingAttempt.plan
+      });
+    }
+    if (existingAttempt?.status === 'pending') {
+      if (!existingAttempt.transaction_id) {
+        await client.query(
+          `UPDATE paddle_checkout_attempts SET status = 'reconciliation_required', updated_at = NOW()
+           WHERE user_id = $1`,
+          [req.authUser.id]
+        );
+        await client.query('COMMIT');
+        return res.status(409).json({ error: 'paddle_checkout_reconciliation_required' });
+      }
+      const providerTransaction = await getPaddleCheckoutTransaction({
+        apiKey: process.env.PADDLE_API_KEY,
+        environment: process.env.PADDLE_ENVIRONMENT,
+        transactionId: existingAttempt.transaction_id,
+        expectedUserId: req.authUser.id,
+        expectedPlan: existingAttempt.plan
+      });
+      if (['draft', 'ready'].includes(providerTransaction.status)) {
+        await client.query('COMMIT');
+        if (existingAttempt.plan !== plan) {
+          return res.status(409).json({
+            error: 'paddle_checkout_already_pending',
+            pendingPlan: existingAttempt.plan
+          });
+        }
+        return res.json({ transactionId: existingAttempt.transaction_id, environment: 'sandbox' });
+      }
+      if (['completed', 'paid'].includes(providerTransaction.status)) {
+        await client.query(
+          `UPDATE paddle_checkout_attempts SET status = 'completed', updated_at = NOW()
+           WHERE user_id = $1`,
+          [req.authUser.id]
+        );
+        await client.query('COMMIT');
+        return res.status(409).json({ error: 'paddle_checkout_processing', pendingPlan: existingAttempt.plan });
+      }
+      if (providerTransaction.status === 'canceled') {
+        await client.query(
+          `UPDATE paddle_checkout_attempts SET status = 'canceled', updated_at = NOW()
+           WHERE user_id = $1`,
+          [req.authUser.id]
+        );
+      } else {
+        await client.query(
+          `UPDATE paddle_checkout_attempts SET status = 'reconciliation_required', updated_at = NOW()
+           WHERE user_id = $1`,
+          [req.authUser.id]
+        );
+        await client.query('COMMIT');
+        return res.status(409).json({ error: 'paddle_checkout_reconciliation_required' });
+      }
+    } else if (existingAttempt && !['canceled', 'linked'].includes(existingAttempt.status)) {
+      await client.query('COMMIT');
+      return res.status(409).json({ error: 'paddle_checkout_reconciliation_required' });
+    }
+
+    const attemptInsert = await client.query(
+      `INSERT INTO paddle_checkout_attempts (user_id, transaction_id, plan, status, created_at, updated_at)
+       VALUES ($1, NULL, $2, 'creating', NOW(), NOW())
+       ON CONFLICT (user_id) DO UPDATE
+       SET transaction_id = NULL, plan = EXCLUDED.plan, status = 'creating',
+           created_at = NOW(), updated_at = NOW()
+       WHERE paddle_checkout_attempts.status IN ('canceled', 'linked')
+       RETURNING user_id`,
+      [req.authUser.id, plan]
+    );
+    if (!attemptInsert.rowCount) {
+      await client.query('COMMIT');
+      return res.status(409).json({ error: 'paddle_checkout_already_pending' });
+    }
+    await client.query('COMMIT');
+    attemptStarted = true;
+
     const response = await fetch('https://sandbox-api.paddle.com/transactions', {
       method: 'POST',
       headers: {
@@ -130,18 +243,64 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
       body: JSON.stringify({
         items: [{ price_id: priceId, quantity: 1 }],
         custom_data: { userId: req.authUser.id, plan }
-      })
+      }),
+      signal: AbortSignal.timeout(10_000)
     });
     const payload = await response.json().catch(() => null);
     const transactionId = payload?.data?.id;
-    if (!response.ok || typeof transactionId !== 'string' || !transactionId.startsWith('txn_')) {
+    if (!response.ok) {
+      const nextStatus = response.status >= 500 ? 'reconciliation_required' : 'canceled';
+      await pool.query(
+        `UPDATE paddle_checkout_attempts SET status = $2, updated_at = NOW()
+         WHERE user_id = $1 AND status = 'creating'`,
+        [req.authUser.id, nextStatus]
+      );
       console.error('Paddle sandbox transaction rejected:', response.status, payload?.error?.code || 'unknown_error');
       return res.status(502).json({ error: 'paddle_checkout_session_failed' });
     }
+    if (typeof transactionId !== 'string' || !/^txn_[A-Za-z0-9]+$/.test(transactionId)) {
+      await pool.query(
+        `UPDATE paddle_checkout_attempts SET status = 'reconciliation_required', updated_at = NOW()
+         WHERE user_id = $1 AND status = 'creating'`,
+        [req.authUser.id]
+      );
+      return res.status(502).json({ error: 'paddle_checkout_session_failed' });
+    }
+    const savedAttempt = await pool.query(
+      `UPDATE paddle_checkout_attempts
+       SET transaction_id = $2, status = 'pending', updated_at = NOW()
+       WHERE user_id = $1 AND status = 'creating'
+         AND EXISTS (SELECT 1 FROM users WHERE id = $1 AND status = 'active')
+       RETURNING transaction_id`,
+      [req.authUser.id, transactionId]
+    );
+    if (!savedAttempt.rowCount) {
+      const { cancelPaddleCheckoutTransaction } = await import('./paddleBilling.js');
+      await cancelPaddleCheckoutTransaction({
+        apiKey: process.env.PADDLE_API_KEY,
+        environment: process.env.PADDLE_ENVIRONMENT,
+        transactionId,
+        expectedUserId: req.authUser.id,
+        expectedPlan: plan
+      });
+      return res.status(409).json({ error: 'account_not_available' });
+    }
     return res.json({ transactionId, environment: 'sandbox' });
   } catch (error) {
+    if (client) {
+      try { await client.query('ROLLBACK'); } catch {}
+    }
+    if (attemptStarted) {
+      await pool.query(
+        `UPDATE paddle_checkout_attempts SET status = 'reconciliation_required', updated_at = NOW()
+         WHERE user_id = $1 AND status = 'creating'`,
+        [req.authUser.id]
+      ).catch(() => {});
+    }
     console.error('Paddle sandbox checkout request failed:', error?.message || 'unknown error');
     return res.status(502).json({ error: 'paddle_checkout_unavailable' });
+  } finally {
+    client?.release();
   }
 });
 
