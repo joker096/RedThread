@@ -89,7 +89,7 @@ export const GiftOrdersPanel: React.FC = () => {
   const sessionEpoch = useRef(0);
   const panelRef = useRef<HTMLElement | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (options?: { preserveNotice?: boolean }) => {
     const requestId = ++loadRequestId.current;
     setLoading(true);
     setLoadFailed(false);
@@ -107,7 +107,7 @@ export const GiftOrdersPanel: React.FC = () => {
       }
       if (!payload || typeof payload !== 'object' || !('orders' in payload)) throw new Error(t('giftOrdersLoadError'));
       setOrders(normalizeGiftOrders(payload));
-      setNotice('');
+      if (!options?.preserveNotice) setNotice('');
     } catch (error) {
       if (requestId !== loadRequestId.current) return;
       setLoadFailed(true);
@@ -171,15 +171,21 @@ export const GiftOrdersPanel: React.FC = () => {
         loadRequestId.current += 1;
         setOrders([]);
         setLoadFailed(true);
+        setLoading(false);
         setBusyReference(null);
         setNotice(t('giftOrdersSignInRequired'));
         return;
       }
+      if (response.status === 409) {
+        setNotice(t('giftOrdersStaleRequest'));
+        await load({ preserveNotice: true });
+        return;
+      }
       if (!response.ok) {
-        throw new Error(response.status === 409 ? t('giftOrdersStaleRequest') : t('giftOrdersDecisionError'));
+        throw new Error(t('giftOrdersDecisionError'));
       }
       setNotice(action === 'accept' ? t('giftOrdersAcceptedNoDelivery') : t('giftOrdersDeclined'));
-      await load();
+      await load({ preserveNotice: true });
     } catch (error) {
       if (actionEpoch === sessionEpoch.current) {
         setNotice(error instanceof Error ? error.message : t('giftOrdersDecisionError'));
@@ -209,11 +215,16 @@ export const GiftOrdersPanel: React.FC = () => {
         setNotice(t('giftOrdersSignInRequired'));
         return;
       }
+      if (response.status === 409) {
+        setNotice(t('giftOrdersWithdrawUnavailable'));
+        await load({ preserveNotice: true });
+        return;
+      }
       if (!response.ok) {
-        throw new Error(response.status === 409 ? t('giftOrdersWithdrawUnavailable') : t('giftOrdersDecisionError'));
+        throw new Error(t('giftOrdersDecisionError'));
       }
       setNotice(t('giftOrdersConsentWithdrawn'));
-      await load();
+      await load({ preserveNotice: true });
     } catch (error) {
       if (actionEpoch === sessionEpoch.current) {
         setNotice(error instanceof Error ? error.message : t('giftOrdersDecisionError'));
