@@ -377,7 +377,7 @@ test('a new subscription may replace a terminal prior subscription but not an ac
       eventType,
       occurredAt: '2026-10-30T18:00:00Z',
       data: {
-        id: 'sub_new_' + eventId.replace(/[^A-Za-z0-9]/g, ''),
+        id: 'sub_' + eventId.replace(/[^A-Za-z0-9]/g, ''),
         status: 'active',
         customerId: 'ctm_existing',
         customData: { userId: '00000000-0000-4000-8000-000000000001' },
