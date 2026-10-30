@@ -1134,7 +1134,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
           await client.query(
             `UPDATE paddle_checkout_attempts SET status = $2, updated_at = NOW()
              WHERE user_id = $1 AND status = 'pending'`,
-            [req.authUser.id, providerTransaction.status === 'past_due' ? 'reconciliation_required' : 'completed']
+            [req.authUser.id, 'completed']
           );
           if (checkoutAttempt.plan !== 'lifetime' && !subscriptionId) {
             return res.status(409).json({ error: 'paddle_checkout_processing' });
