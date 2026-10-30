@@ -155,6 +155,11 @@ test('user-requested gift discovery does not require a match or date', () => {
   });
   assert.deepEqual(result, { eligible: true, reason: 'user_requested_gift_discovery' });
   assert.equal(evaluateContextualAdEligibility({
+    campaign: { ...campaign, category: 'flowers', regionAllowed: false },
+    viewer,
+    surface: 'user_requested_gift_discovery'
+  }).reason, 'region_not_allowed', 'user-requested gift discovery must not bypass campaign geography');
+  assert.equal(evaluateContextualAdEligibility({
     campaign: { ...campaign, category: 'cafe' }, viewer, surface: 'user_requested_gift_discovery'
   }).reason, 'missing_context');
   assert.equal(evaluateContextualAdEligibility({
@@ -211,6 +216,8 @@ test('bridal creatives require explicit classification, opted-in adult women, an
 
 test('approved opt-in categories require their own consent and entry points, not a match', () => {
   assert.equal(evaluate({ campaign: { category: 'fashion' }, surface: 'offers' }).reason, 'category_opt_in');
+  assert.equal(evaluate({ campaign: { category: 'fashion', regionAllowed: false }, surface: 'offers' }).reason, 'region_not_allowed',
+    'category-opt-in offers must still obey campaign geography');
   assert.equal(evaluate({ campaign: { category: 'fashion' }, viewer: { categoryConsents: {} }, surface: 'offers' }).reason, 'category_consent_required');
   assert.equal(evaluate({ campaign: { category: 'fashion' }, viewer: { categoryConsents: undefined }, surface: 'offers' }).reason, 'category_consent_required');
 
