@@ -113,7 +113,6 @@ test('subscription updates compare source timestamps and do not bypass ordering 
   assert.match(update.sql, /\$9::boolean AND lower\(paddle_subscription_status\) IN \('canceled', 'completed'\)/);
   assert.equal(update.params[8], false, 'ordinary updates must not replace an established subscription ID');
   assert.match(update.sql, /paddle_customer_id IS NULL OR paddle_customer_id = \$2/);
-  assert.match(update.sql, /users\.status = 'active'/, 'customer webhooks must not mutate deleted accounts');
   assert.match(update.sql, /premium_lifetime IS NOT TRUE/, 'subscription webhooks must not overwrite lifetime Premium');
   assert.match(update.sql, /users\.status = 'active'/, 'subscription webhooks must not revive deleted accounts');
   assert.equal(update.params[7], '2026-10-24T20:00:00Z');
@@ -273,6 +272,7 @@ test('customer webhook cannot replace an account customer ID once established', 
   const update = queries.find(query => query.sql.includes('lower(email) = lower($3)'));
   assert.ok(update, 'expected customer identity update');
   assert.match(update.sql, /paddle_customer_id IS NULL OR paddle_customer_id = \$2/);
+  assert.match(update.sql, /users\.status = 'active'/, 'customer webhooks must not mutate deleted accounts');
 });
 
 
