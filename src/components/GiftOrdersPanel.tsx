@@ -51,7 +51,7 @@ export function normalizeGiftOrders(value: unknown): GiftOrder[] {
       || typeof order.productCategory !== 'string'
       || typeof order.status !== 'string'
       || (order.myRole !== 'recipient' && order.myRole !== 'sender')
-      || !Number.isSafeInteger(order.totalMinorUnits) || order.totalMinorUnits <= 0
+      || typeof order.totalMinorUnits !== 'number' || !Number.isSafeInteger(order.totalMinorUnits) || order.totalMinorUnits <= 0
       || typeof order.currency !== 'string' || !/^[A-Z]{3}$/.test(order.currency)
       || typeof order.createdAt !== 'string') return [];
     const createdAt = normalizeOptionalDate(order.createdAt);
