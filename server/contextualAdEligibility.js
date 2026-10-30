@@ -8,6 +8,11 @@ export const DATE_CONTEXT_AD_CATEGORIES = Object.freeze([
 export const OPT_IN_AD_CATEGORIES = Object.freeze([
   'fashion', 'beauty', 'travel', 'general_local'
 ]);
+export const BRIDAL_AD_CATEGORIES = Object.freeze(['fashion', 'beauty', 'general_local']);
+const BRIDAL_CATEGORIES = new Set(BRIDAL_AD_CATEGORIES);
+export const BRIDAL_MIN_MATCH_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+export const BRIDAL_MIN_ACTIVE_DAYS = 3;
+export const BRIDAL_MIN_MESSAGES_PER_PARTICIPANT = 20;
 
 const APPROVED_CAMPAIGN_CATEGORIES = new Set(ALLOWED_AD_CAMPAIGN_CATEGORIES);
 const DATE_CONTEXT_CATEGORIES = new Set(DATE_CONTEXT_AD_CATEGORIES);
@@ -50,6 +55,12 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
       typeof campaign.creativeVersion !== 'string' || !campaign.creativeVersion.trim()) {
     return deny('advertiser_or_creative_not_approved');
   }
+  if (campaign.creativeContext === undefined || campaign.creativeContext === null || campaign.creativeContext === '') {
+    return deny('creative_context_unclassified');
+  }
+  if (campaign.creativeContext !== 'general' && campaign.creativeContext !== 'bridal') {
+    return deny('creative_context_invalid');
+  }
   if (viewer.accountEligible !== true || viewer.adsConsent !== true) return deny('viewer_not_consented_or_eligible');
   // Safety state must be explicitly loaded from trusted server records; unknown is not equivalent to safe.
   if (viewer.safetyRestricted !== false) return deny('safety_state_unavailable_or_restricted');
@@ -62,6 +73,47 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
   // Private or safety-critical surfaces never carry advertising.
   if (['discovery', 'private_chat', 'voice_call', 'video_call', 'verification', 'reporting', 'blocking', 'checkout', 'payment'].includes(surface)) {
     return deny('surface_excluded');
+  }
+
+  // Bridal intent is a moderator-classified creative purpose, never inferred
+  // from the broad campaign category (for example, "fashion"). Missing or
+  // stale classification is denied by the registry before this branch.
+  if (campaign.creativeContext === 'bridal') {
+    if (!BRIDAL_CATEGORIES.has(category)) return deny('bridal_category_not_supported');
+    if (surface !== 'relationship_offers') return deny('bridal_surface_required');
+    if (viewer.selfDescribedGender !== 'woman' || !Number.isSafeInteger(viewer.age) || viewer.age < 18) {
+      return deny('bridal_audience_not_eligible');
+    }
+    if (viewer.weddingOffersConsent !== true || viewer.marriagePlanningOptIn !== true) {
+      return deny('bridal_consent_required');
+    }
+    if (!match) return deny('missing_context');
+    if (match.safetyRestricted !== false || match.blocked !== false ||
+        match.reported !== false || match.paused !== false) {
+      return deny('safety_state_unavailable_or_restricted');
+    }
+    if (match.partnerAccountEligible !== true || match.partnerSafetyRestricted !== false) {
+      return deny('partner_safety_state_unavailable_or_restricted');
+    }
+    // The other participant's activity contributes to this eligibility
+    // decision, so their explicit master ad consent is required as well.
+    if (match.partnerAdsConsent !== true) return deny('both_participants_consent_required');
+    if (!isValidDate(match.createdAt)) return deny('bridal_match_age_unavailable');
+    const validationNow = campaign.now === undefined ? Date.now() : campaign.now;
+    if (!Number.isFinite(validationNow)) return deny('invalid_validation_clock');
+    if (validationNow - Date.parse(match.createdAt) < BRIDAL_MIN_MATCH_AGE_MS) {
+      return deny('bridal_match_too_new');
+    }
+    if (!Number.isSafeInteger(match.activeDays) || match.activeDays < BRIDAL_MIN_ACTIVE_DAYS) {
+      return deny('bridal_activity_insufficient');
+    }
+    if (!Number.isSafeInteger(match.viewerMessageCount) ||
+        !Number.isSafeInteger(match.partnerMessageCount) ||
+        match.viewerMessageCount < BRIDAL_MIN_MESSAGES_PER_PARTICIPANT ||
+        match.partnerMessageCount < BRIDAL_MIN_MESSAGES_PER_PARTICIPANT) {
+      return deny('bridal_conversation_insufficient');
+    }
+    return allow('bridal_relationship');
   }
 
   if (DATE_CONTEXT_CATEGORIES.has(category)) {
