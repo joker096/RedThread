@@ -2029,12 +2029,35 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       deletionSafetyOrderId = deletionSafetyOrder.rows[0].id;
 
+      await deletionSafetyDb.query(
+        `INSERT INTO ad_consent_history (user_id, consent_version, preferences)
+         VALUES ($1, 1, $2::jsonb)`,
+        [registered.user.id, JSON.stringify({
+          adsConsent: false,
+          dateOffersConsent: false,
+          weddingOffersConsent: false,
+          marriagePlanningOptIn: false,
+          categoryConsents: {}
+        })]
+      );
+      const consentHistoryBeforeDeletion = await deletionSafetyDb.query(
+        'SELECT COUNT(*)::int AS count FROM ad_consent_history WHERE user_id = $1',
+        [registered.user.id]
+      );
+      assert.equal(consentHistoryBeforeDeletion.rows[0].count, 1);
+
       const deleteAccount = await request('/api/account', {
         method: 'DELETE',
         headers: { Cookie: secondCookie },
         body: JSON.stringify({ password })
       });
       assert.equal(deleteAccount.status, 204);
+      const consentHistoryAfterDeletion = await deletionSafetyDb.query(
+        'SELECT COUNT(*)::int AS count FROM ad_consent_history WHERE user_id = $1',
+        [registered.user.id]
+      );
+      assert.equal(consentHistoryAfterDeletion.rows[0].count, 0,
+        'account deletion must purge user-linked advertising consent history');
       const deletedGift = await deletionSafetyDb.query(
         'SELECT status, payment_status, address_vault_ref, address_verified_at FROM gift_delivery_orders WHERE id = $1',
         [deletionSafetyOrderId]
