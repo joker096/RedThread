@@ -576,7 +576,7 @@ test('Paddle checkout transaction lookup verifies user and plan ownership', asyn
       };
     }
   });
-  assert.deepEqual(result, { id: 'txn_0123456789abcdef01234567', status: 'ready' });
+  assert.deepEqual(result, { id: 'txn_0123456789abcdef01234567', status: 'ready', origin: '', subscriptionId: null });
   await assert.rejects(
     getPaddleCheckoutTransaction({
       apiKey: 'sandbox_api_key',
@@ -649,7 +649,37 @@ test('Paddle checkout cancellation cancels only owned draft or ready transaction
       }
     })
   });
-  assert.deepEqual(completed, { id: 'txn_0123456789abcdef01234567', status: 'completed' });
+  assert.deepEqual(completed, {
+    id: 'txn_0123456789abcdef01234567',
+    status: 'completed',
+    origin: '',
+    subscriptionId: null
+  });
+
+  const subscriptionOriginRequests = [];
+  const subscriptionOrigin = await cancelPaddleCheckoutTransaction({
+    apiKey: 'sandbox_api_key',
+    transactionId: 'txn_0123456789abcdef01234567',
+    expectedUserId: '00000000-0000-4000-8000-000000000001',
+    expectedPlan: '1month',
+    fetchImpl: async (url, options) => {
+      subscriptionOriginRequests.push(options.method);
+      return {
+        ok: true,
+        async json() {
+          return { data: {
+            id: 'txn_0123456789abcdef01234567',
+            status: 'ready',
+            origin: 'subscription_charge',
+            subscription_id: 'sub_0123456789abcdef01234567',
+            custom_data: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month' }
+          } };
+        }
+      };
+    }
+  });
+  assert.equal(subscriptionOrigin.status, 'subscription_transaction');
+  assert.deepEqual(subscriptionOriginRequests, ['GET'], 'subscription-origin transactions must not be canceled through the transaction API');
 });
 
 
