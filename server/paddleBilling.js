@@ -84,6 +84,24 @@ export async function processPaddleEvent(pool, rawEvent) {
       ? data.id
       : typeof data.subscriptionId === 'string' ? data.subscriptionId
         : typeof data.subscription_id === 'string' ? data.subscription_id : null;
+    // Serialize provider identity/entitlement writes with account deletion and
+    // safety actions. Deletion holds this same advisory key across external
+    // Paddle cancellation, so a late subscription.created event cannot attach
+    // a renewing subscription after the account has been deleted.
+    let paddleIdentityUserId = customUserId;
+    if (!paddleIdentityUserId && subscriptionLifecycleEvent && subscriptionId) {
+      const existingOwner = await client.query(
+        'SELECT id FROM users WHERE paddle_subscription_id = $1 LIMIT 1',
+        [subscriptionId]
+      );
+      paddleIdentityUserId = existingOwner.rows[0]?.id || null;
+    }
+    if (paddleIdentityUserId) {
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtext('gift-safety-user:' || $1::uuid::text))",
+        [paddleIdentityUserId]
+      );
+    }
     const customerId = typeof data.customerId === 'string' ? data.customerId
       : typeof data.customer_id === 'string' ? data.customer_id
         : (eventType === 'customer.created' || eventType === 'customer.updated') && typeof data.id === 'string' ? data.id : null;
