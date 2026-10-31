@@ -2156,6 +2156,9 @@ test('auth API supports registration, session lookup, logout and login', {
       // Login does not use the account-safety advisory lock. Check it only
       // after deletion commits, so the test asserts the persisted deleted
       // state rather than incorrectly expecting login to join that lock queue.
+      // Reset this test database's auth limiter bucket so earlier auth cases
+      // cannot mask the deleted-account response with an unrelated HTTP 429.
+      await deletionSafetyDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'auth:%'");
       const staleLogin = await request('/api/auth/login', {
         method: 'POST',
         body: JSON.stringify({ email, password })
