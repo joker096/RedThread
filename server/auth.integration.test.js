@@ -2087,6 +2087,10 @@ test('auth API supports registration, session lookup, logout and login', {
         'SELECT COUNT(*)::int AS count FROM messages WHERE match_id = $1 AND sender_id = $2',
         [matchPayload.match.id, registered.user.id]
       );
+      const staleAssessmentCountBefore = await deletionSafetyDb.query(
+        'SELECT COUNT(*)::int AS count FROM relationship_assessments WHERE user_id = $1',
+        [registered.user.id]
+      );
       // Hold the same per-user safety lock so deletion is first in the
       // PostgreSQL advisory-lock queue, followed by already-authenticated
       // profile-update, photo-upload, message, assessment and login requests.
@@ -2178,8 +2182,14 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       assert.equal(staleMessageCountAfter.rows[0].count, staleMessageCountBefore.rows[0].count,
         'a message request racing with account deletion must not persist a new message');
-      assert.equal(staleAssessment.status, 401,
-        'a relationship assessment authenticated before deletion must not be recreated afterward');
+      assert.ok([401, 402, 403].includes(staleAssessment.status),
+        'a relationship assessment racing with deletion must be denied');
+      const staleAssessmentCountAfter = await deletionSafetyDb.query(
+        'SELECT COUNT(*)::int AS count FROM relationship_assessments WHERE user_id = $1',
+        [registered.user.id]
+      );
+      assert.equal(staleAssessmentCountAfter.rows[0].count, staleAssessmentCountBefore.rows[0].count,
+        'a relationship assessment request racing with account deletion must not recreate assessment data');
       assert.equal(staleLogin.status, 401,
         'a login authenticated before deletion must wait for deletion and then be rejected without creating a session');
       const staleLoginSessions = await deletionSafetyDb.query(
