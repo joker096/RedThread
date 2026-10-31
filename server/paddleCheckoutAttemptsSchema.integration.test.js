@@ -25,6 +25,27 @@ test('Paddle checkout attempts enforce one durable attempt and fail-closed trans
     assert.equal(primaryKey.rowCount, 1);
     assert.match(primaryKey.rows[0].definition, /PRIMARY KEY \(user_id\)/);
 
+    const attemptIdentityColumn = await client.query(
+      `SELECT is_nullable, data_type
+       FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'paddle_checkout_attempts'
+         AND column_name = 'attempt_id'`
+    );
+    assert.equal(attemptIdentityColumn.rowCount, 1, 'migration 105 should add the immutable attempt identity');
+    assert.equal(attemptIdentityColumn.rows[0].data_type, 'uuid');
+    assert.equal(attemptIdentityColumn.rows[0].is_nullable, 'YES',
+      'legacy attempts remain nullable and use exact transaction-ID matching');
+
+    const attemptIdentityIndex = await client.query(
+      `SELECT indexdef FROM pg_indexes
+       WHERE schemaname = 'public' AND tablename = 'paddle_checkout_attempts'
+         AND indexname = 'paddle_checkout_attempts_attempt_id_unique'`
+    );
+    assert.equal(attemptIdentityIndex.rowCount, 1);
+    assert.match(attemptIdentityIndex.rows[0].indexdef, /UNIQUE INDEX/);
+    assert.match(attemptIdentityIndex.rows[0].indexdef, /WHERE .*attempt_id IS NOT NULL/);
+
+
     const requiredTransaction = await client.query(
       `SELECT pg_get_constraintdef(oid) AS definition
        FROM pg_constraint
