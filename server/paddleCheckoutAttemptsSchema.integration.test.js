@@ -56,7 +56,7 @@ test('Paddle checkout attempts enforce one durable attempt and fail-closed trans
       'migration 106 must make the server-generated attempt identity immutable');
     const productionTriggerDefinition = attemptIdentityTrigger.rows[0].definition;
     assert.match(productionTriggerDefinition, /BEFORE UPDATE OF/);
-    for (const column of ['attempt_id', 'user_id', 'status', 'transaction_id']) {
+    for (const column of ['attempt_id', 'user_id', 'status', 'transaction_id', 'plan']) {
       assert.ok(productionTriggerDefinition.includes(column),
         `the production trigger must guard updates to ${column}`);
     }
@@ -79,12 +79,13 @@ test('Paddle checkout attempts enforce one durable attempt and fail-closed trans
           user_id uuid NOT NULL,
           attempt_id uuid,
           status text NOT NULL,
-          transaction_id text
+          transaction_id text,
+          plan text NOT NULL DEFAULT '1month'
         ) ON COMMIT DROP
       `);
       await client.query(`
         CREATE TRIGGER paddle_checkout_attempts_identity_immutable_test
-        BEFORE UPDATE OF attempt_id, user_id, status, transaction_id ON paddle_checkout_attempt_identity_test
+        BEFORE UPDATE OF attempt_id, user_id, status, transaction_id, plan ON paddle_checkout_attempt_identity_test
         FOR EACH ROW EXECUTE FUNCTION prevent_paddle_checkout_attempt_identity_change()
       `);
       await client.query(
@@ -139,6 +140,19 @@ test('Paddle checkout attempts enforce one durable attempt and fail-closed trans
         await client.query('RELEASE SAVEPOINT immutable_attempt_identity');
       }
 
+      await client.query(
+        `UPDATE paddle_checkout_attempt_identity_test
+         SET attempt_id = $1, status = 'creating', transaction_id = NULL, plan = '3months'
+         WHERE attempt_id = $2::uuid`,
+        ['22222222-2222-4222-8222-222222222222', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb']
+      );
+      const terminalRolloverPlan = await client.query(
+        `SELECT plan, status FROM paddle_checkout_attempt_identity_test
+         WHERE attempt_id = '22222222-2222-4222-8222-222222222222'`
+      );
+      assert.deepEqual(terminalRolloverPlan.rows[0], { plan: '3months', status: 'creating' },
+        'a fresh terminal rollover may intentionally select a different plan');
+
       await client.query('SAVEPOINT reject_completed_downgrade');
       await client.query(
         `UPDATE paddle_checkout_attempt_identity_test SET status = 'completed'
@@ -191,6 +205,22 @@ test('Paddle checkout attempts enforce one durable attempt and fail-closed trans
         'a terminal attempt must not be reactivated with its old attempt_id');
       await client.query('ROLLBACK TO SAVEPOINT reject_terminal_identity_reuse');
       await client.query('RELEASE SAVEPOINT reject_terminal_identity_reuse');
+
+      await client.query('SAVEPOINT reject_active_plan_swap');
+      let activePlanSwapError;
+      try {
+        await client.query(
+          `UPDATE paddle_checkout_attempt_identity_test SET plan = '3months'
+           WHERE attempt_id = $1::uuid`,
+          ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa']
+        );
+      } catch (error) {
+        activePlanSwapError = error;
+      }
+      assert.equal(activePlanSwapError?.code, '23514',
+        'an active checkout attempt plan must not be changed');
+      await client.query('ROLLBACK TO SAVEPOINT reject_active_plan_swap');
+      await client.query('RELEASE SAVEPOINT reject_active_plan_swap');
 
       await client.query('SAVEPOINT reject_active_transaction_swap');
       let transactionSwapError;
