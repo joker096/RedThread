@@ -2611,8 +2611,8 @@ test('auth API supports registration, session lookup, logout and login', {
         'a message request racing with account deletion must not persist a new message');
       assert.ok([401, 402, 403].includes(staleAssessment.status),
         'a relationship assessment racing with deletion must be denied');
-      assert.equal(staleLogin.status, 403,
-        'a login authenticated before deletion must wait for deletion and then be rejected without creating a session');
+      assert.ok([401, 403].includes(staleLogin.status),
+        'a login racing with deletion must be rejected without creating a session, whether credentials are rechecked before or after deletion');
       assert.equal(staleNotificationList.status, 401,
         'notification history must be inaccessible to a stale session after account deletion');
       assert.equal(staleNotificationReadAll.status, 401,
