@@ -2820,27 +2820,33 @@ app.post('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, r
     // require provider reconciliation before any refund/void is recorded.
     const blockedGifts = await client.query(
       `WITH candidates AS (
-         SELECT id, status AS previous_status
+         SELECT id, status AS previous_status, (address_vault_ref IS NOT NULL) AS had_address_pointer
          FROM gift_delivery_orders
          WHERE ((sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1))
-           AND status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivery_failed')
+           AND (status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivery_failed')
+             OR (address_vault_ref IS NOT NULL AND status <> 'delivered'))
          ORDER BY id
          FOR UPDATE
        )
        UPDATE gift_delivery_orders AS o
-       SET status = CASE WHEN c.previous_status IN ('dispatched', 'delivery_failed') THEN 'reported' ELSE 'blocked' END,
+       SET status = CASE
+             WHEN c.previous_status IN ('dispatched', 'delivery_failed') THEN 'reported'
+             WHEN c.previous_status IN ('reported', 'blocked', 'declined', 'expired', 'cancelled', 'refund_pending', 'refunded') THEN c.previous_status
+             ELSE 'blocked'
+           END,
            address_vault_ref = NULL, address_verified_at = NULL, updated_at = statement_timestamp()
        FROM candidates AS c
        WHERE o.id = c.id
-       RETURNING o.id, o.sender_id, o.recipient_id, c.previous_status, o.status AS next_status, o.payment_status`,
+       RETURNING o.id, o.sender_id, o.recipient_id, c.previous_status, c.had_address_pointer, o.status AS next_status, o.payment_status`,
       [req.authUser.id, targetId]
     );
     for (const gift of blockedGifts.rows) {
       const eventType = gift.next_status === 'reported' ? 'reported' : 'blocked';
       await client.query(
-        `INSERT INTO gift_delivery_order_events (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [gift.id, req.authUser.id, gift.sender_id === req.authUser.id ? 'sender' : 'recipient', eventType, gift.previous_status, gift.next_status]
+        `INSERT INTO gift_delivery_order_events (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
+        [gift.id, req.authUser.id, gift.sender_id === req.authUser.id ? 'sender' : 'recipient', eventType, gift.previous_status, gift.next_status,
+          JSON.stringify({ addressRevoked: gift.had_address_pointer })]
       );
       await enqueueGiftSafetyPaymentReconciliation(client, gift, {
         actorUserId: req.authUser.id,
@@ -2935,25 +2941,32 @@ app.post('/api/reports', reportLimiter, validateRequestOrigin, requireSession, a
     // atomically; do not simulate a payment void/refund without provider reconciliation.
     const reportedGifts = await client.query(
       `WITH candidates AS (
-         SELECT id, status AS previous_status
+         SELECT id, status AS previous_status, (address_vault_ref IS NOT NULL) AS had_address_pointer
          FROM gift_delivery_orders
          WHERE ((sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1))
-           AND status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivery_failed')
+           AND (status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivery_failed')
+             OR (address_vault_ref IS NOT NULL AND status <> 'delivered'))
          ORDER BY id
          FOR UPDATE
        )
        UPDATE gift_delivery_orders AS o
-       SET status = 'reported', address_vault_ref = NULL, address_verified_at = NULL, updated_at = statement_timestamp()
+       SET status = CASE
+             WHEN c.previous_status IN ('dispatched', 'delivery_failed') THEN 'reported'
+             WHEN c.previous_status IN ('reported', 'blocked', 'declined', 'expired', 'cancelled', 'refund_pending', 'refunded') THEN c.previous_status
+             ELSE 'reported'
+           END,
+           address_vault_ref = NULL, address_verified_at = NULL, updated_at = statement_timestamp()
        FROM candidates AS c
        WHERE o.id = c.id
-       RETURNING o.id, o.sender_id, o.recipient_id, c.previous_status, o.payment_status`,
+       RETURNING o.id, o.sender_id, o.recipient_id, c.previous_status, c.had_address_pointer, o.status AS next_status, o.payment_status`,
       [req.authUser.id, reportedUserId]
     );
     for (const gift of reportedGifts.rows) {
       await client.query(
-        `INSERT INTO gift_delivery_order_events (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
-         VALUES ($1, $2, $3, 'reported', $4, 'reported')`,
-        [gift.id, req.authUser.id, gift.sender_id === req.authUser.id ? 'sender' : 'recipient', gift.previous_status]
+        `INSERT INTO gift_delivery_order_events (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
+         VALUES ($1, $2, $3, 'reported', $4, $5, $6::jsonb)`,
+        [gift.id, req.authUser.id, gift.sender_id === req.authUser.id ? 'sender' : 'recipient', gift.previous_status, gift.next_status,
+          JSON.stringify({ addressRevoked: gift.had_address_pointer })]
       );
       await enqueueGiftSafetyPaymentReconciliation(client, gift, {
         actorUserId: req.authUser.id,
