@@ -30,6 +30,19 @@ export const isSafeProfilePhotoUrl = (value: unknown): value is string =>
   value.trim() === value &&
   /^\/api\/photos\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
+export function isCurrentDiscoverySearchResponse(
+  requestId: number,
+  currentRequestId: number,
+  actionEpoch: number,
+  currentEpoch: number
+): boolean {
+  return Number.isSafeInteger(requestId) && requestId > 0 &&
+    Number.isSafeInteger(currentRequestId) && currentRequestId > 0 &&
+    Number.isSafeInteger(actionEpoch) && actionEpoch >= 0 &&
+    Number.isSafeInteger(currentEpoch) && currentEpoch >= 0 &&
+    requestId === currentRequestId && actionEpoch === currentEpoch;
+}
+
 const normalizeServerProfile = (value: unknown): ServerProfile | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const profile = value as Partial<ServerProfile>;
@@ -163,6 +176,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
     const controller = new AbortController();
     searchAbortController.current = controller;
     const requestId = ++searchRequestId.current;
+    const actionEpoch = sessionEpoch.current;
     setBusy(true);
     setSearchFailed(false);
     setNotice('');
@@ -184,7 +198,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
     }
     try {
       const response = await fetch(`/api/profiles/search?${searchKey}`, { credentials: 'include', signal: controller.signal });
-      if (requestId !== searchRequestId.current) return;
+      if (!isCurrentDiscoverySearchResponse(requestId, searchRequestId.current, actionEpoch, sessionEpoch.current)) return;
       if (response.status === 401) {
         setAuthenticated(false);
         setProfiles([]);
@@ -199,7 +213,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       }
       if (!response.ok) throw new Error(t('searchSetupError'));
       const data = await response.json();
-      if (requestId !== searchRequestId.current) return;
+      if (!isCurrentDiscoverySearchResponse(requestId, searchRequestId.current, actionEpoch, sessionEpoch.current)) return;
       const seenProfileIds = new Set<string>();
       const nextProfiles: ServerProfile[] = Array.isArray(data?.profiles)
         ? data.profiles
@@ -215,13 +229,13 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       setSearchFailed(false);
       setNotice(nextProfiles.length ? `${t('registeredProfiles')}: ${formatNumber(nextProfiles.length)}` : t('noProfilesForFilters'));
     } catch (error) {
-      if (requestId === searchRequestId.current) {
+      if (isCurrentDiscoverySearchResponse(requestId, searchRequestId.current, actionEpoch, sessionEpoch.current)) {
         setProfiles([]);
         setSearchFailed(true);
         setNotice(error instanceof Error ? error.message : t('connectionError'));
       }
     } finally {
-      if (requestId === searchRequestId.current) {
+      if (isCurrentDiscoverySearchResponse(requestId, searchRequestId.current, actionEpoch, sessionEpoch.current)) {
         setBusy(false);
         if (searchAbortController.current === controller) searchAbortController.current = null;
       }
