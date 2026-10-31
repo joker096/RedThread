@@ -1212,32 +1212,35 @@ test('auth API supports registration, session lookup, logout and login', {
         "SELECT pg_advisory_xact_lock(hashtext('gift-safety-user:' || $1::uuid::text))",
         [registered.user.id]
       );
+      const waitForQueuedProfileOperations = async expected => {
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          const blocked = await photoRaceDb.query(
+            `SELECT COUNT(*)::int AS count
+             FROM pg_stat_activity
+             WHERE datname = current_database()
+               AND wait_event_type = 'Lock'
+               AND query LIKE '%gift-safety-user:%'`
+          );
+          if (blocked.rows[0].count >= expected) return;
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        throw new Error(`Timed out waiting for ${expected} queued profile photo operations`);
+      };
+      // Queue removal first and observe it waiting before submitting the attach.
+      // PostgreSQL does not promise FIFO ordering for concurrently submitted HTTP
+      // requests, so submitting both together makes the assertion nondeterministic.
       removeRacePromise = request('/api/profiles/me', {
         method: 'PATCH',
         headers: { Cookie: secondCookie },
         body: JSON.stringify({ photoUrls: [] })
       });
+      await waitForQueuedProfileOperations(1);
       staleAttachRacePromise = request('/api/profiles/me', {
         method: 'PATCH',
         headers: { Cookie: secondCookie },
         body: JSON.stringify({ photoUrls: [racePhoto.photoUrl] })
       });
-      let queued = false;
-      for (let attempt = 0; attempt < 100; attempt += 1) {
-        const blocked = await photoRaceDb.query(
-          `SELECT COUNT(*)::int AS count
-           FROM pg_stat_activity
-           WHERE datname = current_database()
-             AND wait_event_type = 'Lock'
-             AND query LIKE '%gift-safety-user:%'`
-        );
-        if (blocked.rows[0].count >= 2) {
-          queued = true;
-          break;
-        }
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
-      assert.equal(queued, true, 'both profile photo operations must queue behind the same account lock');
+      await waitForQueuedProfileOperations(2);
     } finally {
       await photoRaceLock.query('COMMIT');
       photoRaceLock.release();
