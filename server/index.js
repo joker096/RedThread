@@ -1373,9 +1373,13 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
         console.error('Paddle cancellation before account deletion failed:', error?.message || 'unknown error');
         return res.status(502).json({ error: 'paddle_subscription_cancellation_failed' });
       }
-    } else if (!subscriptionId && billingState?.premium_lifetime !== true &&
-        billingState?.premium_until && new Date(billingState.premium_until).getTime() > Date.now()) {
-      // Timed Premium without its provider subscription ID cannot be safely cancelled.
+    } else if (!subscriptionId && (
+      (subscriptionStatus && !['canceled', 'completed'].includes(subscriptionStatus)) ||
+      (billingState?.premium_lifetime !== true &&
+        billingState?.premium_until && new Date(billingState.premium_until).getTime() > Date.now())
+    )) {
+      // An unresolved provider status or timed Premium without its provider ID
+      // cannot be safely canceled; never delete the account and leave renewal behind.
       return res.status(409).json({ error: 'paddle_subscription_reconciliation_required' });
     }
 
