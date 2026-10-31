@@ -3621,7 +3621,7 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
     }
     if (order.status === 'awaiting_recipient_consent' &&
         new Date(order.expires_at).getTime() <= new Date(order.decision_at).getTime() &&
-        !['not_started', 'voided', 'failed'].includes(order.payment_status)) {
+        !['not_started', 'voided', 'failed', 'refunded'].includes(order.payment_status)) {
       // Expiry cannot stand in for a payment void/refund. Persist provider
       // reconciliation work in this transaction before returning the conflict.
       await enqueueExpiredGiftPaymentReconciliation(client, order.id);
