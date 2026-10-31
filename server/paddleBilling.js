@@ -422,6 +422,33 @@ export async function cancelPaddleSubscription({
     throw new Error('paddle_cancellation_not_configured');
   }
 
+  // Verify provider ownership before issuing the irreversible cancellation.
+  // Local IDs can be stale or corrupted; the response check after POST is too late
+  // to prevent canceling another account's subscription.
+  const lookupResponse = await fetchImpl(
+    `https://sandbox-api.paddle.com/subscriptions/${encodeURIComponent(subscriptionId)}`,
+    {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Paddle-Version': '1' },
+      signal: AbortSignal.timeout(10_000)
+    }
+  );
+  const lookupPayload = await lookupResponse.json().catch(() => null);
+  const lookupData = lookupPayload?.data;
+  if (!lookupResponse.ok || lookupData?.id !== subscriptionId ||
+      lookupData?.customer_id !== customerId) {
+    throw new Error('paddle_subscription_ownership_unconfirmed');
+  }
+  if (String(lookupData.status || '').toLowerCase() === 'canceled') {
+    return {
+      subscriptionId,
+      status: 'canceled',
+      customerId,
+      updatedAt: typeof lookupData.updated_at === 'string' && Number.isFinite(Date.parse(lookupData.updated_at))
+        ? lookupData.updated_at : null
+    };
+  }
+
   const response = await fetchImpl(
     `https://sandbox-api.paddle.com/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`,
     {
