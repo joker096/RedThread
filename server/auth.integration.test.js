@@ -2034,7 +2034,7 @@ test('auth API supports registration, session lookup, logout and login', {
 
     } finally {
       if (reportId) await giftSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [reportId]).catch(() => {});
-      for (const orderId of [blockSafetyOrderId, authorizationPendingSafetyOrderId, reportSafetyOrderId].filter(Boolean)) {
+      for (const orderId of [blockSafetyOrderId, blockFailedDeliveryOrderId, authorizationPendingSafetyOrderId, reportSafetyOrderId, reportFailedDeliveryOrderId].filter(Boolean)) {
         await giftSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [orderId]).catch(() => {});
         await giftSafetyDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [orderId]).catch(() => {});
         await giftSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [orderId]).catch(() => {});
