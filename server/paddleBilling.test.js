@@ -1177,3 +1177,33 @@ test('Paddle identity unique conflicts are acknowledged and marked for reconcili
   assert.equal(queries.some(query => query.statement === 'COMMIT'), true);
   assert.equal(queries.some(query => query.statement === 'ROLLBACK'), false);
 });
+
+test('malformed Paddle subscription period timestamps are acknowledged without entitlement writes', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const queries = [];
+  const client = {
+    async query(sql) {
+      queries.push(String(sql));
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: 'evt_bad_period_end' }] };
+      }
+      return { rowCount: 0, rows: [] };
+    },
+    release() {}
+  };
+  const result = await processPaddleEvent({ async connect() { return client; } }, {
+    eventId: 'evt_bad_period_end',
+    eventType: 'subscription.updated',
+    occurredAt: '2026-10-31T12:00:00Z',
+    data: {
+      id: 'sub_valid123',
+      status: 'active',
+      currentBillingPeriod: { endsAt: 'not-a-timestamp' },
+      customData: { userId: '00000000-0000-4000-8000-000000000001' }
+    }
+  });
+  assert.deepEqual(result, { duplicate: false, handled: true });
+  assert.equal(queries.some(sql => sql.includes('UPDATE users')), false);
+  assert.equal(queries.includes('COMMIT'), true);
+  assert.equal(queries.includes('ROLLBACK'), false);
+});
