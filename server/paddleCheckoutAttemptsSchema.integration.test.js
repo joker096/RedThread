@@ -66,7 +66,9 @@ test('Paddle checkout attempts enforce one durable attempt and fail-closed trans
     try {
       await client.query(`
         CREATE TEMP TABLE paddle_checkout_attempt_identity_test (
-          attempt_id uuid
+          attempt_id uuid,
+          status text NOT NULL,
+          transaction_id text
         ) ON COMMIT DROP
       `);
       await client.query(`
@@ -75,27 +77,69 @@ test('Paddle checkout attempts enforce one durable attempt and fail-closed trans
         FOR EACH ROW EXECUTE FUNCTION prevent_paddle_checkout_attempt_identity_change()
       `);
       await client.query(
-        "INSERT INTO paddle_checkout_attempt_identity_test (attempt_id) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'), (NULL)"
+        `INSERT INTO paddle_checkout_attempt_identity_test (attempt_id, status, transaction_id)
+         VALUES
+           ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'pending', 'txn_active123'),
+           (NULL, 'creating', NULL),
+           ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'canceled', 'txn_canceled123'),
+           ('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'linked', 'txn_linked123')`
       );
-      for (const [oldValue, newValue] of [
-        ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'],
-        [null, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'],
-        ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', null]
-      ]) {
+      const rejectedChanges = [
+        {
+          oldId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          newId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+          status: 'creating', transactionId: null,
+          reason: 'an active pending attempt cannot be replaced'
+        },
+        {
+          oldId: null,
+          newId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+          status: 'creating', transactionId: null,
+          reason: 'a legacy creating attempt cannot acquire a retroactive identity'
+        },
+        {
+          oldId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          newId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+          status: 'pending', transactionId: null,
+          reason: 'a terminal row cannot be rotated directly into a pending attempt'
+        },
+        {
+          oldId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+          newId: '11111111-1111-4111-8111-111111111111',
+          status: 'creating', transactionId: 'txn_linked123',
+          reason: 'terminal rollover must clear the previous transaction ID'
+        }
+      ];
+      for (const change of rejectedChanges) {
         await client.query('SAVEPOINT immutable_attempt_identity');
         let updateError;
         try {
           await client.query(
-            'UPDATE paddle_checkout_attempt_identity_test SET attempt_id = $1 WHERE attempt_id IS NOT DISTINCT FROM $2::uuid',
-            [newValue, oldValue]
+            `UPDATE paddle_checkout_attempt_identity_test
+             SET attempt_id = $1, status = $3, transaction_id = $4
+             WHERE attempt_id IS NOT DISTINCT FROM $2::uuid`,
+            [change.newId, change.oldId, change.status, change.transactionId]
           );
         } catch (error) {
           updateError = error;
         }
-        assert.equal(updateError?.code, '23514',
-          `attempt identity must reject mutation from ${String(oldValue)} to ${String(newValue)}`);
+        assert.equal(updateError?.code, '23514', change.reason);
         await client.query('ROLLBACK TO SAVEPOINT immutable_attempt_identity');
         await client.query('RELEASE SAVEPOINT immutable_attempt_identity');
+      }
+
+      for (const [oldId, newId] of [
+        ['bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', '22222222-2222-4222-8222-222222222222'],
+        ['cccccccc-cccc-4ccc-8ccc-cccccccccccc', '33333333-3333-4333-8333-333333333333']
+      ]) {
+        const result = await client.query(
+          `UPDATE paddle_checkout_attempt_identity_test
+           SET attempt_id = $1, status = 'creating', transaction_id = NULL
+           WHERE attempt_id = $2::uuid AND status IN ('canceled', 'linked')`,
+          [newId, oldId]
+        );
+        assert.equal(result.rowCount, 1,
+          'a new immutable identity may be allocated only when the previous attempt is terminal and the row is reset to creating');
       }
       await client.query('COMMIT');
     } catch (error) {
