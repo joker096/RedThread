@@ -2876,7 +2876,6 @@ app.get('/api/admin/photos', requireSession, async (req, res) => {
 });
 
 app.post('/api/admin/photos/:photoId/review', validateRequestOrigin, requireSession, async (req, res) => {
-  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   if (!isUuid(req.params.photoId) || !['approve', 'reject'].includes(req.body?.decision)) return res.status(400).json({ error: 'invalid_photo_review' });
   const status = req.body.decision === 'approve' ? 'approved' : 'rejected';
   const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 500) : '';
@@ -2884,11 +2883,39 @@ app.post('/api/admin/photos/:photoId/review', validateRequestOrigin, requireSess
   try {
     client = await pool.connect();
     await client.query('BEGIN');
-    const result = await client.query(
-      "UPDATE photo_assets SET review_status = $2 WHERE id = $1 AND review_status = 'pending' RETURNING id, user_id AS \"userId\"",
-      [req.params.photoId, status]
+    const preview = await client.query(
+      "SELECT user_id FROM photo_assets WHERE id = $1 AND review_status = 'pending'",
+      [req.params.photoId]
     );
-    if (!result.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'pending_photo_not_found' }); }
+    if (!preview.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'pending_photo_not_found' });
+    }
+    const ownerId = preview.rows[0].user_id;
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, ownerId);
+    const moderator = await client.query(
+      "SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (!moderator.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    if (!['admin', 'moderator'].includes(moderator.rows[0].role)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'moderator_access_required' });
+    }
+    const result = await client.query(
+      `UPDATE photo_assets SET review_status = $2
+       WHERE id = $1 AND user_id = $3 AND review_status = 'pending'
+         AND EXISTS (SELECT 1 FROM users WHERE id = $3 AND status = 'active')
+       RETURNING id, user_id AS "userId"`,
+      [req.params.photoId, status, ownerId]
+    );
+    if (!result.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'pending_photo_not_found' });
+    }
     await client.query(
       'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, reason, details) VALUES ($1, $2, $3, $4, $5, $6::jsonb)',
       [req.authUser.id, 'photo_' + status, 'photo_asset', req.params.photoId, reason || null, JSON.stringify({ userId: result.rows[0].userId })]
@@ -2899,7 +2926,9 @@ app.post('/api/admin/photos/:photoId/review', validateRequestOrigin, requireSess
     if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Photo moderation failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'photo_review_failed' });
-  } finally { client?.release(); }
+  } finally {
+    client?.release();
+  }
 });
 
 app.get('/api/admin/audit-log', requireSession, async (req, res) => {
@@ -2923,23 +2952,49 @@ app.get('/api/admin/audit-log', requireSession, async (req, res) => {
 });
 
 app.post('/api/admin/screenings/:screeningId/resolve', validateRequestOrigin, requireSession, async (req, res) => {
-  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   if (!isUuid(req.params.screeningId)) return res.status(400).json({ error: 'invalid_screening_id' });
   let client;
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+    const preview = await client.query(
+      "SELECT user_id FROM user_safety_screenings WHERE id = $1 AND review_status = 'pending'",
+      [req.params.screeningId]
+    );
+    if (!preview.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'pending_screening_not_found' });
+    }
+    const targetUserId = preview.rows[0].user_id;
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, targetUserId);
+    const moderator = await client.query(
+      "SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (!moderator.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    if (!['admin', 'moderator'].includes(moderator.rows[0].role)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'moderator_access_required' });
+    }
     const pending = await client.query(
       "SELECT user_id FROM user_safety_screenings WHERE id = $1 AND review_status = 'pending' FOR UPDATE",
       [req.params.screeningId]
     );
-    if (!pending.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'pending_screening_not_found' }); }
-    await acquireGiftSafetyUserLocks(client, pending.rows[0].user_id);
+    if (!pending.rows[0] || String(pending.rows[0].user_id).toLowerCase() !== String(targetUserId).toLowerCase()) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'pending_screening_not_found' });
+    }
     const result = await client.query(
       "UPDATE user_safety_screenings SET review_status = 'cleared', reviewed_at = NOW(), reviewed_by = $2 WHERE id = $1 AND review_status = 'pending' RETURNING id, user_id AS \"userId\", review_status AS \"reviewStatus\"",
       [req.params.screeningId, req.authUser.id]
     );
-    if (!result.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'pending_screening_not_found' }); }
+    if (!result.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'pending_screening_not_found' });
+    }
     await client.query(
       "INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, details) VALUES ($1, 'screening_cleared', 'safety_screening', $2, $3::jsonb)",
       [req.authUser.id, req.params.screeningId, JSON.stringify({ userId: result.rows[0].userId })]
@@ -2950,11 +3005,12 @@ app.post('/api/admin/screenings/:screeningId/resolve', validateRequestOrigin, re
     if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Screening resolve failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'screening_resolve_failed' });
-  } finally { client?.release(); }
+  } finally {
+    client?.release();
+  }
 });
 
 app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSession, async (req, res) => {
-  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   const reportId = req.params.reportId;
   const action = req.body?.action;
   const confirmed = req.body?.confirmed === true;
@@ -2969,12 +3025,35 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+    const preview = await client.query(
+      'SELECT id, reported_user_id FROM user_reports WHERE id = $1',
+      [reportId]
+    );
+    const previewReport = preview.rows[0];
+    if (!previewReport) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'open_report_not_found' });
+    }
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, previewReport.reported_user_id);
+    const moderator = await client.query(
+      "SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (!moderator.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    if (!['admin', 'moderator'].includes(moderator.rows[0].role)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'moderator_access_required' });
+    }
     const reportResult = await client.query(
       'SELECT id, reported_user_id, category, status FROM user_reports WHERE id = $1 FOR UPDATE',
       [reportId]
     );
     const report = reportResult.rows[0];
-    if (!report || report.status === 'resolved' || report.status === 'dismissed') {
+    if (!report || report.status === 'resolved' || report.status === 'dismissed' ||
+        String(report.reported_user_id).toLowerCase() !== String(previewReport.reported_user_id).toLowerCase()) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'open_report_not_found' });
     }
@@ -2984,9 +3063,6 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'category_not_eligible_for_suspension' });
       }
-      // Match gift creation/acceptance's user-before-pair lock order so a new
-      // request cannot slip in while the account is being suspended.
-      await acquireGiftSafetyUserLocks(client, report.reported_user_id);
       const targetAccount = await client.query(
         'SELECT status FROM users WHERE id = $1 FOR UPDATE',
         [report.reported_user_id]
@@ -2995,8 +3071,6 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
         await client.query('ROLLBACK');
         return res.status(404).json({ error: 'reported_user_not_found' });
       }
-      // Account deletion is terminal. A late moderation action may resolve its
-      // report, but must never rewrite the deleted status or undo deletion cleanup.
       if (targetAccount.rows[0].status === 'active') {
         await suspendGiftOrdersForUser(client, report.reported_user_id, { actorUserId: req.authUser.id, actorType: 'moderator', reason: 'moderator_suspension' });
         await client.query("UPDATE users SET status = 'suspended', updated_at = NOW() WHERE id = $1 AND status = 'active'", [report.reported_user_id]);
