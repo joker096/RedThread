@@ -2386,9 +2386,10 @@ test('auth API supports registration, session lookup, logout and login', {
       let staleProfileSearchPromise;
       let staleUnblockPromise;
       let staleUnlikePromise;
+      let staleGiftDecisionPromise;
       try {
         await waitForBlockedSafetyRequests(1);
-        const staleGiftDecisionPromise = request(
+        staleGiftDecisionPromise = request(
           `/api/gifts/orders/${pendingDeletionDecisionReference}/decision`,
           {
             method: 'POST',
