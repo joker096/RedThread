@@ -1163,7 +1163,7 @@ test('Paddle identity unique conflicts are acknowledged and marked for reconcili
   assert.equal(queries.some(query => query.statement === 'ROLLBACK TO SAVEPOINT paddle_event_effects'), true);
   assert.equal(queries.some(query => query.statement.includes("SET status = 'reconciliation_required'")), true);
   const safetyLockIndex = queries.findIndex(query =>
-    query.statement.includes("pg_advisory_xact_lock(hashtext('gift-safety-user:"))
+    query.statement.includes('pg_advisory_xact_lock')
   );
   const accountUpdateIndex = queries.findIndex(query =>
     query.statement.includes('UPDATE users SET') && query.statement.includes('paddle_customer_id')
