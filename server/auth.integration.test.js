@@ -2236,6 +2236,7 @@ test('auth API supports registration, session lookup, logout and login', {
       let staleGiftPreferencesReadPromise;
       let staleGiftOrdersReadPromise;
       let staleAdConsentReadPromise;
+      let staleAuthMePromise;
       try {
         await waitForBlockedSafetyRequests(1);
         staleProfileUpdatePromise = request('/api/profiles/me', {
@@ -2301,11 +2302,14 @@ test('auth API supports registration, session lookup, logout and login', {
         staleAdConsentReadPromise = request('/api/ads/consent', {
           headers: { Cookie: secondCookie }
         });
+        staleAuthMePromise = request('/api/auth/me', {
+          headers: { Cookie: secondCookie }
+        });
         // Photo upload still performs sanitization/moderation before locking.
         // Deletion plus the profile, message, assessment, login, notification
         // list/read mutations and private photo read must queue on the same
         // account-safety lock before deletion is allowed to proceed.
-        await waitForBlockedSafetyRequests(14);
+        await waitForBlockedSafetyRequests(15);
       } finally {
         await raceLock.query('COMMIT');
         raceLock.release();
@@ -2315,7 +2319,7 @@ test('auth API supports registration, session lookup, logout and login', {
         staleAssessment, staleLogin, staleNotificationList,
         staleNotificationReadAll, staleNotificationReadOne, stalePhotoRead,
         staleOwnProfileRead, staleBlocksRead, staleGiftPreferencesRead,
-        staleGiftOrdersRead, staleAdConsentRead
+        staleGiftOrdersRead, staleAdConsentRead, staleAuthMe
       ] = await Promise.all([
         deleteAccountPromise,
         staleProfileUpdatePromise,
@@ -2331,7 +2335,8 @@ test('auth API supports registration, session lookup, logout and login', {
         staleBlocksReadPromise,
         staleGiftPreferencesReadPromise,
         staleGiftOrdersReadPromise,
-        staleAdConsentReadPromise
+        staleAdConsentReadPromise,
+        staleAuthMePromise
       ]);
       assert.equal(deleteAccount.status, 204);
       assert.equal(staleProfileUpdate.status, 404,
@@ -2368,6 +2373,8 @@ test('auth API supports registration, session lookup, logout and login', {
         'a stale session must not read gift order history after account deletion');
       assert.equal(staleAdConsentRead.status, 401,
         'a stale session must not read advertising consent after account deletion');
+      assert.equal(staleAuthMe.status, 401,
+        'session identity lookup must not return a deleted account after waiting behind deletion');
       const staleLoginSessions = await deletionSafetyDb.query(
         'SELECT COUNT(*)::int AS count FROM sessions WHERE user_id = $1',
         [registered.user.id]
