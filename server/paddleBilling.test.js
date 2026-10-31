@@ -1116,6 +1116,44 @@ test('malformed Paddle customer IDs are acknowledged without persisting unusable
   assert.equal(queries.some(query => query.sql === 'ROLLBACK'), false);
 });
 
+test('malformed customer IDs on completed transactions mark only the matching checkout attempt for reconciliation', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: 'evt_bad_transaction_customer' }] };
+      }
+      return { rowCount: 0, rows: [] };
+    },
+    release() {}
+  };
+  const result = await processPaddleEvent({ async connect() { return client; } }, {
+    eventId: 'evt_bad_transaction_customer',
+    eventType: 'transaction.completed',
+    data: {
+      id: 'txn_customerbad123',
+      customerId: 'not-a-paddle-customer',
+      customData: {
+        userId: '00000000-0000-4000-8000-000000000001',
+        plan: '3months'
+      }
+    }
+  });
+  assert.deepEqual(result, { duplicate: false, handled: true });
+  assert.equal(queries.some(query => query.sql.includes('UPDATE users')), false);
+  const reconciliation = queries.find(query => query.sql.includes("SET status = 'reconciliation_required'"));
+  assert.ok(reconciliation);
+  assert.deepEqual(reconciliation.params, [
+    '00000000-0000-4000-8000-000000000001',
+    '3months',
+    'txn_customerbad123'
+  ]);
+  assert.equal(queries.some(query => query.sql === 'COMMIT'), true);
+  assert.equal(queries.some(query => query.sql === 'ROLLBACK'), false);
+});
+
 test('malformed transaction cancellation IDs are acknowledged without database writes', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const queries = [];
@@ -1140,12 +1178,12 @@ test('malformed transaction cancellation IDs are acknowledged without database w
   assert.equal(queries.includes('ROLLBACK'), false);
 });
 
-test('malformed subscription IDs in completed transactions cannot reach account updates', async () => {
+test('malformed subscription IDs in completed transactions reconcile only their checkout attempt', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const queries = [];
   const client = {
-    async query(sql) {
-      queries.push(String(sql));
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
       if (String(sql).includes('INSERT INTO paddle_webhook_events')) {
         return { rowCount: 1, rows: [{ event_id: 'evt_bad_transaction_subscription' }] };
       }
@@ -1156,12 +1194,26 @@ test('malformed subscription IDs in completed transactions cannot reach account 
   const result = await processPaddleEvent({ async connect() { return client; } }, {
     eventId: 'evt_bad_transaction_subscription',
     eventType: 'transaction.completed',
-    data: { id: 'txn_valid123', subscriptionId: 'not-a-subscription-id' }
+    data: {
+      id: 'txn_valid123',
+      subscriptionId: 'not-a-subscription-id',
+      customData: {
+        userId: '00000000-0000-4000-8000-000000000001',
+        plan: '1month'
+      }
+    }
   });
   assert.deepEqual(result, { duplicate: false, handled: true });
-  assert.equal(queries.some(sql => sql.includes('UPDATE users')), false);
-  assert.equal(queries.includes('COMMIT'), true);
-  assert.equal(queries.includes('ROLLBACK'), false);
+  assert.equal(queries.some(query => query.sql.includes('UPDATE users')), false);
+  const reconciliation = queries.find(query => query.sql.includes("SET status = 'reconciliation_required'"));
+  assert.ok(reconciliation, 'a malformed provider identity must leave the exact checkout attempt visible for manual reconciliation');
+  assert.deepEqual(reconciliation.params, [
+    '00000000-0000-4000-8000-000000000001',
+    '1month',
+    'txn_valid123'
+  ]);
+  assert.equal(queries.some(query => query.sql === 'COMMIT'), true);
+  assert.equal(queries.some(query => query.sql === 'ROLLBACK'), false);
 });
 
 test('Paddle identity unique conflicts reconcile only the matching checkout attempt', async () => {
