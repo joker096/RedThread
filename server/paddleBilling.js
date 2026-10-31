@@ -109,6 +109,14 @@ export async function processPaddleEvent(pool, rawEvent) {
     const customerId = typeof data.customerId === 'string' ? data.customerId
       : typeof data.customer_id === 'string' ? data.customer_id
         : (eventType === 'customer.created' || eventType === 'customer.updated') && typeof data.id === 'string' ? data.id : null;
+    const rawPeriodEnd = data.currentBillingPeriod?.endsAt ?? data.current_billing_period?.ends_at ?? null;
+    if (subscriptionLifecycleEvent && rawPeriodEnd !== null &&
+        (typeof rawPeriodEnd !== 'string' || !Number.isFinite(Date.parse(rawPeriodEnd)))) {
+      // Do not pass malformed provider timestamps to PostgreSQL's timestamptz
+      // cast: acknowledge the event without changing entitlement or retrying forever.
+      await client.query('COMMIT');
+      return { duplicate: false, handled: true };
+    }
 
     // Never persist a provider customer identifier that cannot be used by the
     // authenticated portal/cancellation flows. A signed but malformed event is
