@@ -29,6 +29,10 @@ test('checkout stays blocked while a non-terminal Paddle subscription is unresol
   assert.equal(isPremiumCheckoutBlocked({ premium_until: null, paddle_subscription_id: 'sub_canceled', paddle_subscription_status: 'canceled' }, now), false);
   assert.equal(isPremiumCheckoutBlocked({ premium_until: null, paddle_subscription_id: 'sub_completed', paddle_subscription_status: 'completed' }, now), false);
   assert.equal(isPremiumCheckoutBlocked({ premium_until: null, paddle_subscription_id: null }, now), false);
+  assert.equal(isPremiumCheckoutBlocked({ premium_until: null, paddle_subscription_id: null, paddle_subscription_status: 'active' }, now), true,
+    'a non-terminal subscription status without its provider ID must fail closed');
+  assert.equal(isPremiumCheckoutBlocked({ premium_until: null, paddle_subscription_id: null, paddle_subscription_status: 'past_due' }, now), true);
+  assert.equal(isPremiumCheckoutBlocked({ premium_until: null, paddle_subscription_id: null, paddle_subscription_status: 'canceled' }, now), false);
 });
 
 test('only active or trialing subscriptions with a future billing period grant access', () => {
