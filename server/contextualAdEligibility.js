@@ -91,6 +91,7 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
       return deny('bridal_consent_required');
     }
     if (!match) return deny('missing_context');
+    if (match.status !== 'active') return deny('match_not_active');
     if (match.safetyRestricted !== false || match.blocked !== false ||
         match.reported !== false || match.paused !== false) {
       return deny('safety_state_unavailable_or_restricted');
@@ -121,6 +122,7 @@ export function evaluateContextualAdEligibility({ campaign, viewer, match, surfa
 
   if (DATE_CONTEXT_CATEGORIES.has(category)) {
     if (!match) return deny('missing_context');
+    if (match.status !== 'active') return deny('match_not_active');
     if (match.safetyRestricted !== false || match.blocked !== false
       || match.reported !== false || match.paused !== false) {
       return deny('safety_state_unavailable_or_restricted');
