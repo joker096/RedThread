@@ -350,7 +350,7 @@ export async function processPaddleEvent(pool, rawEvent) {
           `UPDATE paddle_checkout_attempts
            SET status = 'reconciliation_required', updated_at = statement_timestamp()
            WHERE user_id = $1
-             AND status IN ('creating', 'pending', 'completed', 'linked', 'reconciliation_required')`,
+             AND status IN ('creating', 'pending', 'completed', 'linked', 'canceled', 'reconciliation_required')`,
           [reconciliationContext.userId]
         );
       }
