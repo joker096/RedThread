@@ -88,9 +88,9 @@ export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecord
     fulfilment_authorized: new Set(['dispatched', 'delivery_failed', 'cancelled', 'reported', 'blocked']),
     dispatched: new Set(['delivered', 'delivery_failed', 'reported']),
     delivery_failed: new Set(['refund_pending', 'cancelled', 'reported']),
-    declined: new Set([]), expired: new Set([]), cancelled: new Set([]), blocked: new Set([]),
-    reported: new Set(['cancelled', 'refund_pending']), blocked: new Set(['refund_pending']), delivered: new Set([]),
-    refund_pending: new Set(['refunded']), refunded: new Set([])
+    declined: new Set([]), expired: new Set([]), cancelled: new Set([]),
+    reported: new Set(['cancelled', 'refund_pending']), blocked: new Set(['cancelled', 'refund_pending']), delivered: new Set([]),
+    refund_pending: new Set(['refunded', 'blocked', 'reported']), refunded: new Set([])
   };
   // Keep the policy state graph aligned with persisted statuses; `draft` is not a DB state.
   if (!Number.isFinite(now) || !transitions[from]?.has(to)) return false;
