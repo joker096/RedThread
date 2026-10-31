@@ -3,7 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
-import { acquireMigrationLock } from './migration-lock.js';
+import { acquireMigrationLock, beginMigrationTransaction } from './migration-lock.js';
 
 const { Pool } = pg;
 const databaseUrl = process.env.DATABASE_URL;
@@ -79,14 +79,9 @@ async function runMigrations() {
         const sql = await readFile(path.join(migrationsDir, name), 'utf8');
         if (shutdownSignal) break;
 
-        try {
-          await client.query('BEGIN');
-        } catch (error) {
-          // BEGIN can fail after a transport/protocol error. The transaction
-          // state is then unknown, so never return this client as healthy.
+        await beginMigrationTransaction(client, error => {
           releaseError = error;
-          throw error;
-        }
+        });
         if (shutdownSignal) {
           try {
             await client.query('ROLLBACK');
