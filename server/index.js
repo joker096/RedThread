@@ -1452,8 +1452,7 @@ app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req,
   }
 
   try {
-    const result = await pool.query(
-      `SELECT
+    const searchSql = `SELECT
          p.user_id AS id,
          p.display_name AS "displayName",
          EXTRACT(YEAR FROM AGE(CURRENT_DATE, p.birth_date))::int AS age,
@@ -1525,9 +1524,39 @@ app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req,
          AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, p.birth_date))::int BETWEEN COALESCE($7::int, 18) AND COALESCE($8::int, 120)
          AND ($9::int = 0 OR (candidate_assessment.answers IS NOT NULL AND my_assessment.answers IS NOT NULL AND (CASE WHEN candidate_assessment.answers->>'financialModel' = my_assessment.answers->>'financialModel' THEN 1 ELSE 0 END + CASE WHEN candidate_assessment.answers->>'lifestyleExpectation' = my_assessment.answers->>'lifestyleExpectation' THEN 1 ELSE 0 END + CASE WHEN candidate_assessment.answers->>'gifts' = my_assessment.answers->>'gifts' THEN 1 ELSE 0 END) * 100.0 / 3 >= ($9 - 0.5)))
        ORDER BY "compatibilityScore" DESC NULLS LAST, p.updated_at DESC, p.user_id
-       LIMIT $5 OFFSET $6`,
-      [req.authUser.id, country, city, intent, parsedLimit + 1, parsedOffset, minAge, maxAge, minFinancialAlignment, familyFormat, childrenFilter === null ? null : childrenFilter === 'true']
-    );
+       LIMIT $5 OFFSET $6`;
+    const searchParams = [req.authUser.id, country, city, intent, parsedLimit + 1, parsedOffset, minAge, maxAge, minFinancialAlignment, familyFormat, childrenFilter === null ? null : childrenFilter === 'true'];
+    let client;
+    let result;
+    try {
+      client = await pool.connect();
+      await client.query('BEGIN');
+      // Preview the exact page, then lock the requester and every candidate in
+      // one globally sorted set. Re-run the query after locks so a concurrent
+      // deletion, profile change, like/pass or block cannot leak stale results.
+      const preview = await client.query(searchSql, searchParams);
+      const candidateIds = preview.rows.map(profile => profile.id);
+      await acquireGiftSafetyUserLocks(client, req.authUser.id, ...candidateIds);
+      const actor = await client.query(
+        "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+        [req.authUser.id]
+      );
+      if (!actor.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(401).json({ error: 'account_not_active' });
+      }
+      const finalSql = searchSql.replace(
+        '       ORDER BY',
+        '         AND p.user_id = ANY($12::uuid[])\n       ORDER BY'
+      );
+      result = await client.query(finalSql, [...searchParams, candidateIds]);
+      await client.query('COMMIT');
+    } catch (error) {
+      if (client) await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client?.release();
+    }
     const hasMore = result.rows.length > parsedLimit;
     const profiles = (hasMore ? result.rows.slice(0, parsedLimit) : result.rows).map(profile => {
       const { assessment_answers: candidateAnswers, my_assessment_answers: myAnswers, ...publicProfile } = profile;
