@@ -938,6 +938,16 @@ test('verified recurring transaction completion is held until its subscription w
       '00000000-0000-4000-8000-000000000001',
       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
     ]);
+    const userRowLockIndex = queries.findIndex(query =>
+      query.sql.includes('SELECT id FROM users WHERE id = $1 FOR UPDATE')
+    );
+    const attemptClaimIndex = queries.findIndex(query =>
+      query.sql.includes('UPDATE paddle_checkout_attempts') &&
+      query.sql.includes('SET transaction_id = $1, status = \'completed\'')
+    );
+    assert.ok(userRowLockIndex >= 0, 'webhook must lock the account row before claiming its checkout attempt');
+    assert.ok(attemptClaimIndex > userRowLockIndex,
+      'webhook must follow the same user-then-attempt lock order as the checkout endpoint');
   } finally {
     if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
     else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
