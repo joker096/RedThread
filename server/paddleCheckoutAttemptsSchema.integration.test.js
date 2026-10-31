@@ -76,7 +76,7 @@ test('Paddle checkout attempts enforce one durable attempt and fail-closed trans
       `);
       await client.query(`
         CREATE TRIGGER paddle_checkout_attempts_identity_immutable_test
-        BEFORE UPDATE OF attempt_id ON paddle_checkout_attempt_identity_test
+        BEFORE UPDATE OF attempt_id, user_id ON paddle_checkout_attempt_identity_test
         FOR EACH ROW EXECUTE FUNCTION prevent_paddle_checkout_attempt_identity_change()
       `);
       await client.query(
@@ -145,6 +145,24 @@ test('Paddle checkout attempts enforce one durable attempt and fail-closed trans
       }
       assert.equal(ownerTransferError?.code, '23514',
         'terminal rollover must not transfer a checkout attempt to another account');
+      await client.query('ROLLBACK TO SAVEPOINT reject_attempt_owner_transfer');
+      await client.query('RELEASE SAVEPOINT reject_attempt_owner_transfer');
+
+      await client.query('SAVEPOINT reject_owner_only_change');
+      let ownerOnlyError;
+      try {
+        await client.query(
+          `UPDATE paddle_checkout_attempt_identity_test SET user_id = $1
+           WHERE attempt_id = $2::uuid`,
+          ['bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb']
+        );
+      } catch (error) {
+        ownerOnlyError = error;
+      }
+      assert.equal(ownerOnlyError?.code, '23514',
+        'account ownership must remain immutable even when attempt_id is unchanged');
+      await client.query('ROLLBACK TO SAVEPOINT reject_owner_only_change');
+      await client.query('RELEASE SAVEPOINT reject_owner_only_change');
       await client.query('ROLLBACK TO SAVEPOINT reject_attempt_owner_transfer');
       await client.query('RELEASE SAVEPOINT reject_attempt_owner_transfer');
 
