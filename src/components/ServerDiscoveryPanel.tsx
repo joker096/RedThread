@@ -25,12 +25,10 @@ type ServerProfile = {
 
 type ServerDiscoveryPanelProps = { onOpenAccount: () => void };
 
-const isSafeProfilePhotoUrl = (value: unknown): value is string => {
-  if (typeof value !== 'string' || !value.trim() || value.trim().length > 2048) return false;
-  const url = value.trim();
-  if (url.startsWith('/') && !url.startsWith('//')) return true;
-  return /^https?:\/\//i.test(url);
-};
+export const isSafeProfilePhotoUrl = (value: unknown): value is string =>
+  typeof value === 'string' &&
+  value.trim() === value &&
+  /^\/api\/photos\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 const normalizeServerProfile = (value: unknown): ServerProfile | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
