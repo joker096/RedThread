@@ -61,7 +61,7 @@ test('Paddle checkout attempts enforce one durable attempt and fail-closed trans
     );
     assert.match(attemptIdentityFunction.rows[0].definition, /NEW\.attempt_id IS DISTINCT FROM OLD\.attempt_id/);
     assert.match(attemptIdentityFunction.rows[0].definition, /paddle checkout attempt identity is immutable/);
-    assert.match(attemptIdentityFunction.rows[0].definition, /NEW\\.user_id IS NOT DISTINCT FROM OLD\\.user_id/,
+    assert.match(attemptIdentityFunction.rows[0].definition, /NEW\.user_id IS NOT DISTINCT FROM OLD\.user_id/,
       'terminal rollover must preserve checkout attempt account ownership');
 
     await client.query('BEGIN');
