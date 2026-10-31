@@ -944,6 +944,56 @@ test('verified recurring transaction completion is held until its subscription w
   }
 });
 
+test('subscription.created without a Paddle customer ID cannot grant access and reconciles its attempt', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_test';
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: 'evt_subscription_without_customer' }] };
+      }
+      return { rowCount: 0, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    const result = await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_subscription_without_customer',
+      eventType: 'subscription.created',
+      occurredAt: '2026-10-30T18:00:00Z',
+      data: {
+        id: 'sub_0123456789abcdef01234567',
+        status: 'active',
+        customData: {
+          userId: '00000000-0000-4000-8000-000000000001',
+          plan: '1month',
+          checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+        },
+        transaction_id: 'txn_0123456789abcdef01234567',
+        currentBillingPeriod: { endsAt: '2026-11-30T18:00:00Z' },
+        items: [{ price: { id: 'pri_month_test' } }]
+      }
+    });
+    assert.deepEqual(result, { duplicate: false, handled: true });
+    assert.equal(queries.some(query => query.sql.includes('UPDATE users')), false);
+    const reconciliation = queries.find(query => query.sql.includes("SET status = 'reconciliation_required'"));
+    assert.ok(reconciliation, 'a subscription missing its required customer identity must be reviewed');
+    assert.deepEqual(reconciliation.params, [
+      '00000000-0000-4000-8000-000000000001',
+      '1month',
+      'txn_0123456789abcdef01234567',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    ]);
+    assert.equal(queries.some(query => query.sql === 'COMMIT'), true);
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
+  }
+});
+
 test('subscription.created cannot grant Premium without a matching server checkout attempt', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
