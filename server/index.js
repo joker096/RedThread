@@ -1496,7 +1496,16 @@ app.post('/api/photos', validateRequestOrigin, requireSession, profileActionLimi
   let client, fileWritten=false;
   try {
     client=await pool.connect(); await client.query('BEGIN');
-    const profile=await client.query('SELECT photo_urls FROM profiles WHERE user_id=$1 FOR UPDATE',[req.authUser.id]);
+    // Serialize uploads with account deletion and reject requests authenticated
+    // before deletion that only reach this transaction after the account closes.
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const profile=await client.query(
+      `SELECT p.photo_urls
+       FROM profiles p JOIN users u ON u.id = p.user_id
+       WHERE p.user_id = $1 AND u.status = 'active'
+       FOR UPDATE OF p, u`,
+      [req.authUser.id]
+    );
     if(!profile.rows[0]){await client.query('ROLLBACK');return res.status(404).json({error:'profile_not_found'});}
     if((profile.rows[0].photo_urls||[]).length>=6){await client.query('ROLLBACK');return res.status(400).json({error:'photo_limit_reached'});}
     await mkdir(photoStorageDir,{recursive:true,mode:0o700});
@@ -1688,6 +1697,7 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
     const result = await client.query(
       `UPDATE profiles SET ${updates.join(', ')}, updated_at = NOW()
        WHERE user_id = $1
+         AND EXISTS (SELECT 1 FROM users WHERE users.id = profiles.user_id AND users.status = 'active')
        RETURNING user_id AS id, display_name AS "displayName", gender, country, city, bio,
          photo_urls AS "photoUrls", occupation, education, languages,
          relationship_intent AS "relationshipIntent", is_visible AS "isVisible",

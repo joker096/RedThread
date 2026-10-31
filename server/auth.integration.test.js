@@ -2066,12 +2066,75 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.ok(consentHistoryBeforeDeletion.rows[0].count >= 1,
         'the account must have at least one consent-history row before deletion');
 
-      const deleteAccount = await request('/api/account', {
+      // Hold the same per-user safety lock so deletion is first in the
+      // PostgreSQL advisory-lock queue, followed by already-authenticated
+      // profile-update and photo-upload requests. This reproduces the race
+      // where middleware authenticated before deletion but route work starts after it.
+      const raceLock = await deletionSafetyDb.connect();
+      await raceLock.query('BEGIN');
+      await raceLock.query(
+        "SELECT pg_advisory_xact_lock(hashtext('gift-safety-user:' || $1::uuid::text))",
+        [registered.user.id]
+      );
+      const deleteAccountPromise = request('/api/account', {
         method: 'DELETE',
         headers: { Cookie: secondCookie },
         body: JSON.stringify({ password })
       });
+      const waitForBlockedSafetyRequests = async expected => {
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          const blocked = await deletionSafetyDb.query(
+            `SELECT COUNT(*)::int AS count
+             FROM pg_stat_activity
+             WHERE datname = current_database()
+               AND wait_event_type = 'Lock'
+               AND query LIKE '%gift-safety-user:%'`
+          );
+          if (blocked.rows[0].count >= expected) return;
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        throw new Error(`Timed out waiting for ${expected} queued account-safety requests`);
+      };
+      try {
+        await waitForBlockedSafetyRequests(1);
+        const staleProfileUpdatePromise = request('/api/profile', {
+          method: 'PUT',
+          headers: { Cookie: secondCookie },
+          body: JSON.stringify({ displayName: 'Must not restore deleted profile' })
+        });
+        const stalePhotoUploadPromise = request('/api/photos', {
+          method: 'POST',
+          headers: { Cookie: secondCookie, 'Content-Type': 'image/png' },
+          body: tinyPng
+        });
+        await waitForBlockedSafetyRequests(3);
+      } finally {
+        await raceLock.query('COMMIT');
+        raceLock.release();
+      }
+      const [deleteAccount, staleProfileUpdate, stalePhotoUpload] = await Promise.all([
+        deleteAccountPromise,
+        staleProfileUpdatePromise,
+        stalePhotoUploadPromise
+      ]);
       assert.equal(deleteAccount.status, 204);
+      assert.equal(staleProfileUpdate.status, 404,
+        'a profile update authenticated before deletion must not restore personal data afterward');
+      assert.equal(stalePhotoUpload.status, 404,
+        'a photo upload authenticated before deletion must not recreate private assets afterward');
+      const deletedProfileAfterRace = await deletionSafetyDb.query(
+        'SELECT display_name, is_visible, photo_urls FROM profiles WHERE user_id = $1',
+        [registered.user.id]
+      );
+      assert.equal(deletedProfileAfterRace.rows[0].display_name, 'Удалённый пользователь');
+      assert.equal(deletedProfileAfterRace.rows[0].is_visible, false);
+      assert.deepEqual(deletedProfileAfterRace.rows[0].photo_urls, []);
+      const orphanedPhotoAssets = await deletionSafetyDb.query(
+        'SELECT COUNT(*)::int AS count FROM photo_assets WHERE user_id = $1',
+        [registered.user.id]
+      );
+      assert.equal(orphanedPhotoAssets.rows[0].count, 0,
+        'queued uploads must not recreate photo rows after account deletion');
       const consentHistoryAfterDeletion = await deletionSafetyDb.query(
         'SELECT COUNT(*)::int AS count FROM ad_consent_history WHERE user_id = $1',
         [registered.user.id]
