@@ -1203,7 +1203,7 @@ async function suspendGiftOrdersForUser(client, userId, { actorUserId = null, ac
             GREATEST(sender_id, recipient_id)::text AS user_b
      FROM gift_delivery_orders
      WHERE (sender_id = $1 OR recipient_id = $1)
-       AND status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched')
+       AND status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivery_failed')
      ORDER BY user_a, user_b`,
     [userId]
   );
@@ -1219,7 +1219,7 @@ async function suspendGiftOrdersForUser(client, userId, { actorUserId = null, ac
        SELECT id, status AS previous_status
        FROM gift_delivery_orders
        WHERE (sender_id = $1 OR recipient_id = $1)
-         AND status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched')
+         AND status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivery_failed')
        ORDER BY id
        FOR UPDATE
      )
