@@ -908,7 +908,7 @@ app.post('/api/auth/email-verification/resend', authLimiter, validateRequestOrig
         }
         await client.query('COMMIT');
       } catch (error) {
-        await client.query('ROLLBACK').catch(() => {});
+        if (client && !await rollbackPooledTransaction(client)) client = null;
         throw error;
       } finally {
         client.release();
@@ -956,7 +956,7 @@ app.post('/api/auth/password-reset/request', authLimiter, validateRequestOrigin,
         }
         await client.query('COMMIT');
       } catch (error) {
-        await client.query('ROLLBACK').catch(() => {});
+        if (client && !await rollbackPooledTransaction(client)) client = null;
         throw error;
       } finally {
         client.release();
@@ -1025,7 +1025,7 @@ app.post('/api/auth/password-reset/complete', authLimiter, validateRequestOrigin
     clearSessionCookie(res);
     return res.json({ reset: true, message: 'Password changed. Sign in with your new password.' });
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Password reset completion failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'password_reset_failed' });
   } finally {
@@ -2842,7 +2842,7 @@ app.post('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, r
     await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Block user failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'block_user_failed' });
   } finally {
