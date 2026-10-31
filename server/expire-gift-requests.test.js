@@ -60,7 +60,7 @@ test('expiry worker takes creation locks in the established order and commits sa
   assert.match(discovery.sql, /date_trunc\('minute', NOW\(\)\)/);
   assert.match(discovery.sql, /LIMIT \$1/);
   assert.deepEqual(order, ['rate', 'safety-users', 'pair', 'expire']);
-  assert.deepEqual(result, { pairsScanned: 1, expiredOrders: 2, refundedOrders: 0, reconciliationRequired: 0, pairFailures: 0 });
+  assert.deepEqual(result, { pairsScanned: 1, expiredOrders: 2, reconciliationRequired: 0, pairFailures: 0 });
   assert.ok(pool.calls.includes('COMMIT'));
   assert.ok(pool.calls.includes('RELEASE'));
 });
