@@ -1362,7 +1362,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
 
     // Stop recurring Paddle billing before deleting the account. A local account
     // deletion must never leave an active external subscription renewing silently.
-    if (typeof subscriptionId === 'string' && !['canceled', 'completed'].includes(subscriptionStatus)) {
+    if (typeof subscriptionId === 'string') {
       if (typeof customerId !== 'string' || !/^ctm_[A-Za-z0-9]+$/.test(customerId)) {
         return res.status(409).json({ error: 'paddle_subscription_reconciliation_required' });
       }
