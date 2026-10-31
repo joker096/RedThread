@@ -2116,7 +2116,6 @@ test('auth API supports registration, session lookup, logout and login', {
       let stalePhotoUploadPromise;
       let staleMessagePromise;
       let staleAssessmentPromise;
-      let staleLoginPromise;
       try {
         await waitForBlockedSafetyRequests(1);
         staleProfileUpdatePromise = request('/api/profiles/me', {
@@ -2142,23 +2141,25 @@ test('auth API supports registration, session lookup, logout and login', {
           headers: { Cookie: secondCookie },
           body: JSON.stringify({ answers: assessmentAnswers })
         });
-        staleLoginPromise = request('/api/auth/login', {
-          method: 'POST',
-          body: JSON.stringify({ email, password })
-        });
-        await waitForBlockedSafetyRequests(6);
+        await waitForBlockedSafetyRequests(5);
       } finally {
         await raceLock.query('COMMIT');
         raceLock.release();
       }
-      const [deleteAccount, staleProfileUpdate, stalePhotoUpload, staleMessage, staleAssessment, staleLogin] = await Promise.all([
+      const [deleteAccount, staleProfileUpdate, stalePhotoUpload, staleMessage, staleAssessment] = await Promise.all([
         deleteAccountPromise,
         staleProfileUpdatePromise,
         stalePhotoUploadPromise,
         staleMessagePromise,
-        staleAssessmentPromise,
-        staleLoginPromise
+        staleAssessmentPromise
       ]);
+      // Login does not use the account-safety advisory lock. Check it only
+      // after deletion commits, so the test asserts the persisted deleted
+      // state rather than incorrectly expecting login to join that lock queue.
+      const staleLogin = await request('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password })
+      });
       assert.equal(deleteAccount.status, 204);
       assert.equal(staleProfileUpdate.status, 404,
         'a profile update authenticated before deletion must not restore personal data afterward');
