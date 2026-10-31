@@ -1244,6 +1244,10 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     await client.query('DELETE FROM sessions WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM likes WHERE sender_id = $1 OR target_id = $1', [req.authUser.id]);
+    await client.query('DELETE FROM profile_passes WHERE passer_id = $1 OR passed_user_id = $1', [req.authUser.id]);
+    await client.query('DELETE FROM profile_preferences WHERE user_id = $1', [req.authUser.id]);
+    await client.query('DELETE FROM user_notifications WHERE user_id = $1', [req.authUser.id]);
+    await client.query('DELETE FROM account_action_tokens WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM user_blocks WHERE blocker_id = $1 OR blocked_id = $1', [req.authUser.id]);
     await client.query(
       "UPDATE messages SET body = '[сообщение удалено]', deleted_at = COALESCE(deleted_at, NOW()) WHERE sender_id = $1",

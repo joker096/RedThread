@@ -2060,6 +2060,22 @@ test('auth API supports registration, session lookup, logout and login', {
         "INSERT INTO ad_events (event_id, user_id, campaign_id, event_type) VALUES ($1, $2, 'privacy-delete-test', 'impression')",
         [adEventId, registered.user.id]
       );
+      await deletionSafetyDb.query(
+        'INSERT INTO profile_preferences (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING',
+        [registered.user.id]
+      );
+      await deletionSafetyDb.query(
+        'INSERT INTO profile_passes (passer_id, passed_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [registered.user.id, maleRegistered.user.id]
+      );
+      await deletionSafetyDb.query(
+        "INSERT INTO user_notifications (user_id, type, metadata, dedupe_key) VALUES ($1, 'new_message', '{}'::jsonb, 'account-delete-test')",
+        [registered.user.id]
+      );
+      await deletionSafetyDb.query(
+        "INSERT INTO account_action_tokens (user_id, purpose, token_hash, expires_at) VALUES ($1, 'password_reset', $2, NOW() + INTERVAL '1 hour')",
+        [registered.user.id, randomUUID().replaceAll('-', '').repeat(2)]
+      );
       const consentHistoryBeforeDeletion = await deletionSafetyDb.query(
         'SELECT COUNT(*)::int AS count FROM ad_consent_history WHERE user_id = $1',
         [registered.user.id]
@@ -2165,6 +2181,24 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       assert.equal(deletedGiftPreferences.rows[0].count, 0,
         'account deletion must purge gift receiving preferences');
+      for (const [table, column] of [
+        ['profile_preferences', 'user_id'],
+        ['profile_passes', 'passer_id'],
+        ['user_notifications', 'user_id'],
+        ['account_action_tokens', 'user_id']
+      ]) {
+        const cleanup = await deletionSafetyDb.query(
+          `SELECT COUNT(*)::int AS count FROM ${table} WHERE ${column} = $1`,
+          [registered.user.id]
+        );
+        assert.equal(cleanup.rows[0].count, 0, `account deletion must purge ${table}`);
+      }
+      const remainingReceivedPasses = await deletionSafetyDb.query(
+        'SELECT COUNT(*)::int AS count FROM profile_passes WHERE passed_user_id = $1',
+        [registered.user.id]
+      );
+      assert.equal(remainingReceivedPasses.rows[0].count, 0,
+        'account deletion must purge passes targeting the deleted profile');
       const deletedAssessments = await deletionSafetyDb.query(
         'SELECT COUNT(*)::int AS count FROM relationship_assessments WHERE user_id = $1',
         [registered.user.id]
