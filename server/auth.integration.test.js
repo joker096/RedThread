@@ -1255,7 +1255,7 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       assert.equal(photoRaceAssetCount.rows[0].count, 0);
     } finally {
-      photoRaceLock.release?.();
+      // The lock client was already released by the transaction cleanup above.
       await photoRaceDb.end();
     }
     const assessmentAnswers = {
