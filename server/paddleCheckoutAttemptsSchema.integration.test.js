@@ -140,6 +140,7 @@ test('Paddle checkout attempts enforce one durable attempt and fail-closed trans
         await client.query('RELEASE SAVEPOINT immutable_attempt_identity');
       }
 
+      await client.query('SAVEPOINT allow_terminal_plan_rollover');
       await client.query(
         `UPDATE paddle_checkout_attempt_identity_test
          SET attempt_id = $1, status = 'creating', transaction_id = NULL, plan = '3months'
@@ -152,6 +153,8 @@ test('Paddle checkout attempts enforce one durable attempt and fail-closed trans
       );
       assert.deepEqual(terminalRolloverPlan.rows[0], { plan: '3months', status: 'creating' },
         'a fresh terminal rollover may intentionally select a different plan');
+      await client.query('ROLLBACK TO SAVEPOINT allow_terminal_plan_rollover');
+      await client.query('RELEASE SAVEPOINT allow_terminal_plan_rollover');
 
       await client.query('SAVEPOINT reject_completed_downgrade');
       await client.query(
