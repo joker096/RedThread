@@ -21,7 +21,7 @@ export async function recipientGiftAcceptanceLimitReached(client, recipientId) {
     `SELECT COUNT(*)::int AS count
      FROM gift_delivery_orders
      WHERE recipient_id = $1
-       AND recipient_consent_at >= NOW() - INTERVAL '7 days'`,
+       AND recipient_consent_at >= statement_timestamp() - INTERVAL '7 days'`,
     [recipientId]
   );
   return Number(accepted.rows[0]?.count ?? 0) >= 1;
@@ -69,7 +69,7 @@ export async function expireStaleGiftRequestsForPair(client, { matchId, senderId
        AND LEAST(sender_id, recipient_id) = LEAST($2::uuid, $3::uuid)
        AND GREATEST(sender_id, recipient_id) = GREATEST($2::uuid, $3::uuid)
        AND status = 'awaiting_recipient_consent'
-       AND expires_at <= NOW()
+       AND expires_at <= statement_timestamp()
      ORDER BY id
      FOR UPDATE`,
     [matchId, senderId, recipientId]
@@ -84,10 +84,10 @@ export async function expireStaleGiftRequestsForPair(client, { matchId, senderId
   // expired request for this pair needs provider reconciliation.
   const expired = await client.query(
     `UPDATE gift_delivery_orders
-     SET status = 'expired', updated_at = NOW()
+     SET status = 'expired', updated_at = statement_timestamp()
      WHERE id = ANY($1::uuid[])
        AND status = 'awaiting_recipient_consent'
-       AND expires_at <= NOW()
+       AND expires_at <= statement_timestamp()
        AND payment_status IN ('not_started', 'voided', 'failed')
      RETURNING id, public_reference AS "publicReference", sender_id`,
     [candidates.rows.map(row => row.id)]
@@ -241,8 +241,8 @@ export async function createGiftOrderRequest(client, {
            SELECT 1 FROM user_identity_verifications iv
            WHERE iv.user_id = sender.id
              AND iv.status = 'approved'
-             AND iv.verified_at <= NOW()
-             AND iv.expires_at > NOW()
+             AND iv.verified_at <= statement_timestamp()
+             AND iv.expires_at > statement_timestamp()
              AND iv.verification_level >= CASE
                WHEN sender_profile.gender = 'male' THEN 3
                WHEN sender_profile.gender = 'female' THEN 1
@@ -306,8 +306,8 @@ export async function createGiftOrderRequest(client, {
     `SELECT
        m.id AS match_id,
        m.status AS match_status,
-       FLOOR(EXTRACT(EPOCH FROM (NOW() - m.created_at)) / 86400)::int AS match_age_days,
-       NOW() AS safety_snapshot_at,
+       FLOOR(EXTRACT(EPOCH FROM (statement_timestamp() - m.created_at)) / 86400)::int AS match_age_days,
+       statement_timestamp() AS safety_snapshot_at,
        sender.id AS sender_id,
        sender.status AS sender_status,
        sender_profile.gender AS sender_gender,
@@ -316,8 +316,8 @@ export async function createGiftOrderRequest(client, {
          SELECT 1 FROM user_identity_verifications iv
          WHERE iv.user_id = sender.id
            AND iv.status = 'approved'
-           AND iv.verified_at <= NOW()
-           AND iv.expires_at > NOW()
+           AND iv.verified_at <= statement_timestamp()
+           AND iv.expires_at > statement_timestamp()
            AND iv.verification_level >= CASE
              WHEN sender_profile.gender = 'male' THEN 3
              WHEN sender_profile.gender = 'female' THEN 1
@@ -403,7 +403,7 @@ export async function createGiftOrderRequest(client, {
           LOWER(REGEXP_REPLACE(BTRIM(normalize($3, NFC)), '[[:space:]]+', ' ', 'g'))
       AND coverage.active = TRUE
       AND coverage.verified_at IS NOT NULL
-      AND coverage.verified_at <= NOW()
+      AND coverage.verified_at <= statement_timestamp()
      JOIN gift_delivery_partners partner ON partner.id = coverage.partner_id
      WHERE item.id = $1
        AND item.active = TRUE AND item.approved = TRUE
@@ -435,11 +435,11 @@ export async function createGiftOrderRequest(client, {
   const activityResult = await client.query(
     `SELECT
        COUNT(*) FILTER (
-         WHERE sender_id = $1 AND created_at >= NOW() - INTERVAL '30 days'
+         WHERE sender_id = $1 AND created_at >= statement_timestamp() - INTERVAL '30 days'
        )::int AS sender_requests_last_30_days,
        COUNT(*) FILTER (
          WHERE recipient_id = $2
-           AND recipient_consent_at >= NOW() - INTERVAL '7 days'
+           AND recipient_consent_at >= statement_timestamp() - INTERVAL '7 days'
        )::int AS accepted_gifts_to_recipient_last_7_days
      FROM gift_delivery_orders`,
     [senderId, recipientId]
@@ -528,12 +528,14 @@ export async function createGiftOrderRequest(client, {
        match_id, sender_id, recipient_id, catalog_item_id,
        product_name_snapshot, product_category,
        item_price_minor_units, delivery_fee_minor_units, delivery_fee_currency,
-       total_minor_units, currency, delivery_partner_id, status, payment_status, idempotency_key
+       total_minor_units, currency, delivery_partner_id, status, payment_status, idempotency_key,
+       expires_at, created_at, updated_at
      )
      VALUES (
        $1, $2, $3, $4, $5, $6,
        $7, $8, $9, $10, $11, $12,
-       'awaiting_recipient_consent', 'not_started', $13
+       'awaiting_recipient_consent', 'not_started', $13,
+       statement_timestamp() + INTERVAL '72 hours', statement_timestamp(), statement_timestamp()
      )
      RETURNING public_reference AS id, status,
                product_name_snapshot AS "productName",
@@ -599,8 +601,8 @@ export async function listGiftCatalogForMatch(client, { senderId, matchId }) {
     `SELECT
        m.id AS match_id,
        m.status AS match_status,
-       FLOOR(EXTRACT(EPOCH FROM (NOW() - m.created_at)) / 86400)::int AS match_age_days,
-       NOW() AS safety_snapshot_at,
+       FLOOR(EXTRACT(EPOCH FROM (statement_timestamp() - m.created_at)) / 86400)::int AS match_age_days,
+       statement_timestamp() AS safety_snapshot_at,
        sender.id AS sender_id,
        sender.status AS sender_status,
        sender_profile.gender AS sender_gender,
@@ -609,8 +611,8 @@ export async function listGiftCatalogForMatch(client, { senderId, matchId }) {
          SELECT 1 FROM user_identity_verifications iv
          WHERE iv.user_id = sender.id
            AND iv.status = 'approved'
-           AND iv.verified_at <= NOW()
-           AND iv.expires_at > NOW()
+           AND iv.verified_at <= statement_timestamp()
+           AND iv.expires_at > statement_timestamp()
            AND iv.verification_level >= CASE
              WHEN sender_profile.gender = 'male' THEN 3
              WHEN sender_profile.gender = 'female' THEN 1
@@ -666,11 +668,11 @@ export async function listGiftCatalogForMatch(client, { senderId, matchId }) {
   const activityResult = await client.query(
     `SELECT
        COUNT(*) FILTER (
-         WHERE sender_id = $1 AND created_at >= NOW() - INTERVAL '30 days'
+         WHERE sender_id = $1 AND created_at >= statement_timestamp() - INTERVAL '30 days'
        )::int AS sender_requests_last_30_days,
        COUNT(*) FILTER (
          WHERE recipient_id = $2
-           AND recipient_consent_at >= NOW() - INTERVAL '7 days'
+           AND recipient_consent_at >= statement_timestamp() - INTERVAL '7 days'
        )::int AS accepted_gifts_to_recipient_last_7_days
      FROM gift_delivery_orders`,
     [senderId, row.recipient_id]
@@ -756,7 +758,7 @@ export async function listGiftCatalogForMatch(client, { senderId, matchId }) {
           LOWER(REGEXP_REPLACE(BTRIM(normalize($2, NFC)), '[[:space:]]+', ' ', 'g'))
       AND coverage.active = TRUE
       AND coverage.verified_at IS NOT NULL
-      AND coverage.verified_at <= NOW()
+      AND coverage.verified_at <= statement_timestamp()
      JOIN gift_delivery_partners partner ON partner.id = coverage.partner_id
      WHERE item.active = TRUE AND item.approved = TRUE
        AND supplier.status = 'verified'
