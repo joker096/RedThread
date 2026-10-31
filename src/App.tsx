@@ -108,9 +108,8 @@ export default function App() {
   const [boostActive, setBoostActive] = useState(false);
 
   useEffect(() => {
-    if (discoveryMode === 'demo') return;
-    // Never display local demo inventory or boosts as real server entitlements.
-    setSuperLikesCount(0);
+    // Local inventory is only a demo mechanic, never a server entitlement.
+    setSuperLikesCount(discoveryMode === 'demo' ? 3 : 0);
     setBoostActive(false);
   }, [discoveryMode]);
 
