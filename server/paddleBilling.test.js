@@ -1162,6 +1162,14 @@ test('Paddle identity unique conflicts are acknowledged and marked for reconcili
   });
   assert.equal(queries.some(query => query.statement === 'ROLLBACK TO SAVEPOINT paddle_event_effects'), true);
   assert.equal(queries.some(query => query.statement.includes("SET status = 'reconciliation_required'")), true);
+  const safetyLockIndex = queries.findIndex(query =>
+    query.statement.includes("pg_advisory_xact_lock(hashtext('gift-safety-user:"))
+  );
+  const accountUpdateIndex = queries.findIndex(query =>
+    query.statement.includes('UPDATE users SET') && query.statement.includes('paddle_customer_id')
+  );
+  assert.ok(safetyLockIndex >= 0 && safetyLockIndex < accountUpdateIndex,
+    'Paddle identity writes must wait for account deletion/safety serialization');
   assert.equal(queries.some(query => query.statement === 'COMMIT'), true);
   assert.equal(queries.some(query => query.statement === 'ROLLBACK'), false);
 });
