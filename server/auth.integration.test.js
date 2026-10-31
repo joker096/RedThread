@@ -2307,10 +2307,19 @@ test('auth API supports registration, session lookup, logout and login', {
         for (let attempt = 0; attempt < 100; attempt += 1) {
           const blocked = await deletionSafetyDb.query(
             `SELECT COUNT(*)::int AS count
-             FROM pg_stat_activity
-             WHERE datname = current_database()
-               AND wait_event_type = 'Lock'
-               AND query LIKE '%gift-safety-user:%'`
+             FROM pg_stat_activity activity
+             WHERE activity.datname = current_database()
+               AND activity.wait_event_type = 'Lock'
+               AND EXISTS (
+                 SELECT 1
+                 FROM pg_locks advisory_wait
+                 WHERE advisory_wait.pid = activity.pid
+                   AND advisory_wait.locktype = 'advisory'
+                   AND advisory_wait.granted = false
+                   AND advisory_wait.classid = 0
+                   AND advisory_wait.objid = hashtext('gift-safety-user:' || $1::uuid::text)::oid
+               )`,
+            [registered.user.id]
           );
           if (blocked.rows[0].count >= expected) return;
           await new Promise(resolve => setTimeout(resolve, 50));
