@@ -825,6 +825,7 @@ test('Paddle checkout cancellation cancels only owned draft or ready transaction
     transactionId: 'txn_0123456789abcdef01234567',
     expectedUserId: '00000000-0000-4000-8000-000000000001',
     expectedPlan: '1month',
+    expectedAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     fetchImpl: async (url, options) => {
       requests.push({ url, options });
       if (options.method === 'GET') {
@@ -834,7 +835,7 @@ test('Paddle checkout cancellation cancels only owned draft or ready transaction
             return { data: {
               id: 'txn_0123456789abcdef01234567',
               status: 'ready',
-              custom_data: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month' }
+              custom_data: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month', checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }
             } };
           }
         };
@@ -1287,7 +1288,8 @@ test('Paddle identity unique conflicts reconcile only the matching checkout atte
     query.statement.includes("SET status = 'reconciliation_required'")
   );
   assert.ok(reconciliationUpdate, 'the conflicting checkout attempt must be marked for reconciliation');
-  assert.ok(reconciliationUpdate.statement.includes('WHERE user_id = $1 AND plan = $2'));
+  assert.ok(reconciliationUpdate.statement.includes('WHERE user_id = $1'));
+  assert.ok(reconciliationUpdate.statement.includes('attempt_id = $4'));
   assert.ok(reconciliationUpdate.statement.includes('transaction_id = $3'));
   assert.doesNotMatch(reconciliationUpdate.statement, /'linked'|'canceled'/,
     'identity conflicts must not downgrade terminal checkout attempts');
