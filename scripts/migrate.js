@@ -79,7 +79,14 @@ async function runMigrations() {
         const sql = await readFile(path.join(migrationsDir, name), 'utf8');
         if (shutdownSignal) break;
 
-        await client.query('BEGIN');
+        try {
+          await client.query('BEGIN');
+        } catch (error) {
+          // BEGIN can fail after a transport/protocol error. The transaction
+          // state is then unknown, so never return this client as healthy.
+          releaseError = error;
+          throw error;
+        }
         if (shutdownSignal) {
           try {
             await client.query('ROLLBACK');
