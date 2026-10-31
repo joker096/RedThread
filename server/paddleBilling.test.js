@@ -1164,8 +1164,10 @@ test('malformed subscription IDs in completed transactions cannot reach account 
   assert.equal(queries.includes('ROLLBACK'), false);
 });
 
-test('Paddle identity unique conflicts are acknowledged and marked for reconciliation', async () => {
+test('Paddle identity unique conflicts reconcile only the matching checkout attempt', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalMonthlyPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_vowmonthly';
   const queries = [];
   const client = {
     async query(sql, params) {
@@ -1184,21 +1186,25 @@ test('Paddle identity unique conflicts are acknowledged and marked for reconcili
     release() {}
   };
 
-  const result = await processPaddleEvent({ async connect() { return client; } }, {
-    eventId: 'evt_identity_conflict',
-    eventType: 'subscription.updated',
-    occurredAt: '2026-10-31T12:00:00Z',
-    data: {
-      id: 'sub_identityconflict',
-      customerId: 'ctm_identityconflict',
-      status: 'active',
-      currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' },
-      customData: {
-        userId: '00000000-0000-4000-8000-000000000001',
-        plan: '1month'
+  let result;
+  try {
+    result = await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_identity_conflict',
+      eventType: 'transaction.completed',
+      data: {
+        id: 'txn_identityconflict',
+        customerId: 'ctm_identityconflict',
+        customData: {
+          userId: '00000000-0000-4000-8000-000000000001',
+          plan: '1month'
+        },
+        items: [{ price: { id: 'pri_vowmonthly' } }]
       }
-    }
-  });
+    });
+  } finally {
+    if (originalMonthlyPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalMonthlyPriceId;
+  }
 
   assert.deepEqual(result, {
     duplicate: false,
@@ -1210,8 +1216,8 @@ test('Paddle identity unique conflicts are acknowledged and marked for reconcili
     query.statement.includes("SET status = 'reconciliation_required'")
   );
   assert.ok(reconciliationUpdate, 'the conflicting checkout attempt must be marked for reconciliation');
-  assert.match(reconciliationUpdate.statement, /WHERE user_id = \$1 AND plan = \$2/);
-  assert.match(reconciliationUpdate.statement, /transaction_id = \$3/);
+  assert.match(reconciliationUpdate.statement, /WHERE user_id = \\$1 AND plan = \\$2/);
+  assert.match(reconciliationUpdate.statement, /transaction_id = \\$3/);
   assert.doesNotMatch(reconciliationUpdate.statement, /'linked'|'canceled'/,
     'identity conflicts must not downgrade terminal checkout attempts');
   assert.deepEqual(reconciliationUpdate.params, [
