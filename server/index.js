@@ -1224,7 +1224,7 @@ async function suspendGiftOrdersForUser(client, userId, { actorUserId = null, ac
        FOR UPDATE
      )
      UPDATE gift_delivery_orders AS o
-     SET status = CASE WHEN c.previous_status = 'dispatched' THEN 'reported' ELSE 'blocked' END,
+     SET status = CASE WHEN c.previous_status IN ('dispatched', 'delivery_failed') THEN 'reported' ELSE 'blocked' END,
          address_vault_ref = NULL, address_verified_at = NULL, updated_at = statement_timestamp()
      FROM candidates AS c
      WHERE o.id = c.id
