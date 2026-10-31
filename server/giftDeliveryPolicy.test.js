@@ -388,6 +388,7 @@ test('refund policy is fail-closed, state-bound, amount-matched and idempotency-
   assert.equal(evaluateGiftRefundEligibility({ request: refundRequest, payment: capturedPayment, actor: 'system', reason: { text: 'delivery failed' }, idempotencyKey: key }).reason, 'invalid_refund_reason');
   assert.equal(evaluateGiftRefundEligibility({ request: { ...refundRequest, totalMinorUnits: Number.MAX_SAFE_INTEGER + 1 }, payment: { ...capturedPayment, amountMinorUnits: Number.MAX_SAFE_INTEGER + 1 }, actor: 'system', reason: 'delivery failed', idempotencyKey: key }).reason, 'invalid_refund_amount');
   assert.equal(evaluateGiftRefundEligibility({ request: refundRequest, payment: capturedPayment, actor: 'system', reason: 'delivery failed', idempotencyKey: key, alreadyRefunded: true }).reason, 'refund_already_completed');
+  assert.equal(evaluateGiftRefundEligibility({ request: { ...refundRequest, status: 'refunded' }, payment: { ...capturedPayment, status: 'refunded' }, actor: 'system', reason: 'already refunded', idempotencyKey: key }).reason, 'refund_already_completed');
   assert.deepEqual(evaluateGiftRefundEligibility({ request: refundRequest, payment: capturedPayment, actor: 'moderator', reason: 'delivery failed', idempotencyKey: key }), {
     eligible: true, reason: 'refund_allowed_pending_idempotent_payment_service', fulfilmentAuthorized: false, refundAmountMinorUnits: 2500, currency: 'GEL'
   });
