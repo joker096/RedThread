@@ -2453,6 +2453,13 @@ test('auth API supports registration, session lookup, logout and login', {
       let staleGiftDecisionPromise;
       try {
         await waitForBlockedSafetyRequests(1);
+        // This integration test intentionally exercises many authenticated
+        // profile actions from one client IP. Clear only the test database's
+        // shared profile limiter bucket so a prior request burst cannot mask
+        // the stale gift-decision/account-safety-lock assertion with HTTP 429.
+        await deletionSafetyDb.query(
+          "DELETE FROM api_rate_limit_counters WHERE key LIKE 'profile:%'"
+        );
         staleGiftDecisionPromise = request(
           `/api/gifts/orders/${pendingDeletionDecisionReference}/decision`,
           {
