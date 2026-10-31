@@ -6,10 +6,16 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $function$
 BEGIN
-  IF NEW.attempt_id IS DISTINCT FROM OLD.attempt_id THEN
+  IF NEW.attempt_id IS DISTINCT FROM OLD.attempt_id
+     AND NOT (
+       OLD.status IN ('canceled', 'linked')
+       AND NEW.status = 'creating'
+       AND NEW.transaction_id IS NULL
+       AND NEW.attempt_id IS NOT NULL
+     ) THEN
     RAISE EXCEPTION
       USING ERRCODE = '23514',
-            MESSAGE = 'paddle checkout attempt identity is immutable';
+            MESSAGE = 'paddle checkout attempt identity is immutable outside terminal rollover';
   END IF;
   RETURN NEW;
 END;
@@ -32,4 +38,4 @@ BEGIN
 END $$;
 
 COMMENT ON FUNCTION prevent_paddle_checkout_attempt_identity_change() IS
-  'Prevents reassignment or clearing of the server-generated Paddle checkout attempt identity used to bind provider webhooks.';
+  'Keeps each checkout attempt identity immutable while active; permits a new identity only when a canceled or linked terminal row is atomically reused for a fresh creating attempt.';
