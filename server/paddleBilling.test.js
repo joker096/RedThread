@@ -363,6 +363,44 @@ test('does not grant lifetime Premium when the transaction price does not match 
 });
 
 
+test('malformed completed transaction IDs are acknowledged without database constraint retries', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
+  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_lifetime_test';
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: 'evt_malformed_transaction_id' }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+
+  try {
+    const result = await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_malformed_transaction_id',
+      eventType: 'transaction.completed',
+      data: {
+        id: 'not-a-transaction-id',
+        customData: { userId: '00000000-0000-4000-8000-000000000001', plan: 'lifetime' },
+        items: [{ price: { id: 'pri_lifetime_test' } }]
+      }
+    });
+
+    assert.deepEqual(result, { duplicate: false, handled: true });
+    assert.equal(queries.some(query => query.sql.includes('UPDATE paddle_checkout_attempts')), false);
+    assert.equal(queries.some(query => query.sql.includes('UPDATE users')), false);
+    assert.equal(queries.some(query => query.sql === 'COMMIT'), true);
+    assert.equal(queries.some(query => query.sql === 'ROLLBACK'), false);
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
+    else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
+  }
+});
+
 test('customer webhook cannot replace an account customer ID once established', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const queries = [];
