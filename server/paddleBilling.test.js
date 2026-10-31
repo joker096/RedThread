@@ -245,7 +245,8 @@ test('grants lifetime Premium only for a verified matching transaction price', a
     assert.deepEqual(attemptUpdate.params, [
       'txn_0123456789abcdef01234567',
       'linked',
-      '00000000-0000-4000-8000-000000000001'
+      '00000000-0000-4000-8000-000000000001',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
     ]);
   } finally {
     if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
