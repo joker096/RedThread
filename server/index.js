@@ -1203,9 +1203,9 @@ async function enqueueGiftSafetyPaymentReconciliation(client, gift, { actorUserI
 
 async function suspendGiftOrdersForUser(client, userId, { actorUserId = null, actorType = 'system', reason = 'account_safety_event' } = {}) {
   // Use the same pair-level lock as accept/block/report, in stable order, before
-  // touching gift rows. Also include completed deliveries with a retained vault
-  // pointer: account deletion/moderator suspension must revoke every address
-  // capability, not only addresses on orders that are still in fulfilment.
+  // touching gift rows. Clear any legacy pointer left on a state where the
+  // address-vault constraints do not permit one; delivered orders deliberately
+  // retain their verified pointer for the delivery audit trail.
   const pairs = await client.query(
     `SELECT DISTINCT LEAST(sender_id, recipient_id)::text AS user_a,
             GREATEST(sender_id, recipient_id)::text AS user_b
@@ -1213,7 +1213,7 @@ async function suspendGiftOrdersForUser(client, userId, { actorUserId = null, ac
      WHERE (sender_id = $1 OR recipient_id = $1)
        AND (
          status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivery_failed')
-         OR address_vault_ref IS NOT NULL
+         OR (address_vault_ref IS NOT NULL AND status <> 'delivered')
        )
      ORDER BY user_a, user_b`,
     [userId]
@@ -1232,7 +1232,7 @@ async function suspendGiftOrdersForUser(client, userId, { actorUserId = null, ac
        WHERE (sender_id = $1 OR recipient_id = $1)
          AND (
            status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivery_failed')
-           OR address_vault_ref IS NOT NULL
+           OR (address_vault_ref IS NOT NULL AND status <> 'delivered')
          )
        ORDER BY id
        FOR UPDATE
