@@ -2375,6 +2375,7 @@ test('auth API supports registration, session lookup, logout and login', {
       let staleBlocksReadPromise;
       let staleGiftPreferencesReadPromise;
       let staleGiftOrdersReadPromise;
+      let staleGiftCatalogReadPromise;
       let staleAdConsentReadPromise;
       let staleAuthMePromise;
       let staleBillingStatusPromise;
@@ -2443,6 +2444,9 @@ test('auth API supports registration, session lookup, logout and login', {
         staleGiftOrdersReadPromise = request('/api/gifts/orders', {
           headers: { Cookie: secondCookie }
         });
+        staleGiftCatalogReadPromise = request(`/api/gifts/catalog?matchId=${matchPayload.match.id}`, {
+          headers: { Cookie: secondCookie }
+        });
         staleAdConsentReadPromise = request('/api/ads/consent', {
           headers: { Cookie: secondCookie }
         });
@@ -2493,6 +2497,7 @@ test('auth API supports registration, session lookup, logout and login', {
         staleBlocksReadPromise,
         staleGiftPreferencesReadPromise,
         staleGiftOrdersReadPromise,
+        staleGiftCatalogReadPromise,
         staleAdConsentReadPromise,
         staleAuthMePromise,
         staleBillingStatusPromise,
@@ -2533,6 +2538,8 @@ test('auth API supports registration, session lookup, logout and login', {
         'a stale session must not read gift preferences after account deletion');
       assert.equal(staleGiftOrdersRead.status, 401,
         'a stale session must not read gift order history after account deletion');
+      assert.equal(staleGiftCatalogRead.status, 401,
+        'gift catalog discovery must serialize with account deletion and reject a stale session');
       assert.equal(staleAdConsentRead.status, 401,
         'a stale session must not read advertising consent after account deletion');
       assert.equal(staleAuthMe.status, 401,
