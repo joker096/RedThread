@@ -318,7 +318,7 @@ test('recurring transaction completion cannot bind Paddle identities without its
         id: 'txn_0123456789abcdef01234567',
         subscriptionId: 'sub_0123456789abcdef01234567',
         customerId: 'ctm_0123456789abcdef01234567',
-        customData: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month' },
+        customData: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month', checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
         items: [{ price: { id: 'pri_month_test' } }]
       }
     });
@@ -526,7 +526,7 @@ test('a new subscription may replace a terminal prior subscription but not an ac
         id: 'sub_' + eventId.replace(/[^A-Za-z0-9]/g, ''),
         status: 'active',
         customerId: 'ctm_existing',
-        customData: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month' },
+        customData: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month', checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
         transaction_id: 'txn_0123456789abcdef01234567',
         currentBillingPeriod: { endsAt: '2027-01-30T18:00:00Z' },
         items: [{ price: { id: 'pri_month_test' } }]
@@ -1003,8 +1003,10 @@ test('only a verified new subscription event links a completed recurring checkou
     assert.deepEqual(attemptUpdate.params, [
       '00000000-0000-4000-8000-000000000001',
       '1month',
-      'txn_0123456789abcdef01234567'
+      'txn_0123456789abcdef01234567',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
     ]);
+    assert.ok(attemptUpdate.sql.includes('attempt_id = $4'));
     assert.match(attemptUpdate.sql, /transaction_id IS NULL OR transaction_id = \$3/);
   } finally {
     if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
@@ -1065,7 +1067,7 @@ test('subscription.created cannot claim a checkout attempt for a different trans
         id: 'sub_0123456789abcdef01234567',
         status: 'active',
         customerId: 'ctm_0123456789abcdef01234567',
-        customData: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month' },
+        customData: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month', checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
         transaction_id: 'txn_aaaaaaaaaaaaaaaaaaaaaaaaaa',
         currentBillingPeriod: { endsAt: '2026-11-30T18:00:00Z' },
         items: [{ price: { id: 'pri_month_test' } }]
@@ -1076,8 +1078,10 @@ test('subscription.created cannot claim a checkout attempt for a different trans
     assert.deepEqual(attemptUpdate.params, [
       '00000000-0000-4000-8000-000000000001',
       '1month',
-      'txn_aaaaaaaaaaaaaaaaaaaaaaaaaa'
+      'txn_aaaaaaaaaaaaaaaaaaaaaaaaaa',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
     ]);
+    assert.ok(attemptUpdate.sql.includes('attempt_id = $4'));
     assert.equal(queries.some(query => query.sql.includes('UPDATE users')), false,
       'a subscription for a different transaction must not attach or grant Premium');
   } finally {
@@ -1137,7 +1141,8 @@ test('malformed customer IDs on completed transactions mark only the matching ch
       customerId: 'not-a-paddle-customer',
       customData: {
         userId: '00000000-0000-4000-8000-000000000001',
-        plan: '3months'
+        plan: '3months',
+        checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
       }
     }
   });
@@ -1148,7 +1153,8 @@ test('malformed customer IDs on completed transactions mark only the matching ch
   assert.deepEqual(reconciliation.params, [
     '00000000-0000-4000-8000-000000000001',
     '3months',
-    'txn_customerbad123'
+    'txn_customerbad123',
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
   ]);
   assert.equal(queries.some(query => query.sql === 'COMMIT'), true);
   assert.equal(queries.some(query => query.sql === 'ROLLBACK'), false);
@@ -1199,7 +1205,8 @@ test('malformed subscription IDs in completed transactions reconcile only their 
       subscriptionId: 'not-a-subscription-id',
       customData: {
         userId: '00000000-0000-4000-8000-000000000001',
-        plan: '1month'
+        plan: '1month',
+        checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
       }
     }
   });
@@ -1210,7 +1217,8 @@ test('malformed subscription IDs in completed transactions reconcile only their 
   assert.deepEqual(reconciliation.params, [
     '00000000-0000-4000-8000-000000000001',
     '1month',
-    'txn_valid123'
+    'txn_valid123',
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
   ]);
   assert.equal(queries.some(query => query.sql === 'COMMIT'), true);
   assert.equal(queries.some(query => query.sql === 'ROLLBACK'), false);
@@ -1248,7 +1256,8 @@ test('Paddle identity unique conflicts reconcile only the matching checkout atte
         customerId: 'ctm_identityconflict',
         customData: {
           userId: '00000000-0000-4000-8000-000000000001',
-          plan: '1month'
+          plan: '1month',
+          checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
         },
         items: [{ price: { id: 'pri_vowmonthly' } }]
       }
@@ -1275,7 +1284,8 @@ test('Paddle identity unique conflicts reconcile only the matching checkout atte
   assert.deepEqual(reconciliationUpdate.params, [
     '00000000-0000-4000-8000-000000000001',
     '1month',
-    'txn_identityconflict'
+    'txn_identityconflict',
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
   ]);
   const safetyLockIndex = queries.findIndex(query =>
     query.statement.includes('pg_advisory_xact_lock')
