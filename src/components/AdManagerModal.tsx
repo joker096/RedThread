@@ -110,6 +110,15 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
     setRewardClaimed(false);
   }, [isDemoMode]);
 
+  useEffect(() => {
+    if (isOpen) return;
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = null;
+    setIsPlayingVideo(false);
+    setCountdown(5);
+    setRewardClaimed(false);
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const startRewardedSimulation = () => {
