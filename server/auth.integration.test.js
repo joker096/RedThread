@@ -2480,7 +2480,7 @@ test('auth API supports registration, session lookup, logout and login', {
         staleAssessment, staleLogin, staleNotificationList,
         staleNotificationReadAll, staleNotificationReadOne, stalePhotoRead,
         staleOwnProfileRead, staleBlocksRead, staleGiftPreferencesRead,
-        staleGiftOrdersRead, staleAdConsentRead, staleAuthMe,
+        staleGiftOrdersRead, staleGiftCatalogRead, staleAdConsentRead, staleAuthMe,
         staleBillingStatus, staleProfileSearch, staleUnblock, staleUnlike
       ] = await Promise.all([
         deleteAccountPromise,
