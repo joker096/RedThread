@@ -568,7 +568,10 @@ function isValidPaddleTransactionId(value) {
 async function fetchPaddleTransaction({ apiKey, transactionId, expectedUserId, expectedPlan, expectedAttemptId = null, fetchImpl }) {
   if (typeof apiKey !== 'string' || !apiKey || !isValidPaddleTransactionId(transactionId) ||
       typeof expectedUserId !== 'string' || !expectedUserId ||
-      !['1month', '3months', 'lifetime'].includes(expectedPlan) || typeof fetchImpl !== 'function') {
+      !['1month', '3months', 'lifetime'].includes(expectedPlan) ||
+      (expectedAttemptId !== null && (typeof expectedAttemptId !== 'string' ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(expectedAttemptId))) ||
+      typeof fetchImpl !== 'function') {
     throw new Error('paddle_transaction_lookup_not_configured');
   }
   const response = await fetchImpl(
