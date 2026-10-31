@@ -322,7 +322,8 @@ export async function processPaddleEvent(pool, rawEvent) {
       // provider failure. Roll back only this event's effects, preserve its
       // dedupe row, and mark the matching checkout attempt for manual review.
       await client.query('ROLLBACK TO SAVEPOINT paddle_event_effects');
-      if (reconciliationContext?.userId &&
+      if (['transaction.completed', 'subscription.created', 'subscription.updated', 'subscription.canceled'].includes(eventType) &&
+          reconciliationContext?.userId &&
           ['1month', '3months', 'lifetime'].includes(reconciliationContext.plan)) {
         await client.query(
           `UPDATE paddle_checkout_attempts
