@@ -184,9 +184,10 @@ export async function processPaddleEvent(pool, rawEvent) {
       }
     } else if (eventType === 'transaction.completed') {
       // Provider payloads are external input even after signature verification.
-      // Reject malformed transaction IDs before they reach the database CHECK
-      // constraint, otherwise one bad event can retry forever and poison delivery.
-      if (typeof data.id !== 'string' || !/^txn_[A-Za-z0-9]+$/.test(data.id)) {
+      // Reject malformed identifiers before they reach database CHECK constraints,
+      // otherwise one bad event can retry forever and poison webhook delivery.
+      if (typeof data.id !== 'string' || !/^txn_[A-Za-z0-9]+$/.test(data.id) ||
+          (subscriptionId !== null && !/^sub_[A-Za-z0-9]+$/.test(subscriptionId))) {
         await client.query('COMMIT');
         return { duplicate: false, handled: true };
       }
@@ -282,7 +283,7 @@ export async function processPaddleEvent(pool, rawEvent) {
         );
       }
     } else if (eventType === 'transaction.canceled') {
-      if (typeof data.id === 'string') {
+      if (typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
         await client.query(
           `UPDATE paddle_checkout_attempts SET status = 'canceled', updated_at = NOW()
            WHERE transaction_id = $1 AND status IN ('pending', 'reconciliation_required')`,
