@@ -80,16 +80,16 @@ export function redactGiftOrderForSender(order) {
   };
 }
 
-export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecorded = false, addressVerified = false, paymentStatus, safetyEvents, safetySnapshotAt, now = Date.now() } = {}) {
+export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecorded = false, addressVerified = false, paymentStatus, recipientRequestsDisabledAt = null, safetyEvents, safetySnapshotAt, now = Date.now() } = {}) {
   const transitions = {
-    awaiting_recipient_consent: new Set(['recipient_accepted', 'declined', 'expired', 'reported', 'blocked', 'cancelled']),
+    awaiting_recipient_consent: new Set(['recipient_accepted', 'declined', 'expired', 'reported', 'blocked', 'cancelled', 'refund_pending']),
     recipient_accepted: new Set(['address_verified', 'declined', 'reported', 'blocked', 'cancelled']),
     address_verified: new Set(['fulfilment_authorized', 'cancelled', 'reported', 'blocked']),
     fulfilment_authorized: new Set(['dispatched', 'delivery_failed', 'cancelled', 'reported', 'blocked']),
     dispatched: new Set(['delivered', 'delivery_failed', 'reported']),
     delivery_failed: new Set(['refund_pending', 'cancelled', 'reported']),
     declined: new Set([]), expired: new Set([]), cancelled: new Set([]), blocked: new Set([]),
-    reported: new Set(['cancelled', 'refund_pending']), delivered: new Set([]),
+    reported: new Set(['cancelled', 'refund_pending']), blocked: new Set(['refund_pending']), delivered: new Set([]),
     refund_pending: new Set(['refunded']), refunded: new Set([])
   };
   // Keep the policy state graph aligned with persisted statuses; `draft` is not a DB state.
@@ -112,6 +112,7 @@ export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecord
   if (['delivered', 'delivery_failed'].includes(to) && (recipientConsentRecorded !== true || addressVerified !== true)) return false;
   if (to === 'delivery_failed' && !['authorized', 'captured'].includes(paymentStatus)) return false;
   if (to === 'refund_pending' && paymentStatus !== 'captured') return false;
+  if (from === 'awaiting_recipient_consent' && to === 'refund_pending' && recipientRequestsDisabledAt == null) return false;
   if (to === 'refunded' && paymentStatus !== 'refund_pending') return false;
 
   if (to === 'awaiting_recipient_consent' && actor !== 'sender') return false;
@@ -173,8 +174,9 @@ export function evaluateGiftRefundEligibility({ request, payment, actor, reason,
   if (!['system', 'moderator'].includes(actor)) return deny('refund_actor_not_authorized');
   // Start a refund only from a captured order that has not entered the pending-refund state.
   // Pending refunds require provider reconciliation, not a fresh refund request.
+  const recipientRequestsDisabledAt = request.recipientRequestsDisabledAt ?? request.recipient_requests_disabled_at;
   const recipientOptedOutPendingRequest =
-    request.status === 'awaiting_recipient_consent' && request.recipientRequestsDisabledAt != null;
+    request.status === 'awaiting_recipient_consent' && recipientRequestsDisabledAt != null;
   if (!['delivery_failed', 'reported', 'blocked'].includes(request.status) &&
       !recipientOptedOutPendingRequest) {
     return deny('order_not_refundable_in_current_state');
