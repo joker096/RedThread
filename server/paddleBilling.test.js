@@ -1125,10 +1125,13 @@ test('Paddle identity unique conflicts are acknowledged and marked for reconcili
 
   const result = await processPaddleEvent({ async connect() { return client; } }, {
     eventId: 'evt_identity_conflict',
-    eventType: 'customer.updated',
+    eventType: 'subscription.updated',
+    occurredAt: '2026-10-31T12:00:00Z',
     data: {
-      id: 'ctm_identityconflict',
-      email: 'person@example.test',
+      id: 'sub_identityconflict',
+      customerId: 'ctm_identityconflict',
+      status: 'active',
+      currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' },
       customData: {
         userId: '00000000-0000-4000-8000-000000000001',
         plan: '1month'
