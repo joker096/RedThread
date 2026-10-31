@@ -2953,6 +2953,7 @@ app.get('/api/admin/photos', requireSession, async (req, res) => {
 });
 
 app.post('/api/admin/photos/:photoId/review', validateRequestOrigin, requireSession, async (req, res) => {
+  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   if (!isUuid(req.params.photoId) || !['approve', 'reject'].includes(req.body?.decision)) return res.status(400).json({ error: 'invalid_photo_review' });
   const status = req.body.decision === 'approve' ? 'approved' : 'rejected';
   const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 500) : '';
@@ -3029,6 +3030,7 @@ app.get('/api/admin/audit-log', requireSession, async (req, res) => {
 });
 
 app.post('/api/admin/screenings/:screeningId/resolve', validateRequestOrigin, requireSession, async (req, res) => {
+  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   if (!isUuid(req.params.screeningId)) return res.status(400).json({ error: 'invalid_screening_id' });
   let client;
   try {
@@ -3096,6 +3098,7 @@ app.post('/api/admin/screenings/:screeningId/resolve', validateRequestOrigin, re
 });
 
 app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSession, async (req, res) => {
+  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   const reportId = req.params.reportId;
   const action = req.body?.action;
   const confirmed = req.body?.confirmed === true;
