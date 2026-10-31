@@ -1102,3 +1102,47 @@ test('malformed subscription IDs in completed transactions cannot reach account 
   assert.equal(queries.includes('COMMIT'), true);
   assert.equal(queries.includes('ROLLBACK'), false);
 });
+
+test('Paddle identity unique conflicts are acknowledged and marked for reconciliation', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      const statement = String(sql);
+      queries.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: 'evt_identity_conflict' }] };
+      }
+      if (statement.includes('UPDATE users SET paddle_customer_id')) {
+        const error = new Error('duplicate Paddle customer identity');
+        error.code = '23505';
+        throw error;
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+
+  const result = await processPaddleEvent({ async connect() { return client; } }, {
+    eventId: 'evt_identity_conflict',
+    eventType: 'customer.updated',
+    data: {
+      id: 'ctm_identityconflict',
+      email: 'person@example.test',
+      customData: {
+        userId: '00000000-0000-4000-8000-000000000001',
+        plan: '1month'
+      }
+    }
+  });
+
+  assert.deepEqual(result, {
+    duplicate: false,
+    handled: true,
+    reconciliationRequired: true
+  });
+  assert.equal(queries.some(query => query.statement === 'ROLLBACK TO SAVEPOINT paddle_event_effects'), true);
+  assert.equal(queries.some(query => query.statement.includes("SET status = 'reconciliation_required'")), true);
+  assert.equal(queries.some(query => query.statement === 'COMMIT'), true);
+  assert.equal(queries.some(query => query.statement === 'ROLLBACK'), false);
+});
