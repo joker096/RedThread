@@ -4,6 +4,20 @@
  * A client whose transaction cannot be rolled back must be destroyed rather
  * than returned to the pool in an unknown protocol/transaction state.
  */
+/**
+ * Roll back a manually managed transaction. If rollback fails, destroy the
+ * pooled connection and return false so callers do not release it twice.
+ */
+export async function rollbackPooledTransaction(client) {
+  try {
+    await client.query('ROLLBACK');
+    return true;
+  } catch (error) {
+    client.release(error);
+    return false;
+  }
+}
+
 export async function withPooledTransaction(pool, callback) {
   const client = await pool.connect();
   let transactionOpen = false;
