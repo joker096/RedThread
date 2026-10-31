@@ -2227,6 +2227,10 @@ test('auth API supports registration, session lookup, logout and login', {
       let staleMessagePromise;
       let staleAssessmentPromise;
       let staleLoginPromise;
+      let staleNotificationListPromise;
+      let staleNotificationReadAllPromise;
+      let staleNotificationReadOnePromise;
+      let stalePhotoReadPromise;
       try {
         await waitForBlockedSafetyRequests(1);
         staleProfileUpdatePromise = request('/api/profiles/me', {
@@ -2263,21 +2267,44 @@ test('auth API supports registration, session lookup, logout and login', {
           method: 'POST',
           body: JSON.stringify({ email, password })
         });
-        // The photo route performs image sanitization/moderation before it
-        // enters the account lock queue, so it may still be processing here.
-        // The other four stale requests plus deletion must be visibly queued.
-        await waitForBlockedSafetyRequests(5);
+        staleNotificationListPromise = request('/api/notifications', {
+          headers: { Cookie: secondCookie }
+        });
+        staleNotificationReadAllPromise = request('/api/notifications/read-all', {
+          method: 'POST',
+          headers: { Cookie: secondCookie }
+        });
+        staleNotificationReadOnePromise = request('/api/notifications/00000000-0000-4000-8000-000000000001/read', {
+          method: 'POST',
+          headers: { Cookie: secondCookie }
+        });
+        stalePhotoReadPromise = request(uploadedPhoto.photoUrl, {
+          headers: { Cookie: secondCookie }
+        });
+        // Photo upload still performs sanitization/moderation before locking.
+        // Deletion plus the profile, message, assessment, login, notification
+        // list/read mutations and private photo read must queue on the same
+        // account-safety lock before deletion is allowed to proceed.
+        await waitForBlockedSafetyRequests(9);
       } finally {
         await raceLock.query('COMMIT');
         raceLock.release();
       }
-      const [deleteAccount, staleProfileUpdate, stalePhotoUpload, staleMessage, staleAssessment, staleLogin] = await Promise.all([
+      const [
+        deleteAccount, staleProfileUpdate, stalePhotoUpload, staleMessage,
+        staleAssessment, staleLogin, staleNotificationList,
+        staleNotificationReadAll, staleNotificationReadOne, stalePhotoRead
+      ] = await Promise.all([
         deleteAccountPromise,
         staleProfileUpdatePromise,
         stalePhotoUploadPromise,
         staleMessagePromise,
         staleAssessmentPromise,
-        staleLoginPromise
+        staleLoginPromise,
+        staleNotificationListPromise,
+        staleNotificationReadAllPromise,
+        staleNotificationReadOnePromise,
+        stalePhotoReadPromise
       ]);
       assert.equal(deleteAccount.status, 204);
       assert.equal(staleProfileUpdate.status, 404,
@@ -2296,6 +2323,14 @@ test('auth API supports registration, session lookup, logout and login', {
         'a relationship assessment racing with deletion must be denied');
       assert.equal(staleLogin.status, 403,
         'a login authenticated before deletion must wait for deletion and then be rejected without creating a session');
+      assert.equal(staleNotificationList.status, 401,
+        'notification history must be inaccessible to a stale session after account deletion');
+      assert.equal(staleNotificationReadAll.status, 401,
+        'mark-all-read must not mutate notification rows after account deletion');
+      assert.equal(staleNotificationReadOne.status, 401,
+        'mark-read must not mutate notification rows after account deletion');
+      assert.equal(stalePhotoRead.status, 404,
+        'a private photo read queued before deletion must not return bytes after its asset is removed');
       const staleLoginSessions = await deletionSafetyDb.query(
         'SELECT COUNT(*)::int AS count FROM sessions WHERE user_id = $1',
         [registered.user.id]
