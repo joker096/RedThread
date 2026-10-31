@@ -1545,10 +1545,23 @@ app.post('/api/photos', validateRequestOrigin, requireSession, profileActionLimi
 
 app.get('/api/photos/:photoId', requireSession, async (req,res) => {
   if(!isUuid(req.params.photoId)) return res.status(404).end();
+  let client;
   try {
-    const result=await pool.query(
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const owner = await client.query('SELECT user_id FROM photo_assets WHERE id = $1', [req.params.photoId]);
+    if (!owner.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).end();
+    }
+    // Serialize the complete private-file read with account deletion and
+    // pair blocking. Keep the transaction open until bytes are loaded so a
+    // deletion cannot unlink the file between authorization and readFile().
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, owner.rows[0].user_id);
+    const result=await client.query(
       `SELECT a.storage_path AS "storagePath",a.mime_type AS "mimeType"
        FROM photo_assets a JOIN profiles p ON p.user_id=a.user_id JOIN users u ON u.id=a.user_id
+       JOIN users viewer ON viewer.id=$2 AND viewer.status='active'
        WHERE a.id=$1 AND u.status='active'
          AND ('/api/photos/' || a.id::text)=ANY(COALESCE(p.photo_urls,'{}'))
          AND (a.user_id=$2 OR ($3::boolean AND a.review_status IN ('pending','approved','rejected')) OR (a.review_status='approved' AND p.is_visible=TRUE AND NOT EXISTS (
@@ -1556,14 +1569,22 @@ app.get('/api/photos/:photoId', requireSession, async (req,res) => {
          ))) LIMIT 1`,
       [req.params.photoId,req.authUser.id,['admin','moderator'].includes(req.authUser.role)]
     );
-    const asset=result.rows[0]; if(!asset) return res.status(404).end();
+    const asset=result.rows[0];
+    if(!asset) {
+      await client.query('ROLLBACK');
+      return res.status(404).end();
+    }
     const bytes=await readFile(asset.storagePath);
+    await client.query('COMMIT');
     res.setHeader('Content-Type',asset.mimeType);res.setHeader('Content-Length',bytes.length);
     res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Cross-Origin-Resource-Policy','same-site');
-    res.setHeader('Cache-Control','private, max-age=300');return res.send(bytes);
+    res.setHeader('Cache-Control','private, no-store');return res.send(bytes);
   } catch(error) {
+    if(client) await client.query('ROLLBACK').catch(()=>{});
     if(error?.code==='ENOENT') return res.status(404).end();
     console.error('Photo read failed:',error?.message||'unknown error');return res.status(500).json({error:'photo_read_failed'});
+  } finally {
+    client?.release();
   }
 });
 
@@ -2319,27 +2340,56 @@ app.get('/api/notifications', requireSession, async (req, res) => {
 });
 
 app.post('/api/notifications/read-all', validateRequestOrigin, requireSession, async (req, res) => {
+  let client;
   try {
-    await pool.query('UPDATE user_notifications SET read_at = NOW() WHERE user_id = $1 AND read_at IS NULL', [req.authUser.id]);
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const account = await client.query("SELECT 1 FROM users WHERE id = $1 AND status = 'active' LIMIT 1", [req.authUser.id]);
+    if (!account.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'not_authenticated' });
+    }
+    await client.query('UPDATE user_notifications SET read_at = NOW() WHERE user_id = $1 AND read_at IS NULL', [req.authUser.id]);
+    await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Notification read-all failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'notification_update_failed' });
+  } finally {
+    client?.release();
   }
 });
 
 app.post('/api/notifications/:notificationId/read', validateRequestOrigin, requireSession, async (req, res) => {
   if (!isUuid(req.params.notificationId)) return res.status(400).json({ error: 'invalid_notification_id' });
+  let client;
   try {
-    const result = await pool.query(
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const account = await client.query("SELECT 1 FROM users WHERE id = $1 AND status = 'active' LIMIT 1", [req.authUser.id]);
+    if (!account.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'not_authenticated' });
+    }
+    const result = await client.query(
       'UPDATE user_notifications SET read_at = COALESCE(read_at, NOW()) WHERE id = $1 AND user_id = $2 RETURNING id',
       [req.params.notificationId, req.authUser.id]
     );
-    if (!result.rowCount) return res.status(404).json({ error: 'notification_not_found' });
+    if (!result.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'notification_not_found' });
+    }
+    await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Notification update failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'notification_update_failed' });
+  } finally {
+    client?.release();
   }
 });
 
