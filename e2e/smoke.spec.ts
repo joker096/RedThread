@@ -704,7 +704,7 @@ test('server discovery swipe mode collapses and restores profile photos vertical
           country: 'Georgia',
           city: 'Tbilisi',
           bio: 'Проверка жестов',
-          photoUrls: ['/test-profile-photo.jpg'],
+          photoUrls: ['/api/photos/00000000-0000-4000-8000-000000000001'],
           occupation: 'Designer',
           education: 'University',
           languages: ['Russian'],
