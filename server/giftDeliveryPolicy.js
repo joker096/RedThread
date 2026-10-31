@@ -178,6 +178,7 @@ export function evaluateGiftRefundEligibility({ request, payment, actor, reason,
   if (!['system', 'moderator'].includes(actor)) return deny('refund_actor_not_authorized');
   // Start a refund only from a captured order that has not entered the pending-refund state.
   // Pending refunds require provider reconciliation, not a fresh refund request.
+  if (alreadyRefunded || payment.status === 'refunded' || request.status === 'refunded') return deny('refund_already_completed');
   const recipientRequestsDisabledAt = request.recipientRequestsDisabledAt ?? request.recipient_requests_disabled_at;
   const recipientOptOutAt = Date.parse(recipientRequestsDisabledAt);
   const recipientOptedOutPendingRequest =
@@ -186,7 +187,6 @@ export function evaluateGiftRefundEligibility({ request, payment, actor, reason,
       !recipientOptedOutPendingRequest) {
     return deny('order_not_refundable_in_current_state');
   }
-  if (alreadyRefunded || payment.status === 'refunded' || request.status === 'refunded') return deny('refund_already_completed');
   if (payment.status !== 'captured') return deny('payment_not_captured');
   if (payment.orderId !== request.id || payment.amountMinorUnits !== request.totalMinorUnits || payment.currency !== request.currency) return deny('payment_order_mismatch');
   if (!Number.isSafeInteger(request.totalMinorUnits) || request.totalMinorUnits <= 0 || typeof request.currency !== 'string' || !/^[A-Z]{3}$/.test(request.currency)) return deny('invalid_refund_amount');
