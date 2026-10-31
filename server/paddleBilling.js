@@ -15,7 +15,10 @@ export function isPremiumCheckoutBlocked(user, now = Date.now()) {
   if (isPremiumEntitlementActive(user, now)) return true;
   const subscriptionId = user?.paddle_subscription_id;
   const status = String(user?.paddle_subscription_status || '').toLowerCase();
-  return typeof subscriptionId === 'string' && subscriptionId.length > 0 &&
+  const hasSubscriptionIdentity = typeof subscriptionId === 'string' && subscriptionId.length > 0;
+  // A non-terminal status without its provider ID is corrupt/unreconciled state,
+  // not proof that no subscription exists. Fail closed to avoid a second charge.
+  return (hasSubscriptionIdentity || status.length > 0) &&
     !['canceled', 'completed'].includes(status);
 }
 
