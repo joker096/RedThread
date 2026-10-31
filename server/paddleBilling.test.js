@@ -1187,8 +1187,8 @@ test('malformed Paddle subscription period timestamps persist no entitlement', a
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const queries = [];
   const client = {
-    async query(sql) {
-      queries.push(String(sql));
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
       if (String(sql).includes('INSERT INTO paddle_webhook_events')) {
         return { rowCount: 1, rows: [{ event_id: 'evt_bad_period_end' }] };
       }
@@ -1208,7 +1208,10 @@ test('malformed Paddle subscription period timestamps persist no entitlement', a
     }
   });
   assert.deepEqual(result, { duplicate: false, handled: true });
-  const update = queries.find(sql => sql.includes('UPDATE users SET'));
+  const update = queries.find(query => query.sql.includes('UPDATE users SET'));
   assert.ok(update, 'lifecycle status should still be persisted');
-  assert.equal(queries.includes('COMMIT'), true);
-  assert.equal(queries.includes('ROLLBACK'), false);
+  assert.equal(update.params[6], false, 'malformed period end must never grant Premium');
+  assert.equal(update.params[7], null, 'malformed period end must be stored as no billing period');
+  assert.equal(queries.some(query => query.sql === 'COMMIT'), true);
+  assert.equal(queries.some(query => query.sql === 'ROLLBACK'), false);
+});
