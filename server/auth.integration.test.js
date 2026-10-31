@@ -256,6 +256,9 @@ test('auth API supports registration, session lookup, logout and login', {
         "SELECT pg_advisory_xact_lock(hashtext('gift-safety-user:' || $1::uuid::text))",
         [registered.user.id]
       );
+      const passwordResetLockPid = Number((await passwordResetLock.query(
+        'SELECT pg_backend_pid() AS pid'
+      )).rows[0].pid);
       const newPassword = 'Reset Password 2026! Secure';
       const resetPromise = request('/api/auth/password-reset/complete', {
         method: 'POST',
@@ -265,20 +268,12 @@ test('auth API supports registration, session lookup, logout and login', {
         for (let attempt = 0; attempt < 100; attempt += 1) {
           const blocked = await passwordResetRaceDb.query(
             `SELECT COUNT(*)::int AS count
-             FROM pg_stat_activity
-             WHERE datname = current_database()
-               AND wait_event_type = 'Lock'
-               AND EXISTS (
-                 SELECT 1
-                 FROM pg_locks advisory_wait
-                 WHERE advisory_wait.pid = pg_stat_activity.pid
-                   AND advisory_wait.locktype = 'advisory'
-                   AND advisory_wait.granted = false
-                   AND advisory_wait.classid = ((hashtext('gift-safety-user:' || $1::uuid::text)::bigint >> 32) & 4294967295)::oid
-                   AND advisory_wait.objid = (hashtext('gift-safety-user:' || $1::uuid::text)::bigint & 4294967295)::oid
-               )`,
-            [registered.user.id]
-          );
+             FROM pg_stat_activity activity
+             WHERE activity.datname = current_database()
+               AND activity.wait_event_type = 'Lock'
+               AND $1::int = ANY(pg_blocking_pids(activity.pid))`,
+            [passwordResetLockPid]
+          )
           if (blocked.rows[0].count >= expected) return;
           await new Promise(resolve => setTimeout(resolve, 50));
         }
@@ -2334,6 +2329,9 @@ test('auth API supports registration, session lookup, logout and login', {
         "SELECT pg_advisory_xact_lock(hashtext('gift-safety-user:' || $1::uuid::text))",
         [registered.user.id]
       );
+      const raceLockPid = Number((await raceLock.query(
+        'SELECT pg_backend_pid() AS pid'
+      )).rows[0].pid);
       const deleteAccountPromise = request('/api/account', {
         method: 'DELETE',
         headers: { Cookie: secondCookie },
@@ -2346,17 +2344,9 @@ test('auth API supports registration, session lookup, logout and login', {
              FROM pg_stat_activity activity
              WHERE activity.datname = current_database()
                AND activity.wait_event_type = 'Lock'
-               AND EXISTS (
-                 SELECT 1
-                 FROM pg_locks advisory_wait
-                 WHERE advisory_wait.pid = activity.pid
-                   AND advisory_wait.locktype = 'advisory'
-                   AND advisory_wait.granted = false
-                   AND advisory_wait.classid = 0
-                   AND advisory_wait.objid = hashtext('gift-safety-user:' || $1::uuid::text)::oid
-               )`,
-            [registered.user.id]
-          );
+               AND $1::int = ANY(pg_blocking_pids(activity.pid))`,
+            [raceLockPid]
+          )
           if (blocked.rows[0].count >= expected) return;
           await new Promise(resolve => setTimeout(resolve, 50));
         }
