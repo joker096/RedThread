@@ -80,7 +80,7 @@ export function redactGiftOrderForSender(order) {
   };
 }
 
-export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecorded = false, addressVerified = false, paymentStatus, recipientRequestsDisabledAt = null, expiresAt = null, safetyEvents, safetySnapshotAt, now = Date.now() } = {}) {
+export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecorded = false, addressVerified = false, paymentStatus, recipientRequestsDisabledAt = null, expiresAt = null, addressVaultRef = null, safetyEvents, safetySnapshotAt, now = Date.now() } = {}) {
   const transitions = {
     awaiting_recipient_consent: new Set(['recipient_accepted', 'declined', 'expired', 'reported', 'blocked', 'cancelled', 'refund_pending']),
     recipient_accepted: new Set(['address_verified', 'declined', 'reported', 'blocked', 'cancelled']),
@@ -112,6 +112,7 @@ export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecord
   if (['delivered', 'delivery_failed'].includes(to) && (recipientConsentRecorded !== true || addressVerified !== true)) return false;
   if (to === 'delivery_failed' && !['authorized', 'captured'].includes(paymentStatus)) return false;
   if (to === 'refund_pending' && paymentStatus !== 'captured') return false;
+  if (to === 'refund_pending' && addressVaultRef != null) return false;
   if (from === 'awaiting_recipient_consent' && to === 'refund_pending') {
     const optOutAt = Date.parse(recipientRequestsDisabledAt);
     const expiryAt = Date.parse(expiresAt);
