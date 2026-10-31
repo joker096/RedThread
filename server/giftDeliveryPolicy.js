@@ -80,7 +80,7 @@ export function redactGiftOrderForSender(order) {
   };
 }
 
-export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecorded = false, addressVerified = false, paymentStatus, recipientRequestsDisabledAt = null, safetyEvents, safetySnapshotAt, now = Date.now() } = {}) {
+export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecorded = false, addressVerified = false, paymentStatus, recipientRequestsDisabledAt = null, expiresAt = null, safetyEvents, safetySnapshotAt, now = Date.now() } = {}) {
   const transitions = {
     awaiting_recipient_consent: new Set(['recipient_accepted', 'declined', 'expired', 'reported', 'blocked', 'cancelled', 'refund_pending']),
     recipient_accepted: new Set(['address_verified', 'declined', 'reported', 'blocked', 'cancelled']),
@@ -114,7 +114,10 @@ export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecord
   if (to === 'refund_pending' && paymentStatus !== 'captured') return false;
   if (from === 'awaiting_recipient_consent' && to === 'refund_pending') {
     const optOutAt = Date.parse(recipientRequestsDisabledAt);
-    if (!Number.isFinite(optOutAt) || optOutAt > now) return false;
+    const expiryAt = Date.parse(expiresAt);
+    const optOutInvalidated = Number.isFinite(optOutAt) && optOutAt <= now;
+    const requestExpired = Number.isFinite(expiryAt) && expiryAt <= now;
+    if (!optOutInvalidated && !requestExpired) return false;
   }
   if (to === 'refunded' && paymentStatus !== 'refund_pending') return false;
 
@@ -181,8 +184,12 @@ export function evaluateGiftRefundEligibility({ request, payment, actor, reason,
   if (alreadyRefunded || payment.status === 'refunded' || request.status === 'refunded') return deny('refund_already_completed');
   const recipientRequestsDisabledAt = request.recipientRequestsDisabledAt ?? request.recipient_requests_disabled_at;
   const recipientOptOutAt = Date.parse(recipientRequestsDisabledAt);
+  const expiresAt = request.expiresAt ?? request.expires_at;
+  const requestExpiryAt = Date.parse(expiresAt);
   const recipientOptedOutPendingRequest =
-    request.status === 'awaiting_recipient_consent' && Number.isFinite(recipientOptOutAt) && recipientOptOutAt <= now;
+    request.status === 'awaiting_recipient_consent' &&
+    ((Number.isFinite(recipientOptOutAt) && recipientOptOutAt <= now) ||
+      (Number.isFinite(requestExpiryAt) && requestExpiryAt <= now));
   if (!['delivery_failed', 'reported', 'blocked'].includes(request.status) &&
       !recipientOptedOutPendingRequest) {
     return deny('order_not_refundable_in_current_state');
