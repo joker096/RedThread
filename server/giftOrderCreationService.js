@@ -74,7 +74,7 @@ export async function expireStaleGiftRequestsForPair(client, { matchId, senderId
      FOR UPDATE`,
     [matchId, senderId, recipientId]
   );
-  const unresolved = candidates.rows.filter(row => !['not_started', 'voided', 'failed'].includes(row.payment_status));
+  const unresolved = candidates.rows.filter(row => !['not_started', 'voided', 'failed', 'refunded'].includes(row.payment_status));
   for (const order of unresolved) {
     await enqueueExpiredGiftPaymentReconciliation(client, order.id);
   }
@@ -88,7 +88,7 @@ export async function expireStaleGiftRequestsForPair(client, { matchId, senderId
      WHERE id = ANY($1::uuid[])
        AND status = 'awaiting_recipient_consent'
        AND expires_at <= statement_timestamp()
-       AND payment_status IN ('not_started', 'voided', 'failed')
+       AND payment_status IN ('not_started', 'voided', 'failed', 'refunded')
      RETURNING id, public_reference AS "publicReference", sender_id`,
     [candidates.rows.map(row => row.id)]
   );
