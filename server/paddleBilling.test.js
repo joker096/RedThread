@@ -1206,7 +1206,19 @@ test('Paddle identity unique conflicts are acknowledged and marked for reconcili
     reconciliationRequired: true
   });
   assert.equal(queries.some(query => query.statement === 'ROLLBACK TO SAVEPOINT paddle_event_effects'), true);
-  assert.equal(queries.some(query => query.statement.includes("SET status = 'reconciliation_required'")), true);
+  const reconciliationUpdate = queries.find(query =>
+    query.statement.includes("SET status = 'reconciliation_required'")
+  );
+  assert.ok(reconciliationUpdate, 'the conflicting checkout attempt must be marked for reconciliation');
+  assert.match(reconciliationUpdate.statement, /WHERE user_id = \$1 AND plan = \$2/);
+  assert.match(reconciliationUpdate.statement, /transaction_id = \$3/);
+  assert.doesNotMatch(reconciliationUpdate.statement, /'linked'|'canceled'/,
+    'identity conflicts must not downgrade terminal checkout attempts');
+  assert.deepEqual(reconciliationUpdate.params, [
+    '00000000-0000-4000-8000-000000000001',
+    '1month',
+    'txn_identityconflict'
+  ]);
   const safetyLockIndex = queries.findIndex(query =>
     query.statement.includes('pg_advisory_xact_lock')
   );
