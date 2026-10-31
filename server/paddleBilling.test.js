@@ -1417,3 +1417,92 @@ test('malformed Paddle subscription period timestamps persist no entitlement', a
   assert.equal(queries.some(query => query.sql === 'COMMIT'), true);
   assert.equal(queries.some(query => query.sql === 'ROLLBACK'), false);
 });
+
+
+test('Paddle webhook destroys a pooled client when transaction rollback fails', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalError = new Error('savepoint creation failed');
+  const rollbackError = new Error('connection lost during rollback');
+  const queries = [];
+  let releasedWith;
+  let releaseCount = 0;
+  const client = {
+    async query(sql) {
+      queries.push(String(sql));
+      if (sql === 'SAVEPOINT paddle_event_effects') throw originalError;
+      if (sql === 'ROLLBACK') throw rollbackError;
+      if (sql.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: 'evt_rollback_failure' }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release(error) { releaseCount += 1; releasedWith = error; }
+  };
+
+  await assert.rejects(
+    processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_rollback_failure',
+      eventType: 'unknown.event',
+      data: {}
+    }),
+    error => error === originalError
+  );
+  assert.equal(releaseCount, 1);
+  assert.equal(releasedWith, rollbackError);
+  assert.deepEqual(queries.slice(-2), ['SAVEPOINT paddle_event_effects', 'ROLLBACK']);
+});
+
+test('Paddle webhook rolls back the outer transaction if identity-conflict reconciliation fails', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalMonthlyPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_vowmonthly';
+  const reconciliationError = new Error('reconciliation write failed');
+  const queries = [];
+  let releaseCount = 0;
+  const client = {
+    async query(sql) {
+      const statement = String(sql);
+      queries.push(statement);
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: 'evt_reconcile_failure' }] };
+      }
+      if (statement.includes('UPDATE users SET') && statement.includes('paddle_customer_id')) {
+        const conflict = new Error('duplicate Paddle customer identity');
+        conflict.code = '23505';
+        throw conflict;
+      }
+      if (statement.includes("SET status = 'reconciliation_required'")) {
+        throw reconciliationError;
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() { releaseCount += 1; }
+  };
+
+  try {
+    await assert.rejects(
+      processPaddleEvent({ async connect() { return client; } }, {
+        eventId: 'evt_reconcile_failure',
+        eventType: 'transaction.completed',
+        data: {
+          id: 'txn_reconcilefailure',
+          customerId: 'ctm_reconcilefailure',
+          customData: {
+            userId: '00000000-0000-4000-8000-000000000001',
+            plan: '1month',
+            checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+          },
+          items: [{ price: { id: 'pri_vowmonthly' } }]
+        }
+      }),
+      error => error === reconciliationError
+    );
+  } finally {
+    if (originalMonthlyPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalMonthlyPriceId;
+  }
+
+  assert.ok(queries.includes('ROLLBACK TO SAVEPOINT paddle_event_effects'));
+  assert.ok(queries.includes('ROLLBACK'), 'the outer transaction must be rolled back after reconciliation failure');
+  assert.equal(releaseCount, 1);
+});
