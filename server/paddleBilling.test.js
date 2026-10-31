@@ -1054,3 +1054,51 @@ test('malformed Paddle customer IDs are acknowledged without persisting unusable
   assert.equal(queries.some(query => query.sql === 'COMMIT'), true);
   assert.equal(queries.some(query => query.sql === 'ROLLBACK'), false);
 });
+
+test('malformed transaction cancellation IDs are acknowledged without database writes', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const queries = [];
+  const client = {
+    async query(sql) {
+      queries.push(String(sql));
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: 'evt_bad_cancel_id' }] };
+      }
+      return { rowCount: 0, rows: [] };
+    },
+    release() {}
+  };
+  const result = await processPaddleEvent({ async connect() { return client; } }, {
+    eventId: 'evt_bad_cancel_id',
+    eventType: 'transaction.canceled',
+    data: { id: 'not-a-transaction-id' }
+  });
+  assert.deepEqual(result, { duplicate: false, handled: true });
+  assert.equal(queries.some(sql => sql.includes('UPDATE paddle_checkout_attempts')), false);
+  assert.equal(queries.includes('COMMIT'), true);
+  assert.equal(queries.includes('ROLLBACK'), false);
+});
+
+test('malformed subscription IDs in completed transactions cannot reach account updates', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const queries = [];
+  const client = {
+    async query(sql) {
+      queries.push(String(sql));
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: 'evt_bad_transaction_subscription' }] };
+      }
+      return { rowCount: 0, rows: [] };
+    },
+    release() {}
+  };
+  const result = await processPaddleEvent({ async connect() { return client; } }, {
+    eventId: 'evt_bad_transaction_subscription',
+    eventType: 'transaction.completed',
+    data: { id: 'txn_valid123', subscriptionId: 'not-a-subscription-id' }
+  });
+  assert.deepEqual(result, { duplicate: false, handled: true });
+  assert.equal(queries.some(sql => sql.includes('UPDATE users')), false);
+  assert.equal(queries.includes('COMMIT'), true);
+  assert.equal(queries.includes('ROLLBACK'), false);
+});
