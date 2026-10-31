@@ -2116,6 +2116,7 @@ test('auth API supports registration, session lookup, logout and login', {
       let stalePhotoUploadPromise;
       let staleMessagePromise;
       let staleAssessmentPromise;
+      let staleReportPromise;
       try {
         await waitForBlockedSafetyRequests(1);
         staleProfileUpdatePromise = request('/api/profiles/me', {
@@ -2141,17 +2142,27 @@ test('auth API supports registration, session lookup, logout and login', {
           headers: { Cookie: secondCookie },
           body: JSON.stringify({ answers: assessmentAnswers })
         });
-        await waitForBlockedSafetyRequests(5);
+        staleReportPromise = request('/api/reports', {
+          method: 'POST',
+          headers: { Cookie: secondCookie },
+          body: JSON.stringify({
+            reportedUserId: maleRegistered.user.id,
+            category: 'safety',
+            details: 'Must not create a report after the reporter account is deleted.'
+          })
+        });
+        await waitForBlockedSafetyRequests(6);
       } finally {
         await raceLock.query('COMMIT');
         raceLock.release();
       }
-      const [deleteAccount, staleProfileUpdate, stalePhotoUpload, staleMessage, staleAssessment] = await Promise.all([
+      const [deleteAccount, staleProfileUpdate, stalePhotoUpload, staleMessage, staleAssessment, staleReport] = await Promise.all([
         deleteAccountPromise,
         staleProfileUpdatePromise,
         stalePhotoUploadPromise,
         staleMessagePromise,
-        staleAssessmentPromise
+        staleAssessmentPromise,
+        staleReportPromise
       ]);
       assert.equal(deleteAccount.status, 204);
       assert.equal(staleProfileUpdate.status, 404,
@@ -2162,6 +2173,8 @@ test('auth API supports registration, session lookup, logout and login', {
         'a message authenticated before deletion must not be inserted after the match closes');
       assert.equal(staleAssessment.status, 401,
         'a relationship assessment authenticated before deletion must not be recreated afterward');
+      assert.equal(staleReport.status, 401,
+        'a report authenticated before deletion must not be created afterward');
       const deletedProfileAfterRace = await deletionSafetyDb.query(
         'SELECT display_name, is_visible, photo_urls FROM profiles WHERE user_id = $1',
         [registered.user.id]

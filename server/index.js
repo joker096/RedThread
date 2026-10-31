@@ -1834,10 +1834,17 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
 app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
   const targetId = req.params.targetId;
   if (!isUuid(targetId) || targetId === req.authUser.id) return res.status(400).json({ error: 'invalid_pass_target' });
+  let client;
   try {
-    const target = await pool.query(
-      `SELECT p.gender FROM profiles p JOIN users u ON u.id = p.user_id
-       WHERE p.user_id = $1 AND u.status = 'active' AND p.is_visible = TRUE
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
+    const target = await client.query(
+      `SELECT p.gender
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id AND u.status = 'active'
+       JOIN users actor ON actor.id = $2 AND actor.status = 'active'
+       WHERE p.user_id = $1 AND p.is_visible = TRUE
          AND p.children_disclosure_confirmed_at IS NOT NULL AND p.has_children IS NOT NULL
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
@@ -1850,18 +1857,28 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
            WHERE m.status = 'active'
              AND ((m.user_a_id = $2 AND m.user_b_id = p.user_id)
                OR (m.user_a_id = p.user_id AND m.user_b_id = $2))
-         )`,
+         )
+       FOR SHARE OF p, u, actor`,
       [targetId, req.authUser.id]
     );
-    if (!target.rows[0] || target.rows[0].gender === req.authUser.gender) return res.status(404).json({ error: 'target_not_available' });
-    await pool.query('INSERT INTO profile_passes (passer_id, passed_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [req.authUser.id, targetId]);
+    if (!target.rows[0] || target.rows[0].gender === req.authUser.gender) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'target_not_available' });
+    }
+    await client.query(
+      'INSERT INTO profile_passes (passer_id, passed_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [req.authUser.id, targetId]
+    );
+    await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Profile pass failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'profile_pass_failed' });
+  } finally {
+    client?.release();
   }
 });
-
 app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
   const targetId = req.params.targetId;
   if (!isUuid(targetId)) return res.status(400).json({ error: 'invalid_target_id' });
@@ -1871,10 +1888,13 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
     const targetResult = await client.query(
       `SELECT p.user_id, p.gender
-       FROM profiles p JOIN users u ON u.id = p.user_id
-       WHERE p.user_id = $1 AND p.is_visible = TRUE AND u.status = 'active'
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id AND u.status = 'active'
+       JOIN users actor ON actor.id = $2 AND actor.status = 'active'
+       WHERE p.user_id = $1 AND p.is_visible = TRUE
          AND p.birth_date IS NOT NULL
          AND p.children_disclosure_confirmed_at IS NOT NULL
          AND p.has_children IS NOT NULL
@@ -1886,7 +1906,8 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
          AND NOT EXISTS (
            SELECT 1 FROM profile_passes skipped
            WHERE skipped.passer_id = $2 AND skipped.passed_user_id = p.user_id
-         )`,
+         )
+       FOR SHARE OF p, u, actor`,
       [targetId, req.authUser.id]
     );
     const target = targetResult.rows[0];
@@ -1919,12 +1940,13 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
        WHERE user_a_id = LEAST($1::uuid, $2::uuid) AND user_b_id = GREATEST($1::uuid, $2::uuid)`,
       [req.authUser.id, targetId]
     );
-    await client.query('COMMIT');
     const match = matchResult.rows[0];
     if (match?.status === 'active') {
+      // Notifications commit with the match while both account safety locks are held.
       await createNotification(req.authUser.id, 'new_match', { matchId: match.id }, 'match:' + match.id, client);
       await createNotification(targetId, 'new_match', { matchId: match.id }, 'match:' + match.id, client);
     }
+    await client.query('COMMIT');
     return res.status(201).json({
       liked: true,
       matched: match?.status === 'active',
@@ -2180,8 +2202,10 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
       [req.params.matchId, req.authUser.id, body]
     );
     await persistScreening(req.authUser.id, 'message', screening, client);
+    // Keep notification creation inside the account-locked transaction so a
+    // recipient deletion cannot race and leave a notification on a deleted account.
+    await createNotification(recipientId, 'new_message', { matchId: req.params.matchId }, null, client);
     await client.query('COMMIT');
-    await createNotification(recipientId, 'new_message', { matchId: req.params.matchId }).catch(error => console.error('Message notification failed:', error?.message || 'unknown error'));
     return res.status(201).json({ message: result.rows[0], screening: { engine: screening.engine, externalProcessing: false, flaggedForReview: screening.requiresReview } });
   } catch (error) {
     if (client) await client.query('ROLLBACK').catch(() => {});
@@ -2256,14 +2280,23 @@ app.post('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, r
   if (!client) return res.status(503).json({ error: 'database_unavailable' });
   try {
     await client.query('BEGIN');
-    // Share the same pair lock as gift acceptance/reporting so a safety action
-    // and gift acceptance have a deterministic order.
+    // Account locks precede the shared pair lock, matching gift creation and
+    // acceptance so deletion/suspension cannot be followed by a stale block.
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
     await client.query(
       "SELECT pg_advisory_xact_lock(hashtext('gift-safety:' || LEAST($1::uuid, $2::uuid)::text || ':' || GREATEST($1::uuid, $2::uuid)::text))",
       [req.authUser.id, targetId]
     );
-    const target = await client.query(`SELECT 1 FROM users WHERE id = $1 AND status = 'active'`, [targetId]);
-    if (!target.rowCount) {
+    const activeAccounts = await client.query(
+      "SELECT id FROM users WHERE id = ANY($1::uuid[]) AND status = 'active' ORDER BY id FOR SHARE",
+      [[req.authUser.id, targetId]]
+    );
+    const activeIds = new Set(activeAccounts.rows.map(row => String(row.id).toLowerCase()));
+    if (!activeIds.has(String(req.authUser.id).toLowerCase())) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    if (!activeIds.has(String(targetId).toLowerCase())) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'target_not_available' });
     }
@@ -2345,13 +2378,23 @@ app.post('/api/reports', reportLimiter, validateRequestOrigin, requireSession, a
   try {
     client = await pool.connect();
     await client.query('BEGIN');
-    // Serialize reports with gift acceptance and blocking for this user pair.
+    // Lock both accounts before the pair so account deletion/suspension cannot
+    // be followed by a report created from a stale authenticated request.
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, reportedUserId);
     await client.query(
       "SELECT pg_advisory_xact_lock(hashtext('gift-safety:' || LEAST($1::uuid, $2::uuid)::text || ':' || GREATEST($1::uuid, $2::uuid)::text))",
       [req.authUser.id, reportedUserId]
     );
-    const target = await client.query('SELECT 1 FROM users WHERE id = $1 LIMIT 1', [reportedUserId]);
-    if (target.rowCount === 0) {
+    const activeAccounts = await client.query(
+      "SELECT id FROM users WHERE id = ANY($1::uuid[]) AND status = 'active' ORDER BY id FOR SHARE",
+      [[req.authUser.id, reportedUserId]]
+    );
+    const activeIds = new Set(activeAccounts.rows.map(row => String(row.id).toLowerCase()));
+    if (!activeIds.has(String(req.authUser.id).toLowerCase())) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    if (!activeIds.has(String(reportedUserId).toLowerCase())) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'reported_user_not_found' });
     }
