@@ -36,3 +36,18 @@ export async function acquireMigrationLock(client, {
     released = true;
   };
 }
+
+
+/**
+ * Start a migration transaction and mark the connection unusable if BEGIN
+ * fails. A rejected BEGIN can follow a transport/protocol failure, leaving
+ * transaction state uncertain even though no migration SQL has run.
+ */
+export async function beginMigrationTransaction(client, onUnusable = () => {}) {
+  try {
+    await client.query('BEGIN');
+  } catch (error) {
+    onUnusable(error);
+    throw error;
+  }
+}
