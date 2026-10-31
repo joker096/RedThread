@@ -274,8 +274,8 @@ test('auth API supports registration, session lookup, logout and login', {
                  WHERE advisory_wait.pid = pg_stat_activity.pid
                    AND advisory_wait.locktype = 'advisory'
                    AND advisory_wait.granted = false
-                   AND advisory_wait.classid = 0
-                   AND advisory_wait.objid = hashtext('gift-safety-user:' || $1::uuid::text)::oid
+                   AND advisory_wait.classid = ((hashtext('gift-safety-user:' || $1::uuid::text)::bigint >> 32) & 4294967295)::oid
+                   AND advisory_wait.objid = (hashtext('gift-safety-user:' || $1::uuid::text)::bigint & 4294967295)::oid
                )`
           );
           if (blocked.rows[0].count >= expected) return;
