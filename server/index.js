@@ -3790,10 +3790,18 @@ app.post('/api/gifts/orders/:publicReference/withdraw-consent', validateRequestO
       return res.status(404).json({ error: 'gift_order_not_available' });
     }
 
-    await client.query(
-      "SELECT pg_advisory_xact_lock(hashtext('gift-safety:' || LEAST($1::uuid, $2::uuid)::text || ':' || GREATEST($1::uuid, $2::uuid)::text))",
-      [pair.rows[0].sender_id, pair.rows[0].recipient_id]
+    // Match account deletion, moderation, and decision lock order so a stale
+    // session cannot mutate consent after either participant becomes inactive.
+    await acquireGiftSafetyUserLocks(client, pair.rows[0].sender_id, pair.rows[0].recipient_id);
+    await acquireGiftSafetyPairLock(client, pair.rows[0].sender_id, pair.rows[0].recipient_id);
+    const accountStates = await client.query(
+      'SELECT id, status FROM users WHERE id = ANY($1::uuid[]) ORDER BY id FOR SHARE',
+      [[pair.rows[0].sender_id, pair.rows[0].recipient_id]]
     );
+    if (accountStates.rowCount !== 2 || accountStates.rows.some(account => account.status !== 'active')) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_order_not_withdrawable' });
+    }
 
     const selected = await client.query(
       `SELECT id, status, payment_status AS "paymentStatus",
