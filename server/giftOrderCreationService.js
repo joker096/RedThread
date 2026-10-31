@@ -131,7 +131,7 @@ export async function expireStaleGiftRequestsForPair(client, { matchId, senderId
       expiredOrders: terminalizedOrders
     };
   }
-  return { ok: true, expiredOrders: expired.rows };
+  return { ok: true, expiredOrders: terminalizedOrders };
 }
 
 export async function acquireGiftSafetyUserLocks(client, ...userIds) {
