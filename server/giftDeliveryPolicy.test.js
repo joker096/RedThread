@@ -392,6 +392,11 @@ test('refund policy is fail-closed, state-bound, amount-matched and idempotency-
   assert.equal(evaluateGiftRefundEligibility({ request: refundRequest, payment: capturedPayment, actor: 'sender', reason: 'delivery failed', idempotencyKey: key }).reason, 'refund_actor_not_authorized');
   assert.equal(evaluateGiftRefundEligibility({ request: { ...refundRequest, status: 'dispatched' }, payment: capturedPayment, actor: 'system', reason: 'delivery failed', idempotencyKey: key }).reason, 'order_not_refundable_in_current_state');
   assert.equal(evaluateGiftRefundEligibility({ request: { ...refundRequest, status: 'reported' }, payment: capturedPayment, actor: 'system', reason: 'safety-held delivery failure', idempotencyKey: key }).eligible, true, 'a safety-held delivery failure remains eligible for a controlled refund');
+  assert.equal(evaluateGiftRefundEligibility({
+    request: { ...refundRequest, status: 'blocked', addressVaultRef: 'vault-private-ref' },
+    payment: capturedPayment, actor: 'system', reason: 'safety block', idempotencyKey: key
+  }).reason, 'address_access_must_be_revoked_before_refund',
+  'a refund cannot start while an address-vault pointer remains active');
   assert.equal(evaluateGiftRefundEligibility({ request: { ...refundRequest, status: 'blocked' }, payment: capturedPayment, actor: 'system', reason: 'safety block', idempotencyKey: key }).eligible, true,
     'a blocked pre-dispatch order with captured funds must remain refundable after the safety hold');
   assert.equal(evaluateGiftRefundEligibility({
