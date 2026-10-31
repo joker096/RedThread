@@ -763,13 +763,14 @@ test('Paddle portal and cancellation helpers reject live environment and malform
 });
 
 
-test('Paddle checkout transaction lookup verifies user and plan ownership', async () => {
+test('Paddle checkout transaction lookup verifies user, plan, and immutable attempt ownership', async () => {
   const { getPaddleCheckoutTransaction } = await import('./paddleBilling.js');
   const result = await getPaddleCheckoutTransaction({
     apiKey: 'sandbox_api_key',
     transactionId: 'txn_0123456789abcdef01234567',
     expectedUserId: '00000000-0000-4000-8000-000000000001',
     expectedPlan: '3months',
+    expectedAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     fetchImpl: async (url, options) => {
       assert.equal(url, 'https://sandbox-api.paddle.com/transactions/txn_0123456789abcdef01234567');
       assert.equal(options.method, 'GET');
@@ -779,7 +780,11 @@ test('Paddle checkout transaction lookup verifies user and plan ownership', asyn
           return { data: {
             id: 'txn_0123456789abcdef01234567',
             status: 'ready',
-            custom_data: { userId: '00000000-0000-4000-8000-000000000001', plan: '3months' }
+            custom_data: {
+              userId: '00000000-0000-4000-8000-000000000001',
+              plan: '3months',
+              checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+            }
           } };
         }
       };
@@ -790,15 +795,20 @@ test('Paddle checkout transaction lookup verifies user and plan ownership', asyn
     getPaddleCheckoutTransaction({
       apiKey: 'sandbox_api_key',
       transactionId: 'txn_0123456789abcdef01234567',
-      expectedUserId: '00000000-0000-4000-8000-000000000002',
+      expectedUserId: '00000000-0000-4000-8000-000000000001',
       expectedPlan: '3months',
+      expectedAttemptId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       fetchImpl: async () => ({
         ok: true,
         async json() {
           return { data: {
             id: 'txn_0123456789abcdef01234567',
             status: 'ready',
-            custom_data: { userId: '00000000-0000-4000-8000-000000000001', plan: '3months' }
+            custom_data: {
+              userId: '00000000-0000-4000-8000-000000000001',
+              plan: '3months',
+              checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+            }
           } };
         }
       })
