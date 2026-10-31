@@ -3631,17 +3631,23 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
 
     if (order.status !== 'awaiting_recipient_consent' || new Date(order.expires_at).getTime() <= new Date(order.decision_at).getTime()) {
       if (order.status === 'awaiting_recipient_consent') {
+        const terminalStatus = order.payment_status === 'refunded' ? 'refunded' : 'expired';
         const expiredOrder = await client.query(
-          `UPDATE gift_delivery_orders SET status = 'expired', updated_at = statement_timestamp()
+          `UPDATE gift_delivery_orders SET status = $2, updated_at = statement_timestamp()
            WHERE id = $1 AND status = 'awaiting_recipient_consent'
            RETURNING public_reference AS "publicReference"`,
-          [order.id]
+          [order.id, terminalStatus]
         );
         if (expiredOrder.rowCount === 1) {
           await client.query(
             `INSERT INTO gift_delivery_order_events (order_id, actor_type, event_type, from_status, to_status)
-             VALUES ($1, 'system', 'expired', 'awaiting_recipient_consent', 'expired')`,
-            [order.id]
+             VALUES ($1, $2, $3, 'awaiting_recipient_consent', $4)`,
+            [
+              order.id,
+              terminalStatus === 'refunded' ? 'payment_service' : 'system',
+              terminalStatus === 'refunded' ? 'refunded' : 'expired',
+              terminalStatus
+            ]
           );
           await notifyGiftRequestUpdate(
             client, order.sender_id, expiredOrder.rows[0].publicReference, 'request_expired'
