@@ -1024,3 +1024,33 @@ test('subscription.created cannot claim a checkout attempt for a different trans
     else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
   }
 });
+
+test('malformed Paddle customer IDs are acknowledged without persisting unusable account identity', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: 'evt_bad_customer' }] };
+      }
+      return { rowCount: 0, rows: [] };
+    },
+    release() {}
+  };
+
+  const result = await processPaddleEvent({ async connect() { return client; } }, {
+    eventId: 'evt_bad_customer',
+    eventType: 'customer.updated',
+    data: {
+      id: 'not-a-paddle-customer-id',
+      email: 'member@example.test',
+      customData: { userId: '00000000-0000-4000-8000-000000000001' }
+    }
+  });
+
+  assert.deepEqual(result, { duplicate: false, handled: true });
+  assert.equal(queries.some(query => query.sql.includes('UPDATE users')), false);
+  assert.equal(queries.some(query => query.sql === 'COMMIT'), true);
+  assert.equal(queries.some(query => query.sql === 'ROLLBACK'), false);
+});
