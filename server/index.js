@@ -1437,8 +1437,9 @@ app.get('/api/billing/status', requireSession, async (req, res) => {
     const read = await withActiveAccountRead(req.authUser.id, client => client.query(
       `SELECT p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime,
               u.paddle_customer_id, u.paddle_subscription_id, u.paddle_subscription_status,
-              u.paddle_checkout_status, u.paddle_checkout_plan
+              pca.status AS paddle_checkout_status, pca.plan AS paddle_checkout_plan
        FROM users u JOIN profiles p ON p.user_id = u.id
+       LEFT JOIN paddle_checkout_attempts pca ON pca.user_id = u.id
        WHERE u.id = $1`,
       [req.authUser.id]
     ));
