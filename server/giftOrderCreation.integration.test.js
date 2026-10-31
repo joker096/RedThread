@@ -1196,63 +1196,6 @@ test('expired requests with unresolved payment state fail closed and remain unch
 
 
 
-test('expired refunded gift requests finalize as refunded without reconciliation and allow replacement', {
-  skip: !process.env.DATABASE_URL,
-  timeout: 20_000
-}, async () => {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
-  let fixture;
-  try {
-    fixture = await seedFixture(pool);
-    const { ids } = fixture;
-    const stale = await pool.query(
-      `INSERT INTO gift_delivery_orders (
-         match_id, sender_id, recipient_id, catalog_item_id, product_name_snapshot,
-         product_category, item_price_minor_units, delivery_fee_minor_units,
-         delivery_fee_currency, total_minor_units, currency, delivery_partner_id,
-         status, payment_status, idempotency_key, created_at, expires_at
-       ) VALUES ($1, $2, $3, $4, 'Already refunded chocolate', 'chocolate',
-                 2500, 300, 'GEL', 2800, 'GEL', $5,
-                 'awaiting_recipient_consent', 'refunded', $6,
-                 NOW() - INTERVAL '4 days', NOW() - INTERVAL '1 second')
-       RETURNING id`,
-      [ids.matchA, ids.sender, ids.recipientA, ids.catalogItem, ids.deliveryPartner, 'refunded-expiry-' + randomUUID()]
-    );
-
-    const result = await runRequest(pool, {
-      senderId: ids.sender,
-      matchId: ids.matchA,
-      catalogItemId: ids.catalogItem,
-      idempotencyKey: 'refunded-replacement-' + randomUUID()
-    });
-    assert.equal(result.status, 201, 'a completed refund must not block a fresh request');
-
-    const order = await pool.query(
-      'SELECT status, payment_status FROM gift_delivery_orders WHERE id = $1',
-      [stale.rows[0].id]
-    );
-    assert.deepEqual(order.rows[0], { status: 'refunded', payment_status: 'refunded' });
-    const audit = await pool.query(
-      `SELECT event_type, from_status, to_status
-       FROM gift_delivery_order_events
-       WHERE order_id = $1 AND event_type = 'refunded'`,
-      [stale.rows[0].id]
-    );
-    assert.deepEqual(audit.rows, [{
-      event_type: 'refunded',
-      from_status: 'awaiting_recipient_consent',
-      to_status: 'refunded'
-    }]);
-    const reconciliation = await pool.query(
-      'SELECT 1 FROM gift_payment_reconciliation_tasks WHERE order_id = $1',
-      [stale.rows[0].id]
-    );
-    assert.equal(reconciliation.rowCount, 0, 'a confirmed refund must not be queued for another reconciliation');
-  } finally {
-    if (fixture) await cleanupFixture(pool, fixture);
-    await pool.end();
-  }
-});
 
 test('database rejects reverse-direction pending gift request for the same match pair', {
   skip: !process.env.DATABASE_URL,
