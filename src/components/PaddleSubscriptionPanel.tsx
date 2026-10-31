@@ -9,6 +9,10 @@ type PaddleRuntime = {
 };
 type PriceLabels = Record<string, string>;
 
+export function isCurrentPaddleSessionAction(actionEpoch: number, currentEpoch: number): boolean {
+  return Number.isSafeInteger(actionEpoch) && Number.isSafeInteger(currentEpoch) && actionEpoch === currentEpoch;
+}
+
 const PLAN_LABELS: Record<Plan['id'], { title: string; description: string }> = {
   '1month': { title: 'Premium на 1 месяц', description: 'Месячный доступ' },
   '3months': { title: 'Premium на 3 месяца', description: 'Доступ на квартал' },
@@ -59,11 +63,13 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
   const [portalBusy, setPortalBusy] = useState(false);
   const paddleRef = useRef<PaddleRuntime | null>(null);
   const mountedRef = useRef(true);
+  const sessionEpoch = useRef(0);
 
   useEffect(() => {
     mountedRef.current = true;
     let cancelled = false;
     const load = async () => {
+      const loadEpoch = sessionEpoch.current;
       try {
         const [response, statusResponse] = await Promise.all([
           fetch('/api/paddle/config', { credentials: 'include' }),
@@ -74,7 +80,7 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
           statusResponse.json() as Promise<{ premiumActive?: boolean; premiumLifetime?: boolean; billingManageable?: boolean; billingNeedsAttention?: boolean; pendingCheckoutStatus?: string | null; pendingCheckoutPlan?: Plan['id'] | null }>
         ]);
         if (!response.ok || !statusResponse.ok) throw new Error('paddle_status_unavailable');
-        if (!cancelled) {
+        if (!cancelled && isCurrentPaddleSessionAction(loadEpoch, sessionEpoch.current)) {
           setPremiumActive(status.premiumActive === true);
           setPremiumLifetime(status.premiumLifetime === true);
           setBillingManageable(status.billingManageable === true);
@@ -114,9 +120,47 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
         if (!cancelled) setLoading(false);
       }
     };
+    const refreshOnSession = () => {
+      const epoch = ++sessionEpoch.current;
+      setPremiumActive(false);
+      setPremiumLifetime(false);
+      setBillingManageable(false);
+      setBillingNeedsAttention(false);
+      setPendingCheckoutStatus(null);
+      setPendingCheckoutPlan(null);
+      setBusyPlan(null);
+      setPendingCancelBusy(false);
+      setPortalBusy(false);
+      setNotice('');
+      void (async () => {
+        try {
+          const response = await fetch('/api/billing/status', { credentials: 'include' });
+          const status = await response.json().catch(() => null);
+          if (!response.ok || cancelled || !isCurrentPaddleSessionAction(epoch, sessionEpoch.current)) return;
+          setPremiumActive(status?.premiumActive === true);
+          setPremiumLifetime(status?.premiumLifetime === true);
+          setBillingManageable(status?.billingManageable === true);
+          setBillingNeedsAttention(status?.billingNeedsAttention === true);
+          setPendingCheckoutStatus(status?.pendingCheckoutStatus || null);
+          setPendingCheckoutPlan(status?.pendingCheckoutPlan || null);
+        } catch {
+          if (!cancelled && isCurrentPaddleSessionAction(epoch, sessionEpoch.current)) {
+            setPremiumActive(false);
+            setPremiumLifetime(false);
+            setBillingManageable(false);
+            setBillingNeedsAttention(false);
+            setPendingCheckoutStatus(null);
+            setPendingCheckoutPlan(null);
+          }
+        }
+      })();
+    };
     void load();
+    window.addEventListener('vow:session-changed', refreshOnSession);
     return () => {
       cancelled = true;
+      sessionEpoch.current += 1;
+      window.removeEventListener('vow:session-changed', refreshOnSession);
       mountedRef.current = false;
     };
   }, []);
@@ -124,6 +168,7 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
 
   const openCustomerPortal = async () => {
     if (portalBusy || !billingManageable) return;
+    const actionEpoch = sessionEpoch.current;
     setPortalBusy(true);
     setNotice('');
     try {
@@ -133,7 +178,9 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
         headers: { 'Content-Type': 'application/json' },
         body: '{}'
       });
+      if (!isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) return;
       const result = await response.json() as { url?: string; error?: string };
+      if (!isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) return;
       if (!response.ok || typeof result.url !== 'string') {
         throw new Error(result.error || 'paddle_portal_unavailable');
       }
@@ -143,15 +190,16 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
       }
       window.location.assign(portalUrl.toString());
     } catch {
-      if (mountedRef.current) setNotice('Не удалось открыть управление подпиской Paddle. Попробуйте ещё раз.');
+      if (mountedRef.current && isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) setNotice('Не удалось открыть управление подпиской Paddle. Попробуйте ещё раз.');
     } finally {
-      if (mountedRef.current) setPortalBusy(false);
+      if (mountedRef.current && isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) setPortalBusy(false);
     }
   };
 
 
   const cancelPendingCheckout = async () => {
     if (pendingCancelBusy) return;
+    const actionEpoch = sessionEpoch.current;
     setPendingCancelBusy(true);
     setNotice('');
     try {
@@ -161,6 +209,7 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
         headers: { 'Content-Type': 'application/json' },
         body: '{}'
       });
+      if (!isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) return;
       if (response.status === 204) {
         if (mountedRef.current) {
           setPendingCheckoutStatus('canceled');
@@ -170,6 +219,7 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
         return;
       }
       const result = await response.json() as { error?: string };
+      if (!isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) return;
       if (mountedRef.current && result.error === 'paddle_checkout_processing') {
         setPendingCheckoutStatus('completed');
       } else if (mountedRef.current) {
@@ -177,14 +227,15 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
       }
       throw new Error(result.error || 'paddle_checkout_cancel_failed');
     } catch {
-      if (mountedRef.current) setNotice('Не удалось безопасно отменить платёж. Повторная оплата заблокирована до сверки.');
+      if (mountedRef.current && isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) setNotice('Не удалось безопасно отменить платёж. Повторная оплата заблокирована до сверки.');
     } finally {
-      if (mountedRef.current) setPendingCancelBusy(false);
+      if (mountedRef.current && isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) setPendingCancelBusy(false);
     }
   };
 
   const startCheckout = async (plan: Plan) => {
     if (busyPlan || !paddleRef.current) return;
+    const actionEpoch = sessionEpoch.current;
     setBusyPlan(plan.id);
     setNotice('');
     try {
@@ -194,7 +245,9 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ plan: plan.id })
       });
+      if (!isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) return;
       const result = await response.json() as { transactionId?: string; environment?: string; error?: string; pendingPlan?: Plan['id'] };
+      if (!isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) return;
       if (!response.ok || !result.transactionId || result.environment !== 'sandbox') {
         if (response.status === 409 && result.error === 'paddle_checkout_already_pending') {
           if (mountedRef.current) {
@@ -242,9 +295,9 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
         }
       });
     } catch {
-      if (mountedRef.current) setNotice('Не удалось открыть тестовую оплату. Проверьте настройки Paddle Sandbox и попробуйте ещё раз.');
+      if (mountedRef.current && isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) setNotice('Не удалось открыть тестовую оплату. Проверьте настройки Paddle Sandbox и попробуйте ещё раз.');
     } finally {
-      if (mountedRef.current) setBusyPlan(null);
+      if (mountedRef.current && isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) setBusyPlan(null);
     }
   };
 
