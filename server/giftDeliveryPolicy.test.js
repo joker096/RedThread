@@ -214,6 +214,14 @@ test('state transitions enforce actors, consent, persisted states, and terminal 
     from: 'awaiting_recipient_consent', to: 'refund_pending', actor: 'system', paymentStatus: 'captured',
     recipientRequestsDisabledAt: new Date(Date.now() - 1000).toISOString()
   }), true, 'a captured payment on an opt-out-invalidated request can enter refund reconciliation');
+  assert.equal(canTransitionGiftOrder({
+    from: 'awaiting_recipient_consent', to: 'refund_pending', actor: 'system', paymentStatus: 'captured',
+    expiresAt: new Date(Date.now() + 60_000).toISOString()
+  }), false, 'a nonexpired pending request cannot be refunded without recipient opt-out');
+  assert.equal(canTransitionGiftOrder({
+    from: 'awaiting_recipient_consent', to: 'refund_pending', actor: 'system', paymentStatus: 'captured',
+    expiresAt: new Date(Date.now() - 1000).toISOString()
+  }), true, 'a captured payment on an expired pending request can enter refund reconciliation');
   assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'reported', actor: 'recipient', paymentStatus: 'captured' }), true, 'a report must suspend a failed delivery without losing refund eligibility');
   assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'refund_pending', actor: 'sender' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'refund_pending', to: 'refunded', actor: 'trusted_payment_service' }), false);
