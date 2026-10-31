@@ -39,21 +39,26 @@ export function isPaddleSubscriptionEntitled(status, periodEnd, now = Date.now()
   return Number.isFinite(end) && end > now;
 }
 
-async function markPaddleCheckoutAttemptForReconciliation(client, userId, plan, transactionId) {
+async function markPaddleCheckoutAttemptForReconciliation(client, userId, plan, transactionId, attemptId = null) {
   if (typeof userId !== 'string' ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId) ||
       !['1month', '3months', 'lifetime'].includes(plan) ||
-      typeof transactionId !== 'string' || !/^txn_[A-Za-z0-9]+$/.test(transactionId)) {
+      typeof transactionId !== 'string' || !/^txn_[A-Za-z0-9]+$/.test(transactionId) ||
+      (attemptId !== null && (typeof attemptId !== 'string' ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(attemptId)))) {
     return 0;
   }
   const result = await client.query(
     `UPDATE paddle_checkout_attempts
      SET status = 'reconciliation_required', updated_at = statement_timestamp()
      WHERE user_id = $1 AND plan = $2
-       AND (transaction_id = $3 OR
-         (transaction_id IS NULL AND status IN ('creating', 'pending', 'completed', 'reconciliation_required')))
+       AND (
+         ($4::uuid IS NOT NULL AND attempt_id = $4::uuid)
+         OR ($4::uuid IS NULL AND transaction_id = $3)
+       )
+       AND (transaction_id IS NULL OR transaction_id = $3)
        AND status IN ('creating', 'pending', 'completed', 'reconciliation_required')`,
-    [userId, plan, transactionId]
+    [userId, plan, transactionId, attemptId]
   );
   return result.rowCount;
 }
@@ -97,9 +102,15 @@ export async function processPaddleEvent(pool, rawEvent) {
     const customUserId = rawCustomUserId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawCustomUserId)
       ? rawCustomUserId
       : null;
+    const rawCheckoutAttemptId = typeof customData.checkoutAttemptId === 'string'
+      ? customData.checkoutAttemptId : null;
+    const checkoutAttemptId = rawCheckoutAttemptId &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawCheckoutAttemptId)
+      ? rawCheckoutAttemptId : null;
     reconciliationContext = {
       userId: customUserId,
-      plan: typeof customData.plan === 'string' ? customData.plan : null
+      plan: typeof customData.plan === 'string' ? customData.plan : null,
+      attemptId: checkoutAttemptId
     };
     const subscriptionId = typeof data.id === 'string' && eventType.startsWith('subscription.')
       ? data.id
@@ -138,7 +149,7 @@ export async function processPaddleEvent(pool, rawEvent) {
             : typeof data.transaction_id === 'string' ? data.transaction_id : null)
           : null;
       await markPaddleCheckoutAttemptForReconciliation(
-        client, reconciliationContext.userId, reconciliationContext.plan, malformedEventTransactionId
+        client, reconciliationContext.userId, reconciliationContext.plan, malformedEventTransactionId, reconciliationContext.attemptId
       );
       await client.query('COMMIT');
       return { duplicate: false, handled: true };
@@ -184,10 +195,14 @@ export async function processPaddleEvent(pool, rawEvent) {
           `UPDATE paddle_checkout_attempts
            SET transaction_id = $3, status = 'completed', updated_at = NOW()
            WHERE user_id = $1 AND plan = $2
-             AND status IN ('creating', 'pending', 'completed', 'reconciliation_required')
+             AND (
+               ($4::uuid IS NOT NULL AND attempt_id = $4::uuid)
+               OR ($4::uuid IS NULL AND transaction_id = $3)
+             )
              AND (transaction_id IS NULL OR transaction_id = $3)
+             AND status IN ('creating', 'pending', 'completed', 'reconciliation_required')
            RETURNING user_id`,
-          [customUserId, checkoutPlan, subscriptionTransactionId]
+          [customUserId, checkoutPlan, subscriptionTransactionId, checkoutAttemptId]
         );
       }
       if (eventType === 'subscription.created' && subscriptionAttemptClaim.rowCount !== 1) {
@@ -195,7 +210,7 @@ export async function processPaddleEvent(pool, rawEvent) {
         // server-created checkout attempt can be matched. If the originating
         // transaction is valid, mark only that exact/in-flight attempt for review.
         await markPaddleCheckoutAttemptForReconciliation(
-          client, customUserId, customData.plan, subscriptionTransactionId
+          client, customUserId, customData.plan, subscriptionTransactionId, checkoutAttemptId
         );
         await client.query('COMMIT');
         return { duplicate: false, handled: true };
@@ -253,7 +268,7 @@ export async function processPaddleEvent(pool, rawEvent) {
           (subscriptionId !== null && !/^sub_[A-Za-z0-9]+$/.test(subscriptionId))) {
         if (typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
           await markPaddleCheckoutAttemptForReconciliation(
-            client, reconciliationContext.userId, reconciliationContext.plan, data.id
+            client, reconciliationContext.userId, reconciliationContext.plan, data.id, reconciliationContext.attemptId
           );
         }
         await client.query('COMMIT');
@@ -283,10 +298,14 @@ export async function processPaddleEvent(pool, rawEvent) {
           `UPDATE paddle_checkout_attempts
            SET transaction_id = $1, status = 'completed', updated_at = NOW()
            WHERE user_id = $2 AND plan = $3
-             AND status IN ('creating', 'pending', 'completed', 'reconciliation_required')
+             AND (
+               ($4::uuid IS NOT NULL AND attempt_id = $4::uuid)
+               OR ($4::uuid IS NULL AND transaction_id = $1)
+             )
              AND (transaction_id IS NULL OR transaction_id = $1)
+             AND status IN ('creating', 'pending', 'completed', 'reconciliation_required')
            RETURNING user_id`,
-          [data.id, customUserId, customData.plan]
+          [data.id, customUserId, customData.plan, checkoutAttemptId]
         )
         : { rowCount: 0, rows: [] };
       const ownsCheckoutAttempt = attemptClaim.rowCount === 1;
@@ -392,7 +411,7 @@ export async function processPaddleEvent(pool, rawEvent) {
             : typeof data.transaction_id === 'string' ? data.transaction_id : null)
           : null;
       await markPaddleCheckoutAttemptForReconciliation(
-        client, reconciliationContext?.userId, reconciliationContext?.plan, reconciliationTransactionId
+        client, reconciliationContext?.userId, reconciliationContext?.plan, reconciliationTransactionId, reconciliationContext?.attemptId
       );
       await client.query('COMMIT');
       return { duplicate: false, handled: true, reconciliationRequired: true };
