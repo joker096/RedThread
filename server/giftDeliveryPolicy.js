@@ -87,7 +87,7 @@ export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecord
     address_verified: new Set(['fulfilment_authorized', 'cancelled', 'reported', 'blocked']),
     fulfilment_authorized: new Set(['dispatched', 'delivery_failed', 'cancelled', 'reported', 'blocked']),
     dispatched: new Set(['delivered', 'delivery_failed', 'reported']),
-    delivery_failed: new Set(['refund_pending', 'cancelled']),
+    delivery_failed: new Set(['refund_pending', 'cancelled', 'reported']),
     declined: new Set([]), expired: new Set([]), cancelled: new Set([]), blocked: new Set([]),
     reported: new Set(['cancelled', 'refund_pending']), delivered: new Set([]),
     refund_pending: new Set(['refunded']), refunded: new Set([])
