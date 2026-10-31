@@ -358,7 +358,7 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
     return res.status(409).json({ error: 'paddle_checkout_reconciliation_required' });
   } catch (error) {
     if (client) {
-      try { await client.query('ROLLBACK'); } catch {}
+      if (client && !await rollbackPooledTransaction(client)) client = null;
     }
     if (attemptStarted) {
       await pool.query(
@@ -824,7 +824,7 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
 app.post('/api/auth/verify-email', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
   const token = typeof req.body?.token === 'string' ? req.body.token : '';
   if (token.length < 32 || token.length > 512) return res.status(400).json({ error: 'invalid_or_expired_token' });
-  const client = await pool.connect();
+  let client = await pool.connect();
   try {
     await client.query('BEGIN');
     const tokenHash = hashSessionToken(token);
@@ -868,11 +868,11 @@ app.post('/api/auth/verify-email', authLimiter, validateRequestOrigin, requireDa
     await client.query('COMMIT');
     return res.json({ verified: true, message: 'Email verified. You can now sign in.' });
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Email verification failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'email_verification_failed' });
   } finally {
-    client.release();
+    client?.release();
   }
 });
 
@@ -888,7 +888,7 @@ app.post('/api/auth/email-verification/resend', authLimiter, validateRequestOrig
     );
     const user = userResult.rows[0];
     if (user) {
-      const client = await pool.connect();
+      let client = await pool.connect();
       let token;
       try {
         await client.query('BEGIN');
@@ -938,7 +938,7 @@ app.post('/api/auth/password-reset/request', authLimiter, validateRequestOrigin,
     );
     const user = result.rows[0];
     if (user) {
-      const client = await pool.connect();
+      let client = await pool.connect();
       let token;
       try {
         await client.query('BEGIN');
@@ -983,7 +983,7 @@ app.post('/api/auth/password-reset/complete', authLimiter, validateRequestOrigin
   }
   if (token.length < 32 || token.length > 512) return res.status(400).json({ error: 'invalid_or_expired_token' });
   const passwordHash = await hashPassword(password);
-  const client = await pool.connect();
+  let client = await pool.connect();
   try {
     await client.query('BEGIN');
     const tokenHash = hashSessionToken(token);
@@ -1061,7 +1061,7 @@ app.post('/api/auth/login', authLimiter, validateRequestOrigin, requireDatabase,
       return res.status(403).json({ error: 'email_verification_required' });
     }
 
-    const client = await pool.connect();
+    let client = await pool.connect();
     let token;
     try {
       await client.query('BEGIN');
@@ -1092,7 +1092,7 @@ app.post('/api/auth/login', authLimiter, validateRequestOrigin, requireDatabase,
       token = await createSession(client, user.id);
       await client.query('COMMIT');
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (client && !await rollbackPooledTransaction(client)) client = null;
       throw error;
     } finally {
       client.release();
@@ -2770,7 +2770,7 @@ app.get('/api/blocks', requireSession, async (req, res) => {
 app.post('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, async (req, res) => {
   const targetId = req.params.targetId;
   if (!isUuid(targetId) || targetId === req.authUser.id) return res.status(400).json({ error: 'invalid_block_target' });
-  const client = await pool.connect().catch(() => null);
+  let client = await pool.connect().catch(() => null);
   if (!client) return res.status(503).json({ error: 'database_unavailable' });
   try {
     await client.query('BEGIN');
