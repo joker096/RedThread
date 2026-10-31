@@ -305,6 +305,9 @@ test('auth API supports registration, session lookup, logout and login', {
       secondCookie = freshPasswordLogin.headers.get('set-cookie')?.split(';')[0];
       assert.ok(secondCookie?.startsWith('nit_session='));
       activePassword = newPassword;
+      // Isolate the later wrong-password and origin checks from this race's
+      // intentional extra login attempts.
+      await passwordResetRaceDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'auth:%'");
     } finally {
       if (passwordResetLock) {
         await passwordResetLock.query('ROLLBACK').catch(() => {});
