@@ -2403,7 +2403,7 @@ app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) =>
   try {
     client = await pool.connect();
     await client.query('BEGIN');
-    // Lock the requester first, then every counterpart in stable UUID order.
+    // Acquire the requester and every counterpart in one stable UUID order.
     // Re-read after locking so deletion, suspension and either-direction block
     // cannot race a stale authenticated request.
     const pairs = await client.query(
@@ -2892,7 +2892,7 @@ app.get('/api/admin/screenings', requireSession, async (req, res) => {
   try {
     const read = await withActiveModeratorRead(req.authUser.id, async client => {
       const result = await client.query(
-        "SELECT id, user_id AS \"userId\", scope, flags, severity, engine_version AS \"engineVersion\", review_status AS \"reviewStatus\", created_at AS \"createdAt\" FROM user_safety_screenings WHERE review_status = 'pending' ORDER BY created_at DESC LIMIT 100"
+        "SELECT s.id, s.user_id AS \"userId\", s.scope, s.flags, s.severity, s.engine_version AS \"engineVersion\", s.review_status AS \"reviewStatus\", s.created_at AS \"createdAt\" FROM user_safety_screenings s JOIN users u ON u.id = s.user_id AND u.status = 'active' WHERE s.review_status = 'pending' ORDER BY s.created_at DESC LIMIT 100"
       );
       return result.rows;
     });
@@ -3055,6 +3055,14 @@ app.post('/api/admin/screenings/:screeningId/resolve', validateRequestOrigin, re
     if (!['admin', 'moderator'].includes(moderator.rows[0].role)) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'moderator_access_required' });
+    }
+    const activeTarget = await client.query(
+      "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [targetUserId]
+    );
+    if (!activeTarget.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'pending_screening_not_found' });
     }
     const pending = await client.query(
       "SELECT user_id FROM user_safety_screenings WHERE id = $1 AND review_status = 'pending' FOR UPDATE",
