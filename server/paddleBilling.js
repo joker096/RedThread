@@ -39,6 +39,25 @@ export function isPaddleSubscriptionEntitled(status, periodEnd, now = Date.now()
   return Number.isFinite(end) && end > now;
 }
 
+async function markPaddleCheckoutAttemptForReconciliation(client, userId, plan, transactionId) {
+  if (typeof userId !== 'string' ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId) ||
+      !['1month', '3months', 'lifetime'].includes(plan) ||
+      typeof transactionId !== 'string' || !/^txn_[A-Za-z0-9]+$/.test(transactionId)) {
+    return 0;
+  }
+  const result = await client.query(
+    `UPDATE paddle_checkout_attempts
+     SET status = 'reconciliation_required', updated_at = statement_timestamp()
+     WHERE user_id = $1 AND plan = $2
+       AND (transaction_id = $3 OR
+         (transaction_id IS NULL AND status IN ('creating', 'pending', 'completed', 'reconciliation_required')))
+       AND status IN ('creating', 'pending', 'completed', 'reconciliation_required')`,
+    [userId, plan, transactionId]
+  );
+  return result.rowCount;
+}
+
 export async function processPaddleEvent(pool, rawEvent) {
   const event = normalizePaddleEvent(rawEvent);
   if (!event) throw new Error('invalid_paddle_event');
@@ -112,6 +131,15 @@ export async function processPaddleEvent(pool, rawEvent) {
     // authenticated portal/cancellation flows. A signed but malformed event is
     // consumed without changing account identity, avoiding endless webhook retries.
     if (customerId !== null && !/^ctm_[A-Za-z0-9]+$/.test(customerId)) {
+      const malformedEventTransactionId = eventType === 'transaction.completed'
+        ? data.id
+        : eventType === 'subscription.created'
+          ? (typeof data.transactionId === 'string' ? data.transactionId
+            : typeof data.transaction_id === 'string' ? data.transaction_id : null)
+          : null;
+      await markPaddleCheckoutAttemptForReconciliation(
+        client, reconciliationContext.userId, reconciliationContext.plan, malformedEventTransactionId
+      );
       await client.query('COMMIT');
       return { duplicate: false, handled: true };
     }
@@ -164,8 +192,11 @@ export async function processPaddleEvent(pool, rawEvent) {
       }
       if (eventType === 'subscription.created' && subscriptionAttemptClaim.rowCount !== 1) {
         // Persist the webhook event id, but do not grant an entitlement when no
-        // server-created checkout attempt can be matched. This is fail-closed;
-        // an operator must reconcile any legitimate out-of-band subscription.
+        // server-created checkout attempt can be matched. If the originating
+        // transaction is valid, mark only that exact/in-flight attempt for review.
+        await markPaddleCheckoutAttemptForReconciliation(
+          client, customUserId, customData.plan, subscriptionTransactionId
+        );
         await client.query('COMMIT');
         return { duplicate: false, handled: true };
       }
@@ -220,6 +251,11 @@ export async function processPaddleEvent(pool, rawEvent) {
       // otherwise one bad event can retry forever and poison webhook delivery.
       if (typeof data.id !== 'string' || !/^txn_[A-Za-z0-9]+$/.test(data.id) ||
           (subscriptionId !== null && !/^sub_[A-Za-z0-9]+$/.test(subscriptionId))) {
+        if (typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
+          await markPaddleCheckoutAttemptForReconciliation(
+            client, reconciliationContext.userId, reconciliationContext.plan, data.id
+          );
+        }
         await client.query('COMMIT');
         return { duplicate: false, handled: true };
       }
@@ -355,20 +391,9 @@ export async function processPaddleEvent(pool, rawEvent) {
           ? (typeof data.transactionId === 'string' ? data.transactionId
             : typeof data.transaction_id === 'string' ? data.transaction_id : null)
           : null;
-      if (reconciliationContext?.userId &&
-          typeof reconciliationContext.plan === 'string' &&
-          typeof reconciliationTransactionId === 'string' &&
-          /^txn_[A-Za-z0-9]+$/.test(reconciliationTransactionId)) {
-        await client.query(
-          `UPDATE paddle_checkout_attempts
-           SET status = 'reconciliation_required', updated_at = statement_timestamp()
-           WHERE user_id = $1 AND plan = $2
-             AND (transaction_id = $3 OR
-               (transaction_id IS NULL AND status IN ('creating', 'pending', 'completed', 'reconciliation_required')))
-             AND status IN ('creating', 'pending', 'completed', 'reconciliation_required')`,
-          [reconciliationContext.userId, reconciliationContext.plan, reconciliationTransactionId]
-        );
-      }
+      await markPaddleCheckoutAttemptForReconciliation(
+        client, reconciliationContext?.userId, reconciliationContext?.plan, reconciliationTransactionId
+      );
       await client.query('COMMIT');
       return { duplicate: false, handled: true, reconciliationRequired: true };
     }
