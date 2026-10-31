@@ -2162,6 +2162,7 @@ test('auth API supports registration, session lookup, logout and login', {
         deleteAccountPromise,
         staleProfileUpdatePromise,
         stalePhotoUploadPromise,
+        staleMessagePromise,
         staleAssessmentPromise,
         staleLoginPromise
       ]);
@@ -2180,7 +2181,7 @@ test('auth API supports registration, session lookup, logout and login', {
         'a message request racing with account deletion must not persist a new message');
       assert.ok([401, 402, 403].includes(staleAssessment.status),
         'a relationship assessment racing with deletion must be denied');
-      assert.equal(staleLogin.status, 401,
+      assert.equal(staleLogin.status, 403,
         'a login authenticated before deletion must wait for deletion and then be rejected without creating a session');
       const staleLoginSessions = await deletionSafetyDb.query(
         'SELECT COUNT(*)::int AS count FROM sessions WHERE user_id = $1',
