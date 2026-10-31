@@ -359,6 +359,17 @@ test('refund policy is fail-closed, state-bound, amount-matched and idempotency-
   assert.equal(evaluateGiftRefundEligibility({ request: refundRequest, payment: capturedPayment, actor: 'sender', reason: 'delivery failed', idempotencyKey: key }).reason, 'refund_actor_not_authorized');
   assert.equal(evaluateGiftRefundEligibility({ request: { ...refundRequest, status: 'dispatched' }, payment: capturedPayment, actor: 'system', reason: 'delivery failed', idempotencyKey: key }).reason, 'order_not_refundable_in_current_state');
   assert.equal(evaluateGiftRefundEligibility({ request: { ...refundRequest, status: 'reported' }, payment: capturedPayment, actor: 'system', reason: 'safety-held delivery failure', idempotencyKey: key }).eligible, true, 'a safety-held delivery failure remains eligible for a controlled refund');
+  assert.equal(evaluateGiftRefundEligibility({ request: { ...refundRequest, status: 'blocked' }, payment: capturedPayment, actor: 'system', reason: 'safety block', idempotencyKey: key }).eligible, true,
+    'a blocked pre-dispatch order with captured funds must remain refundable after the safety hold');
+  assert.equal(evaluateGiftRefundEligibility({
+    request: { ...refundRequest, status: 'awaiting_recipient_consent', recipientRequestsDisabledAt: '2026-10-31T12:00:00Z' },
+    payment: capturedPayment, actor: 'system', reason: 'recipient opted out', idempotencyKey: key
+  }).eligible, true, 'a captured payment on an opt-out-invalidated pending request must remain refundable');
+  assert.equal(evaluateGiftRefundEligibility({
+    request: { ...refundRequest, status: 'awaiting_recipient_consent' },
+    payment: capturedPayment, actor: 'system', reason: 'recipient opted out', idempotencyKey: key
+  }).reason, 'order_not_refundable_in_current_state',
+  'an ordinary pending request must not be refunded before it is invalidated');
   assert.equal(evaluateGiftRefundEligibility({ request: { ...refundRequest, status: 'refund_pending' }, payment: capturedPayment, actor: 'system', reason: 'retry refund', idempotencyKey: key }).reason, 'order_not_refundable_in_current_state', 'pending refunds must be reconciled with the provider instead of starting a second refund');
   assert.equal(evaluateGiftRefundEligibility({ request: refundRequest, payment, actor: 'system', reason: 'delivery failed', idempotencyKey: key }).reason, 'payment_not_captured');
   assert.equal(evaluateGiftRefundEligibility({ request: refundRequest, payment: { ...capturedPayment, status: 'settled' }, actor: 'system', reason: 'delivery failed', idempotencyKey: key }).reason, 'payment_not_captured');
