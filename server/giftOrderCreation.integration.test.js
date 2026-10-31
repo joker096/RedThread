@@ -1242,7 +1242,7 @@ test('database rejects reverse-direction pending gift request for the same match
   }
 });
 
-test('expired requests with already-refunded payments close without redundant reconciliation', {
+test('expired requests with already-refunded payments retain refunded terminal state', {
   skip: !process.env.DATABASE_URL,
   timeout: 20_000
 }, async () => {
@@ -1275,12 +1275,22 @@ test('expired requests with already-refunded payments close without redundant re
       'SELECT status, payment_status FROM gift_delivery_orders WHERE id = $1',
       [stale.rows[0].id]
     );
-    assert.deepEqual(expired.rows[0], { status: 'expired', payment_status: 'refunded' });
+    assert.deepEqual(expired.rows[0], { status: 'refunded', payment_status: 'refunded' });
     const tasks = await pool.query(
       'SELECT COUNT(*)::int AS count FROM gift_payment_reconciliation_tasks WHERE order_id = $1',
       [stale.rows[0].id]
     );
     assert.equal(tasks.rows[0].count, 0, 'a completed refund must not be queued as unresolved payment');
+    const event = await pool.query(
+      "SELECT actor_type, event_type, from_status, to_status FROM gift_delivery_order_events WHERE order_id = $1 AND event_type = 'refunded'",
+      [stale.rows[0].id]
+    );
+    assert.deepEqual(event.rows[0], {
+      actor_type: 'payment_service',
+      event_type: 'refunded',
+      from_status: 'awaiting_recipient_consent',
+      to_status: 'refunded'
+    });
   } finally {
     if (fixture) await cleanupFixture(pool, fixture);
     await pool.end();
