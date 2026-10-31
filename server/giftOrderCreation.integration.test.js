@@ -1195,8 +1195,6 @@ test('expired requests with unresolved payment state fail closed and remain unch
 });
 
 
-
-
 test('database rejects reverse-direction pending gift request for the same match pair', {
   skip: !process.env.DATABASE_URL,
   timeout: 20_000
