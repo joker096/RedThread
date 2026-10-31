@@ -2083,10 +2083,13 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.ok(consentHistoryBeforeDeletion.rows[0].count >= 1,
         'the account must have at least one consent-history row before deletion');
 
+      const staleMessageCountBefore = await deletionSafetyDb.query(
+        'SELECT COUNT(*)::int AS count FROM messages WHERE match_id = $1 AND sender_id = $2',
+        [matchPayload.match.id, registered.user.id]
+      );
       // Hold the same per-user safety lock so deletion is first in the
       // PostgreSQL advisory-lock queue, followed by already-authenticated
-      // profile-update and photo-upload requests. This reproduces the race
-      // where middleware authenticated before deletion but route work starts after it.
+      // profile-update, photo-upload, message, assessment and login requests.
       const raceLock = await deletionSafetyDb.connect();
       await raceLock.query('BEGIN');
       await raceLock.query(
@@ -2167,12 +2170,24 @@ test('auth API supports registration, session lookup, logout and login', {
         'a profile update authenticated before deletion must not restore personal data afterward');
       assert.equal(stalePhotoUpload.status, 404,
         'a photo upload authenticated before deletion must not recreate private assets afterward');
-      assert.equal(staleMessage.status, 404,
-        'a message authenticated before deletion must not be inserted after the match closes');
+      assert.ok([401, 404].includes(staleMessage.status),
+        'a message request racing with deletion must be rejected by session or closed-match validation');
+      const staleMessageCountAfter = await deletionSafetyDb.query(
+        'SELECT COUNT(*)::int AS count FROM messages WHERE match_id = $1 AND sender_id = $2',
+        [matchPayload.match.id, registered.user.id]
+      );
+      assert.equal(staleMessageCountAfter.rows[0].count, staleMessageCountBefore.rows[0].count,
+        'a message request racing with account deletion must not persist a new message');
       assert.equal(staleAssessment.status, 401,
         'a relationship assessment authenticated before deletion must not be recreated afterward');
-      assert.equal(staleLogin.status, 403,
-        'a login authenticated before deletion must wait for deletion and then be rejected');
+      assert.equal(staleLogin.status, 401,
+        'a login authenticated before deletion must wait for deletion and then be rejected without creating a session');
+      const staleLoginSessions = await deletionSafetyDb.query(
+        'SELECT COUNT(*)::int AS count FROM sessions WHERE user_id = $1',
+        [registered.user.id]
+      );
+      assert.equal(staleLoginSessions.rows[0].count, 0,
+        'a login racing with account deletion must not recreate a session');
       const deletedProfileAfterRace = await deletionSafetyDb.query(
         'SELECT display_name, is_visible, photo_urls FROM profiles WHERE user_id = $1',
         [registered.user.id]
