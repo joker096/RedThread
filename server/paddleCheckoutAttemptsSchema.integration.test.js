@@ -310,14 +310,14 @@ test('Paddle checkout attempts enforce one durable attempt and fail-closed trans
         ) ON COMMIT DROP
       `);
 
-      for (const status of ['creating', 'reconciliation_required']) {
+      for (const status of ['creating', 'reconciliation_required', 'canceled']) {
         await client.query(
           'INSERT INTO paddle_checkout_attempt_constraint_test (transaction_id, status) VALUES (NULL, $1)',
           [status]
         );
       }
 
-      for (const status of ['pending', 'completed', 'linked', 'canceled']) {
+      for (const status of ['pending', 'completed', 'linked']) {
         await client.query('SAVEPOINT missing_transaction_id');
         let insertError;
         try {
