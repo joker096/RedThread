@@ -6,6 +6,12 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $function$
 BEGIN
+  IF NEW.user_id IS DISTINCT FROM OLD.user_id THEN
+    RAISE EXCEPTION
+      USING ERRCODE = '23514',
+            MESSAGE = 'paddle checkout attempt ownership is immutable';
+  END IF;
+
   IF NEW.attempt_id IS DISTINCT FROM OLD.attempt_id
      AND NOT (
        OLD.status IN ('canceled', 'linked')
@@ -21,6 +27,12 @@ BEGIN
   RETURN NEW;
 END;
 $function$;
+
+DROP TRIGGER IF EXISTS paddle_checkout_attempts_identity_immutable ON paddle_checkout_attempts;
+CREATE TRIGGER paddle_checkout_attempts_identity_immutable
+  BEFORE UPDATE OF attempt_id, user_id ON paddle_checkout_attempts
+  FOR EACH ROW
+  EXECUTE FUNCTION prevent_paddle_checkout_attempt_identity_change();
 
 COMMENT ON FUNCTION prevent_paddle_checkout_attempt_identity_change() IS
   'Keeps checkout attempt identity and account ownership immutable; permits a new identity only when the same account atomically reuses a canceled or linked row for a fresh creating attempt.';
