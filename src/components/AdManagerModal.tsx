@@ -101,9 +101,7 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
     };
   }, [isOpen]);
 
-  if (!isOpen) return null;
-
-  useEffect(() => {
+    useEffect(() => {
     if (isDemoMode) return;
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = null;
@@ -111,6 +109,8 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
     setCountdown(5);
     setRewardClaimed(false);
   }, [isDemoMode]);
+
+  if (!isOpen) return null;
 
   const startRewardedSimulation = () => {
     if (!isDemoModeRef.current) return;
