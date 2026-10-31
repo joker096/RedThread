@@ -1393,15 +1393,16 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     if (paddleSubscriptionCancellation) {
       const cancellationState = await client.query(
         `UPDATE users
-         SET paddle_subscription_status = 'canceled',
+         SET paddle_subscription_status = $4,
              premium_until = NULL,
-             paddle_subscription_updated_at = COALESCE($4::timestamptz, statement_timestamp()),
+             paddle_subscription_updated_at = COALESCE($5::timestamptz, statement_timestamp()),
              updated_at = statement_timestamp()
          WHERE id = $1 AND status = 'active'
            AND paddle_subscription_id = $2 AND paddle_customer_id = $3
          RETURNING id`,
         [req.authUser.id, paddleSubscriptionCancellation.subscriptionId,
-          paddleSubscriptionCancellation.customerId, paddleSubscriptionCancellation.updatedAt]
+          paddleSubscriptionCancellation.customerId, paddleSubscriptionCancellation.status,
+          paddleSubscriptionCancellation.updatedAt]
       );
       if (!cancellationState.rowCount) {
         return res.status(409).json({ error: 'paddle_subscription_reconciliation_required' });
