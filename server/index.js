@@ -1244,19 +1244,33 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
 
   let client;
   let checkoutLockAcquired = false;
+  let safetyLockAcquired = false;
   let paddleSubscriptionCancellation = null;
   const checkoutLockKey = `paddle-checkout:${req.authUser.id}`;
+  const safetyLockKey = `gift-safety-user:${req.authUser.id}`;
   try {
-    const account = await pool.query("SELECT password_hash FROM users WHERE id = $1 AND status = 'active'", [req.authUser.id]);
-    if (!account.rows[0] || typeof account.rows[0].password_hash !== 'string' || !(await verifyPassword(password, account.rows[0].password_hash))) {
-      return res.status(401).json({ error: 'password_confirmation_failed' });
-    }
-
     client = await pool.connect();
-    // Serialize checkout creation against account deletion. The checkout route
-    // uses the matching transaction-scoped advisory lock.
+    // Keep the same lock order as checkout creation: provider checkout first,
+    // then the account-safety lock. The session-level safety lock stays held
+    // across Paddle calls so a concurrent password reset cannot invalidate the
+    // session after confirmation but before the destructive delete transaction.
     checkoutLockAcquired = true;
     await client.query('SELECT pg_advisory_lock(hashtext($1))', [checkoutLockKey]);
+    await client.query('SELECT pg_advisory_lock(hashtext($1))', [safetyLockKey]);
+    safetyLockAcquired = true;
+
+    const account = await client.query(
+      `SELECT u.password_hash
+       FROM users u
+       JOIN sessions s ON s.user_id = u.id
+       WHERE u.id = $1 AND u.status = 'active'
+         AND s.id = $2 AND s.expires_at > NOW()`,
+      [req.authUser.id, req.authUser.session_id]
+    );
+    if (!account.rows[0] || typeof account.rows[0].password_hash !== 'string' ||
+        !(await verifyPassword(password, account.rows[0].password_hash))) {
+      return res.status(401).json({ error: 'password_confirmation_failed' });
+    }
 
     const billingStateResult = await client.query(
       `SELECT paddle_customer_id, paddle_subscription_id, paddle_subscription_status, premium_until, premium_lifetime
@@ -1371,9 +1385,8 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     }
 
     await client.query('BEGIN');
-    // Exclude concurrent gift creation/acceptance while account deletion suspends
-    // existing orders and closes the account in this same transaction.
-    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    // The session-level account-safety lock acquired before Paddle calls is
+    // still held by this connection, excluding concurrent account mutations.
     await suspendGiftOrdersForUser(client, req.authUser.id, { reason: 'account_deleted' });
     const photoFiles = await client.query('SELECT storage_path FROM photo_assets WHERE user_id = $1', [req.authUser.id]);
     privatePhotoPaths = photoFiles.rows.map(row => row.storage_path);
@@ -1428,11 +1441,19 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     console.error('Account deletion failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'account_deletion_failed' });
   } finally {
+    if (client && safetyLockAcquired) {
+      try {
+        await client.query('SELECT pg_advisory_unlock(hashtext($1))', [safetyLockKey]);
+      } catch {
+        client.release(new Error('safety_lock_release_failed'));
+        client = null;
+      }
+    }
     if (client && checkoutLockAcquired) {
       try {
         await client.query('SELECT pg_advisory_unlock(hashtext($1))', [checkoutLockKey]);
       } catch {
-        client.release(new Error('advisory_lock_release_failed'));
+        client.release(new Error('checkout_lock_release_failed'));
         client = null;
       }
     }
