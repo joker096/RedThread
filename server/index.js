@@ -456,30 +456,38 @@ app.post('/api/paddle/portal', validateRequestOrigin, requireSession, async (req
     return res.status(503).json({ error: 'paddle_portal_not_configured' });
   }
   try {
-    const account = await pool.query(
-      `SELECT paddle_customer_id, paddle_subscription_id
-       FROM users
-       WHERE id = $1 AND status = 'active'`,
-      [req.authUser.id]
-    );
-    const billing = account.rows[0];
-    if (!billing || typeof billing.paddle_customer_id !== 'string' ||
-        !/^ctm_[A-Za-z0-9]+$/.test(billing.paddle_customer_id)) {
-      return res.status(409).json({ error: 'paddle_customer_unavailable' });
-    }
-    if (billing.paddle_subscription_id !== null &&
-        (typeof billing.paddle_subscription_id !== 'string' ||
-         !/^sub_[A-Za-z0-9]+$/.test(billing.paddle_subscription_id))) {
-      return res.status(409).json({ error: 'paddle_subscription_unavailable' });
-    }
-    const { createPaddleCustomerPortalSession } = await import('./paddleBilling.js');
-    const portal = await createPaddleCustomerPortalSession({
-      apiKey: process.env.PADDLE_API_KEY,
-      environment: process.env.PADDLE_ENVIRONMENT,
-      customerId: billing.paddle_customer_id,
-      subscriptionId: billing.paddle_subscription_id
+    const read = await withActiveAccountRead(req.authUser.id, async client => {
+      const account = await client.query(
+        `SELECT paddle_customer_id, paddle_subscription_id
+         FROM users
+         WHERE id = $1 AND status = 'active'
+         FOR SHARE`,
+        [req.authUser.id]
+      );
+      const billing = account.rows[0];
+      if (!billing || typeof billing.paddle_customer_id !== 'string' ||
+          !/^ctm_[A-Za-z0-9]+$/.test(billing.paddle_customer_id)) {
+        return { error: 'paddle_customer_unavailable' };
+      }
+      if (billing.paddle_subscription_id !== null &&
+          (typeof billing.paddle_subscription_id !== 'string' ||
+           !/^sub_[A-Za-z0-9]+$/.test(billing.paddle_subscription_id))) {
+        return { error: 'paddle_subscription_unavailable' };
+      }
+      // Keep the account safety lock while the short-lived provider session is
+      // created, so deletion cannot complete and then race a portal link issue.
+      const { createPaddleCustomerPortalSession } = await import('./paddleBilling.js');
+      const portal = await createPaddleCustomerPortalSession({
+        apiKey: process.env.PADDLE_API_KEY,
+        environment: process.env.PADDLE_ENVIRONMENT,
+        customerId: billing.paddle_customer_id,
+        subscriptionId: billing.paddle_subscription_id
+      });
+      return { url: portal.url };
     });
-    return res.json({ url: portal.url });
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    if (read.value.error) return res.status(409).json({ error: read.value.error });
+    return res.json({ url: read.value.url });
   } catch (error) {
     console.error('Paddle customer portal session failed:', error?.message || 'unknown error');
     return res.status(502).json({ error: 'paddle_portal_unavailable' });
@@ -1647,7 +1655,9 @@ app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req,
         '       ORDER BY',
         '         AND p.user_id = ANY($12::uuid[])\n       ORDER BY'
       );
-      result = await client.query(finalSql, [...searchParams, candidateIds]);
+      const lockedSearchParams = [...searchParams];
+      lockedSearchParams[5] = 0; // candidateIds already represent the requested page after OFFSET.
+      result = await client.query(finalSql, [...lockedSearchParams, candidateIds]);
       await client.query('COMMIT');
     } catch (error) {
       if (client) await client.query('ROLLBACK').catch(() => {});
@@ -3286,11 +3296,31 @@ app.get('/api/gifts/catalog', requireSession, requirePaidFeatures, profileAction
       [matchId.toLowerCase(), req.authUser.id]
     );
     const pair = pairResult.rows[0];
+    if (!pair) {
+      await acquireGiftSafetyUserLocks(client, req.authUser.id);
+      const actor = await client.query(
+        "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+        [req.authUser.id]
+      );
+      if (!actor.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(401).json({ error: 'account_not_active' });
+      }
+    }
     if (pair) {
       const recipientId = String(pair.user_a_id).toLowerCase() === String(req.authUser.id).toLowerCase()
         ? pair.user_b_id
         : pair.user_a_id;
       await acquireGiftOrderRateLocks(client, req.authUser.id, recipientId);
+      await acquireGiftSafetyUserLocks(client, req.authUser.id, recipientId);
+      const actor = await client.query(
+        "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+        [req.authUser.id]
+      );
+      if (!actor.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(401).json({ error: 'account_not_active' });
+      }
       await acquireGiftSafetyPairLock(client, req.authUser.id, recipientId);
       const expiration = await expireStaleGiftRequestsForPair(client, {
         matchId: matchId.toLowerCase(), senderId: req.authUser.id, recipientId
