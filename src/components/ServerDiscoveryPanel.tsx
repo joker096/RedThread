@@ -206,6 +206,9 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       }
       if (response.status === 402) {
         const data = await response.json().catch(() => null);
+        // Parsing the response body is asynchronous: a session switch or a
+        // newer search may happen while it resolves, so revalidate before UI writes.
+        if (!isCurrentDiscoverySearchResponse(requestId, searchRequestId.current, actionEpoch, sessionEpoch.current)) return;
         setProfiles([]);
         setAuthenticated(true);
         setNotice(data?.message || t('trialEndedSearch'));
