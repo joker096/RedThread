@@ -276,7 +276,8 @@ test('auth API supports registration, session lookup, logout and login', {
                    AND advisory_wait.granted = false
                    AND advisory_wait.classid = ((hashtext('gift-safety-user:' || $1::uuid::text)::bigint >> 32) & 4294967295)::oid
                    AND advisory_wait.objid = (hashtext('gift-safety-user:' || $1::uuid::text)::bigint & 4294967295)::oid
-               )`
+               )`,
+            [registered.user.id]
           );
           if (blocked.rows[0].count >= expected) return;
           await new Promise(resolve => setTimeout(resolve, 50));
@@ -346,6 +347,26 @@ test('auth API supports registration, session lookup, logout and login', {
     const maleRegistered = await maleRegistration.json();
     const maleCookie = maleRegistration.headers.get('set-cookie')?.split(';')[0];
     assert.ok(maleCookie?.startsWith('nit_session='));
+
+    const secondMaleRegistration = await request('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: `second-male-${randomUUID()}@example.test`,
+        password,
+        displayName: 'Вторая анкета',
+        birthDate: '1991-06-15',
+        gender: 'male',
+        country: 'Грузия',
+        city: 'Тбилиси',
+        relationshipIntent: 'family_without_marriage',
+        familyFormat: 'cohabitation',
+        hasChildren: false,
+        wantsChildren: 'discuss',
+        childrenLivingArrangement: 'not_applicable'
+      })
+    });
+    assert.equal(secondMaleRegistration.status, 201);
+    const secondMaleRegistered = await secondMaleRegistration.json();
 
     // Exercise withdrawal against real PostgreSQL rows, not only the pure policy helper.
     // This integration case is skipped with the enclosing auth test when DATABASE_URL is absent.
@@ -1401,6 +1422,21 @@ test('auth API supports registration, session lookup, logout and login', {
     const searchResult = await search.json();
     assert.equal(searchResult.profiles.some(profile => profile.id === registered.user.id), false);
     assert.equal(searchResult.profiles.some(profile => profile.displayName === 'Тестовый профиль' && profile.gender === 'male'), true);
+
+    const firstSearchPage = await request('/api/profiles/search?limit=1&offset=0', {
+      headers: { Cookie: secondCookie }
+    });
+    const secondSearchPage = await request('/api/profiles/search?limit=1&offset=1', {
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(firstSearchPage.status, 200);
+    assert.equal(secondSearchPage.status, 200);
+    const firstPageData = await firstSearchPage.json();
+    const secondPageData = await secondSearchPage.json();
+    assert.equal(firstPageData.profiles.length, 1);
+    assert.equal(secondPageData.profiles.length, 1,
+      'the second locked search page must not reapply its offset to an already selected candidate page');
+    assert.notEqual(firstPageData.profiles[0].id, secondPageData.profiles[0].id);
 
     const wrongLocation = await request('/api/profiles/search?country=' + encodeURIComponent('Россия'), {
       headers: { Cookie: secondCookie }
