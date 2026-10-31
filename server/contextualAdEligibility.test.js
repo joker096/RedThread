@@ -34,6 +34,7 @@ const viewer = {
   safetyRestricted: false
 };
 const confirmedMatch = {
+  status: 'active',
   dateStatus: 'confirmed',
   mutuallyAcceptedDate: true,
   dateCancelled: false,
@@ -97,6 +98,8 @@ test('fails closed when required context or campaign approval is missing', () =>
 test('restaurant and cafe offers require an explicitly confirmed mutual date', () => {
   assert.deepEqual(evaluate(), { eligible: true, reason: 'confirmed_date' });
   assert.equal(evaluateContextualAdEligibility({ campaign, viewer, surface: 'confirmed_date_detail' }).reason, 'missing_context');
+  assert.equal(evaluate({ match: { status: 'closed' } }).reason, 'match_not_active');
+  assert.equal(evaluate({ match: { status: undefined } }).reason, 'match_not_active');
   assert.equal(evaluate({ match: { dateStatus: 'pending' } }).reason, 'date_not_mutually_confirmed');
   assert.equal(evaluate({ match: { mutuallyAcceptedDate: false } }).reason, 'date_not_mutually_confirmed');
   assert.equal(evaluate({ match: { dateCancelled: true } }).reason, 'date_cancelled');
@@ -202,6 +205,8 @@ test('bridal creatives require explicit classification, opted-in adult women, an
   assert.equal(evaluateBridal({}, { age: undefined }).reason, 'bridal_audience_not_eligible');
   assert.equal(evaluateBridal({}, { weddingOffersConsent: false }).reason, 'bridal_consent_required');
   assert.equal(evaluateBridal({}, { marriagePlanningOptIn: false }).reason, 'bridal_consent_required');
+  assert.equal(evaluateBridal({}, {}, { status: 'closed' }).reason, 'match_not_active');
+  assert.equal(evaluateBridal({}, {}, { status: undefined }).reason, 'match_not_active');
   assert.equal(evaluateBridal({}, {}, { createdAt: 'invalid' }).reason, 'bridal_match_age_unavailable');
   assert.equal(evaluateBridal({}, {}, { createdAt: '2026-10-01T00:00:00Z' }).reason, 'bridal_match_too_new');
   assert.equal(evaluateBridal({}, {}, { activeDays: 2 }).reason, 'bridal_activity_insufficient');
