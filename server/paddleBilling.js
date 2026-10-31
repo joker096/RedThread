@@ -1,3 +1,5 @@
+import { rollbackPooledTransaction } from './withPooledTransaction.js';
+
 const ACTIVE_PADDLE_SUBSCRIPTION_STATUSES = new Set(['active', 'trialing']);
 
 export function normalizePaddleEvent(event) {
@@ -72,7 +74,7 @@ export async function processPaddleEvent(pool, rawEvent) {
 
   const { eventId, eventType, data, occurredAt } = event;
   const subscriptionLifecycleEvent = ['subscription.created', 'subscription.updated', 'subscription.canceled'].includes(eventType);
-  const client = await pool.connect();
+  let client = await pool.connect();
   let reconciliationContext = null;
   try {
     await client.query('BEGIN');
@@ -420,26 +422,33 @@ export async function processPaddleEvent(pool, rawEvent) {
       // A unique identity collision is a security conflict, not a transient
       // provider failure. Roll back only this event's effects, preserve its
       // dedupe row, and mark the matching checkout attempt for manual review.
-      await client.query('ROLLBACK TO SAVEPOINT paddle_event_effects');
-      // Reconcile only the checkout attempt tied to this provider transaction.
-      // A subscription.updated/canceled identity conflict must never downgrade
-      // unrelated or already-linked/canceled purchases for the same account.
-      const reconciliationTransactionId = eventType === 'transaction.completed'
-        ? data.id
-        : eventType === 'subscription.created'
-          ? (typeof data.transactionId === 'string' ? data.transactionId
-            : typeof data.transaction_id === 'string' ? data.transaction_id : null)
-          : null;
-      await markPaddleCheckoutAttemptForReconciliation(
-        client, reconciliationContext?.userId, reconciliationContext?.plan, reconciliationTransactionId, reconciliationContext?.attemptId
-      );
-      await client.query('COMMIT');
-      return { duplicate: false, handled: true, reconciliationRequired: true };
+      try {
+        await client.query('ROLLBACK TO SAVEPOINT paddle_event_effects');
+        // Reconcile only the checkout attempt tied to this provider transaction.
+        // A subscription.updated/canceled identity conflict must never downgrade
+        // unrelated or already-linked/canceled purchases for the same account.
+        const reconciliationTransactionId = eventType === 'transaction.completed'
+          ? data.id
+          : eventType === 'subscription.created'
+            ? (typeof data.transactionId === 'string' ? data.transactionId
+              : typeof data.transaction_id === 'string' ? data.transaction_id : null)
+            : null;
+        await markPaddleCheckoutAttemptForReconciliation(
+          client, reconciliationContext?.userId, reconciliationContext?.plan, reconciliationTransactionId, reconciliationContext?.attemptId
+        );
+        await client.query('COMMIT');
+        return { duplicate: false, handled: true, reconciliationRequired: true };
+      } catch (reconciliationError) {
+        // A failed savepoint rollback or reconciliation write must not leave the
+        // dedupe row/transaction open in a pooled connection.
+        if (client && !await rollbackPooledTransaction(client)) client = null;
+        throw reconciliationError;
+      }
     }
-    await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     throw error;
   } finally {
-    client.release();
+    client?.release();
   }
 }
 
