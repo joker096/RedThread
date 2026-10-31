@@ -1695,8 +1695,10 @@ test('auth API supports registration, session lookup, logout and login', {
       query_timeout: 10_000
     });
     let blockSafetyOrderId;
+    let blockFailedDeliveryOrderId;
     let authorizationPendingSafetyOrderId;
     let reportSafetyOrderId;
+    let reportFailedDeliveryOrderId;
     let reportId;
     try {
       const safetyMatch = await giftSafetyDb.query(
@@ -1731,6 +1733,20 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       authorizationPendingSafetyOrderId = authorizationPendingSafetyOrder.rows[0].id;
 
+      const blockFailedDelivery = await giftSafetyDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, recipient_consent_at,
+            recipient_consent_version, address_vault_ref, address_verified_at,
+            fulfilment_authorized_at, idempotency_key)
+         VALUES ($1, $2, $3, 'Block failed delivery test', 'chocolate', 1000, 'USD',
+                 'delivery_failed', 'captured', NOW(), 1, 'test-block-failed-vault-reference',
+                 NOW(), NOW(), $4)
+         RETURNING id`,
+        [matchPayload.match.id, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      blockFailedDeliveryOrderId = blockFailedDelivery.rows[0].id;
+
       const block = await request(`/api/blocks/${maleRegistered.user.id}`, {
         method: 'POST', headers: { Cookie: secondCookie }, body: JSON.stringify({})
       });
@@ -1755,6 +1771,23 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       assert.deepEqual(blockReconciliation.rows, [{ reason: 'safety_hold', status: 'pending' }],
         'blocking a gift with an active authorization must enqueue provider reconciliation');
+
+      const blockedFailedDelivery = await giftSafetyDb.query(
+        'SELECT status, payment_status, address_vault_ref, address_verified_at FROM gift_delivery_orders WHERE id = $1',
+        [blockFailedDeliveryOrderId]
+      );
+      assert.deepEqual(blockedFailedDelivery.rows[0], {
+        status: 'reported',
+        payment_status: 'captured',
+        address_vault_ref: null,
+        address_verified_at: null
+      }, 'blocking after a failed delivery must revoke the address but preserve captured payment');
+      const blockedFailedDeliveryAudit = await giftSafetyDb.query(
+        `SELECT from_status, to_status FROM gift_delivery_order_events
+         WHERE order_id = $1 AND event_type = 'reported'`,
+        [blockFailedDeliveryOrderId]
+      );
+      assert.deepEqual(blockedFailedDeliveryAudit.rows, [{ from_status: 'delivery_failed', to_status: 'reported' }]);
 
       // Repeating the same safety action must not duplicate the durable queue
       // entry or its audit event.
@@ -1801,6 +1834,20 @@ test('auth API supports registration, session lookup, logout and login', {
         [matchPayload.match.id, maleRegistered.user.id, registered.user.id, randomUUID()]
       );
       reportSafetyOrderId = reportSafetyOrder.rows[0].id;
+      const reportFailedDelivery = await giftSafetyDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, recipient_consent_at,
+            recipient_consent_version, address_vault_ref, address_verified_at,
+            fulfilment_authorized_at, idempotency_key)
+         VALUES ($1, $2, $3, 'Report failed delivery test', 'chocolate', 1000, 'USD',
+                 'delivery_failed', 'captured', NOW(), 1, 'test-report-failed-vault-reference',
+                 NOW(), NOW(), $4)
+         RETURNING id`,
+        [matchPayload.match.id, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      reportFailedDeliveryOrderId = reportFailedDelivery.rows[0].id;
+
       const report = await request('/api/reports', {
         method: 'POST',
         headers: { Cookie: secondCookie },
@@ -1832,6 +1879,23 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       assert.deepEqual(reportReconciliation.rows, [{ reason: 'safety_hold', status: 'pending' }],
         'reporting a gift with a captured payment must enqueue provider reconciliation');
+
+      const reportedFailedDelivery = await giftSafetyDb.query(
+        'SELECT status, payment_status, address_vault_ref, address_verified_at FROM gift_delivery_orders WHERE id = $1',
+        [reportFailedDeliveryOrderId]
+      );
+      assert.deepEqual(reportedFailedDelivery.rows[0], {
+        status: 'reported',
+        payment_status: 'captured',
+        address_vault_ref: null,
+        address_verified_at: null
+      }, 'reporting after a failed delivery must revoke the address without falsifying payment state');
+      const reportedFailedDeliveryAudit = await giftSafetyDb.query(
+        `SELECT from_status, to_status FROM gift_delivery_order_events
+         WHERE order_id = $1 AND event_type = 'reported'`,
+        [reportFailedDeliveryOrderId]
+      );
+      assert.deepEqual(reportedFailedDeliveryAudit.rows, [{ from_status: 'delivery_failed', to_status: 'reported' }]);
 
       const senderOrdersAfterReport = await request('/api/gifts/orders', {
         headers: { Cookie: maleCookie }
