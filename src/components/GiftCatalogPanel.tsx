@@ -15,6 +15,10 @@ type GiftCatalogItem = {
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+export function isCurrentGiftSessionAction(actionEpoch: number, currentEpoch: number): boolean {
+  return Number.isSafeInteger(actionEpoch) && Number.isSafeInteger(currentEpoch) && actionEpoch === currentEpoch;
+}
+
 export function normalizeGiftMatches(value: unknown): GiftMatch[] {
   if (!value || typeof value !== 'object' || Array.isArray(value) || !('matches' in value)) return [];
   const matches = (value as { matches?: unknown }).matches;
@@ -79,6 +83,7 @@ export const GiftCatalogPanel: React.FC = () => {
   const matchRequestEpoch = useRef(0);
   const catalogRequestEpoch = useRef(0);
   const submitting = useRef(false);
+  const sessionEpoch = useRef(0);
   const idempotencyKeys = useRef(new Map<string, string>());
 
   const loadMatches = useCallback(async () => {
@@ -114,6 +119,9 @@ export const GiftCatalogPanel: React.FC = () => {
   useEffect(() => {
     void loadMatches();
     const refreshOnSession = () => {
+      sessionEpoch.current += 1;
+      submitting.current = false;
+      setBusyItemId(null);
       matchRequestEpoch.current += 1;
       catalogRequestEpoch.current += 1;
       idempotencyKeys.current.clear();
@@ -129,6 +137,8 @@ export const GiftCatalogPanel: React.FC = () => {
     window.addEventListener('vow:session-changed', refreshOnSession);
     return () => {
       window.removeEventListener('vow:session-changed', refreshOnSession);
+      sessionEpoch.current += 1;
+      submitting.current = false;
       matchRequestEpoch.current += 1;
       catalogRequestEpoch.current += 1;
     };
@@ -190,6 +200,7 @@ export const GiftCatalogPanel: React.FC = () => {
 
   const submitRequest = async (item: GiftCatalogItem) => {
     if (!selectedMatchId || submitting.current) return;
+    const actionEpoch = sessionEpoch.current;
     submitting.current = true;
     setBusyItemId(item.id);
     setNotice('');
@@ -211,7 +222,9 @@ export const GiftCatalogPanel: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ matchId: selectedMatchId, catalogItemId: item.id, idempotencyKey })
       });
+      if (!isCurrentGiftSessionAction(actionEpoch, sessionEpoch.current)) return;
       const payload: unknown = await response.json().catch(() => null);
+      if (!isCurrentGiftSessionAction(actionEpoch, sessionEpoch.current)) return;
       if (!response.ok) {
         idempotencyKeys.current.delete(key);
         if (response.status === 401) throw new Error('giftCatalogSignInRequired');
@@ -227,10 +240,14 @@ export const GiftCatalogPanel: React.FC = () => {
       // catalog may correctly become empty for this pair.
       setCatalogRevision(value => value + 1);
     } catch (error) {
-      setRequestErrorKey(error instanceof Error ? error.message : 'giftCatalogRequestError');
+      if (isCurrentGiftSessionAction(actionEpoch, sessionEpoch.current)) {
+        setRequestErrorKey(error instanceof Error ? error.message : 'giftCatalogRequestError');
+      }
     } finally {
-      submitting.current = false;
-      setBusyItemId(null);
+      if (isCurrentGiftSessionAction(actionEpoch, sessionEpoch.current)) {
+        submitting.current = false;
+        setBusyItemId(null);
+      }
     }
   };
 

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeGiftCatalog, normalizeGiftMatches } from './GiftCatalogPanel.tsx';
+import { isCurrentGiftSessionAction, normalizeGiftCatalog, normalizeGiftMatches } from './GiftCatalogPanel.tsx';
 
 const match = {
   id: 'a5e4a6a0-2a5e-4a22-9a7d-01bcd2345678',
@@ -56,4 +56,13 @@ test('gift catalog list caps item count and uses case-insensitive UUID deduplica
   const normalized = normalizeGiftCatalog({ items });
   assert.equal(normalized.length, 50);
   assert.equal(normalized.filter(entry => entry.id === item.id).length, 1);
+});
+
+
+test('gift catalog ignores in-flight request results after the authenticated session changes', () => {
+  assert.equal(isCurrentGiftSessionAction(4, 4), true);
+  assert.equal(isCurrentGiftSessionAction(3, 4), false);
+  assert.equal(isCurrentGiftSessionAction(4, 5), false);
+  assert.equal(isCurrentGiftSessionAction(Number.NaN, 4), false);
+  assert.equal(isCurrentGiftSessionAction(4, Number.POSITIVE_INFINITY), false);
 });
