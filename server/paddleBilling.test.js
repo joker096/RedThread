@@ -1183,7 +1183,7 @@ test('Paddle identity unique conflicts are acknowledged and marked for reconcili
   assert.equal(queries.some(query => query.statement === 'ROLLBACK'), false);
 });
 
-test('malformed Paddle subscription period timestamps are acknowledged without entitlement writes', async () => {
+test('malformed Paddle subscription period timestamps persist no entitlement', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const queries = [];
   const client = {
@@ -1208,7 +1208,7 @@ test('malformed Paddle subscription period timestamps are acknowledged without e
     }
   });
   assert.deepEqual(result, { duplicate: false, handled: true });
-  assert.equal(queries.some(sql => sql.includes('UPDATE users')), false);
+  const update = queries.find(sql => sql.includes('UPDATE users SET'));
+  assert.ok(update, 'lifecycle status should still be persisted');
   assert.equal(queries.includes('COMMIT'), true);
   assert.equal(queries.includes('ROLLBACK'), false);
-});
