@@ -2188,7 +2188,13 @@ app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) =>
     // Lock the requester first, then every counterpart in stable UUID order.
     // Re-read after locking so deletion, suspension and either-direction block
     // cannot race a stale authenticated request.
-    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const pairs = await client.query(
+      `SELECT CASE WHEN user_a_id = $1 THEN user_b_id ELSE user_a_id END AS partner_id
+       FROM matches WHERE (user_a_id = $1 OR user_b_id = $1) AND status = 'active'
+       ORDER BY partner_id`,
+      [req.authUser.id]
+    );
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, ...pairs.rows.map(pair => pair.partner_id));
     const account = await client.query(
       "SELECT 1 FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
       [req.authUser.id]
@@ -2196,15 +2202,6 @@ app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) =>
     if (!account.rowCount) {
       await client.query('ROLLBACK');
       return res.status(401).json({ error: 'account_not_active' });
-    }
-    const pairs = await client.query(
-      `SELECT CASE WHEN user_a_id = $1 THEN user_b_id ELSE user_a_id END AS partner_id
-       FROM matches WHERE (user_a_id = $1 OR user_b_id = $1) AND status = 'active'
-       ORDER BY partner_id`,
-      [req.authUser.id]
-    );
-    for (const pair of pairs.rows) {
-      await acquireGiftSafetyUserLocks(client, req.authUser.id, pair.partner_id);
     }
     const result = await client.query(
       `SELECT m.id, m.status, m.created_at AS "createdAt",
