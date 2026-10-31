@@ -11,7 +11,8 @@ test('gift delivery city keys compare canonically across Unicode, case, and whit
   assert.equal(normalizeGiftCityKey('Cafe\u0301 Tbilisi'), 'café tbilisi');
   assert.equal(normalizeGiftCityKey('  STRASSE   '), 'strasse');
   assert.equal(normalizeGiftCityKey(null), null);
-  assert.equal(normalizeGiftCityKey('   '), '');
+  assert.equal(normalizeGiftCityKey('   '), null);
+  assert.equal(normalizeGiftCityKey('\\u200B\\uFEFF'), null);
 });
 
 test('gift delivery city SQL matching normalizes Unicode and whitespace', {
