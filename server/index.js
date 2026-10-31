@@ -1225,7 +1225,7 @@ async function suspendGiftOrdersForUser(client, userId, { actorUserId = null, ac
      )
      UPDATE gift_delivery_orders AS o
      SET status = CASE WHEN c.previous_status = 'dispatched' THEN 'reported' ELSE 'blocked' END,
-         address_vault_ref = NULL, address_verified_at = NULL, updated_at = NOW()
+         address_vault_ref = NULL, address_verified_at = NULL, updated_at = statement_timestamp()
      FROM candidates AS c
      WHERE o.id = c.id
      RETURNING o.id, c.previous_status, o.status AS next_status, o.payment_status`,
@@ -1272,7 +1272,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
        FROM users u
        JOIN sessions s ON s.user_id = u.id
        WHERE u.id = $1 AND u.status = 'active'
-         AND s.id = $2 AND s.expires_at > NOW()`,
+         AND s.id = $2 AND s.expires_at > statement_timestamp()`,
       [req.authUser.id, req.authUser.session_id]
     );
     if (!account.rows[0] || typeof account.rows[0].password_hash !== 'string' ||
@@ -1316,13 +1316,13 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
         });
         if (providerTransaction.status === 'canceled') {
           await client.query(
-            `UPDATE paddle_checkout_attempts SET status = 'canceled', updated_at = NOW()
+            `UPDATE paddle_checkout_attempts SET status = 'canceled', updated_at = statement_timestamp()
              WHERE user_id = $1 AND transaction_id = $2 AND status = 'pending'`,
             [req.authUser.id, checkoutAttempt.transaction_id]
           );
         } else if (['completed', 'paid'].includes(providerTransaction.status)) {
           await client.query(
-            `UPDATE paddle_checkout_attempts SET status = $2, updated_at = NOW()
+            `UPDATE paddle_checkout_attempts SET status = $2, updated_at = statement_timestamp()
              WHERE user_id = $1 AND status = 'pending'`,
             [req.authUser.id, 'completed']
           );
@@ -1331,7 +1331,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
           }
         } else {
           await client.query(
-            `UPDATE paddle_checkout_attempts SET status = 'reconciliation_required', updated_at = NOW()
+            `UPDATE paddle_checkout_attempts SET status = 'reconciliation_required', updated_at = statement_timestamp()
              WHERE user_id = $1 AND status = 'pending'`,
             [req.authUser.id]
           );
@@ -1379,8 +1379,8 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
         `UPDATE users
          SET paddle_subscription_status = 'canceled',
              premium_until = NULL,
-             paddle_subscription_updated_at = COALESCE($4::timestamptz, NOW()),
-             updated_at = NOW()
+             paddle_subscription_updated_at = COALESCE($4::timestamptz, statement_timestamp()),
+             updated_at = statement_timestamp()
          WHERE id = $1 AND status = 'active'
            AND paddle_subscription_id = $2 AND paddle_customer_id = $3
          RETURNING id`,
@@ -1408,7 +1408,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     await client.query('DELETE FROM account_action_tokens WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM user_blocks WHERE blocker_id = $1 OR blocked_id = $1', [req.authUser.id]);
     await client.query(
-      "UPDATE messages SET body = '[сообщение удалено]', deleted_at = COALESCE(deleted_at, NOW()) WHERE sender_id = $1",
+      "UPDATE messages SET body = '[сообщение удалено]', deleted_at = COALESCE(deleted_at, statement_timestamp()) WHERE sender_id = $1",
       [req.authUser.id]
     );
     await client.query(
@@ -1417,14 +1417,14 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
          photo_urls = '{}', occupation = '', education = '', languages = '{}',
          is_visible = FALSE, has_children = NULL, children_disclosure_confirmed_at = NULL,
          family_format = 'open_to_both', wants_children = 'discuss',
-         children_living_arrangement = 'not_applicable', updated_at = NOW()
+         children_living_arrangement = 'not_applicable', updated_at = statement_timestamp()
        WHERE user_id = $1`,
       [req.authUser.id]
     );
     await client.query(
       `UPDATE users SET status = 'deleted', email = $2, password_hash = NULL,
          phone_e164 = NULL, phone_verified_at = NULL, female_trial_ends_at = NULL,
-         premium_until = NULL, premium_lifetime = FALSE, updated_at = NOW()
+         premium_until = NULL, premium_lifetime = FALSE, updated_at = statement_timestamp()
        WHERE id = $1`,
       [req.authUser.id, 'deleted+' + req.authUser.id + '@deleted.invalid']
     );
@@ -1731,7 +1731,7 @@ app.post('/api/photos', validateRequestOrigin, requireSession, profileActionLimi
     await writeFile(filePath,clean.buffer,{flag:'wx',mode:0o600}); fileWritten=true;
     await client.query('INSERT INTO photo_assets (id,user_id,storage_path,mime_type,byte_size,width,height,review_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',[id,req.authUser.id,filePath,clean.mimeType,clean.buffer.length,clean.width,clean.height,moderation.status]);
     if (moderation.status === 'approved') await client.query('INSERT INTO moderation_audit_log (action,target_type,target_id,reason,details) VALUES ($1,$2,$3,$4,$5::jsonb)', ['photo_ai_approved', 'photo', id, moderation.reason, JSON.stringify({ engine: moderation.engine, confidence: moderation.confidence, flags: moderation.flags })]);
-    await client.query("UPDATE profiles SET photo_urls=COALESCE(photo_urls,'{}') || ARRAY[$2]::text[],updated_at=NOW() WHERE user_id=$1",[req.authUser.id,photoUrl]);
+    await client.query("UPDATE profiles SET photo_urls=COALESCE(photo_urls,'{}') || ARRAY[$2]::text[],updated_at=statement_timestamp() WHERE user_id=$1",[req.authUser.id,photoUrl]);
     await client.query('COMMIT');
     return res.status(201).json({photoUrl,mimeType:clean.mimeType,width:clean.width,height:clean.height,reviewStatus:moderation.status,moderationEngine:moderation.engine});
   } catch(error) {
@@ -1812,7 +1812,7 @@ app.put('/api/assessment', validateRequestOrigin, requireSession, requirePaidFea
       return res.status(401).json({ error: 'account_not_active' });
     }
     const result = await client.query(
-      'INSERT INTO relationship_assessments (user_id, answers, assessment_version, completed_at, updated_at) VALUES ($1, $2::jsonb, $3, NOW(), NOW()) ON CONFLICT (user_id) DO UPDATE SET answers = EXCLUDED.answers, assessment_version = EXCLUDED.assessment_version, completed_at = NOW(), updated_at = NOW() RETURNING answers, assessment_version AS "assessmentVersion", completed_at AS "completedAt", updated_at AS "updatedAt"',
+      'INSERT INTO relationship_assessments (user_id, answers, assessment_version, completed_at, updated_at) VALUES ($1, $2::jsonb, $3, statement_timestamp(), statement_timestamp()) ON CONFLICT (user_id) DO UPDATE SET answers = EXCLUDED.answers, assessment_version = EXCLUDED.assessment_version, completed_at = statement_timestamp(), updated_at = statement_timestamp() RETURNING answers, assessment_version AS "assessmentVersion", completed_at AS "completedAt", updated_at AS "updatedAt"',
       [req.authUser.id, JSON.stringify(answers), ASSESSMENT_VERSION]
     );
     await client.query('COMMIT');
@@ -1979,7 +1979,7 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
       }
     }
     const result = await client.query(
-      `UPDATE profiles SET ${updates.join(', ')}, updated_at = NOW()
+      `UPDATE profiles SET ${updates.join(', ')}, updated_at = statement_timestamp()
        WHERE user_id = $1
          AND EXISTS (SELECT 1 FROM users WHERE users.id = profiles.user_id AND users.status = 'active')
        RETURNING user_id AS id, display_name AS "displayName", gender, country, city, bio,
@@ -2679,7 +2679,7 @@ app.post('/api/notifications/read-all', validateRequestOrigin, requireSession, a
       await client.query('ROLLBACK');
       return res.status(401).json({ error: 'not_authenticated' });
     }
-    await client.query('UPDATE user_notifications SET read_at = NOW() WHERE user_id = $1 AND read_at IS NULL', [req.authUser.id]);
+    await client.query('UPDATE user_notifications SET read_at = statement_timestamp() WHERE user_id = $1 AND read_at IS NULL', [req.authUser.id]);
     await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
@@ -2704,7 +2704,7 @@ app.post('/api/notifications/:notificationId/read', validateRequestOrigin, requi
       return res.status(401).json({ error: 'not_authenticated' });
     }
     const result = await client.query(
-      'UPDATE user_notifications SET read_at = COALESCE(read_at, NOW()) WHERE id = $1 AND user_id = $2 RETURNING id',
+      'UPDATE user_notifications SET read_at = COALESCE(read_at, statement_timestamp()) WHERE id = $1 AND user_id = $2 RETURNING id',
       [req.params.notificationId, req.authUser.id]
     );
     if (!result.rowCount) {
@@ -2786,7 +2786,7 @@ app.post('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, r
        )
        UPDATE gift_delivery_orders AS o
        SET status = CASE WHEN c.previous_status = 'dispatched' THEN 'reported' ELSE 'blocked' END,
-           address_vault_ref = NULL, address_verified_at = NULL, updated_at = NOW()
+           address_vault_ref = NULL, address_verified_at = NULL, updated_at = statement_timestamp()
        FROM candidates AS c
        WHERE o.id = c.id
        RETURNING o.id, o.sender_id, o.recipient_id, c.previous_status, o.status AS next_status, o.payment_status`,
@@ -2900,7 +2900,7 @@ app.post('/api/reports', reportLimiter, validateRequestOrigin, requireSession, a
          FOR UPDATE
        )
        UPDATE gift_delivery_orders AS o
-       SET status = 'reported', address_vault_ref = NULL, address_verified_at = NULL, updated_at = NOW()
+       SET status = 'reported', address_vault_ref = NULL, address_verified_at = NULL, updated_at = statement_timestamp()
        FROM candidates AS c
        WHERE o.id = c.id
        RETURNING o.id, o.sender_id, o.recipient_id, c.previous_status, o.payment_status`,
@@ -3117,7 +3117,7 @@ app.post('/api/admin/screenings/:screeningId/resolve', validateRequestOrigin, re
       return res.status(404).json({ error: 'pending_screening_not_found' });
     }
     const result = await client.query(
-      "UPDATE user_safety_screenings SET review_status = 'cleared', reviewed_at = NOW(), reviewed_by = $2 WHERE id = $1 AND review_status = 'pending' RETURNING id, user_id AS \"userId\", review_status AS \"reviewStatus\"",
+      "UPDATE user_safety_screenings SET review_status = 'cleared', reviewed_at = statement_timestamp(), reviewed_by = $2 WHERE id = $1 AND review_status = 'pending' RETURNING id, user_id AS \"userId\", review_status AS \"reviewStatus\"",
       [req.params.screeningId, req.authUser.id]
     );
     if (!result.rows[0]) {
@@ -3203,8 +3203,8 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
       }
       if (targetAccount.rows[0].status === 'active') {
         await suspendGiftOrdersForUser(client, report.reported_user_id, { actorUserId: req.authUser.id, actorType: 'moderator', reason: 'moderator_suspension' });
-        await client.query("UPDATE users SET status = 'suspended', updated_at = NOW() WHERE id = $1 AND status = 'active'", [report.reported_user_id]);
-        await client.query('UPDATE profiles SET is_visible = FALSE, updated_at = NOW() WHERE user_id = $1', [report.reported_user_id]);
+        await client.query("UPDATE users SET status = 'suspended', updated_at = statement_timestamp() WHERE id = $1 AND status = 'active'", [report.reported_user_id]);
+        await client.query('UPDATE profiles SET is_visible = FALSE, updated_at = statement_timestamp() WHERE user_id = $1', [report.reported_user_id]);
         await client.query(
           "UPDATE matches SET status = 'blocked' WHERE status = 'active' AND (user_a_id = $1 OR user_b_id = $1)",
           [report.reported_user_id]
@@ -3405,8 +3405,8 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
       // Re-enabling future requests must never revive these old requests.
       const invalidatedOrders = await client.query(
         `UPDATE gift_delivery_orders
-         SET recipient_requests_disabled_at = COALESCE(recipient_requests_disabled_at, NOW()),
-             updated_at = NOW()
+         SET recipient_requests_disabled_at = COALESCE(recipient_requests_disabled_at, statement_timestamp()),
+             updated_at = statement_timestamp()
          WHERE recipient_id = $1
            AND status = 'awaiting_recipient_consent'
          RETURNING id, sender_id, public_reference`,
@@ -3446,10 +3446,10 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
 
     const result = await client.query(
       `INSERT INTO gift_receiving_preferences (user_id, requests_enabled, updated_at)
-       VALUES ($1, $2, NOW())
+       VALUES ($1, $2, statement_timestamp())
        ON CONFLICT (user_id) DO UPDATE SET
          requests_enabled = EXCLUDED.requests_enabled,
-         updated_at = NOW()
+         updated_at = statement_timestamp()
        RETURNING requests_enabled`,
       [req.authUser.id, validation.value.requestsEnabled]
     );
@@ -3457,7 +3457,7 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
     if (!validation.value.requestsEnabled) {
       const cancelled = await client.query(
         `UPDATE gift_delivery_orders
-         SET status = 'cancelled', updated_at = NOW()
+         SET status = 'cancelled', updated_at = statement_timestamp()
          WHERE recipient_id = $1
            AND status = 'awaiting_recipient_consent'
            AND payment_status IN ('not_started', 'voided', 'failed')
@@ -3631,7 +3631,7 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
     if (order.status !== 'awaiting_recipient_consent' || new Date(order.expires_at).getTime() <= Date.now()) {
       if (order.status === 'awaiting_recipient_consent') {
         const expiredOrder = await client.query(
-          `UPDATE gift_delivery_orders SET status = 'expired', updated_at = NOW()
+          `UPDATE gift_delivery_orders SET status = 'expired', updated_at = statement_timestamp()
            WHERE id = $1 AND status = 'awaiting_recipient_consent'
            RETURNING public_reference AS "publicReference"`,
           [order.id]
@@ -3726,12 +3726,12 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
     const updated = await client.query(
       `UPDATE gift_delivery_orders
        SET status = $2,
-           recipient_consent_at = CASE WHEN $2 = 'recipient_accepted' THEN NOW() ELSE recipient_consent_at END,
+           recipient_consent_at = CASE WHEN $2 = 'recipient_accepted' THEN statement_timestamp() ELSE recipient_consent_at END,
            recipient_consent_version = CASE WHEN $2 = 'recipient_accepted' THEN 1 ELSE recipient_consent_version END,
-           updated_at = NOW()
+           updated_at = statement_timestamp()
        WHERE id = $1
          AND status = 'awaiting_recipient_consent'
-         AND ($3::boolean = FALSE OR expires_at > NOW())
+         AND ($3::boolean = FALSE OR expires_at > statement_timestamp())
        RETURNING public_reference AS "publicReference", status`,
       [order.id, nextStatus, action === 'accept']
     );
@@ -3814,10 +3814,10 @@ app.post('/api/gifts/orders/:publicReference/withdraw-consent', validateRequestO
     const updated = await client.query(
       `UPDATE gift_delivery_orders
        SET status = 'cancelled',
-           consent_withdrawn_at = NOW(),
+           consent_withdrawn_at = statement_timestamp(),
            address_vault_ref = NULL,
            address_verified_at = NULL,
-           updated_at = NOW()
+           updated_at = statement_timestamp()
        WHERE id = $1
          AND recipient_id = $2
          AND status IN ('recipient_accepted', 'address_verified')
@@ -3860,7 +3860,7 @@ app.get('/api/gifts/orders', requireSession, profileActionLimiter, async (req, r
               currency, status, expires_at AS "expiresAt",
               payment_status AS "paymentStatus",
               recipient_requests_disabled_at AS "recipientRequestsDisabledAt",
-              NOW() AS "serverNow",
+              statement_timestamp() AS "serverNow",
               created_at AS "createdAt",
               estimated_delivery_start AS "estimatedDeliveryStart",
               estimated_delivery_end AS "estimatedDeliveryEnd",
@@ -3950,7 +3950,7 @@ app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileAction
       `INSERT INTO ad_consent_preferences
          (user_id, ads_consent, date_offers_consent, wedding_offers_consent,
           marriage_planning_opt_in, category_consents, consent_version, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, NOW())
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, statement_timestamp())
        ON CONFLICT (user_id) DO UPDATE SET
          ads_consent = EXCLUDED.ads_consent,
          date_offers_consent = EXCLUDED.date_offers_consent,
@@ -3958,7 +3958,7 @@ app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileAction
          marriage_planning_opt_in = EXCLUDED.marriage_planning_opt_in,
          category_consents = EXCLUDED.category_consents,
          consent_version = EXCLUDED.consent_version,
-         updated_at = NOW()
+         updated_at = statement_timestamp()
        RETURNING ads_consent, date_offers_consent, wedding_offers_consent,
                  marriage_planning_opt_in, category_consents, consent_version`,
       [
