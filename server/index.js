@@ -2385,16 +2385,18 @@ app.post('/api/reports', reportLimiter, validateRequestOrigin, requireSession, a
       "SELECT pg_advisory_xact_lock(hashtext('gift-safety:' || LEAST($1::uuid, $2::uuid)::text || ':' || GREATEST($1::uuid, $2::uuid)::text))",
       [req.authUser.id, reportedUserId]
     );
-    const activeAccounts = await client.query(
-      "SELECT id FROM users WHERE id = ANY($1::uuid[]) AND status = 'active' ORDER BY id FOR SHARE",
+    const accounts = await client.query(
+      "SELECT id, status FROM users WHERE id = ANY($1::uuid[]) ORDER BY id FOR SHARE",
       [[req.authUser.id, reportedUserId]]
     );
-    const activeIds = new Set(activeAccounts.rows.map(row => String(row.id).toLowerCase()));
-    if (!activeIds.has(String(req.authUser.id).toLowerCase())) {
+    const accountsById = new Map(accounts.rows.map(row => [String(row.id).toLowerCase(), row.status]));
+    if (accountsById.get(String(req.authUser.id).toLowerCase()) !== 'active') {
       await client.query('ROLLBACK');
       return res.status(401).json({ error: 'account_not_active' });
     }
-    if (!activeIds.has(String(reportedUserId).toLowerCase())) {
+    // A suspended/deactivated target may still be reported; only a deleted
+    // account (no row) is unavailable as a report target.
+    if (!accountsById.has(String(reportedUserId).toLowerCase())) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'reported_user_not_found' });
     }
