@@ -1022,6 +1022,17 @@ test('only a verified new subscription event links a completed recurring checkou
     ]);
     assert.ok(attemptUpdate.sql.includes('attempt_id = $4'));
     assert.match(attemptUpdate.sql, /transaction_id IS NULL OR transaction_id = \$3/);
+    const finalAttemptUpdate = queries.find(query =>
+      query.sql.includes('SET status = $3') && query.sql.includes('transaction_id = $5')
+    );
+    assert.ok(finalAttemptUpdate, 'the final linked/reconciliation transition must remain scoped to this attempt');
+    assert.deepEqual(finalAttemptUpdate.params, [
+      '00000000-0000-4000-8000-000000000001',
+      '1month',
+      'linked',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'txn_0123456789abcdef01234567'
+    ]);
   } finally {
     if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
     else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
