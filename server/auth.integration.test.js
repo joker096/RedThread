@@ -291,6 +291,12 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.equal(passwordReset.status, 200);
       assert.equal(stalePasswordLogin.status, 401,
         'login must not create a session using a password invalidated by a concurrent reset');
+      const stalePasswordSessions = await passwordResetRaceDb.query(
+        'SELECT COUNT(*)::int AS count FROM sessions WHERE user_id = $1',
+        [registered.user.id]
+      );
+      assert.equal(stalePasswordSessions.rows[0].count, 0,
+        'the rejected stale-password login must not recreate a session after reset');
       const freshPasswordLogin = await request('/api/auth/login', {
         method: 'POST',
         body: JSON.stringify({ email, password: newPassword })
