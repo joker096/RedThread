@@ -228,7 +228,7 @@ export async function createGiftOrderRequest(client, {
   }
   const reject = (status, error) => ({
     status,
-    commit: expiration.expiredOrders.length > 0,
+    commit: expiration.expiredOrders.length > 0 || expiration.refundedOrders.length > 0,
     body: { error }
   });
 
