@@ -2181,8 +2181,32 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
 });
 
 app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) => {
+  let client;
   try {
-    const result = await pool.query(
+    client = await pool.connect();
+    await client.query('BEGIN');
+    // Lock the requester first, then every counterpart in stable UUID order.
+    // Re-read after locking so deletion, suspension and either-direction block
+    // cannot race a stale authenticated request.
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const account = await client.query(
+      "SELECT 1 FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (!account.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    const pairs = await client.query(
+      `SELECT CASE WHEN user_a_id = $1 THEN user_b_id ELSE user_a_id END AS partner_id
+       FROM matches WHERE (user_a_id = $1 OR user_b_id = $1) AND status = 'active'
+       ORDER BY partner_id`,
+      [req.authUser.id]
+    );
+    for (const pair of pairs.rows) {
+      await acquireGiftSafetyUserLocks(client, req.authUser.id, pair.partner_id);
+    }
+    const result = await client.query(
       `SELECT m.id, m.status, m.created_at AS "createdAt",
          other.user_id AS "partnerId", other.display_name AS "displayName",
          EXTRACT(YEAR FROM AGE(CURRENT_DATE, other.birth_date))::int AS age,
@@ -2190,20 +2214,31 @@ app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) =>
          latest.body AS "lastMessage", latest.created_at AS "lastMessageAt"
        FROM matches m
        JOIN profiles other ON other.user_id = CASE WHEN m.user_a_id = $1 THEN m.user_b_id ELSE m.user_a_id END
+       JOIN users me ON me.id = $1 AND me.status = 'active'
+       JOIN users partner ON partner.id = other.user_id AND partner.status = 'active'
        LEFT JOIN LATERAL (
          SELECT body, created_at FROM messages
          WHERE match_id = m.id AND deleted_at IS NULL
          ORDER BY created_at DESC LIMIT 1
        ) latest ON TRUE
        WHERE (m.user_a_id = $1 OR m.user_b_id = $1) AND m.status = 'active'
+         AND NOT EXISTS (
+           SELECT 1 FROM user_blocks b
+           WHERE (b.blocker_id = $1 AND b.blocked_id = other.user_id)
+              OR (b.blocker_id = other.user_id AND b.blocked_id = $1)
+         )
        ORDER BY COALESCE(latest.created_at, m.created_at) DESC
        LIMIT 100`,
       [req.authUser.id]
     );
+    await client.query('COMMIT');
     return res.json({ matches: result.rows });
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Match list failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'match_list_failed' });
+  } finally {
+    client?.release();
   }
 });
 
