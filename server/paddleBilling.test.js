@@ -1113,7 +1113,7 @@ test('Paddle identity unique conflicts are acknowledged and marked for reconcili
       if (statement.includes('INSERT INTO paddle_webhook_events')) {
         return { rowCount: 1, rows: [{ event_id: 'evt_identity_conflict' }] };
       }
-      if (statement.includes('UPDATE users SET paddle_customer_id')) {
+      if (statement.includes('UPDATE users SET') && statement.includes('paddle_customer_id')) {
         const error = new Error('duplicate Paddle customer identity');
         error.code = '23505';
         throw error;
