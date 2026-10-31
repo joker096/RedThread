@@ -53,6 +53,7 @@ export async function processPaddleEvent(pool, rawEvent) {
     throw new Error('invalid_paddle_subscription_id');
   }
   const client = await pool.connect();
+  let reconciliationContext = null;
   try {
     await client.query('BEGIN');
     const inserted = await client.query(
@@ -64,6 +65,9 @@ export async function processPaddleEvent(pool, rawEvent) {
       return { duplicate: true, handled: false };
     }
 
+    // Keep the deduplication row outside a savepoint so identity conflicts can
+    // be acknowledged without replaying a webhook that can never safely win.
+    await client.query('SAVEPOINT paddle_event_effects');
     const customData = data.customData || data.custom_data || {};
     const rawCustomUserId = typeof customData.userId === 'string' ? customData.userId
       : typeof customData.user_id === 'string' ? customData.user_id : null;
@@ -72,6 +76,10 @@ export async function processPaddleEvent(pool, rawEvent) {
     const customUserId = rawCustomUserId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawCustomUserId)
       ? rawCustomUserId
       : null;
+    reconciliationContext = {
+      userId: customUserId,
+      plan: typeof customData.plan === 'string' ? customData.plan : null
+    };
     const subscriptionId = typeof data.id === 'string' && eventType.startsWith('subscription.')
       ? data.id
       : typeof data.subscriptionId === 'string' ? data.subscriptionId
@@ -309,6 +317,24 @@ export async function processPaddleEvent(pool, rawEvent) {
     await client.query('COMMIT');
     return { duplicate: false, handled: ['subscription.created', 'subscription.updated', 'subscription.canceled', 'transaction.completed', 'transaction.canceled', 'customer.created', 'customer.updated'].includes(eventType) };
   } catch (error) {
+    if (error?.code === '23505') {
+      // A unique identity collision is a security conflict, not a transient
+      // provider failure. Roll back only this event's effects, preserve its
+      // dedupe row, and mark the matching checkout attempt for manual review.
+      await client.query('ROLLBACK TO SAVEPOINT paddle_event_effects');
+      if (reconciliationContext?.userId &&
+          ['1month', '3months', 'lifetime'].includes(reconciliationContext.plan)) {
+        await client.query(
+          `UPDATE paddle_checkout_attempts
+           SET status = 'reconciliation_required', updated_at = statement_timestamp()
+           WHERE user_id = $1 AND plan = $2
+             AND status IN ('creating', 'pending', 'completed', 'reconciliation_required')`,
+          [reconciliationContext.userId, reconciliationContext.plan]
+        );
+      }
+      await client.query('COMMIT');
+      return { duplicate: false, handled: true, reconciliationRequired: true };
+    }
     await client.query('ROLLBACK').catch(() => {});
     throw error;
   } finally {
