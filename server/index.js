@@ -1024,27 +1024,36 @@ app.post('/api/auth/login', authLimiter, validateRequestOrigin, requireDatabase,
 app.get('/api/auth/me', requireDatabase, async (req, res) => {
   const token = readSessionToken(req);
   if (!token) return res.status(401).json({ error: 'not_authenticated' });
-
   try {
-    const result = await pool.query(
-      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.female_trial_ends_at, u.premium_until, u.phone_verified_at,
-              p.display_name, p.gender, p.country, p.city, p.relationship_intent, s.id AS session_id
-       FROM sessions s
-       JOIN users u ON u.id = s.user_id
-       JOIN profiles p ON p.user_id = u.id
-       WHERE s.token_hash = $1 AND s.expires_at > NOW()
-       LIMIT 1`,
+    const lookup = await pool.query(
+      'SELECT user_id FROM sessions WHERE token_hash = $1 AND expires_at > NOW() LIMIT 1',
       [hashSessionToken(token)]
     );
-    const user = result.rows[0];
-    if (!user || user.status !== 'active') {
+    if (!lookup.rows[0]) {
+      clearSessionCookie(res);
+      return res.status(401).json({ error: 'not_authenticated' });
+    }
+    const read = await withActiveAccountRead(lookup.rows[0].user_id, async client => {
+      const result = await client.query(
+        `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.female_trial_ends_at, u.premium_until, u.phone_verified_at,
+                p.display_name, p.gender, p.country, p.city, p.relationship_intent, s.id AS session_id
+         FROM sessions s
+         JOIN users u ON u.id = s.user_id
+         JOIN profiles p ON p.user_id = u.id
+         WHERE s.token_hash = $1 AND s.user_id = $2 AND s.expires_at > NOW()
+         LIMIT 1`,
+        [hashSessionToken(token), lookup.rows[0].user_id]
+      );
+      return result.rows[0] || null;
+    });
+    const user = read.value;
+    if (!read.active || !user || user.status !== 'active') {
       clearSessionCookie(res);
       return res.status(401).json({ error: 'not_authenticated' });
     }
     if (emailVerificationRequired && !user.email_verified_at) {
       return res.status(403).json({ error: 'email_verification_required' });
     }
-
     await pool.query('UPDATE sessions SET last_seen_at = NOW() WHERE id = $1', [user.session_id]);
     return res.json({ user: publicUser(user) });
   } catch (error) {
