@@ -55,6 +55,8 @@ test('Paddle checkout attempts enforce one durable attempt and fail-closed trans
     assert.equal(attemptIdentityTrigger.rowCount, 1,
       'migration 106 must make the server-generated attempt identity immutable');
     assert.match(attemptIdentityTrigger.rows[0].definition, /BEFORE UPDATE OF attempt_id/);
+    assert.match(attemptIdentityTrigger.rows[0].definition, /BEFORE UPDATE OF attempt_id, user_id, status, transaction_id/,
+      'the production trigger must protect terminal state and provider transaction identity');
     assert.match(attemptIdentityTrigger.rows[0].definition, /BEFORE UPDATE OF attempt_id, user_id/,
       'the production trigger must also guard owner-only updates');
 
@@ -80,7 +82,7 @@ test('Paddle checkout attempts enforce one durable attempt and fail-closed trans
       `);
       await client.query(`
         CREATE TRIGGER paddle_checkout_attempts_identity_immutable_test
-        BEFORE UPDATE OF attempt_id, user_id ON paddle_checkout_attempt_identity_test
+        BEFORE UPDATE OF attempt_id, user_id, status, transaction_id ON paddle_checkout_attempt_identity_test
         FOR EACH ROW EXECUTE FUNCTION prevent_paddle_checkout_attempt_identity_change()
       `);
       await client.query(
@@ -134,6 +136,39 @@ test('Paddle checkout attempts enforce one durable attempt and fail-closed trans
         await client.query('ROLLBACK TO SAVEPOINT immutable_attempt_identity');
         await client.query('RELEASE SAVEPOINT immutable_attempt_identity');
       }
+
+      await client.query('SAVEPOINT reject_terminal_identity_reuse');
+      let terminalIdentityReuseError;
+      try {
+        await client.query(
+          `UPDATE paddle_checkout_attempt_identity_test
+           SET status = 'creating', transaction_id = NULL
+           WHERE attempt_id = $1::uuid`,
+          ['bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb']
+        );
+      } catch (error) {
+        terminalIdentityReuseError = error;
+      }
+      assert.equal(terminalIdentityReuseError?.code, '23514',
+        'a terminal attempt must not be reactivated with its old attempt_id');
+      await client.query('ROLLBACK TO SAVEPOINT reject_terminal_identity_reuse');
+      await client.query('RELEASE SAVEPOINT reject_terminal_identity_reuse');
+
+      await client.query('SAVEPOINT reject_active_transaction_swap');
+      let transactionSwapError;
+      try {
+        await client.query(
+          `UPDATE paddle_checkout_attempt_identity_test SET transaction_id = $1
+           WHERE attempt_id = $2::uuid`,
+          ['txn_replacement123', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa']
+        );
+      } catch (error) {
+        transactionSwapError = error;
+      }
+      assert.equal(transactionSwapError?.code, '23514',
+        'an attached provider transaction ID must not be replaced');
+      await client.query('ROLLBACK TO SAVEPOINT reject_active_transaction_swap');
+      await client.query('RELEASE SAVEPOINT reject_active_transaction_swap');
 
       await client.query('SAVEPOINT reject_attempt_owner_transfer');
       let ownerTransferError;
