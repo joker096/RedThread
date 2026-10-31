@@ -1068,12 +1068,20 @@ app.post('/api/auth/login', authLimiter, validateRequestOrigin, requireDatabase,
       // credentials before deletion must not create a fresh session afterward.
       await acquireGiftSafetyUserLocks(client, user.id);
       const currentAccount = await client.query(
-        'SELECT status, email_verified_at FROM users WHERE id = $1 FOR SHARE',
+        'SELECT status, email_verified_at, password_hash FROM users WHERE id = $1 FOR SHARE',
         [user.id]
       );
       if (currentAccount.rows[0]?.status !== 'active') {
         await client.query('ROLLBACK');
         return res.status(403).json({ error: 'account_unavailable' });
+      }
+      // Password reset shares this account-safety lock. If the password changed
+      // after the initial expensive verification, never create a session using
+      // credentials that are no longer current.
+      if (currentAccount.rows[0].password_hash !== user.password_hash &&
+          !await verifyPassword(password, currentAccount.rows[0].password_hash)) {
+        await client.query('ROLLBACK');
+        return res.status(401).json({ error: 'email_or_password_incorrect' });
       }
       if (emailVerificationRequired && !currentAccount.rows[0].email_verified_at) {
         await client.query('ROLLBACK');
