@@ -273,7 +273,7 @@ test('auth API supports registration, session lookup, logout and login', {
                AND activity.wait_event_type = 'Lock'
                AND $1::int = ANY(pg_blocking_pids(activity.pid))`,
             [passwordResetLockPid]
-          )
+          );
           if (blocked.rows[0].count >= expected) return;
           await new Promise(resolve => setTimeout(resolve, 50));
         }
@@ -2346,7 +2346,7 @@ test('auth API supports registration, session lookup, logout and login', {
                AND activity.wait_event_type = 'Lock'
                AND $1::int = ANY(pg_blocking_pids(activity.pid))`,
             [raceLockPid]
-          )
+          );
           if (blocked.rows[0].count >= expected) return;
           await new Promise(resolve => setTimeout(resolve, 50));
         }
