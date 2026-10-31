@@ -259,8 +259,11 @@ export async function processPaddleEvent(pool, rawEvent) {
         await client.query(
           `UPDATE paddle_checkout_attempts
            SET status = $3, updated_at = NOW()
-           WHERE user_id = $1 AND plan = $2 AND status = 'completed'`,
-          [customUserId, checkoutPlan, subscriptionUpdate.rowCount > 0 ? 'linked' : 'reconciliation_required']
+           WHERE user_id = $1 AND plan = $2
+             AND attempt_id IS NOT DISTINCT FROM $4::uuid
+             AND transaction_id = $5 AND status = 'completed'`,
+          [customUserId, checkoutPlan, subscriptionUpdate.rowCount > 0 ? 'linked' : 'reconciliation_required',
+            checkoutAttemptId, subscriptionTransactionId]
         );
       }
     } else if (eventType === 'transaction.completed') {
@@ -368,8 +371,9 @@ export async function processPaddleEvent(pool, rawEvent) {
         await client.query(
           `UPDATE paddle_checkout_attempts SET status = $2, updated_at = NOW()
            WHERE transaction_id = $1 AND user_id = $3
+             AND attempt_id IS NOT DISTINCT FROM $4::uuid
              AND status = 'completed'`,
-          [data.id, nextCheckoutStatus, customUserId]
+          [data.id, nextCheckoutStatus, customUserId, checkoutAttemptId]
         );
       }
     } else if (eventType === 'transaction.canceled') {
