@@ -268,7 +268,15 @@ test('auth API supports registration, session lookup, logout and login', {
              FROM pg_stat_activity
              WHERE datname = current_database()
                AND wait_event_type = 'Lock'
-               AND query LIKE '%gift-safety-user:%'`
+               AND EXISTS (
+                 SELECT 1
+                 FROM pg_locks advisory_wait
+                 WHERE advisory_wait.pid = pg_stat_activity.pid
+                   AND advisory_wait.locktype = 'advisory'
+                   AND advisory_wait.granted = false
+                   AND advisory_wait.classid = 0
+                   AND advisory_wait.objid = hashtext('gift-safety-user:' || $1::uuid::text)::oid
+               )`
           );
           if (blocked.rows[0].count >= expected) return;
           await new Promise(resolve => setTimeout(resolve, 50));
