@@ -6,7 +6,7 @@ import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { ASSESSMENT_OPTIONS } from './relationshipAssessment.js';
-import { hashPassword, hashSessionToken } from './security.js';
+import { hashSessionToken } from './security.js';
 
 const { Pool } = pg;
 
@@ -2353,7 +2353,7 @@ test('auth API supports registration, session lookup, logout and login', {
         await deletionSafetyDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'profile:%'");
         staleLoginPromise = request('/api/auth/login', {
           method: 'POST',
-          body: JSON.stringify({ email, password })
+          body: JSON.stringify({ email, password: activePassword })
         });
         staleNotificationListPromise = request('/api/notifications', {
           headers: { Cookie: secondCookie }
