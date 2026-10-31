@@ -95,3 +95,28 @@ test('pooled transaction rolls back a failed COMMIT and preserves its original e
   assert.equal(fixture.released, true);
   assert.equal(fixture.releaseError, undefined);
 });
+
+test('manual rollback helper destroys a client when rollback fails', async () => {
+  const { rollbackPooledTransaction } = await import('./withPooledTransaction.js');
+  const failure = new Error('rollback connection lost');
+  let releasedWith;
+  const client = {
+    async query(sql) { assert.equal(sql, 'ROLLBACK'); throw failure; },
+    release(error) { releasedWith = error; }
+  };
+  assert.equal(await rollbackPooledTransaction(client), false);
+  assert.equal(releasedWith, failure);
+});
+
+test('manual rollback helper keeps a client reusable after successful rollback', async () => {
+  const { rollbackPooledTransaction } = await import('./withPooledTransaction.js');
+  const calls = [];
+  let released = false;
+  const client = {
+    async query(sql) { calls.push(sql); },
+    release() { released = true; }
+  };
+  assert.equal(await rollbackPooledTransaction(client), true);
+  assert.deepEqual(calls, ['ROLLBACK']);
+  assert.equal(released, false);
+});
