@@ -615,24 +615,33 @@ test('Paddle portal rejects mismatched customers and untrusted redirect URLs', a
 
 test('Paddle subscription cancellation requires a confirmed immediate cancellation response', async () => {
   const { cancelPaddleSubscription } = await import('./paddleBilling.js');
-  let request;
+  const requests = [];
   const result = await cancelPaddleSubscription({
     apiKey: 'sandbox_api_key',
     subscriptionId: 'sub_0123456789abcdef01234567',
     customerId: 'ctm_0123456789abcdef01234567',
     fetchImpl: async (url, options) => {
-      request = { url, options };
+      requests.push({ url, options });
       return {
         ok: true,
         async json() {
-          return { data: { id: 'sub_0123456789abcdef01234567', customer_id: 'ctm_0123456789abcdef01234567', status: 'canceled' } };
+          return {
+            data: {
+              id: 'sub_0123456789abcdef01234567',
+              customer_id: 'ctm_0123456789abcdef01234567',
+              status: options.method === 'GET' ? 'active' : 'canceled'
+            }
+          };
         }
       };
     }
   });
-  assert.equal(request.url, 'https://sandbox-api.paddle.com/subscriptions/sub_0123456789abcdef01234567/cancel');
-  assert.equal(request.options.method, 'POST');
-  assert.deepEqual(JSON.parse(request.options.body), { effective_from: 'immediately' });
+  assert.equal(requests.length, 2, 'ownership must be checked before cancellation');
+  assert.equal(requests[0].url, 'https://sandbox-api.paddle.com/subscriptions/sub_0123456789abcdef01234567');
+  assert.equal(requests[0].options.method, 'GET');
+  assert.equal(requests[1].url, 'https://sandbox-api.paddle.com/subscriptions/sub_0123456789abcdef01234567/cancel');
+  assert.equal(requests[1].options.method, 'POST');
+  assert.deepEqual(JSON.parse(requests[1].options.body), { effective_from: 'immediately' });
   assert.deepEqual(result, {
     subscriptionId: 'sub_0123456789abcdef01234567',
     status: 'canceled',
@@ -652,18 +661,25 @@ test('Paddle subscription cancellation requires a confirmed immediate cancellati
     }),
     { message: 'paddle_subscription_cancel_unconfirmed' }
   );
+  let cancellationPostCalls = 0;
   await assert.rejects(
     cancelPaddleSubscription({
       apiKey: 'sandbox_api_key',
       subscriptionId: 'sub_0123456789abcdef01234567',
       customerId: 'ctm_0123456789abcdef01234567',
-      fetchImpl: async () => ({
-        ok: true,
-        async json() { return { data: { id: 'sub_0123456789abcdef01234567', customer_id: 'ctm_other_customer', status: 'canceled' } }; }
-      })
+      fetchImpl: async (_url, options) => {
+        if (options.method === 'POST') cancellationPostCalls += 1;
+        return {
+          ok: true,
+          async json() {
+            return { data: { id: 'sub_0123456789abcdef01234567', customer_id: 'ctm_other_customer', status: 'active' } };
+          }
+        };
+      }
     }),
-    { message: 'paddle_subscription_cancel_unconfirmed' }
+    { message: 'paddle_subscription_ownership_unconfirmed' }
   );
+  assert.equal(cancellationPostCalls, 0, 'a foreign subscription must never receive a cancellation request');
 });
 
 test('Paddle portal and cancellation helpers reject live environment and malformed IDs before network access', async () => {
