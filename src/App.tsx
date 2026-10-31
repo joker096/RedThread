@@ -104,7 +104,7 @@ export default function App() {
   const [maxAge, setMaxAge] = useState(99);
 
   // Superlikes & Boosts inventory
-  const [superLikesCount, setSuperLikesCount] = useState(3);
+  const [superLikesCount, setSuperLikesCount] = useState(0);
   const [boostActive, setBoostActive] = useState(false);
 
   useEffect(() => {
