@@ -213,7 +213,7 @@ export async function processPaddleEvent(pool, rawEvent) {
         // server-created checkout attempt can be matched. If the originating
         // transaction is valid, mark only that exact/in-flight attempt for review.
         await markPaddleCheckoutAttemptForReconciliation(
-          client, customUserId, customData.plan, subscriptionTransactionId, checkoutAttemptId
+          client, reconciliationContext.userId, customData.plan, subscriptionTransactionId, checkoutAttemptId
         );
         await client.query('COMMIT');
         return { duplicate: false, handled: true };
