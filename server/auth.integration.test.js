@@ -2116,6 +2116,7 @@ test('auth API supports registration, session lookup, logout and login', {
       let stalePhotoUploadPromise;
       let staleMessagePromise;
       let staleAssessmentPromise;
+      let staleLoginPromise;
       try {
         await waitForBlockedSafetyRequests(1);
         staleProfileUpdatePromise = request('/api/profiles/me', {
@@ -2141,28 +2142,26 @@ test('auth API supports registration, session lookup, logout and login', {
           headers: { Cookie: secondCookie },
           body: JSON.stringify({ answers: assessmentAnswers })
         });
-        await waitForBlockedSafetyRequests(5);
+        // Login shares the account-safety lock, but its IP limiter may have
+        // been exercised by earlier auth cases. Isolate this race from that
+        // independent limiter before proving login queues behind deletion.
+        await deletionSafetyDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'auth:%'");
+        staleLoginPromise = request('/api/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ email, password })
+        });
+        await waitForBlockedSafetyRequests(6);
       } finally {
         await raceLock.query('COMMIT');
         raceLock.release();
       }
-      const [deleteAccount, staleProfileUpdate, stalePhotoUpload, staleMessage, staleAssessment] = await Promise.all([
+      const [deleteAccount, staleProfileUpdate, stalePhotoUpload, staleMessage, staleAssessment, staleLogin] = await Promise.all([
         deleteAccountPromise,
         staleProfileUpdatePromise,
         stalePhotoUploadPromise,
-        staleMessagePromise,
-        staleAssessmentPromise
+        staleAssessmentPromise,
+        staleLoginPromise
       ]);
-      // Login does not use the account-safety advisory lock. Check it only
-      // after deletion commits, so the test asserts the persisted deleted
-      // state rather than incorrectly expecting login to join that lock queue.
-      // Reset this test database's auth limiter bucket so earlier auth cases
-      // cannot mask the deleted-account response with an unrelated HTTP 429.
-      await deletionSafetyDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'auth:%'");
-      const staleLogin = await request('/api/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ email, password })
-      });
       assert.equal(deleteAccount.status, 204);
       assert.equal(staleProfileUpdate.status, 404,
         'a profile update authenticated before deletion must not restore personal data afterward');
@@ -2173,7 +2172,7 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.equal(staleAssessment.status, 401,
         'a relationship assessment authenticated before deletion must not be recreated afterward');
       assert.equal(staleLogin.status, 403,
-        'a login authenticated before deletion must not create a new session afterward');
+        'a login authenticated before deletion must wait for deletion and then be rejected');
       const deletedProfileAfterRace = await deletionSafetyDb.query(
         'SELECT display_name, is_visible, photo_urls FROM profiles WHERE user_id = $1',
         [registered.user.id]
