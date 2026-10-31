@@ -2339,12 +2339,20 @@ app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) =>
     // Re-read after locking so deletion, suspension and either-direction block
     // cannot race a stale authenticated request.
     const pairs = await client.query(
-      `SELECT CASE WHEN user_a_id = $1 THEN user_b_id ELSE user_a_id END AS partner_id
-       FROM matches WHERE (user_a_id = $1 OR user_b_id = $1) AND status = 'active'
-       ORDER BY created_at DESC LIMIT 100`,
+      `SELECT CASE WHEN m.user_a_id = $1 THEN m.user_b_id ELSE m.user_a_id END AS partner_id
+       FROM matches m
+       LEFT JOIN LATERAL (
+         SELECT created_at FROM messages
+         WHERE match_id = m.id AND deleted_at IS NULL
+         ORDER BY created_at DESC LIMIT 1
+       ) latest ON TRUE
+       WHERE (m.user_a_id = $1 OR m.user_b_id = $1) AND m.status = 'active'
+       ORDER BY COALESCE(latest.created_at, m.created_at) DESC
+       LIMIT 100`,
       [req.authUser.id]
     );
-    await acquireGiftSafetyUserLocks(client, req.authUser.id, ...pairs.rows.map(pair => pair.partner_id));
+    const partnerIds = pairs.rows.map(pair => pair.partner_id);
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, ...partnerIds);
     const account = await client.query(
       "SELECT 1 FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
       [req.authUser.id]
@@ -2369,6 +2377,7 @@ app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) =>
          ORDER BY created_at DESC LIMIT 1
        ) latest ON TRUE
        WHERE (m.user_a_id = $1 OR m.user_b_id = $1) AND m.status = 'active'
+         AND other.user_id = ANY($2::uuid[])
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = $1 AND b.blocked_id = other.user_id)
@@ -2376,7 +2385,7 @@ app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) =>
          )
        ORDER BY COALESCE(latest.created_at, m.created_at) DESC
        LIMIT 100`,
-      [req.authUser.id]
+      [req.authUser.id, partnerIds]
     );
     await client.query('COMMIT');
     return res.json({ matches: result.rows });
@@ -3112,7 +3121,8 @@ app.get('/api/gifts/matches', requireSession, requirePaidFeatures, profileAction
        ORDER BY created_at DESC LIMIT 100`,
       [req.authUser.id]
     );
-    await acquireGiftSafetyUserLocks(client, req.authUser.id, ...pairs.rows.map(pair => pair.partner_id));
+    const partnerIds = pairs.rows.map(pair => pair.partner_id);
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, ...partnerIds);
     const account = await client.query(
       "SELECT 1 FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
       [req.authUser.id]
@@ -3129,6 +3139,7 @@ app.get('/api/gifts/matches', requireSession, requirePaidFeatures, profileAction
        JOIN users partner ON partner.id = other.user_id AND partner.status = 'active'
        WHERE (m.user_a_id = $1 OR m.user_b_id = $1)
          AND m.status = 'active'
+         AND other.user_id = ANY($2::uuid[])
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = $1 AND b.blocked_id = other.user_id)
@@ -3136,7 +3147,7 @@ app.get('/api/gifts/matches', requireSession, requirePaidFeatures, profileAction
          )
        ORDER BY m.created_at DESC
        LIMIT 100`,
-      [req.authUser.id]
+      [req.authUser.id, partnerIds]
     );
     await client.query('COMMIT');
     return res.json({ matches: result.rows });
