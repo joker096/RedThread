@@ -960,6 +960,21 @@ app.post('/api/auth/login', authLimiter, validateRequestOrigin, requireDatabase,
     let token;
     try {
       await client.query('BEGIN');
+      // Serialize session creation with account deletion. A login that verified
+      // credentials before deletion must not create a fresh session afterward.
+      await acquireGiftSafetyUserLocks(client, user.id);
+      const currentAccount = await client.query(
+        'SELECT status, email_verified_at FROM users WHERE id = $1 FOR SHARE',
+        [user.id]
+      );
+      if (currentAccount.rows[0]?.status !== 'active') {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'account_unavailable' });
+      }
+      if (emailVerificationRequired && !currentAccount.rows[0].email_verified_at) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'email_verification_required' });
+      }
       await client.query('DELETE FROM sessions WHERE expires_at < NOW()');
       token = await createSession(client, user.id);
       await client.query('COMMIT');
@@ -2394,9 +2409,9 @@ app.post('/api/reports', reportLimiter, validateRequestOrigin, requireSession, a
       await client.query('ROLLBACK');
       return res.status(401).json({ error: 'account_not_active' });
     }
-    // A suspended/deactivated target may still be reported; only a deleted
-    // account (no row) is unavailable as a report target.
-    if (!accountsById.has(String(reportedUserId).toLowerCase())) {
+    // Suspended targets may still be reported; deleted targets are unavailable.
+    if (!accountsById.has(String(reportedUserId).toLowerCase()) ||
+        accountsById.get(String(reportedUserId).toLowerCase()) === 'deleted') {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'reported_user_not_found' });
     }
