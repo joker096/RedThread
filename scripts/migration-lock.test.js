@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import pg from 'pg';
 import {
   acquireMigrationLock,
+  beginMigrationTransaction,
   MIGRATION_ADVISORY_LOCK_CLASS,
   MIGRATION_ADVISORY_LOCK_ID
 } from './migration-lock.js';
@@ -156,4 +157,37 @@ test('migration lock acquisition stops retrying when shutdown arrives during a f
 
   assert.equal(release, null);
   assert.equal(calls, 1, 'shutdown must prevent a second advisory-lock query');
+});
+
+
+test('failed migration BEGIN marks the client for destruction and propagates the original error', async () => {
+  const failure = new Error('connection lost during BEGIN');
+  const discarded = [];
+  const client = {
+    async query(sql) {
+      assert.equal(sql, 'BEGIN');
+      throw failure;
+    }
+  };
+
+  await assert.rejects(
+    beginMigrationTransaction(client, error => discarded.push(error)),
+    error => error === failure
+  );
+  assert.deepEqual(discarded, [failure]);
+});
+
+test('successful migration BEGIN does not mark the client for destruction', async () => {
+  const calls = [];
+  const discarded = [];
+  const client = {
+    async query(sql) {
+      calls.push(sql);
+      return { rows: [] };
+    }
+  };
+
+  await beginMigrationTransaction(client, error => discarded.push(error));
+  assert.deepEqual(calls, ['BEGIN']);
+  assert.deepEqual(discarded, []);
 });
