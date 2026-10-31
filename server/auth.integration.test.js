@@ -6,6 +6,7 @@ import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { ASSESSMENT_OPTIONS } from './relationshipAssessment.js';
+import { hashPassword, hashSessionToken } from './security.js';
 
 const { Pool } = pg;
 
@@ -71,6 +72,7 @@ test('auth API supports registration, session lookup, logout and login', {
 
     const email = `test-${randomUUID()}@example.test`;
     const password = 'Test Password 2026! Secure';
+    let activePassword = password;
     const registration = await request('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify({
@@ -226,11 +228,84 @@ test('auth API supports registration, session lookup, logout and login', {
 
     const login = await request('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ email, password: activePassword })
     });
     assert.equal(login.status, 200);
-    const secondCookie = login.headers.get('set-cookie')?.split(';')[0];
+    let secondCookie = login.headers.get('set-cookie')?.split(';')[0];
     assert.ok(secondCookie?.startsWith('nit_session='));
+
+    // A login that verified the old password before a concurrent password reset
+    // must re-check the current hash after it acquires the account-safety lock.
+    const passwordResetRaceDb = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      connectionTimeoutMillis: 5_000,
+      statement_timeout: 8_000,
+      query_timeout: 10_000
+    });
+    let passwordResetLock;
+    try {
+      const resetToken = randomUUID() + randomUUID();
+      await passwordResetRaceDb.query(
+        `INSERT INTO account_action_tokens (user_id, purpose, token_hash, expires_at)
+         VALUES ($1, 'password_reset', $2, NOW() + INTERVAL '1 hour')`,
+        [registered.user.id, hashSessionToken(resetToken)]
+      );
+      passwordResetLock = await passwordResetRaceDb.connect();
+      await passwordResetLock.query('BEGIN');
+      await passwordResetLock.query(
+        "SELECT pg_advisory_xact_lock(hashtext('gift-safety-user:' || $1::uuid::text))",
+        [registered.user.id]
+      );
+      const newPassword = 'Reset Password 2026! Secure';
+      const resetPromise = request('/api/auth/password-reset/complete', {
+        method: 'POST',
+        body: JSON.stringify({ token: resetToken, password: newPassword })
+      });
+      const waitForAuthLockWaiters = async expected => {
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          const blocked = await passwordResetRaceDb.query(
+            `SELECT COUNT(*)::int AS count
+             FROM pg_stat_activity
+             WHERE datname = current_database()
+               AND wait_event_type = 'Lock'
+               AND query LIKE '%gift-safety-user:%'`
+          );
+          if (blocked.rows[0].count >= expected) return;
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        throw new Error(`Timed out waiting for ${expected} password-reset/login lock waiters`);
+      };
+      await waitForAuthLockWaiters(1);
+      const stalePasswordLoginPromise = request('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password })
+      });
+      await waitForAuthLockWaiters(2);
+      await passwordResetLock.query('COMMIT');
+      passwordResetLock.release();
+      passwordResetLock = null;
+      const [passwordReset, stalePasswordLogin] = await Promise.all([
+        resetPromise,
+        stalePasswordLoginPromise
+      ]);
+      assert.equal(passwordReset.status, 200);
+      assert.equal(stalePasswordLogin.status, 401,
+        'login must not create a session using a password invalidated by a concurrent reset');
+      const freshPasswordLogin = await request('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password: newPassword })
+      });
+      assert.equal(freshPasswordLogin.status, 200);
+      secondCookie = freshPasswordLogin.headers.get('set-cookie')?.split(';')[0];
+      assert.ok(secondCookie?.startsWith('nit_session='));
+      activePassword = newPassword;
+    } finally {
+      if (passwordResetLock) {
+        await passwordResetLock.query('ROLLBACK').catch(() => {});
+        passwordResetLock.release();
+      }
+      await passwordResetRaceDb.end();
+    }
 
     const maleEmail = `test-${randomUUID()}@example.test`;
     const maleRegistration = await request('/api/auth/register', {
@@ -2209,7 +2284,7 @@ test('auth API supports registration, session lookup, logout and login', {
       const deleteAccountPromise = request('/api/account', {
         method: 'DELETE',
         headers: { Cookie: secondCookie },
-        body: JSON.stringify({ password })
+        body: JSON.stringify({ password: activePassword })
       });
       const waitForBlockedSafetyRequests = async expected => {
         for (let attempt = 0; attempt < 100; attempt += 1) {
