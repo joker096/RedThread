@@ -14,6 +14,19 @@ BEGIN
             MESSAGE = 'paddle checkout attempt ownership is immutable';
   END IF;
 
+  IF NEW.status IS DISTINCT FROM OLD.status
+     AND NOT terminal_rollover
+     AND NOT (
+       (OLD.status = 'creating' AND NEW.status IN ('pending', 'completed', 'canceled', 'reconciliation_required'))
+       OR (OLD.status = 'pending' AND NEW.status IN ('completed', 'canceled', 'reconciliation_required'))
+       OR (OLD.status = 'completed' AND NEW.status IN ('linked', 'reconciliation_required'))
+       OR (OLD.status = 'reconciliation_required' AND NEW.status IN ('completed', 'canceled', 'linked'))
+     ) THEN
+    RAISE EXCEPTION
+      USING ERRCODE = '23514',
+            MESSAGE = 'invalid paddle checkout attempt state transition';
+  END IF;
+
   terminal_rollover := OLD.status IN ('canceled', 'linked')
     AND NEW.status = 'creating'
     AND NEW.attempt_id IS NOT NULL
