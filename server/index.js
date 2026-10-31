@@ -3574,6 +3574,7 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
     const selected = await client.query(
       `SELECT o.id, o.match_id, o.sender_id, o.recipient_id, o.status, o.payment_status, o.expires_at,
               o.recipient_requests_disabled_at,
+               statement_timestamp() AS decision_at,
               m.status AS match_status,
               sender.status AS sender_status,
               recipient.status AS recipient_status,
@@ -3619,7 +3620,7 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
       return res.status(409).json({ error: 'gift_request_not_actionable' });
     }
     if (order.status === 'awaiting_recipient_consent' &&
-        new Date(order.expires_at).getTime() <= Date.now() &&
+        new Date(order.expires_at).getTime() <= new Date(order.decision_at).getTime() &&
         !['not_started', 'voided', 'failed'].includes(order.payment_status)) {
       // Expiry cannot stand in for a payment void/refund. Persist provider
       // reconciliation work in this transaction before returning the conflict.
@@ -3628,7 +3629,7 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
       return res.status(409).json({ error: 'gift_payment_requires_reconciliation' });
     }
 
-    if (order.status !== 'awaiting_recipient_consent' || new Date(order.expires_at).getTime() <= Date.now()) {
+    if (order.status !== 'awaiting_recipient_consent' || new Date(order.expires_at).getTime() <= new Date(order.decision_at).getTime()) {
       if (order.status === 'awaiting_recipient_consent') {
         const expiredOrder = await client.query(
           `UPDATE gift_delivery_orders SET status = 'expired', updated_at = statement_timestamp()
