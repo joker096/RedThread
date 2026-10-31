@@ -45,16 +45,6 @@ export async function processPaddleEvent(pool, rawEvent) {
 
   const { eventId, eventType, data, occurredAt } = event;
   const subscriptionLifecycleEvent = ['subscription.created', 'subscription.updated', 'subscription.canceled'].includes(eventType);
-  // Paddle lifecycle events must carry their source timestamp. Without it we cannot
-  // safely order updates, so fail closed instead of allowing an older event to win.
-  if (subscriptionLifecycleEvent && (!occurredAt || !Number.isFinite(Date.parse(occurredAt)))) {
-    throw new Error('invalid_paddle_event_timestamp');
-  }
-  // Never grant or revoke subscription entitlement from a lifecycle envelope
-  // that cannot identify the Paddle subscription being reconciled.
-  if (subscriptionLifecycleEvent && (typeof data.id !== 'string' || !/^sub_[A-Za-z0-9]+$/.test(data.id))) {
-    throw new Error('invalid_paddle_subscription_id');
-  }
   const client = await pool.connect();
   let reconciliationContext = null;
   try {
@@ -68,9 +58,18 @@ export async function processPaddleEvent(pool, rawEvent) {
       return { duplicate: true, handled: false };
     }
 
-    // Keep the deduplication row outside a savepoint so identity conflicts can
-    // be acknowledged without replaying a webhook that can never safely win.
+    // Keep the deduplication row outside a savepoint so invalid provider
+    // payloads and identity conflicts can be acknowledged without endless retries.
     await client.query('SAVEPOINT paddle_event_effects');
+    // Lifecycle events need a valid source timestamp and subscription identity
+    // for ordering/ownership. Consume malformed signed events without changing
+    // entitlement rather than returning 500 forever to the provider.
+    if (subscriptionLifecycleEvent &&
+        (!occurredAt || !Number.isFinite(Date.parse(occurredAt)) ||
+         typeof data.id !== 'string' || !/^sub_[A-Za-z0-9]+$/.test(data.id))) {
+      await client.query('COMMIT');
+      return { duplicate: false, handled: true };
+    }
     const customData = data.customData || data.custom_data || {};
     const rawCustomUserId = typeof customData.userId === 'string' ? customData.userId
       : typeof customData.user_id === 'string' ? customData.user_id : null;
