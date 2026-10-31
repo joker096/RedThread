@@ -200,6 +200,8 @@ test('state transitions enforce actors, consent, persisted states, and terminal 
   assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'refund_pending', actor: 'system' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'refund_pending', actor: 'system', paymentStatus: 'authorized' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'refund_pending', actor: 'system', paymentStatus: 'captured' }), true);
+  assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'refund_pending', actor: 'system', paymentStatus: 'captured', addressVaultRef: 'vault-secret-ref' }), false,
+    'the private address pointer must be revoked before refund_pending');
   assert.equal(canTransitionGiftOrder({ from: 'blocked', to: 'refund_pending', actor: 'system', paymentStatus: 'captured' }), true,
     'a pre-dispatch safety block must retain a controlled refund path');
   assert.equal(canTransitionGiftOrder({ from: 'blocked', to: 'cancelled', actor: 'system', paymentStatus: 'authorized' }), false,
