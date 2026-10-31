@@ -404,8 +404,8 @@ export async function createGiftOrderRequest(client, {
      JOIN gift_suppliers supplier ON supplier.supplier_key = item.supplier_key
      JOIN gift_delivery_partner_coverage coverage
        ON coverage.country_code = $2
-      AND LOWER(REGEXP_REPLACE(BTRIM(normalize(coverage.city_key, NFC)), '[[:space:]]+', ' ', 'g')) =
-          LOWER(REGEXP_REPLACE(BTRIM(normalize($3, NFC)), '[[:space:]]+', ' ', 'g'))
+      AND LOWER(REGEXP_REPLACE(BTRIM(translate(normalize(coverage.city_key, NFC), CHR(8203) || CHR(65279), '')), '[[:space:]]+', ' ', 'g')) =
+          LOWER(REGEXP_REPLACE(BTRIM(translate(normalize($3, NFC), CHR(8203) || CHR(65279), '')), '[[:space:]]+', ' ', 'g'))
       AND coverage.active = TRUE
       AND coverage.verified_at IS NOT NULL
       AND coverage.verified_at <= statement_timestamp()
@@ -759,8 +759,8 @@ export async function listGiftCatalogForMatch(client, { senderId, matchId }) {
      JOIN gift_suppliers supplier ON supplier.supplier_key = item.supplier_key
      JOIN gift_delivery_partner_coverage coverage
        ON coverage.country_code = $1
-      AND LOWER(REGEXP_REPLACE(BTRIM(normalize(coverage.city_key, NFC)), '[[:space:]]+', ' ', 'g')) =
-          LOWER(REGEXP_REPLACE(BTRIM(normalize($2, NFC)), '[[:space:]]+', ' ', 'g'))
+      AND LOWER(REGEXP_REPLACE(BTRIM(translate(normalize(coverage.city_key, NFC), CHR(8203) || CHR(65279), '')), '[[:space:]]+', ' ', 'g')) =
+          LOWER(REGEXP_REPLACE(BTRIM(translate(normalize($2, NFC), CHR(8203) || CHR(65279), '')), '[[:space:]]+', ' ', 'g'))
       AND coverage.active = TRUE
       AND coverage.verified_at IS NOT NULL
       AND coverage.verified_at <= statement_timestamp()
