@@ -436,7 +436,7 @@ app.post('/api/paddle/checkout/cancel', validateRequestOrigin, requireSession, a
     await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Paddle checkout cancellation failed:', error?.message || 'unknown error');
     return res.status(502).json({ error: 'paddle_checkout_cancel_failed' });
   } finally {
@@ -812,7 +812,7 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
     writeSessionCookie(res, token);
     return res.status(201).json({ user: publicUser({ ...profileResult.rows[0], email: user.email }) });
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     if (error?.code === '23505') return res.status(409).json({ error: 'email_already_registered' });
     console.error('Registration failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'registration_failed' });
@@ -1474,7 +1474,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     clearSessionCookie(res);
     return res.status(204).end();
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Account deletion failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'account_deletion_failed' });
   } finally {
@@ -1689,7 +1689,7 @@ app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req,
       result = await client.query(finalSql, [...lockedSearchParams, candidateIds]);
       await client.query('COMMIT');
     } catch (error) {
-      if (client) await client.query('ROLLBACK').catch(() => {});
+      if (client && !await rollbackPooledTransaction(client)) client = null;
       throw error;
     } finally {
       client?.release();
@@ -1764,7 +1764,7 @@ app.post('/api/photos', validateRequestOrigin, requireSession, profileActionLimi
     await client.query('COMMIT');
     return res.status(201).json({photoUrl,mimeType:clean.mimeType,width:clean.width,height:clean.height,reviewStatus:moderation.status,moderationEngine:moderation.engine});
   } catch(error) {
-    if(client) await client.query('ROLLBACK').catch(()=>{});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     if(fileWritten) await unlink(filePath).catch(()=>{});
     console.error('Photo upload failed:',error?.message||'unknown error');
     return res.status(500).json({error:'photo_upload_failed'});
@@ -1808,7 +1808,7 @@ app.get('/api/photos/:photoId', requireSession, async (req,res) => {
     res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Cross-Origin-Resource-Policy','same-site');
     res.setHeader('Cache-Control','private, no-store');return res.send(bytes);
   } catch(error) {
-    if(client) await client.query('ROLLBACK').catch(()=>{});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     if(error?.code==='ENOENT') return res.status(404).end();
     console.error('Photo read failed:',error?.message||'unknown error');return res.status(500).json({error:'photo_read_failed'});
   } finally {
@@ -1847,7 +1847,7 @@ app.put('/api/assessment', validateRequestOrigin, requireSession, requirePaidFea
     await client.query('COMMIT');
     return res.json({ assessment: result.rows[0] });
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Assessment save failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'assessment_save_failed' });
   } finally {
@@ -1870,7 +1870,7 @@ app.delete('/api/assessment', validateRequestOrigin, requireSession, async (req,
     await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Assessment delete failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'assessment_delete_failed' });
   } finally {
@@ -2036,7 +2036,7 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
     await Promise.all(removedAssets.map(asset => unlink(asset.storagePath).catch(() => {})));
     return res.json({ profile: result.rows[0], screening: { engine: screening.engine, externalProcessing: false, flags: screening.flags, requiresReview: screening.requiresReview } });
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Profile update failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'profile_update_failed' });
   } finally {
@@ -2141,7 +2141,7 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
     if (!profileResult.rows[0]) return res.status(404).json({ error: 'profile_not_available' });
     return res.json({ profile: profileResult.rows[0] });
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Undo profile pass failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'pass_undo_failed' });
   } finally {
@@ -2190,7 +2190,7 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
     await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Profile pass failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'profile_pass_failed' });
   } finally {
@@ -2271,7 +2271,7 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
       match: match?.status === 'active' ? match : null
     });
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Like action failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'like_action_failed' });
   } finally {
@@ -2323,7 +2323,7 @@ app.delete('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, 
     await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Unlike failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'unlike_failed' });
   } finally {
@@ -2459,7 +2459,7 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
     await client.query('COMMIT');
     return res.json({ type: action.actionType, profile: profileResult.rows[0] });
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Discovery undo failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'discovery_undo_failed' });
   } finally {
@@ -2527,7 +2527,7 @@ app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) =>
     await client.query('COMMIT');
     return res.json({ matches: result.rows });
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Match list failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'match_list_failed' });
   } finally {
@@ -2588,7 +2588,7 @@ app.get('/api/matches/:matchId/messages', requireSession, requirePaidFeatures, a
     await client.query('COMMIT');
     return res.json({ messages: result.rows, pagination: { limit, offset } });
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Message history failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'message_history_failed' });
   } finally {
@@ -2653,7 +2653,7 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
     await client.query('COMMIT');
     return res.status(201).json({ message: result.rows[0], screening: { engine: screening.engine, externalProcessing: false, flaggedForReview: screening.requiresReview } });
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Message send failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'message_send_failed' });
   } finally {
@@ -2689,7 +2689,7 @@ app.get('/api/notifications', requireSession, async (req, res) => {
     await client.query('COMMIT');
     return res.json({ notifications: result.rows, unreadCount: count.rows[0]?.count || 0 });
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Notification list failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'notification_list_failed' });
   } finally {
@@ -2712,7 +2712,7 @@ app.post('/api/notifications/read-all', validateRequestOrigin, requireSession, a
     await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Notification read-all failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'notification_update_failed' });
   } finally {
@@ -2743,7 +2743,7 @@ app.post('/api/notifications/:notificationId/read', validateRequestOrigin, requi
     await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Notification update failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'notification_update_failed' });
   } finally {
@@ -2871,7 +2871,7 @@ app.delete('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin,
     await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Unblock user failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'unblock_user_failed' });
   } finally {
@@ -2962,7 +2962,7 @@ app.post('/api/reports', reportLimiter, validateRequestOrigin, requireSession, a
     await client.query('COMMIT');
     return res.status(201).json({ report: result.rows[0] });
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Report submission failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'report_submission_failed' });
   } finally {
@@ -3084,7 +3084,7 @@ app.post('/api/admin/photos/:photoId/review', validateRequestOrigin, requireSess
     await client.query('COMMIT');
     return res.json({ id: req.params.photoId, reviewStatus: status });
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Photo moderation failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'photo_review_failed' });
   } finally {
@@ -3173,7 +3173,7 @@ app.post('/api/admin/screenings/:screeningId/resolve', validateRequestOrigin, re
     await client.query('COMMIT');
     return res.json({ screening: result.rows[0] });
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Screening resolve failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'screening_resolve_failed' });
   } finally {
