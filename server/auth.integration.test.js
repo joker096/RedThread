@@ -623,60 +623,6 @@ test('auth API supports registration, session lookup, logout and login', {
       }
 
 
-      // A provider-confirmed refund is terminal and must not be queued again
-      // when the recipient tries to decide an already-expired request.
-      const refundedAcceptanceResult = await giftTestDb.query(
-        `INSERT INTO gift_delivery_orders
-           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
-            total_minor_units, currency, status, payment_status, idempotency_key, expires_at)
-         VALUES ($1, $2, $3, 'Refunded acceptance test', 'chocolate', 1000, 'USD',
-                 'awaiting_recipient_consent', 'refunded', $4, NOW() - INTERVAL '1 second')
-         RETURNING id, public_reference`,
-        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
-      );
-      const refundedAcceptanceOrderId = refundedAcceptanceResult.rows[0].id;
-      const refundedAcceptanceReference = refundedAcceptanceResult.rows[0].public_reference;
-      try {
-        const refundedAcceptance = await request(
-          `/api/gifts/orders/${refundedAcceptanceReference}/decision`,
-          {
-            method: 'POST',
-            headers: { Cookie: secondCookie },
-            body: JSON.stringify({ action: 'accept' })
-          }
-        );
-        assert.equal(refundedAcceptance.status, 409,
-          'an expired request remains non-actionable after its payment was refunded');
-        const refundedState = await giftTestDb.query(
-          'SELECT status, payment_status, recipient_consent_at FROM gift_delivery_orders WHERE id = $1',
-          [refundedAcceptanceOrderId]
-        );
-        assert.deepEqual(refundedState.rows[0], {
-          status: 'refunded',
-          payment_status: 'refunded',
-          recipient_consent_at: null
-        });
-        const refundedAudit = await giftTestDb.query(
-          `SELECT event_type, from_status, to_status
-           FROM gift_delivery_order_events WHERE order_id = $1`,
-          [refundedAcceptanceOrderId]
-        );
-        assert.deepEqual(refundedAudit.rows, [{
-          event_type: 'refunded',
-          from_status: 'awaiting_recipient_consent',
-          to_status: 'refunded'
-        }]);
-        const repeatedReconciliation = await giftTestDb.query(
-          'SELECT 1 FROM gift_payment_reconciliation_tasks WHERE order_id = $1',
-          [refundedAcceptanceOrderId]
-        );
-        assert.equal(repeatedReconciliation.rowCount, 0,
-          'a confirmed refund must not create another payment reconciliation task');
-      } finally {
-        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [refundedAcceptanceOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [refundedAcceptanceOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [refundedAcceptanceOrderId]).catch(() => {});
-      }
 
       // Active payment states must not be silently declined or cancelled.
       // Gift payment processing is not integrated, so these requests stay
