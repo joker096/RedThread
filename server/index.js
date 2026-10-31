@@ -1864,6 +1864,38 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'invalid_pass_target' });
     }
+    const preview = await client.query(
+      `SELECT pp.passed_user_id AS id
+       FROM profile_passes pp
+       JOIN profiles p ON p.user_id = pp.passed_user_id
+       JOIN users u ON u.id = p.user_id
+       WHERE pp.passer_id = $1
+         AND ($2::uuid IS NULL OR pp.passed_user_id = $2)
+         AND u.status = 'active' AND p.is_visible = TRUE
+         AND p.children_disclosure_confirmed_at IS NOT NULL AND p.has_children IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM user_blocks b
+           WHERE (b.blocker_id = $1 AND b.blocked_id = p.user_id)
+              OR (b.blocker_id = p.user_id AND b.blocked_id = $1)
+         )
+       ORDER BY pp.created_at DESC LIMIT 1`,
+      [req.authUser.id, requestedTargetId]
+    );
+    const previewTargetId = preview.rows[0]?.id;
+    if (!previewTargetId) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'no_recent_pass_to_undo' });
+    }
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, previewTargetId);
+    const actor = await client.query(
+      "SELECT u.id, p.gender FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.id = $1 AND u.status = 'active' FOR SHARE OF u, p",
+      [req.authUser.id]
+    );
+    if (!actor.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    const actorGender = actor.rows[0].gender;
     const latest = await client.query(
       `SELECT pp.passed_user_id AS id
        FROM profile_passes pp
@@ -1882,9 +1914,13 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
        ORDER BY pp.created_at DESC
        LIMIT 1
        FOR UPDATE OF pp`,
-      [req.authUser.id, requestedTargetId, req.authUser.gender]
+      [req.authUser.id, requestedTargetId, actorGender]
     );
     const passedId = latest.rows[0]?.id;
+    if (passedId && String(passedId).toLowerCase() !== String(previewTargetId).toLowerCase()) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'discovery_action_changed_retry' });
+    }
     if (!passedId) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'no_recent_pass_to_undo' });
@@ -2110,6 +2146,34 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+    const preview = await client.query(
+      `SELECT action_type AS "actionType", target_id AS id
+       FROM (
+         SELECT 'like'::text AS action_type, target_id, created_at
+         FROM likes WHERE sender_id = $1
+         UNION ALL
+         SELECT 'pass'::text AS action_type, passed_user_id AS target_id, created_at
+         FROM profile_passes WHERE passer_id = $1
+       ) recent_actions
+       ORDER BY created_at DESC, action_type ASC
+       LIMIT 1`,
+      [req.authUser.id]
+    );
+    const previewAction = preview.rows[0];
+    if (!previewAction) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'no_discovery_action_to_undo' });
+    }
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, previewAction.id);
+    const actor = await client.query(
+      "SELECT u.id, p.gender FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.id = $1 AND u.status = 'active' FOR SHARE OF u, p",
+      [req.authUser.id]
+    );
+    if (!actor.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    const actorGender = actor.rows[0].gender;
     const latest = await client.query(
       `SELECT action_type AS "actionType", target_id AS id
        FROM (
@@ -2124,6 +2188,11 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
       [req.authUser.id]
     );
     const action = latest.rows[0];
+    if (action && (action.actionType !== previewAction.actionType ||
+        String(action.id).toLowerCase() !== String(previewAction.id).toLowerCase())) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'discovery_action_changed_retry' });
+    }
     if (!action) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'no_discovery_action_to_undo' });
@@ -2149,7 +2218,7 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
            WHERE (b.blocker_id = $2 AND b.blocked_id = p.user_id)
               OR (b.blocker_id = p.user_id AND b.blocked_id = $2)
          )`,
-      [action.id, req.authUser.id, req.authUser.gender]
+      [action.id, req.authUser.id, actorGender]
     );
     if (!profileResult.rows[0]) {
       await client.query('ROLLBACK');
