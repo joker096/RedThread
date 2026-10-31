@@ -2612,6 +2612,7 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'open_report_not_found' });
     }
+    let accountSuspended = false;
     if (action === 'suspend_user') {
       if (!['children_misrepresentation', 'duplicate_profile', 'fake_profile', 'safety'].includes(report.category)) {
         await client.query('ROLLBACK');
@@ -2620,14 +2621,27 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
       // Match gift creation/acceptance's user-before-pair lock order so a new
       // request cannot slip in while the account is being suspended.
       await acquireGiftSafetyUserLocks(client, report.reported_user_id);
-      await suspendGiftOrdersForUser(client, report.reported_user_id, { actorUserId: req.authUser.id, actorType: 'moderator', reason: 'moderator_suspension' });
-      await client.query("UPDATE users SET status = 'suspended', updated_at = NOW() WHERE id = $1", [report.reported_user_id]);
-      await client.query('UPDATE profiles SET is_visible = FALSE, updated_at = NOW() WHERE user_id = $1', [report.reported_user_id]);
-      await client.query(
-        "UPDATE matches SET status = 'blocked' WHERE status = 'active' AND (user_a_id = $1 OR user_b_id = $1)",
+      const targetAccount = await client.query(
+        'SELECT status FROM users WHERE id = $1 FOR UPDATE',
         [report.reported_user_id]
       );
-      await client.query('DELETE FROM sessions WHERE user_id = $1', [report.reported_user_id]);
+      if (!targetAccount.rows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'reported_user_not_found' });
+      }
+      // Account deletion is terminal. A late moderation action may resolve its
+      // report, but must never rewrite the deleted status or undo deletion cleanup.
+      if (targetAccount.rows[0].status === 'active') {
+        await suspendGiftOrdersForUser(client, report.reported_user_id, { actorUserId: req.authUser.id, actorType: 'moderator', reason: 'moderator_suspension' });
+        await client.query("UPDATE users SET status = 'suspended', updated_at = NOW() WHERE id = $1 AND status = 'active'", [report.reported_user_id]);
+        await client.query('UPDATE profiles SET is_visible = FALSE, updated_at = NOW() WHERE user_id = $1', [report.reported_user_id]);
+        await client.query(
+          "UPDATE matches SET status = 'blocked' WHERE status = 'active' AND (user_a_id = $1 OR user_b_id = $1)",
+          [report.reported_user_id]
+        );
+        await client.query('DELETE FROM sessions WHERE user_id = $1', [report.reported_user_id]);
+        accountSuspended = true;
+      }
     }
     const status = action === 'dismiss' ? 'dismissed' : 'resolved';
     await client.query('UPDATE user_reports SET status = $2 WHERE id = $1', [reportId, status]);
@@ -2637,7 +2651,7 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
       [req.authUser.id, action, 'user_report', reportId, reason || null, JSON.stringify({ category: report.category, targetUserId: report.reported_user_id, newStatus: status })]
     );
     await client.query('COMMIT');
-    return res.json({ ok: true, action, accountSuspended: action === 'suspend_user' });
+    return res.json({ ok: true, action, accountSuspended });
   } catch (error) {
     if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Moderation action failed:', error?.message || 'unknown error');

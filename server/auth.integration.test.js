@@ -1864,6 +1864,7 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     let moderationSafetyOrderId;
     let moderationSafetyReportId;
+    let deletedTargetReportId;
     try {
       await moderationSafetyDb.query("UPDATE users SET role = 'moderator' WHERE id = $1", [registered.user.id]);
       const safetyReport = await moderationSafetyDb.query(
@@ -1916,7 +1917,43 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       assert.deepEqual(moderationReconciliation.rows, [{ reason: 'safety_hold', status: 'pending' }],
         'moderation suspension must enqueue provider reconciliation without claiming the captured payment was refunded');
+
+      const deletedTargetReport = await moderationSafetyDb.query(
+        \`INSERT INTO user_reports (reporter_id, reported_user_id, category, details)
+         VALUES ($1, $2, 'safety', 'Integration test: do not overwrite deleted account status')
+         RETURNING id\`,
+        [registered.user.id, maleRegistered.user.id]
+      );
+      deletedTargetReportId = deletedTargetReport.rows[0].id;
+      await moderationSafetyDb.query(
+        "UPDATE users SET status = 'deleted', email = $2 WHERE id = $1",
+        [maleRegistered.user.id, 'deleted+' + maleRegistered.user.id + '@deleted.invalid']
+      );
+      const deletedTargetAction = await request('/api/admin/reports/' + deletedTargetReportId + '/action', {
+        method: 'POST',
+        headers: { Cookie: secondCookie },
+        body: JSON.stringify({ action: 'suspend_user', confirmed: true, reason: 'deleted account must stay deleted' })
+      });
+      assert.equal(deletedTargetAction.status, 200);
+      assert.equal((await deletedTargetAction.json()).accountSuspended, false);
+      const deletedTargetStatus = await moderationSafetyDb.query(
+        'SELECT status FROM users WHERE id = $1',
+        [maleRegistered.user.id]
+      );
+      assert.equal(deletedTargetStatus.rows[0].status, 'deleted',
+        'a moderation action must not overwrite the terminal deleted account state');
+      const resolvedDeletedTargetReport = await moderationSafetyDb.query(
+        'SELECT status FROM user_reports WHERE id = $1',
+        [deletedTargetReportId]
+      );
+      assert.equal(resolvedDeletedTargetReport.rows[0].status, 'resolved');
     } finally {
+      // Restore this shared integration fixture even if an assertion fails.
+      await moderationSafetyDb.query(
+        "UPDATE users SET status = 'active', email = $2 WHERE id = $1",
+        [maleRegistered.user.id, maleEmail]
+      ).catch(() => {});
+      if (deletedTargetReportId) await moderationSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [deletedTargetReportId]).catch(() => {});
       if (moderationSafetyReportId) await moderationSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [moderationSafetyReportId]).catch(() => {});
       if (moderationSafetyOrderId) {
         await moderationSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [moderationSafetyOrderId]).catch(() => {});
