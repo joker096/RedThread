@@ -3537,23 +3537,38 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+    // Both decisions share the account and pair safety locks. A stale decline
+    // must not mutate an order after deletion/suspension, and block/report paths
+    // use the same pair -> order lock order.
+    const pair = await client.query(
+      `SELECT sender_id, recipient_id
+       FROM gift_delivery_orders
+       WHERE public_reference = $1 AND recipient_id = $2`,
+      [reference, req.authUser.id]
+    );
+    if (!pair.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'gift_request_not_available' });
+    }
     if (action === 'accept') {
-      // Acquire the pair-level safety lock before locking the order row.
-      // Block/report routes use this same order (pair -> order); reversing it
-      // here could deadlock when acceptance races with a safety action.
-      const pair = await client.query(
-        `SELECT sender_id, recipient_id
-         FROM gift_delivery_orders
-         WHERE public_reference = $1 AND recipient_id = $2`,
-        [reference, req.authUser.id]
-      );
-      if (!pair.rows[0]) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({ error: 'gift_request_not_available' });
-      }
       await acquireGiftOrderRateLocks(client, pair.rows[0].sender_id, pair.rows[0].recipient_id);
-      await acquireGiftSafetyUserLocks(client, pair.rows[0].sender_id, pair.rows[0].recipient_id);
-      await acquireGiftSafetyPairLock(client, pair.rows[0].sender_id, pair.rows[0].recipient_id);
+    }
+    await acquireGiftSafetyUserLocks(client, pair.rows[0].sender_id, pair.rows[0].recipient_id);
+    await acquireGiftSafetyPairLock(client, pair.rows[0].sender_id, pair.rows[0].recipient_id);
+    const accountStates = await client.query(
+      'SELECT id, status FROM users WHERE id = ANY($1::uuid[]) ORDER BY id FOR SHARE',
+      [[pair.rows[0].sender_id, pair.rows[0].recipient_id]]
+    );
+    const currentAccount = accountStates.rows.find(account =>
+      String(account.id).toLowerCase() === String(req.authUser.id).toLowerCase()
+    );
+    if (!currentAccount || currentAccount.status !== 'active') {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    if (accountStates.rowCount !== 2 || accountStates.rows.some(account => account.status !== 'active')) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_request_not_actionable' });
     }
 
     const selected = await client.query(
@@ -3573,7 +3588,13 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
                 WHERE r.status IN ('open', 'reviewing')
                   AND ((r.reporter_id = o.sender_id AND r.reported_user_id = o.recipient_id)
                     OR (r.reporter_id = o.recipient_id AND r.reported_user_id = o.sender_id))
-              ) AS has_open_report
+              ) AS has_open_report,
+              EXISTS (
+                SELECT 1 FROM user_safety_screenings ss
+                WHERE ss.user_id IN (o.sender_id, o.recipient_id)
+                  AND ss.severity = 'high'
+                  AND ss.review_status IN ('pending', 'reviewing', 'actioned')
+              ) AS safety_restricted
        FROM gift_delivery_orders o
        JOIN matches m ON m.id = o.match_id
        JOIN users sender ON sender.id = o.sender_id
@@ -3589,6 +3610,11 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
       return res.status(404).json({ error: 'gift_request_not_available' });
     }
     if (order.recipient_requests_disabled_at != null) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_request_not_actionable' });
+    }
+    if (order.match_status !== 'active' || order.has_block === true ||
+        order.has_open_report === true || order.safety_restricted === true) {
       await client.query('ROLLBACK');
       return res.status(409).json({ error: 'gift_request_not_actionable' });
     }
