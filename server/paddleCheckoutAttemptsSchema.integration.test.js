@@ -141,6 +141,42 @@ test('Paddle checkout attempts enforce one durable attempt and fail-closed trans
         await client.query('RELEASE SAVEPOINT immutable_attempt_identity');
       }
 
+      await client.query('SAVEPOINT reject_completed_downgrade');
+      await client.query(
+        `UPDATE paddle_checkout_attempt_identity_test SET status = 'completed'
+         WHERE attempt_id = $1::uuid`,
+        ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa']
+      );
+      let completedDowngradeError;
+      try {
+        await client.query(
+          `UPDATE paddle_checkout_attempt_identity_test SET status = 'canceled'
+           WHERE attempt_id = $1::uuid`,
+          ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa']
+        );
+      } catch (error) {
+        completedDowngradeError = error;
+      }
+      assert.equal(completedDowngradeError?.code, '23514',
+        'a completed payment must not be downgraded to canceled');
+      await client.query('ROLLBACK TO SAVEPOINT reject_completed_downgrade');
+      await client.query('RELEASE SAVEPOINT reject_completed_downgrade');
+
+      await client.query('SAVEPOINT reject_direct_link');
+      let directLinkError;
+      try {
+        await client.query(
+          `UPDATE paddle_checkout_attempt_identity_test SET status = 'linked'
+           WHERE status = 'creating' AND attempt_id IS NULL`
+        );
+      } catch (error) {
+        directLinkError = error;
+      }
+      assert.equal(directLinkError?.code, '23514',
+        'an attempt must pass through completed before it can become linked');
+      await client.query('ROLLBACK TO SAVEPOINT reject_direct_link');
+      await client.query('RELEASE SAVEPOINT reject_direct_link');
+
       await client.query('SAVEPOINT reject_terminal_identity_reuse');
       let terminalIdentityReuseError;
       try {
