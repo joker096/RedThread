@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isSafeProfilePhotoUrl } from './ServerDiscoveryPanel.tsx';
+import { isCurrentDiscoverySearchResponse, isSafeProfilePhotoUrl } from './ServerDiscoveryPanel.tsx';
 
 test('server profile photos must use private same-origin photo assets', () => {
   assert.equal(
@@ -20,4 +20,14 @@ test('server profile photos must use private same-origin photo assets', () => {
   ]) {
     assert.equal(isSafeProfilePhotoUrl(value), false, String(value));
   }
+});
+
+test('discovery ignores a response parsed after a newer search or account session starts', () => {
+  assert.equal(isCurrentDiscoverySearchResponse(4, 4, 2, 2), true);
+  assert.equal(isCurrentDiscoverySearchResponse(4, 5, 2, 2), false,
+    'a newer filter/search request invalidates the earlier response');
+  assert.equal(isCurrentDiscoverySearchResponse(4, 4, 2, 3), false,
+    'a session switch invalidates a response even when its body resolves later');
+  assert.equal(isCurrentDiscoverySearchResponse(0, 0, 2, 2), false);
+  assert.equal(isCurrentDiscoverySearchResponse(4, 4, Number.NaN, 2), false);
 });
