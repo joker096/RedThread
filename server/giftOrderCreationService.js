@@ -74,11 +74,36 @@ export async function expireStaleGiftRequestsForPair(client, { matchId, senderId
      FOR UPDATE`,
     [matchId, senderId, recipientId]
   );
-  const unresolved = candidates.rows.filter(row => !['not_started', 'voided', 'failed'].includes(row.payment_status));
+  const refunded = candidates.rows.filter(row => row.payment_status === 'refunded');
+  const unresolved = candidates.rows.filter(row =>
+    !['not_started', 'voided', 'failed', 'refunded'].includes(row.payment_status)
+  );
   for (const order of unresolved) {
     await enqueueExpiredGiftPaymentReconciliation(client, order.id);
   }
-  if (candidates.rows.length === 0) return { ok: true, expiredOrders: [] };
+  if (candidates.rows.length === 0) return { ok: true, expiredOrders: [], refundedOrders: [] };
+
+  // A provider-confirmed refund is already financially terminal. Preserve
+  // that fact in the order state and audit history instead of queuing a
+  // second reconciliation or labeling the order merely expired.
+  const refundedOrders = await client.query(
+    `UPDATE gift_delivery_orders
+     SET status = 'refunded', updated_at = statement_timestamp()
+     WHERE id = ANY($1::uuid[])
+       AND status = 'awaiting_recipient_consent'
+       AND expires_at <= statement_timestamp()
+       AND payment_status = 'refunded'
+     RETURNING id`,
+    [refunded.map(row => row.id)]
+  );
+  for (const order of refundedOrders.rows) {
+    await client.query(
+      `INSERT INTO gift_delivery_order_events
+         (order_id, actor_type, event_type, from_status, to_status)
+       VALUES ($1, 'system', 'refunded', 'awaiting_recipient_consent', 'refunded')`,
+      [order.id]
+    );
+  }
 
   // Expire orders whose payment is definitively inactive even if another
   // expired request for this pair needs provider reconciliation.
@@ -104,16 +129,17 @@ export async function expireStaleGiftRequestsForPair(client, { matchId, senderId
     await notifyGiftRequestUpdate(client, order.sender_id, order.publicReference, 'request_expired');
   }
   if (unresolved.length > 0) {
-    // Commit both safe expirations and durable reconciliation work while
-    // rejecting the requested replacement until uncertain payments are resolved.
+    // Commit safe expirations/refund finalization and durable reconciliation
+    // work while rejecting replacement until uncertain payments are resolved.
     return {
       ok: false,
       commit: true,
       error: 'gift_payment_requires_reconciliation',
-      expiredOrders: expired.rows
+      expiredOrders: expired.rows,
+      refundedOrders: refundedOrders.rows
     };
   }
-  return { ok: true, expiredOrders: expired.rows };
+  return { ok: true, expiredOrders: expired.rows, refundedOrders: refundedOrders.rows };
 }
 
 export async function acquireGiftSafetyUserLocks(client, ...userIds) {
