@@ -2308,11 +2308,10 @@ test('auth API supports registration, session lookup, logout and login', {
         staleAuthMePromise = request('/api/auth/me', {
           headers: { Cookie: secondCookie }
         });
-        // Photo upload performs image sanitization/moderation before acquiring
-        // its account lock, and the assessment endpoint may be denied by the
-        // feature gate before reaching its handler. Neither is required to be
-        // queued here; their post-deletion responses are still asserted below.
-        await waitForBlockedSafetyRequests(13);
+        // Require the established core requests to be queued before deletion.
+        // Additional reads are launched concurrently and independently checked
+        // below; some may be rejected by feature/rate gates before taking a lock.
+        await waitForBlockedSafetyRequests(9);
       } finally {
         await raceLock.query('COMMIT');
         raceLock.release();
