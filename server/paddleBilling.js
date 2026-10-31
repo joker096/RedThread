@@ -80,6 +80,14 @@ export async function processPaddleEvent(pool, rawEvent) {
       : typeof data.customer_id === 'string' ? data.customer_id
         : (eventType === 'customer.created' || eventType === 'customer.updated') && typeof data.id === 'string' ? data.id : null;
 
+    // Never persist a provider customer identifier that cannot be used by the
+    // authenticated portal/cancellation flows. A signed but malformed event is
+    // consumed without changing account identity, avoiding endless webhook retries.
+    if (customerId !== null && !/^ctm_[A-Za-z0-9]+$/.test(customerId)) {
+      await client.query('COMMIT');
+      return { duplicate: false, handled: true };
+    }
+
     if (['subscription.created', 'subscription.updated', 'subscription.canceled'].includes(eventType)) {
       const status = eventType === 'subscription.canceled' ? 'canceled' : String(data.status || '').toLowerCase();
       const periodEnd = data.currentBillingPeriod?.endsAt || data.current_billing_period?.ends_at || null;
