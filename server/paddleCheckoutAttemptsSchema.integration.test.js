@@ -128,6 +128,23 @@ test('Paddle checkout attempts enforce one durable attempt and fail-closed trans
         await client.query('RELEASE SAVEPOINT immutable_attempt_identity');
       }
 
+      await client.query('SAVEPOINT reject_attempt_owner_transfer');
+      let ownerTransferError;
+      try {
+        await client.query(
+          `UPDATE paddle_checkout_attempt_identity_test
+           SET user_id = $1, attempt_id = $2, status = 'creating', transaction_id = NULL
+           WHERE attempt_id = $3::uuid`,
+          ['bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', '44444444-4444-4444-8444-444444444444', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb']
+        );
+      } catch (error) {
+        ownerTransferError = error;
+      }
+      assert.equal(ownerTransferError?.code, '23514',
+        'terminal rollover must not transfer a checkout attempt to another account');
+      await client.query('ROLLBACK TO SAVEPOINT reject_attempt_owner_transfer');
+      await client.query('RELEASE SAVEPOINT reject_attempt_owner_transfer');
+
       for (const [oldId, newId] of [
         ['bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', '22222222-2222-4222-8222-222222222222'],
         ['cccccccc-cccc-4ccc-8ccc-cccccccccccc', '33333333-3333-4333-8333-333333333333']
