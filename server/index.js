@@ -15,7 +15,7 @@ import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
 import express from 'express';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
-import { withPooledTransaction } from './withPooledTransaction.js';
+import { withPooledTransaction, rollbackPooledTransaction } from './withPooledTransaction.js';
 import rateLimit from 'express-rate-limit';
 import { PostgresRateLimitStore } from './postgresRateLimitStore.js';
 import pg from 'pg';
@@ -3265,7 +3265,7 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
     await client.query('COMMIT');
     return res.json({ ok: true, action, accountSuspended });
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Moderation action failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'moderation_action_failed' });
   } finally {
@@ -3315,7 +3315,7 @@ app.get('/api/gifts/matches', requireSession, requirePaidFeatures, profileAction
     await client.query('COMMIT');
     return res.json({ matches: result.rows });
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Gift match list failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'gift_matches_unavailable' });
   } finally {
@@ -3383,7 +3383,7 @@ app.get('/api/gifts/catalog', requireSession, requirePaidFeatures, profileAction
     await client.query('COMMIT');
     return res.status(result.status).json({ items: result.items });
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Gift catalog read failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'gift_catalog_unavailable' });
   } finally {
@@ -3519,7 +3519,7 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
     await client.query('COMMIT');
     return res.json({ preferences: serializeGiftReceivingPreferences(result.rows[0]) });
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Gift receiving preferences save failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'gift_preferences_unavailable' });
   } finally {
@@ -3549,7 +3549,7 @@ app.post('/api/gifts/orders', validateRequestOrigin, requireSession, requirePaid
     await client.query(result.commit ? 'COMMIT' : 'ROLLBACK');
     return res.status(result.status).json(result.body);
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     if (error?.code === '23505') {
       const constraint = String(error.constraint || '');
       return res.status(409).json({
@@ -3800,7 +3800,7 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
       nextStep: action === 'accept' ? 'recipient_address_setup_required' : 'closed'
     });
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Gift request decision failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'gift_request_decision_unavailable' });
   } finally {
@@ -3891,7 +3891,7 @@ app.post('/api/gifts/orders/:publicReference/withdraw-consent', validateRequestO
     await client.query('COMMIT');
     return res.json({ order: { id: updated.rows[0].public_reference, status: 'cancelled', consentWithdrawn: true } });
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Gift consent withdrawal failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'gift_consent_withdrawal_unavailable' });
   } finally {
@@ -4033,7 +4033,7 @@ app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileAction
       preferences: savedPreferences
     });
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Ad consent preferences update failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'ad_consent_preferences_unavailable' });
   } finally {
@@ -4183,7 +4183,7 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
     await client.query('COMMIT');
     return res.status(201).json({ accepted: true, duplicate: false });
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client && !await rollbackPooledTransaction(client)) client = null;
     // Defense in depth for a primary-key collision if a request bypasses the
     // advisory-lock path; never leak this idempotency conflict as a generic 500.
     if (error?.code === '23505' && error?.constraint === 'ad_events_pkey') {
