@@ -20,6 +20,7 @@ interface AdManagerModalProps {
   onWatchRewardedAd: () => void;
   superLikesCount: number;
   boostActive: boolean;
+  isDemoMode: boolean;
 }
 
 export const AdManagerModal: React.FC<AdManagerModalProps> = ({
@@ -28,7 +29,8 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
   stats,
   onWatchRewardedAd,
   superLikesCount,
-  boostActive
+  boostActive,
+  isDemoMode
 }) => {
   const [isPlayingVideo, setIsPlayingVideo] = useState(false);
   const [countdown, setCountdown] = useState(5);
@@ -37,6 +39,8 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   const onWatchRewardedAdRef = useRef(onWatchRewardedAd);
+  const isDemoModeRef = useRef(isDemoMode);
+  isDemoModeRef.current = isDemoMode;
 
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -99,7 +103,17 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
 
   if (!isOpen) return null;
 
+  useEffect(() => {
+    if (isDemoMode) return;
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = null;
+    setIsPlayingVideo(false);
+    setCountdown(5);
+    setRewardClaimed(false);
+  }, [isDemoMode]);
+
   const startRewardedSimulation = () => {
+    if (!isDemoModeRef.current) return;
     setIsPlayingVideo(true);
     setRewardClaimed(false);
     setCountdown(5);
@@ -109,6 +123,13 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
     timerRef.current = setInterval(() => {
       secondsRemaining -= 1;
       setCountdown(secondsRemaining);
+      if (!isDemoModeRef.current) {
+        if (timerRef.current) clearInterval(timerRef.current);
+        timerRef.current = null;
+        setIsPlayingVideo(false);
+        setCountdown(5);
+        return;
+      }
       if (secondsRemaining <= 0) {
         if (timerRef.current) clearInterval(timerRef.current);
         timerRef.current = null;
@@ -163,8 +184,12 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
           </div>
 
           <p className="text-xs text-stone-300 mb-3 leading-relaxed">
-            В демонстрации можно запустить короткую симуляцию награды и получить <strong className="text-white">+3 Супер-симпатии</strong> и <strong className="text-white">Буст анкеты</strong> в рамках тестового сценария. Это не реальный рекламный показ.
+            {isDemoMode
+              ? <>В демонстрации можно запустить короткую симуляцию награды и получить <strong className="text-white">+3 Супер-симпатии</strong> и <strong className="text-white">Буст анкеты</strong> в рамках тестового сценария. Это не реальный рекламный показ.</>
+              : <>Реальная рекламная сеть и серверная проверка наград пока не подключены. В серверном режиме получение бонусов отключено.</>}
           </p>
+
+          {!isDemoMode && <p id="rewarded-ad-unavailable" className="text-xs text-amber-200 mb-3">Нельзя начислить бонус без подтверждённого рекламного показа.</p>}
 
           {/* Current inventory */}
           <div className="flex items-center gap-3 mb-3 text-xs">
@@ -193,10 +218,12 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
             <button
               type="button"
               onClick={startRewardedSimulation}
-              className="w-full min-h-11 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-rose-600 hover:from-amber-400 hover:to-rose-500 font-bold text-stone-950 text-xs flex items-center justify-center gap-2 shadow-lg transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
+              disabled={!isDemoMode}
+              aria-describedby={!isDemoMode ? 'rewarded-ad-unavailable' : undefined}
+              className="w-full min-h-11 disabled:cursor-not-allowed disabled:opacity-50 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-rose-600 hover:from-amber-400 hover:to-rose-500 font-bold text-stone-950 text-xs flex items-center justify-center gap-2 shadow-lg transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
             >
               <Play className="w-4 h-4 fill-stone-950" />
-              <span>Протестировать просмотр ролика (Получить Буст)</span>
+              <span>{isDemoMode ? 'Протестировать просмотр ролика (Получить Буст)' : 'Награды недоступны в серверном режиме'}</span>
             </button>
           )}
         </div>
