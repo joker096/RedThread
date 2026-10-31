@@ -911,7 +911,7 @@ app.post('/api/auth/email-verification/resend', authLimiter, validateRequestOrig
         if (client && !await rollbackPooledTransaction(client)) client = null;
         throw error;
       } finally {
-        client.release();
+        client?.release();
       }
       if (token) {
         await sendConfiguredEmail({
@@ -959,7 +959,7 @@ app.post('/api/auth/password-reset/request', authLimiter, validateRequestOrigin,
         if (client && !await rollbackPooledTransaction(client)) client = null;
         throw error;
       } finally {
-        client.release();
+        client?.release();
       }
       if (token) {
         await sendConfiguredEmail({
@@ -1029,7 +1029,7 @@ app.post('/api/auth/password-reset/complete', authLimiter, validateRequestOrigin
     console.error('Password reset completion failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'password_reset_failed' });
   } finally {
-    client.release();
+    client?.release();
   }
 });
 
@@ -1095,7 +1095,7 @@ app.post('/api/auth/login', authLimiter, validateRequestOrigin, requireDatabase,
       if (client && !await rollbackPooledTransaction(client)) client = null;
       throw error;
     } finally {
-      client.release();
+      client?.release();
     }
 
     writeSessionCookie(res, token);
@@ -2846,7 +2846,7 @@ app.post('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, r
     console.error('Block user failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'block_user_failed' });
   } finally {
-    client.release();
+    client?.release();
   }
 });
 
