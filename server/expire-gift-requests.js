@@ -64,7 +64,7 @@ export async function processExpiredGiftRequestBatch(pool, {
     [limit]
   );
 
-  const summary = { pairsScanned: candidates.rows.length, expiredOrders: 0, refundedOrders: 0, reconciliationRequired: 0, pairFailures: 0 };
+  const summary = { pairsScanned: candidates.rows.length, expiredOrders: 0, reconciliationRequired: 0, pairFailures: 0 };
   for (const pair of candidates.rows) {
     const client = await pool.connect();
     let releaseError;
@@ -83,7 +83,6 @@ export async function processExpiredGiftRequestBatch(pool, {
         continue;
       }
       summary.expiredOrders += result.expiredOrders?.length ?? 0;
-      summary.refundedOrders += result.refundedOrders?.length ?? 0;
       if (result.error === 'gift_payment_requires_reconciliation') {
         summary.reconciliationRequired += 1;
       }
