@@ -1216,8 +1216,8 @@ test('Paddle identity unique conflicts reconcile only the matching checkout atte
     query.statement.includes("SET status = 'reconciliation_required'")
   );
   assert.ok(reconciliationUpdate, 'the conflicting checkout attempt must be marked for reconciliation');
-  assert.match(reconciliationUpdate.statement, /WHERE user_id = \\$1 AND plan = \\$2/);
-  assert.match(reconciliationUpdate.statement, /transaction_id = \\$3/);
+  assert.ok(reconciliationUpdate.statement.includes('WHERE user_id = $1 AND plan = $2'));
+  assert.ok(reconciliationUpdate.statement.includes('transaction_id = $3'));
   assert.doesNotMatch(reconciliationUpdate.statement, /'linked'|'canceled'/,
     'identity conflicts must not downgrade terminal checkout attempts');
   assert.deepEqual(reconciliationUpdate.params, [
