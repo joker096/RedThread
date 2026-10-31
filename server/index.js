@@ -1740,6 +1740,22 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
     await client.query('BEGIN');
     // Serialize profile changes + screening against gift acceptance for this user.
     await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    // photoUrls ownership was checked before opening this transaction for fast
+    // rejection. Recheck after the user lock so a concurrent photo removal
+    // cannot leave this profile pointing at an asset that has already been deleted.
+    if (Object.hasOwn(body, 'photoUrls')) {
+      const photoIds = body.photoUrls.map(url => url.slice('/api/photos/'.length));
+      if (photoIds.length) {
+        const ownedPhotos = await client.query(
+          'SELECT id FROM photo_assets WHERE user_id = $1 AND id = ANY($2::uuid[]) FOR SHARE',
+          [req.authUser.id, photoIds]
+        );
+        if (ownedPhotos.rowCount !== new Set(photoIds).size) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'invalid_photo_urls' });
+        }
+      }
+    }
     const result = await client.query(
       `UPDATE profiles SET ${updates.join(', ')}, updated_at = NOW()
        WHERE user_id = $1

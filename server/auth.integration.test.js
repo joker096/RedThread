@@ -1186,6 +1186,78 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(removePhoto.status, 200);
     const removedPhotoRead = await request(uploadedPhoto.photoUrl, { headers: { Cookie: secondCookie } });
     assert.equal(removedPhotoRead.status, 404);
+
+    // Reproduce the race where a profile PATCH validates an owned photo before
+    // taking the account lock, then waits behind a concurrent removal. The
+    // stale attach must be rejected after the lock is acquired.
+    const racePhotoUpload = await request('/api/photos', {
+      method: 'POST',
+      headers: { Cookie: secondCookie, 'Content-Type': 'image/png' },
+      body: tinyPng
+    });
+    assert.equal(racePhotoUpload.status, 201);
+    const racePhoto = await racePhotoUpload.json();
+    const photoRaceDb = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      connectionTimeoutMillis: 5_000,
+      statement_timeout: 8_000,
+      query_timeout: 10_000
+    });
+    const photoRaceLock = await photoRaceDb.connect();
+    let removeRacePromise;
+    let staleAttachRacePromise;
+    try {
+      await photoRaceLock.query('BEGIN');
+      await photoRaceLock.query(
+        "SELECT pg_advisory_xact_lock(hashtext('gift-safety-user:' || $1::uuid::text))",
+        [registered.user.id]
+      );
+      removeRacePromise = request('/api/profiles/me', {
+        method: 'PATCH',
+        headers: { Cookie: secondCookie },
+        body: JSON.stringify({ photoUrls: [] })
+      });
+      staleAttachRacePromise = request('/api/profiles/me', {
+        method: 'PATCH',
+        headers: { Cookie: secondCookie },
+        body: JSON.stringify({ photoUrls: [racePhoto.photoUrl] })
+      });
+      let queued = false;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const blocked = await photoRaceDb.query(
+          `SELECT COUNT(*)::int AS count
+           FROM pg_stat_activity
+           WHERE datname = current_database()
+             AND wait_event_type = 'Lock'
+             AND query LIKE '%gift-safety-user:%'`
+        );
+        if (blocked.rows[0].count >= 2) {
+          queued = true;
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      assert.equal(queued, true, 'both profile photo operations must queue behind the same account lock');
+    } finally {
+      await photoRaceLock.query('COMMIT');
+      photoRaceLock.release();
+    }
+    try {
+      const [removeRace, staleAttachRace] = await Promise.all([removeRacePromise, staleAttachRacePromise]);
+      assert.equal(removeRace.status, 200);
+      assert.equal(staleAttachRace.status, 400,
+        'a photo attach whose asset was removed while waiting for the lock must be rejected');
+      const photoRaceProfile = await request('/api/profiles/me', { headers: { Cookie: secondCookie } });
+      assert.deepEqual((await photoRaceProfile.json()).profile.photoUrls, []);
+      const photoRaceAssetCount = await photoRaceDb.query(
+        'SELECT COUNT(*)::int AS count FROM photo_assets WHERE user_id = $1 AND id = $2',
+        [registered.user.id, racePhoto.photoUrl.slice('/api/photos/'.length)]
+      );
+      assert.equal(photoRaceAssetCount.rows[0].count, 0);
+    } finally {
+      photoRaceLock.release?.();
+      await photoRaceDb.end();
+    }
     const assessmentAnswers = {
       relationshipGoal: 'marriage_soon',
       children: 'want_soon',
