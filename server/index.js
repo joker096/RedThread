@@ -3638,7 +3638,7 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
     }
     if (order.status === 'awaiting_recipient_consent' &&
         new Date(order.expires_at).getTime() <= new Date(order.decision_at).getTime() &&
-        !['not_started', 'voided', 'failed'].includes(order.payment_status)) {
+        !['not_started', 'voided', 'failed', 'refunded'].includes(order.payment_status)) {
       // Expiry cannot stand in for a payment void/refund. Persist provider
       // reconciliation work in this transaction before returning the conflict.
       await enqueueExpiredGiftPaymentReconciliation(client, order.id);
@@ -3648,21 +3648,26 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
 
     if (order.status !== 'awaiting_recipient_consent' || new Date(order.expires_at).getTime() <= new Date(order.decision_at).getTime()) {
       if (order.status === 'awaiting_recipient_consent') {
+        const refundAlreadyConfirmed = order.payment_status === 'refunded';
+        const terminalStatus = refundAlreadyConfirmed ? 'refunded' : 'expired';
+        const terminalEvent = refundAlreadyConfirmed ? 'refunded' : 'expired';
         const expiredOrder = await client.query(
-          `UPDATE gift_delivery_orders SET status = 'expired', updated_at = statement_timestamp()
+          `UPDATE gift_delivery_orders SET status = $2, updated_at = statement_timestamp()
            WHERE id = $1 AND status = 'awaiting_recipient_consent'
            RETURNING public_reference AS "publicReference"`,
-          [order.id]
+          [order.id, terminalStatus]
         );
         if (expiredOrder.rowCount === 1) {
           await client.query(
             `INSERT INTO gift_delivery_order_events (order_id, actor_type, event_type, from_status, to_status)
-             VALUES ($1, 'system', 'expired', 'awaiting_recipient_consent', 'expired')`,
-            [order.id]
+             VALUES ($1, 'system', $2, 'awaiting_recipient_consent', $3)`,
+            [order.id, terminalEvent, terminalStatus]
           );
-          await notifyGiftRequestUpdate(
-            client, order.sender_id, expiredOrder.rows[0].publicReference, 'request_expired'
-          );
+          if (!refundAlreadyConfirmed) {
+            await notifyGiftRequestUpdate(
+              client, order.sender_id, expiredOrder.rows[0].publicReference, 'request_expired'
+            );
+          }
         }
       }
       await client.query('COMMIT');
