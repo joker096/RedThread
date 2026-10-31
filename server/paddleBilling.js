@@ -108,15 +108,6 @@ export async function processPaddleEvent(pool, rawEvent) {
     const customerId = typeof data.customerId === 'string' ? data.customerId
       : typeof data.customer_id === 'string' ? data.customer_id
         : (eventType === 'customer.created' || eventType === 'customer.updated') && typeof data.id === 'string' ? data.id : null;
-    const rawPeriodEnd = data.currentBillingPeriod?.endsAt ?? data.current_billing_period?.ends_at ?? null;
-    if (subscriptionLifecycleEvent && rawPeriodEnd !== null &&
-        (typeof rawPeriodEnd !== 'string' || !Number.isFinite(Date.parse(rawPeriodEnd)))) {
-      // Do not pass malformed provider timestamps to PostgreSQL's timestamptz
-      // cast: acknowledge the event without changing entitlement or retrying forever.
-      await client.query('COMMIT');
-      return { duplicate: false, handled: true };
-    }
-
     // Never persist a provider customer identifier that cannot be used by the
     // authenticated portal/cancellation flows. A signed but malformed event is
     // consumed without changing account identity, avoiding endless webhook retries.
@@ -127,7 +118,11 @@ export async function processPaddleEvent(pool, rawEvent) {
 
     if (['subscription.created', 'subscription.updated', 'subscription.canceled'].includes(eventType)) {
       const status = eventType === 'subscription.canceled' ? 'canceled' : String(data.status || '').toLowerCase();
-      const periodEnd = data.currentBillingPeriod?.endsAt || data.current_billing_period?.ends_at || null;
+      const rawPeriodEnd = data.currentBillingPeriod?.endsAt ?? data.current_billing_period?.ends_at ?? null;
+      // Invalid/missing period ends must never grant Premium, but the lifecycle
+      // status should still be persisted (especially cancellations) without a DB cast error.
+      const periodEnd = typeof rawPeriodEnd === 'string' && Number.isFinite(Date.parse(rawPeriodEnd))
+        ? rawPeriodEnd : null;
       const firstItem = Array.isArray(data.items) ? data.items[0] : null;
       const priceId = firstItem?.price?.id || firstItem?.priceId || firstItem?.price_id || null;
       // A valid Paddle subscription is not sufficient by itself: only the recurring
