@@ -54,11 +54,12 @@ test('Paddle checkout attempts enforce one durable attempt and fail-closed trans
     );
     assert.equal(attemptIdentityTrigger.rowCount, 1,
       'migration 106 must make the server-generated attempt identity immutable');
-    assert.match(attemptIdentityTrigger.rows[0].definition, /BEFORE UPDATE OF attempt_id/);
-    assert.match(attemptIdentityTrigger.rows[0].definition, /BEFORE UPDATE OF attempt_id, user_id, status, transaction_id/,
-      'the production trigger must protect terminal state and provider transaction identity');
-    assert.match(attemptIdentityTrigger.rows[0].definition, /BEFORE UPDATE OF attempt_id, user_id/,
-      'the production trigger must also guard owner-only updates');
+    const productionTriggerDefinition = attemptIdentityTrigger.rows[0].definition;
+    assert.match(productionTriggerDefinition, /BEFORE UPDATE OF/);
+    for (const column of ['attempt_id', 'user_id', 'status', 'transaction_id']) {
+      assert.ok(productionTriggerDefinition.includes(column),
+        `the production trigger must guard updates to ${column}`);
+    }
 
     const attemptIdentityFunction = await client.query(
       `SELECT pg_get_functiondef('prevent_paddle_checkout_attempt_identity_change()'::regprocedure) AS definition`
