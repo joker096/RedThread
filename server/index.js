@@ -826,24 +826,43 @@ app.post('/api/auth/verify-email', authLimiter, validateRequestOrigin, requireDa
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const tokenHash = hashSessionToken(token);
+    const preview = await client.query(
+      `SELECT user_id FROM account_action_tokens
+       WHERE purpose = 'email_verification' AND token_hash = $1
+         AND consumed_at IS NULL AND expires_at > NOW()`,
+      [tokenHash]
+    );
+    const userId = preview.rows[0]?.user_id;
+    if (!userId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'invalid_or_expired_token' });
+    }
+    await acquireGiftSafetyUserLocks(client, userId);
     const result = await client.query(
       `SELECT id, user_id FROM account_action_tokens
        WHERE purpose = 'email_verification' AND token_hash = $1
-         AND consumed_at IS NULL AND expires_at > NOW()
+         AND user_id = $2 AND consumed_at IS NULL AND expires_at > NOW()
        FOR UPDATE`,
-      [hashSessionToken(token)]
+      [tokenHash, userId]
     );
     const action = result.rows[0];
     if (!action) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'invalid_or_expired_token' });
     }
-    await client.query(
+    const updated = await client.query(
       `UPDATE users SET email_verified_at = COALESCE(email_verified_at, NOW()),
          status = CASE WHEN status = 'pending' THEN 'active' ELSE status END,
-         updated_at = NOW() WHERE id = $1`,
+         updated_at = NOW()
+       WHERE id = $1 AND status IN ('pending', 'active')
+       RETURNING id`,
       [action.user_id]
     );
+    if (!updated.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'invalid_or_expired_token' });
+    }
     await client.query('UPDATE account_action_tokens SET consumed_at = NOW() WHERE id = $1', [action.id]);
     await client.query('COMMIT');
     return res.json({ verified: true, message: 'Email verified. You can now sign in.' });
@@ -858,12 +877,11 @@ app.post('/api/auth/verify-email', authLimiter, validateRequestOrigin, requireDa
 
 app.post('/api/auth/email-verification/resend', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
   const email = normalizeEmail(req.body?.email);
-  // Keep the response generic so the endpoint does not disclose registered addresses.
   const generic = { accepted: true, message: 'If the account needs verification, an email will be sent.' };
   if (!isValidEmail(email) || !emailDeliveryConfigured()) return res.status(202).json(generic);
   try {
     const userResult = await pool.query(
-      `SELECT id, email FROM users
+      `SELECT id FROM users
        WHERE email = $1 AND status IN ('pending', 'active') AND email_verified_at IS NULL LIMIT 1`,
       [email]
     );
@@ -873,18 +891,34 @@ app.post('/api/auth/email-verification/resend', authLimiter, validateRequestOrig
       let token;
       try {
         await client.query('BEGIN');
-        await client.query("UPDATE account_action_tokens SET consumed_at = NOW() WHERE user_id = $1 AND purpose = 'email_verification' AND consumed_at IS NULL", [user.id]);
-        token = await createAccountActionToken(client, user.id, 'email_verification', 60);
+        await acquireGiftSafetyUserLocks(client, user.id);
+        const current = await client.query(
+          `SELECT id, email FROM users
+           WHERE id = $1 AND email = $2 AND status IN ('pending', 'active')
+             AND email_verified_at IS NULL FOR SHARE`,
+          [user.id, email]
+        );
+        if (current.rows[0]) {
+          await client.query(
+            "UPDATE account_action_tokens SET consumed_at = NOW() WHERE user_id = $1 AND purpose = 'email_verification' AND consumed_at IS NULL",
+            [user.id]
+          );
+          token = await createAccountActionToken(client, user.id, 'email_verification', 60);
+        }
         await client.query('COMMIT');
       } catch (error) {
         await client.query('ROLLBACK').catch(() => {});
         throw error;
-      } finally { client.release(); }
-      await sendConfiguredEmail({
-        to: user.email,
-        subject: 'Verify your Vow account',
-        html: '<p>Confirm your email address:</p><p><a href="' + accountActionUrl('verifyEmail', token) + '">Verify email</a></p><p>This link expires in 60 minutes.</p>'
-      });
+      } finally {
+        client.release();
+      }
+      if (token) {
+        await sendConfiguredEmail({
+          to: email,
+          subject: 'Verify your Vow account',
+          html: '<p>Confirm your email address:</p><p><a href="' + accountActionUrl('verifyEmail', token) + '">Verify email</a></p><p>This link expires in 60 minutes.</p>'
+        });
+      }
     }
   } catch (error) {
     console.error('Verification resend failed:', error?.message || 'unknown error');
@@ -898,7 +932,7 @@ app.post('/api/auth/password-reset/request', authLimiter, validateRequestOrigin,
   if (!isValidEmail(email) || !emailDeliveryConfigured()) return res.status(202).json(generic);
   try {
     const result = await pool.query(
-      "SELECT id, email FROM users WHERE email = $1 AND status = 'active' LIMIT 1",
+      "SELECT id FROM users WHERE email = $1 AND status = 'active' LIMIT 1",
       [email]
     );
     const user = result.rows[0];
@@ -907,18 +941,32 @@ app.post('/api/auth/password-reset/request', authLimiter, validateRequestOrigin,
       let token;
       try {
         await client.query('BEGIN');
-        await client.query("UPDATE account_action_tokens SET consumed_at = NOW() WHERE user_id = $1 AND purpose = 'password_reset' AND consumed_at IS NULL", [user.id]);
-        token = await createAccountActionToken(client, user.id, 'password_reset', 30);
+        await acquireGiftSafetyUserLocks(client, user.id);
+        const current = await client.query(
+          "SELECT id, email FROM users WHERE id = $1 AND email = $2 AND status = 'active' FOR SHARE",
+          [user.id, email]
+        );
+        if (current.rows[0]) {
+          await client.query(
+            "UPDATE account_action_tokens SET consumed_at = NOW() WHERE user_id = $1 AND purpose = 'password_reset' AND consumed_at IS NULL",
+            [user.id]
+          );
+          token = await createAccountActionToken(client, user.id, 'password_reset', 30);
+        }
         await client.query('COMMIT');
       } catch (error) {
         await client.query('ROLLBACK').catch(() => {});
         throw error;
-      } finally { client.release(); }
-      await sendConfiguredEmail({
-        to: user.email,
-        subject: 'Reset your Vow password',
-        html: '<p>Use this link to choose a new password:</p><p><a href="' + accountActionUrl('resetPassword', token) + '">Reset password</a></p><p>This link expires in 30 minutes. If you did not request this, ignore this email.</p>'
-      });
+      } finally {
+        client.release();
+      }
+      if (token) {
+        await sendConfiguredEmail({
+          to: email,
+          subject: 'Reset your Vow password',
+          html: '<p>Use this link to choose a new password:</p><p><a href="' + accountActionUrl('resetPassword', token) + '">Reset password</a></p><p>This link expires in 30 minutes. If you did not request this, ignore this email.</p>'
+        });
+      }
     }
   } catch (error) {
     console.error('Password reset request failed:', error?.message || 'unknown error');
@@ -937,19 +985,39 @@ app.post('/api/auth/password-reset/complete', authLimiter, validateRequestOrigin
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const tokenHash = hashSessionToken(token);
+    const preview = await client.query(
+      `SELECT user_id FROM account_action_tokens
+       WHERE purpose = 'password_reset' AND token_hash = $1
+         AND consumed_at IS NULL AND expires_at > NOW()`,
+      [tokenHash]
+    );
+    const userId = preview.rows[0]?.user_id;
+    if (!userId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'invalid_or_expired_token' });
+    }
+    await acquireGiftSafetyUserLocks(client, userId);
     const result = await client.query(
       `SELECT id, user_id FROM account_action_tokens
        WHERE purpose = 'password_reset' AND token_hash = $1
-         AND consumed_at IS NULL AND expires_at > NOW()
+         AND user_id = $2 AND consumed_at IS NULL AND expires_at > NOW()
        FOR UPDATE`,
-      [hashSessionToken(token)]
+      [tokenHash, userId]
     );
     const action = result.rows[0];
     if (!action) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'invalid_or_expired_token' });
     }
-    await client.query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2', [passwordHash, action.user_id]);
+    const updated = await client.query(
+      "UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 AND status = 'active' RETURNING id",
+      [passwordHash, action.user_id]
+    );
+    if (!updated.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'invalid_or_expired_token' });
+    }
     await client.query('UPDATE account_action_tokens SET consumed_at = NOW() WHERE id = $1', [action.id]);
     await client.query('DELETE FROM sessions WHERE user_id = $1', [action.user_id]);
     await client.query('COMMIT');
