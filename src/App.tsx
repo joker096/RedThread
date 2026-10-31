@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocale } from './i18n/LocaleProvider.tsx';
+import { isCurrentSessionRequest } from './utils/sessionRequest.ts';
 import { 
   Heart, 
   MessageCircle, 
@@ -245,15 +246,15 @@ export default function App() {
       try {
         const response = await fetch('/api/billing/status', { credentials: 'include' });
         if (!response.ok) {
-          if (active && requestEpoch === premiumRequestEpoch.current) setIsLadyPremium(false);
+          if (active && isCurrentSessionRequest(requestEpoch, premiumRequestEpoch.current)) setIsLadyPremium(false);
           return;
         }
         const data = await response.json();
-        if (active && requestEpoch === premiumRequestEpoch.current) {
+        if (active && isCurrentSessionRequest(requestEpoch, premiumRequestEpoch.current)) {
           setIsLadyPremium(data?.premiumActive === true);
         }
       } catch {
-        if (active && requestEpoch === premiumRequestEpoch.current) setIsLadyPremium(false);
+        if (active && isCurrentSessionRequest(requestEpoch, premiumRequestEpoch.current)) setIsLadyPremium(false);
       }
     };
     const refreshOnSession = () => {
