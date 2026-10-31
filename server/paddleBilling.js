@@ -346,14 +346,27 @@ export async function processPaddleEvent(pool, rawEvent) {
       // provider failure. Roll back only this event's effects, preserve its
       // dedupe row, and mark the matching checkout attempt for manual review.
       await client.query('ROLLBACK TO SAVEPOINT paddle_event_effects');
-      if (['transaction.completed', 'subscription.created', 'subscription.updated', 'subscription.canceled'].includes(eventType) &&
-          reconciliationContext?.userId) {
+      // Reconcile only the checkout attempt tied to this provider transaction.
+      // A subscription.updated/canceled identity conflict must never downgrade
+      // unrelated or already-linked/canceled purchases for the same account.
+      const reconciliationTransactionId = eventType === 'transaction.completed'
+        ? data.id
+        : eventType === 'subscription.created'
+          ? (typeof data.transactionId === 'string' ? data.transactionId
+            : typeof data.transaction_id === 'string' ? data.transaction_id : null)
+          : null;
+      if (reconciliationContext?.userId &&
+          typeof reconciliationContext.plan === 'string' &&
+          typeof reconciliationTransactionId === 'string' &&
+          /^txn_[A-Za-z0-9]+$/.test(reconciliationTransactionId)) {
         await client.query(
           `UPDATE paddle_checkout_attempts
            SET status = 'reconciliation_required', updated_at = statement_timestamp()
-           WHERE user_id = $1
-             AND status IN ('creating', 'pending', 'completed', 'linked', 'canceled', 'reconciliation_required')`,
-          [reconciliationContext.userId]
+           WHERE user_id = $1 AND plan = $2
+             AND (transaction_id = $3 OR
+               (transaction_id IS NULL AND status IN ('creating', 'pending', 'completed', 'reconciliation_required')))
+             AND status IN ('creating', 'pending', 'completed', 'reconciliation_required')`,
+          [reconciliationContext.userId, reconciliationContext.plan, reconciliationTransactionId]
         );
       }
       await client.query('COMMIT');
