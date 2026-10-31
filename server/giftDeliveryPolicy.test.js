@@ -200,6 +200,16 @@ test('state transitions enforce actors, consent, persisted states, and terminal 
   assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'refund_pending', actor: 'system' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'refund_pending', actor: 'system', paymentStatus: 'authorized' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'refund_pending', actor: 'system', paymentStatus: 'captured' }), true);
+  assert.equal(canTransitionGiftOrder({ from: 'blocked', to: 'refund_pending', actor: 'system', paymentStatus: 'captured' }), true,
+    'a pre-dispatch safety block must retain a controlled refund path');
+  assert.equal(canTransitionGiftOrder({ from: 'blocked', to: 'refund_pending', actor: 'sender', paymentStatus: 'captured' }), false,
+    'senders cannot initiate refunds for safety-held orders');
+  assert.equal(canTransitionGiftOrder({ from: 'awaiting_recipient_consent', to: 'refund_pending', actor: 'system', paymentStatus: 'captured' }), false,
+    'ordinary pending requests cannot enter refund without recipient opt-out');
+  assert.equal(canTransitionGiftOrder({
+    from: 'awaiting_recipient_consent', to: 'refund_pending', actor: 'system', paymentStatus: 'captured',
+    recipientRequestsDisabledAt: '2026-10-31T12:00:00Z'
+  }), true, 'a captured payment on an opt-out-invalidated request can enter refund reconciliation');
   assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'reported', actor: 'recipient', paymentStatus: 'captured' }), true, 'a report must suspend a failed delivery without losing refund eligibility');
   assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'refund_pending', actor: 'sender' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'refund_pending', to: 'refunded', actor: 'trusted_payment_service' }), false);
