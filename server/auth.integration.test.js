@@ -2231,6 +2231,11 @@ test('auth API supports registration, session lookup, logout and login', {
       let staleNotificationReadAllPromise;
       let staleNotificationReadOnePromise;
       let stalePhotoReadPromise;
+      let staleOwnProfileReadPromise;
+      let staleBlocksReadPromise;
+      let staleGiftPreferencesReadPromise;
+      let staleGiftOrdersReadPromise;
+      let staleAdConsentReadPromise;
       try {
         await waitForBlockedSafetyRequests(1);
         staleProfileUpdatePromise = request('/api/profiles/me', {
@@ -2281,11 +2286,26 @@ test('auth API supports registration, session lookup, logout and login', {
         stalePhotoReadPromise = request(uploadedPhoto.photoUrl, {
           headers: { Cookie: secondCookie }
         });
+        staleOwnProfileReadPromise = request('/api/profiles/me', {
+          headers: { Cookie: secondCookie }
+        });
+        staleBlocksReadPromise = request('/api/blocks', {
+          headers: { Cookie: secondCookie }
+        });
+        staleGiftPreferencesReadPromise = request('/api/gifts/preferences', {
+          headers: { Cookie: secondCookie }
+        });
+        staleGiftOrdersReadPromise = request('/api/gifts/orders', {
+          headers: { Cookie: secondCookie }
+        });
+        staleAdConsentReadPromise = request('/api/ads/consent', {
+          headers: { Cookie: secondCookie }
+        });
         // Photo upload still performs sanitization/moderation before locking.
         // Deletion plus the profile, message, assessment, login, notification
         // list/read mutations and private photo read must queue on the same
         // account-safety lock before deletion is allowed to proceed.
-        await waitForBlockedSafetyRequests(9);
+        await waitForBlockedSafetyRequests(14);
       } finally {
         await raceLock.query('COMMIT');
         raceLock.release();
@@ -2293,7 +2313,9 @@ test('auth API supports registration, session lookup, logout and login', {
       const [
         deleteAccount, staleProfileUpdate, stalePhotoUpload, staleMessage,
         staleAssessment, staleLogin, staleNotificationList,
-        staleNotificationReadAll, staleNotificationReadOne, stalePhotoRead
+        staleNotificationReadAll, staleNotificationReadOne, stalePhotoRead,
+        staleOwnProfileRead, staleBlocksRead, staleGiftPreferencesRead,
+        staleGiftOrdersRead, staleAdConsentRead
       ] = await Promise.all([
         deleteAccountPromise,
         staleProfileUpdatePromise,
@@ -2304,7 +2326,12 @@ test('auth API supports registration, session lookup, logout and login', {
         staleNotificationListPromise,
         staleNotificationReadAllPromise,
         staleNotificationReadOnePromise,
-        stalePhotoReadPromise
+        stalePhotoReadPromise,
+        staleOwnProfileReadPromise,
+        staleBlocksReadPromise,
+        staleGiftPreferencesReadPromise,
+        staleGiftOrdersReadPromise,
+        staleAdConsentReadPromise
       ]);
       assert.equal(deleteAccount.status, 204);
       assert.equal(staleProfileUpdate.status, 404,
@@ -2331,6 +2358,16 @@ test('auth API supports registration, session lookup, logout and login', {
         'mark-read must not mutate notification rows after account deletion');
       assert.equal(stalePhotoRead.status, 404,
         'a private photo read queued before deletion must not return bytes after its asset is removed');
+      assert.equal(staleOwnProfileRead.status, 401,
+        'a stale session must not read its private profile after account deletion');
+      assert.equal(staleBlocksRead.status, 401,
+        'a stale session must not read its block list after account deletion');
+      assert.equal(staleGiftPreferencesRead.status, 401,
+        'a stale session must not read gift preferences after account deletion');
+      assert.equal(staleGiftOrdersRead.status, 401,
+        'a stale session must not read gift order history after account deletion');
+      assert.equal(staleAdConsentRead.status, 401,
+        'a stale session must not read advertising consent after account deletion');
       const staleLoginSessions = await deletionSafetyDb.query(
         'SELECT COUNT(*)::int AS count FROM sessions WHERE user_id = $1',
         [registered.user.id]
