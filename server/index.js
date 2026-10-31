@@ -2796,12 +2796,12 @@ app.post('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, r
          SELECT id, status AS previous_status
          FROM gift_delivery_orders
          WHERE ((sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1))
-           AND status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched')
+           AND status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivery_failed')
          ORDER BY id
          FOR UPDATE
        )
        UPDATE gift_delivery_orders AS o
-       SET status = CASE WHEN c.previous_status = 'dispatched' THEN 'reported' ELSE 'blocked' END,
+       SET status = CASE WHEN c.previous_status IN ('dispatched', 'delivery_failed') THEN 'reported' ELSE 'blocked' END,
            address_vault_ref = NULL, address_verified_at = NULL, updated_at = statement_timestamp()
        FROM candidates AS c
        WHERE o.id = c.id
