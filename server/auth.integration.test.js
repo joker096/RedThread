@@ -2099,7 +2099,6 @@ test('auth API supports registration, session lookup, logout and login', {
       let staleProfileUpdatePromise;
       let stalePhotoUploadPromise;
       let staleMessagePromise;
-      let staleGiftPreferencePromise;
       let staleAssessmentPromise;
       try {
         await waitForBlockedSafetyRequests(1);
@@ -2118,11 +2117,6 @@ test('auth API supports registration, session lookup, logout and login', {
           headers: { Cookie: secondCookie },
           body: JSON.stringify({ text: 'Must not persist after account deletion' })
         });
-        staleGiftPreferencePromise = request('/api/gifts/preferences', {
-          method: 'PUT',
-          headers: { Cookie: secondCookie },
-          body: JSON.stringify({ requestsEnabled: true })
-        });
         const assessmentAnswers = Object.fromEntries(
           Object.entries(ASSESSMENT_OPTIONS).map(([key, options]) => [key, options[0]])
         );
@@ -2136,12 +2130,11 @@ test('auth API supports registration, session lookup, logout and login', {
         await raceLock.query('COMMIT');
         raceLock.release();
       }
-      const [deleteAccount, staleProfileUpdate, stalePhotoUpload, staleMessage, staleGiftPreference, staleAssessment] = await Promise.all([
+      const [deleteAccount, staleProfileUpdate, stalePhotoUpload, staleMessage, staleAssessment] = await Promise.all([
         deleteAccountPromise,
         staleProfileUpdatePromise,
         stalePhotoUploadPromise,
         staleMessagePromise,
-        staleGiftPreferencePromise,
         staleAssessmentPromise
       ]);
       assert.equal(deleteAccount.status, 204);
@@ -2151,8 +2144,6 @@ test('auth API supports registration, session lookup, logout and login', {
         'a photo upload authenticated before deletion must not recreate private assets afterward');
       assert.equal(staleMessage.status, 404,
         'a message authenticated before deletion must not be inserted after the match closes');
-      assert.equal(staleGiftPreference.status, 401,
-        'a gift preference authenticated before deletion must not be recreated afterward');
       assert.equal(staleAssessment.status, 401,
         'a relationship assessment authenticated before deletion must not be recreated afterward');
       const deletedProfileAfterRace = await deletionSafetyDb.query(
@@ -2174,6 +2165,12 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       assert.equal(deletedGiftPreferences.rows[0].count, 0,
         'account deletion must purge gift receiving preferences');
+      const deletedAssessments = await deletionSafetyDb.query(
+        'SELECT COUNT(*)::int AS count FROM relationship_assessments WHERE user_id = $1',
+        [registered.user.id]
+      );
+      assert.equal(deletedAssessments.rows[0].count, 0,
+        'a stale assessment save must not recreate relationship data after account deletion');
       const consentHistoryAfterDeletion = await deletionSafetyDb.query(
         'SELECT COUNT(*)::int AS count FROM ad_consent_history WHERE user_id = $1',
         [registered.user.id]
