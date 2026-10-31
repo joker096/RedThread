@@ -1326,7 +1326,10 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
              WHERE user_id = $1 AND status = 'pending'`,
             [req.authUser.id, 'completed']
           );
-          if (checkoutAttempt.plan !== 'lifetime' && !subscriptionId) {
+          // A completed recurring transaction is not safe to delete around until
+          // subscription.created has linked its exact provider subscription ID.
+          // A stale prior subscription ID must not make this check pass.
+          if (checkoutAttempt.plan !== 'lifetime') {
             return res.status(409).json({ error: 'paddle_checkout_processing' });
           }
         } else {
@@ -1341,7 +1344,9 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
         console.error('Paddle checkout cancellation before account deletion failed:', error?.message || 'unknown error');
         return res.status(502).json({ error: 'paddle_checkout_cancellation_failed' });
       }
-    } else if (checkoutAttempt?.status === 'completed' && checkoutAttempt.plan !== 'lifetime' && !subscriptionId) {
+    } else if (checkoutAttempt?.status === 'completed' && checkoutAttempt.plan !== 'lifetime') {
+      // completed means transaction confirmed, but the subscription lifecycle
+      // webhook has not yet durably linked the new subscription to this account.
       return res.status(409).json({ error: 'paddle_checkout_processing' });
     } else if (checkoutAttempt?.status === 'linked' && checkoutAttempt.plan !== 'lifetime' && !subscriptionId) {
       return res.status(409).json({ error: 'paddle_subscription_reconciliation_required' });
