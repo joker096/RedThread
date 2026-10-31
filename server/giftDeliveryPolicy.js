@@ -197,6 +197,8 @@ export function evaluateGiftRefundEligibility({ request, payment, actor, reason,
       !recipientOptedOutPendingRequest) {
     return deny('order_not_refundable_in_current_state');
   }
+  const addressVaultRef = request.addressVaultRef ?? request.address_vault_ref;
+  if (addressVaultRef != null) return deny('address_access_must_be_revoked_before_refund');
   if (payment.status !== 'captured') return deny('payment_not_captured');
   if (payment.orderId !== request.id || payment.amountMinorUnits !== request.totalMinorUnits || payment.currency !== request.currency) return deny('payment_order_mismatch');
   if (!Number.isSafeInteger(request.totalMinorUnits) || request.totalMinorUnits <= 0 || typeof request.currency !== 'string' || !/^[A-Z]{3}$/.test(request.currency)) return deny('invalid_refund_amount');
