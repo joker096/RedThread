@@ -136,6 +136,10 @@ export async function processPaddleEvent(pool, rawEvent) {
         "SELECT pg_advisory_xact_lock(hashtext('gift-safety-user:' || $1::uuid::text))",
         [paddleIdentityUserId]
       );
+      // Match checkout's row-lock order: user first, checkout attempt second.
+      // Claiming the attempt before locking users can deadlock against a checkout
+      // request that already holds the user row and is waiting on this attempt.
+      await client.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [paddleIdentityUserId]);
       reconciliationContext.userId = paddleIdentityUserId;
     }
     const customerId = typeof data.customerId === 'string' ? data.customerId
