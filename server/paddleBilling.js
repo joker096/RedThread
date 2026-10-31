@@ -144,7 +144,8 @@ export async function processPaddleEvent(pool, rawEvent) {
     // Never persist a provider customer identifier that cannot be used by the
     // authenticated portal/cancellation flows. A signed but malformed event is
     // consumed without changing account identity, avoiding endless webhook retries.
-    if (customerId !== null && !/^ctm_[A-Za-z0-9]+$/.test(customerId)) {
+    if ((eventType === 'subscription.created' && customerId === null) ||
+        (customerId !== null && !/^ctm_[A-Za-z0-9]+$/.test(customerId))) {
       const malformedEventTransactionId = eventType === 'transaction.completed'
         ? data.id
         : eventType === 'subscription.created'
@@ -315,6 +316,14 @@ export async function processPaddleEvent(pool, rawEvent) {
         )
         : { rowCount: 0, rows: [] };
       const ownsCheckoutAttempt = attemptClaim.rowCount === 1;
+      if (!ownsCheckoutAttempt && typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
+        // A completed transaction that cannot be tied to the exact server
+        // attempt (including a plan/price mismatch) must remain visible for
+        // manual reconciliation rather than silently leaving a pending lock.
+        await markPaddleCheckoutAttemptForReconciliation(
+          client, reconciliationContext.userId, customData.plan, data.id, checkoutAttemptId
+        );
+      }
 
       let entitlementLinked = false;
       if (ownsCheckoutAttempt && customData.plan === 'lifetime' && includesLifetimePrice) {
