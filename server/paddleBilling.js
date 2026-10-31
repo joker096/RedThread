@@ -175,6 +175,13 @@ export async function processPaddleEvent(pool, rawEvent) {
         );
       }
     } else if (eventType === 'transaction.completed') {
+      // Provider payloads are external input even after signature verification.
+      // Reject malformed transaction IDs before they reach the database CHECK
+      // constraint, otherwise one bad event can retry forever and poison delivery.
+      if (typeof data.id !== 'string' || !/^txn_[A-Za-z0-9]+$/.test(data.id)) {
+        await client.query('COMMIT');
+        return { duplicate: false, handled: true };
+      }
       // A verified completed transaction can grant the one-time lifetime plan,
       // but only when its server-configured Paddle price matches the expected price.
       const transactionItems = Array.isArray(data.items) ? data.items : [];
