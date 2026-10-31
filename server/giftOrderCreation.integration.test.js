@@ -12,7 +12,7 @@ test('gift delivery city keys compare canonically across Unicode, case, and whit
   assert.equal(normalizeGiftCityKey('  STRASSE   '), 'strasse');
   assert.equal(normalizeGiftCityKey(null), null);
   assert.equal(normalizeGiftCityKey('   '), null);
-  assert.equal(normalizeGiftCityKey('\\u200B\\uFEFF'), null);
+  assert.equal(normalizeGiftCityKey(String.fromCharCode(0x200B, 0xFEFF)), null);
 });
 
 test('gift delivery city SQL matching normalizes Unicode and whitespace', {
