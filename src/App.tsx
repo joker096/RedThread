@@ -285,6 +285,7 @@ export default function App() {
   // Gender persona toggle (strictly binary: Female seeking Male, Male seeking Female)
   const handleToggleGender = () => {
     // The gender switch is a demo persona switch, not a paid-account transfer.
+    if (discoveryMode !== 'demo') return;
     if (currentGender === 'female') {
       setCurrentGender('male');
       setCurrentUser(prev => ({
@@ -888,6 +889,7 @@ export default function App() {
               brandName={currentBrand.name}
               onOpenBrandModal={() => setIsBrandModalOpen(true)}
               onToggleGender={handleToggleGender}
+              allowDemoGenderSwitch={discoveryMode === 'demo'}
               onToggleDeviceFrame={setDeviceFrame}
               onOpenPremiumModal={() => setIsLadyPremiumOpen(true)}
               onOpenBotScanner={() => {
