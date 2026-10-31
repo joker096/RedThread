@@ -23,9 +23,9 @@ test('gift delivery city SQL matching normalizes Unicode and whitespace', {
   try {
     const result = await pool.query(
       `SELECT
-         LOWER(REGEXP_REPLACE(BTRIM(normalize($1, NFC)), '[[:space:]]+', ' ', 'g')) =
-         LOWER(REGEXP_REPLACE(BTRIM(normalize($2, NFC)), '[[:space:]]+', ' ', 'g')) AS matches`,
-      ['  Café   Tbilisi  ', 'Café Tbilisi']
+         LOWER(REGEXP_REPLACE(BTRIM(translate(normalize($1, NFC), CHR(8203) || CHR(65279), '')), '[[:space:]]+', ' ', 'g')) =
+         LOWER(REGEXP_REPLACE(BTRIM(translate(normalize($2, NFC), CHR(8203) || CHR(65279), '')), '[[:space:]]+', ' ', 'g')) AS matches`,
+      ['  Café   Tbilisi  ', `Café${String.fromCharCode(0x200B)} Tbilisi`]
     );
     assert.equal(result.rows[0].matches, true,
       'database coverage lookup must match canonically equivalent city names');
