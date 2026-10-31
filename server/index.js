@@ -1044,7 +1044,9 @@ app.get('/api/auth/me', requireDatabase, async (req, res) => {
          LIMIT 1`,
         [hashSessionToken(token), lookup.rows[0].user_id]
       );
-      return result.rows[0] || null;
+      const user = result.rows[0] || null;
+      if (user) await client.query('UPDATE sessions SET last_seen_at = NOW() WHERE id = $1', [user.session_id]);
+      return user;
     });
     const user = read.value;
     if (!read.active || !user || user.status !== 'active') {
@@ -1054,7 +1056,6 @@ app.get('/api/auth/me', requireDatabase, async (req, res) => {
     if (emailVerificationRequired && !user.email_verified_at) {
       return res.status(403).json({ error: 'email_verification_required' });
     }
-    await pool.query('UPDATE sessions SET last_seen_at = NOW() WHERE id = $1', [user.session_id]);
     return res.json({ user: publicUser(user) });
   } catch (error) {
     console.error('Session lookup failed:', error?.message || 'unknown error');
