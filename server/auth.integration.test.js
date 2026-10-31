@@ -2305,11 +2305,11 @@ test('auth API supports registration, session lookup, logout and login', {
         staleAuthMePromise = request('/api/auth/me', {
           headers: { Cookie: secondCookie }
         });
-        // Photo upload still performs sanitization/moderation before locking.
-        // Deletion plus the profile, message, assessment, login, notification
-        // list/read mutations and private photo read must queue on the same
-        // account-safety lock before deletion is allowed to proceed.
-        await waitForBlockedSafetyRequests(15);
+        // Photo upload performs image sanitization/moderation before acquiring
+        // its account lock, so it may legitimately reach the lock after the
+        // deletion transaction commits. All other stale requests must already
+        // be queued before releasing the test lock.
+        await waitForBlockedSafetyRequests(14);
       } finally {
         await raceLock.query('COMMIT');
         raceLock.release();
