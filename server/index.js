@@ -1270,6 +1270,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     // Migration 104 permits history purge only after the account is marked deleted.
     await client.query('DELETE FROM ad_consent_preferences WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM ad_consent_history WHERE user_id = $1', [req.authUser.id]);
+    await client.query('DELETE FROM gift_receiving_preferences WHERE user_id = $1', [req.authUser.id]);
     // Engagement events are user-linked frequency signals, not billing records;
     // remove any retained rows immediately when the account is deleted.
     await client.query('DELETE FROM ad_events WHERE user_id = $1', [req.authUser.id]);
@@ -1560,25 +1561,51 @@ app.get('/api/assessment', requireSession, requirePaidFeatures, async (req, res)
 app.put('/api/assessment', validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
   const answers = req.body?.answers;
   if (!isValidAssessment(answers)) return res.status(400).json({ error: 'assessment_answers_incomplete_or_invalid' });
+  let client;
   try {
-    const result = await pool.query(
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const active = await client.query("SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE", [req.authUser.id]);
+    if (!active.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    const result = await client.query(
       'INSERT INTO relationship_assessments (user_id, answers, assessment_version, completed_at, updated_at) VALUES ($1, $2::jsonb, $3, NOW(), NOW()) ON CONFLICT (user_id) DO UPDATE SET answers = EXCLUDED.answers, assessment_version = EXCLUDED.assessment_version, completed_at = NOW(), updated_at = NOW() RETURNING answers, assessment_version AS "assessmentVersion", completed_at AS "completedAt", updated_at AS "updatedAt"',
       [req.authUser.id, JSON.stringify(answers), ASSESSMENT_VERSION]
     );
+    await client.query('COMMIT');
     return res.json({ assessment: result.rows[0] });
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Assessment save failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'assessment_save_failed' });
+  } finally {
+    client?.release();
   }
 });
 
 app.delete('/api/assessment', validateRequestOrigin, requireSession, async (req, res) => {
+  let client;
   try {
-    await pool.query('DELETE FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const active = await client.query("SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE", [req.authUser.id]);
+    if (!active.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    await client.query('DELETE FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
+    await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Assessment delete failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'assessment_delete_failed' });
+  } finally {
+    client?.release();
   }
 });
 
@@ -2116,17 +2143,32 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
   try {
     client = await pool.connect();
     await client.query('BEGIN');
-    const access = await client.query(
-      `SELECT user_a_id, user_b_id FROM matches WHERE id = $1 AND status = 'active'
-       AND (user_a_id = $2 OR user_b_id = $2) LIMIT 1`,
+    const preview = await client.query(
+      'SELECT user_a_id, user_b_id FROM matches WHERE id = $1 AND (user_a_id = $2 OR user_b_id = $2) LIMIT 1',
       [req.params.matchId, req.authUser.id]
+    );
+    if (preview.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'match_not_found' });
+    }
+    const recipientId = preview.rows[0].user_a_id === req.authUser.id ? preview.rows[0].user_b_id : preview.rows[0].user_a_id;
+    // Lock both accounts before revalidating the match. A deletion/suspension
+    // that wins this lock must prevent a stale authenticated message from landing.
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, recipientId);
+    const access = await client.query(
+      `SELECT m.user_a_id, m.user_b_id
+       FROM matches m
+       JOIN users sender ON sender.id = $2 AND sender.status = 'active'
+       JOIN users recipient ON recipient.id = $3 AND recipient.status = 'active'
+       WHERE m.id = $1 AND m.status = 'active'
+         AND ((m.user_a_id = $2 AND m.user_b_id = $3) OR (m.user_a_id = $3 AND m.user_b_id = $2))
+       FOR UPDATE OF m, sender, recipient`,
+      [req.params.matchId, req.authUser.id, recipientId]
     );
     if (access.rowCount === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'match_not_found' });
     }
-    const recipientId = access.rows[0].user_a_id === req.authUser.id ? access.rows[0].user_b_id : access.rows[0].user_a_id;
-    await acquireGiftSafetyUserLocks(client, req.authUser.id);
     const screening = await screenTextPrivate(body, 'message');
     const result = await client.query(
       `INSERT INTO messages (match_id, sender_id, body) VALUES ($1, $2, $3)
@@ -2641,6 +2683,14 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
     // this lock, creation could read the old opt-in after opt-out has scanned
     // pending orders, then insert a request that the opt-out transaction misses.
     await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const activeAccount = await client.query(
+      "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (!activeAccount.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
 
     // Lock pending orders before the preference row. Gift acceptance locks an
     // order before reading the preference, so this ordering avoids reversing

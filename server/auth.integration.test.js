@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
+import { ASSESSMENT_OPTIONS } from './relationshipAssessment.js';
 
 const { Pool } = pg;
 
@@ -2095,33 +2096,65 @@ test('auth API supports registration, session lookup, logout and login', {
         }
         throw new Error(`Timed out waiting for ${expected} queued account-safety requests`);
       };
+      let staleProfileUpdatePromise;
+      let stalePhotoUploadPromise;
+      let staleMessagePromise;
+      let staleGiftPreferencePromise;
+      let staleAssessmentPromise;
       try {
         await waitForBlockedSafetyRequests(1);
-        const staleProfileUpdatePromise = request('/api/profile', {
-          method: 'PUT',
+        staleProfileUpdatePromise = request('/api/profiles/me', {
+          method: 'PATCH',
           headers: { Cookie: secondCookie },
           body: JSON.stringify({ displayName: 'Must not restore deleted profile' })
         });
-        const stalePhotoUploadPromise = request('/api/photos', {
+        stalePhotoUploadPromise = request('/api/photos', {
           method: 'POST',
           headers: { Cookie: secondCookie, 'Content-Type': 'image/png' },
           body: tinyPng
         });
-        await waitForBlockedSafetyRequests(3);
+        staleMessagePromise = request(`/api/matches/${matchPayload.match.id}/messages`, {
+          method: 'POST',
+          headers: { Cookie: secondCookie },
+          body: JSON.stringify({ text: 'Must not persist after account deletion' })
+        });
+        staleGiftPreferencePromise = request('/api/gifts/preferences', {
+          method: 'PUT',
+          headers: { Cookie: secondCookie },
+          body: JSON.stringify({ requestsEnabled: true })
+        });
+        const assessmentAnswers = Object.fromEntries(
+          Object.entries(ASSESSMENT_OPTIONS).map(([key, options]) => [key, options[0]])
+        );
+        staleAssessmentPromise = request('/api/assessment', {
+          method: 'PUT',
+          headers: { Cookie: secondCookie },
+          body: JSON.stringify({ answers: assessmentAnswers })
+        });
+        await waitForBlockedSafetyRequests(5);
       } finally {
         await raceLock.query('COMMIT');
         raceLock.release();
       }
-      const [deleteAccount, staleProfileUpdate, stalePhotoUpload] = await Promise.all([
+      const [deleteAccount, staleProfileUpdate, stalePhotoUpload, staleMessage, staleGiftPreference, staleAssessment] = await Promise.all([
         deleteAccountPromise,
         staleProfileUpdatePromise,
-        stalePhotoUploadPromise
+        stalePhotoUploadPromise,
+        staleMessagePromise,
+        staleGiftPreferencePromise,
+        staleAssessmentPromise
       ]);
       assert.equal(deleteAccount.status, 204);
       assert.equal(staleProfileUpdate.status, 404,
         'a profile update authenticated before deletion must not restore personal data afterward');
       assert.equal(stalePhotoUpload.status, 404,
         'a photo upload authenticated before deletion must not recreate private assets afterward');
+      assert.equal(staleMessage.status, 404,
+        'a message authenticated before deletion must not be inserted after the match closes');
+      assert.equal(staleGiftPreference.status, 401,
+        'a gift preference authenticated before deletion must not be recreated afterward');
+      assert.equal(staleAssessment.status, 401,
+        'a relationship assessment authenticated before deletion must not be recreated afterward');
       const deletedProfileAfterRace = await deletionSafetyDb.query(
         'SELECT display_name, is_visible, photo_urls FROM profiles WHERE user_id = $1',
         [registered.user.id]
@@ -2135,6 +2168,12 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       assert.equal(orphanedPhotoAssets.rows[0].count, 0,
         'queued uploads must not recreate photo rows after account deletion');
+      const deletedGiftPreferences = await deletionSafetyDb.query(
+        'SELECT COUNT(*)::int AS count FROM gift_receiving_preferences WHERE user_id = $1',
+        [registered.user.id]
+      );
+      assert.equal(deletedGiftPreferences.rows[0].count, 0,
+        'account deletion must purge gift receiving preferences');
       const consentHistoryAfterDeletion = await deletionSafetyDb.query(
         'SELECT COUNT(*)::int AS count FROM ad_consent_history WHERE user_id = $1',
         [registered.user.id]
