@@ -2054,9 +2054,22 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
 });
 
 app.delete('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
-  if (!isUuid(req.params.targetId)) return res.status(400).json({ error: 'invalid_target_id' });
+  const targetId = req.params.targetId;
+  if (!isUuid(targetId) || targetId === req.authUser.id) return res.status(400).json({ error: 'invalid_target_id' });
+  let client;
   try {
-    const result = await pool.query(
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
+    const active = await client.query(
+      "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (!active.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    const result = await client.query(
       `DELETE FROM likes l
        WHERE l.sender_id = $1 AND l.target_id = $2
          AND NOT EXISTS (
@@ -2066,24 +2079,29 @@ app.delete('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, 
                OR (m.user_a_id = $2 AND m.user_b_id = $1))
          )
        RETURNING l.target_id`,
-      [req.authUser.id, req.params.targetId]
+      [req.authUser.id, targetId]
     );
     if (result.rowCount === 0) {
-      const matched = await pool.query(
+      const matched = await client.query(
         `SELECT 1 FROM matches m
          WHERE m.status = 'active'
            AND ((m.user_a_id = $1 AND m.user_b_id = $2)
              OR (m.user_a_id = $2 AND m.user_b_id = $1))
          LIMIT 1`,
-        [req.authUser.id, req.params.targetId]
+        [req.authUser.id, targetId]
       );
+      await client.query('ROLLBACK');
       if (matched.rowCount) return res.status(409).json({ error: 'cannot_undo_like_after_match' });
       return res.status(404).json({ error: 'like_not_found' });
     }
+    await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Unlike failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'unlike_failed' });
+  } finally {
+    client?.release();
   }
 });
 
@@ -2561,12 +2579,29 @@ app.post('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, r
 app.delete('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, async (req, res) => {
   const targetId = req.params.targetId;
   if (!isUuid(targetId) || targetId === req.authUser.id) return res.status(400).json({ error: 'invalid_block_target' });
+  let client;
   try {
-    await pool.query('DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2', [req.authUser.id, targetId]);
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
+    await acquireGiftSafetyPairLock(client, req.authUser.id, targetId);
+    const active = await client.query(
+      "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (!active.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    await client.query('DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2', [req.authUser.id, targetId]);
+    await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Unblock user failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'unblock_user_failed' });
+  } finally {
+    client?.release();
   }
 });
 
@@ -3576,30 +3611,44 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
   const validation = validateAdEventPayload(req.body);
   if (!validation.ok) return res.status(400).json({ error: validation.error });
 
-  const user = req.authUser;
-  const hasPremium = Boolean(user.premium_lifetime) ||
-    (user.premium_until && new Date(user.premium_until).getTime() > Date.now());
-  if (hasPremium) return res.status(403).json({ error: 'ads_disabled_for_premium' });
-
+  const userId = req.authUser.id;
   const { eventId, campaignId, eventType } = validation.value;
   let client;
   try {
     client = await pool.connect();
     await client.query('BEGIN');
-    // Serialize this event against consent changes. No stored row means consent is off.
+    // Lock order is event ID, then account safety, then campaign. Deletion never
+    // waits on an event lock, so this order serializes idempotency without a cycle.
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`ad-event:${eventId}`]);
+    await acquireGiftSafetyUserLocks(client, userId);
+    const account = await client.query(
+      `SELECT u.id, u.premium_lifetime, u.premium_until, p.country
+       FROM users u JOIN profiles p ON p.user_id = u.id
+       WHERE u.id = $1 AND u.status = 'active'
+       FOR SHARE OF u, p`,
+      [userId]
+    );
+    if (!account.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    const user = account.rows[0];
+    const hasPremium = Boolean(user.premium_lifetime) ||
+      (user.premium_until && new Date(user.premium_until).getTime() > Date.now());
+    if (hasPremium) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'ads_disabled_for_premium' });
+    }
+    // No stored row means consent is off. Hold the row lock through insertion
+    // so a concurrent revocation is ordered before or after this event.
     const consent = await client.query(
       'SELECT ads_consent, consent_version FROM ad_consent_preferences WHERE user_id = $1 FOR SHARE',
-      [user.id]
+      [userId]
     );
     if (!hasExplicitAdConsent(consent.rows)) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'ad_consent_required' });
     }
-
-    // Lock order is always event ID first, then user/campaign. This serializes
-    // the same idempotency key even when concurrent requests claim different users
-    // or campaigns; the second request then observes the committed row below.
-    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`ad-event:${eventId}`]);
 
     const duplicate = await client.query(
       'SELECT user_id, campaign_id, event_type FROM ad_events WHERE event_id = $1',
@@ -3621,7 +3670,7 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
 
     // Distinct event IDs for this user/campaign serialize before frequency and
     // click-after-impression checks, preventing parallel requests bypassing either.
-    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`ad-campaign:${user.id}:${campaignId}`]);
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`ad-campaign:${userId}:${campaignId}`]);
 
     // A well-formed client ID is not authority to track an arbitrary campaign.
     // Resolve every new event against the server-owned approval registry.
@@ -3662,7 +3711,7 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
       return res.status(403).json({ error: 'ad_campaign_region_not_allowed' });
     }
 
-    const counts = await client.query(AD_EVENT_FREQUENCY_COUNTS_SQL, [user.id, campaignId]);
+    const counts = await client.query(AD_EVENT_FREQUENCY_COUNTS_SQL, [userId, campaignId]);
     const eventCounts = counts.rows[0];
     const frequency = evaluateAdEventFrequency({
       eventType,
