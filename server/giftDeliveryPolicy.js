@@ -112,7 +112,10 @@ export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecord
   if (['delivered', 'delivery_failed'].includes(to) && (recipientConsentRecorded !== true || addressVerified !== true)) return false;
   if (to === 'delivery_failed' && !['authorized', 'captured'].includes(paymentStatus)) return false;
   if (to === 'refund_pending' && paymentStatus !== 'captured') return false;
-  if (from === 'awaiting_recipient_consent' && to === 'refund_pending' && recipientRequestsDisabledAt == null) return false;
+  if (from === 'awaiting_recipient_consent' && to === 'refund_pending') {
+    const optOutAt = Date.parse(recipientRequestsDisabledAt);
+    if (!Number.isFinite(optOutAt) || optOutAt > now) return false;
+  }
   if (to === 'refunded' && paymentStatus !== 'refund_pending') return false;
 
   if (to === 'awaiting_recipient_consent' && actor !== 'sender') return false;
@@ -169,14 +172,16 @@ export function evaluateGiftConsentWithdrawalEligibility(order = {}) {
   return { eligible: true, reason: 'consent_withdrawal_allowed', fulfilmentAuthorized: false };
 }
 
-export function evaluateGiftRefundEligibility({ request, payment, actor, reason, idempotencyKey, alreadyRefunded = false } = {}) {
+export function evaluateGiftRefundEligibility({ request, payment, actor, reason, idempotencyKey, alreadyRefunded = false, now = Date.now() } = {}) {
   if (!request || !payment || !actor || !reason || !idempotencyKey) return deny('missing_refund_context');
+  if (!Number.isFinite(now)) return deny('invalid_refund_clock');
   if (!['system', 'moderator'].includes(actor)) return deny('refund_actor_not_authorized');
   // Start a refund only from a captured order that has not entered the pending-refund state.
   // Pending refunds require provider reconciliation, not a fresh refund request.
   const recipientRequestsDisabledAt = request.recipientRequestsDisabledAt ?? request.recipient_requests_disabled_at;
+  const recipientOptOutAt = Date.parse(recipientRequestsDisabledAt);
   const recipientOptedOutPendingRequest =
-    request.status === 'awaiting_recipient_consent' && recipientRequestsDisabledAt != null;
+    request.status === 'awaiting_recipient_consent' && Number.isFinite(recipientOptOutAt) && recipientOptOutAt <= now;
   if (!['delivery_failed', 'reported', 'blocked'].includes(request.status) &&
       !recipientOptedOutPendingRequest) {
     return deny('order_not_refundable_in_current_state');
