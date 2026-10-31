@@ -2907,6 +2907,7 @@ app.get('/api/admin/screenings', requireSession, async (req, res) => {
 });
 
 app.get('/api/admin/reports', requireSession, async (req, res) => {
+  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   const limit = Number.parseInt(String(req.query.limit ?? '50'), 10);
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) return res.status(400).json({ error: 'invalid_pagination' });
   try {
@@ -3011,6 +3012,7 @@ app.post('/api/admin/photos/:photoId/review', validateRequestOrigin, requireSess
 });
 
 app.get('/api/admin/audit-log', requireSession, async (req, res) => {
+  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   const limit = Number.parseInt(String(req.query.limit ?? '50'), 10);
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) return res.status(400).json({ error: 'invalid_pagination' });
   try {
