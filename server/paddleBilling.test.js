@@ -691,6 +691,42 @@ test('Paddle subscription cancellation requires a confirmed immediate cancellati
   assert.equal(cancellationPostCalls, 0, 'a foreign subscription must never receive a cancellation request');
 });
 
+test('Paddle subscription cancellation accepts an already-completed provider subscription without POST', async () => {
+  const { cancelPaddleSubscription } = await import('./paddleBilling.js');
+  const calls = [];
+  const result = await cancelPaddleSubscription({
+    apiKey: 'sandbox_api_key',
+    subscriptionId: 'sub_0123456789abcdef01234567',
+    customerId: 'ctm_0123456789abcdef01234567',
+    fetchImpl: async (url, options) => {
+      calls.push({ url, method: options.method });
+      return {
+        ok: true,
+        async json() {
+          return {
+            data: {
+              id: 'sub_0123456789abcdef01234567',
+              customer_id: 'ctm_0123456789abcdef01234567',
+              status: 'completed',
+              updated_at: '2026-10-31T12:00:00Z'
+            }
+          };
+        }
+      };
+    }
+  });
+  assert.deepEqual(result, {
+    subscriptionId: 'sub_0123456789abcdef01234567',
+    status: 'completed',
+    customerId: 'ctm_0123456789abcdef01234567',
+    updatedAt: '2026-10-31T12:00:00Z'
+  });
+  assert.deepEqual(calls, [{
+    url: 'https://sandbox-api.paddle.com/subscriptions/sub_0123456789abcdef01234567',
+    method: 'GET'
+  }]);
+});
+
 test('Paddle portal and cancellation helpers reject live environment and malformed IDs before network access', async () => {
   const { createPaddleCustomerPortalSession, cancelPaddleSubscription } = await import('./paddleBilling.js');
   let calls = 0;
