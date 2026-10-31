@@ -462,10 +462,11 @@ export async function cancelPaddleSubscription({
       lookupData?.customer_id !== customerId) {
     throw new Error('paddle_subscription_ownership_unconfirmed');
   }
-  if (String(lookupData.status || '').toLowerCase() === 'canceled') {
+  const providerStatus = String(lookupData.status || '').toLowerCase();
+  if (['canceled', 'completed'].includes(providerStatus)) {
     return {
       subscriptionId,
-      status: 'canceled',
+      status: providerStatus,
       customerId,
       updatedAt: typeof lookupData.updated_at === 'string' && Number.isFinite(Date.parse(lookupData.updated_at))
         ? lookupData.updated_at : null
