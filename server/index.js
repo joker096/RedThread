@@ -2161,24 +2161,59 @@ app.get('/api/matches/:matchId/messages', requireSession, requirePaidFeatures, a
   const limit = Math.min(100, Math.max(1, Number.parseInt(String(req.query.limit ?? '50'), 10) || 50));
   const offset = Math.min(5000, Math.max(0, Number.parseInt(String(req.query.offset ?? '0'), 10) || 0));
 
+  let client;
   try {
-    const access = await pool.query(
-      `SELECT 1 FROM matches WHERE id = $1 AND status = 'active'
-       AND (user_a_id = $2 OR user_b_id = $2) LIMIT 1`,
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const pair = await client.query(
+      `SELECT user_a_id, user_b_id FROM matches
+       WHERE id = $1 AND (user_a_id = $2 OR user_b_id = $2) LIMIT 1`,
       [req.params.matchId, req.authUser.id]
     );
-    if (access.rowCount === 0) return res.status(404).json({ error: 'match_not_found' });
+    if (!pair.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'match_not_found' });
+    }
 
-    const result = await pool.query(
+    const { user_a_id: userAId, user_b_id: userBId } = pair.rows[0];
+    // Reads participate in the same account-safety lock protocol as deletion
+    // and blocking. A stale session cannot read private history after either
+    // operation has won the lock.
+    await acquireGiftSafetyUserLocks(client, userAId, userBId);
+    const access = await client.query(
+      `SELECT 1
+       FROM matches m
+       JOIN users account_a ON account_a.id = m.user_a_id AND account_a.status = 'active'
+       JOIN users account_b ON account_b.id = m.user_b_id AND account_b.status = 'active'
+       WHERE m.id = $1 AND m.status = 'active'
+         AND (m.user_a_id = $2 OR m.user_b_id = $2)
+         AND NOT EXISTS (
+           SELECT 1 FROM user_blocks b
+           WHERE (b.blocker_id = m.user_a_id AND b.blocked_id = m.user_b_id)
+              OR (b.blocker_id = m.user_b_id AND b.blocked_id = m.user_a_id)
+         )
+       LIMIT 1`,
+      [req.params.matchId, req.authUser.id]
+    );
+    if (!access.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'match_not_found' });
+    }
+
+    const result = await client.query(
       `SELECT id, sender_id AS "senderId", body AS text, created_at AS "createdAt"
        FROM messages WHERE match_id = $1 AND deleted_at IS NULL
        ORDER BY created_at ASC LIMIT $2 OFFSET $3`,
       [req.params.matchId, limit, offset]
     );
+    await client.query('COMMIT');
     return res.json({ messages: result.rows, pagination: { limit, offset } });
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Message history failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'message_history_failed' });
+  } finally {
+    client?.release();
   }
 });
 
@@ -2251,16 +2286,35 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
 app.get('/api/notifications', requireSession, async (req, res) => {
   const limit = Number.parseInt(String(req.query.limit ?? '20'), 10);
   if (!Number.isInteger(limit) || limit < 1 || limit > 50) return res.status(400).json({ error: 'invalid_pagination' });
+  let client;
   try {
-    const result = await pool.query(
+    client = await pool.connect();
+    await client.query('BEGIN');
+    // Serialize notification reads with account deletion. requireSession may
+    // have authenticated immediately before deletion began, so recheck status
+    // only after acquiring the shared account-safety lock.
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const account = await client.query(
+      "SELECT 1 FROM users WHERE id = $1 AND status = 'active' LIMIT 1",
+      [req.authUser.id]
+    );
+    if (!account.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'not_authenticated' });
+    }
+    const result = await client.query(
       'SELECT id, type, metadata, created_at AS "createdAt", read_at AS "readAt" FROM user_notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2',
       [req.authUser.id, limit]
     );
-    const count = await pool.query('SELECT COUNT(*)::int AS count FROM user_notifications WHERE user_id = $1 AND read_at IS NULL', [req.authUser.id]);
+    const count = await client.query('SELECT COUNT(*)::int AS count FROM user_notifications WHERE user_id = $1 AND read_at IS NULL', [req.authUser.id]);
+    await client.query('COMMIT');
     return res.json({ notifications: result.rows, unreadCount: count.rows[0]?.count || 0 });
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Notification list failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'notification_list_failed' });
+  } finally {
+    client?.release();
   }
 });
 
