@@ -101,7 +101,7 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
     };
   }, [isOpen]);
 
-    useEffect(() => {
+  useEffect(() => {
     if (isDemoMode) return;
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = null;
