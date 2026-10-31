@@ -78,15 +78,15 @@ test('delivery_failed gift orders require persisted consent, address and fulfilm
       // fabricating a payment outcome or violating delivery-failure evidence.
       await client.query(
         `UPDATE gift_delivery_failed_constraint_test
-         SET status = 'blocked', address_vault_ref = NULL, address_verified_at = NULL
+         SET status = 'reported', address_vault_ref = NULL, address_verified_at = NULL
          WHERE status = 'delivery_failed'`
       );
       const safetyHeld = await client.query(
         `SELECT status, address_vault_ref, address_verified_at, payment_status
-         FROM gift_delivery_failed_constraint_test WHERE status = 'blocked'`
+         FROM gift_delivery_failed_constraint_test WHERE status = 'reported'`
       );
       assert.deepEqual(safetyHeld.rows[0], {
-        status: 'blocked',
+        status: 'reported',
         address_vault_ref: null,
         address_verified_at: null,
         payment_status: 'captured'
