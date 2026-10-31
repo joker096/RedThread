@@ -2309,10 +2309,10 @@ test('auth API supports registration, session lookup, logout and login', {
           headers: { Cookie: secondCookie }
         });
         // Photo upload performs image sanitization/moderation before acquiring
-        // its account lock, so it may legitimately reach the lock after the
-        // deletion transaction commits. All other stale requests must already
-        // be queued before releasing the test lock.
-        await waitForBlockedSafetyRequests(14);
+        // its account lock, and the assessment endpoint may be denied by the
+        // feature gate before reaching its handler. Neither is required to be
+        // queued here; their post-deletion responses are still asserted below.
+        await waitForBlockedSafetyRequests(13);
       } finally {
         await raceLock.query('COMMIT');
         raceLock.release();
