@@ -1281,7 +1281,8 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     }
 
     const billingStateResult = await client.query(
-      `SELECT paddle_customer_id, paddle_subscription_id, paddle_subscription_status, premium_until, premium_lifetime
+      `SELECT paddle_customer_id, paddle_subscription_id, paddle_subscription_status,
+              premium_until, premium_lifetime, statement_timestamp() AS billing_snapshot_at
        FROM users WHERE id = $1 AND status = 'active'`,
       [req.authUser.id]
     );
@@ -1289,6 +1290,13 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     const subscriptionId = billingState?.paddle_subscription_id;
     const customerId = billingState?.paddle_customer_id;
     const subscriptionStatus = String(billingState?.paddle_subscription_status || '').toLowerCase();
+    const billingSnapshotTime = billingState?.billing_snapshot_at
+      ? new Date(billingState.billing_snapshot_at).getTime() : Date.now();
+    const premiumUntilTime = billingState?.premium_until == null
+      ? null : new Date(billingState.premium_until).getTime();
+    const unresolvedTimedPremium = premiumUntilTime !== null &&
+      (!Number.isFinite(premiumUntilTime) || !Number.isFinite(billingSnapshotTime) ||
+        premiumUntilTime > billingSnapshotTime);
 
     // A pending checkout must be canceled at Paddle before the account can be deleted.
     const checkoutAttemptResult = await client.query(
@@ -1375,8 +1383,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
       }
     } else if (!subscriptionId && (
       (subscriptionStatus && !['canceled', 'completed'].includes(subscriptionStatus)) ||
-      (billingState?.premium_lifetime !== true &&
-        billingState?.premium_until && new Date(billingState.premium_until).getTime() > Date.now())
+      (billingState?.premium_lifetime !== true && unresolvedTimedPremium)
     )) {
       // An unresolved provider status or timed Premium without its provider ID
       // cannot be safely canceled; never delete the account and leave renewal behind.
