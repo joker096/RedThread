@@ -200,6 +200,7 @@ test('state transitions enforce actors, consent, persisted states, and terminal 
   assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'refund_pending', actor: 'system' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'refund_pending', actor: 'system', paymentStatus: 'authorized' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'refund_pending', actor: 'system', paymentStatus: 'captured' }), true);
+  assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'reported', actor: 'recipient', paymentStatus: 'captured' }), true, 'a report must suspend a failed delivery without losing refund eligibility');
   assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'refund_pending', actor: 'sender' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'refund_pending', to: 'refunded', actor: 'trusted_payment_service' }), false);
   assert.equal(canTransitionGiftOrder({ from: 'refund_pending', to: 'refunded', actor: 'payment_service' }), false);
