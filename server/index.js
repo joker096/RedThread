@@ -50,6 +50,34 @@ const pool = databaseUrl
     })
   : null;
 
+async function withActiveAccountRead(userId, callback) {
+  const client = await pool.connect();
+  let transactionOpen = false;
+  try {
+    await client.query('BEGIN');
+    transactionOpen = true;
+    await acquireGiftSafetyUserLocks(client, userId);
+    const account = await client.query(
+      "SELECT 1 FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [userId]
+    );
+    if (!account.rowCount) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return { active: false };
+    }
+    const value = await callback(client);
+    await client.query('COMMIT');
+    transactionOpen = false;
+    return { active: true, value };
+  } catch (error) {
+    if (transactionOpen) await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 app.disable('x-powered-by');
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -1590,8 +1618,9 @@ app.get('/api/photos/:photoId', requireSession, async (req,res) => {
 
 app.get('/api/assessment', requireSession, requirePaidFeatures, async (req, res) => {
   try {
-    const result = await pool.query('SELECT answers, assessment_version AS "assessmentVersion", completed_at AS "completedAt", updated_at AS "updatedAt" FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
-    return res.json({ assessment: result.rows[0] || null, version: ASSESSMENT_VERSION });
+    const read = await withActiveAccountRead(req.authUser.id, client => client.query('SELECT answers, assessment_version AS "assessmentVersion", completed_at AS "completedAt", updated_at AS "updatedAt" FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]));
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    return res.json({ assessment: read.value.rows[0] || null, version: ASSESSMENT_VERSION });
   } catch (error) {
     console.error('Assessment read failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'assessment_read_failed' });
@@ -1651,7 +1680,7 @@ app.delete('/api/assessment', validateRequestOrigin, requireSession, async (req,
 
 app.get('/api/profiles/me', requireSession, async (req, res) => {
   try {
-    const result = await pool.query(
+    const read = await withActiveAccountRead(req.authUser.id, client => client.query(
       `SELECT user_id AS id, display_name AS "displayName",
         EXTRACT(YEAR FROM AGE(CURRENT_DATE, birth_date))::int AS age,
         gender, country, city, bio, photo_urls AS "photoUrls", occupation, education, languages,
@@ -1661,9 +1690,10 @@ app.get('/api/profiles/me', requireSession, async (req, res) => {
          wants_children AS "wantsChildren", children_living_arrangement AS "childrenLivingArrangement"
        FROM profiles WHERE user_id = $1`,
       [req.authUser.id]
-    );
-    if (!result.rows[0]) return res.status(404).json({ error: 'profile_not_found' });
-    return res.json({ profile: result.rows[0] });
+    ));
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    if (!read.value.rows[0]) return res.status(404).json({ error: 'profile_not_found' });
+    return res.json({ profile: read.value.rows[0] });
   } catch (error) {
     console.error('Profile read failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'profile_read_failed' });
@@ -2395,13 +2425,14 @@ app.post('/api/notifications/:notificationId/read', validateRequestOrigin, requi
 
 app.get('/api/blocks', requireSession, async (req, res) => {
   try {
-    const result = await pool.query(
+    const read = await withActiveAccountRead(req.authUser.id, client => client.query(
       `SELECT b.blocked_id AS id, p.display_name AS "displayName", b.created_at AS "createdAt"
        FROM user_blocks b JOIN profiles p ON p.user_id = b.blocked_id
        WHERE b.blocker_id = $1 ORDER BY b.created_at DESC`,
       [req.authUser.id]
-    );
-    return res.json({ blocks: result.rows });
+    ));
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    return res.json({ blocks: read.value.rows });
   } catch (error) {
     console.error('Block list failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'block_list_failed' });
@@ -2853,12 +2884,13 @@ app.get('/api/gifts/catalog', requireSession, requirePaidFeatures, profileAction
 
 app.get('/api/gifts/preferences', requireSession, async (req, res) => {
   try {
-    const result = await pool.query(
+    const read = await withActiveAccountRead(req.authUser.id, client => client.query(
       'SELECT requests_enabled FROM gift_receiving_preferences WHERE user_id = $1',
       [req.authUser.id]
-    );
+    ));
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
     const { serializeGiftReceivingPreferences } = await import('./giftReceivingPreferences.js');
-    return res.json({ preferences: serializeGiftReceivingPreferences(result.rows[0]) });
+    return res.json({ preferences: serializeGiftReceivingPreferences(read.value.rows[0]) });
   } catch (error) {
     console.error('Gift receiving preferences read failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'gift_preferences_unavailable' });
@@ -3325,7 +3357,7 @@ app.post('/api/gifts/orders/:publicReference/withdraw-consent', validateRequestO
 
 app.get('/api/gifts/orders', requireSession, profileActionLimiter, async (req, res) => {
   try {
-    const result = await pool.query(
+    const read = await withActiveAccountRead(req.authUser.id, client => client.query(
       `SELECT public_reference AS "publicReference", product_name_snapshot AS "productName",
               product_category AS "productCategory", CASE
                 WHEN total_minor_units BETWEEN 0 AND 9007199254740991::bigint
@@ -3345,7 +3377,9 @@ app.get('/api/gifts/orders', requireSession, profileActionLimiter, async (req, r
        ORDER BY created_at DESC
        LIMIT 50`,
       [req.authUser.id]
-    );
+    ));
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    const result = read.value;
     // PostgreSQL int8 values otherwise serialize as decimal strings, which the
     // privacy-safe UI intentionally rejects. Keep only exact safe-integer prices.
     // Expiry and recipient opt-out are projected independently of payment state:
@@ -3372,15 +3406,16 @@ app.get('/api/gifts/orders', requireSession, profileActionLimiter, async (req, r
 
 app.get('/api/ads/consent', requireSession, async (req, res) => {
   try {
-    const result = await pool.query(
+    const read = await withActiveAccountRead(req.authUser.id, client => client.query(
       `SELECT ads_consent, date_offers_consent, wedding_offers_consent,
               marriage_planning_opt_in, category_consents, consent_version
        FROM ad_consent_preferences WHERE user_id = $1`,
       [req.authUser.id]
-    );
+    ));
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
     return res.json({
       version: AD_CONSENT_VERSION,
-      preferences: serializeAdConsentPreferences(result.rows[0])
+      preferences: serializeAdConsentPreferences(read.value.rows[0])
     });
   } catch (error) {
     console.error('Ad consent preferences read failed:', error?.message || 'unknown error');
