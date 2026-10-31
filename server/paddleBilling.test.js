@@ -1246,8 +1246,8 @@ test('malformed Paddle subscription period timestamps persist no entitlement', a
   assert.deepEqual(result, { duplicate: false, handled: true });
   const update = queries.find(query => query.sql.includes('UPDATE users SET'));
   assert.ok(update, 'lifecycle status should still be persisted');
-  assert.equal(update.params[6], false, 'malformed period end must never grant Premium');
-  assert.equal(update.params[7], null, 'malformed period end must be stored as no billing period');
+  assert.equal(update.params[5], false, 'malformed period end must never grant Premium');
+  assert.equal(update.params[6], null, 'malformed period end must be stored as no billing period');
   assert.equal(queries.some(query => query.sql === 'COMMIT'), true);
   assert.equal(queries.some(query => query.sql === 'ROLLBACK'), false);
 });
