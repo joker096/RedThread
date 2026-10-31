@@ -82,10 +82,10 @@ test('Paddle checkout attempts enforce one durable attempt and fail-closed trans
       await client.query(
         `INSERT INTO paddle_checkout_attempt_identity_test (user_id, attempt_id, status, transaction_id)
          VALUES
-           ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'pending', 'txn_active123'),
-           (NULL, 'creating', NULL),
-           ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'canceled', 'txn_canceled123'),
-           ('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'linked', 'txn_linked123')`
+           ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'pending', 'txn_active123'),
+           ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', NULL, 'creating', NULL),
+           ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'canceled', 'txn_canceled123'),
+           ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'linked', 'txn_linked123')`
       );
       const rejectedChanges = [
         {
