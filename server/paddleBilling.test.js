@@ -51,49 +51,54 @@ test('malformed and unknown-status subscription events cannot be entitled', () =
 
 
 
-test('subscription lifecycle events require a valid source timestamp before database access', async () => {
+test('malformed subscription lifecycle events are acknowledged without entitlement updates', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
-  let connectCalls = 0;
-  const pool = { async connect() { connectCalls += 1; throw new Error('should_not_connect'); } };
-
-  await assert.rejects(
-    processPaddleEvent(pool, {
+  const queries = [];
+  const client = {
+    async query(sql) {
+      queries.push(String(sql));
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: 'evt_malformed_lifecycle' }] };
+      }
+      return { rowCount: 0, rows: [] };
+    },
+    release() {}
+  };
+  const pool = { async connect() { return client; } };
+  const malformedEvents = [
+    {
       eventId: 'evt_missing_timestamp',
       eventType: 'subscription.updated',
-      data: { id: 'sub_1', status: 'active', currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' } }
-    }),
-    { message: 'invalid_paddle_event_timestamp' }
-  );
-  await assert.rejects(
-    processPaddleEvent(pool, {
+      data: { id: 'sub_valid123', status: 'active', currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' } }
+    },
+    {
       eventId: 'evt_invalid_timestamp',
       eventType: 'subscription.updated',
       occurredAt: 'not-a-timestamp',
-      data: { id: 'sub_1', status: 'active', currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' } }
-    }),
-    { message: 'invalid_paddle_event_timestamp' }
-  );
-  await assert.rejects(
-    processPaddleEvent(pool, {
+      data: { id: 'sub_valid123', status: 'active', currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' } }
+    },
+    {
       eventId: 'evt_missing_subscription_id',
       eventType: 'subscription.updated',
       occurredAt: '2026-10-24T20:00:00Z',
       data: { status: 'active', currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' } }
-    }),
-    { message: 'invalid_paddle_subscription_id' }
-  );
-  await assert.rejects(
-    processPaddleEvent(pool, {
+    },
+    {
       eventId: 'evt_malformed_subscription_id',
       eventType: 'subscription.updated',
       occurredAt: '2026-10-24T20:00:00Z',
       data: { id: 'txn_not_a_subscription', status: 'active', currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' } }
-    }),
-    { message: 'invalid_paddle_subscription_id' }
-  );
-  assert.equal(connectCalls, 0);
-});
+    }
+  ];
 
+  for (const event of malformedEvents) {
+    assert.deepEqual(await processPaddleEvent(pool, event), { duplicate: false, handled: true });
+  }
+  assert.equal(queries.filter(sql => sql.includes('INSERT INTO paddle_webhook_events')).length, 4);
+  assert.equal(queries.some(sql => sql.includes('UPDATE users')), false);
+  assert.equal(queries.filter(sql => sql === 'COMMIT').length, 4);
+  assert.equal(queries.some(sql => sql === 'ROLLBACK'), false);
+});
 test('subscription updates compare source timestamps and do not bypass ordering when missing', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const queries = [];
