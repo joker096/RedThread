@@ -2260,7 +2260,10 @@ test('auth API supports registration, session lookup, logout and login', {
           method: 'POST',
           body: JSON.stringify({ email, password })
         });
-        await waitForBlockedSafetyRequests(6);
+        // The photo route performs image sanitization/moderation before it
+        // enters the account lock queue, so it may still be processing here.
+        // The other four stale requests plus deletion must be visibly queued.
+        await waitForBlockedSafetyRequests(5);
       } finally {
         await raceLock.query('COMMIT');
         raceLock.release();
