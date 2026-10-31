@@ -40,25 +40,28 @@ export function isPaddleSubscriptionEntitled(status, periodEnd, now = Date.now()
 }
 
 async function markPaddleCheckoutAttemptForReconciliation(client, userId, plan, transactionId, attemptId = null) {
-  if (typeof userId !== 'string' ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId) ||
-      !['1month', '3months', 'lifetime'].includes(plan) ||
-      typeof transactionId !== 'string' || !/^txn_[A-Za-z0-9]+$/.test(transactionId) ||
-      (attemptId !== null && (typeof attemptId !== 'string' ||
-        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(attemptId)))) {
+  const validUserId = typeof userId === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId);
+  const validAttemptId = typeof attemptId === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(attemptId);
+  const validTransactionId = typeof transactionId === 'string' &&
+    /^txn_[A-Za-z0-9]+$/.test(transactionId);
+  if (!validUserId ||
+      (!validAttemptId && (!['1month', '3months', 'lifetime'].includes(plan) || !validTransactionId))) {
     return 0;
   }
+  const safeTransactionId = validTransactionId ? transactionId : null;
   const result = await client.query(
     `UPDATE paddle_checkout_attempts
      SET status = 'reconciliation_required', updated_at = statement_timestamp()
-     WHERE user_id = $1 AND plan = $2
+     WHERE user_id = $1
        AND (
          ($4::uuid IS NOT NULL AND attempt_id = $4::uuid)
-         OR ($4::uuid IS NULL AND transaction_id = $3)
+         OR ($4::uuid IS NULL AND plan = $2 AND transaction_id = $3)
        )
-       AND (transaction_id IS NULL OR transaction_id = $3)
+       AND ($3::text IS NULL OR transaction_id IS NULL OR transaction_id = $3)
        AND status IN ('creating', 'pending', 'completed', 'reconciliation_required')`,
-    [userId, plan, transactionId, attemptId]
+    [userId, plan, safeTransactionId, validAttemptId ? attemptId : null]
   );
   return result.rowCount;
 }
@@ -266,11 +269,11 @@ export async function processPaddleEvent(pool, rawEvent) {
       // otherwise one bad event can retry forever and poison webhook delivery.
       if (typeof data.id !== 'string' || !/^txn_[A-Za-z0-9]+$/.test(data.id) ||
           (subscriptionId !== null && !/^sub_[A-Za-z0-9]+$/.test(subscriptionId))) {
-        if (typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
-          await markPaddleCheckoutAttemptForReconciliation(
-            client, reconciliationContext.userId, reconciliationContext.plan, data.id, reconciliationContext.attemptId
-          );
-        }
+        await markPaddleCheckoutAttemptForReconciliation(
+          client, reconciliationContext.userId, reconciliationContext.plan,
+          typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id) ? data.id : null,
+          reconciliationContext.attemptId
+        );
         await client.query('COMMIT');
         return { duplicate: false, handled: true };
       }
