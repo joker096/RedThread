@@ -562,7 +562,7 @@ function isValidPaddleTransactionId(value) {
   return typeof value === 'string' && /^txn_[A-Za-z0-9]+$/.test(value);
 }
 
-async function fetchPaddleTransaction({ apiKey, transactionId, expectedUserId, expectedPlan, fetchImpl }) {
+async function fetchPaddleTransaction({ apiKey, transactionId, expectedUserId, expectedPlan, expectedAttemptId = null, fetchImpl }) {
   if (typeof apiKey !== 'string' || !apiKey || !isValidPaddleTransactionId(transactionId) ||
       typeof expectedUserId !== 'string' || !expectedUserId ||
       !['1month', '3months', 'lifetime'].includes(expectedPlan) || typeof fetchImpl !== 'function') {
@@ -580,7 +580,8 @@ async function fetchPaddleTransaction({ apiKey, transactionId, expectedUserId, e
   const data = payload?.data;
   if (!response.ok || data?.id !== transactionId ||
       data?.custom_data?.userId !== expectedUserId ||
-      data?.custom_data?.plan !== expectedPlan) {
+      data?.custom_data?.plan !== expectedPlan ||
+      (expectedAttemptId !== null && data?.custom_data?.checkoutAttemptId !== expectedAttemptId)) {
     throw new Error('paddle_transaction_ownership_unconfirmed');
   }
   return {
@@ -598,10 +599,11 @@ export async function getPaddleCheckoutTransaction({
   transactionId,
   expectedUserId,
   expectedPlan,
+  expectedAttemptId = null,
   fetchImpl = globalThis.fetch
 } = {}) {
   if (environment !== 'sandbox') throw new Error('paddle_transaction_lookup_not_configured');
-  return fetchPaddleTransaction({ apiKey, transactionId, expectedUserId, expectedPlan, fetchImpl });
+  return fetchPaddleTransaction({ apiKey, transactionId, expectedUserId, expectedPlan, expectedAttemptId, fetchImpl });
 }
 
 /** Cancel only an unpaid draft/ready transaction that is proven to belong to this user and plan. */
@@ -611,11 +613,12 @@ export async function cancelPaddleCheckoutTransaction({
   transactionId,
   expectedUserId,
   expectedPlan,
+  expectedAttemptId = null,
   fetchImpl = globalThis.fetch
 } = {}) {
   if (environment !== 'sandbox') throw new Error('paddle_transaction_cancel_not_configured');
   const transaction = await fetchPaddleTransaction({
-    apiKey, transactionId, expectedUserId, expectedPlan, fetchImpl
+    apiKey, transactionId, expectedUserId, expectedPlan, expectedAttemptId, fetchImpl
   });
   if (transaction.status === 'canceled') return transaction;
   if (!['draft', 'ready'].includes(transaction.status)) return transaction;
