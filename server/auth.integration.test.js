@@ -1919,10 +1919,8 @@ test('auth API supports registration, session lookup, logout and login', {
         'moderation suspension must enqueue provider reconciliation without claiming the captured payment was refunded');
 
       const deletedTargetReport = await moderationSafetyDb.query(
-        \`INSERT INTO user_reports (reporter_id, reported_user_id, category, details)
-         VALUES ($1, $2, 'safety', 'Integration test: do not overwrite deleted account status')
-         RETURNING id\`,
-        [registered.user.id, maleRegistered.user.id]
+        'INSERT INTO user_reports (reporter_id, reported_user_id, category, details) VALUES ($1, $2, $3, $4) RETURNING id',
+        [registered.user.id, maleRegistered.user.id, 'safety', 'Integration test: do not overwrite deleted account status']
       );
       deletedTargetReportId = deletedTargetReport.rows[0].id;
       await moderationSafetyDb.query(
