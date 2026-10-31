@@ -15,6 +15,7 @@ import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
 import express from 'express';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
+import { withPooledTransaction } from './withPooledTransaction.js';
 import rateLimit from 'express-rate-limit';
 import { PostgresRateLimitStore } from './postgresRateLimitStore.js';
 import pg from 'pg';
@@ -51,31 +52,16 @@ const pool = databaseUrl
   : null;
 
 async function withActiveAccountRead(userId, callback) {
-  const client = await pool.connect();
-  let transactionOpen = false;
-  try {
-    await client.query('BEGIN');
-    transactionOpen = true;
+  return withPooledTransaction(pool, async client => {
     await acquireGiftSafetyUserLocks(client, userId);
     const account = await client.query(
       "SELECT 1 FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
       [userId]
     );
-    if (!account.rowCount) {
-      await client.query('ROLLBACK');
-      transactionOpen = false;
-      return { active: false };
-    }
+    if (!account.rowCount) return { active: false };
     const value = await callback(client);
-    await client.query('COMMIT');
-    transactionOpen = false;
     return { active: true, value };
-  } catch (error) {
-    if (transactionOpen) await client.query('ROLLBACK').catch(() => {});
-    throw error;
-  } finally {
-    client.release();
-  }
+  });
 }
 async function withActiveModeratorRead(userId, callback) {
   return withActiveAccountRead(userId, async client => {
