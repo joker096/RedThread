@@ -45,6 +45,64 @@ test('Paddle checkout attempts enforce one durable attempt and fail-closed trans
     assert.match(attemptIdentityIndex.rows[0].indexdef, /UNIQUE INDEX/);
     assert.match(attemptIdentityIndex.rows[0].indexdef, /WHERE .*attempt_id IS NOT NULL/);
 
+    const attemptIdentityTrigger = await client.query(
+      `SELECT t.tgname, pg_get_triggerdef(t.oid) AS definition
+       FROM pg_trigger t
+       WHERE t.tgrelid = 'paddle_checkout_attempts'::regclass
+         AND t.tgname = 'paddle_checkout_attempts_identity_immutable'
+         AND NOT t.tgisinternal`
+    );
+    assert.equal(attemptIdentityTrigger.rowCount, 1,
+      'migration 106 must make the server-generated attempt identity immutable');
+    assert.match(attemptIdentityTrigger.rows[0].definition, /BEFORE UPDATE OF attempt_id/);
+
+    const attemptIdentityFunction = await client.query(
+      `SELECT pg_get_functiondef('prevent_paddle_checkout_attempt_identity_change()'::regprocedure) AS definition`
+    );
+    assert.match(attemptIdentityFunction.rows[0].definition, /NEW\.attempt_id IS DISTINCT FROM OLD\.attempt_id/);
+    assert.match(attemptIdentityFunction.rows[0].definition, /paddle checkout attempt identity is immutable/);
+
+    await client.query('BEGIN');
+    try {
+      await client.query(`
+        CREATE TEMP TABLE paddle_checkout_attempt_identity_test (
+          attempt_id uuid
+        ) ON COMMIT DROP
+      `);
+      await client.query(`
+        CREATE TRIGGER paddle_checkout_attempts_identity_immutable_test
+        BEFORE UPDATE OF attempt_id ON paddle_checkout_attempt_identity_test
+        FOR EACH ROW EXECUTE FUNCTION prevent_paddle_checkout_attempt_identity_change()
+      `);
+      await client.query(
+        "INSERT INTO paddle_checkout_attempt_identity_test (attempt_id) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'), (NULL)"
+      );
+      for (const [oldValue, newValue] of [
+        ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'],
+        [null, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'],
+        ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', null]
+      ]) {
+        await client.query('SAVEPOINT immutable_attempt_identity');
+        let updateError;
+        try {
+          await client.query(
+            'UPDATE paddle_checkout_attempt_identity_test SET attempt_id = $1 WHERE attempt_id IS NOT DISTINCT FROM $2::uuid',
+            [newValue, oldValue]
+          );
+        } catch (error) {
+          updateError = error;
+        }
+        assert.equal(updateError?.code, '23514',
+          `attempt identity must reject mutation from ${String(oldValue)} to ${String(newValue)}`);
+        await client.query('ROLLBACK TO SAVEPOINT immutable_attempt_identity');
+        await client.query('RELEASE SAVEPOINT immutable_attempt_identity');
+      }
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    }
+
 
     const requiredTransaction = await client.query(
       `SELECT pg_get_constraintdef(oid) AS definition
