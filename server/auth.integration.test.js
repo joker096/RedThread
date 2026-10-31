@@ -622,8 +622,6 @@ test('auth API supports registration, session lookup, logout and login', {
         await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [expiredAcceptanceOrderId]).catch(() => {});
       }
 
-
-
       // Active payment states must not be silently declined or cancelled.
       // Gift payment processing is not integrated, so these requests stay
       // pending for explicit reconciliation rather than faking a void/refund.
