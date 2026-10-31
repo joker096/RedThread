@@ -107,6 +107,13 @@ export default function App() {
   const [superLikesCount, setSuperLikesCount] = useState(3);
   const [boostActive, setBoostActive] = useState(false);
 
+  useEffect(() => {
+    if (discoveryMode === 'demo') return;
+    // Never display local demo inventory or boosts as real server entitlements.
+    setSuperLikesCount(0);
+    setBoostActive(false);
+  }, [discoveryMode]);
+
   // Ad Stats
   // Live ad metrics start at zero; production values must come from the ad provider.
   const [adStats, setAdStats] = useState<AdStats>({
