@@ -1203,14 +1203,18 @@ async function enqueueGiftSafetyPaymentReconciliation(client, gift, { actorUserI
 
 async function suspendGiftOrdersForUser(client, userId, { actorUserId = null, actorType = 'system', reason = 'account_safety_event' } = {}) {
   // Use the same pair-level lock as accept/block/report, in stable order, before
-  // touching gift rows. This prevents a concurrent acceptance from restoring
-  // address access after deletion or moderator suspension.
+  // touching gift rows. Also include completed deliveries with a retained vault
+  // pointer: account deletion/moderator suspension must revoke every address
+  // capability, not only addresses on orders that are still in fulfilment.
   const pairs = await client.query(
     `SELECT DISTINCT LEAST(sender_id, recipient_id)::text AS user_a,
             GREATEST(sender_id, recipient_id)::text AS user_b
      FROM gift_delivery_orders
      WHERE (sender_id = $1 OR recipient_id = $1)
-       AND status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivery_failed')
+       AND (
+         status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivery_failed')
+         OR address_vault_ref IS NOT NULL
+       )
      ORDER BY user_a, user_b`,
     [userId]
   );
@@ -1223,19 +1227,26 @@ async function suspendGiftOrdersForUser(client, userId, { actorUserId = null, ac
 
   const suspended = await client.query(
     `WITH candidates AS (
-       SELECT id, status AS previous_status
+       SELECT id, status AS previous_status, (address_vault_ref IS NOT NULL) AS had_address_pointer
        FROM gift_delivery_orders
        WHERE (sender_id = $1 OR recipient_id = $1)
-         AND status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivery_failed')
+         AND (
+           status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivery_failed')
+           OR address_vault_ref IS NOT NULL
+         )
        ORDER BY id
        FOR UPDATE
      )
      UPDATE gift_delivery_orders AS o
-     SET status = CASE WHEN c.previous_status IN ('dispatched', 'delivery_failed') THEN 'reported' ELSE 'blocked' END,
+     SET status = CASE
+           WHEN c.previous_status IN ('dispatched', 'delivery_failed') THEN 'reported'
+           WHEN c.previous_status IN ('reported', 'blocked', 'delivered', 'declined', 'expired', 'cancelled', 'refund_pending', 'refunded') THEN c.previous_status
+           ELSE 'blocked'
+         END,
          address_vault_ref = NULL, address_verified_at = NULL, updated_at = statement_timestamp()
      FROM candidates AS c
      WHERE o.id = c.id
-     RETURNING o.id, c.previous_status, o.status AS next_status, o.payment_status`,
+     RETURNING o.id, c.previous_status, c.had_address_pointer, o.status AS next_status, o.payment_status`,
     [userId]
   );
   for (const gift of suspended.rows) {
@@ -1243,9 +1254,15 @@ async function suspendGiftOrdersForUser(client, userId, { actorUserId = null, ac
       `INSERT INTO gift_delivery_order_events
          (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
        VALUES ($1, $2, $3, 'safety_hold', $4, $5, $6::jsonb)`,
-      [gift.id, actorUserId, actorType, gift.previous_status, gift.next_status, JSON.stringify({ reason: normalizeGiftSafetyAuditReason(reason) })]
+      [gift.id, actorUserId, actorType, gift.previous_status, gift.next_status, JSON.stringify({
+        reason: normalizeGiftSafetyAuditReason(reason),
+        addressRevoked: gift.had_address_pointer
+      })]
     );
-    await enqueueGiftSafetyPaymentReconciliation(client, gift, { actorUserId, actorType });
+    // A completed delivery needs address revocation but no payment reversal.
+    if (gift.previous_status !== 'delivered' && gift.previous_status !== 'refund_pending') {
+      await enqueueGiftSafetyPaymentReconciliation(client, gift, { actorUserId, actorType });
+    }
   }
   return suspended.rowCount;
 }
