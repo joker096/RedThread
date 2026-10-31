@@ -14,6 +14,12 @@ BEGIN
             MESSAGE = 'paddle checkout attempt ownership is immutable';
   END IF;
 
+  terminal_rollover := OLD.status IN ('canceled', 'linked')
+    AND NEW.status = 'creating'
+    AND NEW.attempt_id IS NOT NULL
+    AND NEW.attempt_id IS DISTINCT FROM OLD.attempt_id
+    AND NEW.transaction_id IS NULL;
+
   IF NEW.status IS DISTINCT FROM OLD.status
      AND NOT terminal_rollover
      AND NOT (
@@ -27,11 +33,6 @@ BEGIN
             MESSAGE = 'invalid paddle checkout attempt state transition';
   END IF;
 
-  terminal_rollover := OLD.status IN ('canceled', 'linked')
-    AND NEW.status = 'creating'
-    AND NEW.attempt_id IS NOT NULL
-    AND NEW.attempt_id IS DISTINCT FROM OLD.attempt_id
-    AND NEW.transaction_id IS NULL;
 
   IF OLD.status IN ('canceled', 'linked')
      AND (
