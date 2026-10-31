@@ -456,6 +456,12 @@ export default function App() {
   // Superlike
   const handleSuperLike = (target: UserProfile) => {
     if (target.isSponsorAd || target.superLikedByMe) return false;
+    // Super-like inventory and rewarded-video credits are demo-only until
+    // server-side inventory and a trusted ad-provider receipt are implemented.
+    if (discoveryMode !== 'demo') {
+      setIsAdManagerOpen(true);
+      return false;
+    }
     if (superLikesCount > 0) {
       setSuperLikesCount(prev => prev - 1);
     } else if (currentGender === 'male') {
@@ -573,6 +579,7 @@ export default function App() {
 
   // Rewarded ad completed
   const handleWatchRewardedAd = () => {
+    if (discoveryMode !== 'demo') return;
     setSuperLikesCount(prev => prev + 3);
     setBoostActive(true);
     setAdStats(prev => ({
@@ -1155,6 +1162,7 @@ export default function App() {
         onWatchRewardedAd={handleWatchRewardedAd}
         superLikesCount={superLikesCount}
         boostActive={boostActive}
+        isDemoMode={discoveryMode === 'demo'}
       />
 
       {/* 5. Filter Drawer */}
