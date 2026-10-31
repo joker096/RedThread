@@ -104,6 +104,7 @@ export async function processPaddleEvent(pool, rawEvent) {
         "SELECT pg_advisory_xact_lock(hashtext('gift-safety-user:' || $1::uuid::text))",
         [paddleIdentityUserId]
       );
+      reconciliationContext.userId = paddleIdentityUserId;
     }
     const customerId = typeof data.customerId === 'string' ? data.customerId
       : typeof data.customer_id === 'string' ? data.customer_id
@@ -344,14 +345,13 @@ export async function processPaddleEvent(pool, rawEvent) {
       // dedupe row, and mark the matching checkout attempt for manual review.
       await client.query('ROLLBACK TO SAVEPOINT paddle_event_effects');
       if (['transaction.completed', 'subscription.created', 'subscription.updated', 'subscription.canceled'].includes(eventType) &&
-          reconciliationContext?.userId &&
-          ['1month', '3months', 'lifetime'].includes(reconciliationContext.plan)) {
+          reconciliationContext?.userId) {
         await client.query(
           `UPDATE paddle_checkout_attempts
            SET status = 'reconciliation_required', updated_at = statement_timestamp()
-           WHERE user_id = $1 AND plan = $2
-             AND status IN ('creating', 'pending', 'completed', 'reconciliation_required')`,
-          [reconciliationContext.userId, reconciliationContext.plan]
+           WHERE user_id = $1
+             AND status IN ('creating', 'pending', 'completed', 'linked', 'reconciliation_required')`,
+          [reconciliationContext.userId]
         );
       }
       await client.query('COMMIT');
