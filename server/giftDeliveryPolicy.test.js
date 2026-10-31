@@ -202,6 +202,10 @@ test('state transitions enforce actors, consent, persisted states, and terminal 
   assert.equal(canTransitionGiftOrder({ from: 'delivery_failed', to: 'refund_pending', actor: 'system', paymentStatus: 'captured' }), true);
   assert.equal(canTransitionGiftOrder({ from: 'blocked', to: 'refund_pending', actor: 'system', paymentStatus: 'captured' }), true,
     'a pre-dispatch safety block must retain a controlled refund path');
+  assert.equal(canTransitionGiftOrder({ from: 'blocked', to: 'cancelled', actor: 'system', paymentStatus: 'authorized' }), false,
+    'a blocked order cannot be cancelled before the provider confirms the authorization was voided');
+  assert.equal(canTransitionGiftOrder({ from: 'blocked', to: 'cancelled', actor: 'system', paymentStatus: 'voided' }), true,
+    'a blocked order can terminalize after its payment is confirmed voided');
   assert.equal(canTransitionGiftOrder({ from: 'blocked', to: 'refund_pending', actor: 'sender', paymentStatus: 'captured' }), false,
     'senders cannot initiate refunds for safety-held orders');
   assert.equal(canTransitionGiftOrder({ from: 'awaiting_recipient_consent', to: 'refund_pending', actor: 'system', paymentStatus: 'captured' }), false,
