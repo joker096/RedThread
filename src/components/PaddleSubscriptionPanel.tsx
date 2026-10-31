@@ -80,6 +80,7 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
           statusResponse.json() as Promise<{ premiumActive?: boolean; premiumLifetime?: boolean; billingManageable?: boolean; billingNeedsAttention?: boolean; pendingCheckoutStatus?: string | null; pendingCheckoutPlan?: Plan['id'] | null }>
         ]);
         if (!response.ok || !statusResponse.ok) throw new Error('paddle_status_unavailable');
+        if (cancelled || !isCurrentPaddleSessionAction(loadEpoch, sessionEpoch.current)) return;
         if (!cancelled && isCurrentPaddleSessionAction(loadEpoch, sessionEpoch.current)) {
           setPremiumActive(status.premiumActive === true);
           setPremiumLifetime(status.premiumLifetime === true);
@@ -93,7 +94,7 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
           return;
         }
         const paddle = await initializePaddle({ token: next.clientToken, environment: 'sandbox' });
-        if (cancelled) return;
+        if (cancelled || !isCurrentPaddleSessionAction(loadEpoch, sessionEpoch.current)) return;
         if (!paddle) throw new Error('paddle_sdk_initialization_failed');
         paddleRef.current = paddle as unknown as PaddleRuntime;
         setConfig(next);
@@ -109,19 +110,23 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
               return [plan.id, null] as const;
             }
           }));
-          if (!cancelled) setPrices(Object.fromEntries(previews.filter(entry => Boolean(entry[1])) as Array<readonly [string, string]>));
+          if (!cancelled && isCurrentPaddleSessionAction(loadEpoch, sessionEpoch.current)) setPrices(Object.fromEntries(previews.filter(entry => Boolean(entry[1])) as Array<readonly [string, string]>));
         }
       } catch {
-        if (!cancelled) {
+        if (!cancelled && isCurrentPaddleSessionAction(loadEpoch, sessionEpoch.current)) {
           setConfig({ configured: false, environment: 'sandbox', plans: [] });
           setNotice('Не удалось подключить Paddle Sandbox. Проверьте test-токен и настройки.');
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && isCurrentPaddleSessionAction(loadEpoch, sessionEpoch.current)) setLoading(false);
       }
     };
     const refreshOnSession = () => {
-      const epoch = ++sessionEpoch.current;
+      sessionEpoch.current += 1;
+      setConfig(null);
+      setPrices({});
+      paddleRef.current = null;
+      setLoading(true);
       setPremiumActive(false);
       setPremiumLifetime(false);
       setBillingManageable(false);
@@ -132,28 +137,7 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
       setPendingCancelBusy(false);
       setPortalBusy(false);
       setNotice('');
-      void (async () => {
-        try {
-          const response = await fetch('/api/billing/status', { credentials: 'include' });
-          const status = await response.json().catch(() => null);
-          if (!response.ok || cancelled || !isCurrentPaddleSessionAction(epoch, sessionEpoch.current)) return;
-          setPremiumActive(status?.premiumActive === true);
-          setPremiumLifetime(status?.premiumLifetime === true);
-          setBillingManageable(status?.billingManageable === true);
-          setBillingNeedsAttention(status?.billingNeedsAttention === true);
-          setPendingCheckoutStatus(status?.pendingCheckoutStatus || null);
-          setPendingCheckoutPlan(status?.pendingCheckoutPlan || null);
-        } catch {
-          if (!cancelled && isCurrentPaddleSessionAction(epoch, sessionEpoch.current)) {
-            setPremiumActive(false);
-            setPremiumLifetime(false);
-            setBillingManageable(false);
-            setBillingNeedsAttention(false);
-            setPendingCheckoutStatus(null);
-            setPendingCheckoutPlan(null);
-          }
-        }
-      })();
+      void load();
     };
     void load();
     window.addEventListener('vow:session-changed', refreshOnSession);
