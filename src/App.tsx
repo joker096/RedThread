@@ -252,6 +252,11 @@ export default function App() {
         const data = await response.json();
         if (active && isCurrentSessionRequest(requestEpoch, premiumRequestEpoch.current)) {
           setIsLadyPremium(data?.premiumActive === true);
+          if (data?.gender === 'female' || data?.gender === 'male') {
+            // Authenticated billing state is the source of truth in server mode;
+            // localStorage gender is only a demo persona.
+            setCurrentGender(data.gender);
+          }
         }
       } catch {
         if (active && isCurrentSessionRequest(requestEpoch, premiumRequestEpoch.current)) setIsLadyPremium(false);
