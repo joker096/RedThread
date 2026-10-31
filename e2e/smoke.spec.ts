@@ -1,5 +1,15 @@
 import { expect, test } from '@playwright/test';
 
+test('browser test environment has a live API connected to PostgreSQL', async ({ request }) => {
+  const response = await request.get('http://127.0.0.1:3001/api/ready');
+  expect(response.ok()).toBe(true);
+  const payload = await response.json();
+  expect(payload).toMatchObject({
+    status: 'ready',
+    database: 'connected'
+  });
+});
+
 const lightThemeToggle = /switch to light theme|включить светлую тему/i;
 const darkThemeToggle = /switch to dark theme|включить тёмную тему|включить темную тему/i;
 const showDemoChats = /show demo conversations|показать демо-переписки/i;
@@ -694,7 +704,7 @@ test('server discovery swipe mode collapses and restores profile photos vertical
           country: 'Georgia',
           city: 'Tbilisi',
           bio: 'Проверка жестов',
-          photoUrls: ['/test-profile-photo.jpg'],
+          photoUrls: ['/api/photos/00000000-0000-4000-8000-000000000001'],
           occupation: 'Designer',
           education: 'University',
           languages: ['Russian'],
@@ -1827,4 +1837,62 @@ test('adding a second finger cancels an in-progress vertical profile-card swipe'
   await expect(photo).toHaveClass(/h-16/);
   await expect(details).toBeVisible();
   await expect(photo.locator('button[aria-expanded="false"]')).toBeVisible();
+});
+
+
+test('gift request notification opens the chats request list without exposing recipient delivery details', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let notificationRead = false;
+  const notificationId = 'a5e4a6a0-2a5e-4a22-9a7d-01bcd2345678';
+  await page.route('**/api/notifications**', async route => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          notifications: [{
+            id: notificationId,
+            type: 'gift_request',
+            createdAt: '2026-10-27T10:00:00.000Z',
+            readAt: notificationRead ? '2026-10-27T10:01:00.000Z' : null,
+            metadata: {
+              orderReference: 'gift_0123456789abcdef0123456789abcdef',
+              // These deliberately injected values must never be rendered by the notification center.
+              recipientCity: 'PRIVATE_CITY_SENTINEL',
+              address: 'PRIVATE_ADDRESS_SENTINEL'
+            }
+          }],
+          unreadCount: notificationRead ? 0 : 1
+        })
+      });
+      return;
+    }
+    notificationRead = true;
+    await route.fulfill({ status: 204, body: '' });
+  });
+  await page.route('**/api/matches**', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ matches: [] })
+  }));
+  await page.route('**/api/gifts/orders', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ orders: [] })
+  }));
+  await page.route('**/api/gifts/preferences', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ preferences: { requestsEnabled: false } })
+  }));
+  await page.route('**/api/gifts/matches', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ matches: [] })
+  }));
+
+  await page.goto('/');
+  const chatsButton = page.locator('[data-testid="nav-chats"]:visible, [data-testid="mobile-nav-chats"]:visible').first();
+  await expect(chatsButton).toBeVisible();
+  await chatsButton.click();
+
+  await expect(page.getByRole('button', { name: 'Review gift' })).toBeVisible();
+  await expect(page.getByText('PRIVATE_CITY_SENTINEL')).toHaveCount(0);
+  await expect(page.getByText('PRIVATE_ADDRESS_SENTINEL')).toHaveCount(0);
+  const ordersPanel = page.locator('#gift-orders-panel');
+  await expect(ordersPanel).toBeVisible();
+  await page.getByRole('button', { name: 'Review gift' }).click();
+  await expect.poll(async () => (await ordersPanel.boundingBox())?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(250);
 });

@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLocale } from './i18n/LocaleProvider.tsx';
+import { isCurrentSessionRequest } from './utils/sessionRequest.ts';
 import { 
   Heart, 
   MessageCircle, 
@@ -19,6 +20,10 @@ import { ServerMatchesPanel } from './components/ServerMatchesPanel.tsx';
 import { ProfileEditorPanel } from './components/ProfileEditorPanel.tsx';
 import { ModeratorConsolePanel } from './components/ModeratorConsolePanel.tsx';
 import { NotificationCenterPanel } from './components/NotificationCenterPanel.tsx';
+import { AdConsentPanel } from './components/AdConsentPanel.tsx';
+import { GiftReceivingPreferencesPanel } from './components/GiftReceivingPreferencesPanel.tsx';
+import { GiftCatalogPanel } from './components/GiftCatalogPanel.tsx';
+import { GiftOrdersPanel } from './components/GiftOrdersPanel.tsx';
 import type { 
   UserProfile, 
   Gender, 
@@ -26,7 +31,7 @@ import type {
   ChatThread, 
   AdStats 
 } from './types/index.ts';
-import { calculateCompatibility, shouldShowAds, filterBinaryCandidates } from './utils/compatibility.ts';
+import { calculateCompatibility, shouldShowAds, filterBinaryCandidates, excludeSponsoredDiscoveryProfiles } from './utils/compatibility.ts';
 import { matchesProfileLocation } from './utils/location.ts';
 import { HeaderNav } from './components/HeaderNav.tsx';
 import { PWAInstallBanner } from './components/PWAInstallBanner.tsx';
@@ -58,10 +63,17 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile>(initialCurrentUser);
   const [currentGender, setCurrentGender] = useState<Gender>('female');
   const [isLadyPremium, setIsLadyPremium] = useState<boolean>(false);
+  const premiumRequestEpoch = useRef(0);
   const [deviceFrame, setDeviceFrame] = useState<DeviceFrame>('responsive');
 
   // Navigation tab
   const [activeTab, setActiveTab] = useState<'discovery' | 'tests' | 'chats' | 'safety' | 'monetization'>('discovery');
+
+  useEffect(() => {
+    const openGiftRequests = () => setActiveTab('chats');
+    window.addEventListener('vow:open-gifts', openGiftRequests);
+    return () => window.removeEventListener('vow:open-gifts', openGiftRequests);
+  }, []);
 
   // Candidate profiles
   const [profiles, setProfiles] = useState<UserProfile[]>(initialProfiles);
@@ -92,8 +104,14 @@ export default function App() {
   const [maxAge, setMaxAge] = useState(99);
 
   // Superlikes & Boosts inventory
-  const [superLikesCount, setSuperLikesCount] = useState(3);
+  const [superLikesCount, setSuperLikesCount] = useState(0);
   const [boostActive, setBoostActive] = useState(false);
+
+  useEffect(() => {
+    // Local inventory is only a demo mechanic, never a server entitlement.
+    setSuperLikesCount(discoveryMode === 'demo' ? 3 : 0);
+    setBoostActive(false);
+  }, [discoveryMode]);
 
   // Ad Stats
   // Live ad metrics start at zero; production values must come from the ad provider.
@@ -230,19 +248,42 @@ export default function App() {
   useEffect(() => {
     let active = true;
     const refreshPremiumStatus = async () => {
+      const requestEpoch = ++premiumRequestEpoch.current;
       try {
         const response = await fetch('/api/billing/status', { credentials: 'include' });
-        if (!response.ok) { if (active) setIsLadyPremium(false); return; }
+        if (!response.ok) {
+          if (active && isCurrentSessionRequest(requestEpoch, premiumRequestEpoch.current)) setIsLadyPremium(false);
+          return;
+        }
         const data = await response.json();
-        if (active) setIsLadyPremium(Boolean(data?.premiumActive));
+        if (active && isCurrentSessionRequest(requestEpoch, premiumRequestEpoch.current)) {
+          setIsLadyPremium(data?.premiumActive === true);
+          if (data?.gender === 'female' || data?.gender === 'male') {
+            // Authenticated billing state is the source of truth in server mode;
+            // localStorage gender is only a demo persona.
+            setCurrentGender(data.gender);
+          }
+        }
       } catch {
-        if (active) setIsLadyPremium(false);
+        if (active && isCurrentSessionRequest(requestEpoch, premiumRequestEpoch.current)) setIsLadyPremium(false);
       }
+    };
+    const refreshOnSession = () => {
+      // Clear the previous account's entitlement immediately, then load the
+      // new session. The request epoch prevents an older response winning.
+      premiumRequestEpoch.current += 1;
+      setIsLadyPremium(false);
+      void refreshPremiumStatus();
     };
     void refreshPremiumStatus();
     window.addEventListener('focus', refreshPremiumStatus);
-    window.addEventListener('vow:session-changed', refreshPremiumStatus);
-    return () => { active = false; window.removeEventListener('focus', refreshPremiumStatus); window.removeEventListener('vow:session-changed', refreshPremiumStatus); };
+    window.addEventListener('vow:session-changed', refreshOnSession);
+    return () => {
+      active = false;
+      premiumRequestEpoch.current += 1;
+      window.removeEventListener('focus', refreshPremiumStatus);
+      window.removeEventListener('vow:session-changed', refreshOnSession);
+    };
   }, []);
 
   // A confirmed mutual server match should take the user straight to real chats.
@@ -255,6 +296,7 @@ export default function App() {
   // Gender persona toggle (strictly binary: Female seeking Male, Male seeking Female)
   const handleToggleGender = () => {
     // The gender switch is a demo persona switch, not a paid-account transfer.
+    if (discoveryMode !== 'demo') return;
     if (currentGender === 'female') {
       setCurrentGender('male');
       setCurrentUser(prev => ({
@@ -426,6 +468,12 @@ export default function App() {
   // Superlike
   const handleSuperLike = (target: UserProfile) => {
     if (target.isSponsorAd || target.superLikedByMe) return false;
+    // Super-like inventory and rewarded-video credits are demo-only until
+    // server-side inventory and a trusted ad-provider receipt are implemented.
+    if (discoveryMode !== 'demo') {
+      setIsAdManagerOpen(true);
+      return false;
+    }
     if (superLikesCount > 0) {
       setSuperLikesCount(prev => prev - 1);
     } else if (currentGender === 'male') {
@@ -543,6 +591,7 @@ export default function App() {
 
   // Rewarded ad completed
   const handleWatchRewardedAd = () => {
+    if (discoveryMode !== 'demo') return;
     setSuperLikesCount(prev => prev + 3);
     setBoostActive(true);
     setAdStats(prev => ({
@@ -572,10 +621,8 @@ export default function App() {
   };
 
   // Filtered profiles strictly binary (Women see Men, Men see Women)
-  const binaryPool = filterBinaryCandidates(profiles, currentGender);
+  const binaryPool = excludeSponsoredDiscoveryProfiles(filterBinaryCandidates(profiles, currentGender));
   const filteredProfiles = binaryPool.filter(p => {
-    // Premium members browse without sponsored placements.
-    if (p.isSponsorAd) return !isLadyPremium;
     if (onlyVerified && !p.verification.isVerified) return false;
     if (!matchesProfileLocation(p, selectedCountry, selectedCity)) return false;
     if (p.age < minAge || p.age > maxAge) return false;
@@ -599,8 +646,8 @@ export default function App() {
         return (
           <>
             <AccountAccessPanel onAuthenticated={() => setAssessmentRevision(value => value + 1)} />
-            <NotificationCenterPanel />
             <ProfileEditorPanel key={assessmentRevision} onOpenAccount={() => setActiveTab('tests')} />
+            <AdConsentPanel />
             <ModeratorConsolePanel />
             <RelationshipAssessmentPanel key={assessmentRevision} />
             <GenderSpecificTests
@@ -618,6 +665,10 @@ export default function App() {
         return (
           <>
             <ServerMatchesPanel onOpenAccount={() => setActiveTab('tests')} />
+            <NotificationCenterPanel />
+            <GiftOrdersPanel />
+            <GiftReceivingPreferencesPanel />
+            <GiftCatalogPanel />
             {!showDemoChats ? (
               <section className="mx-auto mt-4 w-full max-w-md rounded-2xl border border-white/10 bg-stone-900 p-4 text-left">
                 <h3 className="font-semibold text-white">{t('demoChatsHiddenTitle')}</h3>
@@ -849,6 +900,7 @@ export default function App() {
               brandName={currentBrand.name}
               onOpenBrandModal={() => setIsBrandModalOpen(true)}
               onToggleGender={handleToggleGender}
+              allowDemoGenderSwitch={discoveryMode === 'demo'}
               onToggleDeviceFrame={setDeviceFrame}
               onOpenPremiumModal={() => setIsLadyPremiumOpen(true)}
               onOpenBotScanner={() => {
@@ -991,6 +1043,7 @@ export default function App() {
                   brandName={currentBrand.name}
                   onOpenBrandModal={() => {}}
                   onToggleGender={handleToggleGender}
+                  allowDemoGenderSwitch={discoveryMode === 'demo'}
                   onToggleDeviceFrame={setDeviceFrame}
                   onOpenPremiumModal={() => setIsLadyPremiumOpen(true)}
                   onOpenBotScanner={() => {
@@ -1123,6 +1176,7 @@ export default function App() {
         onWatchRewardedAd={handleWatchRewardedAd}
         superLikesCount={superLikesCount}
         boostActive={boostActive}
+        isDemoMode={discoveryMode === 'demo'}
       />
 
       {/* 5. Filter Drawer */}

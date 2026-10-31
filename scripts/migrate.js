@@ -3,6 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { acquireMigrationLock } from './migration-lock.js';
 
 const { Pool } = pg;
 const databaseUrl = process.env.DATABASE_URL;
@@ -23,44 +24,113 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDir = path.join(currentDir, '..', 'server', 'migrations');
 
 async function runMigrations() {
-  const client = await pool.connect();
+  let client;
+  let releaseMigrationLock;
+  let releaseError;
+  let shutdownSignal;
+  const handleShutdownSignal = signal => {
+    if (!shutdownSignal) {
+      shutdownSignal = signal;
+      console.warn(`Received ${signal}; finishing the current migration before shutting down.`);
+    }
+  };
+
+  process.on('SIGINT', handleShutdownSignal);
+  process.on('SIGTERM', handleShutdownSignal);
+
   try {
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS schema_migrations (
-        name TEXT PRIMARY KEY,
-        applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `);
+    client = await pool.connect();
+    try {
+      releaseMigrationLock = await acquireMigrationLock(client, {
+        shouldAbort: () => Boolean(shutdownSignal)
+      });
+    } catch (error) {
+      // A failed lock query may leave the PostgreSQL connection unusable.
+      // Do not return it to the pool for another borrower.
+      releaseError = error;
+      throw error;
+    }
 
-    const files = (await readdir(migrationsDir))
-      .filter(name => name.endsWith('.sql'))
-      .sort();
+    if (releaseMigrationLock && !shutdownSignal) {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+          name TEXT PRIMARY KEY,
+          applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
 
-    for (const name of files) {
-      const existing = await client.query(
-        'SELECT 1 FROM schema_migrations WHERE name = $1',
-        [name]
-      );
-      if (existing.rowCount) {
-        console.log(`Skipping already applied migration: ${name}`);
-        continue;
-      }
+      const files = (await readdir(migrationsDir))
+        .filter(name => name.endsWith('.sql'))
+        .sort();
 
-      const sql = await readFile(path.join(migrationsDir, name), 'utf8');
-      await client.query('BEGIN');
-      try {
-        await client.query(sql);
-        await client.query('INSERT INTO schema_migrations (name) VALUES ($1)', [name]);
-        await client.query('COMMIT');
-        console.log(`Applied migration: ${name}`);
-      } catch (error) {
-        await client.query('ROLLBACK');
-        throw error;
+      for (const name of files) {
+        if (shutdownSignal) break;
+
+        const existing = await client.query(
+          'SELECT 1 FROM schema_migrations WHERE name = $1',
+          [name]
+        );
+        if (existing.rowCount) {
+          console.log(`Skipping already applied migration: ${name}`);
+          continue;
+        }
+        if (shutdownSignal) break;
+
+        const sql = await readFile(path.join(migrationsDir, name), 'utf8');
+        if (shutdownSignal) break;
+
+        await client.query('BEGIN');
+        if (shutdownSignal) {
+          try {
+            await client.query('ROLLBACK');
+          } catch (rollbackError) {
+            releaseError = rollbackError;
+            throw new Error(
+              `Shutdown was requested before migration ${name} could start, but its transaction could not be rolled back: ${rollbackError.message}`,
+              { cause: rollbackError }
+            );
+          }
+          break;
+        }
+
+        try {
+          await client.query(sql);
+          await client.query('INSERT INTO schema_migrations (name) VALUES ($1)', [name]);
+          await client.query('COMMIT');
+          console.log(`Applied migration: ${name}`);
+        } catch (error) {
+          try {
+            await client.query('ROLLBACK');
+          } catch (rollbackError) {
+            releaseError = rollbackError;
+            throw new AggregateError(
+              [error, rollbackError],
+              `Migration ${name} failed and its transaction could not be rolled back`,
+              { cause: error }
+            );
+          }
+          throw error;
+        }
       }
     }
   } finally {
-    client.release();
+    if (client) {
+      if (releaseMigrationLock && !releaseError) {
+        try {
+          await releaseMigrationLock();
+        } catch (error) {
+          releaseError = error;
+        }
+      }
+      client.release(releaseError);
+    }
+    process.off('SIGINT', handleShutdownSignal);
+    process.off('SIGTERM', handleShutdownSignal);
     await pool.end();
+
+    if (shutdownSignal) {
+      process.exitCode = shutdownSignal === 'SIGINT' ? 130 : 143;
+    }
   }
 }
 

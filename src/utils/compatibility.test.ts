@@ -5,10 +5,12 @@ import {
   detectBotRisk,
   checkAntiChitChatDeadline,
   shouldShowAds,
-  filterBinaryCandidates
+  filterBinaryCandidates,
+  excludeSponsoredDiscoveryProfiles
 } from './compatibility.ts';
 import type { UserProfile, CrucialAnswers } from '../types/index.ts';
 import { matchesProfileLocation } from './location.ts';
+import { createAdEventId } from './adEvents.ts';
 
 const mockAnswers: CrucialAnswers = {
   marriage_and_kids: 'Хочу семью и детей в ближайшие 1-2 года',
@@ -138,17 +140,19 @@ test('filterBinaryCandidates strictly ensures women see men and men see women', 
     { ...mockTargetProfile, id: 'man_1', gender: 'male' },
     { ...mockTargetProfile, id: 'man_2', gender: 'male' },
     { ...mockTargetProfile, id: 'woman_1', gender: 'female' },
-    { ...mockTargetProfile, id: 'ad_1', isSponsorAd: true, gender: 'male' }
+    { ...mockTargetProfile, id: 'ad_1', isSponsorAd: true, gender: 'male' },
+    { ...mockTargetProfile, id: 'ad_2', isSponsorAd: 'true' as unknown as boolean, gender: 'male' }
   ];
 
   const forFemaleUser = filterBinaryCandidates(sampleProfiles, 'female');
   assert.equal(forFemaleUser.some(p => p.id === 'woman_1'), false, 'Female user must NOT see female candidates');
   assert.equal(forFemaleUser.some(p => p.id === 'man_1'), true, 'Female user must see male candidates');
-  assert.equal(forFemaleUser.some(p => p.isSponsorAd), true, 'Sponsor ad should be visible');
+  assert.equal(forFemaleUser.some(p => p.isSponsorAd), false, 'Sponsored placements must never enter discovery');
 
   const forMaleUser = filterBinaryCandidates(sampleProfiles, 'male');
   assert.equal(forMaleUser.some(p => p.id === 'man_1'), false, 'Male user must NOT see male candidates');
   assert.equal(forMaleUser.some(p => p.id === 'woman_1'), true, 'Male user must see female candidates');
+  assert.equal(forMaleUser.some(p => p.isSponsorAd), false, 'Sponsored placements must never enter discovery for men either');
 });
 
 
@@ -207,4 +211,20 @@ test('location filters allow all locations and do not guess missing country', ()
   assert.equal(matchesProfileLocation({ city: 'Москва' }, 'all', 'all'), true);
   assert.equal(matchesProfileLocation({ city: 'Москва' }, 'Россия', 'all'), false);
   assert.equal(matchesProfileLocation({ country: 'ОАЭ / Россия', city: 'Дубай / Москва' }, 'ОАЭ', 'Дубай'), true);
+});
+
+
+test('excludeSponsoredDiscoveryProfiles removes sponsored cards but keeps ordinary candidates', () => {
+  const sponsored = { ...mockTargetProfile, id: 'ad_1', isSponsorAd: true };
+  const ordinary = { ...mockTargetProfile, id: 'person_1', isSponsorAd: false };
+  const withoutSponsorFlag = { ...mockTargetProfile, id: 'person_2' };
+
+  const result = excludeSponsoredDiscoveryProfiles([sponsored, ordinary, withoutSponsorFlag]);
+  assert.deepEqual(result.map(profile => profile.id), ['person_1', 'person_2']);
+});
+
+
+test('createAdEventId always returns a UUID accepted by the ad event API', () => {
+  const eventId = createAdEventId();
+  assert.match(eventId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
 });

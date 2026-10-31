@@ -30,10 +30,20 @@ export default defineConfig({
       use: { browserName: 'chromium', viewport: { width: 540, height: 960 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }
     }
   ],
-  webServer: {
-    command: 'npm run preview -- --host 127.0.0.1 --port 4173 --strictPort',
-    url: 'http://127.0.0.1:4173',
-    reuseExistingServer: !process.env.CI,
-    timeout: 30_000
-  }
+  // Start the real API against the migrated PostgreSQL test database before
+  // starting the web preview. The readiness URL fails until DB connectivity works.
+  webServer: [
+    {
+      command: 'npm run start:api',
+      url: 'http://127.0.0.1:3001/api/ready',
+      reuseExistingServer: !process.env.CI,
+      timeout: 30_000
+    },
+    {
+      command: 'npm run preview -- --host 127.0.0.1 --port 4173 --strictPort',
+      url: 'http://127.0.0.1:4173',
+      reuseExistingServer: !process.env.CI,
+      timeout: 30_000
+    }
+  ]
 });

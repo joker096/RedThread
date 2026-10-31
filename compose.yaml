@@ -29,6 +29,50 @@ services:
         condition: service_healthy
     networks: [private]
 
+  ad-event-retention:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
+      PGSSL: "false"
+      AD_EVENT_CLEANUP_BATCH_SIZE: ${AD_EVENT_CLEANUP_BATCH_SIZE:-1000}
+    command:
+      - sh
+      - -c
+      - |
+        while :; do
+          node scripts/cleanup-ad-events.js || echo "Ad-event cleanup failed; retrying on the next daily cycle."
+          sleep 86400
+        done
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [private]
+
+  gift-request-expiry:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
+      PGSSL: "false"
+      GIFT_EXPIRY_BATCH_SIZE: ${GIFT_EXPIRY_BATCH_SIZE:-100}
+    command:
+      - sh
+      - -c
+      - |
+        while :; do
+          node server/expire-gift-requests.js || echo "Gift request expiry failed; retrying on the next minute."
+          sleep 60
+        done
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [private]
+
   api:
     build:
       context: .
@@ -45,11 +89,13 @@ services:
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-resend}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-Vow <noreply@example.com>}
-      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
-      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
-      STRIPE_PRICE_ID_1MONTH: ${STRIPE_PRICE_ID_1MONTH:-}
-      STRIPE_PRICE_ID_3MONTHS: ${STRIPE_PRICE_ID_3MONTHS:-}
-      STRIPE_PRICE_ID_LIFETIME: ${STRIPE_PRICE_ID_LIFETIME:-}
+      PADDLE_ENVIRONMENT: ${PADDLE_ENVIRONMENT:-sandbox}
+      PADDLE_API_KEY: ${PADDLE_API_KEY:-}
+      PADDLE_WEBHOOK_SECRET: ${PADDLE_WEBHOOK_SECRET:-}
+      PADDLE_CLIENT_TOKEN: ${PADDLE_CLIENT_TOKEN:-}
+      PADDLE_PRICE_ID_1MONTH: ${PADDLE_PRICE_ID_1MONTH:-}
+      PADDLE_PRICE_ID_3MONTHS: ${PADDLE_PRICE_ID_3MONTHS:-}
+      PADDLE_PRICE_ID_LIFETIME: ${PADDLE_PRICE_ID_LIFETIME:-}
       PHOTO_STORAGE_DIR: /app/uploads/private-photos
       PHOTO_AI_ENABLED: ${PHOTO_AI_ENABLED:-false}
       PHOTO_AI_MODEL: ${PHOTO_AI_MODEL:-llava:7b}

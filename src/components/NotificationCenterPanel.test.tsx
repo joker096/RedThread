@@ -34,6 +34,38 @@ test('normalizes valid notification fields and trims identifiers', () => {
   }]);
 });
 
+test('accepts privacy-safe gift-request notifications and discards metadata', () => {
+  const notification = {
+    id: 'gift-notification-1',
+    type: 'gift_request',
+    createdAt: '2026-10-27T12:00:00Z',
+    readAt: null,
+    metadata: { orderReference: 'gift_0123456789abcdef0123456789abcdef', recipientCity: 'private' }
+  };
+  assert.deepEqual(normalizeNotifications([notification]), [{
+    id: notification.id,
+    type: notification.type,
+    createdAt: notification.createdAt,
+    readAt: null
+  }]);
+});
+
+test('accepts generic gift-request updates and strips their metadata', () => {
+  const notification = {
+    id: 'gift-update-1',
+    type: 'gift_request_update',
+    createdAt: '2026-10-27T12:00:00Z',
+    readAt: null,
+    metadata: { orderReference: 'gift_0123456789abcdef0123456789abcdef', decision: 'declined', reason: 'private' }
+  };
+  assert.deepEqual(normalizeNotifications([notification]), [{
+    id: notification.id,
+    type: notification.type,
+    createdAt: notification.createdAt,
+    readAt: null
+  }]);
+});
+
 test('rejects malformed notifications and duplicate identifiers', () => {
   const valid = { id: 'n1', type: 'new_message', createdAt: '2026-10-22T12:00:00Z', readAt: null };
   assert.deepEqual(normalizeNotifications([

@@ -245,13 +245,22 @@ export function shouldShowAds(isLadyPremium: boolean, isMale: boolean): {
 }
 
 /**
- * Strict binary filter: Female users see ONLY male candidates; Male users see ONLY female candidates.
- * Sponsor cards remain visible for both.
+ * Strict binary filter: Female users see only male candidates and male users see only female candidates.
+ * Sponsored placements are never candidates in the discovery feed.
  */
 export function filterBinaryCandidates(
   profiles: UserProfile[],
   currentUserGender: 'female' | 'male'
 ): UserProfile[] {
   const targetGender = currentUserGender === 'female' ? 'male' : 'female';
-  return profiles.filter(p => p.isSponsorAd || p.gender === targetGender);
+  return profiles.filter(p => !p.isSponsorAd && p.gender === targetGender);
+}
+
+
+/**
+ * Keeps sponsored placements out of the dating discovery pool until a
+ * separately approved, policy-compliant contextual ad surface is implemented.
+ */
+export function excludeSponsoredDiscoveryProfiles<T extends { isSponsorAd?: boolean }>(profiles: T[]): T[] {
+  return profiles.filter(profile => !profile.isSponsorAd);
 }

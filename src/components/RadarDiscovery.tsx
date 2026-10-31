@@ -22,6 +22,7 @@ import {
 import type { UserProfile, CrucialAnswers } from '../types/index.ts';
 import { calculateCompatibility } from '../utils/compatibility.ts';
 import { getSwipeActionFromDelta } from '../utils/swipe.ts';
+import { createAdEventId } from '../utils/adEvents.ts';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 
 interface RadarDiscoveryProps {
@@ -47,7 +48,7 @@ interface RadarDiscoveryProps {
 }
 
 export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
-  profiles,
+  profiles: suppliedProfiles,
   myAnswers,
   myIntent,
   myInterests,
@@ -63,6 +64,9 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
   onOpenFilters,
   onAdClicked
 }) => {
+  // Defense in depth: discovery never renders sponsored placements, even if
+  // a caller accidentally bypasses the upstream candidate filters.
+  const profiles = suppliedProfiles.filter(profile => !profile.isSponsorAd);
   const { t } = useLocale();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
@@ -89,14 +93,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
 
   const sendAdEvent = (campaignId: string, eventType: 'impression' | 'click'): Promise<boolean> => {
     if (!campaignId) return Promise.resolve(false);
-    let eventId: string;
-    try {
-      eventId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-        ? crypto.randomUUID()
-        : `vow-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    } catch {
-      eventId = `vow-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    }
+    const eventId = createAdEventId();
     return fetch('/api/ads/events', {
       method: 'POST',
       credentials: 'same-origin',
@@ -391,16 +388,19 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                   type="button"
                   onClick={() => {
                     if (!currentProfile.sponsorUrl) return;
-                    onAdClicked();
                     window.open(currentProfile.sponsorUrl, '_blank', 'noopener,noreferrer');
                     const campaignId = currentProfile.sponsorCampaignId;
                     if (campaignId) {
-                      // Do not block navigation on analytics; ensure the impression request
-                      // is attempted first because the server requires it before a click.
+                      // Only reflect a click in the local dashboard when the server accepts
+                      // the event. Demo placements and rejected events are not live metrics.
+                      // Do not block navigation on analytics; the server requires an impression first.
                       void (impressionRequests.current.get(campaignId) ?? Promise.resolve(false))
                         .then(impressionRecorded => {
-                          if (impressionRecorded) return sendAdEvent(campaignId, 'click');
-                          return false;
+                          if (!impressionRecorded) return false;
+                          return sendAdEvent(campaignId, 'click');
+                        })
+                        .then(clickRecorded => {
+                          if (clickRecorded) onAdClicked();
                         });
                     }
                   }}

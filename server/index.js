@@ -2,7 +2,15 @@ import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { validateAdEventPayload, AD_IMPRESSION_CAP_24H } from './adEvents.js';
+import { validateAdEventPayload, classifyDuplicateAdEvent, hasExplicitAdConsent, evaluateAdEventFrequency, isAdEventCollectionEnabled } from './adEvents.js';
+import { evaluateAdCampaignEligibility, isCampaignCountryAllowed, resolveProfileCountryCode } from './adCampaignRegistry.js';
+import { AD_EVENT_FREQUENCY_COUNTS_SQL } from './adEventFrequencyQuery.js';
+import { validateGiftDecisionInput } from './giftDecisionInput.js';
+import { projectGiftOrderStatus } from './giftOrderStatusProjection.js';
+import { normalizeGiftRequestInput } from './giftRequestInput.js';
+import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, acquireGiftSafetyUserLocks, recipientGiftAcceptanceLimitReached, expireStaleGiftRequestsForPair, enqueueExpiredGiftPaymentReconciliation, notifyGiftRequestUpdate } from './giftOrderCreationService.js';
+import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
+import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
 import express from 'express';
@@ -36,9 +44,47 @@ const pool = databaseUrl
       max: 10,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 5_000,
+      // Integration tests can opt into a bounded query wait to surface lock/query stalls.
+      statement_timeout: Number.parseInt(process.env.PG_STATEMENT_TIMEOUT_MS || '0', 10) || undefined,
       ssl: process.env.PGSSL === 'true' ? { rejectUnauthorized: true } : undefined
     })
   : null;
+
+async function withActiveAccountRead(userId, callback) {
+  const client = await pool.connect();
+  let transactionOpen = false;
+  try {
+    await client.query('BEGIN');
+    transactionOpen = true;
+    await acquireGiftSafetyUserLocks(client, userId);
+    const account = await client.query(
+      "SELECT 1 FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [userId]
+    );
+    if (!account.rowCount) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return { active: false };
+    }
+    const value = await callback(client);
+    await client.query('COMMIT');
+    transactionOpen = false;
+    return { active: true, value };
+  } catch (error) {
+    if (transactionOpen) await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+async function withActiveModeratorRead(userId, callback) {
+  return withActiveAccountRead(userId, async client => {
+    const role = await client.query('SELECT role FROM users WHERE id = $1', [userId]);
+    if (!['admin', 'moderator'].includes(role.rows[0]?.role)) return { forbidden: true };
+    return callback(client);
+  });
+}
+
 
 app.disable('x-powered-by');
 app.use((_req, res, next) => {
@@ -90,10 +136,15 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
   if (process.env.PADDLE_ENVIRONMENT !== 'sandbox') {
     return res.status(503).json({ error: 'paddle_environment_must_be_explicitly_set_to_sandbox' });
   }
-  if (!process.env.PADDLE_API_KEY || !process.env.PADDLE_CLIENT_TOKEN || !process.env.PADDLE_CLIENT_TOKEN.startsWith('test_')) {
+  if (!process.env.PADDLE_API_KEY || !process.env.PADDLE_WEBHOOK_SECRET || !process.env.PADDLE_CLIENT_TOKEN || !process.env.PADDLE_CLIENT_TOKEN.startsWith('test_')) {
     return res.status(503).json({ error: 'paddle_sandbox_not_configured' });
   }
   if (req.authUser.gender !== 'female') return res.status(403).json({ error: 'premium_checkout_not_available' });
+
+  const { isPremiumCheckoutBlocked } = await import('./paddleBilling.js');
+  if (isPremiumCheckoutBlocked(req.authUser)) {
+    return res.status(409).json({ error: 'premium_already_active' });
+  }
 
   const plan = typeof req.body?.plan === 'string' ? req.body.plan : '';
   const plans = {
@@ -104,7 +155,123 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
   const priceId = plans[plan];
   if (!priceId || !/^pri_[A-Za-z0-9]+$/.test(priceId)) return res.status(503).json({ error: 'paddle_price_not_configured' });
 
+  let client;
+  let attemptStarted = false;
+  let checkoutAttemptId = null;
   try {
+    const {
+      isPremiumCheckoutBlocked,
+      getPaddleCheckoutTransaction
+    } = await import('./paddleBilling.js');
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`paddle-checkout:${req.authUser.id}`]);
+    const userResult = await client.query(
+      `SELECT id, gender, status, premium_until, premium_lifetime,
+              paddle_subscription_id, paddle_subscription_status
+       FROM users WHERE id = $1 FOR UPDATE`,
+      [req.authUser.id]
+    );
+    const user = userResult.rows[0];
+    if (!user || user.status !== 'active' || user.gender !== 'female') {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'premium_checkout_not_available' });
+    }
+    if (isPremiumCheckoutBlocked(user)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'premium_already_active' });
+    }
+
+    const attemptResult = await client.query(
+      `SELECT transaction_id, attempt_id, plan, status
+       FROM paddle_checkout_attempts WHERE user_id = $1 FOR UPDATE`,
+      [req.authUser.id]
+    );
+    const existingAttempt = attemptResult.rows[0];
+    if (existingAttempt && ['creating', 'completed', 'reconciliation_required'].includes(existingAttempt.status)) {
+      await client.query('COMMIT');
+      const error = existingAttempt.status === 'creating'
+        ? 'paddle_checkout_creating'
+        : existingAttempt.status === 'completed'
+          ? 'paddle_checkout_processing'
+          : 'paddle_checkout_reconciliation_required';
+      return res.status(409).json({ error, pendingPlan: existingAttempt.plan });
+    }
+    if (existingAttempt?.status === 'pending') {
+      if (!existingAttempt.transaction_id) {
+        await client.query(
+          `UPDATE paddle_checkout_attempts SET status = 'reconciliation_required', updated_at = NOW()
+           WHERE user_id = $1 AND attempt_id IS NOT DISTINCT FROM $2::uuid`,
+          [req.authUser.id, existingAttempt.attempt_id]
+        );
+        await client.query('COMMIT');
+        return res.status(409).json({ error: 'paddle_checkout_reconciliation_required' });
+      }
+      const providerTransaction = await getPaddleCheckoutTransaction({
+        apiKey: process.env.PADDLE_API_KEY,
+        environment: process.env.PADDLE_ENVIRONMENT,
+        transactionId: existingAttempt.transaction_id,
+        expectedUserId: req.authUser.id,
+        expectedPlan: existingAttempt.plan,
+        expectedAttemptId: existingAttempt.attempt_id
+      });
+      if (['draft', 'ready'].includes(providerTransaction.status)) {
+        await client.query('COMMIT');
+        if (existingAttempt.plan !== plan) {
+          return res.status(409).json({
+            error: 'paddle_checkout_already_pending',
+            pendingPlan: existingAttempt.plan
+          });
+        }
+        return res.json({ transactionId: existingAttempt.transaction_id, environment: 'sandbox' });
+      }
+      if (['completed', 'paid'].includes(providerTransaction.status)) {
+        await client.query(
+          `UPDATE paddle_checkout_attempts SET status = 'completed', updated_at = NOW()
+           WHERE user_id = $1 AND attempt_id IS NOT DISTINCT FROM $2::uuid`,
+          [req.authUser.id, existingAttempt.attempt_id]
+        );
+        await client.query('COMMIT');
+        return res.status(409).json({ error: 'paddle_checkout_processing', pendingPlan: existingAttempt.plan });
+      }
+      if (providerTransaction.status === 'canceled') {
+        await client.query(
+          `UPDATE paddle_checkout_attempts SET status = 'canceled', updated_at = NOW()
+           WHERE user_id = $1 AND attempt_id IS NOT DISTINCT FROM $2::uuid`,
+          [req.authUser.id, existingAttempt.attempt_id]
+        );
+      } else {
+        await client.query(
+          `UPDATE paddle_checkout_attempts SET status = 'reconciliation_required', updated_at = NOW()
+           WHERE user_id = $1 AND attempt_id IS NOT DISTINCT FROM $2::uuid`,
+          [req.authUser.id, existingAttempt.attempt_id]
+        );
+        await client.query('COMMIT');
+        return res.status(409).json({ error: 'paddle_checkout_reconciliation_required' });
+      }
+    } else if (existingAttempt && !['canceled', 'linked'].includes(existingAttempt.status)) {
+      await client.query('COMMIT');
+      return res.status(409).json({ error: 'paddle_checkout_reconciliation_required' });
+    }
+
+    checkoutAttemptId = randomUUID();
+    const attemptInsert = await client.query(
+      `INSERT INTO paddle_checkout_attempts (user_id, attempt_id, transaction_id, plan, status, created_at, updated_at)
+       VALUES ($1, $2, NULL, $3, 'creating', NOW(), NOW())
+       ON CONFLICT (user_id) DO UPDATE
+       SET attempt_id = EXCLUDED.attempt_id, transaction_id = NULL, plan = EXCLUDED.plan, status = 'creating',
+           created_at = NOW(), updated_at = NOW()
+       WHERE paddle_checkout_attempts.status IN ('canceled', 'linked')
+       RETURNING user_id, attempt_id`,
+      [req.authUser.id, checkoutAttemptId, plan]
+    );
+    if (!attemptInsert.rowCount) {
+      await client.query('COMMIT');
+      return res.status(409).json({ error: 'paddle_checkout_already_pending' });
+    }
+    await client.query('COMMIT');
+    attemptStarted = true;
+
     const response = await fetch('https://sandbox-api.paddle.com/transactions', {
       method: 'POST',
       headers: {
@@ -114,24 +281,231 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
       },
       body: JSON.stringify({
         items: [{ price_id: priceId, quantity: 1 }],
-        custom_data: { userId: req.authUser.id, plan }
-      })
+        custom_data: { userId: req.authUser.id, plan, checkoutAttemptId }
+      }),
+      signal: AbortSignal.timeout(10_000)
     });
     const payload = await response.json().catch(() => null);
-    const transactionId = payload?.data?.id;
-    if (!response.ok || typeof transactionId !== 'string' || !transactionId.startsWith('txn_')) {
+    const transaction = payload?.data;
+    const transactionId = transaction?.id;
+    if (!response.ok) {
+      const nextStatus = response.status >= 500 ? 'reconciliation_required' : 'canceled';
+      await pool.query(
+        `UPDATE paddle_checkout_attempts SET status = $2, updated_at = NOW()
+         WHERE user_id = $1 AND attempt_id = $3 AND status = 'creating'`,
+        [req.authUser.id, nextStatus, checkoutAttemptId]
+      );
       console.error('Paddle sandbox transaction rejected:', response.status, payload?.error?.code || 'unknown_error');
       return res.status(502).json({ error: 'paddle_checkout_session_failed' });
     }
-    return res.json({ transactionId, environment: 'sandbox' });
+    if (typeof transactionId !== 'string' || !/^txn_[A-Za-z0-9]+$/.test(transactionId) ||
+        transaction?.custom_data?.userId !== req.authUser.id ||
+        transaction?.custom_data?.plan !== plan ||
+        transaction?.custom_data?.checkoutAttemptId !== checkoutAttemptId) {
+      await pool.query(
+        `UPDATE paddle_checkout_attempts SET status = 'reconciliation_required', updated_at = NOW()
+         WHERE user_id = $1 AND attempt_id = $2 AND status = 'creating'`,
+        [req.authUser.id, checkoutAttemptId]
+      );
+      return res.status(502).json({ error: 'paddle_checkout_session_failed' });
+    }
+    const providerStatus = String(transaction.status || '').toLowerCase();
+    const attemptStatus = ['draft', 'ready'].includes(providerStatus) ? 'pending'
+      : ['completed', 'paid'].includes(providerStatus) ? 'completed'
+        : providerStatus === 'canceled' ? 'canceled' : 'reconciliation_required';
+    const savedAttempt = await pool.query(
+      `UPDATE paddle_checkout_attempts
+       SET transaction_id = $2, status = $3, updated_at = NOW()
+       WHERE user_id = $1 AND attempt_id = $4 AND status = 'creating'
+         AND EXISTS (SELECT 1 FROM users WHERE id = $1 AND status = 'active')
+       RETURNING transaction_id`,
+      [req.authUser.id, transactionId, attemptStatus, checkoutAttemptId]
+    );
+    if (!savedAttempt.rowCount) {
+      // A verified transaction/subscription webhook can win the race and settle
+      // the durable attempt before this HTTP response stores the transaction ID.
+      // Preserve that provider-confirmed result instead of treating it as an
+      // account failure or attempting to cancel an already-linked subscription.
+      const linkedAttempt = await client.query(
+        `UPDATE paddle_checkout_attempts
+         SET transaction_id = COALESCE(transaction_id, $3), updated_at = NOW()
+         WHERE user_id = $1 AND plan = $2 AND attempt_id = $4 AND status = 'linked'
+           AND (transaction_id IS NULL OR transaction_id = $3)
+         RETURNING status`,
+        [req.authUser.id, plan, transactionId, checkoutAttemptId]
+      );
+      if (linkedAttempt.rowCount === 1) {
+        return res.status(409).json({ error: 'premium_already_active' });
+      }
+      const completedAttempt = await client.query(
+        `SELECT status FROM paddle_checkout_attempts
+         WHERE user_id = $1 AND plan = $2 AND attempt_id = $4
+           AND (transaction_id = $3 OR (transaction_id IS NULL AND status = 'reconciliation_required'))
+           AND status IN ('completed', 'reconciliation_required', 'canceled')`,
+        [req.authUser.id, plan, transactionId, checkoutAttemptId]
+      );
+      if (completedAttempt.rows[0]?.status === 'completed') {
+        return res.status(409).json({ error: 'paddle_checkout_processing' });
+      }
+      if (completedAttempt.rows[0]?.status === 'reconciliation_required') {
+        return res.status(409).json({ error: 'paddle_checkout_reconciliation_required' });
+      }
+      if (completedAttempt.rows[0]?.status === 'canceled') {
+        return res.status(409).json({ error: 'paddle_checkout_cancelled' });
+      }
+      if (['draft', 'ready'].includes(providerStatus)) {
+        const { cancelPaddleCheckoutTransaction } = await import('./paddleBilling.js');
+        await cancelPaddleCheckoutTransaction({
+          apiKey: process.env.PADDLE_API_KEY,
+          environment: process.env.PADDLE_ENVIRONMENT,
+          transactionId,
+          expectedUserId: req.authUser.id,
+          expectedPlan: plan,
+          expectedAttemptId: checkoutAttemptId
+        });
+      }
+      return res.status(409).json({ error: 'account_not_available' });
+    }
+    if (attemptStatus === 'pending') return res.json({ transactionId, environment: 'sandbox' });
+    if (attemptStatus === 'completed') return res.status(409).json({ error: 'paddle_checkout_processing' });
+    if (attemptStatus === 'canceled') return res.status(409).json({ error: 'paddle_checkout_cancelled' });
+    return res.status(409).json({ error: 'paddle_checkout_reconciliation_required' });
   } catch (error) {
+    if (client) {
+      try { await client.query('ROLLBACK'); } catch {}
+    }
+    if (attemptStarted) {
+      await pool.query(
+        `UPDATE paddle_checkout_attempts SET status = 'reconciliation_required', updated_at = NOW()
+         WHERE user_id = $1 AND attempt_id = $2 AND status = 'creating'`,
+        [req.authUser.id, checkoutAttemptId]
+      ).catch(() => {});
+    }
     console.error('Paddle sandbox checkout request failed:', error?.message || 'unknown error');
     return res.status(502).json({ error: 'paddle_checkout_unavailable' });
+  } finally {
+    client?.release();
+  }
+});
+
+
+
+app.post('/api/paddle/checkout/cancel', validateRequestOrigin, requireSession, async (req, res) => {
+  if (process.env.PADDLE_ENVIRONMENT !== 'sandbox' || !process.env.PADDLE_API_KEY) {
+    return res.status(503).json({ error: 'paddle_checkout_cancel_not_configured' });
+  }
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`paddle-checkout:${req.authUser.id}`]);
+    const attemptResult = await client.query(
+      `SELECT transaction_id, attempt_id, plan, status
+       FROM paddle_checkout_attempts WHERE user_id = $1 FOR UPDATE`,
+      [req.authUser.id]
+    );
+    const attempt = attemptResult.rows[0];
+    if (!attempt) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'paddle_checkout_not_found' });
+    }
+    if (attempt.status === 'canceled') {
+      await client.query('COMMIT');
+      return res.status(204).end();
+    }
+    if (attempt.status !== 'pending' || typeof attempt.transaction_id !== 'string') {
+      await client.query('COMMIT');
+      return res.status(409).json({ error: 'paddle_checkout_reconciliation_required' });
+    }
+
+    const { cancelPaddleCheckoutTransaction } = await import('./paddleBilling.js');
+    const providerTransaction = await cancelPaddleCheckoutTransaction({
+      apiKey: process.env.PADDLE_API_KEY,
+      environment: process.env.PADDLE_ENVIRONMENT,
+      transactionId: attempt.transaction_id,
+      expectedUserId: req.authUser.id,
+      expectedPlan: attempt.plan,
+      expectedAttemptId: attempt.attempt_id
+    });
+    if (providerTransaction.status !== 'canceled') {
+      const status = ['completed', 'paid'].includes(providerTransaction.status)
+        ? 'completed'
+        : 'reconciliation_required';
+      await client.query(
+        `UPDATE paddle_checkout_attempts SET status = $2, updated_at = NOW()
+         WHERE user_id = $1 AND attempt_id IS NOT DISTINCT FROM $3::uuid AND status = 'pending'`,
+        [req.authUser.id, status, attempt.attempt_id]
+      );
+      await client.query('COMMIT');
+      return res.status(409).json({
+        error: status === 'completed' ? 'paddle_checkout_processing' : 'paddle_checkout_reconciliation_required'
+      });
+    }
+    await client.query(
+      `UPDATE paddle_checkout_attempts SET status = 'canceled', updated_at = NOW()
+       WHERE user_id = $1 AND attempt_id IS NOT DISTINCT FROM $3::uuid
+         AND transaction_id = $2 AND status = 'pending'`,
+      [req.authUser.id, attempt.transaction_id, attempt.attempt_id]
+    );
+    await client.query('COMMIT');
+    return res.status(204).end();
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Paddle checkout cancellation failed:', error?.message || 'unknown error');
+    return res.status(502).json({ error: 'paddle_checkout_cancel_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.post('/api/paddle/portal', validateRequestOrigin, requireSession, async (req, res) => {
+  if (process.env.PADDLE_ENVIRONMENT !== 'sandbox' || !process.env.PADDLE_API_KEY) {
+    return res.status(503).json({ error: 'paddle_portal_not_configured' });
+  }
+  try {
+    const read = await withActiveAccountRead(req.authUser.id, async client => {
+      const account = await client.query(
+        `SELECT paddle_customer_id, paddle_subscription_id
+         FROM users
+         WHERE id = $1 AND status = 'active'
+         FOR SHARE`,
+        [req.authUser.id]
+      );
+      const billing = account.rows[0];
+      if (!billing || typeof billing.paddle_customer_id !== 'string' ||
+          !/^ctm_[A-Za-z0-9]+$/.test(billing.paddle_customer_id)) {
+        return { error: 'paddle_customer_unavailable' };
+      }
+      if (billing.paddle_subscription_id !== null &&
+          (typeof billing.paddle_subscription_id !== 'string' ||
+           !/^sub_[A-Za-z0-9]+$/.test(billing.paddle_subscription_id))) {
+        return { error: 'paddle_subscription_unavailable' };
+      }
+      // Keep the account safety lock while the short-lived provider session is
+      // created, so deletion cannot complete and then race a portal link issue.
+      const { createPaddleCustomerPortalSession } = await import('./paddleBilling.js');
+      const portal = await createPaddleCustomerPortalSession({
+        apiKey: process.env.PADDLE_API_KEY,
+        environment: process.env.PADDLE_ENVIRONMENT,
+        customerId: billing.paddle_customer_id,
+        subscriptionId: billing.paddle_subscription_id
+      });
+      return { url: portal.url };
+    });
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    if (read.value.error) return res.status(409).json({ error: read.value.error });
+    return res.json({ url: read.value.url });
+  } catch (error) {
+    console.error('Paddle customer portal session failed:', error?.message || 'unknown error');
+    return res.status(502).json({ error: 'paddle_portal_unavailable' });
   }
 });
 
 app.get('/api/paddle/config', requireSession, (req, res) => {
-  if (process.env.PADDLE_ENVIRONMENT !== 'sandbox' || !process.env.PADDLE_CLIENT_TOKEN?.startsWith('test_')) {
+  if (process.env.PADDLE_ENVIRONMENT !== 'sandbox' ||
+      !process.env.PADDLE_API_KEY ||
+      !process.env.PADDLE_WEBHOOK_SECRET ||
+      !process.env.PADDLE_CLIENT_TOKEN?.startsWith('test_')) {
     return res.json({ configured: false, environment: 'sandbox', plans: [] });
   }
   const plans = [
@@ -139,7 +513,7 @@ app.get('/api/paddle/config', requireSession, (req, res) => {
     { id: '3months', priceId: process.env.PADDLE_PRICE_ID_3MONTHS || null, billing: 'quarter' },
     { id: 'lifetime', priceId: process.env.PADDLE_PRICE_ID_LIFETIME || null, billing: 'one-time' }
   ].filter(plan => plan.priceId && /^pri_[A-Za-z0-9]+$/.test(plan.priceId));
-  return res.json({ configured: Boolean(process.env.PADDLE_CLIENT_TOKEN && plans.length), environment: 'sandbox', clientToken: process.env.PADDLE_CLIENT_TOKEN, plans });
+  return res.json({ configured: Boolean(process.env.PADDLE_API_KEY && process.env.PADDLE_WEBHOOK_SECRET && process.env.PADDLE_CLIENT_TOKEN && plans.length), environment: 'sandbox', clientToken: process.env.PADDLE_CLIENT_TOKEN, plans });
 });
 
 const photoStorageDir = path.resolve(process.env.PHOTO_STORAGE_DIR || 'uploads/private-photos');
@@ -280,12 +654,13 @@ async function requireSession(req, res, next) {
 
   try {
     const result = await pool.query(
-      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.female_trial_ends_at, u.premium_until, u.premium_lifetime, u.phone_verified_at,
+      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.female_trial_ends_at, u.premium_until, u.premium_lifetime, u.paddle_customer_id, u.paddle_subscription_id, u.paddle_subscription_status, pca.status AS paddle_checkout_status, pca.plan AS paddle_checkout_plan, u.phone_verified_at,
               p.display_name, p.gender, p.country, p.city, p.relationship_intent, s.id AS session_id
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        JOIN profiles p ON p.user_id = u.id
-       WHERE s.token_hash = $1 AND s.expires_at > NOW()
+        LEFT JOIN paddle_checkout_attempts pca ON pca.user_id = u.id
+        WHERE s.token_hash = $1 AND s.expires_at > NOW()
        LIMIT 1`,
       [hashSessionToken(token)]
     );
@@ -306,9 +681,9 @@ async function requireSession(req, res, next) {
   }
 }
 
-async function persistScreening(userId, scope, result) {
+async function persistScreening(userId, scope, result, client = pool) {
   // Persist only the minimal classification metadata. Do not persist source text or text-derived hashes.
-  await pool.query('INSERT INTO user_safety_screenings (user_id, scope, flags, severity, review_status) VALUES ($1, $2, $3::jsonb, $4, $5)', [userId, scope, JSON.stringify(result.flags), result.severity, result.requiresReview ? 'pending' : 'not_required']);
+  await client.query('INSERT INTO user_safety_screenings (user_id, scope, flags, severity, review_status) VALUES ($1, $2, $3::jsonb, $4, $5)', [userId, scope, JSON.stringify(result.flags), result.severity, result.requiresReview ? 'pending' : 'not_required']);
 }
 
 async function createNotification(userId, type, metadata = {}, dedupeKey = null, client = pool) {
@@ -420,6 +795,15 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
       ? await createAccountActionToken(client, user.id, 'email_verification', 60)
       : null;
     const token = emailVerificationRequired ? null : await createSession(client, user.id);
+
+    // The transaction can see its own user/profile rows; keep registration screening
+    // under the same user safety lock used by gift acceptance.
+    await acquireGiftSafetyUserLocks(client, user.id);
+    const registrationScreening = await screenProfilePrivate({
+      displayName, country, city, bio: '', occupation: '', education: '',
+      hasChildren, childrenLivingArrangement
+    });
+    await persistScreening(user.id, 'profile', registrationScreening, client);
     await client.query('COMMIT');
 
     if (verificationToken) {
@@ -434,17 +818,6 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
         console.error('Verification email delivery failed:', mailError?.message || 'unknown error');
         return res.status(503).json({ error: 'verification_email_delivery_failed', accountCreated: true });
       }
-    }
-
-    // Screen after commit so the separate screening insert can see the new user row.
-    try {
-      const registrationScreening = await screenProfilePrivate({
-        displayName, country, city, bio: '', occupation: '', education: '',
-        hasChildren, childrenLivingArrangement
-      });
-      await persistScreening(user.id, 'profile', registrationScreening);
-    } catch (screeningError) {
-      console.error('Registration screening failed:', screeningError?.message || 'unknown error');
     }
 
     if (emailVerificationRequired) {
@@ -468,24 +841,43 @@ app.post('/api/auth/verify-email', authLimiter, validateRequestOrigin, requireDa
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const tokenHash = hashSessionToken(token);
+    const preview = await client.query(
+      `SELECT user_id FROM account_action_tokens
+       WHERE purpose = 'email_verification' AND token_hash = $1
+         AND consumed_at IS NULL AND expires_at > NOW()`,
+      [tokenHash]
+    );
+    const userId = preview.rows[0]?.user_id;
+    if (!userId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'invalid_or_expired_token' });
+    }
+    await acquireGiftSafetyUserLocks(client, userId);
     const result = await client.query(
       `SELECT id, user_id FROM account_action_tokens
        WHERE purpose = 'email_verification' AND token_hash = $1
-         AND consumed_at IS NULL AND expires_at > NOW()
+         AND user_id = $2 AND consumed_at IS NULL AND expires_at > NOW()
        FOR UPDATE`,
-      [hashSessionToken(token)]
+      [tokenHash, userId]
     );
     const action = result.rows[0];
     if (!action) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'invalid_or_expired_token' });
     }
-    await client.query(
+    const updated = await client.query(
       `UPDATE users SET email_verified_at = COALESCE(email_verified_at, NOW()),
          status = CASE WHEN status = 'pending' THEN 'active' ELSE status END,
-         updated_at = NOW() WHERE id = $1`,
+         updated_at = NOW()
+       WHERE id = $1 AND status IN ('pending', 'active')
+       RETURNING id`,
       [action.user_id]
     );
+    if (!updated.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'invalid_or_expired_token' });
+    }
     await client.query('UPDATE account_action_tokens SET consumed_at = NOW() WHERE id = $1', [action.id]);
     await client.query('COMMIT');
     return res.json({ verified: true, message: 'Email verified. You can now sign in.' });
@@ -500,12 +892,11 @@ app.post('/api/auth/verify-email', authLimiter, validateRequestOrigin, requireDa
 
 app.post('/api/auth/email-verification/resend', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
   const email = normalizeEmail(req.body?.email);
-  // Keep the response generic so the endpoint does not disclose registered addresses.
   const generic = { accepted: true, message: 'If the account needs verification, an email will be sent.' };
   if (!isValidEmail(email) || !emailDeliveryConfigured()) return res.status(202).json(generic);
   try {
     const userResult = await pool.query(
-      `SELECT id, email FROM users
+      `SELECT id FROM users
        WHERE email = $1 AND status IN ('pending', 'active') AND email_verified_at IS NULL LIMIT 1`,
       [email]
     );
@@ -515,18 +906,34 @@ app.post('/api/auth/email-verification/resend', authLimiter, validateRequestOrig
       let token;
       try {
         await client.query('BEGIN');
-        await client.query("UPDATE account_action_tokens SET consumed_at = NOW() WHERE user_id = $1 AND purpose = 'email_verification' AND consumed_at IS NULL", [user.id]);
-        token = await createAccountActionToken(client, user.id, 'email_verification', 60);
+        await acquireGiftSafetyUserLocks(client, user.id);
+        const current = await client.query(
+          `SELECT id, email FROM users
+           WHERE id = $1 AND email = $2 AND status IN ('pending', 'active')
+             AND email_verified_at IS NULL FOR SHARE`,
+          [user.id, email]
+        );
+        if (current.rows[0]) {
+          await client.query(
+            "UPDATE account_action_tokens SET consumed_at = NOW() WHERE user_id = $1 AND purpose = 'email_verification' AND consumed_at IS NULL",
+            [user.id]
+          );
+          token = await createAccountActionToken(client, user.id, 'email_verification', 60);
+        }
         await client.query('COMMIT');
       } catch (error) {
         await client.query('ROLLBACK').catch(() => {});
         throw error;
-      } finally { client.release(); }
-      await sendConfiguredEmail({
-        to: user.email,
-        subject: 'Verify your Vow account',
-        html: '<p>Confirm your email address:</p><p><a href="' + accountActionUrl('verifyEmail', token) + '">Verify email</a></p><p>This link expires in 60 minutes.</p>'
-      });
+      } finally {
+        client.release();
+      }
+      if (token) {
+        await sendConfiguredEmail({
+          to: email,
+          subject: 'Verify your Vow account',
+          html: '<p>Confirm your email address:</p><p><a href="' + accountActionUrl('verifyEmail', token) + '">Verify email</a></p><p>This link expires in 60 minutes.</p>'
+        });
+      }
     }
   } catch (error) {
     console.error('Verification resend failed:', error?.message || 'unknown error');
@@ -540,7 +947,7 @@ app.post('/api/auth/password-reset/request', authLimiter, validateRequestOrigin,
   if (!isValidEmail(email) || !emailDeliveryConfigured()) return res.status(202).json(generic);
   try {
     const result = await pool.query(
-      "SELECT id, email FROM users WHERE email = $1 AND status = 'active' LIMIT 1",
+      "SELECT id FROM users WHERE email = $1 AND status = 'active' LIMIT 1",
       [email]
     );
     const user = result.rows[0];
@@ -549,18 +956,32 @@ app.post('/api/auth/password-reset/request', authLimiter, validateRequestOrigin,
       let token;
       try {
         await client.query('BEGIN');
-        await client.query("UPDATE account_action_tokens SET consumed_at = NOW() WHERE user_id = $1 AND purpose = 'password_reset' AND consumed_at IS NULL", [user.id]);
-        token = await createAccountActionToken(client, user.id, 'password_reset', 30);
+        await acquireGiftSafetyUserLocks(client, user.id);
+        const current = await client.query(
+          "SELECT id, email FROM users WHERE id = $1 AND email = $2 AND status = 'active' FOR SHARE",
+          [user.id, email]
+        );
+        if (current.rows[0]) {
+          await client.query(
+            "UPDATE account_action_tokens SET consumed_at = NOW() WHERE user_id = $1 AND purpose = 'password_reset' AND consumed_at IS NULL",
+            [user.id]
+          );
+          token = await createAccountActionToken(client, user.id, 'password_reset', 30);
+        }
         await client.query('COMMIT');
       } catch (error) {
         await client.query('ROLLBACK').catch(() => {});
         throw error;
-      } finally { client.release(); }
-      await sendConfiguredEmail({
-        to: user.email,
-        subject: 'Reset your Vow password',
-        html: '<p>Use this link to choose a new password:</p><p><a href="' + accountActionUrl('resetPassword', token) + '">Reset password</a></p><p>This link expires in 30 minutes. If you did not request this, ignore this email.</p>'
-      });
+      } finally {
+        client.release();
+      }
+      if (token) {
+        await sendConfiguredEmail({
+          to: email,
+          subject: 'Reset your Vow password',
+          html: '<p>Use this link to choose a new password:</p><p><a href="' + accountActionUrl('resetPassword', token) + '">Reset password</a></p><p>This link expires in 30 minutes. If you did not request this, ignore this email.</p>'
+        });
+      }
     }
   } catch (error) {
     console.error('Password reset request failed:', error?.message || 'unknown error');
@@ -579,19 +1000,39 @@ app.post('/api/auth/password-reset/complete', authLimiter, validateRequestOrigin
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const tokenHash = hashSessionToken(token);
+    const preview = await client.query(
+      `SELECT user_id FROM account_action_tokens
+       WHERE purpose = 'password_reset' AND token_hash = $1
+         AND consumed_at IS NULL AND expires_at > NOW()`,
+      [tokenHash]
+    );
+    const userId = preview.rows[0]?.user_id;
+    if (!userId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'invalid_or_expired_token' });
+    }
+    await acquireGiftSafetyUserLocks(client, userId);
     const result = await client.query(
       `SELECT id, user_id FROM account_action_tokens
        WHERE purpose = 'password_reset' AND token_hash = $1
-         AND consumed_at IS NULL AND expires_at > NOW()
+         AND user_id = $2 AND consumed_at IS NULL AND expires_at > NOW()
        FOR UPDATE`,
-      [hashSessionToken(token)]
+      [tokenHash, userId]
     );
     const action = result.rows[0];
     if (!action) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'invalid_or_expired_token' });
     }
-    await client.query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2', [passwordHash, action.user_id]);
+    const updated = await client.query(
+      "UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 AND status = 'active' RETURNING id",
+      [passwordHash, action.user_id]
+    );
+    if (!updated.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'invalid_or_expired_token' });
+    }
     await client.query('UPDATE account_action_tokens SET consumed_at = NOW() WHERE id = $1', [action.id]);
     await client.query('DELETE FROM sessions WHERE user_id = $1', [action.user_id]);
     await client.query('COMMIT');
@@ -638,6 +1079,29 @@ app.post('/api/auth/login', authLimiter, validateRequestOrigin, requireDatabase,
     let token;
     try {
       await client.query('BEGIN');
+      // Serialize session creation with account deletion. A login that verified
+      // credentials before deletion must not create a fresh session afterward.
+      await acquireGiftSafetyUserLocks(client, user.id);
+      const currentAccount = await client.query(
+        'SELECT status, email_verified_at, password_hash FROM users WHERE id = $1 FOR SHARE',
+        [user.id]
+      );
+      if (currentAccount.rows[0]?.status !== 'active') {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'account_unavailable' });
+      }
+      // Password reset shares this account-safety lock. If the password changed
+      // after the initial expensive verification, never create a session using
+      // credentials that are no longer current.
+      if (currentAccount.rows[0].password_hash !== user.password_hash &&
+          !await verifyPassword(password, currentAccount.rows[0].password_hash)) {
+        await client.query('ROLLBACK');
+        return res.status(401).json({ error: 'email_or_password_incorrect' });
+      }
+      if (emailVerificationRequired && !currentAccount.rows[0].email_verified_at) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'email_verification_required' });
+      }
       await client.query('DELETE FROM sessions WHERE expires_at < NOW()');
       token = await createSession(client, user.id);
       await client.query('COMMIT');
@@ -659,28 +1123,38 @@ app.post('/api/auth/login', authLimiter, validateRequestOrigin, requireDatabase,
 app.get('/api/auth/me', requireDatabase, async (req, res) => {
   const token = readSessionToken(req);
   if (!token) return res.status(401).json({ error: 'not_authenticated' });
-
   try {
-    const result = await pool.query(
-      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.female_trial_ends_at, u.premium_until, u.phone_verified_at,
-              p.display_name, p.gender, p.country, p.city, p.relationship_intent, s.id AS session_id
-       FROM sessions s
-       JOIN users u ON u.id = s.user_id
-       JOIN profiles p ON p.user_id = u.id
-       WHERE s.token_hash = $1 AND s.expires_at > NOW()
-       LIMIT 1`,
+    const lookup = await pool.query(
+      'SELECT user_id FROM sessions WHERE token_hash = $1 AND expires_at > NOW() LIMIT 1',
       [hashSessionToken(token)]
     );
-    const user = result.rows[0];
-    if (!user || user.status !== 'active') {
+    if (!lookup.rows[0]) {
+      clearSessionCookie(res);
+      return res.status(401).json({ error: 'not_authenticated' });
+    }
+    const read = await withActiveAccountRead(lookup.rows[0].user_id, async client => {
+      const result = await client.query(
+        `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.female_trial_ends_at, u.premium_until, u.phone_verified_at,
+                p.display_name, p.gender, p.country, p.city, p.relationship_intent, s.id AS session_id
+         FROM sessions s
+         JOIN users u ON u.id = s.user_id
+         JOIN profiles p ON p.user_id = u.id
+         WHERE s.token_hash = $1 AND s.user_id = $2 AND s.expires_at > NOW()
+         LIMIT 1`,
+        [hashSessionToken(token), lookup.rows[0].user_id]
+      );
+      const user = result.rows[0] || null;
+      if (user) await client.query('UPDATE sessions SET last_seen_at = NOW() WHERE id = $1', [user.session_id]);
+      return user;
+    });
+    const user = read.value;
+    if (!read.active || !user || user.status !== 'active') {
       clearSessionCookie(res);
       return res.status(401).json({ error: 'not_authenticated' });
     }
     if (emailVerificationRequired && !user.email_verified_at) {
       return res.status(403).json({ error: 'email_verification_required' });
     }
-
-    await pool.query('UPDATE sessions SET last_seen_at = NOW() WHERE id = $1', [user.session_id]);
     return res.json({ user: publicUser(user) });
   } catch (error) {
     console.error('Session lookup failed:', error?.message || 'unknown error');
@@ -702,6 +1176,97 @@ app.post('/api/auth/logout', validateRequestOrigin, requireDatabase, async (req,
   return res.status(204).end();
 });
 
+
+
+/** Queue provider reconciliation for safety-held orders without pretending a void/refund occurred. */
+async function enqueueGiftSafetyPaymentReconciliation(client, gift, { actorUserId = null, actorType = 'system' } = {}) {
+  if (!['authorization_pending', 'authorized', 'captured', 'refund_pending'].includes(gift.payment_status)) return false;
+  const task = await client.query(
+    `INSERT INTO gift_payment_reconciliation_tasks (order_id, reason)
+     VALUES ($1, 'safety_hold')
+     ON CONFLICT (order_id, reason) DO NOTHING
+     RETURNING order_id`,
+    [gift.id]
+  );
+  if (task.rowCount === 1) {
+    await client.query(
+      `INSERT INTO gift_delivery_order_events
+         (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
+       SELECT id, $2, $3, 'payment_reconciliation_required', status, status,
+              jsonb_build_object('reason', 'safety_hold')
+       FROM gift_delivery_orders WHERE id = $1`,
+      [gift.id, actorUserId, actorType]
+    );
+  }
+  return task.rowCount === 1;
+}
+
+async function suspendGiftOrdersForUser(client, userId, { actorUserId = null, actorType = 'system', reason = 'account_safety_event' } = {}) {
+  // Use the same pair-level lock as accept/block/report, in stable order, before
+  // touching gift rows. Clear any legacy pointer left on a state where the
+  // address-vault constraints do not permit one; delivered orders deliberately
+  // retain their verified pointer for the delivery audit trail.
+  const pairs = await client.query(
+    `SELECT DISTINCT LEAST(sender_id, recipient_id)::text AS user_a,
+            GREATEST(sender_id, recipient_id)::text AS user_b
+     FROM gift_delivery_orders
+     WHERE (sender_id = $1 OR recipient_id = $1)
+       AND (
+         status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivery_failed')
+         OR (address_vault_ref IS NOT NULL AND status <> 'delivered')
+       )
+     ORDER BY user_a, user_b`,
+    [userId]
+  );
+  for (const pair of pairs.rows) {
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext('gift-safety:' || $1 || ':' || $2))",
+      [pair.user_a, pair.user_b]
+    );
+  }
+
+  const suspended = await client.query(
+    `WITH candidates AS (
+       SELECT id, status AS previous_status, (address_vault_ref IS NOT NULL) AS had_address_pointer
+       FROM gift_delivery_orders
+       WHERE (sender_id = $1 OR recipient_id = $1)
+         AND (
+           status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivery_failed')
+           OR (address_vault_ref IS NOT NULL AND status <> 'delivered')
+         )
+       ORDER BY id
+       FOR UPDATE
+     )
+     UPDATE gift_delivery_orders AS o
+     SET status = CASE
+           WHEN c.previous_status IN ('dispatched', 'delivery_failed') THEN 'reported'
+           WHEN c.previous_status IN ('reported', 'blocked', 'delivered', 'declined', 'expired', 'cancelled', 'refund_pending', 'refunded') THEN c.previous_status
+           ELSE 'blocked'
+         END,
+         address_vault_ref = NULL, address_verified_at = NULL, updated_at = statement_timestamp()
+     FROM candidates AS c
+     WHERE o.id = c.id
+     RETURNING o.id, c.previous_status, c.had_address_pointer, o.status AS next_status, o.payment_status`,
+    [userId]
+  );
+  for (const gift of suspended.rows) {
+    await client.query(
+      `INSERT INTO gift_delivery_order_events
+         (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
+       VALUES ($1, $2, $3, 'safety_hold', $4, $5, $6::jsonb)`,
+      [gift.id, actorUserId, actorType, gift.previous_status, gift.next_status, JSON.stringify({
+        reason: normalizeGiftSafetyAuditReason(reason),
+        addressRevoked: gift.had_address_pointer
+      })]
+    );
+    // A completed delivery needs address revocation but no payment reversal.
+    if (gift.previous_status !== 'delivered' && gift.previous_status !== 'refund_pending') {
+      await enqueueGiftSafetyPaymentReconciliation(client, gift, { actorUserId, actorType });
+    }
+  }
+  return suspended.rowCount;
+}
+
 app.delete('/api/account', validateRequestOrigin, requireSession, async (req, res) => {
   let privatePhotoPaths = [];
   const password = req.body?.password;
@@ -710,23 +1275,183 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
   }
 
   let client;
+  let checkoutLockAcquired = false;
+  let safetyLockAcquired = false;
+  let paddleSubscriptionCancellation = null;
+  const checkoutLockKey = `paddle-checkout:${req.authUser.id}`;
+  const safetyLockKey = `gift-safety-user:${req.authUser.id}`;
   try {
-    const account = await pool.query("SELECT password_hash FROM users WHERE id = $1 AND status = 'active'", [req.authUser.id]);
-    if (!account.rows[0] || typeof account.rows[0].password_hash !== 'string' || !(await verifyPassword(password, account.rows[0].password_hash))) {
+    client = await pool.connect();
+    // Keep the same lock order as checkout creation: provider checkout first,
+    // then the account-safety lock. The session-level safety lock stays held
+    // across Paddle calls so a concurrent password reset cannot invalidate the
+    // session after confirmation but before the destructive delete transaction.
+    checkoutLockAcquired = true;
+    await client.query('SELECT pg_advisory_lock(hashtext($1))', [checkoutLockKey]);
+    await client.query('SELECT pg_advisory_lock(hashtext($1))', [safetyLockKey]);
+    safetyLockAcquired = true;
+
+    const account = await client.query(
+      `SELECT u.password_hash
+       FROM users u
+       JOIN sessions s ON s.user_id = u.id
+       WHERE u.id = $1 AND u.status = 'active'
+         AND s.id = $2 AND s.expires_at > statement_timestamp()`,
+      [req.authUser.id, req.authUser.session_id]
+    );
+    if (!account.rows[0] || typeof account.rows[0].password_hash !== 'string' ||
+        !(await verifyPassword(password, account.rows[0].password_hash))) {
       return res.status(401).json({ error: 'password_confirmation_failed' });
     }
 
-    client = await pool.connect();
+    const billingStateResult = await client.query(
+      `SELECT paddle_customer_id, paddle_subscription_id, paddle_subscription_status,
+              premium_until, premium_lifetime, statement_timestamp() AS billing_snapshot_at
+       FROM users WHERE id = $1 AND status = 'active'`,
+      [req.authUser.id]
+    );
+    const billingState = billingStateResult.rows[0];
+    const subscriptionId = billingState?.paddle_subscription_id;
+    const customerId = billingState?.paddle_customer_id;
+    const subscriptionStatus = String(billingState?.paddle_subscription_status || '').toLowerCase();
+    const billingSnapshotTime = billingState?.billing_snapshot_at
+      ? new Date(billingState.billing_snapshot_at).getTime() : Date.now();
+    const premiumUntilTime = billingState?.premium_until == null
+      ? null : new Date(billingState.premium_until).getTime();
+    const unresolvedTimedPremium = premiumUntilTime !== null &&
+      (!Number.isFinite(premiumUntilTime) || !Number.isFinite(billingSnapshotTime) ||
+        premiumUntilTime > billingSnapshotTime);
+
+    // A pending checkout must be canceled at Paddle before the account can be deleted.
+    const checkoutAttemptResult = await client.query(
+      `SELECT transaction_id, attempt_id, plan, status
+       FROM paddle_checkout_attempts WHERE user_id = $1`,
+      [req.authUser.id]
+    );
+    const checkoutAttempt = checkoutAttemptResult.rows[0];
+    if (checkoutAttempt && ['creating', 'reconciliation_required'].includes(checkoutAttempt.status)) {
+      return res.status(409).json({ error: 'paddle_checkout_reconciliation_required' });
+    }
+    if (checkoutAttempt?.status === 'pending') {
+      if (typeof checkoutAttempt.transaction_id !== 'string' ||
+          process.env.PADDLE_ENVIRONMENT !== 'sandbox' || !process.env.PADDLE_API_KEY) {
+        return res.status(409).json({ error: 'paddle_checkout_reconciliation_required' });
+      }
+      try {
+        const { cancelPaddleCheckoutTransaction } = await import('./paddleBilling.js');
+        const providerTransaction = await cancelPaddleCheckoutTransaction({
+          apiKey: process.env.PADDLE_API_KEY,
+          environment: process.env.PADDLE_ENVIRONMENT,
+          transactionId: checkoutAttempt.transaction_id,
+          expectedUserId: req.authUser.id,
+          expectedPlan: checkoutAttempt.plan,
+          expectedAttemptId: checkoutAttempt.attempt_id
+        });
+        if (providerTransaction.status === 'canceled') {
+          await client.query(
+            `UPDATE paddle_checkout_attempts SET status = 'canceled', updated_at = statement_timestamp()
+             WHERE user_id = $1 AND attempt_id IS NOT DISTINCT FROM $3::uuid
+               AND transaction_id = $2 AND status = 'pending'`,
+            [req.authUser.id, checkoutAttempt.transaction_id, checkoutAttempt.attempt_id]
+          );
+        } else if (['completed', 'paid'].includes(providerTransaction.status)) {
+          await client.query(
+            `UPDATE paddle_checkout_attempts SET status = $2, updated_at = statement_timestamp()
+             WHERE user_id = $1 AND attempt_id IS NOT DISTINCT FROM $3::uuid AND status = 'pending'`,
+            [req.authUser.id, 'completed', checkoutAttempt.attempt_id]
+          );
+          // A completed recurring transaction is not safe to delete around until
+          // subscription.created has linked its exact provider subscription ID.
+          // A stale prior subscription ID must not make this check pass.
+          if (checkoutAttempt.plan !== 'lifetime') {
+            return res.status(409).json({ error: 'paddle_checkout_processing' });
+          }
+        } else {
+          await client.query(
+            `UPDATE paddle_checkout_attempts SET status = 'reconciliation_required', updated_at = statement_timestamp()
+             WHERE user_id = $1 AND attempt_id IS NOT DISTINCT FROM $2::uuid AND status = 'pending'`,
+            [req.authUser.id, checkoutAttempt.attempt_id]
+          );
+          return res.status(409).json({ error: 'paddle_checkout_reconciliation_required' });
+        }
+      } catch (error) {
+        console.error('Paddle checkout cancellation before account deletion failed:', error?.message || 'unknown error');
+        return res.status(502).json({ error: 'paddle_checkout_cancellation_failed' });
+      }
+    } else if (checkoutAttempt?.status === 'completed' && checkoutAttempt.plan !== 'lifetime') {
+      // completed means transaction confirmed, but the subscription lifecycle
+      // webhook has not yet durably linked the new subscription to this account.
+      return res.status(409).json({ error: 'paddle_checkout_processing' });
+    } else if (checkoutAttempt?.status === 'linked' && checkoutAttempt.plan !== 'lifetime' && !subscriptionId) {
+      return res.status(409).json({ error: 'paddle_subscription_reconciliation_required' });
+    }
+
+    // Stop recurring Paddle billing before deleting the account. A local account
+    // deletion must never leave an active external subscription renewing silently.
+    if (typeof subscriptionId === 'string') {
+      if (typeof customerId !== 'string' || !/^ctm_[A-Za-z0-9]+$/.test(customerId)) {
+        return res.status(409).json({ error: 'paddle_subscription_reconciliation_required' });
+      }
+      if (process.env.PADDLE_ENVIRONMENT !== 'sandbox' || !process.env.PADDLE_API_KEY) {
+        return res.status(503).json({ error: 'paddle_subscription_cancellation_not_configured' });
+      }
+      try {
+        const { cancelPaddleSubscription } = await import('./paddleBilling.js');
+        paddleSubscriptionCancellation = await cancelPaddleSubscription({
+          apiKey: process.env.PADDLE_API_KEY,
+          environment: process.env.PADDLE_ENVIRONMENT,
+          subscriptionId,
+          customerId
+        });
+      } catch (error) {
+        console.error('Paddle cancellation before account deletion failed:', error?.message || 'unknown error');
+        return res.status(502).json({ error: 'paddle_subscription_cancellation_failed' });
+      }
+    } else if (!subscriptionId && (
+      (subscriptionStatus && !['canceled', 'completed'].includes(subscriptionStatus)) ||
+      (billingState?.premium_lifetime !== true && unresolvedTimedPremium)
+    )) {
+      // An unresolved provider status or timed Premium without its provider ID
+      // cannot be safely canceled; never delete the account and leave renewal behind.
+      return res.status(409).json({ error: 'paddle_subscription_reconciliation_required' });
+    }
+
+    if (paddleSubscriptionCancellation) {
+      const cancellationState = await client.query(
+        `UPDATE users
+         SET paddle_subscription_status = $4,
+             premium_until = NULL,
+             paddle_subscription_updated_at = COALESCE($5::timestamptz, statement_timestamp()),
+             updated_at = statement_timestamp()
+         WHERE id = $1 AND status = 'active'
+           AND paddle_subscription_id = $2 AND paddle_customer_id = $3
+         RETURNING id`,
+        [req.authUser.id, paddleSubscriptionCancellation.subscriptionId,
+          paddleSubscriptionCancellation.customerId, paddleSubscriptionCancellation.status,
+          paddleSubscriptionCancellation.updatedAt]
+      );
+      if (!cancellationState.rowCount) {
+        return res.status(409).json({ error: 'paddle_subscription_reconciliation_required' });
+      }
+    }
+
     await client.query('BEGIN');
+    // The session-level account-safety lock acquired before Paddle calls is
+    // still held by this connection, excluding concurrent account mutations.
+    await suspendGiftOrdersForUser(client, req.authUser.id, { reason: 'account_deleted' });
     const photoFiles = await client.query('SELECT storage_path FROM photo_assets WHERE user_id = $1', [req.authUser.id]);
     privatePhotoPaths = photoFiles.rows.map(row => row.storage_path);
     await client.query('DELETE FROM photo_assets WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM sessions WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM likes WHERE sender_id = $1 OR target_id = $1', [req.authUser.id]);
+    await client.query('DELETE FROM profile_passes WHERE passer_id = $1 OR passed_user_id = $1', [req.authUser.id]);
+    await client.query('DELETE FROM profile_preferences WHERE user_id = $1', [req.authUser.id]);
+    await client.query('DELETE FROM user_notifications WHERE user_id = $1', [req.authUser.id]);
+    await client.query('DELETE FROM account_action_tokens WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM user_blocks WHERE blocker_id = $1 OR blocked_id = $1', [req.authUser.id]);
     await client.query(
-      "UPDATE messages SET body = '[сообщение удалено]', deleted_at = COALESCE(deleted_at, NOW()) WHERE sender_id = $1",
+      "UPDATE messages SET body = '[сообщение удалено]', deleted_at = COALESCE(deleted_at, statement_timestamp()) WHERE sender_id = $1",
       [req.authUser.id]
     );
     await client.query(
@@ -735,17 +1460,25 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
          photo_urls = '{}', occupation = '', education = '', languages = '{}',
          is_visible = FALSE, has_children = NULL, children_disclosure_confirmed_at = NULL,
          family_format = 'open_to_both', wants_children = 'discuss',
-         children_living_arrangement = 'not_applicable', updated_at = NOW()
+         children_living_arrangement = 'not_applicable', updated_at = statement_timestamp()
        WHERE user_id = $1`,
       [req.authUser.id]
     );
     await client.query(
       `UPDATE users SET status = 'deleted', email = $2, password_hash = NULL,
          phone_e164 = NULL, phone_verified_at = NULL, female_trial_ends_at = NULL,
-         premium_until = NULL, updated_at = NOW()
+         premium_until = NULL, premium_lifetime = FALSE, updated_at = statement_timestamp()
        WHERE id = $1`,
       [req.authUser.id, 'deleted+' + req.authUser.id + '@deleted.invalid']
     );
+    // Account deletion removes both the current consent state and its history.
+    // Migration 104 permits history purge only after the account is marked deleted.
+    await client.query('DELETE FROM ad_consent_preferences WHERE user_id = $1', [req.authUser.id]);
+    await client.query('DELETE FROM ad_consent_history WHERE user_id = $1', [req.authUser.id]);
+    await client.query('DELETE FROM gift_receiving_preferences WHERE user_id = $1', [req.authUser.id]);
+    // Engagement events are user-linked frequency signals, not billing records;
+    // remove any retained rows immediately when the account is deleted.
+    await client.query('DELETE FROM ad_events WHERE user_id = $1', [req.authUser.id]);
     await client.query(
       "UPDATE matches SET status = 'closed' WHERE user_a_id = $1 OR user_b_id = $1",
       [req.authUser.id]
@@ -759,43 +1492,82 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     console.error('Account deletion failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'account_deletion_failed' });
   } finally {
+    if (client && safetyLockAcquired) {
+      try {
+        await client.query('SELECT pg_advisory_unlock(hashtext($1))', [safetyLockKey]);
+      } catch {
+        client.release(new Error('safety_lock_release_failed'));
+        client = null;
+      }
+    }
+    if (client && checkoutLockAcquired) {
+      try {
+        await client.query('SELECT pg_advisory_unlock(hashtext($1))', [checkoutLockKey]);
+      } catch {
+        client.release(new Error('checkout_lock_release_failed'));
+        client = null;
+      }
+    }
     client?.release();
   }
 });
 
 app.get('/api/billing/status', requireSession, async (req, res) => {
-  const trialEndsAt = req.authUser.female_trial_ends_at ? new Date(req.authUser.female_trial_ends_at) : null;
-  const premiumUntil = req.authUser.premium_until ? new Date(req.authUser.premium_until) : null;
-  const now = Date.now();
-  const isTrialActive = req.authUser.gender === 'female' && trialEndsAt && trialEndsAt.getTime() > now;
-  const hasTimedPremium = premiumUntil && premiumUntil.getTime() > now;
-  const hasPremium = Boolean(req.authUser.premium_lifetime || hasTimedPremium);
-  const paddlePlans = process.env.PADDLE_ENVIRONMENT === 'sandbox' && process.env.PADDLE_CLIENT_TOKEN?.startsWith('test_')
-    ? [
-        ...(process.env.PADDLE_PRICE_ID_1MONTH ? ['1month'] : []),
-        ...(process.env.PADDLE_PRICE_ID_3MONTHS ? ['3months'] : []),
-        ...(process.env.PADDLE_PRICE_ID_LIFETIME ? ['lifetime'] : [])
-      ]
-    : [];
-  const paymentConfigured = Boolean(
-    process.env.PADDLE_ENVIRONMENT === 'sandbox' &&
-    process.env.PADDLE_API_KEY &&
-    process.env.PADDLE_WEBHOOK_SECRET &&
-    process.env.PADDLE_CLIENT_TOKEN?.startsWith('test_') &&
-    paddlePlans.length
-  );
-  const availablePlans = paddlePlans;
-  const note = paymentConfigured
-    ? 'Paddle Sandbox is enabled; premium access changes only after a verified webhook. Sandbox does not collect real payments.'
-    : 'Paddle Sandbox is not fully configured. No payment will be collected until its sandbox credentials and price IDs are configured.';
-  return res.json({
-    gender: req.authUser.gender, trialEndsAt: trialEndsAt?.toISOString() || null,
-    premiumUntil: req.authUser.premium_lifetime ? null : premiumUntil?.toISOString() || null,
-    premiumLifetime: Boolean(req.authUser.premium_lifetime),
-    access: req.authUser.gender !== 'female' || isTrialActive || hasPremium ? 'full' : 'premium_required',
-    trialActive: Boolean(isTrialActive), premiumActive: hasPremium, paymentConfigured, availablePlans, note
-  });
+  try {
+    const read = await withActiveAccountRead(req.authUser.id, client => client.query(
+      `SELECT p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime,
+              u.paddle_customer_id, u.paddle_subscription_id, u.paddle_subscription_status,
+              pca.status AS paddle_checkout_status, pca.plan AS paddle_checkout_plan
+       FROM users u JOIN profiles p ON p.user_id = u.id
+       LEFT JOIN paddle_checkout_attempts pca ON pca.user_id = u.id
+       WHERE u.id = $1`,
+      [req.authUser.id]
+    ));
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    const user = read.value.rows[0];
+    if (!user) return res.status(401).json({ error: 'account_not_active' });
+    const trialEndsAt = user.female_trial_ends_at ? new Date(user.female_trial_ends_at) : null;
+    const premiumUntil = user.premium_until ? new Date(user.premium_until) : null;
+    const now = Date.now();
+    const isTrialActive = user.gender === 'female' && trialEndsAt && trialEndsAt.getTime() > now;
+    const hasTimedPremium = premiumUntil && premiumUntil.getTime() > now;
+    const hasPremium = Boolean(user.premium_lifetime || hasTimedPremium);
+    const paddlePlans = process.env.PADDLE_ENVIRONMENT === 'sandbox' && process.env.PADDLE_CLIENT_TOKEN?.startsWith('test_')
+      ? [
+          ...(process.env.PADDLE_PRICE_ID_1MONTH ? ['1month'] : []),
+          ...(process.env.PADDLE_PRICE_ID_3MONTHS ? ['3months'] : []),
+          ...(process.env.PADDLE_PRICE_ID_LIFETIME ? ['lifetime'] : [])
+        ]
+      : [];
+    const paymentConfigured = Boolean(
+      process.env.PADDLE_ENVIRONMENT === 'sandbox' &&
+      process.env.PADDLE_API_KEY &&
+      process.env.PADDLE_WEBHOOK_SECRET &&
+      process.env.PADDLE_CLIENT_TOKEN?.startsWith('test_') &&
+      paddlePlans.length
+    );
+    const note = paymentConfigured
+      ? 'Paddle Sandbox is enabled; premium access changes only after a verified webhook. Sandbox does not collect real payments.'
+      : 'Paddle Sandbox is not fully configured. No payment will be collected until its sandbox credentials and price IDs are configured.';
+    return res.json({
+      gender: user.gender, trialEndsAt: trialEndsAt?.toISOString() || null,
+      premiumUntil: user.premium_lifetime ? null : premiumUntil?.toISOString() || null,
+      premiumLifetime: Boolean(user.premium_lifetime),
+      access: user.gender !== 'female' || isTrialActive || hasPremium ? 'full' : 'premium_required',
+      trialActive: Boolean(isTrialActive), premiumActive: hasPremium,
+      billingManageable: Boolean(user.paddle_customer_id),
+      billingNeedsAttention: Boolean(user.paddle_subscription_id &&
+        !['canceled', 'completed'].includes(String(user.paddle_subscription_status || '').toLowerCase())),
+      pendingCheckoutStatus: user.paddle_checkout_status || null,
+      pendingCheckoutPlan: user.paddle_checkout_plan || null,
+      paymentConfigured, availablePlans: paddlePlans, note
+    });
+  } catch (error) {
+    console.error('Billing status lookup failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'billing_status_unavailable' });
+  }
 });
+
 app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req, res) => {
   const cleanFilter = (value, maxLength) => {
     if (typeof value !== 'string') return null;
@@ -829,8 +1601,7 @@ app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req,
   }
 
   try {
-    const result = await pool.query(
-      `SELECT
+    const searchSql = `SELECT
          p.user_id AS id,
          p.display_name AS "displayName",
          EXTRACT(YEAR FROM AGE(CURRENT_DATE, p.birth_date))::int AS age,
@@ -902,9 +1673,41 @@ app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req,
          AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, p.birth_date))::int BETWEEN COALESCE($7::int, 18) AND COALESCE($8::int, 120)
          AND ($9::int = 0 OR (candidate_assessment.answers IS NOT NULL AND my_assessment.answers IS NOT NULL AND (CASE WHEN candidate_assessment.answers->>'financialModel' = my_assessment.answers->>'financialModel' THEN 1 ELSE 0 END + CASE WHEN candidate_assessment.answers->>'lifestyleExpectation' = my_assessment.answers->>'lifestyleExpectation' THEN 1 ELSE 0 END + CASE WHEN candidate_assessment.answers->>'gifts' = my_assessment.answers->>'gifts' THEN 1 ELSE 0 END) * 100.0 / 3 >= ($9 - 0.5)))
        ORDER BY "compatibilityScore" DESC NULLS LAST, p.updated_at DESC, p.user_id
-       LIMIT $5 OFFSET $6`,
-      [req.authUser.id, country, city, intent, parsedLimit + 1, parsedOffset, minAge, maxAge, minFinancialAlignment, familyFormat, childrenFilter === null ? null : childrenFilter === 'true']
-    );
+       LIMIT $5 OFFSET $6`;
+    const searchParams = [req.authUser.id, country, city, intent, parsedLimit + 1, parsedOffset, minAge, maxAge, minFinancialAlignment, familyFormat, childrenFilter === null ? null : childrenFilter === 'true'];
+    let client;
+    let result;
+    try {
+      client = await pool.connect();
+      await client.query('BEGIN');
+      // Preview the exact page, then lock the requester and every candidate in
+      // one globally sorted set. Re-run the query after locks so a concurrent
+      // deletion, profile change, like/pass or block cannot leak stale results.
+      const preview = await client.query(searchSql, searchParams);
+      const candidateIds = preview.rows.map(profile => profile.id);
+      await acquireGiftSafetyUserLocks(client, req.authUser.id, ...candidateIds);
+      const actor = await client.query(
+        "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+        [req.authUser.id]
+      );
+      if (!actor.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(401).json({ error: 'account_not_active' });
+      }
+      const finalSql = searchSql.replace(
+        '       ORDER BY',
+        '         AND p.user_id = ANY($12::uuid[])\n       ORDER BY'
+      );
+      const lockedSearchParams = [...searchParams];
+      lockedSearchParams[5] = 0; // candidateIds already represent the requested page after OFFSET.
+      result = await client.query(finalSql, [...lockedSearchParams, candidateIds]);
+      await client.query('COMMIT');
+    } catch (error) {
+      if (client) await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client?.release();
+    }
     const hasMore = result.rows.length > parsedLimit;
     const profiles = (hasMore ? result.rows.slice(0, parsedLimit) : result.rows).map(profile => {
       const { assessment_answers: candidateAnswers, my_assessment_answers: myAnswers, ...publicProfile } = profile;
@@ -955,14 +1758,23 @@ app.post('/api/photos', validateRequestOrigin, requireSession, profileActionLimi
   let client, fileWritten=false;
   try {
     client=await pool.connect(); await client.query('BEGIN');
-    const profile=await client.query('SELECT photo_urls FROM profiles WHERE user_id=$1 FOR UPDATE',[req.authUser.id]);
+    // Serialize uploads with account deletion and reject requests authenticated
+    // before deletion that only reach this transaction after the account closes.
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const profile=await client.query(
+      `SELECT p.photo_urls
+       FROM profiles p JOIN users u ON u.id = p.user_id
+       WHERE p.user_id = $1 AND u.status = 'active'
+       FOR UPDATE OF p, u`,
+      [req.authUser.id]
+    );
     if(!profile.rows[0]){await client.query('ROLLBACK');return res.status(404).json({error:'profile_not_found'});}
     if((profile.rows[0].photo_urls||[]).length>=6){await client.query('ROLLBACK');return res.status(400).json({error:'photo_limit_reached'});}
     await mkdir(photoStorageDir,{recursive:true,mode:0o700});
     await writeFile(filePath,clean.buffer,{flag:'wx',mode:0o600}); fileWritten=true;
     await client.query('INSERT INTO photo_assets (id,user_id,storage_path,mime_type,byte_size,width,height,review_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',[id,req.authUser.id,filePath,clean.mimeType,clean.buffer.length,clean.width,clean.height,moderation.status]);
     if (moderation.status === 'approved') await client.query('INSERT INTO moderation_audit_log (action,target_type,target_id,reason,details) VALUES ($1,$2,$3,$4,$5::jsonb)', ['photo_ai_approved', 'photo', id, moderation.reason, JSON.stringify({ engine: moderation.engine, confidence: moderation.confidence, flags: moderation.flags })]);
-    await client.query("UPDATE profiles SET photo_urls=COALESCE(photo_urls,'{}') || ARRAY[$2]::text[],updated_at=NOW() WHERE user_id=$1",[req.authUser.id,photoUrl]);
+    await client.query("UPDATE profiles SET photo_urls=COALESCE(photo_urls,'{}') || ARRAY[$2]::text[],updated_at=statement_timestamp() WHERE user_id=$1",[req.authUser.id,photoUrl]);
     await client.query('COMMIT');
     return res.status(201).json({photoUrl,mimeType:clean.mimeType,width:clean.width,height:clean.height,reviewStatus:moderation.status,moderationEngine:moderation.engine});
   } catch(error) {
@@ -975,10 +1787,23 @@ app.post('/api/photos', validateRequestOrigin, requireSession, profileActionLimi
 
 app.get('/api/photos/:photoId', requireSession, async (req,res) => {
   if(!isUuid(req.params.photoId)) return res.status(404).end();
+  let client;
   try {
-    const result=await pool.query(
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const owner = await client.query('SELECT user_id FROM photo_assets WHERE id = $1', [req.params.photoId]);
+    if (!owner.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).end();
+    }
+    // Serialize the complete private-file read with account deletion and
+    // pair blocking. Keep the transaction open until bytes are loaded so a
+    // deletion cannot unlink the file between authorization and readFile().
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, owner.rows[0].user_id);
+    const result=await client.query(
       `SELECT a.storage_path AS "storagePath",a.mime_type AS "mimeType"
        FROM photo_assets a JOIN profiles p ON p.user_id=a.user_id JOIN users u ON u.id=a.user_id
+       JOIN users viewer ON viewer.id=$2 AND viewer.status='active'
        WHERE a.id=$1 AND u.status='active'
          AND ('/api/photos/' || a.id::text)=ANY(COALESCE(p.photo_urls,'{}'))
          AND (a.user_id=$2 OR ($3::boolean AND a.review_status IN ('pending','approved','rejected')) OR (a.review_status='approved' AND p.is_visible=TRUE AND NOT EXISTS (
@@ -986,21 +1811,30 @@ app.get('/api/photos/:photoId', requireSession, async (req,res) => {
          ))) LIMIT 1`,
       [req.params.photoId,req.authUser.id,['admin','moderator'].includes(req.authUser.role)]
     );
-    const asset=result.rows[0]; if(!asset) return res.status(404).end();
+    const asset=result.rows[0];
+    if(!asset) {
+      await client.query('ROLLBACK');
+      return res.status(404).end();
+    }
     const bytes=await readFile(asset.storagePath);
+    await client.query('COMMIT');
     res.setHeader('Content-Type',asset.mimeType);res.setHeader('Content-Length',bytes.length);
     res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Cross-Origin-Resource-Policy','same-site');
-    res.setHeader('Cache-Control','private, max-age=300');return res.send(bytes);
+    res.setHeader('Cache-Control','private, no-store');return res.send(bytes);
   } catch(error) {
+    if(client) await client.query('ROLLBACK').catch(()=>{});
     if(error?.code==='ENOENT') return res.status(404).end();
     console.error('Photo read failed:',error?.message||'unknown error');return res.status(500).json({error:'photo_read_failed'});
+  } finally {
+    client?.release();
   }
 });
 
 app.get('/api/assessment', requireSession, requirePaidFeatures, async (req, res) => {
   try {
-    const result = await pool.query('SELECT answers, assessment_version AS "assessmentVersion", completed_at AS "completedAt", updated_at AS "updatedAt" FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
-    return res.json({ assessment: result.rows[0] || null, version: ASSESSMENT_VERSION });
+    const read = await withActiveAccountRead(req.authUser.id, client => client.query('SELECT answers, assessment_version AS "assessmentVersion", completed_at AS "completedAt", updated_at AS "updatedAt" FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]));
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    return res.json({ assessment: read.value.rows[0] || null, version: ASSESSMENT_VERSION });
   } catch (error) {
     console.error('Assessment read failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'assessment_read_failed' });
@@ -1010,31 +1844,57 @@ app.get('/api/assessment', requireSession, requirePaidFeatures, async (req, res)
 app.put('/api/assessment', validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
   const answers = req.body?.answers;
   if (!isValidAssessment(answers)) return res.status(400).json({ error: 'assessment_answers_incomplete_or_invalid' });
+  let client;
   try {
-    const result = await pool.query(
-      'INSERT INTO relationship_assessments (user_id, answers, assessment_version, completed_at, updated_at) VALUES ($1, $2::jsonb, $3, NOW(), NOW()) ON CONFLICT (user_id) DO UPDATE SET answers = EXCLUDED.answers, assessment_version = EXCLUDED.assessment_version, completed_at = NOW(), updated_at = NOW() RETURNING answers, assessment_version AS "assessmentVersion", completed_at AS "completedAt", updated_at AS "updatedAt"',
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const active = await client.query("SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE", [req.authUser.id]);
+    if (!active.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    const result = await client.query(
+      'INSERT INTO relationship_assessments (user_id, answers, assessment_version, completed_at, updated_at) VALUES ($1, $2::jsonb, $3, statement_timestamp(), statement_timestamp()) ON CONFLICT (user_id) DO UPDATE SET answers = EXCLUDED.answers, assessment_version = EXCLUDED.assessment_version, completed_at = statement_timestamp(), updated_at = statement_timestamp() RETURNING answers, assessment_version AS "assessmentVersion", completed_at AS "completedAt", updated_at AS "updatedAt"',
       [req.authUser.id, JSON.stringify(answers), ASSESSMENT_VERSION]
     );
+    await client.query('COMMIT');
     return res.json({ assessment: result.rows[0] });
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Assessment save failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'assessment_save_failed' });
+  } finally {
+    client?.release();
   }
 });
 
 app.delete('/api/assessment', validateRequestOrigin, requireSession, async (req, res) => {
+  let client;
   try {
-    await pool.query('DELETE FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const active = await client.query("SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE", [req.authUser.id]);
+    if (!active.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    await client.query('DELETE FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
+    await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Assessment delete failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'assessment_delete_failed' });
+  } finally {
+    client?.release();
   }
 });
 
 app.get('/api/profiles/me', requireSession, async (req, res) => {
   try {
-    const result = await pool.query(
+    const read = await withActiveAccountRead(req.authUser.id, client => client.query(
       `SELECT user_id AS id, display_name AS "displayName",
         EXTRACT(YEAR FROM AGE(CURRENT_DATE, birth_date))::int AS age,
         gender, country, city, bio, photo_urls AS "photoUrls", occupation, education, languages,
@@ -1044,9 +1904,10 @@ app.get('/api/profiles/me', requireSession, async (req, res) => {
          wants_children AS "wantsChildren", children_living_arrangement AS "childrenLivingArrangement"
        FROM profiles WHERE user_id = $1`,
       [req.authUser.id]
-    );
-    if (!result.rows[0]) return res.status(404).json({ error: 'profile_not_found' });
-    return res.json({ profile: result.rows[0] });
+    ));
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    if (!read.value.rows[0]) return res.status(404).json({ error: 'profile_not_found' });
+    return res.json({ profile: read.value.rows[0] });
   } catch (error) {
     console.error('Profile read failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'profile_read_failed' });
@@ -1137,10 +1998,33 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
   }
   if (updates.length === 0) return res.status(400).json({ error: 'no_valid_profile_fields' });
 
+  let client;
+  let removedAssets = [];
   try {
-    const result = await pool.query(
-      `UPDATE profiles SET ${updates.join(', ')}, updated_at = NOW()
+    client = await pool.connect();
+    await client.query('BEGIN');
+    // Serialize profile changes + screening against gift acceptance for this user.
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    // photoUrls ownership was checked before opening this transaction for fast
+    // rejection. Recheck after the user lock so a concurrent photo removal
+    // cannot leave this profile pointing at an asset that has already been deleted.
+    if (Object.hasOwn(body, 'photoUrls')) {
+      const photoIds = body.photoUrls.map(url => url.slice('/api/photos/'.length));
+      if (photoIds.length) {
+        const ownedPhotos = await client.query(
+          'SELECT id FROM photo_assets WHERE user_id = $1 AND id = ANY($2::uuid[]) FOR SHARE',
+          [req.authUser.id, photoIds]
+        );
+        if (ownedPhotos.rowCount !== new Set(photoIds).size) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'invalid_photo_urls' });
+        }
+      }
+    }
+    const result = await client.query(
+      `UPDATE profiles SET ${updates.join(', ')}, updated_at = statement_timestamp()
        WHERE user_id = $1
+         AND EXISTS (SELECT 1 FROM users WHERE users.id = profiles.user_id AND users.status = 'active')
        RETURNING user_id AS id, display_name AS "displayName", gender, country, city, bio,
          photo_urls AS "photoUrls", occupation, education, languages,
          relationship_intent AS "relationshipIntent", is_visible AS "isVisible",
@@ -1149,20 +2033,28 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
          wants_children AS "wantsChildren", children_living_arrangement AS "childrenLivingArrangement"`,
       values
     );
-    if (!result.rows[0]) return res.status(404).json({ error: 'profile_not_found' });
+    if (!result.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'profile_not_found' });
+    }
     if (Object.hasOwn(body, 'photoUrls')) {
-      const removed = await pool.query(
+      const removed = await client.query(
         "DELETE FROM photo_assets WHERE user_id = $1 AND NOT (('/api/photos/' || id::text) = ANY($2::text[])) RETURNING storage_path AS \"storagePath\"",
         [req.authUser.id, body.photoUrls.filter(url => url.startsWith('/api/photos/'))]
       );
-      await Promise.all(removed.rows.map(asset => unlink(asset.storagePath).catch(() => {})));
+      removedAssets = removed.rows;
     }
     const screening = await screenProfilePrivate(result.rows[0]);
-    await persistScreening(req.authUser.id, 'profile', screening);
+    await persistScreening(req.authUser.id, 'profile', screening, client);
+    await client.query('COMMIT');
+    await Promise.all(removedAssets.map(asset => unlink(asset.storagePath).catch(() => {})));
     return res.json({ profile: result.rows[0], screening: { engine: screening.engine, externalProcessing: false, flags: screening.flags, requiresReview: screening.requiresReview } });
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Profile update failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'profile_update_failed' });
+  } finally {
+    client?.release();
   }
 });
 
@@ -1176,6 +2068,38 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'invalid_pass_target' });
     }
+    const preview = await client.query(
+      `SELECT pp.passed_user_id AS id
+       FROM profile_passes pp
+       JOIN profiles p ON p.user_id = pp.passed_user_id
+       JOIN users u ON u.id = p.user_id
+       WHERE pp.passer_id = $1
+         AND ($2::uuid IS NULL OR pp.passed_user_id = $2)
+         AND u.status = 'active' AND p.is_visible = TRUE
+         AND p.children_disclosure_confirmed_at IS NOT NULL AND p.has_children IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM user_blocks b
+           WHERE (b.blocker_id = $1 AND b.blocked_id = p.user_id)
+              OR (b.blocker_id = p.user_id AND b.blocked_id = $1)
+         )
+       ORDER BY pp.created_at DESC LIMIT 1`,
+      [req.authUser.id, requestedTargetId]
+    );
+    const previewTargetId = preview.rows[0]?.id;
+    if (!previewTargetId) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'no_recent_pass_to_undo' });
+    }
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, previewTargetId);
+    const actor = await client.query(
+      "SELECT u.id, p.gender FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.id = $1 AND u.status = 'active' FOR SHARE OF u, p",
+      [req.authUser.id]
+    );
+    if (!actor.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    const actorGender = actor.rows[0].gender;
     const latest = await client.query(
       `SELECT pp.passed_user_id AS id
        FROM profile_passes pp
@@ -1194,9 +2118,13 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
        ORDER BY pp.created_at DESC
        LIMIT 1
        FOR UPDATE OF pp`,
-      [req.authUser.id, requestedTargetId, req.authUser.gender]
+      [req.authUser.id, requestedTargetId, actorGender]
     );
     const passedId = latest.rows[0]?.id;
+    if (passedId && String(passedId).toLowerCase() !== String(previewTargetId).toLowerCase()) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'discovery_action_changed_retry' });
+    }
     if (!passedId) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'no_recent_pass_to_undo' });
@@ -1238,10 +2166,17 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
 app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
   const targetId = req.params.targetId;
   if (!isUuid(targetId) || targetId === req.authUser.id) return res.status(400).json({ error: 'invalid_pass_target' });
+  let client;
   try {
-    const target = await pool.query(
-      `SELECT p.gender FROM profiles p JOIN users u ON u.id = p.user_id
-       WHERE p.user_id = $1 AND u.status = 'active' AND p.is_visible = TRUE
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
+    const target = await client.query(
+      `SELECT p.gender
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id AND u.status = 'active'
+       JOIN users actor ON actor.id = $2 AND actor.status = 'active'
+       WHERE p.user_id = $1 AND p.is_visible = TRUE
          AND p.children_disclosure_confirmed_at IS NOT NULL AND p.has_children IS NOT NULL
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
@@ -1254,18 +2189,28 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
            WHERE m.status = 'active'
              AND ((m.user_a_id = $2 AND m.user_b_id = p.user_id)
                OR (m.user_a_id = p.user_id AND m.user_b_id = $2))
-         )`,
+         )
+       FOR SHARE OF p, u, actor`,
       [targetId, req.authUser.id]
     );
-    if (!target.rows[0] || target.rows[0].gender === req.authUser.gender) return res.status(404).json({ error: 'target_not_available' });
-    await pool.query('INSERT INTO profile_passes (passer_id, passed_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [req.authUser.id, targetId]);
+    if (!target.rows[0] || target.rows[0].gender === req.authUser.gender) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'target_not_available' });
+    }
+    await client.query(
+      'INSERT INTO profile_passes (passer_id, passed_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [req.authUser.id, targetId]
+    );
+    await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Profile pass failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'profile_pass_failed' });
+  } finally {
+    client?.release();
   }
 });
-
 app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
   const targetId = req.params.targetId;
   if (!isUuid(targetId)) return res.status(400).json({ error: 'invalid_target_id' });
@@ -1275,10 +2220,13 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
     const targetResult = await client.query(
       `SELECT p.user_id, p.gender
-       FROM profiles p JOIN users u ON u.id = p.user_id
-       WHERE p.user_id = $1 AND p.is_visible = TRUE AND u.status = 'active'
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id AND u.status = 'active'
+       JOIN users actor ON actor.id = $2 AND actor.status = 'active'
+       WHERE p.user_id = $1 AND p.is_visible = TRUE
          AND p.birth_date IS NOT NULL
          AND p.children_disclosure_confirmed_at IS NOT NULL
          AND p.has_children IS NOT NULL
@@ -1290,7 +2238,8 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
          AND NOT EXISTS (
            SELECT 1 FROM profile_passes skipped
            WHERE skipped.passer_id = $2 AND skipped.passed_user_id = p.user_id
-         )`,
+         )
+       FOR SHARE OF p, u, actor`,
       [targetId, req.authUser.id]
     );
     const target = targetResult.rows[0];
@@ -1323,12 +2272,13 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
        WHERE user_a_id = LEAST($1::uuid, $2::uuid) AND user_b_id = GREATEST($1::uuid, $2::uuid)`,
       [req.authUser.id, targetId]
     );
-    await client.query('COMMIT');
     const match = matchResult.rows[0];
     if (match?.status === 'active') {
+      // Notifications commit with the match while both account safety locks are held.
       await createNotification(req.authUser.id, 'new_match', { matchId: match.id }, 'match:' + match.id, client);
       await createNotification(targetId, 'new_match', { matchId: match.id }, 'match:' + match.id, client);
     }
+    await client.query('COMMIT');
     return res.status(201).json({
       liked: true,
       matched: match?.status === 'active',
@@ -1344,9 +2294,22 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
 });
 
 app.delete('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
-  if (!isUuid(req.params.targetId)) return res.status(400).json({ error: 'invalid_target_id' });
+  const targetId = req.params.targetId;
+  if (!isUuid(targetId) || targetId === req.authUser.id) return res.status(400).json({ error: 'invalid_target_id' });
+  let client;
   try {
-    const result = await pool.query(
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
+    const active = await client.query(
+      "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (!active.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    const result = await client.query(
       `DELETE FROM likes l
        WHERE l.sender_id = $1 AND l.target_id = $2
          AND NOT EXISTS (
@@ -1356,24 +2319,29 @@ app.delete('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, 
                OR (m.user_a_id = $2 AND m.user_b_id = $1))
          )
        RETURNING l.target_id`,
-      [req.authUser.id, req.params.targetId]
+      [req.authUser.id, targetId]
     );
     if (result.rowCount === 0) {
-      const matched = await pool.query(
+      const matched = await client.query(
         `SELECT 1 FROM matches m
          WHERE m.status = 'active'
            AND ((m.user_a_id = $1 AND m.user_b_id = $2)
              OR (m.user_a_id = $2 AND m.user_b_id = $1))
          LIMIT 1`,
-        [req.authUser.id, req.params.targetId]
+        [req.authUser.id, targetId]
       );
+      await client.query('ROLLBACK');
       if (matched.rowCount) return res.status(409).json({ error: 'cannot_undo_like_after_match' });
       return res.status(404).json({ error: 'like_not_found' });
     }
+    await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Unlike failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'unlike_failed' });
+  } finally {
+    client?.release();
   }
 });
 
@@ -1382,6 +2350,34 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+    const preview = await client.query(
+      `SELECT action_type AS "actionType", target_id AS id
+       FROM (
+         SELECT 'like'::text AS action_type, target_id, created_at
+         FROM likes WHERE sender_id = $1
+         UNION ALL
+         SELECT 'pass'::text AS action_type, passed_user_id AS target_id, created_at
+         FROM profile_passes WHERE passer_id = $1
+       ) recent_actions
+       ORDER BY created_at DESC, action_type ASC
+       LIMIT 1`,
+      [req.authUser.id]
+    );
+    const previewAction = preview.rows[0];
+    if (!previewAction) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'no_discovery_action_to_undo' });
+    }
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, previewAction.id);
+    const actor = await client.query(
+      "SELECT u.id, p.gender FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.id = $1 AND u.status = 'active' FOR SHARE OF u, p",
+      [req.authUser.id]
+    );
+    if (!actor.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    const actorGender = actor.rows[0].gender;
     const latest = await client.query(
       `SELECT action_type AS "actionType", target_id AS id
        FROM (
@@ -1396,6 +2392,11 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
       [req.authUser.id]
     );
     const action = latest.rows[0];
+    if (action && (action.actionType !== previewAction.actionType ||
+        String(action.id).toLowerCase() !== String(previewAction.id).toLowerCase())) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'discovery_action_changed_retry' });
+    }
     if (!action) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'no_discovery_action_to_undo' });
@@ -1421,7 +2422,7 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
            WHERE (b.blocker_id = $2 AND b.blocked_id = p.user_id)
               OR (b.blocker_id = p.user_id AND b.blocked_id = $2)
          )`,
-      [action.id, req.authUser.id, req.authUser.gender]
+      [action.id, req.authUser.id, actorGender]
     );
     if (!profileResult.rows[0]) {
       await client.query('ROLLBACK');
@@ -1481,17 +2482,18 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
 });
 
 app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) => {
+  let client;
   try {
-    const result = await pool.query(
-      `SELECT m.id, m.status, m.created_at AS "createdAt",
-         other.user_id AS "partnerId", other.display_name AS "displayName",
-         EXTRACT(YEAR FROM AGE(CURRENT_DATE, other.birth_date))::int AS age,
-         other.gender, other.country, other.city, other.bio,
-         latest.body AS "lastMessage", latest.created_at AS "lastMessageAt"
+    client = await pool.connect();
+    await client.query('BEGIN');
+    // Acquire the requester and every counterpart in one stable UUID order.
+    // Re-read after locking so deletion, suspension and either-direction block
+    // cannot race a stale authenticated request.
+    const pairs = await client.query(
+      `SELECT CASE WHEN m.user_a_id = $1 THEN m.user_b_id ELSE m.user_a_id END AS partner_id
        FROM matches m
-       JOIN profiles other ON other.user_id = CASE WHEN m.user_a_id = $1 THEN m.user_b_id ELSE m.user_a_id END
        LEFT JOIN LATERAL (
-         SELECT body, created_at FROM messages
+         SELECT created_at FROM messages
          WHERE match_id = m.id AND deleted_at IS NULL
          ORDER BY created_at DESC LIMIT 1
        ) latest ON TRUE
@@ -1500,10 +2502,50 @@ app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) =>
        LIMIT 100`,
       [req.authUser.id]
     );
+    const partnerIds = pairs.rows.map(pair => pair.partner_id);
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, ...partnerIds);
+    const account = await client.query(
+      "SELECT 1 FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (!account.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    const result = await client.query(
+      `SELECT m.id, m.status, m.created_at AS "createdAt",
+         other.user_id AS "partnerId", other.display_name AS "displayName",
+         EXTRACT(YEAR FROM AGE(CURRENT_DATE, other.birth_date))::int AS age,
+         other.gender, other.country, other.city, other.bio,
+         latest.body AS "lastMessage", latest.created_at AS "lastMessageAt"
+       FROM matches m
+       JOIN profiles other ON other.user_id = CASE WHEN m.user_a_id = $1 THEN m.user_b_id ELSE m.user_a_id END
+       JOIN users me ON me.id = $1 AND me.status = 'active'
+       JOIN users partner ON partner.id = other.user_id AND partner.status = 'active'
+       LEFT JOIN LATERAL (
+         SELECT body, created_at FROM messages
+         WHERE match_id = m.id AND deleted_at IS NULL
+         ORDER BY created_at DESC LIMIT 1
+       ) latest ON TRUE
+       WHERE (m.user_a_id = $1 OR m.user_b_id = $1) AND m.status = 'active'
+         AND other.user_id = ANY($2::uuid[])
+         AND NOT EXISTS (
+           SELECT 1 FROM user_blocks b
+           WHERE (b.blocker_id = $1 AND b.blocked_id = other.user_id)
+              OR (b.blocker_id = other.user_id AND b.blocked_id = $1)
+         )
+       ORDER BY COALESCE(latest.created_at, m.created_at) DESC
+       LIMIT 100`,
+      [req.authUser.id, partnerIds]
+    );
+    await client.query('COMMIT');
     return res.json({ matches: result.rows });
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Match list failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'match_list_failed' });
+  } finally {
+    client?.release();
   }
 });
 
@@ -1512,24 +2554,59 @@ app.get('/api/matches/:matchId/messages', requireSession, requirePaidFeatures, a
   const limit = Math.min(100, Math.max(1, Number.parseInt(String(req.query.limit ?? '50'), 10) || 50));
   const offset = Math.min(5000, Math.max(0, Number.parseInt(String(req.query.offset ?? '0'), 10) || 0));
 
+  let client;
   try {
-    const access = await pool.query(
-      `SELECT 1 FROM matches WHERE id = $1 AND status = 'active'
-       AND (user_a_id = $2 OR user_b_id = $2) LIMIT 1`,
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const pair = await client.query(
+      `SELECT user_a_id, user_b_id FROM matches
+       WHERE id = $1 AND (user_a_id = $2 OR user_b_id = $2) LIMIT 1`,
       [req.params.matchId, req.authUser.id]
     );
-    if (access.rowCount === 0) return res.status(404).json({ error: 'match_not_found' });
+    if (!pair.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'match_not_found' });
+    }
 
-    const result = await pool.query(
+    const { user_a_id: userAId, user_b_id: userBId } = pair.rows[0];
+    // Reads participate in the same account-safety lock protocol as deletion
+    // and blocking. A stale session cannot read private history after either
+    // operation has won the lock.
+    await acquireGiftSafetyUserLocks(client, userAId, userBId);
+    const access = await client.query(
+      `SELECT 1
+       FROM matches m
+       JOIN users account_a ON account_a.id = m.user_a_id AND account_a.status = 'active'
+       JOIN users account_b ON account_b.id = m.user_b_id AND account_b.status = 'active'
+       WHERE m.id = $1 AND m.status = 'active'
+         AND (m.user_a_id = $2 OR m.user_b_id = $2)
+         AND NOT EXISTS (
+           SELECT 1 FROM user_blocks b
+           WHERE (b.blocker_id = m.user_a_id AND b.blocked_id = m.user_b_id)
+              OR (b.blocker_id = m.user_b_id AND b.blocked_id = m.user_a_id)
+         )
+       LIMIT 1`,
+      [req.params.matchId, req.authUser.id]
+    );
+    if (!access.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'match_not_found' });
+    }
+
+    const result = await client.query(
       `SELECT id, sender_id AS "senderId", body AS text, created_at AS "createdAt"
        FROM messages WHERE match_id = $1 AND deleted_at IS NULL
        ORDER BY created_at ASC LIMIT $2 OFFSET $3`,
       [req.params.matchId, limit, offset]
     );
+    await client.query('COMMIT');
     return res.json({ messages: result.rows, pagination: { limit, offset } });
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Message history failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'message_history_failed' });
+  } finally {
+    client?.release();
   }
 });
 
@@ -1547,27 +2624,54 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
   const body = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
   if (!body || body.length > 4000) return res.status(400).json({ error: 'message_must_be_1_to_4000_characters' });
 
+  let client;
   try {
-    const access = await pool.query(
-      `SELECT user_a_id, user_b_id FROM matches WHERE id = $1 AND status = 'active'
-       AND (user_a_id = $2 OR user_b_id = $2) LIMIT 1`,
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const preview = await client.query(
+      'SELECT user_a_id, user_b_id FROM matches WHERE id = $1 AND (user_a_id = $2 OR user_b_id = $2) LIMIT 1',
       [req.params.matchId, req.authUser.id]
     );
-    if (access.rowCount === 0) return res.status(404).json({ error: 'match_not_found' });
-    const recipientId = access.rows[0].user_a_id === req.authUser.id ? access.rows[0].user_b_id : access.rows[0].user_a_id;
-
+    if (preview.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'match_not_found' });
+    }
+    const recipientId = preview.rows[0].user_a_id === req.authUser.id ? preview.rows[0].user_b_id : preview.rows[0].user_a_id;
+    // Lock both accounts before revalidating the match. A deletion/suspension
+    // that wins this lock must prevent a stale authenticated message from landing.
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, recipientId);
+    const access = await client.query(
+      `SELECT m.user_a_id, m.user_b_id
+       FROM matches m
+       JOIN users sender ON sender.id = $2 AND sender.status = 'active'
+       JOIN users recipient ON recipient.id = $3 AND recipient.status = 'active'
+       WHERE m.id = $1 AND m.status = 'active'
+         AND ((m.user_a_id = $2 AND m.user_b_id = $3) OR (m.user_a_id = $3 AND m.user_b_id = $2))
+       FOR UPDATE OF m, sender, recipient`,
+      [req.params.matchId, req.authUser.id, recipientId]
+    );
+    if (access.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'match_not_found' });
+    }
     const screening = await screenTextPrivate(body, 'message');
-    const result = await pool.query(
+    const result = await client.query(
       `INSERT INTO messages (match_id, sender_id, body) VALUES ($1, $2, $3)
        RETURNING id, sender_id AS "senderId", body AS text, created_at AS "createdAt"`,
       [req.params.matchId, req.authUser.id, body]
     );
-    await persistScreening(req.authUser.id, 'message', screening);
-    await createNotification(recipientId, 'new_message', { matchId: req.params.matchId }).catch(error => console.error('Message notification failed:', error?.message || 'unknown error'));
+    await persistScreening(req.authUser.id, 'message', screening, client);
+    // Keep notification creation inside the account-locked transaction so a
+    // recipient deletion cannot race and leave a notification on a deleted account.
+    await createNotification(recipientId, 'new_message', { matchId: req.params.matchId }, null, client);
+    await client.query('COMMIT');
     return res.status(201).json({ message: result.rows[0], screening: { engine: screening.engine, externalProcessing: false, flaggedForReview: screening.requiresReview } });
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Message send failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'message_send_failed' });
+  } finally {
+    client?.release();
   }
 });
 
@@ -1575,53 +2679,102 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
 app.get('/api/notifications', requireSession, async (req, res) => {
   const limit = Number.parseInt(String(req.query.limit ?? '20'), 10);
   if (!Number.isInteger(limit) || limit < 1 || limit > 50) return res.status(400).json({ error: 'invalid_pagination' });
+  let client;
   try {
-    const result = await pool.query(
+    client = await pool.connect();
+    await client.query('BEGIN');
+    // Serialize notification reads with account deletion. requireSession may
+    // have authenticated immediately before deletion began, so recheck status
+    // only after acquiring the shared account-safety lock.
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const account = await client.query(
+      "SELECT 1 FROM users WHERE id = $1 AND status = 'active' LIMIT 1",
+      [req.authUser.id]
+    );
+    if (!account.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'not_authenticated' });
+    }
+    const result = await client.query(
       'SELECT id, type, metadata, created_at AS "createdAt", read_at AS "readAt" FROM user_notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2',
       [req.authUser.id, limit]
     );
-    const count = await pool.query('SELECT COUNT(*)::int AS count FROM user_notifications WHERE user_id = $1 AND read_at IS NULL', [req.authUser.id]);
+    const count = await client.query('SELECT COUNT(*)::int AS count FROM user_notifications WHERE user_id = $1 AND read_at IS NULL', [req.authUser.id]);
+    await client.query('COMMIT');
     return res.json({ notifications: result.rows, unreadCount: count.rows[0]?.count || 0 });
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Notification list failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'notification_list_failed' });
+  } finally {
+    client?.release();
   }
 });
 
 app.post('/api/notifications/read-all', validateRequestOrigin, requireSession, async (req, res) => {
+  let client;
   try {
-    await pool.query('UPDATE user_notifications SET read_at = NOW() WHERE user_id = $1 AND read_at IS NULL', [req.authUser.id]);
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const account = await client.query("SELECT 1 FROM users WHERE id = $1 AND status = 'active' LIMIT 1", [req.authUser.id]);
+    if (!account.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'not_authenticated' });
+    }
+    await client.query('UPDATE user_notifications SET read_at = statement_timestamp() WHERE user_id = $1 AND read_at IS NULL', [req.authUser.id]);
+    await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Notification read-all failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'notification_update_failed' });
+  } finally {
+    client?.release();
   }
 });
 
 app.post('/api/notifications/:notificationId/read', validateRequestOrigin, requireSession, async (req, res) => {
   if (!isUuid(req.params.notificationId)) return res.status(400).json({ error: 'invalid_notification_id' });
+  let client;
   try {
-    const result = await pool.query(
-      'UPDATE user_notifications SET read_at = COALESCE(read_at, NOW()) WHERE id = $1 AND user_id = $2 RETURNING id',
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const account = await client.query("SELECT 1 FROM users WHERE id = $1 AND status = 'active' LIMIT 1", [req.authUser.id]);
+    if (!account.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'not_authenticated' });
+    }
+    const result = await client.query(
+      'UPDATE user_notifications SET read_at = COALESCE(read_at, statement_timestamp()) WHERE id = $1 AND user_id = $2 RETURNING id',
       [req.params.notificationId, req.authUser.id]
     );
-    if (!result.rowCount) return res.status(404).json({ error: 'notification_not_found' });
+    if (!result.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'notification_not_found' });
+    }
+    await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Notification update failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'notification_update_failed' });
+  } finally {
+    client?.release();
   }
 });
 
 app.get('/api/blocks', requireSession, async (req, res) => {
   try {
-    const result = await pool.query(
+    const read = await withActiveAccountRead(req.authUser.id, client => client.query(
       `SELECT b.blocked_id AS id, p.display_name AS "displayName", b.created_at AS "createdAt"
        FROM user_blocks b JOIN profiles p ON p.user_id = b.blocked_id
        WHERE b.blocker_id = $1 ORDER BY b.created_at DESC`,
       [req.authUser.id]
-    );
-    return res.json({ blocks: result.rows });
+    ));
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    return res.json({ blocks: read.value.rows });
   } catch (error) {
     console.error('Block list failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'block_list_failed' });
@@ -1635,8 +2788,23 @@ app.post('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, r
   if (!client) return res.status(503).json({ error: 'database_unavailable' });
   try {
     await client.query('BEGIN');
-    const target = await client.query(`SELECT 1 FROM users WHERE id = $1 AND status = 'active'`, [targetId]);
-    if (!target.rowCount) {
+    // Account locks precede the shared pair lock, matching gift creation and
+    // acceptance so deletion/suspension cannot be followed by a stale block.
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext('gift-safety:' || LEAST($1::uuid, $2::uuid)::text || ':' || GREATEST($1::uuid, $2::uuid)::text))",
+      [req.authUser.id, targetId]
+    );
+    const activeAccounts = await client.query(
+      "SELECT id FROM users WHERE id = ANY($1::uuid[]) AND status = 'active' ORDER BY id FOR SHARE",
+      [[req.authUser.id, targetId]]
+    );
+    const activeIds = new Set(activeAccounts.rows.map(row => String(row.id).toLowerCase()));
+    if (!activeIds.has(String(req.authUser.id).toLowerCase())) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    if (!activeIds.has(String(targetId).toLowerCase())) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'target_not_available' });
     }
@@ -1645,6 +2813,46 @@ app.post('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, r
     await client.query('DELETE FROM profile_passes WHERE (passer_id = $1 AND passed_user_id = $2) OR (passer_id = $2 AND passed_user_id = $1)', [req.authUser.id, targetId]);
     await client.query(`UPDATE matches SET status = 'blocked'
       WHERE user_a_id = LEAST($1::uuid, $2::uuid) AND user_b_id = GREATEST($1::uuid, $2::uuid) AND status = 'active'`, [req.authUser.id, targetId]);
+    // Block all pre-dispatch gifts for this pair, including accepted orders with
+    // a verified address. Clear the address-vault reference in the same transaction
+    // so a later worker cannot use stale address access after the safety event.
+    // Payment is deliberately not simulated or rewritten here; active payment states
+    // require provider reconciliation before any refund/void is recorded.
+    const blockedGifts = await client.query(
+      `WITH candidates AS (
+         SELECT id, status AS previous_status, (address_vault_ref IS NOT NULL) AS had_address_pointer
+         FROM gift_delivery_orders
+         WHERE ((sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1))
+           AND (status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivery_failed')
+             OR (address_vault_ref IS NOT NULL AND status <> 'delivered'))
+         ORDER BY id
+         FOR UPDATE
+       )
+       UPDATE gift_delivery_orders AS o
+       SET status = CASE
+             WHEN c.previous_status IN ('dispatched', 'delivery_failed') THEN 'reported'
+             WHEN c.previous_status IN ('reported', 'blocked', 'declined', 'expired', 'cancelled', 'refund_pending', 'refunded') THEN c.previous_status
+             ELSE 'blocked'
+           END,
+           address_vault_ref = NULL, address_verified_at = NULL, updated_at = statement_timestamp()
+       FROM candidates AS c
+       WHERE o.id = c.id
+       RETURNING o.id, o.sender_id, o.recipient_id, c.previous_status, c.had_address_pointer, o.status AS next_status, o.payment_status`,
+      [req.authUser.id, targetId]
+    );
+    for (const gift of blockedGifts.rows) {
+      const eventType = gift.next_status === 'reported' ? 'reported' : 'blocked';
+      await client.query(
+        `INSERT INTO gift_delivery_order_events (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
+        [gift.id, req.authUser.id, gift.sender_id === req.authUser.id ? 'sender' : 'recipient', eventType, gift.previous_status, gift.next_status,
+          JSON.stringify({ addressRevoked: gift.had_address_pointer })]
+      );
+      await enqueueGiftSafetyPaymentReconciliation(client, gift, {
+        actorUserId: req.authUser.id,
+        actorType: gift.sender_id === req.authUser.id ? 'sender' : 'recipient'
+      });
+    }
     await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
@@ -1659,12 +2867,29 @@ app.post('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, r
 app.delete('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, async (req, res) => {
   const targetId = req.params.targetId;
   if (!isUuid(targetId) || targetId === req.authUser.id) return res.status(400).json({ error: 'invalid_block_target' });
+  let client;
   try {
-    await pool.query('DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2', [req.authUser.id, targetId]);
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
+    await acquireGiftSafetyPairLock(client, req.authUser.id, targetId);
+    const active = await client.query(
+      "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (!active.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    await client.query('DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2', [req.authUser.id, targetId]);
+    await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Unblock user failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'unblock_user_failed' });
+  } finally {
+    client?.release();
   }
 });
 
@@ -1680,28 +2905,96 @@ app.post('/api/reports', reportLimiter, validateRequestOrigin, requireSession, a
     return res.status(400).json({ error: 'invalid_report_details' });
   }
 
+  let client;
   try {
-    const target = await pool.query('SELECT 1 FROM users WHERE id = $1 LIMIT 1', [reportedUserId]);
-    if (target.rowCount === 0) return res.status(404).json({ error: 'reported_user_not_found' });
-    const result = await pool.query(
+    client = await pool.connect();
+    await client.query('BEGIN');
+    // Lock both accounts before the pair so account deletion/suspension cannot
+    // be followed by a report created from a stale authenticated request.
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, reportedUserId);
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext('gift-safety:' || LEAST($1::uuid, $2::uuid)::text || ':' || GREATEST($1::uuid, $2::uuid)::text))",
+      [req.authUser.id, reportedUserId]
+    );
+    const accounts = await client.query(
+      "SELECT id, status FROM users WHERE id = ANY($1::uuid[]) ORDER BY id FOR SHARE",
+      [[req.authUser.id, reportedUserId]]
+    );
+    const accountsById = new Map(accounts.rows.map(row => [String(row.id).toLowerCase(), row.status]));
+    if (accountsById.get(String(req.authUser.id).toLowerCase()) !== 'active') {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    // Suspended targets may still be reported; deleted targets are unavailable.
+    if (!accountsById.has(String(reportedUserId).toLowerCase()) ||
+        accountsById.get(String(reportedUserId).toLowerCase()) === 'deleted') {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'reported_user_not_found' });
+    }
+    const result = await client.query(
       `INSERT INTO user_reports (reporter_id, reported_user_id, category, details)
        VALUES ($1, $2, $3, $4) RETURNING id, status, created_at AS "createdAt"`,
       [req.authUser.id, reportedUserId, category, details]
     );
+    // A report immediately suspends every pre-dispatch gift for this pair,
+    // including accepted/address-verified orders. Remove the address-vault reference
+    // atomically; do not simulate a payment void/refund without provider reconciliation.
+    const reportedGifts = await client.query(
+      `WITH candidates AS (
+         SELECT id, status AS previous_status, (address_vault_ref IS NOT NULL) AS had_address_pointer
+         FROM gift_delivery_orders
+         WHERE ((sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1))
+           AND (status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified', 'fulfilment_authorized', 'dispatched', 'delivery_failed')
+             OR (address_vault_ref IS NOT NULL AND status <> 'delivered'))
+         ORDER BY id
+         FOR UPDATE
+       )
+       UPDATE gift_delivery_orders AS o
+       SET status = CASE
+             WHEN c.previous_status IN ('dispatched', 'delivery_failed') THEN 'reported'
+             WHEN c.previous_status IN ('reported', 'blocked', 'declined', 'expired', 'cancelled', 'refund_pending', 'refunded') THEN c.previous_status
+             ELSE 'reported'
+           END,
+           address_vault_ref = NULL, address_verified_at = NULL, updated_at = statement_timestamp()
+       FROM candidates AS c
+       WHERE o.id = c.id
+       RETURNING o.id, o.sender_id, o.recipient_id, c.previous_status, c.had_address_pointer, o.status AS next_status, o.payment_status`,
+      [req.authUser.id, reportedUserId]
+    );
+    for (const gift of reportedGifts.rows) {
+      await client.query(
+        `INSERT INTO gift_delivery_order_events (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
+         VALUES ($1, $2, $3, 'reported', $4, $5, $6::jsonb)`,
+        [gift.id, req.authUser.id, gift.sender_id === req.authUser.id ? 'sender' : 'recipient', gift.previous_status, gift.next_status,
+          JSON.stringify({ addressRevoked: gift.had_address_pointer })]
+      );
+      await enqueueGiftSafetyPaymentReconciliation(client, gift, {
+        actorUserId: req.authUser.id,
+        actorType: gift.sender_id === req.authUser.id ? 'sender' : 'recipient'
+      });
+    }
+    await client.query('COMMIT');
     return res.status(201).json({ report: result.rows[0] });
   } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Report submission failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'report_submission_failed' });
+  } finally {
+    client?.release();
   }
 });
 
 app.get('/api/admin/screenings', requireSession, async (req, res) => {
-  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   try {
-    const result = await pool.query(
-      "SELECT id, user_id AS \"userId\", scope, flags, severity, engine_version AS \"engineVersion\", review_status AS \"reviewStatus\", created_at AS \"createdAt\" FROM user_safety_screenings WHERE review_status = 'pending' ORDER BY created_at DESC LIMIT 100"
-    );
-    return res.json({ screenings: result.rows, rawTextStored: false, externalProcessing: false });
+    const read = await withActiveModeratorRead(req.authUser.id, async client => {
+      const result = await client.query(
+        "SELECT s.id, s.user_id AS \"userId\", s.scope, s.flags, s.severity, s.engine_version AS \"engineVersion\", s.review_status AS \"reviewStatus\", s.created_at AS \"createdAt\" FROM user_safety_screenings s JOIN users u ON u.id = s.user_id AND u.status = 'active' WHERE s.review_status = 'pending' ORDER BY s.created_at DESC LIMIT 100"
+      );
+      return result.rows;
+    });
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    if (read.value.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    return res.json({ screenings: read.value, rawTextStored: false, externalProcessing: false });
   } catch (error) {
     console.error('Screening queue failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'screening_queue_failed' });
@@ -1713,16 +3006,21 @@ app.get('/api/admin/reports', requireSession, async (req, res) => {
   const limit = Number.parseInt(String(req.query.limit ?? '50'), 10);
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) return res.status(400).json({ error: 'invalid_pagination' });
   try {
-    const result = await pool.query(
-      `SELECT r.id, r.reporter_id AS "reporterId", r.reported_user_id AS "reportedUserId",
-              r.category, r.details, r.status, r.created_at AS "createdAt",
-              p.display_name AS "reportedDisplayName"
-       FROM user_reports r JOIN profiles p ON p.user_id = r.reported_user_id
-       WHERE r.status IN ('open', 'reviewing')
-       ORDER BY r.created_at ASC LIMIT $1`,
-      [limit]
-    );
-    return res.json({ reports: result.rows });
+    const read = await withActiveModeratorRead(req.authUser.id, async client => {
+      const result = await client.query(
+        `SELECT r.id, r.reporter_id AS "reporterId", r.reported_user_id AS "reportedUserId",
+                r.category, r.details, r.status, r.created_at AS "createdAt",
+                p.display_name AS "reportedDisplayName"
+         FROM user_reports r JOIN profiles p ON p.user_id = r.reported_user_id
+         WHERE r.status IN ('open', 'reviewing')
+         ORDER BY r.created_at ASC LIMIT $1`,
+        [limit]
+      );
+      return result.rows;
+    });
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    if (read.value.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    return res.json({ reports: read.value });
   } catch (error) {
     console.error('Moderation report list failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'moderation_report_list_failed' });
@@ -1730,17 +3028,21 @@ app.get('/api/admin/reports', requireSession, async (req, res) => {
 });
 
 app.get('/api/admin/photos', requireSession, async (req, res) => {
-  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   try {
-    const result = await pool.query(
-      `SELECT a.id, a.user_id AS "userId", p.display_name AS "displayName",
-              a.mime_type AS "mimeType", a.width, a.height, a.created_at AS "createdAt"
-       FROM photo_assets a JOIN profiles p ON p.user_id = a.user_id
-       JOIN users u ON u.id = a.user_id
-       WHERE a.review_status = 'pending' AND u.status = 'active'
-       ORDER BY a.created_at ASC LIMIT 100`
-    );
-    return res.json({ photos: result.rows });
+    const read = await withActiveModeratorRead(req.authUser.id, async client => {
+      const result = await client.query(
+        `SELECT a.id, a.user_id AS "userId", p.display_name AS "displayName",
+                a.mime_type AS "mimeType", a.width, a.height, a.created_at AS "createdAt"
+         FROM photo_assets a JOIN profiles p ON p.user_id = a.user_id
+         JOIN users u ON u.id = a.user_id
+         WHERE a.review_status = 'pending' AND u.status = 'active'
+         ORDER BY a.created_at ASC LIMIT 100`
+      );
+      return result.rows;
+    });
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    if (read.value.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    return res.json({ photos: read.value });
   } catch (error) {
     console.error('Pending photo list failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'pending_photo_list_failed' });
@@ -1756,11 +3058,39 @@ app.post('/api/admin/photos/:photoId/review', validateRequestOrigin, requireSess
   try {
     client = await pool.connect();
     await client.query('BEGIN');
-    const result = await client.query(
-      "UPDATE photo_assets SET review_status = $2 WHERE id = $1 AND review_status = 'pending' RETURNING id, user_id AS \"userId\"",
-      [req.params.photoId, status]
+    const preview = await client.query(
+      "SELECT user_id FROM photo_assets WHERE id = $1 AND review_status = 'pending'",
+      [req.params.photoId]
     );
-    if (!result.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'pending_photo_not_found' }); }
+    if (!preview.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'pending_photo_not_found' });
+    }
+    const ownerId = preview.rows[0].user_id;
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, ownerId);
+    const moderator = await client.query(
+      "SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (!moderator.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    if (!['admin', 'moderator'].includes(moderator.rows[0].role)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'moderator_access_required' });
+    }
+    const result = await client.query(
+      `UPDATE photo_assets SET review_status = $2
+       WHERE id = $1 AND user_id = $3 AND review_status = 'pending'
+         AND EXISTS (SELECT 1 FROM users WHERE id = $3 AND status = 'active')
+       RETURNING id, user_id AS "userId"`,
+      [req.params.photoId, status, ownerId]
+    );
+    if (!result.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'pending_photo_not_found' });
+    }
     await client.query(
       'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, reason, details) VALUES ($1, $2, $3, $4, $5, $6::jsonb)',
       [req.authUser.id, 'photo_' + status, 'photo_asset', req.params.photoId, reason || null, JSON.stringify({ userId: result.rows[0].userId })]
@@ -1771,7 +3101,9 @@ app.post('/api/admin/photos/:photoId/review', validateRequestOrigin, requireSess
     if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Photo moderation failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'photo_review_failed' });
-  } finally { client?.release(); }
+  } finally {
+    client?.release();
+  }
 });
 
 app.get('/api/admin/audit-log', requireSession, async (req, res) => {
@@ -1779,11 +3111,16 @@ app.get('/api/admin/audit-log', requireSession, async (req, res) => {
   const limit = Number.parseInt(String(req.query.limit ?? '50'), 10);
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) return res.status(400).json({ error: 'invalid_pagination' });
   try {
-    const result = await pool.query(
-      'SELECT id, moderator_id AS "moderatorId", action, target_type AS "targetType", target_id AS "targetId", reason, details, created_at AS "createdAt" FROM moderation_audit_log ORDER BY created_at DESC LIMIT $1',
-      [limit]
-    );
-    return res.json({ entries: result.rows });
+    const read = await withActiveModeratorRead(req.authUser.id, async client => {
+      const result = await client.query(
+        'SELECT id, moderator_id AS "moderatorId", action, target_type AS "targetType", target_id AS "targetId", reason, details, created_at AS "createdAt" FROM moderation_audit_log ORDER BY created_at DESC LIMIT $1',
+        [limit]
+      );
+      return result.rows;
+    });
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    if (read.value.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    return res.json({ entries: read.value });
   } catch (error) {
     console.error('Audit log read failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'audit_log_read_failed' });
@@ -1797,11 +3134,52 @@ app.post('/api/admin/screenings/:screeningId/resolve', validateRequestOrigin, re
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+    const preview = await client.query(
+      "SELECT user_id FROM user_safety_screenings WHERE id = $1 AND review_status = 'pending'",
+      [req.params.screeningId]
+    );
+    if (!preview.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'pending_screening_not_found' });
+    }
+    const targetUserId = preview.rows[0].user_id;
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, targetUserId);
+    const moderator = await client.query(
+      "SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (!moderator.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    if (!['admin', 'moderator'].includes(moderator.rows[0].role)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'moderator_access_required' });
+    }
+    const activeTarget = await client.query(
+      "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [targetUserId]
+    );
+    if (!activeTarget.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'pending_screening_not_found' });
+    }
+    const pending = await client.query(
+      "SELECT user_id FROM user_safety_screenings WHERE id = $1 AND review_status = 'pending' FOR UPDATE",
+      [req.params.screeningId]
+    );
+    if (!pending.rows[0] || String(pending.rows[0].user_id).toLowerCase() !== String(targetUserId).toLowerCase()) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'pending_screening_not_found' });
+    }
     const result = await client.query(
-      "UPDATE user_safety_screenings SET review_status = 'cleared', reviewed_at = NOW(), reviewed_by = $2 WHERE id = $1 AND review_status = 'pending' RETURNING id, user_id AS \"userId\", review_status AS \"reviewStatus\"",
+      "UPDATE user_safety_screenings SET review_status = 'cleared', reviewed_at = statement_timestamp(), reviewed_by = $2 WHERE id = $1 AND review_status = 'pending' RETURNING id, user_id AS \"userId\", review_status AS \"reviewStatus\"",
       [req.params.screeningId, req.authUser.id]
     );
-    if (!result.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'pending_screening_not_found' }); }
+    if (!result.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'pending_screening_not_found' });
+    }
     await client.query(
       "INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, details) VALUES ($1, 'screening_cleared', 'safety_screening', $2, $3::jsonb)",
       [req.authUser.id, req.params.screeningId, JSON.stringify({ userId: result.rows[0].userId })]
@@ -1812,7 +3190,9 @@ app.post('/api/admin/screenings/:screeningId/resolve', validateRequestOrigin, re
     if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Screening resolve failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'screening_resolve_failed' });
-  } finally { client?.release(); }
+  } finally {
+    client?.release();
+  }
 });
 
 app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSession, async (req, res) => {
@@ -1831,27 +3211,63 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+    const preview = await client.query(
+      'SELECT id, reported_user_id FROM user_reports WHERE id = $1',
+      [reportId]
+    );
+    const previewReport = preview.rows[0];
+    if (!previewReport) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'open_report_not_found' });
+    }
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, previewReport.reported_user_id);
+    const moderator = await client.query(
+      "SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (!moderator.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    if (!['admin', 'moderator'].includes(moderator.rows[0].role)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'moderator_access_required' });
+    }
     const reportResult = await client.query(
       'SELECT id, reported_user_id, category, status FROM user_reports WHERE id = $1 FOR UPDATE',
       [reportId]
     );
     const report = reportResult.rows[0];
-    if (!report || report.status === 'resolved' || report.status === 'dismissed') {
+    if (!report || report.status === 'resolved' || report.status === 'dismissed' ||
+        String(report.reported_user_id).toLowerCase() !== String(previewReport.reported_user_id).toLowerCase()) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'open_report_not_found' });
     }
+    let accountSuspended = false;
     if (action === 'suspend_user') {
       if (!['children_misrepresentation', 'duplicate_profile', 'fake_profile', 'safety'].includes(report.category)) {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'category_not_eligible_for_suspension' });
       }
-      await client.query("UPDATE users SET status = 'suspended', updated_at = NOW() WHERE id = $1", [report.reported_user_id]);
-      await client.query('UPDATE profiles SET is_visible = FALSE, updated_at = NOW() WHERE user_id = $1', [report.reported_user_id]);
-      await client.query(
-        "UPDATE matches SET status = 'blocked' WHERE status = 'active' AND (user_a_id = $1 OR user_b_id = $1)",
+      const targetAccount = await client.query(
+        'SELECT status FROM users WHERE id = $1 FOR UPDATE',
         [report.reported_user_id]
       );
-      await client.query('DELETE FROM sessions WHERE user_id = $1', [report.reported_user_id]);
+      if (!targetAccount.rows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'reported_user_not_found' });
+      }
+      if (targetAccount.rows[0].status === 'active') {
+        await suspendGiftOrdersForUser(client, report.reported_user_id, { actorUserId: req.authUser.id, actorType: 'moderator', reason: 'moderator_suspension' });
+        await client.query("UPDATE users SET status = 'suspended', updated_at = statement_timestamp() WHERE id = $1 AND status = 'active'", [report.reported_user_id]);
+        await client.query('UPDATE profiles SET is_visible = FALSE, updated_at = statement_timestamp() WHERE user_id = $1', [report.reported_user_id]);
+        await client.query(
+          "UPDATE matches SET status = 'blocked' WHERE status = 'active' AND (user_a_id = $1 OR user_b_id = $1)",
+          [report.reported_user_id]
+        );
+        await client.query('DELETE FROM sessions WHERE user_id = $1', [report.reported_user_id]);
+        accountSuspended = true;
+      }
     }
     const status = action === 'dismiss' ? 'dismissed' : 'resolved';
     await client.query('UPDATE user_reports SET status = $2 WHERE id = $1', [reportId, status]);
@@ -1861,7 +3277,7 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
       [req.authUser.id, action, 'user_report', reportId, reason || null, JSON.stringify({ category: report.category, targetUserId: report.reported_user_id, newStatus: status })]
     );
     await client.query('COMMIT');
-    return res.json({ ok: true, action, accountSuspended: action === 'suspend_user' });
+    return res.json({ ok: true, action, accountSuspended });
   } catch (error) {
     if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Moderation action failed:', error?.message || 'unknown error');
@@ -1871,52 +3287,907 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
   }
 });
 
+app.get('/api/gifts/matches', requireSession, requirePaidFeatures, profileActionLimiter, async (req, res) => {
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const pairs = await client.query(
+      `SELECT CASE WHEN user_a_id = $1 THEN user_b_id ELSE user_a_id END AS partner_id
+       FROM matches WHERE (user_a_id = $1 OR user_b_id = $1) AND status = 'active'
+       ORDER BY created_at DESC LIMIT 100`,
+      [req.authUser.id]
+    );
+    const partnerIds = pairs.rows.map(pair => pair.partner_id);
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, ...partnerIds);
+    const account = await client.query(
+      "SELECT 1 FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (!account.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    const result = await client.query(
+      `SELECT m.id, other.display_name AS "displayName"
+       FROM matches m
+       JOIN profiles other
+         ON other.user_id = CASE WHEN m.user_a_id = $1 THEN m.user_b_id ELSE m.user_a_id END
+       JOIN users partner ON partner.id = other.user_id AND partner.status = 'active'
+       WHERE (m.user_a_id = $1 OR m.user_b_id = $1)
+         AND m.status = 'active'
+         AND other.user_id = ANY($2::uuid[])
+         AND NOT EXISTS (
+           SELECT 1 FROM user_blocks b
+           WHERE (b.blocker_id = $1 AND b.blocked_id = other.user_id)
+              OR (b.blocker_id = other.user_id AND b.blocked_id = $1)
+         )
+       ORDER BY m.created_at DESC
+       LIMIT 100`,
+      [req.authUser.id, partnerIds]
+    );
+    await client.query('COMMIT');
+    return res.json({ matches: result.rows });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Gift match list failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_matches_unavailable' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.get('/api/gifts/catalog', requireSession, requirePaidFeatures, profileActionLimiter, async (req, res) => {
+  const matchId = typeof req.query.matchId === 'string' ? req.query.matchId : '';
+  if (!isUuid(matchId)) return res.status(400).json({ error: 'invalid_match_id' });
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const pairResult = await client.query(
+      `SELECT user_a_id, user_b_id
+       FROM matches
+       WHERE id = $1 AND (user_a_id = $2 OR user_b_id = $2)`,
+      [matchId.toLowerCase(), req.authUser.id]
+    );
+    const pair = pairResult.rows[0];
+    if (!pair) {
+      await acquireGiftSafetyUserLocks(client, req.authUser.id);
+      const actor = await client.query(
+        "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+        [req.authUser.id]
+      );
+      if (!actor.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(401).json({ error: 'account_not_active' });
+      }
+    }
+    if (pair) {
+      const recipientId = String(pair.user_a_id).toLowerCase() === String(req.authUser.id).toLowerCase()
+        ? pair.user_b_id
+        : pair.user_a_id;
+      await acquireGiftOrderRateLocks(client, req.authUser.id, recipientId);
+      await acquireGiftSafetyUserLocks(client, req.authUser.id, recipientId);
+      const actor = await client.query(
+        "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+        [req.authUser.id]
+      );
+      if (!actor.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(401).json({ error: 'account_not_active' });
+      }
+      await acquireGiftSafetyPairLock(client, req.authUser.id, recipientId);
+      const expiration = await expireStaleGiftRequestsForPair(client, {
+        matchId: matchId.toLowerCase(), senderId: req.authUser.id, recipientId
+      });
+      if (!expiration.ok) {
+        // Expiry may have enqueued durable payment reconciliation work. Commit
+        // that outbox record before rejecting the catalog request.
+        if (expiration.commit === true) await client.query('COMMIT');
+        else await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: expiration.error || 'gift_catalog_unavailable'
+        });
+      }
+    }
+    const result = await listGiftCatalogForMatch(client, {
+      senderId: req.authUser.id, matchId: matchId.toLowerCase()
+    });
+    await client.query('COMMIT');
+    return res.status(result.status).json({ items: result.items });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Gift catalog read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_catalog_unavailable' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.get('/api/gifts/preferences', requireSession, async (req, res) => {
+  try {
+    const read = await withActiveAccountRead(req.authUser.id, client => client.query(
+      'SELECT requests_enabled FROM gift_receiving_preferences WHERE user_id = $1',
+      [req.authUser.id]
+    ));
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    const { serializeGiftReceivingPreferences } = await import('./giftReceivingPreferences.js');
+    return res.json({ preferences: serializeGiftReceivingPreferences(read.value.rows[0]) });
+  } catch (error) {
+    console.error('Gift receiving preferences read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_preferences_unavailable' });
+  }
+});
+
+app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  const { normalizeGiftReceivingPreferences, serializeGiftReceivingPreferences } = await import('./giftReceivingPreferences.js');
+  const validation = normalizeGiftReceivingPreferences(req.body);
+  if (!validation.ok) {
+    return res.status(400).json({ error: validation.error, ...(validation.field ? { field: validation.field } : {}) });
+  }
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    // Serialize preference changes with gift creation and acceptance. Without
+    // this lock, creation could read the old opt-in after opt-out has scanned
+    // pending orders, then insert a request that the opt-out transaction misses.
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const activeAccount = await client.query(
+      "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (!activeAccount.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+
+    // Lock pending orders before the preference row. Gift acceptance locks an
+    // order before reading the preference, so this ordering avoids reversing
+    // the order/preference lock sequence and creating a deadlock.
+    if (!validation.value.requestsEnabled) {
+      await client.query(
+        `SELECT id FROM gift_delivery_orders
+         WHERE recipient_id = $1 AND status = 'awaiting_recipient_consent'
+         ORDER BY id
+         FOR UPDATE`,
+        [req.authUser.id]
+      );
+      // Permanently invalidate every request that was still awaiting consent at
+      // opt-out time, including orders whose payment state needs reconciliation.
+      // Re-enabling future requests must never revive these old requests.
+      const invalidatedOrders = await client.query(
+        `UPDATE gift_delivery_orders
+         SET recipient_requests_disabled_at = COALESCE(recipient_requests_disabled_at, statement_timestamp()),
+             updated_at = statement_timestamp()
+         WHERE recipient_id = $1
+           AND status = 'awaiting_recipient_consent'
+         RETURNING id, sender_id, public_reference`,
+        [req.authUser.id]
+      );
+      // Notify every affected sender, including requests awaiting payment
+      // reconciliation. The generic notification exposes no address or contact data.
+      for (const order of invalidatedOrders.rows) {
+        await notifyGiftRequestUpdate(
+          client, order.sender_id, order.public_reference, 'recipient_opted_out'
+        );
+      }
+      // Durable outbox entry for requests that cannot be cancelled safely because
+      // their payment may still be active. Enqueueing is not a payment outcome.
+      const reconciliationTasks = await client.query(
+        `INSERT INTO gift_payment_reconciliation_tasks (order_id, reason)
+         SELECT id, 'recipient_opted_out'
+         FROM gift_delivery_orders
+         WHERE recipient_id = $1
+           AND status = 'awaiting_recipient_consent'
+           AND payment_status IN ('authorization_pending', 'authorized', 'captured', 'refund_pending')
+         ON CONFLICT (order_id, reason) DO NOTHING
+         RETURNING order_id`,
+        [req.authUser.id]
+      );
+      for (const task of reconciliationTasks.rows) {
+        await client.query(
+          `INSERT INTO gift_delivery_order_events
+             (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
+           SELECT id, $2, 'recipient', 'payment_reconciliation_required', status, status,
+                  jsonb_build_object('reason', 'recipient_opted_out')
+           FROM gift_delivery_orders WHERE id = $1`,
+          [task.order_id, req.authUser.id]
+        );
+      }
+    }
+
+    const result = await client.query(
+      `INSERT INTO gift_receiving_preferences (user_id, requests_enabled, updated_at)
+       VALUES ($1, $2, statement_timestamp())
+       ON CONFLICT (user_id) DO UPDATE SET
+         requests_enabled = EXCLUDED.requests_enabled,
+         updated_at = statement_timestamp()
+       RETURNING requests_enabled`,
+      [req.authUser.id, validation.value.requestsEnabled]
+    );
+
+    if (!validation.value.requestsEnabled) {
+      const cancelled = await client.query(
+        `UPDATE gift_delivery_orders
+         SET status = 'cancelled', updated_at = statement_timestamp()
+         WHERE recipient_id = $1
+           AND status = 'awaiting_recipient_consent'
+           AND payment_status IN ('not_started', 'voided', 'failed')
+         RETURNING id, sender_id`,
+        [req.authUser.id]
+      );
+      for (const order of cancelled.rows) {
+        await client.query(
+          `INSERT INTO gift_delivery_order_events
+             (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
+           VALUES ($1, $2, 'recipient', 'cancelled', 'awaiting_recipient_consent', 'cancelled')`,
+          [order.id, req.authUser.id]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+    return res.json({ preferences: serializeGiftReceivingPreferences(result.rows[0]) });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Gift receiving preferences save failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_preferences_unavailable' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.post('/api/gifts/orders', validateRequestOrigin, requireSession, requirePaidFeatures, profileActionLimiter, async (req, res) => {
+  const validation = normalizeGiftRequestInput(req.body);
+  if (!validation.ok) {
+    return res.status(400).json({
+      error: validation.error,
+      ...(validation.field ? { field: validation.field } : {})
+    });
+  }
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const result = await createGiftOrderRequest(client, {
+      senderId: req.authUser.id,
+      matchId: validation.value.matchId,
+      catalogItemId: validation.value.catalogItemId,
+      idempotencyKey: validation.value.idempotencyKey
+    });
+    await client.query(result.commit ? 'COMMIT' : 'ROLLBACK');
+    return res.status(result.status).json(result.body);
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (error?.code === '23505') {
+      const constraint = String(error.constraint || '');
+      return res.status(409).json({
+        error: constraint.includes('pending_per_unordered_pair')
+          ? 'gift_request_already_pending'
+          : 'gift_idempotency_key_conflict'
+      });
+    }
+    if (error?.code === '23503' || error?.code === '23514') {
+      return res.status(409).json({ error: 'gift_request_unavailable' });
+    }
+    console.error('Gift request creation failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_request_creation_unavailable' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  const validation = validateGiftDecisionInput(req.body, req.params.publicReference);
+  if (!validation.valid) {
+    return res.status(validation.notFound ? 404 : 400).json({ error: validation.error });
+  }
+  const { action, publicReference: reference } = validation;
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    // Both decisions share the account and pair safety locks. A stale decline
+    // must not mutate an order after deletion/suspension, and block/report paths
+    // use the same pair -> order lock order.
+    const pair = await client.query(
+      `SELECT sender_id, recipient_id
+       FROM gift_delivery_orders
+       WHERE public_reference = $1 AND recipient_id = $2`,
+      [reference, req.authUser.id]
+    );
+    if (!pair.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'gift_request_not_available' });
+    }
+    if (action === 'accept') {
+      await acquireGiftOrderRateLocks(client, pair.rows[0].sender_id, pair.rows[0].recipient_id);
+    }
+    await acquireGiftSafetyUserLocks(client, pair.rows[0].sender_id, pair.rows[0].recipient_id);
+    await acquireGiftSafetyPairLock(client, pair.rows[0].sender_id, pair.rows[0].recipient_id);
+    const accountStates = await client.query(
+      'SELECT id, status FROM users WHERE id = ANY($1::uuid[]) ORDER BY id FOR SHARE',
+      [[pair.rows[0].sender_id, pair.rows[0].recipient_id]]
+    );
+    const currentAccount = accountStates.rows.find(account =>
+      String(account.id).toLowerCase() === String(req.authUser.id).toLowerCase()
+    );
+    if (!currentAccount || currentAccount.status !== 'active') {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    if (accountStates.rowCount !== 2 || accountStates.rows.some(account => account.status !== 'active')) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_request_not_actionable' });
+    }
+
+    const selected = await client.query(
+      `SELECT o.id, o.match_id, o.sender_id, o.recipient_id, o.status, o.payment_status, o.expires_at,
+              o.recipient_requests_disabled_at,
+               statement_timestamp() AS decision_at,
+              m.status AS match_status,
+              sender.status AS sender_status,
+              recipient.status AS recipient_status,
+              COALESCE(pref.requests_enabled, FALSE) AS requests_enabled,
+              EXISTS (
+                SELECT 1 FROM user_blocks b
+                WHERE (b.blocker_id = o.sender_id AND b.blocked_id = o.recipient_id)
+                   OR (b.blocker_id = o.recipient_id AND b.blocked_id = o.sender_id)
+              ) AS has_block,
+              EXISTS (
+                SELECT 1 FROM user_reports r
+                WHERE r.status IN ('open', 'reviewing')
+                  AND ((r.reporter_id = o.sender_id AND r.reported_user_id = o.recipient_id)
+                    OR (r.reporter_id = o.recipient_id AND r.reported_user_id = o.sender_id))
+              ) AS has_open_report,
+              EXISTS (
+                SELECT 1 FROM user_safety_screenings ss
+                WHERE ss.user_id IN (o.sender_id, o.recipient_id)
+                  AND ss.severity = 'high'
+                  AND ss.review_status IN ('pending', 'reviewing', 'actioned')
+              ) AS safety_restricted
+       FROM gift_delivery_orders o
+       JOIN matches m ON m.id = o.match_id
+       JOIN users sender ON sender.id = o.sender_id
+       JOIN users recipient ON recipient.id = o.recipient_id
+       LEFT JOIN gift_receiving_preferences pref ON pref.user_id = o.recipient_id
+       WHERE o.public_reference = $1 AND o.recipient_id = $2
+       FOR UPDATE OF o`,
+      [reference, req.authUser.id]
+    );
+    const order = selected.rows[0];
+    if (!order) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'gift_request_not_available' });
+    }
+    if (order.recipient_requests_disabled_at != null) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_request_not_actionable' });
+    }
+    if (order.match_status !== 'active' || order.has_block === true ||
+        order.has_open_report === true || order.safety_restricted === true) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_request_not_actionable' });
+    }
+    if (order.status === 'awaiting_recipient_consent' &&
+        new Date(order.expires_at).getTime() <= new Date(order.decision_at).getTime() &&
+        !['not_started', 'voided', 'failed'].includes(order.payment_status)) {
+      // Expiry cannot stand in for a payment void/refund. Persist provider
+      // reconciliation work in this transaction before returning the conflict.
+      await enqueueExpiredGiftPaymentReconciliation(client, order.id);
+      await client.query('COMMIT');
+      return res.status(409).json({ error: 'gift_payment_requires_reconciliation' });
+    }
+
+    if (order.status !== 'awaiting_recipient_consent' || new Date(order.expires_at).getTime() <= new Date(order.decision_at).getTime()) {
+      if (order.status === 'awaiting_recipient_consent') {
+        const expiredOrder = await client.query(
+          `UPDATE gift_delivery_orders SET status = 'expired', updated_at = statement_timestamp()
+           WHERE id = $1 AND status = 'awaiting_recipient_consent'
+           RETURNING public_reference AS "publicReference"`,
+          [order.id]
+        );
+        if (expiredOrder.rowCount === 1) {
+          await client.query(
+            `INSERT INTO gift_delivery_order_events (order_id, actor_type, event_type, from_status, to_status)
+             VALUES ($1, 'system', 'expired', 'awaiting_recipient_consent', 'expired')`,
+            [order.id]
+          );
+          await notifyGiftRequestUpdate(
+            client, order.sender_id, expiredOrder.rows[0].publicReference, 'request_expired'
+          );
+        }
+      }
+      await client.query('COMMIT');
+      return res.status(409).json({ error: 'gift_request_not_actionable' });
+    }
+
+    if (action === 'accept') {
+      // The pair lock is already held before the order row lock. Re-read
+      // safety-critical state now that block/report actions are serialized.
+      // Lock the existing preference row against a concurrent opt-out. A
+      // missing row remains disabled; the preference endpoint's upsert will
+      // serialize on this row whenever it already exists.
+      const preferenceState = await client.query(
+        'SELECT requests_enabled FROM gift_receiving_preferences WHERE user_id = $1 FOR SHARE',
+        [order.recipient_id]
+      );
+      const currentSafety = await client.query(
+        `SELECT m.status AS match_status,
+                sender.status AS sender_status,
+                recipient.status AS recipient_status,
+                COALESCE(pref.requests_enabled, FALSE) AS requests_enabled,
+                EXISTS (
+                  SELECT 1 FROM user_blocks b
+                  WHERE (b.blocker_id = $1 AND b.blocked_id = $2)
+                     OR (b.blocker_id = $2 AND b.blocked_id = $1)
+                ) AS has_block,
+                EXISTS (
+                  SELECT 1 FROM user_reports r
+                  WHERE r.status IN ('open', 'reviewing')
+                    AND ((r.reporter_id = $1 AND r.reported_user_id = $2)
+                      OR (r.reporter_id = $2 AND r.reported_user_id = $1))
+                ) AS has_open_report,
+                EXISTS (
+                  SELECT 1 FROM user_safety_screenings ss
+                  WHERE ss.user_id IN ($1, $2)
+                    AND ss.severity = 'high'
+                    AND ss.review_status IN ('pending', 'reviewing', 'actioned')
+                ) AS safety_restricted
+         FROM matches m
+         JOIN users sender ON sender.id = $1
+         JOIN users recipient ON recipient.id = $2
+         LEFT JOIN gift_receiving_preferences pref ON pref.user_id = $2
+         WHERE m.id = $3`,
+        [order.sender_id, order.recipient_id, order.match_id]
+      );
+      const safety = currentSafety.rows[0];
+      const requestsEnabled = preferenceState.rows[0]?.requests_enabled === true;
+      if (!safety || safety.match_status !== 'active' ||
+          safety.sender_status !== 'active' || safety.recipient_status !== 'active' ||
+          !requestsEnabled || safety.requests_enabled !== true ||
+          safety.has_block === true || safety.has_open_report === true ||
+          safety.safety_restricted === true) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'gift_request_not_actionable' });
+      }
+    }
+
+    // A decline must not silently abandon an active payment. Gift payment
+    // processing is not integrated yet, so fail closed rather than simulating
+    // a void/refund or relying on a database constraint to raise a 500.
+    if (action === 'decline' &&
+        !['not_started', 'voided', 'failed'].includes(order.payment_status)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_payment_requires_reconciliation' });
+    }
+
+    if (action === 'accept') {
+      // The same recipient-level rate lock is used by request creation. Count
+      // historical consent events (including later withdrawn/cancelled requests)
+      // so parallel acceptances cannot exceed one accepted gift per 7 days.
+      const acceptanceLimitReached = await recipientGiftAcceptanceLimitReached(client, order.recipient_id);
+      if (acceptanceLimitReached) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'gift_recipient_rate_limit' });
+      }
+    }
+
+    const nextStatus = action === 'accept' ? 'recipient_accepted' : 'declined';
+    const updated = await client.query(
+      `UPDATE gift_delivery_orders
+       SET status = $2,
+           recipient_consent_at = CASE WHEN $2 = 'recipient_accepted' THEN statement_timestamp() ELSE recipient_consent_at END,
+           recipient_consent_version = CASE WHEN $2 = 'recipient_accepted' THEN 1 ELSE recipient_consent_version END,
+           updated_at = statement_timestamp()
+       WHERE id = $1
+         AND status = 'awaiting_recipient_consent'
+         AND ($3::boolean = FALSE OR expires_at > statement_timestamp())
+       RETURNING public_reference AS "publicReference", status`,
+      [order.id, nextStatus, action === 'accept']
+    );
+    if (updated.rowCount !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_request_not_actionable' });
+    }
+    await client.query(
+      `INSERT INTO gift_delivery_order_events (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
+       VALUES ($1, $2, 'recipient', $3, 'awaiting_recipient_consent', $4)`,
+      [order.id, req.authUser.id, action === 'accept' ? 'accepted' : 'declined', nextStatus]
+    );
+    // Sender gets a deliberately generic update. Neither the exact decision nor
+    // any safety/moderation details are copied into notification metadata.
+    await notifyGiftRequestUpdate(client, order.sender_id, updated.rows[0].publicReference, 'recipient_decision');
+    await client.query('COMMIT');
+    // A decision records consent only; it does not authorize payment, address access, or fulfilment.
+    return res.json({
+      request: {
+        id: updated.rows[0].publicReference,
+        status: action === 'accept' ? 'recipient_accepted' : 'not_available'
+      },
+      nextStep: action === 'accept' ? 'recipient_address_setup_required' : 'closed'
+    });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Gift request decision failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_request_decision_unavailable' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.post('/api/gifts/orders/:publicReference/withdraw-consent', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  const reference = req.params.publicReference;
+  if (typeof reference !== 'string' || !/^gift_[a-f0-9]{32}$/i.test(reference)) {
+    return res.status(400).json({ error: 'invalid_gift_reference' });
+  }
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    // Only the recipient may withdraw consent. Acquire the same pair lock as
+    // acceptance, blocking, and reporting before taking the order row lock.
+    const pair = await client.query(
+      `SELECT sender_id, recipient_id
+       FROM gift_delivery_orders
+       WHERE public_reference = $1 AND recipient_id = $2`,
+      [reference, req.authUser.id]
+    );
+    if (!pair.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'gift_order_not_available' });
+    }
+
+    // Match account deletion, moderation, and decision lock order so a stale
+    // session cannot mutate consent after either participant becomes inactive.
+    await acquireGiftSafetyUserLocks(client, pair.rows[0].sender_id, pair.rows[0].recipient_id);
+    await acquireGiftSafetyPairLock(client, pair.rows[0].sender_id, pair.rows[0].recipient_id);
+    const accountStates = await client.query(
+      'SELECT id, status FROM users WHERE id = ANY($1::uuid[]) ORDER BY id FOR SHARE',
+      [[pair.rows[0].sender_id, pair.rows[0].recipient_id]]
+    );
+    if (accountStates.rowCount !== 2 || accountStates.rows.some(account => account.status !== 'active')) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_order_not_withdrawable' });
+    }
+
+    const selected = await client.query(
+      `SELECT id, status, payment_status AS "paymentStatus",
+              consent_withdrawn_at AS "consentWithdrawnAt", dispatched_at AS "dispatchedAt"
+       FROM gift_delivery_orders
+       WHERE public_reference = $1 AND recipient_id = $2
+       FOR UPDATE`,
+      [reference, req.authUser.id]
+    );
+    const order = selected.rows[0];
+    // Keep endpoint and unit-tested policy gates aligned. Payment transitions
+    // are intentionally not simulated by this endpoint.
+    const withdrawalEligibility = evaluateGiftConsentWithdrawalEligibility(order);
+    if (!withdrawalEligibility.eligible) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_order_not_withdrawable' });
+    }
+
+    const updated = await client.query(
+      `UPDATE gift_delivery_orders
+       SET status = 'cancelled',
+           consent_withdrawn_at = statement_timestamp(),
+           address_vault_ref = NULL,
+           address_verified_at = NULL,
+           updated_at = statement_timestamp()
+       WHERE id = $1
+         AND recipient_id = $2
+         AND status IN ('recipient_accepted', 'address_verified')
+         AND consent_withdrawn_at IS NULL
+       RETURNING public_reference`,
+      [order.id, req.authUser.id]
+    );
+    if (updated.rowCount !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_order_not_withdrawable' });
+    }
+
+    await client.query(
+      `INSERT INTO gift_delivery_order_events
+         (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
+       VALUES ($1, $2, 'recipient', 'consent_withdrawn', $3, 'cancelled')`,
+      [order.id, req.authUser.id, order.status]
+    );
+    await notifyGiftRequestUpdate(client, pair.rows[0].sender_id, updated.rows[0].public_reference, 'consent_withdrawn');
+    await client.query('COMMIT');
+    return res.json({ order: { id: updated.rows[0].public_reference, status: 'cancelled', consentWithdrawn: true } });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Gift consent withdrawal failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_consent_withdrawal_unavailable' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.get('/api/gifts/orders', requireSession, profileActionLimiter, async (req, res) => {
+  try {
+    const read = await withActiveAccountRead(req.authUser.id, client => client.query(
+      `SELECT public_reference AS "publicReference", product_name_snapshot AS "productName",
+              product_category AS "productCategory", CASE
+                WHEN total_minor_units BETWEEN 0 AND 9007199254740991::bigint
+                  THEN total_minor_units::double precision
+                ELSE NULL
+              END AS "totalMinorUnits",
+              currency, status, expires_at AS "expiresAt",
+              payment_status AS "paymentStatus",
+              recipient_requests_disabled_at AS "recipientRequestsDisabledAt",
+              statement_timestamp() AS "serverNow",
+              created_at AS "createdAt",
+              estimated_delivery_start AS "estimatedDeliveryStart",
+              estimated_delivery_end AS "estimatedDeliveryEnd",
+              CASE WHEN recipient_id = $1 THEN 'recipient' ELSE 'sender' END AS "myRole"
+       FROM gift_delivery_orders
+       WHERE sender_id = $1 OR recipient_id = $1
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      [req.authUser.id]
+    ));
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    const result = read.value;
+    // PostgreSQL int8 values otherwise serialize as decimal strings, which the
+    // privacy-safe UI intentionally rejects. Keep only exact safe-integer prices.
+    // Expiry and recipient opt-out are projected independently of payment state:
+    // a payment awaiting reconciliation must never leave consent actions enabled.
+    const orders = result.rows
+      .filter(order => Number.isSafeInteger(order.totalMinorUnits) && order.totalMinorUnits >= 0)
+      .map(order => {
+        const status = projectGiftOrderStatus(order, new Date(order.serverNow).getTime());
+        const {
+          expiresAt,
+          paymentStatus,
+          recipientRequestsDisabledAt,
+          serverNow,
+          ...safeOrder
+        } = order;
+        return { ...safeOrder, status };
+      });
+    return res.json({ orders });
+  } catch (error) {
+    console.error('Gift order list failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_orders_unavailable' });
+  }
+});
+
+app.get('/api/ads/consent', requireSession, async (req, res) => {
+  try {
+    const read = await withActiveAccountRead(req.authUser.id, client => client.query(
+      `SELECT ads_consent, date_offers_consent, wedding_offers_consent,
+              marriage_planning_opt_in, category_consents, consent_version
+       FROM ad_consent_preferences WHERE user_id = $1`,
+      [req.authUser.id]
+    ));
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    return res.json({
+      version: AD_CONSENT_VERSION,
+      preferences: serializeAdConsentPreferences(read.value.rows[0])
+    });
+  } catch (error) {
+    console.error('Ad consent preferences read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'ad_consent_preferences_unavailable' });
+  }
+});
+
+app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  const validation = normalizeAdConsentPreferences(req.body);
+  if (!validation.ok) {
+    return res.status(400).json({
+      error: validation.error,
+      ...(validation.field ? { field: validation.field } : {}),
+      ...(validation.category ? { category: validation.category } : {})
+    });
+  }
+
+  const preferences = validation.value;
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    // Serialize preference writes against account deletion. If this request wins,
+    // deletion waits and purges the newly written history afterwards; if deletion
+    // wins, this lock observes the deleted status and refuses to recreate history.
+    const activeAccount = await client.query(
+      "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (activeAccount.rowCount !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    // The upsert takes a row-level write lock. Ad-event requests hold FOR SHARE
+    // on the same preference row until their transaction finishes, so a concurrent
+    // revocation and event are serialized: either the event finishes before the
+    // revocation commits, or it observes the revoked/stale consent and is rejected.
+    const result = await client.query(
+      `INSERT INTO ad_consent_preferences
+         (user_id, ads_consent, date_offers_consent, wedding_offers_consent,
+          marriage_planning_opt_in, category_consents, consent_version, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, statement_timestamp())
+       ON CONFLICT (user_id) DO UPDATE SET
+         ads_consent = EXCLUDED.ads_consent,
+         date_offers_consent = EXCLUDED.date_offers_consent,
+         wedding_offers_consent = EXCLUDED.wedding_offers_consent,
+         marriage_planning_opt_in = EXCLUDED.marriage_planning_opt_in,
+         category_consents = EXCLUDED.category_consents,
+         consent_version = EXCLUDED.consent_version,
+         updated_at = statement_timestamp()
+       RETURNING ads_consent, date_offers_consent, wedding_offers_consent,
+                 marriage_planning_opt_in, category_consents, consent_version`,
+      [
+        req.authUser.id,
+        preferences.adsConsent,
+        preferences.dateOffersConsent,
+        preferences.weddingOffersConsent,
+        preferences.marriagePlanningOptIn,
+        JSON.stringify(preferences.categoryConsents),
+        AD_CONSENT_VERSION
+      ]
+    );
+    const savedPreferences = serializeAdConsentPreferences(result.rows[0]);
+    await client.query(
+      'INSERT INTO ad_consent_history (user_id, consent_version, preferences) VALUES ($1, $2, $3::jsonb)',
+      [req.authUser.id, AD_CONSENT_VERSION, JSON.stringify(savedPreferences)]
+    );
+    await client.query('COMMIT');
+    return res.json({
+      version: AD_CONSENT_VERSION,
+      preferences: savedPreferences
+    });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Ad consent preferences update failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'ad_consent_preferences_unavailable' });
+  } finally {
+    client?.release();
+  }
+});
+
 app.post('/api/ads/events', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  // No production ad-serving endpoint currently issues trusted placement receipts.
+  // Keep ingestion closed so clients cannot manufacture impressions/clicks for an
+  // approved campaign without proving that contextual eligibility allowed delivery.
+  if (!isAdEventCollectionEnabled()) {
+    return res.status(503).json({ error: 'ad_event_collection_unavailable' });
+  }
+
   const validation = validateAdEventPayload(req.body);
   if (!validation.ok) return res.status(400).json({ error: validation.error });
 
-  const user = req.authUser;
-  const hasPremium = Boolean(user.premium_lifetime) ||
-    (user.premium_until && new Date(user.premium_until).getTime() > Date.now());
-  if (hasPremium) return res.status(403).json({ error: 'ads_disabled_for_premium' });
-
+  const userId = req.authUser.id;
   const { eventId, campaignId, eventType } = validation.value;
   let client;
   try {
     client = await pool.connect();
     await client.query('BEGIN');
-    // Serialize frequency checks per user/campaign so concurrent requests cannot bypass the cap.
-    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`${user.id}:${campaignId}`]);
+    // Lock order is event ID, then account safety, then campaign. Deletion never
+    // waits on an event lock, so this order serializes idempotency without a cycle.
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`ad-event:${eventId}`]);
+    await acquireGiftSafetyUserLocks(client, userId);
+    const account = await client.query(
+      `SELECT u.id, u.premium_lifetime, u.premium_until, p.country
+       FROM users u JOIN profiles p ON p.user_id = u.id
+       WHERE u.id = $1 AND u.status = 'active'
+       FOR SHARE OF u, p`,
+      [userId]
+    );
+    if (!account.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    const user = account.rows[0];
+    const hasPremium = Boolean(user.premium_lifetime) ||
+      (user.premium_until && new Date(user.premium_until).getTime() > Date.now());
+    if (hasPremium) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'ads_disabled_for_premium' });
+    }
+    // No stored row means consent is off. Hold the row lock through insertion
+    // so a concurrent revocation is ordered before or after this event.
+    const consent = await client.query(
+      'SELECT ads_consent, consent_version FROM ad_consent_preferences WHERE user_id = $1 FOR SHARE',
+      [userId]
+    );
+    if (!hasExplicitAdConsent(consent.rows)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'ad_consent_required' });
+    }
 
-    const duplicate = await client.query('SELECT 1 FROM ad_events WHERE event_id = $1', [eventId]);
-    if (duplicate.rowCount) {
+    const duplicate = await client.query(
+      'SELECT user_id, campaign_id, event_type FROM ad_events WHERE event_id = $1',
+      [eventId]
+    );
+    const duplicateStatus = classifyDuplicateAdEvent(duplicate.rows[0], {
+      userId: user.id,
+      campaignId,
+      eventType
+    });
+    if (duplicateStatus === 'duplicate') {
       await client.query('COMMIT');
       return res.json({ accepted: true, duplicate: true });
     }
+    if (duplicateStatus === 'conflict') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'ad_event_id_conflict' });
+    }
 
-    if (eventType === 'impression') {
-      const count = await client.query(
-        `SELECT COUNT(*)::int AS count FROM ad_events
-         WHERE user_id = $1 AND campaign_id = $2 AND event_type = 'impression'
-           AND created_at >= NOW() - INTERVAL '24 hours'`,
-        [user.id, campaignId]
-      );
-      if (count.rows[0].count >= AD_IMPRESSION_CAP_24H) {
-        await client.query('ROLLBACK');
-        return res.status(429).json({ error: 'ad_frequency_cap_reached', retryAfterSeconds: 86400 });
+    // Distinct event IDs for this user/campaign serialize before frequency and
+    // click-after-impression checks, preventing parallel requests bypassing either.
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`ad-campaign:${userId}:${campaignId}`]);
+
+    // A well-formed client ID is not authority to track an arbitrary campaign.
+    // Resolve every new event against the server-owned approval registry.
+    const campaignResult = await client.query(
+      `SELECT id, status, advertiser_verified, creative_version, creative_approved,
+              creative_context, category, allowed_country_codes, starts_at, ends_at
+       FROM ad_campaigns
+       WHERE id = $1
+       FOR SHARE`,
+      [campaignId]
+    );
+    const row = campaignResult.rows[0];
+    const campaignEligibility = evaluateAdCampaignEligibility(row ? {
+      id: row.id,
+      status: row.status,
+      active: row.status === 'approved',
+      advertiserVerified: row.advertiser_verified,
+      creativeVersion: row.creative_version,
+      creativeApproved: row.creative_approved,
+      creativeContext: row.creative_context,
+      category: row.category,
+      startsAt: row.starts_at instanceof Date ? row.starts_at.toISOString() : row.starts_at,
+      endsAt: row.ends_at instanceof Date ? row.ends_at.toISOString() : row.ends_at
+    } : null);
+    if (!campaignEligibility.eligible) {
+      await client.query('ROLLBACK');
+      const unknown = campaignEligibility.reason === 'campaign_unknown';
+      return res.status(unknown ? 404 : 403).json({
+        error: unknown ? 'ad_campaign_not_found' : 'ad_campaign_not_eligible'
+      });
+    }
+
+    // Country targeting uses only the profile's declared country for now. It is
+    // a fail-closed campaign targeting guard, not proof of physical location.
+    const profileCountryCode = resolveProfileCountryCode(user.country);
+    if (!isCampaignCountryAllowed(row.allowed_country_codes, profileCountryCode)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'ad_campaign_region_not_allowed' });
+    }
+
+    const counts = await client.query(AD_EVENT_FREQUENCY_COUNTS_SQL, [userId, campaignId]);
+    const eventCounts = counts.rows[0];
+    const frequency = evaluateAdEventFrequency({
+      eventType,
+      impressionCount: eventCounts.impressions,
+      clickCount: eventCounts.clicks
+    });
+    if (!frequency.allowed) {
+      await client.query('ROLLBACK');
+      const status = frequency.reason === 'impression_required_before_click' ? 409 : 429;
+      const retryAfterSeconds = frequency.reason === 'ad_frequency_cap_reached'
+        ? eventCounts.impression_retry_after_seconds
+        : frequency.reason === 'ad_click_frequency_cap_reached'
+          ? eventCounts.click_retry_after_seconds
+          : null;
+      if (status === 429 && retryAfterSeconds !== null) {
+        res.setHeader('Retry-After', String(retryAfterSeconds));
       }
-    } else {
-      const impression = await client.query(
-        `SELECT 1 FROM ad_events
-         WHERE user_id = $1 AND campaign_id = $2 AND event_type = 'impression'
-           AND created_at >= NOW() - INTERVAL '24 hours'
-         LIMIT 1`,
-        [user.id, campaignId]
-      );
-      if (!impression.rowCount) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({ error: 'impression_required_before_click' });
-      }
+      return res.status(status).json({
+        error: frequency.reason,
+        ...(status === 429 && retryAfterSeconds !== null ? { retryAfterSeconds } : {})
+      });
     }
 
     await client.query(
@@ -1927,6 +4198,11 @@ app.post('/api/ads/events', validateRequestOrigin, requireSession, profileAction
     return res.status(201).json({ accepted: true, duplicate: false });
   } catch (error) {
     if (client) await client.query('ROLLBACK').catch(() => {});
+    // Defense in depth for a primary-key collision if a request bypasses the
+    // advisory-lock path; never leak this idempotency conflict as a generic 500.
+    if (error?.code === '23505' && error?.constraint === 'ad_events_pkey') {
+      return res.status(409).json({ error: 'ad_event_id_conflict' });
+    }
     console.error('Ad event processing failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'ad_event_processing_failed' });
   } finally {
