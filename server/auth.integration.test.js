@@ -2242,6 +2242,8 @@ test('auth API supports registration, session lookup, logout and login', {
       let staleAuthMePromise;
       let staleBillingStatusPromise;
       let staleProfileSearchPromise;
+      let staleUnblockPromise;
+      let staleUnlikePromise;
       try {
         await waitForBlockedSafetyRequests(1);
         staleProfileUpdatePromise = request('/api/profiles/me', {
@@ -2316,6 +2318,14 @@ test('auth API supports registration, session lookup, logout and login', {
         staleProfileSearchPromise = request('/api/profiles/search?limit=1', {
           headers: { Cookie: secondCookie }
         });
+        staleUnblockPromise = request(`/api/blocks/${maleRegistered.user.id}`, {
+          method: 'DELETE',
+          headers: { Cookie: secondCookie }
+        });
+        staleUnlikePromise = request(`/api/likes/${maleRegistered.user.id}`, {
+          method: 'DELETE',
+          headers: { Cookie: secondCookie }
+        });
         // Require the established core requests to be queued before deletion.
         // Additional reads are launched concurrently and independently checked
         // below; some may be rejected by feature/rate gates before taking a lock.
@@ -2330,7 +2340,7 @@ test('auth API supports registration, session lookup, logout and login', {
         staleNotificationReadAll, staleNotificationReadOne, stalePhotoRead,
         staleOwnProfileRead, staleBlocksRead, staleGiftPreferencesRead,
         staleGiftOrdersRead, staleAdConsentRead, staleAuthMe,
-        staleBillingStatus, staleProfileSearch
+        staleBillingStatus, staleProfileSearch, staleUnblock, staleUnlike
       ] = await Promise.all([
         deleteAccountPromise,
         staleProfileUpdatePromise,
@@ -2349,7 +2359,9 @@ test('auth API supports registration, session lookup, logout and login', {
         staleAdConsentReadPromise,
         staleAuthMePromise,
         staleBillingStatusPromise,
-        staleProfileSearchPromise
+        staleProfileSearchPromise,
+        staleUnblockPromise,
+        staleUnlikePromise
       ]);
       assert.equal(deleteAccount.status, 204);
       assert.equal(staleProfileUpdate.status, 404,
@@ -2392,6 +2404,10 @@ test('auth API supports registration, session lookup, logout and login', {
         'billing status must not disclose deleted account entitlements to a stale session');
       assert.ok([401, 402, 403].includes(staleProfileSearch.status),
         'profile search must not disclose discovery results to a deleted or feature-gated account');
+      assert.equal(staleUnblock.status, 401,
+        'a stale session must not mutate block relationships after account deletion');
+      assert.ok([401, 402].includes(staleUnlike.status),
+        'a stale session must not mutate likes after account deletion');
       const staleLoginSessions = await deletionSafetyDb.query(
         'SELECT COUNT(*)::int AS count FROM sessions WHERE user_id = $1',
         [registered.user.id]
