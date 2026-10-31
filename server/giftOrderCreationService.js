@@ -88,7 +88,17 @@ export async function expireStaleGiftRequestsForPair(client, { matchId, senderId
      WHERE id = ANY($1::uuid[])
        AND status = 'awaiting_recipient_consent'
        AND expires_at <= statement_timestamp()
-       AND payment_status IN ('not_started', 'voided', 'failed', 'refunded')
+       AND payment_status IN ('not_started', 'voided', 'failed')
+     RETURNING id, public_reference AS "publicReference", sender_id`,
+    [candidates.rows.map(row => row.id)]
+  );
+  const alreadyRefunded = await client.query(
+    `UPDATE gift_delivery_orders
+     SET status = 'refunded', updated_at = statement_timestamp()
+     WHERE id = ANY($1::uuid[])
+       AND status = 'awaiting_recipient_consent'
+       AND expires_at <= statement_timestamp()
+       AND payment_status = 'refunded'
      RETURNING id, public_reference AS "publicReference", sender_id`,
     [candidates.rows.map(row => row.id)]
   );
@@ -99,10 +109,18 @@ export async function expireStaleGiftRequestsForPair(client, { matchId, senderId
        VALUES ($1, 'system', 'expired', 'awaiting_recipient_consent', 'expired')`,
       [order.id]
     );
-    // Keep the generic sender notification in the shared expiry transaction so
-    // every caller (creation, catalog, and future paths) gets the same behavior.
     await notifyGiftRequestUpdate(client, order.sender_id, order.publicReference, 'request_expired');
   }
+  for (const order of alreadyRefunded.rows) {
+    await client.query(
+      `INSERT INTO gift_delivery_order_events
+         (order_id, actor_type, event_type, from_status, to_status)
+       VALUES ($1, 'payment_service', 'refunded', 'awaiting_recipient_consent', 'refunded')`,
+      [order.id]
+    );
+    await notifyGiftRequestUpdate(client, order.sender_id, order.publicReference, 'request_expired');
+  }
+  const terminalizedOrders = [...expired.rows, ...alreadyRefunded.rows];
   if (unresolved.length > 0) {
     // Commit both safe expirations and durable reconciliation work while
     // rejecting the requested replacement until uncertain payments are resolved.
@@ -110,7 +128,7 @@ export async function expireStaleGiftRequestsForPair(client, { matchId, senderId
       ok: false,
       commit: true,
       error: 'gift_payment_requires_reconciliation',
-      expiredOrders: expired.rows
+      expiredOrders: terminalizedOrders
     };
   }
   return { ok: true, expiredOrders: expired.rows };
