@@ -2168,6 +2168,8 @@ test('auth API supports registration, session lookup, logout and login', {
       query_timeout: 10_000
     });
     let deletionSafetyOrderId;
+    let pendingDeletionDecisionOrderId;
+    let pendingDeletionDecisionReference;
     let dispatchedDeletionSafetyOrderId;
     try {
       const dispatchedDeletionSafetyOrder = await deletionSafetyDb.query(
@@ -2262,6 +2264,18 @@ test('auth API supports registration, session lookup, logout and login', {
         [matchPayload.match.id, maleRegistered.user.id, registered.user.id, randomUUID()]
       );
       deletionSafetyOrderId = deletionSafetyOrder.rows[0].id;
+
+      const pendingDeletionDecisionOrder = await deletionSafetyDb.query(
+        `INSERT INTO gift_delivery_orders
+           (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, status, payment_status, expires_at, idempotency_key)
+         VALUES ($1, $2, $3, 'Pending deletion decision test chocolate', 'chocolate', 900, 'USD',
+                 'awaiting_recipient_consent', 'not_started', NOW() + INTERVAL '1 hour', $4)
+         RETURNING id, public_reference`,
+        [matchPayload.match.id, maleRegistered.user.id, registered.user.id, randomUUID()]
+      );
+      pendingDeletionDecisionOrderId = pendingDeletionDecisionOrder.rows[0].id;
+      pendingDeletionDecisionReference = pendingDeletionDecisionOrder.rows[0].public_reference;
 
       await deletionSafetyDb.query(
         `INSERT INTO ad_consent_preferences
@@ -2374,6 +2388,14 @@ test('auth API supports registration, session lookup, logout and login', {
       let staleUnlikePromise;
       try {
         await waitForBlockedSafetyRequests(1);
+        const staleGiftDecisionPromise = request(
+          `/api/gifts/orders/${pendingDeletionDecisionReference}/decision`,
+          {
+            method: 'POST',
+            headers: { Cookie: secondCookie },
+            body: JSON.stringify({ action: 'decline' })
+          }
+        );
         staleProfileUpdatePromise = request('/api/profiles/me', {
           method: 'PATCH',
           headers: { Cookie: secondCookie },
@@ -2471,7 +2493,8 @@ test('auth API supports registration, session lookup, logout and login', {
         staleNotificationReadAll, staleNotificationReadOne, stalePhotoRead,
         staleOwnProfileRead, staleBlocksRead, staleGiftPreferencesRead,
         staleGiftOrdersRead, staleGiftCatalogRead, staleAdConsentRead, staleAuthMe,
-        staleBillingStatus, staleProfileSearch, staleUnblock, staleUnlike
+        staleBillingStatus, staleProfileSearch, staleUnblock, staleUnlike,
+        staleGiftDecision
       ] = await Promise.all([
         deleteAccountPromise,
         staleProfileUpdatePromise,
@@ -2493,9 +2516,22 @@ test('auth API supports registration, session lookup, logout and login', {
         staleBillingStatusPromise,
         staleProfileSearchPromise,
         staleUnblockPromise,
-        staleUnlikePromise
+        staleUnlikePromise,
+        staleGiftDecisionPromise
       ]);
       assert.equal(deleteAccount.status, 204);
+      assert.equal(staleGiftDecision.status, 401,
+        'a decline authenticated before deletion must wait for the account safety lock and then be rejected');
+      const deletedPendingDecisionOrder = await deletionSafetyDb.query(
+        'SELECT status, payment_status, address_vault_ref, address_verified_at FROM gift_delivery_orders WHERE id = $1',
+        [pendingDeletionDecisionOrderId]
+      );
+      assert.deepEqual(deletedPendingDecisionOrder.rows[0], {
+        status: 'blocked',
+        payment_status: 'not_started',
+        address_vault_ref: null,
+        address_verified_at: null
+      }, 'account deletion must safety-hold a pending gift request instead of allowing a stale decline');
       assert.equal(staleProfileUpdate.status, 404,
         'a profile update authenticated before deletion must not restore personal data afterward');
       assert.equal(stalePhotoUpload.status, 404,
@@ -2644,7 +2680,7 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.equal(dispatchedGift.rows[0].address_vault_ref, null);
       assert.equal(dispatchedGift.rows[0].address_verified_at, null);
     } finally {
-      for (const orderId of [deletionSafetyOrderId, dispatchedDeletionSafetyOrderId].filter(Boolean)) {
+      for (const orderId of [deletionSafetyOrderId, pendingDeletionDecisionOrderId, dispatchedDeletionSafetyOrderId].filter(Boolean)) {
         await deletionSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [orderId]).catch(() => {});
         await deletionSafetyDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [orderId]).catch(() => {});
         await deletionSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [orderId]).catch(() => {});
