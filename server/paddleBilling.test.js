@@ -416,7 +416,7 @@ test('customer webhook cannot replace an account customer ID once established', 
     eventId: 'evt_customer_identity',
     eventType: 'customer.updated',
     data: {
-      id: 'ctm_new_identity',
+      id: 'ctm_newidentity',
       customData: { userId: '00000000-0000-4000-8000-000000000001' },
       email: 'person@example.com'
     }
