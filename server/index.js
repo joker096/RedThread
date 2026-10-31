@@ -77,6 +77,14 @@ async function withActiveAccountRead(userId, callback) {
     client.release();
   }
 }
+async function withActiveModeratorRead(userId, callback) {
+  return withActiveAccountRead(userId, async client => {
+    const role = await client.query('SELECT role FROM users WHERE id = $1', [userId]);
+    if (!['admin', 'moderator'].includes(role.rows[0]?.role)) return { forbidden: true };
+    return callback(client);
+  });
+}
+
 
 app.disable('x-powered-by');
 app.use((_req, res, next) => {
@@ -1357,44 +1365,60 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
 });
 
 app.get('/api/billing/status', requireSession, async (req, res) => {
-  const trialEndsAt = req.authUser.female_trial_ends_at ? new Date(req.authUser.female_trial_ends_at) : null;
-  const premiumUntil = req.authUser.premium_until ? new Date(req.authUser.premium_until) : null;
-  const now = Date.now();
-  const isTrialActive = req.authUser.gender === 'female' && trialEndsAt && trialEndsAt.getTime() > now;
-  const hasTimedPremium = premiumUntil && premiumUntil.getTime() > now;
-  const hasPremium = Boolean(req.authUser.premium_lifetime || hasTimedPremium);
-  const paddlePlans = process.env.PADDLE_ENVIRONMENT === 'sandbox' && process.env.PADDLE_CLIENT_TOKEN?.startsWith('test_')
-    ? [
-        ...(process.env.PADDLE_PRICE_ID_1MONTH ? ['1month'] : []),
-        ...(process.env.PADDLE_PRICE_ID_3MONTHS ? ['3months'] : []),
-        ...(process.env.PADDLE_PRICE_ID_LIFETIME ? ['lifetime'] : [])
-      ]
-    : [];
-  const paymentConfigured = Boolean(
-    process.env.PADDLE_ENVIRONMENT === 'sandbox' &&
-    process.env.PADDLE_API_KEY &&
-    process.env.PADDLE_WEBHOOK_SECRET &&
-    process.env.PADDLE_CLIENT_TOKEN?.startsWith('test_') &&
-    paddlePlans.length
-  );
-  const availablePlans = paddlePlans;
-  const note = paymentConfigured
-    ? 'Paddle Sandbox is enabled; premium access changes only after a verified webhook. Sandbox does not collect real payments.'
-    : 'Paddle Sandbox is not fully configured. No payment will be collected until its sandbox credentials and price IDs are configured.';
-  return res.json({
-    gender: req.authUser.gender, trialEndsAt: trialEndsAt?.toISOString() || null,
-    premiumUntil: req.authUser.premium_lifetime ? null : premiumUntil?.toISOString() || null,
-    premiumLifetime: Boolean(req.authUser.premium_lifetime),
-    access: req.authUser.gender !== 'female' || isTrialActive || hasPremium ? 'full' : 'premium_required',
-    trialActive: Boolean(isTrialActive), premiumActive: hasPremium,
-    billingManageable: Boolean(req.authUser.paddle_customer_id),
-    billingNeedsAttention: Boolean(req.authUser.paddle_subscription_id &&
-      !['canceled', 'completed'].includes(String(req.authUser.paddle_subscription_status || '').toLowerCase())),
-    pendingCheckoutStatus: req.authUser.paddle_checkout_status || null,
-    pendingCheckoutPlan: req.authUser.paddle_checkout_plan || null,
-    paymentConfigured, availablePlans, note
-  });
+  try {
+    const read = await withActiveAccountRead(req.authUser.id, client => client.query(
+      `SELECT p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime,
+              u.paddle_customer_id, u.paddle_subscription_id, u.paddle_subscription_status,
+              u.paddle_checkout_status, u.paddle_checkout_plan
+       FROM users u JOIN profiles p ON p.user_id = u.id
+       WHERE u.id = $1`,
+      [req.authUser.id]
+    ));
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    const user = read.value.rows[0];
+    if (!user) return res.status(401).json({ error: 'account_not_active' });
+    const trialEndsAt = user.female_trial_ends_at ? new Date(user.female_trial_ends_at) : null;
+    const premiumUntil = user.premium_until ? new Date(user.premium_until) : null;
+    const now = Date.now();
+    const isTrialActive = user.gender === 'female' && trialEndsAt && trialEndsAt.getTime() > now;
+    const hasTimedPremium = premiumUntil && premiumUntil.getTime() > now;
+    const hasPremium = Boolean(user.premium_lifetime || hasTimedPremium);
+    const paddlePlans = process.env.PADDLE_ENVIRONMENT === 'sandbox' && process.env.PADDLE_CLIENT_TOKEN?.startsWith('test_')
+      ? [
+          ...(process.env.PADDLE_PRICE_ID_1MONTH ? ['1month'] : []),
+          ...(process.env.PADDLE_PRICE_ID_3MONTHS ? ['3months'] : []),
+          ...(process.env.PADDLE_PRICE_ID_LIFETIME ? ['lifetime'] : [])
+        ]
+      : [];
+    const paymentConfigured = Boolean(
+      process.env.PADDLE_ENVIRONMENT === 'sandbox' &&
+      process.env.PADDLE_API_KEY &&
+      process.env.PADDLE_WEBHOOK_SECRET &&
+      process.env.PADDLE_CLIENT_TOKEN?.startsWith('test_') &&
+      paddlePlans.length
+    );
+    const note = paymentConfigured
+      ? 'Paddle Sandbox is enabled; premium access changes only after a verified webhook. Sandbox does not collect real payments.'
+      : 'Paddle Sandbox is not fully configured. No payment will be collected until its sandbox credentials and price IDs are configured.';
+    return res.json({
+      gender: user.gender, trialEndsAt: trialEndsAt?.toISOString() || null,
+      premiumUntil: user.premium_lifetime ? null : premiumUntil?.toISOString() || null,
+      premiumLifetime: Boolean(user.premium_lifetime),
+      access: user.gender !== 'female' || isTrialActive || hasPremium ? 'full' : 'premium_required',
+      trialActive: Boolean(isTrialActive), premiumActive: hasPremium,
+      billingManageable: Boolean(user.paddle_customer_id),
+      billingNeedsAttention: Boolean(user.paddle_subscription_id &&
+        !['canceled', 'completed'].includes(String(user.paddle_subscription_status || '').toLowerCase())),
+      pendingCheckoutStatus: user.paddle_checkout_status || null,
+      pendingCheckoutPlan: user.paddle_checkout_plan || null,
+      paymentConfigured, availablePlans: paddlePlans, note
+    });
+  } catch (error) {
+    console.error('Billing status lookup failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'billing_status_unavailable' });
+  }
 });
+
 app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req, res) => {
   const cleanFilter = (value, maxLength) => {
     if (typeof value !== 'string') return null;
@@ -2759,12 +2783,16 @@ app.post('/api/reports', reportLimiter, validateRequestOrigin, requireSession, a
 });
 
 app.get('/api/admin/screenings', requireSession, async (req, res) => {
-  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   try {
-    const result = await pool.query(
-      "SELECT id, user_id AS \"userId\", scope, flags, severity, engine_version AS \"engineVersion\", review_status AS \"reviewStatus\", created_at AS \"createdAt\" FROM user_safety_screenings WHERE review_status = 'pending' ORDER BY created_at DESC LIMIT 100"
-    );
-    return res.json({ screenings: result.rows, rawTextStored: false, externalProcessing: false });
+    const read = await withActiveModeratorRead(req.authUser.id, async client => {
+      const result = await client.query(
+        "SELECT id, user_id AS \"userId\", scope, flags, severity, engine_version AS \"engineVersion\", review_status AS \"reviewStatus\", created_at AS \"createdAt\" FROM user_safety_screenings WHERE review_status = 'pending' ORDER BY created_at DESC LIMIT 100"
+      );
+      return result.rows;
+    });
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    if (read.value.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    return res.json({ screenings: read.value, rawTextStored: false, externalProcessing: false });
   } catch (error) {
     console.error('Screening queue failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'screening_queue_failed' });
@@ -2772,20 +2800,24 @@ app.get('/api/admin/screenings', requireSession, async (req, res) => {
 });
 
 app.get('/api/admin/reports', requireSession, async (req, res) => {
-  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   const limit = Number.parseInt(String(req.query.limit ?? '50'), 10);
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) return res.status(400).json({ error: 'invalid_pagination' });
   try {
-    const result = await pool.query(
-      `SELECT r.id, r.reporter_id AS "reporterId", r.reported_user_id AS "reportedUserId",
-              r.category, r.details, r.status, r.created_at AS "createdAt",
-              p.display_name AS "reportedDisplayName"
-       FROM user_reports r JOIN profiles p ON p.user_id = r.reported_user_id
-       WHERE r.status IN ('open', 'reviewing')
-       ORDER BY r.created_at ASC LIMIT $1`,
-      [limit]
-    );
-    return res.json({ reports: result.rows });
+    const read = await withActiveModeratorRead(req.authUser.id, async client => {
+      const result = await client.query(
+        `SELECT r.id, r.reporter_id AS "reporterId", r.reported_user_id AS "reportedUserId",
+                r.category, r.details, r.status, r.created_at AS "createdAt",
+                p.display_name AS "reportedDisplayName"
+         FROM user_reports r JOIN profiles p ON p.user_id = r.reported_user_id
+         WHERE r.status IN ('open', 'reviewing')
+         ORDER BY r.created_at ASC LIMIT $1`,
+        [limit]
+      );
+      return result.rows;
+    });
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    if (read.value.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    return res.json({ reports: read.value });
   } catch (error) {
     console.error('Moderation report list failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'moderation_report_list_failed' });
@@ -2793,17 +2825,21 @@ app.get('/api/admin/reports', requireSession, async (req, res) => {
 });
 
 app.get('/api/admin/photos', requireSession, async (req, res) => {
-  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   try {
-    const result = await pool.query(
-      `SELECT a.id, a.user_id AS "userId", p.display_name AS "displayName",
-              a.mime_type AS "mimeType", a.width, a.height, a.created_at AS "createdAt"
-       FROM photo_assets a JOIN profiles p ON p.user_id = a.user_id
-       JOIN users u ON u.id = a.user_id
-       WHERE a.review_status = 'pending' AND u.status = 'active'
-       ORDER BY a.created_at ASC LIMIT 100`
-    );
-    return res.json({ photos: result.rows });
+    const read = await withActiveModeratorRead(req.authUser.id, async client => {
+      const result = await client.query(
+        `SELECT a.id, a.user_id AS "userId", p.display_name AS "displayName",
+                a.mime_type AS "mimeType", a.width, a.height, a.created_at AS "createdAt"
+         FROM photo_assets a JOIN profiles p ON p.user_id = a.user_id
+         JOIN users u ON u.id = a.user_id
+         WHERE a.review_status = 'pending' AND u.status = 'active'
+         ORDER BY a.created_at ASC LIMIT 100`
+      );
+      return result.rows;
+    });
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    if (read.value.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    return res.json({ photos: read.value });
   } catch (error) {
     console.error('Pending photo list failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'pending_photo_list_failed' });
@@ -2838,15 +2874,19 @@ app.post('/api/admin/photos/:photoId/review', validateRequestOrigin, requireSess
 });
 
 app.get('/api/admin/audit-log', requireSession, async (req, res) => {
-  if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   const limit = Number.parseInt(String(req.query.limit ?? '50'), 10);
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) return res.status(400).json({ error: 'invalid_pagination' });
   try {
-    const result = await pool.query(
-      'SELECT id, moderator_id AS "moderatorId", action, target_type AS "targetType", target_id AS "targetId", reason, details, created_at AS "createdAt" FROM moderation_audit_log ORDER BY created_at DESC LIMIT $1',
-      [limit]
-    );
-    return res.json({ entries: result.rows });
+    const read = await withActiveModeratorRead(req.authUser.id, async client => {
+      const result = await client.query(
+        'SELECT id, moderator_id AS "moderatorId", action, target_type AS "targetType", target_id AS "targetId", reason, details, created_at AS "createdAt" FROM moderation_audit_log ORDER BY created_at DESC LIMIT $1',
+        [limit]
+      );
+      return result.rows;
+    });
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    if (read.value.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    return res.json({ entries: read.value });
   } catch (error) {
     console.error('Audit log read failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'audit_log_read_failed' });
