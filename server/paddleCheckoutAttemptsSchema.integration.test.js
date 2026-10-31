@@ -163,9 +163,6 @@ test('Paddle checkout attempts enforce one durable attempt and fail-closed trans
         'account ownership must remain immutable even when attempt_id is unchanged');
       await client.query('ROLLBACK TO SAVEPOINT reject_owner_only_change');
       await client.query('RELEASE SAVEPOINT reject_owner_only_change');
-      await client.query('ROLLBACK TO SAVEPOINT reject_attempt_owner_transfer');
-      await client.query('RELEASE SAVEPOINT reject_attempt_owner_transfer');
-
       for (const [oldId, newId] of [
         ['bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', '22222222-2222-4222-8222-222222222222'],
         ['cccccccc-cccc-4ccc-8ccc-cccccccccccc', '33333333-3333-4333-8333-333333333333']
