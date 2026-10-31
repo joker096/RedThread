@@ -65,6 +65,9 @@ test('Paddle checkout attempts enforce one durable attempt and fail-closed trans
     );
     assert.match(attemptIdentityFunction.rows[0].definition, /NEW\.attempt_id IS DISTINCT FROM OLD\.attempt_id/);
     assert.match(attemptIdentityFunction.rows[0].definition, /paddle checkout attempt identity is immutable/);
+    assert.match(attemptIdentityFunction.rows[0].definition, /terminal_rollover := OLD\.status IN/,
+      'terminal rollover must require a fresh attempt identity');
+    assert.match(attemptIdentityFunction.rows[0].definition, /paddle checkout transaction identity is immutable/);
     assert.match(attemptIdentityFunction.rows[0].definition, /IF NEW\.user_id IS DISTINCT FROM OLD\.user_id THEN/,
       'account ownership changes must be rejected even without rotating attempt_id');
     assert.match(attemptIdentityFunction.rows[0].definition, /NEW\.user_id IS NOT DISTINCT FROM OLD\.user_id/,
