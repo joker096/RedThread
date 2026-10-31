@@ -2191,7 +2191,7 @@ app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) =>
     const pairs = await client.query(
       `SELECT CASE WHEN user_a_id = $1 THEN user_b_id ELSE user_a_id END AS partner_id
        FROM matches WHERE (user_a_id = $1 OR user_b_id = $1) AND status = 'active'
-       ORDER BY partner_id`,
+       ORDER BY created_at DESC LIMIT 100`,
       [req.authUser.id]
     );
     await acquireGiftSafetyUserLocks(client, req.authUser.id, ...pairs.rows.map(pair => pair.partner_id));
