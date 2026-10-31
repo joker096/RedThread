@@ -922,7 +922,7 @@ test('verified recurring transaction completion is held until its subscription w
       eventType: 'transaction.completed',
       data: {
         id: 'txn_0123456789abcdef01234567',
-        customData: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month' },
+        customData: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month', checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
         items: [{ price: { id: 'pri_month_test' } }]
       }
     });
@@ -1003,7 +1003,7 @@ test('only a verified new subscription event links a completed recurring checkou
         id: 'sub_0123456789abcdef01234567',
         status: 'active',
         customerId: 'ctm_0123456789abcdef01234567',
-        customData: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month' },
+        customData: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month', checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
         transaction_id: 'txn_0123456789abcdef01234567',
         currentBillingPeriod: { endsAt: '2026-11-30T18:00:00Z' },
         items: [{ price: { id: 'pri_month_test' } }]
