@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLocale } from './i18n/LocaleProvider.tsx';
 import { 
   Heart, 
@@ -62,6 +62,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile>(initialCurrentUser);
   const [currentGender, setCurrentGender] = useState<Gender>('female');
   const [isLadyPremium, setIsLadyPremium] = useState<boolean>(false);
+  const premiumRequestEpoch = useRef(0);
   const [deviceFrame, setDeviceFrame] = useState<DeviceFrame>('responsive');
 
   // Navigation tab
@@ -240,19 +241,37 @@ export default function App() {
   useEffect(() => {
     let active = true;
     const refreshPremiumStatus = async () => {
+      const requestEpoch = ++premiumRequestEpoch.current;
       try {
         const response = await fetch('/api/billing/status', { credentials: 'include' });
-        if (!response.ok) { if (active) setIsLadyPremium(false); return; }
+        if (!response.ok) {
+          if (active && requestEpoch === premiumRequestEpoch.current) setIsLadyPremium(false);
+          return;
+        }
         const data = await response.json();
-        if (active) setIsLadyPremium(Boolean(data?.premiumActive));
+        if (active && requestEpoch === premiumRequestEpoch.current) {
+          setIsLadyPremium(data?.premiumActive === true);
+        }
       } catch {
-        if (active) setIsLadyPremium(false);
+        if (active && requestEpoch === premiumRequestEpoch.current) setIsLadyPremium(false);
       }
+    };
+    const refreshOnSession = () => {
+      // Clear the previous account's entitlement immediately, then load the
+      // new session. The request epoch prevents an older response winning.
+      premiumRequestEpoch.current += 1;
+      setIsLadyPremium(false);
+      void refreshPremiumStatus();
     };
     void refreshPremiumStatus();
     window.addEventListener('focus', refreshPremiumStatus);
-    window.addEventListener('vow:session-changed', refreshPremiumStatus);
-    return () => { active = false; window.removeEventListener('focus', refreshPremiumStatus); window.removeEventListener('vow:session-changed', refreshPremiumStatus); };
+    window.addEventListener('vow:session-changed', refreshOnSession);
+    return () => {
+      active = false;
+      premiumRequestEpoch.current += 1;
+      window.removeEventListener('focus', refreshPremiumStatus);
+      window.removeEventListener('vow:session-changed', refreshOnSession);
+    };
   }, []);
 
   // A confirmed mutual server match should take the user straight to real chats.
