@@ -181,11 +181,11 @@ export async function processPaddleEvent(pool, rawEvent) {
       // A newly-created subscription is the event that grants recurring access.
       // Require a matching durable checkout attempt; custom_data and a known price
       // alone are not proof that this account initiated this Vow checkout.
-      // Paddle includes the transaction that created a subscription in the
-      // subscription.created payload. Match that exact transaction so a delayed
-      // event from an older subscription cannot claim a newer checkout attempt
-      // for the same account and plan. This also handles the webhook racing the
-      // checkout HTTP response while the attempt transaction_id is still NULL.
+      // Paddle includes the originating transaction in subscription.created.
+      // New checkouts also carry an immutable server attempt ID in custom_data,
+      // so a delayed event cannot claim a later attempt while its transaction_id
+      // is still NULL. Legacy events without that ID must match a stored
+      // transaction_id exactly; they never claim an unbound attempt.
       const subscriptionTransactionId = typeof data.transactionId === 'string'
         ? data.transactionId
         : typeof data.transaction_id === 'string' ? data.transaction_id : null;
