@@ -1032,6 +1032,7 @@ export default function App() {
                   brandName={currentBrand.name}
                   onOpenBrandModal={() => {}}
                   onToggleGender={handleToggleGender}
+                  allowDemoGenderSwitch={discoveryMode === 'demo'}
                   onToggleDeviceFrame={setDeviceFrame}
                   onOpenPremiumModal={() => setIsLadyPremiumOpen(true)}
                   onOpenBotScanner={() => {
