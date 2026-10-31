@@ -80,7 +80,7 @@ export function redactGiftOrderForSender(order) {
   };
 }
 
-export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecorded = false, addressVerified = false, paymentStatus, recipientRequestsDisabledAt = null, expiresAt = null, addressVaultRef = null, safetyEvents, safetySnapshotAt, now = Date.now() } = {}) {
+export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecorded = false, addressVerified = false, paymentStatus, recipientRequestsDisabledAt = null, expiresAt = null, addressVaultRef = null, refundFailed = false, safetyEvents, safetySnapshotAt, now = Date.now() } = {}) {
   const transitions = {
     awaiting_recipient_consent: new Set(['recipient_accepted', 'declined', 'expired', 'reported', 'blocked', 'cancelled', 'refund_pending']),
     recipient_accepted: new Set(['address_verified', 'declined', 'reported', 'blocked', 'cancelled']),
@@ -121,6 +121,8 @@ export function canTransitionGiftOrder({ from, to, actor, recipientConsentRecord
     if (!optOutInvalidated && !requestExpired) return false;
   }
   if (to === 'refunded' && paymentStatus !== 'refund_pending') return false;
+  if (from === 'refund_pending' && ['blocked', 'reported'].includes(to) &&
+      (paymentStatus !== 'refund_pending' || refundFailed !== true || !['system', 'moderator'].includes(actor))) return false;
 
   if (to === 'awaiting_recipient_consent' && actor !== 'sender') return false;
   if (to === 'recipient_accepted' && (actor !== 'recipient' || recipientConsentRecorded !== true)) return false;
