@@ -131,7 +131,7 @@ test('subscription updates compare source timestamps and do not bypass ordering 
   assert.doesNotMatch(update.sql, /\$8::timestamptz IS NULL/);
   assert.match(update.sql, /other\.paddle_subscription_id = \$3 AND other\.id <> users\.id/);
   assert.match(update.sql, /other\.paddle_customer_id = \$2 AND other\.id <> users\.id/);
-  assert.match(update.sql, /paddle_subscription_id IS NULL OR paddle_subscription_id = \$3/);
+  assert.match(update.sql, /paddle_subscription_id IS NULL/);
   assert.match(update.sql, /\$9::boolean AND \(/, 'only subscription.created may attach a new subscription ID');
   assert.match(update.sql, /NOT \$9::boolean AND paddle_subscription_id = \$3/,
     'subscription.updated/canceled must match the already-owned subscription ID');
@@ -578,7 +578,7 @@ test('a new subscription may replace a terminal prior subscription but not an ac
     const created = await capture('subscription.created', 'evt_new_subscription');
     assert.ok(created, 'expected the new subscription lifecycle update');
     assert.equal(created.params[8], true, 'subscription.created may replace an already terminal subscription');
-    assert.match(created.sql, /paddle_subscription_id IS DISTINCT FROM \$3 AND lower\(paddle_subscription_status\) IN \('canceled', 'completed'\)/,
+    assert.match(created.sql, /paddle_subscription_id IS DISTINCT FROM \$3\s+AND lower\(paddle_subscription_status\) IN \('canceled', 'completed'\)/,
       'a terminal prior subscription may be replaced only by a different provider subscription ID');
     assert.match(created.sql, /paddle_subscription_id = \$3 AND COALESCE\(lower\(paddle_subscription_status\), ''\) NOT IN \('canceled', 'completed'\)/,
       'a same-ID created event may finish first-time linking, but must never resurrect a terminal subscription');
