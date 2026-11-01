@@ -48,6 +48,13 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       assert.match(fn.rows[0].definition, /independent reviewer/);
       assert.match(fn.rows[0].definition, /moderator decision is immutable/);
       assert.match(fn.rows[0].definition, /invalid identity L3 status transition/);
+      assert.match(fn.rows[0].definition, /media metadata is immutable after upload/);
+      const decisionConstraints = await client.query(
+        `SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
+         WHERE conrelid = 'identity_l3_submissions'::regclass AND contype = 'c'`
+      );
+      assert.ok(decisionConstraints.rows.some(row => /decision_reason_code/.test(row.definition)),
+        'moderator decisions must carry a bounded reason code');
 
       const indexes = await client.query(
         `SELECT indexname, indexdef FROM pg_indexes
