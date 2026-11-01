@@ -47,6 +47,10 @@ CREATE TABLE identity_l3_submissions (
     )
   ),
   CHECK (status <> 'revoked' OR revoked_at IS NOT NULL),
+  CHECK (
+    status NOT IN ('approved', 'rejected', 'revoked')
+    OR length(btrim(decision_reason_code)) BETWEEN 1 AND 64
+  ),
   CHECK (media_purged_at IS NULL OR storage_object_key IS NULL)
 );
 
@@ -152,6 +156,29 @@ BEGIN
   END IF;
   IF NEW.status = 'revoked' AND OLD.status <> 'approved' THEN
     RAISE EXCEPTION 'only an approved identity L3 submission can be revoked' USING ERRCODE = '23514';
+  END IF;
+  IF NEW.status IN ('approved', 'rejected', 'revoked')
+     AND length(btrim(COALESCE(NEW.decision_reason_code, ''))) NOT BETWEEN 1 AND 64 THEN
+    RAISE EXCEPTION 'identity L3 decision requires a bounded reason code' USING ERRCODE = '23514';
+  END IF;
+
+  -- Once bytes have been accepted, their identity and validation metadata cannot
+  -- be swapped underneath a moderation decision. The sole permitted mutation is
+  -- clearing the object key while atomically marking the media as purged.
+  IF OLD.status NOT IN ('draft', 'upload_authorized') AND (
+    NEW.media_sha256 IS DISTINCT FROM OLD.media_sha256 OR
+    NEW.media_mime_type IS DISTINCT FROM OLD.media_mime_type OR
+    NEW.media_size_bytes IS DISTINCT FROM OLD.media_size_bytes OR
+    NEW.media_duration_seconds IS DISTINCT FROM OLD.media_duration_seconds OR
+    NEW.uploaded_at IS DISTINCT FROM OLD.uploaded_at OR
+    NEW.processing_completed_at IS DISTINCT FROM OLD.processing_completed_at OR
+    (NEW.storage_object_key IS DISTINCT FROM OLD.storage_object_key AND NOT (
+      OLD.media_purged_at IS NULL AND NEW.media_purged_at IS NOT NULL
+      AND NEW.storage_object_key IS NULL
+    )) OR
+    (OLD.media_purged_at IS NOT NULL AND NEW.media_purged_at IS DISTINCT FROM OLD.media_purged_at)
+  ) THEN
+    RAISE EXCEPTION 'identity L3 media metadata is immutable after upload' USING ERRCODE = '23514';
   END IF;
 
   NEW.updated_at := NOW();
