@@ -279,9 +279,18 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
       signal: AbortSignal.timeout(10_000)
     });
     const payload = await response.json().catch(() => null);
-    client = await pool.connect();
     const transaction = payload?.data;
     const transactionId = transaction?.id;
+    if (response.ok && typeof transactionId === 'string' &&
+        /^txn_[A-Za-z0-9]+$/.test(transactionId) &&
+        transaction?.custom_data?.userId === req.authUser.id &&
+        transaction?.custom_data?.plan === plan &&
+        transaction?.custom_data?.checkoutAttemptId === checkoutAttemptId) {
+      // Capture the provider identity before reconnecting to PostgreSQL so a
+      // transient pool failure cannot discard the only durable reconciliation key.
+      providerTransactionId = transactionId;
+    }
+    client = await pool.connect();
     if (!response.ok) {
       const nextStatus = response.status >= 500 ? 'reconciliation_required' : 'canceled';
       await client.query(
@@ -303,7 +312,6 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
       );
       return res.status(502).json({ error: 'paddle_checkout_session_failed' });
     }
-    providerTransactionId = transactionId;
     const providerStatus = String(transaction.status || '').toLowerCase();
     const attemptStatus = ['draft', 'ready'].includes(providerStatus) ? 'pending'
       : ['completed', 'paid'].includes(providerStatus) ? 'completed'
