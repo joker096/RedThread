@@ -106,15 +106,15 @@ export const TrustCenterPanel: React.FC = () => {
           <p className="text-[11px] text-stone-500 mt-1">{identityVerified
             ? 'Проверка личности подтверждена.'
             : data.identity.status === 'pending'
-              ? 'Тестовая сессия Didit. Даже результат Approved в Sandbox не подтверждает личность и не выдаёт значок.'
+              ? (data.identity.environment === 'sandbox' ? 'Тестовая сессия Didit. Даже Approved в Sandbox не подтверждает личность.' : 'Ожидается решение Didit. Доступ к функциям откроется только после подтверждённой проверки.')
               : data.identity.status === 'rejected'
                 ? 'Провайдер не подтвердил проверку. Можно пройти её повторно.'
                 : data.identity.status === 'not_started'
-                  ? 'Проверка личности доступна через защищённую страницу Didit (Sandbox).'
+                  ? 'Проверка личности доступна через защищённую страницу Didit.'
                   : 'Проверка через внешнего провайдера не настроена. Значок верификации не присваивается.'}</p>
           {canStartIdentity && <button type="button" onClick={() => void startVerification()} disabled={startingVerification} className="mt-3 min-h-11 w-full rounded-xl bg-rose-700 px-4 text-sm font-semibold text-white disabled:opacity-50">{startingVerification ? 'Подготавливаем проверку…' : data.identity.status === 'pending' ? 'Продолжить проверку' : data.identity.status === 'rejected' ? 'Повторить проверку' : 'Начать проверку'}</button>}
           {data.identity.environment === 'sandbox' && <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-950/20 p-2 text-[11px] text-amber-200">Sandbox имитирует проверку. Не загружайте реальные документы, селфи или личные данные. Тестовый результат не подтверждает личность.</p>}
-          {data.identity.environment === 'sandbox' && data.identity.providerStatus && <p className="mt-2 text-[11px] text-amber-300">Ответ Didit ({data.identity.environment}): {data.identity.providerStatus}. Статус учитывается только после серверной проверки.</p>}
+          {data.identity.providerStatus && <p className="mt-2 text-[11px] text-stone-400">Ответ Didit ({data.identity.environment}): {data.identity.providerStatus}.</p>}
         </div>
         <div className="rounded-2xl bg-stone-950 p-3"><div className="flex justify-between"><span className="text-sm text-white">Фотографии</span><span className="text-xs text-stone-300">{data.photos.length} / 6</span></div>
           {data.photos.length ? <ul className="mt-2 space-y-2">{data.photos.map((p, i) => <li key={p.createdAt + i} className="flex justify-between gap-3 text-xs"><span className="text-stone-400">Фото {i + 1} · {formatDate(p.createdAt)}</span>{status(p.status === 'approved', p.status === 'approved' ? 'Одобрено' : '', p.status === 'pending' ? 'Ожидает проверки' : 'Отклонено')}</li>)}</ul> : <p className="text-[11px] text-stone-500 mt-1">Загруженных фотографий нет.</p>}
