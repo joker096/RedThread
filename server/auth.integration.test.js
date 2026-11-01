@@ -1590,6 +1590,45 @@ test('auth API supports registration, session lookup, logout and login', {
     );
     assert.deepEqual(revokedDecision.rows, [{ status: 'revoked', is_active: false }],
       'a newer revocation must invalidate an older unexpired approval');
+    const rejectedReverificationId = randomUUID();
+    await identityGateDb.query(
+      'INSERT INTO identity_l3_submissions (id, user_id) VALUES ($1, $2)',
+      [rejectedReverificationId, secondMaleRegistered.user.id]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'upload_authorized' WHERE id = $1",
+      [rejectedReverificationId]
+    );
+    await identityGateDb.query(
+      `UPDATE identity_l3_submissions
+       SET status = 'uploaded', storage_object_key = $2, media_sha256 = repeat('d', 64),
+           media_mime_type = 'video/mp4', media_size_bytes = 1024,
+           media_duration_seconds = 30, uploaded_at = NOW()
+       WHERE id = $1`,
+      [rejectedReverificationId, `test-only/${rejectedReverificationId}`]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'processing', processing_completed_at = NOW() WHERE id = $1",
+      [rejectedReverificationId]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'pending_review' WHERE id = $1",
+      [rejectedReverificationId]
+    );
+    await identityGateDb.query(
+      `UPDATE identity_l3_submissions
+       SET status = 'rejected', reviewed_by = $2, reviewed_at = NOW() + INTERVAL '1 second',
+           decision_reason_code = 'integration_test_rejected'
+       WHERE id = $1`,
+      [rejectedReverificationId, randomUUID()]
+    );
+    const rejectedDecision = await identityGateDb.query(
+      `SELECT status, identity_l3_has_active_approval($1) AS is_active
+       FROM identity_l3_current_decision($1)`,
+      [secondMaleRegistered.user.id]
+    );
+    assert.deepEqual(rejectedDecision.rows, [{ status: 'rejected', is_active: false }],
+      'a newer rejected re-verification must also invalidate older approval history');
     const assessmentAnswers = {
       relationshipGoal: 'marriage_soon',
       children: 'want_soon',
