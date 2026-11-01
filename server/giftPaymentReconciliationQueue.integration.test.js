@@ -46,7 +46,7 @@ test('gift payment reconciliation outbox is installed with retryable states and 
        WHERE conrelid = 'gift_payment_reconciliation_tasks'::regclass
          AND conname = 'gift_payment_reconciliation_tasks_reason_check'`
     );
-    assert.equal(reasonConstraint.rowCount, 1, 'migration 045 should install the reason constraint');
+    assert.equal(reasonConstraint.rowCount, 1, 'migration 111 should install the final reason constraint');
     await client.query('BEGIN');
     try {
       await client.query(`
@@ -56,7 +56,7 @@ test('gift payment reconciliation outbox is installed with retryable states and 
         ) ON COMMIT DROP
       `);
       await client.query(
-        "INSERT INTO gift_reconciliation_reason_constraint_test (reason) VALUES ('recipient_opted_out'), ('safety_hold'), ('expired_active_payment')"
+        "INSERT INTO gift_reconciliation_reason_constraint_test (reason) VALUES ('recipient_opted_out'), ('safety_hold'), ('expired_active_payment'), ('recipient_declined_active_payment')"
       );
       await client.query('SAVEPOINT invalid_reconciliation_reason');
       let invalidReasonError;
