@@ -28,6 +28,12 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       assert.equal(columnTypes.get('storage_object_key'), 'text');
       assert.equal(columnTypes.get('media_sha256'), 'character');
       assert.equal(columnTypes.has('video_bytes'), false, 'video content must not be stored in PostgreSQL');
+      const eventColumns = await client.query(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'identity_l3_decision_events'`
+      );
+      assert.ok(eventColumns.rows.some(row => row.column_name === 'occurred_at'),
+        'append-only audit events require a database timestamp');
 
       const triggerNames = await client.query(
         `SELECT tgname FROM pg_trigger
