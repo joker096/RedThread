@@ -4069,6 +4069,22 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
               m.status AS match_status,
               sender.status AS sender_status,
               recipient.status AS recipient_status,
+              sender_profile.gender AS sender_gender,
+              recipient_profile.gender AS recipient_gender,
+              EXISTS (
+                SELECT 1 FROM user_identity_verifications iv
+                WHERE iv.user_id = sender.id AND iv.status = 'approved'
+                  AND iv.verified_at <= statement_timestamp() AND iv.expires_at > statement_timestamp()
+                  AND iv.verification_level >= CASE WHEN sender_profile.gender = 'male' THEN 3 WHEN sender_profile.gender = 'female' THEN 1 ELSE 2147483647 END
+              ) AS sender_identity_verified,
+              EXISTS (
+                SELECT 1 FROM user_identity_verifications iv
+                WHERE iv.user_id = recipient.id AND iv.status = 'approved'
+                  AND iv.verified_at <= statement_timestamp() AND iv.expires_at > statement_timestamp()
+                  AND iv.verification_level >= CASE WHEN recipient_profile.gender = 'male' THEN 3 WHEN recipient_profile.gender = 'female' THEN 1 ELSE 2147483647 END
+              ) AS recipient_identity_verified,
+              (sender_profile.gender <> 'male' OR identity_l3_has_active_approval(sender.id)) AS sender_l3_approved,
+              (recipient_profile.gender <> 'male' OR identity_l3_has_active_approval(recipient.id)) AS recipient_l3_approved,
               COALESCE(pref.requests_enabled, FALSE) AS requests_enabled,
               EXISTS (
                 SELECT 1 FROM user_blocks b
@@ -4091,6 +4107,8 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
        JOIN matches m ON m.id = o.match_id
        JOIN users sender ON sender.id = o.sender_id
        JOIN users recipient ON recipient.id = o.recipient_id
+       JOIN profiles sender_profile ON sender_profile.user_id = sender.id
+       JOIN profiles recipient_profile ON recipient_profile.user_id = recipient.id
        LEFT JOIN gift_receiving_preferences pref ON pref.user_id = o.recipient_id
        WHERE o.public_reference = $1 AND o.recipient_id = $2
        FOR UPDATE OF o`,
@@ -4104,6 +4122,15 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
     if (order.recipient_requests_disabled_at != null) {
       await client.query('ROLLBACK');
       return res.status(409).json({ error: 'gift_request_not_actionable' });
+    }
+    // Decline remains available as a protective action even when identity
+    // verification is absent or revoked. Acceptance requires both participants
+    // to retain their trusted, current identity levels.
+    if (action === 'accept' &&
+        (!order.sender_identity_verified || !order.recipient_identity_verified ||
+         !order.sender_l3_approved || !order.recipient_l3_approved)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_identity_verification_required' });
     }
     if (order.match_status !== 'active' || order.has_block === true ||
         order.has_open_report === true || order.safety_restricted === true) {
