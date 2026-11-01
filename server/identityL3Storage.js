@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createHash, randomUUID } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { lstat, mkdir, open, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
@@ -87,8 +87,7 @@ export async function storeIdentityL3Stream({ source, root, key, maxBytes = DEFA
   const objectKey = randomUUID();
   const temporaryPath = path.join(directory, `.tmp-${objectKey}`);
   const finalPath = path.join(directory, objectKey);
-  const nonce = randomUUID().replaceAll('-', '').slice(0, NONCE_BYTES * 2);
-  const nonceBytes = Buffer.from(nonce, 'hex');
+  const nonceBytes = randomBytes(NONCE_BYTES);
   const cipher = createCipheriv('aes-256-gcm', encryptionKey, nonceBytes);
   const meter = createMeter(maxBytes);
   let handle;
@@ -103,7 +102,8 @@ export async function storeIdentityL3Stream({ source, root, key, maxBytes = DEFA
     });
     await pipeline(source, meter.stream, cipher, output);
     const tag = cipher.getAuthTag();
-    await handle.write(tag, 0, TAG_BYTES, null);
+    const encryptedStat = await handle.stat();
+    await handle.write(tag, 0, TAG_BYTES, encryptedStat.size);
     await handle.sync();
     await handle.close();
     handle = null;
