@@ -137,6 +137,48 @@ test('expiry worker reuses a connection after a successful rollback', async () =
     'a successful rollback restores the connection and must not force pg to destroy it');
 });
 
+test('expiry worker continues after a pair connection acquisition failure', async () => {
+  const secondPair = { ...pair, matchId: 'match-2' };
+  const releases = [];
+  const queries = [];
+  let connectionAttempts = 0;
+  const pool = {
+    async query() { return { rows: [pair, secondPair] }; },
+    async connect() {
+      connectionAttempts += 1;
+      if (connectionAttempts === 1) throw Object.assign(new Error('pool temporarily unavailable'), { code: '08006' });
+      return {
+        async query(sql) {
+          queries.push(sql);
+          return { rows: [] };
+        },
+        release(error) { releases.push(error); }
+      };
+    }
+  };
+  const processed = [];
+  const result = await processExpiredGiftRequestBatch(pool, {
+    acquireRateLocks: async () => {},
+    acquireSafetyLocks: async () => {},
+    acquirePairLock: async () => {},
+    expirePair: async (_client, candidate) => {
+      processed.push(candidate.matchId);
+      return { ok: true, expiredOrders: [{ id: 'order-2' }] };
+    }
+  });
+
+  assert.deepEqual(processed, ['match-2']);
+  assert.deepEqual(result, {
+    pairsScanned: 2,
+    expiredOrders: 1,
+    reconciliationRequired: 0,
+    pairFailures: 1
+  });
+  assert.equal(connectionAttempts, 2);
+  assert.deepEqual(queries, ['BEGIN', 'COMMIT']);
+  assert.deepEqual(releases, [undefined]);
+});
+
 test('expiry worker does not open transactions when no expired pairs exist', async () => {
   const pool = mockPool([]);
   const result = await processExpiredGiftRequestBatch(pool);
