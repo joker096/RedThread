@@ -144,3 +144,5 @@ Submission decision reasons and audit-event reasons are constrained to short low
 Applicant-owned events may identify the applicant as actor; only approval/rejection events enforce actor != submission owner. Independent review remains enforced both on the submission row and the corresponding audit event.
 
 The authenticated trust-summary API now exposes only safe L3 state: latest submission status, latest terminal decision status, and approval expiry when present. It never returns storage keys, file metadata, video bytes, moderator notes, or biometric/document data. Pending/withdrawn submissions are visible as workflow status without displacing a still-valid prior approval in the authorization decision.
+
+The workflow includes an explicit terminal `failed` state for upload/processing failures, with a `processing_failed` audit event. Failed media can be purged through the same one-way terminal-state operation; the production PostgreSQL integration test exercises a real rejected-submission purge and confirms its audit event.
