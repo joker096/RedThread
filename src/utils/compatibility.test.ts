@@ -289,13 +289,32 @@ test('compatibility normalizes answer casing and deduplicates common interests',
       conflict_resolution: 'спокойно говорим через рот сразу'
     },
     'marriage_family',
-    [' СПОРТ ', 'спорт', 'ПУТЕШЕСТВИЯ'],
+    [],
     mockTargetProfile
   );
 
   assert.ok(result.greenFlags.some(flag => flag.includes('детей')));
   assert.ok(result.greenFlags.some(flag => flag.includes('бюджета')));
   assert.ok(result.greenFlags.some(flag => flag.includes('отдыха')));
+});
+
+test('compatibility deduplicates common interests regardless of casing and whitespace', () => {
+  const target = {
+    ...mockTargetProfile,
+    crucialAnswers: {
+      marriage_and_kids: 'Другое значение',
+      finances: 'Другое значение',
+      free_time: 'Другое значение',
+      conflict_resolution: 'Другое значение'
+    }
+  };
+  const result = calculateCompatibility(
+    mockAnswers,
+    'marriage_family',
+    [' СПОРТ ', 'спорт', 'ПУТЕШЕСТВИЯ'],
+    target
+  );
+
   assert.equal(result.greenFlags.filter(flag => flag.startsWith('Общие увлечения:')).length, 1);
-  assert.ok(result.greenFlags.some(flag => flag.includes('Спорт, путешествия')));
+  assert.ok(result.greenFlags.some(flag => flag.includes('спорт, путешествия')));
 });
