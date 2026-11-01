@@ -369,13 +369,12 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
         : 'reconciliation_required';
       const recovered = await client.query(
         \`UPDATE paddle_checkout_attempts
-         SET transaction_id = COALESCE(transaction_id, $3),
-             status = $5, updated_at = NOW()
-         WHERE user_id = $1 AND plan = $2 AND attempt_id = $4
+         SET transaction_id = COALESCE(transaction_id, $2),
+             status = $4, updated_at = NOW()
+         WHERE user_id = $1 AND attempt_id = $3
            AND status = 'creating'
-           AND (transaction_id IS NULL OR transaction_id = $3)
          RETURNING status\`,
-        [req.authUser.id, plan, transactionId, checkoutAttemptId, recoveredStatus]
+        [req.authUser.id, transactionId, checkoutAttemptId, recoveredStatus]
       );
       let finalAttemptStatus = recovered.rows[0]?.status;
       if (!finalAttemptStatus) {
