@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, acquireGiftSafetyUserLocks, recipientGiftAcceptanceLimitReached, notifyGiftRequestUpdate, normalizeGiftCityKey } from './giftOrderCreationService.js';
+import { processExpiredGiftRequestBatch } from './expire-gift-requests.js';
 
 const { Pool } = pg;
 
@@ -1166,6 +1167,25 @@ test('expired requests with unresolved payment state fail closed and remain unch
                jsonb_build_object('reason', 'safety_hold'))`,
       [stale.rows[0].id]
     );
+
+    // Exercise the real scheduled worker: an existing safety task must not
+    // hide the missing expiry audit event, and the completed audit must stop
+    // the same order from being selected on the next batch.
+    const expiryBatch = await processExpiredGiftRequestBatch(pool, { batchSize: 10 });
+    assert.deepEqual(expiryBatch, {
+      pairsScanned: 1,
+      expiredOrders: 0,
+      reconciliationRequired: 1,
+      pairFailures: 0
+    });
+    const repeatedExpiryBatch = await processExpiredGiftRequestBatch(pool, { batchSize: 10 });
+    assert.deepEqual(repeatedExpiryBatch, {
+      pairsScanned: 0,
+      expiredOrders: 0,
+      reconciliationRequired: 0,
+      pairFailures: 0
+    }, 'an already audited expiry must not create recurring worker churn');
+
     const result = await runRequest(pool, {
       senderId: ids.sender,
       matchId: ids.matchA,
