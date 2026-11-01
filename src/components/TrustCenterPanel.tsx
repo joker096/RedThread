@@ -121,7 +121,7 @@ export const TrustCenterPanel: React.FC = () => {
         .on('idCheck.onStepCompleted', () => { void load(); })
         .on('idCheck.onError', () => { if (!disposed) setError('Проверка не завершена. Проверьте соединение и попробуйте продолжить.'); })
         .build();
-      instance.launch(sdkContainer.current);
+      instance.launch('#sumsub-websdk-container');
     })().catch(e => {
       if (!disposed) setError(e instanceof Error ? e.message : 'Не удалось открыть проверку.');
     });
