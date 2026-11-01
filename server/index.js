@@ -1581,6 +1581,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     await client.query('DELETE FROM sessions WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM identity_verification_consents WHERE user_id = $1', [req.authUser.id]);
+    await client.query('DELETE FROM identity_verification_session_reservations WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM identity_verification_events WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM identity_verifications WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM likes WHERE sender_id = $1 OR target_id = $1', [req.authUser.id]);
