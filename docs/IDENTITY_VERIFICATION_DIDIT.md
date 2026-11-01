@@ -14,6 +14,7 @@ Vow uses Didit V3 hosted verification sessions. The current adapter is deliberat
 ```dotenv
 DIDIT_ENVIRONMENT=sandbox
 DIDIT_SANDBOX_KEY_CONFIRMED=false
+DIDIT_LIVE_KEY_CONFIRMED=false
 DIDIT_API_KEY=
 DIDIT_WORKFLOW_ID=
 DIDIT_APPLICATION_ID=
@@ -21,7 +22,7 @@ DIDIT_WEBHOOK_SECRET=
 DIDIT_WEBHOOK_SECRET_PREVIOUS=
 ```
 
-Sandbox sessions are not billable and are limited to 500 session creations per 24 hours. However, Didit states that media captured in Sandbox (documents, selfies and liveness video) is stored just as in Live. Use only provider-supplied sample documents and test data; never upload a real identity document, selfie or real personal data to this Sandbox workflow.\n\n## Runtime flow
+Sandbox sessions are not billable and are limited to 500 session creations per 24 hours. For Live, set `DIDIT_ENVIRONMENT=live` and `DIDIT_LIVE_KEY_CONFIRMED=true` only after selecting the Live application and reviewing the plan. Didit currently advertises 500 full KYC checks per month free; checks beyond that quota can be charged at its published usage rates. Vow does not yet enforce a shared-account 500-check monthly hard cap, so keep Live disabled until a quota guard is implemented and tested. However, Didit states that media captured in Sandbox (documents, selfies and liveness video) is stored just as in Live. Use only provider-supplied sample documents and test data; never upload a real identity document, selfie or real personal data to this Sandbox workflow.\n\n## Runtime flow
 
 - An authenticated Vow user starts verification from the Trust Center.
 - Vow creates a Didit V3 session server-side with the user's opaque account UUID in `vendor_data`; the browser receives only the hosted verification URL.
