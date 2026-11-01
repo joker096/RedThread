@@ -17,6 +17,7 @@ export function calculateCompatibility(
 
   const greenFlags: string[] = [];
   const frictionPoints: string[] = [];
+  let comparableDimensions = 0;
 
   // 1. Relationship intent: distinguish a shared goal from compatible-but-different
   // expectations. Every supported intent pair is handled explicitly; unknown values
@@ -25,6 +26,7 @@ export function calculateCompatibility(
   const ownIntent = typeof myIntent === 'string' ? myIntent.trim() : '';
   const targetIntent = typeof target.intent === 'string' ? target.intent.trim() : '';
   if (supportedIntents.has(ownIntent) && supportedIntents.has(targetIntent)) {
+    comparableDimensions += 1;
     if (ownIntent === targetIntent) {
       familyScore += 20;
       valuesScore += 15;
@@ -67,6 +69,7 @@ export function calculateCompatibility(
 
   // 2. Family plans and children
   const familyAnswersMatch = compareAnswer(myAnswers?.marriage_and_kids, target.crucialAnswers?.marriage_and_kids);
+  if (familyAnswersMatch !== null) comparableDimensions += 1;
   if (familyAnswersMatch === true) {
     familyScore += 15;
     greenFlags.push('Совпадают заявленные взгляды на детей и родительские роли');
@@ -77,6 +80,7 @@ export function calculateCompatibility(
 
   // 3. Finances
   const financeAnswersMatch = compareAnswer(myAnswers?.finances, target.crucialAnswers?.finances);
+  if (financeAnswersMatch !== null) comparableDimensions += 1;
   if (financeAnswersMatch === true) {
     valuesScore += 15;
     greenFlags.push('Совпадают ожидания от семейного бюджета и финансовой ответственности');
@@ -87,6 +91,7 @@ export function calculateCompatibility(
 
   // 4. Free time and lifestyle
   const lifestyleAnswersMatch = compareAnswer(myAnswers?.free_time, target.crucialAnswers?.free_time);
+  if (lifestyleAnswersMatch !== null) comparableDimensions += 1;
   if (lifestyleAnswersMatch === true) {
     lifestyleScore += 20;
     greenFlags.push('Похожий формат отдыха и свободного времени');
@@ -98,6 +103,7 @@ export function calculateCompatibility(
   // 5. Conflict resolution. Similar answers are a preference match, not proof
   // that either person is mature or free of manipulative behaviour.
   const conflictAnswersMatch = compareAnswer(myAnswers?.conflict_resolution, target.crucialAnswers?.conflict_resolution);
+  if (conflictAnswersMatch !== null) comparableDimensions += 1;
   if (conflictAnswersMatch === true) {
     communicationScore += 20;
     temperamentScore += 15;
@@ -119,6 +125,9 @@ export function calculateCompatibility(
   const commonInterests = [...new Set((Array.isArray(myInterests) ? myInterests : [])
     .map(normalizeInterest).filter((value): value is string => value !== null))]
     .filter(interest => targetInterests.has(interest));
+  const ownInterests = new Set((Array.isArray(myInterests) ? myInterests : [])
+    .map(normalizeInterest).filter((value): value is string => value !== null));
+  if (ownInterests.size > 0 && targetInterests.size > 0) comparableDimensions += 1;
   if (commonInterests.length >= 2) {
     lifestyleScore += 10;
     greenFlags.push(`Общие увлечения: ${commonInterests.slice(0, 3).join(', ')}`);
@@ -143,6 +152,7 @@ export function calculateCompatibility(
 
   return {
     overallScore: Math.min(100, Math.max(0, overall)),
+    dataCoverage: Math.round((comparableDimensions / 6) * 100),
     valuesMatch: finalValues,
     familyGoalsMatch: finalFamily,
     lifestyleMatch: finalLifestyle,
