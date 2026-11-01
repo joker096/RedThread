@@ -3143,6 +3143,50 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(deletedAccountMessages.status, 401,
       'a deleted account must not retain access to previously authorized conversations');
 
+    const l3ReadLock = await identityGateDb.connect();
+    const l3RevokeClient = await identityGateDb.connect();
+    let l3ReadTransactionOpen = false;
+    let l3RevokeTransactionOpen = false;
+    try {
+      await l3ReadLock.query('BEGIN');
+      l3ReadTransactionOpen = true;
+      const lockedDecision = await l3ReadLock.query(
+        'SELECT status FROM identity_l3_current_decision($1)',
+        [maleRegistered.user.id]
+      );
+      assert.deepEqual(lockedDecision.rows, [{ status: 'approved' }]);
+      await l3RevokeClient.query('BEGIN');
+      l3RevokeTransactionOpen = true;
+      let revokeFinished = false;
+      const revokeUpdate = l3RevokeClient.query(
+        "UPDATE identity_l3_submissions SET status = 'revoked', revoked_at = NOW() WHERE id = $1",
+        [l3SubmissionId]
+      ).then(() => { revokeFinished = true; });
+      const completedBeforeUnlock = await Promise.race([
+        revokeUpdate.then(() => true),
+        new Promise(resolve => setTimeout(() => resolve(false), 100))
+      ]);
+      assert.equal(completedBeforeUnlock, false,
+        'a concurrent revocation must wait while a restricted action holds the L3 decision lock');
+      await l3ReadLock.query('COMMIT');
+      l3ReadTransactionOpen = false;
+      await revokeUpdate;
+      await l3RevokeClient.query('COMMIT');
+      l3RevokeTransactionOpen = false;
+      assert.equal(revokeFinished, true);
+      const afterRevocation = await identityGateDb.query(
+        'SELECT identity_l3_has_active_approval($1) AS active',
+        [maleRegistered.user.id]
+      );
+      assert.equal(afterRevocation.rows[0].active, false,
+        'the next authorization check must observe the committed revocation');
+    } finally {
+      if (l3ReadTransactionOpen) await l3ReadLock.query('ROLLBACK').catch(() => {});
+      if (l3RevokeTransactionOpen) await l3RevokeClient.query('ROLLBACK').catch(() => {});
+      l3ReadLock.release();
+      l3RevokeClient.release();
+    }
+
   } finally {
     await identityGateDb?.end().catch(() => {});
     if (child.exitCode === null && child.signalCode === null) {
