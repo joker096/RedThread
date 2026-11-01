@@ -1509,6 +1509,17 @@ test('auth API supports registration, session lookup, logout and login', {
        WHERE id = $1`,
       [l3SubmissionId, randomUUID()]
     );
+    const l3AuditEvents = await identityGateDb.query(
+      'SELECT event_type FROM identity_l3_decision_events WHERE submission_id = $1',
+      [l3SubmissionId]
+    );
+    for (const expectedEvent of [
+      'created', 'upload_authorized', 'uploaded', 'processing_started',
+      'processing_completed', 'submitted_for_review', 'approved'
+    ]) {
+      assert.ok(l3AuditEvents.rows.some(row => row.event_type === expectedEvent),
+        `L3 transition ${expectedEvent} must be recorded transactionally`);
+    }
 
     // A newer revocation must supersede an older still-unexpired approval;
     // authorization must never fall back to that stale approval.
