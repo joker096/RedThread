@@ -50,7 +50,7 @@ CREATE TABLE identity_l3_submissions (
   CHECK (status <> 'revoked' OR revoked_at IS NOT NULL),
   CHECK (
     status NOT IN ('approved', 'rejected', 'revoked')
-    OR length(btrim(decision_reason_code)) BETWEEN 1 AND 64
+    OR length(btrim(COALESCE(decision_reason_code, ''))) BETWEEN 1 AND 64
   ),
   CHECK (media_purged_at IS NULL OR storage_object_key IS NULL)
 );
