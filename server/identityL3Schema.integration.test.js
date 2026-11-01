@@ -69,6 +69,8 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       );
       assert.ok(decisionConstraints.rows.some(row => /decision_reason_code/.test(row.definition)),
         'moderator decisions must carry a bounded reason code');
+      assert.ok(decisionConstraints.rows.some(row => /expires_at IS NOT NULL/.test(row.definition)),
+        'an approval must have a non-null six-month expiry timestamp');
       assert.ok(decisionConstraints.rows.some(row => /processing_completed_at/.test(row.definition)),
         'review decisions must not bypass completed media processing');
 
