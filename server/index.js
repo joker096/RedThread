@@ -2271,6 +2271,11 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
          AND ($2::uuid IS NULL OR pp.passed_user_id = $2)
          AND u.status = 'active' AND p.is_visible = TRUE
          AND p.children_disclosure_confirmed_at IS NOT NULL AND p.has_children IS NOT NULL
+         AND (p.gender <> 'male' OR EXISTS (
+           SELECT 1 FROM identity_verifications iv
+           WHERE iv.user_id = p.user_id AND iv.provider = 'didit'
+             AND iv.status = 'verified' AND iv.provider_environment = 'live'
+         ))
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = $1 AND b.blocked_id = p.user_id)
@@ -2372,6 +2377,11 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
        JOIN users actor ON actor.id = $2 AND actor.status = 'active'
        WHERE p.user_id = $1 AND p.is_visible = TRUE
          AND p.children_disclosure_confirmed_at IS NOT NULL AND p.has_children IS NOT NULL
+         AND (p.gender <> 'male' OR EXISTS (
+           SELECT 1 FROM identity_verifications iv
+           WHERE iv.user_id = p.user_id AND iv.provider = 'didit'
+             AND iv.status = 'verified' AND iv.provider_environment = 'live'
+         ))
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = $2 AND b.blocked_id = p.user_id)
@@ -2437,6 +2447,11 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
          AND p.birth_date IS NOT NULL
          AND p.children_disclosure_confirmed_at IS NOT NULL
          AND p.has_children IS NOT NULL
+         AND (p.gender <> 'male' OR EXISTS (
+           SELECT 1 FROM identity_verifications iv
+           WHERE iv.user_id = p.user_id AND iv.provider = 'didit'
+             AND iv.status = 'verified' AND iv.provider_environment = 'live'
+         ))
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = $2 AND b.blocked_id = p.user_id)
@@ -2736,6 +2751,11 @@ app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) =>
        ) latest ON TRUE
        WHERE (m.user_a_id = $1 OR m.user_b_id = $1) AND m.status = 'active'
          AND other.user_id = ANY($2::uuid[])
+         AND (other.gender <> 'male' OR EXISTS (
+           SELECT 1 FROM identity_verifications iv
+           WHERE iv.user_id = other.user_id AND iv.provider = 'didit'
+             AND iv.status = 'verified' AND iv.provider_environment = 'live'
+         ))
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = $1 AND b.blocked_id = other.user_id)
@@ -2787,6 +2807,15 @@ app.get('/api/matches/:matchId/messages', requireSession, requirePaidFeatures, a
        JOIN users account_b ON account_b.id = m.user_b_id AND account_b.status = 'active'
        WHERE m.id = $1 AND m.status = 'active'
          AND (m.user_a_id = $2 OR m.user_b_id = $2)
+         AND EXISTS (
+           SELECT 1 FROM profiles partner_profile
+           WHERE partner_profile.user_id = CASE WHEN m.user_a_id = $2 THEN m.user_b_id ELSE m.user_a_id END
+             AND (partner_profile.gender <> 'male' OR EXISTS (
+               SELECT 1 FROM identity_verifications iv
+               WHERE iv.user_id = partner_profile.user_id AND iv.provider = 'didit'
+                 AND iv.status = 'verified' AND iv.provider_environment = 'live'
+             ))
+         )
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = m.user_a_id AND b.blocked_id = m.user_b_id)
@@ -2867,6 +2896,15 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
        JOIN users recipient ON recipient.id = $3 AND recipient.status = 'active'
        WHERE m.id = $1 AND m.status = 'active'
          AND ((m.user_a_id = $2 AND m.user_b_id = $3) OR (m.user_a_id = $3 AND m.user_b_id = $2))
+         AND EXISTS (
+           SELECT 1 FROM profiles recipient_profile
+           WHERE recipient_profile.user_id = $3
+             AND (recipient_profile.gender <> 'male' OR EXISTS (
+               SELECT 1 FROM identity_verifications iv
+               WHERE iv.user_id = recipient_profile.user_id AND iv.provider = 'didit'
+                 AND iv.status = 'verified' AND iv.provider_environment = 'live'
+             ))
+         )
        FOR UPDATE OF m, sender, recipient`,
       [req.params.matchId, req.authUser.id, recipientId]
     );
