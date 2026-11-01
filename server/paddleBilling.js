@@ -604,13 +604,13 @@ export async function cancelPaddleSubscription({
 
 
 /** Persist a provider-confirmed cancellation when checkout creation lost its race with account deactivation. */
-export async function markPaddleCheckoutAttemptCanceled(pool, { userId, attemptId, transactionId } = {}) {
+export async function markPaddleCheckoutAttemptCanceled(client, { userId, attemptId, transactionId } = {}) {
   const validUuid = value => typeof value === 'string' &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
   if (!validUuid(userId) || !validUuid(attemptId) || !isValidPaddleTransactionId(transactionId)) {
     throw new Error('invalid_paddle_checkout_cancellation_identity');
   }
-  const result = await pool.query(
+  const result = await client.query(
     `UPDATE paddle_checkout_attempts
      SET transaction_id = COALESCE(transaction_id, $3),
          status = 'canceled', updated_at = NOW()
