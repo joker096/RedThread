@@ -578,6 +578,48 @@ test('gift catalog only returns reviewed items and omits recipient location meta
   }
 });
 
+test('gift catalog and creation fail closed for a male recipient without active L2 and L3', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 20_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
+  let fixture;
+  try {
+    fixture = await seedFixture(pool);
+    const { ids } = fixture;
+    await pool.query("UPDATE profiles SET gender = 'male' WHERE user_id = $1", [ids.recipientA]);
+
+    const catalogClient = await pool.connect();
+    try {
+      const catalog = await listGiftCatalogForMatch(catalogClient, {
+        senderId: ids.sender, matchId: ids.matchA
+      });
+      assert.equal(catalog.status, 200);
+      assert.deepEqual(catalog.items, [],
+        'a male gift recipient without L2 and active L3 must not receive a catalog');
+    } finally {
+      catalogClient.release();
+    }
+
+    const result = await runRequest(pool, {
+      senderId: ids.sender,
+      matchId: ids.matchA,
+      catalogItemId: ids.catalogItem,
+      idempotencyKey: randomUUID()
+    });
+    assert.equal(result.status, 409,
+      'gift creation must fail closed when the male recipient lacks L2 and L3');
+    const orders = await pool.query(
+      'SELECT COUNT(*)::int AS count FROM gift_delivery_orders WHERE match_id = $1',
+      [ids.matchA]
+    );
+    assert.equal(orders.rows[0].count, 0);
+  } finally {
+    if (fixture) await cleanupFixture(pool, fixture);
+    await pool.end();
+  }
+});
+
 test('gift catalog fails closed when recipient preference is disabled or pair safety is restricted', {
   skip: !process.env.DATABASE_URL,
   timeout: 20_000
