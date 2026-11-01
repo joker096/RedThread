@@ -340,8 +340,11 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
         return res.status(409).json({ error: 'paddle_checkout_cancelled' });
       }
       if (['draft', 'ready'].includes(providerStatus)) {
-        const { cancelPaddleCheckoutTransaction } = await import('./paddleBilling.js');
-        await cancelPaddleCheckoutTransaction({
+        const {
+          cancelPaddleCheckoutTransaction,
+          markPaddleCheckoutAttemptCanceled
+        } = await import('./paddleBilling.js');
+        const canceledTransaction = await cancelPaddleCheckoutTransaction({
           apiKey: process.env.PADDLE_API_KEY,
           environment: process.env.PADDLE_ENVIRONMENT,
           transactionId,
@@ -349,6 +352,16 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
           expectedPlan: plan,
           expectedAttemptId: checkoutAttemptId
         });
+        if (canceledTransaction.status === 'canceled') {
+          // A concurrent account deactivation can make the normal save fail
+          // after Paddle has created a draft. Persist the confirmed cancellation
+          // so a reactivated account is not stranded in "creating".
+          await markPaddleCheckoutAttemptCanceled(pool, {
+            userId: req.authUser.id,
+            attemptId: checkoutAttemptId,
+            transactionId
+          });
+        }
       }
       return res.status(409).json({ error: 'account_not_available' });
     }
