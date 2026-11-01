@@ -1150,6 +1150,22 @@ test('expired requests with unresolved payment state fail closed and remain unch
        RETURNING id`,
       [ids.matchA, ids.sender, ids.recipientA, ids.catalogItem, ids.deliveryPartner, 'expired-payment-test-' + randomUUID()]
     );
+    // A safety trigger may have created the one order-level task first.
+    // Expiry must still append its independent audit cause without replacing
+    // the original task reason or creating duplicate provider work.
+    await pool.query(
+      `INSERT INTO gift_payment_reconciliation_tasks (order_id, reason)
+       VALUES ($1, 'safety_hold')`,
+      [stale.rows[0].id]
+    );
+    await pool.query(
+      `INSERT INTO gift_delivery_order_events
+         (order_id, actor_type, event_type, from_status, to_status, metadata)
+       VALUES ($1, 'system', 'payment_reconciliation_required',
+               'awaiting_recipient_consent', 'awaiting_recipient_consent',
+               jsonb_build_object('reason', 'safety_hold'))`,
+      [stale.rows[0].id]
+    );
     const result = await runRequest(pool, {
       senderId: ids.sender,
       matchId: ids.matchA,
@@ -1171,19 +1187,21 @@ test('expired requests with unresolved payment state fail closed and remain unch
       [stale.rows[0].id]
     );
     assert.deepEqual(reconciliation.rows, [{
-      reason: 'expired_active_payment',
+      reason: 'safety_hold',
       status: 'pending',
       attempt_count: 0
-    }], 'expired orders with active payment must be queued for provider reconciliation');
+    }], 'expiry must not replace the first reason or create a second task');
     const reconciliationAudit = await pool.query(
-      `SELECT event_type, metadata FROM gift_delivery_order_events
-       WHERE order_id = $1 AND event_type = 'payment_reconciliation_required'`,
+      `SELECT metadata->>'reason' AS reason
+       FROM gift_delivery_order_events
+       WHERE order_id = $1 AND event_type = 'payment_reconciliation_required'
+       ORDER BY reason`,
       [stale.rows[0].id]
     );
-    assert.deepEqual(reconciliationAudit.rows, [{
-      event_type: 'payment_reconciliation_required',
-      metadata: { reason: 'expired_active_payment' }
-    }]);
+    assert.deepEqual(reconciliationAudit.rows.map(row => row.reason), [
+      'expired_active_payment',
+      'safety_hold'
+    ], 'the independent expiry cause must be audited even when a safety task already exists');
     const count = await pool.query(
       "SELECT COUNT(*)::int AS count FROM gift_delivery_orders WHERE match_id = $1 AND status = 'awaiting_recipient_consent'",
       [ids.matchA]
