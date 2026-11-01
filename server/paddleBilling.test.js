@@ -124,7 +124,10 @@ test('subscription updates compare source timestamps and do not bypass ordering 
   });
   const update = queries.find(query => query.sql.includes('paddle_subscription_updated_at = COALESCE'));
   assert.ok(update, 'expected subscription lifecycle update');
-  assert.match(update.sql, /paddle_subscription_updated_at IS NULL OR \$8::timestamptz >= paddle_subscription_updated_at/);
+  assert.match(update.sql, /paddle_subscription_updated_at IS NULL/);
+  assert.match(update.sql, /\$8::timestamptz > paddle_subscription_updated_at/);
+  assert.match(update.sql, /\$8::timestamptz = paddle_subscription_updated_at/);
+  assert.match(update.sql, /\$10::boolean OR/);
   assert.doesNotMatch(update.sql, /\$8::timestamptz IS NULL/);
   assert.match(update.sql, /other\.paddle_subscription_id = \$3 AND other\.id <> users\.id/);
   assert.match(update.sql, /other\.paddle_customer_id = \$2 AND other\.id <> users\.id/);
@@ -134,6 +137,7 @@ test('subscription updates compare source timestamps and do not bypass ordering 
     'subscription.updated/canceled must match the already-owned subscription ID');
   assert.match(update.sql, /lower\(paddle_subscription_status\) IN \('canceled', 'completed'\)/);
   assert.equal(update.params[8], false, 'ordinary updates must not replace an established subscription ID');
+  assert.equal(update.params[9], false, 'ordinary updates must not win equal-timestamp ties against a cancellation');
   assert.match(update.sql, /paddle_customer_id IS NULL OR paddle_customer_id = \$2/);
   assert.match(update.sql, /premium_lifetime IS NOT TRUE/, 'subscription webhooks must not overwrite lifetime Premium');
   assert.match(update.sql, /users\.status = 'active'/, 'subscription webhooks must not revive deleted accounts');
