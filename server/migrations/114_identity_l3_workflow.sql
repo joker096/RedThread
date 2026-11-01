@@ -95,7 +95,7 @@ CREATE TABLE identity_l3_decision_events (
     'revoked', 'expired'
   )),
   reason_code TEXT CHECK (reason_code IS NULL OR reason_code ~ '^[a-z0-9_]{1,64}
-  CHECK (actor_user_id IS NULL OR actor_user_id <> user_id)
+  CHECK (event_type NOT IN ('approved', 'rejected') OR actor_user_id IS NULL OR actor_user_id <> user_id)
 );
 CREATE INDEX identity_l3_decision_events_submission_idx
   ON identity_l3_decision_events(submission_id, occurred_at, id);
