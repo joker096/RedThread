@@ -70,6 +70,11 @@ CREATE INDEX identity_l3_active_approval_idx
 CREATE INDEX identity_l3_expiry_idx
   ON identity_l3_submissions(expires_at, id)
   WHERE status = 'approved';
+CREATE INDEX identity_l3_current_decision_idx
+  ON identity_l3_submissions(
+    user_id, (COALESCE(revoked_at, approved_at)) DESC, created_at DESC, id DESC
+  )
+  WHERE status IN ('approved', 'revoked', 'expired');
 
 CREATE TABLE identity_l3_decision_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
