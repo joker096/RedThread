@@ -1568,6 +1568,11 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(directLikeUnverifiedMale.status, 404,
       'direct API requests must not like a male profile hidden by the L2 gate');
     await identityGateDb.query("UPDATE identity_verifications SET provider_environment = 'live' WHERE user_id = $1", [secondMaleRegistered.user.id]);
+    const femaleLikeToL2OnlyMale = await request(`/api/likes/${secondMaleRegistered.user.id}`, {
+      method: 'POST', headers: { Cookie: secondCookie }
+    });
+    assert.equal(femaleLikeToL2OnlyMale.status, 404,
+      'a male profile with live L2 but no active L3 approval must not appear as a likeable target');
     const l2OnlyMaleLike = await request(`/api/likes/${registered.user.id}`, {
       method: 'POST', headers: { Cookie: secondMaleCookie }
     });
