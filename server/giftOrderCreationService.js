@@ -277,6 +277,20 @@ export async function createGiftOrderRequest(client, {
                ELSE 2147483647
              END
          ) AS sender_identity_verified,
+         (sender_profile.gender <> 'male' OR identity_l3_has_active_approval(sender.id)) AS sender_l3_gate,
+         EXISTS (
+           SELECT 1 FROM user_identity_verifications iv
+           WHERE iv.user_id = recipient.id
+             AND iv.status = 'approved'
+             AND iv.verified_at <= statement_timestamp()
+             AND iv.expires_at > statement_timestamp()
+             AND iv.verification_level >= CASE
+               WHEN recipient_profile.gender = 'male' THEN 3
+               WHEN recipient_profile.gender = 'female' THEN 1
+               ELSE 2147483647
+             END
+         ) AS recipient_identity_verified,
+         (recipient_profile.gender <> 'male' OR identity_l3_has_active_approval(recipient.id)) AS recipient_l3_gate,
          EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = sender.id AND b.blocked_id = recipient.id)
@@ -309,7 +323,8 @@ export async function createGiftOrderRequest(client, {
     const safety = replaySafety.rows[0];
     if (!safety || !safety.accounts_active || !safety.match_active ||
         (row.status === 'awaiting_recipient_consent' && !safety.recipient_requests_enabled) || !safety.both_users_adult ||
-        !safety.sender_identity_verified || safety.has_block ||
+        !safety.sender_identity_verified || !safety.sender_l3_gate ||
+        !safety.recipient_identity_verified || !safety.recipient_l3_gate || safety.has_block ||
         safety.has_open_report || safety.safety_restricted) {
       return reject(409, 'gift_request_unavailable');
     }
