@@ -2044,15 +2044,20 @@ app.post('/api/identity/didit/session', validateRequestOrigin, requireSession, p
       if (activeReservation.rowCount) return { kind: 'in_progress' };
 
       if (process.env.DIDIT_ENVIRONMENT === 'live') {
-        await client.query("SELECT pg_advisory_xact_lock(hashtext('didit-live-free-quota'))");
-        const count = await client.query(
-          `SELECT COUNT(*)::int AS count
-           FROM identity_verification_session_reservations
-           WHERE environment = 'live'
-             AND created_at >= (date_trunc('month', statement_timestamp() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
-             AND created_at < ((date_trunc('month', statement_timestamp() AT TIME ZONE 'UTC') + INTERVAL '1 month') AT TIME ZONE 'UTC')`
+        const month = await client.query(
+          "SELECT date_trunc('month', statement_timestamp() AT TIME ZONE 'UTC')::date AS month_start"
         );
-        if (!canReserveDiditFreeSession(count.rows[0]?.count)) return { kind: 'quota' };
+        const usage = await client.query(
+          `INSERT INTO didit_monthly_quota_usage (month_start, reserved_count)
+           VALUES ($1, 1)
+           ON CONFLICT (month_start) DO UPDATE
+             SET reserved_count = didit_monthly_quota_usage.reserved_count + 1,
+                 updated_at = statement_timestamp()
+             WHERE didit_monthly_quota_usage.reserved_count < 500
+           RETURNING reserved_count`,
+          [month.rows[0].month_start]
+        );
+        if (!usage.rowCount) return { kind: 'quota' };
       }
 
       await client.query(
