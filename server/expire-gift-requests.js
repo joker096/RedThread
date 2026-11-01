@@ -50,7 +50,6 @@ export async function processExpiredGiftRequestBatch(pool, {
              SELECT 1
              FROM gift_payment_reconciliation_tasks tasks
              WHERE tasks.order_id = gift_delivery_orders.id
-               AND tasks.order_id = gift_delivery_orders.id
            )
          )
      ) candidates
