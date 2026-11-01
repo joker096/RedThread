@@ -237,7 +237,16 @@ export async function processPaddleEvent(pool, rawEvent) {
           updated_at = NOW()
         WHERE id = COALESCE($1::uuid, (SELECT id FROM users WHERE paddle_subscription_id = $3 LIMIT 1))
           AND users.status = 'active'
-          AND (paddle_subscription_updated_at IS NULL OR $8::timestamptz >= paddle_subscription_updated_at)
+          AND (
+            paddle_subscription_updated_at IS NULL
+            OR $8::timestamptz > paddle_subscription_updated_at
+            -- At equal provider timestamps, cancellation wins. A verified new
+            -- subscription.created may replace only a terminal prior subscription.
+            OR (
+              $8::timestamptz = paddle_subscription_updated_at
+              AND ($10::boolean OR ($9::boolean AND lower(paddle_subscription_status) IN ('canceled', 'completed')))
+            )
+          )
           -- Never let custom_data reassign a subscription or customer already owned by another account.
           AND ($3::text IS NULL OR NOT EXISTS (
             SELECT 1 FROM users AS other
@@ -260,7 +269,7 @@ export async function processPaddleEvent(pool, rawEvent) {
           -- The source timestamp guard above prevents a delayed old lifecycle event from winning.
           -- A delayed or newly delivered subscription event must not revoke or replace lifetime Premium.
           AND premium_lifetime IS NOT TRUE`,
-        [customUserId, customerId, subscriptionId, status, priceId, active, active ? periodEnd : null, occurredAt, eventType === 'subscription.created']
+        [customUserId, customerId, subscriptionId, status, priceId, active, active ? periodEnd : null, occurredAt, eventType === 'subscription.created', eventType === 'subscription.canceled']
       );
       if (eventType === 'subscription.created' && customUserId && checkoutPlan) {
         await client.query(
