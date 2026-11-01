@@ -831,14 +831,14 @@ test('auth API supports registration, session lookup, logout and login', {
         const reconciliationTask = await giftTestDb.query(
           `SELECT reason, status, attempt_count
            FROM gift_payment_reconciliation_tasks
-           WHERE order_id = $1 AND reason = 'recipient_opted_out'`,
+           WHERE order_id = $1`,
           [activePaymentOrderId]
         );
         assert.deepEqual(reconciliationTask.rows, [{
-          reason: 'recipient_opted_out',
+          reason: 'recipient_declined_active_payment',
           status: 'pending',
           attempt_count: 0
-        }], 'active payment opt-out must create one durable, retryable reconciliation task');
+        }], 'decline, expiry, and opt-out must share exactly one durable reconciliation task per order');
         const activeSenderNotification = await giftTestDb.query(
           `SELECT type, metadata FROM user_notifications
            WHERE user_id = $1 AND dedupe_key = $2`,
