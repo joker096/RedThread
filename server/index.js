@@ -2328,6 +2328,20 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+    const actorIdentity = await client.query(
+      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment
+       FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       WHERE p.user_id = $1 FOR SHARE OF p`,
+      [req.authUser.id]
+    );
+    const identityActor = actorIdentity.rows[0];
+    if (!identityActor || !canIdentityInteract({
+      gender: identityActor.gender, status: identityActor.identity_status, environment: identityActor.identity_environment
+    })) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2' });
+    }
+    await client.query('BEGIN');
     const requestedTargetId = req.body?.targetId ?? null;
     if (requestedTargetId !== null && !isUuid(requestedTargetId)) {
       await client.query('ROLLBACK');
@@ -2342,11 +2356,6 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
          AND ($2::uuid IS NULL OR pp.passed_user_id = $2)
          AND u.status = 'active' AND p.is_visible = TRUE
          AND p.children_disclosure_confirmed_at IS NOT NULL AND p.has_children IS NOT NULL
-         AND (p.gender <> 'male' OR EXISTS (
-           SELECT 1 FROM identity_verifications iv
-           WHERE iv.user_id = p.user_id AND iv.provider = 'didit'
-             AND iv.status = 'verified' AND iv.provider_environment = 'live'
-         ))
          AND (p.gender <> 'male' OR EXISTS (
            SELECT 1 FROM identity_verifications iv
            WHERE iv.user_id = p.user_id AND iv.provider = 'didit'
@@ -2384,11 +2393,6 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
          AND ($2::uuid IS NULL OR pp.passed_user_id = $2)
          AND u.status = 'active' AND p.is_visible = TRUE
          AND p.children_disclosure_confirmed_at IS NOT NULL AND p.has_children IS NOT NULL
-         AND (p.gender <> 'male' OR EXISTS (
-           SELECT 1 FROM identity_verifications iv
-           WHERE iv.user_id = p.user_id AND iv.provider = 'didit'
-             AND iv.status = 'verified' AND iv.provider_environment = 'live'
-         ))
           AND p.gender <> $3
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
@@ -2424,11 +2428,6 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
        WHERE p.user_id = $1 AND u.status = 'active' AND p.is_visible = TRUE
          AND p.birth_date IS NOT NULL
          AND p.children_disclosure_confirmed_at IS NOT NULL AND p.has_children IS NOT NULL
-         AND (p.gender <> 'male' OR EXISTS (
-           SELECT 1 FROM identity_verifications iv
-           WHERE iv.user_id = p.user_id AND iv.provider = 'didit'
-             AND iv.status = 'verified' AND iv.provider_environment = 'live'
-         ))
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = $2 AND b.blocked_id = p.user_id)
@@ -2454,6 +2453,20 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
   let client;
   try {
     client = await pool.connect();
+    await client.query('BEGIN');
+    const actorIdentity = await client.query(
+      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment
+       FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       WHERE p.user_id = $1 FOR SHARE OF p`,
+      [req.authUser.id]
+    );
+    const identityActor = actorIdentity.rows[0];
+    if (!identityActor || !canIdentityInteract({
+      gender: identityActor.gender, status: identityActor.identity_status, environment: identityActor.identity_environment
+    })) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2' });
+    }
     await client.query('BEGIN');
     await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
     const target = await client.query(
@@ -2657,6 +2670,20 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
   let client;
   try {
     client = await pool.connect();
+    await client.query('BEGIN');
+    const actorIdentity = await client.query(
+      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment
+       FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       WHERE p.user_id = $1 FOR SHARE OF p`,
+      [req.authUser.id]
+    );
+    const identityActor = actorIdentity.rows[0];
+    if (!identityActor || !canIdentityInteract({
+      gender: identityActor.gender, status: identityActor.identity_status, environment: identityActor.identity_environment
+    })) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2' });
+    }
     await client.query('BEGIN');
     const preview = await client.query(
       `SELECT action_type AS "actionType", target_id AS id
