@@ -32,6 +32,46 @@ test('gift payment reconciliation outbox is installed with retryable states and 
     assert.match(expiryIndex.rows[0].indexdef, /\(expires_at, match_id, sender_id, recipient_id\)/i);
     assert.match(expiryIndex.rows[0].indexdef, /WHERE \(status = 'awaiting_recipient_consent'::text\)/i);
 
+    const oneTaskIndex = await client.query(
+      `SELECT indexdef
+       FROM pg_indexes
+       WHERE schemaname = current_schema()
+         AND tablename = 'gift_payment_reconciliation_tasks'
+         AND indexname = 'gift_payment_reconciliation_one_task_per_order_idx'`
+    );
+    assert.equal(oneTaskIndex.rowCount, 1,
+      'migration 112 must enforce exactly one reconciliation task per gift order');
+    assert.match(oneTaskIndex.rows[0].indexdef, /UNIQUE INDEX/i);
+    assert.match(oneTaskIndex.rows[0].indexdef, /\(order_id\)/i);
+
+    await client.query('BEGIN');
+    try {
+      await client.query(`
+        CREATE TEMP TABLE gift_reconciliation_one_task_test (
+          order_id uuid PRIMARY KEY,
+          reason text NOT NULL
+        ) ON COMMIT DROP
+      `);
+      const testOrderId = '00000000-0000-4000-8000-000000000001';
+      await client.query(
+        `INSERT INTO gift_reconciliation_one_task_test (order_id, reason)
+         VALUES ($1, 'recipient_declined_active_payment')`, [testOrderId]
+      );
+      let duplicateTaskError;
+      try {
+        await client.query(
+          `INSERT INTO gift_reconciliation_one_task_test (order_id, reason)
+           VALUES ($1, 'recipient_opted_out')`, [testOrderId]
+        );
+      } catch (error) { duplicateTaskError = error; }
+      assert.equal(duplicateTaskError?.code, '23505',
+        'multiple trigger reasons must not create duplicate provider work for one order');
+      await client.query('ROLLBACK');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    }
+
     const definitions = result.rows.map(row => row.definition || '').join('\n');
     assert.match(definitions, /recipient_opted_out/, 'recipient opt-out reconciliation should be supported');
     assert.match(definitions, /safety_hold/, 'block, report, and account-safety transitions should queue reconciliation');
