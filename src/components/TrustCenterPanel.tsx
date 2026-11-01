@@ -5,7 +5,7 @@ type IdentityStatus = 'not_configured' | 'not_started' | 'pending' | 'verified' 
 type Summary = {
   email: { status: 'verified' | 'unverified'; verifiedAt: string | null };
   phone: { status: 'verified' | 'not_verified'; verifiedAt: string | null };
-  identity: { status: IdentityStatus; providerStatus?: string | null; environment?: 'sandbox' | null };
+  identity: { status: IdentityStatus; providerStatus?: string | null; environment?: 'sandbox' | 'live' | null };
   photos: Photo[];
 };
 
@@ -61,7 +61,7 @@ export const TrustCenterPanel: React.FC = () => {
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok || typeof payload?.verificationUrl !== 'string' ||
-          typeof payload?.sessionId !== 'string' || payload.environment !== 'sandbox') {
+          typeof payload?.sessionId !== 'string' || !['sandbox', 'live'].includes(payload.environment)) {
         if (response.status === 409) throw new Error('Личность уже подтверждена.');
         if (response.status === 503) throw new Error('Проверка личности пока не настроена или временно недоступна.');
         throw new Error('Не удалось начать проверку личности. Попробуйте ещё раз.');
@@ -113,8 +113,8 @@ export const TrustCenterPanel: React.FC = () => {
                   ? 'Проверка личности доступна через защищённую страницу Didit (Sandbox).'
                   : 'Проверка через внешнего провайдера не настроена. Значок верификации не присваивается.'}</p>
           {canStartIdentity && <button type="button" onClick={() => void startVerification()} disabled={startingVerification} className="mt-3 min-h-11 w-full rounded-xl bg-rose-700 px-4 text-sm font-semibold text-white disabled:opacity-50">{startingVerification ? 'Подготавливаем проверку…' : data.identity.status === 'pending' ? 'Продолжить проверку' : data.identity.status === 'rejected' ? 'Повторить проверку' : 'Начать проверку'}</button>}
-          {data.identity.status !== 'not_configured' && <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-950/20 p-2 text-[11px] text-amber-200">Sandbox имитирует проверку. Не загружайте реальные документы, селфи или личные данные: Didit сохраняет захваченные материалы и в Sandbox. Тестовый результат не подтверждает личность.</p>}
-          {data.identity.environment === 'sandbox' && data.identity.providerStatus && <p className="mt-2 text-[11px] text-amber-300">Тестовый ответ Didit: {data.identity.providerStatus}. Он не является подтверждением личности.</p>}
+          {data.identity.environment === 'sandbox' && <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-950/20 p-2 text-[11px] text-amber-200">Sandbox имитирует проверку. Не загружайте реальные документы, селфи или личные данные. Тестовый результат не подтверждает личность.</p>}
+          {data.identity.environment === 'sandbox' && data.identity.providerStatus && <p className="mt-2 text-[11px] text-amber-300">Ответ Didit ({data.identity.environment}): {data.identity.providerStatus}. Статус учитывается только после серверной проверки.</p>}
         </div>
         <div className="rounded-2xl bg-stone-950 p-3"><div className="flex justify-between"><span className="text-sm text-white">Фотографии</span><span className="text-xs text-stone-300">{data.photos.length} / 6</span></div>
           {data.photos.length ? <ul className="mt-2 space-y-2">{data.photos.map((p, i) => <li key={p.createdAt + i} className="flex justify-between gap-3 text-xs"><span className="text-stone-400">Фото {i + 1} · {formatDate(p.createdAt)}</span>{status(p.status === 'approved', p.status === 'approved' ? 'Одобрено' : '', p.status === 'pending' ? 'Ожидает проверки' : 'Отклонено')}</li>)}</ul> : <p className="text-[11px] text-stone-500 mt-1">Загруженных фотографий нет.</p>}
