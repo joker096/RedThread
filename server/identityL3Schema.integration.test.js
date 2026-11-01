@@ -84,6 +84,7 @@ test('L3 schema persists metadata only and protects workflow decisions', {
           'INSERT INTO identity_l3_submission_trigger_test (id, user_id, status) VALUES ($1, $2, $3)',
           [submissionId, ownerId, 'draft']
         );
+        await client.query('SAVEPOINT reject_invalid_l3_transition');
         await assert.rejects(
           client.query(
             'UPDATE identity_l3_submission_trigger_test SET status = $1 WHERE id = $2',
@@ -91,6 +92,8 @@ test('L3 schema persists metadata only and protects workflow decisions', {
           ),
           error => error.code === '23514'
         );
+        await client.query('ROLLBACK TO SAVEPOINT reject_invalid_l3_transition');
+        await client.query('RELEASE SAVEPOINT reject_invalid_l3_transition');
 
         await client.query(`
           CREATE TEMP TABLE identity_l3_event_trigger_test (id integer PRIMARY KEY, event_type text)
@@ -102,10 +105,13 @@ test('L3 schema persists metadata only and protects workflow decisions', {
           FOR EACH ROW EXECUTE FUNCTION prevent_identity_l3_decision_event_mutation()
         `);
         await client.query("INSERT INTO identity_l3_event_trigger_test (id, event_type) VALUES (1, 'created')");
+        await client.query('SAVEPOINT reject_l3_event_mutation');
         await assert.rejects(
           client.query("UPDATE identity_l3_event_trigger_test SET event_type = 'approved' WHERE id = 1"),
           error => error.code === '55000'
         );
+        await client.query('ROLLBACK TO SAVEPOINT reject_l3_event_mutation');
+        await client.query('RELEASE SAVEPOINT reject_l3_event_mutation');
       } finally {
         await client.query('ROLLBACK');
       }
