@@ -53,6 +53,7 @@ test('auth API supports registration, session lookup, logout and login', {
     });
   }
 
+  let identityGateDb;
   try {
     let healthy = false;
     for (let attempt = 0; attempt < 80; attempt += 1) {
@@ -73,7 +74,6 @@ test('auth API supports registration, session lookup, logout and login', {
     const email = `test-${randomUUID()}@example.test`;
     const password = 'Test Password 2026! Secure';
     let activePassword = password;
-    let identityGateDb;
     const registration = await request('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify({
