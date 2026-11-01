@@ -20,18 +20,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
   isOpen,
   onClose
 }) => {
-  const timeoutIdsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const dialogRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    timeoutIdsRef.current.forEach(timeoutId => clearTimeout(timeoutId));
-    timeoutIdsRef.current = [];
-
-    return () => {
-      timeoutIdsRef.current.forEach(timeoutId => clearTimeout(timeoutId));
-      timeoutIdsRef.current = [];
-    };
-  }, [isOpen, targetProfile]);
 
   useEffect(() => {
     if (!isOpen || !targetProfile) return;
@@ -145,10 +134,8 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
                 <p className="text-[10px] text-stone-400">Локальная демонстрационная эвристика; серверная модерация не подключена</p>
               </div>
             </div>
-            <span className={`text-xs font-bold font-mono ${
-              riskReport.isSafe ? 'text-emerald-400' : 'text-rose-400'
-            }`}>
-              {riskReport.isSafe ? 'Чисто' : 'Подозрение'}
+            <span className="text-xs font-bold text-stone-400 font-mono">
+              Нет данных
             </span>
           </div>
 
@@ -175,10 +162,8 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
                 <p className="text-[10px] text-stone-400">Тестовые данные профиля; реальная история жалоб не загружена</p>
               </div>
             </div>
-            <span className={`text-xs font-bold font-mono ${
-              targetProfile.verification.reportCount === 0 ? 'text-emerald-400' : 'text-rose-400'
-            }`}>
-              {targetProfile.verification.reportCount} жалоб (демо)
+            <span className="text-xs font-bold text-stone-400 font-mono">
+              Нет данных
             </span>
           </div>
         </div>
