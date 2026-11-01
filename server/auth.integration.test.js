@@ -712,14 +712,14 @@ test('auth API supports registration, session lookup, logout and login', {
         const queuedByCatalog = await giftTestDb.query(
           `SELECT reason, status, attempt_count
            FROM gift_payment_reconciliation_tasks
-           WHERE order_id = $1 AND reason = 'expired_active_payment'`,
+           WHERE order_id = $1`,
           [activePaymentOrderId]
         );
         assert.deepEqual(queuedByCatalog.rows, [{
-          reason: 'expired_active_payment',
+          reason: 'recipient_declined_active_payment',
           status: 'pending',
           attempt_count: 0
-        }], 'catalog expiry must commit its payment reconciliation task');
+        }], 'catalog expiry must reuse the existing order-level task rather than enqueue duplicate provider work');
 
         const repeatedCatalogWithExpiredActivePayment = await request(
           `/api/gifts/catalog?matchId=${giftMatchId}`,
@@ -732,7 +732,7 @@ test('auth API supports registration, session lookup, logout and login', {
         const reconciliationWrites = await giftTestDb.query(
           `SELECT
              (SELECT COUNT(*)::int FROM gift_payment_reconciliation_tasks
-              WHERE order_id = $1 AND reason = 'expired_active_payment') AS task_count,
+              WHERE order_id = $1) AS task_count,
              (SELECT COUNT(*)::int FROM gift_delivery_order_events
               WHERE order_id = $1
                 AND event_type = 'payment_reconciliation_required'
