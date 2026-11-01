@@ -21,6 +21,18 @@ export async function acquireGiftOrderRateLocks(client, ...userIds) {
   }
 }
 
+export async function hasPendingRecipientDecline(client, orderId) {
+  const pending = await client.query(
+    `SELECT 1
+     FROM gift_payment_reconciliation_tasks
+     WHERE order_id = $1
+       AND reason = 'recipient_declined_active_payment'
+     LIMIT 1`,
+    [orderId]
+  );
+  return pending.rowCount > 0;
+}
+
 export async function recipientGiftAcceptanceLimitReached(client, recipientId) {
   const accepted = await client.query(
     `SELECT COUNT(*)::int AS count
