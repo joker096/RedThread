@@ -4007,6 +4007,11 @@ app.get('/api/gifts/orders', requireSession, profileActionLimiter, async (req, r
               currency, status, expires_at AS "expiresAt",
               payment_status AS "paymentStatus",
               recipient_requests_disabled_at AS "recipientRequestsDisabledAt",
+              EXISTS (
+                SELECT 1 FROM gift_payment_reconciliation_tasks task
+                WHERE task.order_id = gift_delivery_orders.id
+                  AND task.reason = 'recipient_declined_active_payment'
+              ) AS "pendingRecipientDecline",
               statement_timestamp() AS "serverNow",
               created_at AS "createdAt",
               estimated_delivery_start AS "estimatedDeliveryStart",
@@ -4027,7 +4032,7 @@ app.get('/api/gifts/orders', requireSession, profileActionLimiter, async (req, r
     const orders = result.rows
       .filter(order => Number.isSafeInteger(order.totalMinorUnits) && order.totalMinorUnits >= 0)
       .map(order => {
-        const status = projectGiftOrderStatus(order, new Date(order.serverNow).getTime());
+        const status = projectGiftOrderStatus({ ...order, pendingRecipientDecline: order.pendingRecipientDecline }, new Date(order.serverNow).getTime());
         const {
           expiresAt,
           paymentStatus,
