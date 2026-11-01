@@ -384,6 +384,8 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(secondMaleRegistration.status, 201);
     const secondMaleRegistered = await secondMaleRegistration.json();
+    const secondMaleCookie = secondMaleRegistration.headers.get('set-cookie')?.split(';')[0];
+    assert.ok(secondMaleCookie?.startsWith('nit_session='));
 
     // Exercise withdrawal against real PostgreSQL rows, not only the pure policy helper.
     // This integration case is skipped with the enclosing auth test when DATABASE_URL is absent.
