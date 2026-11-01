@@ -5,7 +5,7 @@ import { evaluateGiftOrderCreation } from './giftOrderCreationPolicy.js';
 function validContext() {
   return {
     sender: { id: 'sender', accountStatus: 'active', isAdult: true, identityVerified: true, safetyRestricted: false },
-    recipient: { id: 'recipient', accountStatus: 'active', isAdult: true, safetyRestricted: false, giftRequestsEnabled: true },
+    recipient: { id: 'recipient', accountStatus: 'active', isAdult: true, identityVerified: true, safetyRestricted: false, giftRequestsEnabled: true },
     match: { status: 'active', includesSender: true, includesRecipient: true, ageDays: 5 },
     product: { category: 'chocolate', active: true, approved: true, supplierVerified: true, totalMinorUnits: 2500, currency: 'GEL' },
     delivery: { partnerVerified: true, coverageActive: true, countryCodeMatches: true, cityKeyMatches: true },
@@ -14,6 +14,12 @@ function validContext() {
     idempotency: { valid: true, duplicate: false }
   };
 }
+
+test('gift requests fail closed when recipient identity is not verified', () => {
+  const context = validContext();
+  context.recipient.identityVerified = false;
+  assert.equal(evaluateGiftOrderCreation(context).reason, 'recipient_identity_not_verified');
+});
 
 test('eligible trusted context remains pending recipient consent and never authorizes payment', () => {
   const result = evaluateGiftOrderCreation(validContext());
