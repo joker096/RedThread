@@ -73,6 +73,7 @@ test('auth API supports registration, session lookup, logout and login', {
     const email = `test-${randomUUID()}@example.test`;
     const password = 'Test Password 2026! Secure';
     let activePassword = password;
+    let identityGateDb;
     const registration = await request('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify({
@@ -1458,6 +1459,18 @@ test('auth API supports registration, session lookup, logout and login', {
       // The lock client was already released by the transaction cleanup above.
       await photoRaceDb.end();
     }
+    identityGateDb = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      connectionTimeoutMillis: 5_000,
+      statement_timeout: 8_000,
+      query_timeout: 10_000
+    });
+    for (const userId of [maleRegistered.user.id, secondMaleRegistered.user.id]) {
+      await identityGateDb.query(
+        "INSERT INTO identity_verifications (user_id, provider, provider_session_id, workflow_id, status, provider_status, provider_environment) VALUES ($1, 'didit', $2, $3, 'verified', 'Approved', 'live')",
+        [userId, randomUUID(), randomUUID()]
+      );
+    }
     const assessmentAnswers = {
       relationshipGoal: 'marriage_soon',
       children: 'want_soon',
@@ -1506,6 +1519,17 @@ test('auth API supports registration, session lookup, logout and login', {
     const searchResult = await search.json();
     assert.equal(searchResult.profiles.some(profile => profile.id === registered.user.id), false);
     assert.equal(searchResult.profiles.some(profile => profile.displayName === 'Тестовый профиль' && profile.gender === 'male'), true);
+
+    await identityGateDb.query("UPDATE identity_verifications SET provider_environment = 'sandbox' WHERE user_id = $1", [secondMaleRegistered.user.id]);
+    const hiddenUnverifiedMale = await request('/api/profiles/search', { headers: { Cookie: secondCookie } });
+    assert.equal((await hiddenUnverifiedMale.json()).profiles.some(profile => profile.id === secondMaleRegistered.user.id), false,
+      'women must not discover a male profile without live L2 verification');
+    const directLikeUnverifiedMale = await request(`/api/likes/${secondMaleRegistered.user.id}`, {
+      method: 'POST', headers: { Cookie: secondCookie }
+    });
+    assert.equal(directLikeUnverifiedMale.status, 404,
+      'direct API requests must not like a male profile hidden by the L2 gate');
+    await identityGateDb.query("UPDATE identity_verifications SET provider_environment = 'live' WHERE user_id = $1", [secondMaleRegistered.user.id]);
 
     const firstSearchPage = await request('/api/profiles/search?limit=1&offset=0', {
       headers: { Cookie: secondCookie }
@@ -1584,6 +1608,14 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(persistedPassUndo.status, 200);
     assert.equal((await persistedPassUndo.json()).type, 'pass');
+
+    await identityGateDb.query("UPDATE identity_verifications SET provider_environment = 'sandbox' WHERE user_id = $1", [maleRegistered.user.id]);
+    const unverifiedMaleLike = await request(`/api/likes/${registered.user.id}`, {
+      method: 'POST', headers: { Cookie: maleCookie }
+    });
+    assert.equal(unverifiedMaleLike.status, 403,
+      'a male account without live L2 verification must not like profiles');
+    await identityGateDb.query("UPDATE identity_verifications SET provider_environment = 'live' WHERE user_id = $1", [maleRegistered.user.id]);
 
     const firstLike = await request(`/api/likes/${maleRegistered.user.id}`, {
       method: 'POST',
@@ -1709,6 +1741,19 @@ test('auth API supports registration, session lookup, logout and login', {
       body: JSON.stringify({ text: 'Попытка написать в чужой чат' })
     });
     assert.equal(outsiderSendMessage.status, 404, 'a non-participant must not send messages to another pair\'s conversation');
+
+    await identityGateDb.query("UPDATE identity_verifications SET provider_environment = 'sandbox' WHERE user_id = $1", [maleRegistered.user.id]);
+    const unverifiedMaleMessage = await request(`/api/matches/${matchPayload.match.id}/messages`, {
+      method: 'POST', headers: { Cookie: maleCookie }, body: JSON.stringify({ text: 'Сообщение без L2' })
+    });
+    assert.equal(unverifiedMaleMessage.status, 403,
+      'a male account without live L2 verification must not send messages');
+    const femaleMessageToUnverifiedMale = await request(`/api/matches/${matchPayload.match.id}/messages`, {
+      method: 'POST', headers: { Cookie: secondCookie }, body: JSON.stringify({ text: 'Сообщение мужчине без L2' })
+    });
+    assert.equal(femaleMessageToUnverifiedMale.status, 404,
+      'women must not message male accounts without live L2 verification');
+    await identityGateDb.query("UPDATE identity_verifications SET provider_environment = 'live' WHERE user_id = $1", [maleRegistered.user.id]);
 
     const sendMessage = await request(`/api/matches/${matchPayload.match.id}/messages`, {
       method: 'POST',
@@ -2910,6 +2955,7 @@ test('auth API supports registration, session lookup, logout and login', {
       'a deleted account must not retain access to previously authorized conversations');
 
   } finally {
+    await identityGateDb?.end().catch(() => {});
     if (child.exitCode === null && child.signalCode === null) {
       child.kill('SIGTERM');
       let exitTimer;
