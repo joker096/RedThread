@@ -700,6 +700,7 @@ export async function listGiftCatalogForMatch(client, { senderId, matchId }) {
        ) AS sender_safety_restricted,
        recipient.id AS recipient_id,
        recipient.status AS recipient_status,
+       recipient_profile.gender AS recipient_gender,
        recipient_profile.birth_date AS recipient_birth_date,
        recipient_profile.country AS recipient_country,
        recipient_profile.city AS recipient_city,
