@@ -1418,6 +1418,17 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
       return res.status(401).json({ error: 'password_confirmation_failed' });
     }
 
+    // Check this before any external Paddle cancellation side effect. The
+    // account-safety advisory lock is held until cleanup completes; the same
+    // lock must be required by any future L3 upload/processing endpoint.
+    const l3MediaPreflight = await client.query(
+      'SELECT id FROM identity_l3_submissions WHERE user_id = $1 AND storage_object_key IS NOT NULL LIMIT 1',
+      [req.authUser.id]
+    );
+    if (l3MediaPreflight.rowCount) {
+      return res.status(409).json({ error: 'identity_l3_media_purge_unavailable' });
+    }
+
     const billingStateResult = await client.query(
       `SELECT paddle_customer_id, paddle_subscription_id, paddle_subscription_status,
               premium_until, premium_lifetime, statement_timestamp() AS billing_snapshot_at
