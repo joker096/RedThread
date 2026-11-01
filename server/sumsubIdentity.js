@@ -58,16 +58,19 @@ export async function createSumsubAccessToken({ userId, env = process.env, fetch
     levelName: env.SUMSUB_LEVEL_NAME,
     ttlInSecs: '600'
   });
-  const requestPath = '/resources/accessTokens?' + query.toString();
+  const requestBody = JSON.stringify({ userId, levelName: env.SUMSUB_LEVEL_NAME, ttlInSecs: 600 });
+  const requestPath = '/resources/accessTokens/sdk';
   const timestamp = Math.floor(now() / 1000);
   const signature = createSumsubSignature({
     secretKey: env.SUMSUB_SECRET_KEY,
     timestamp,
     method: 'POST',
-    path: requestPath
+    path: requestPath,
+    body: requestBody
   });
   const response = await fetchImpl(SUMSUB_API_BASE + requestPath, {
     method: 'POST',
+    body: requestBody,
     headers: {
       'X-App-Token': env.SUMSUB_APP_TOKEN,
       'X-App-Access-Ts': String(timestamp),
@@ -80,7 +83,7 @@ export async function createSumsubAccessToken({ userId, env = process.env, fetch
     throw new Error('sumsub_access_token_request_failed');
   }
   const result = await response.json();
-  if (typeof result?.token !== 'string' || !result.token.startsWith('_act-')) {
+  if (typeof result?.token !== 'string' || result.token.length < 1 || result.token.length > 1024) {
     throw new Error('sumsub_access_token_response_invalid');
   }
   return result.token;
