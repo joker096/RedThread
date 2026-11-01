@@ -40,6 +40,12 @@ test('L3 schema persists metadata only and protects workflow decisions', {
          WHERE tgrelid = 'identity_l3_decision_events'::regclass AND NOT tgisinternal`
       );
       assert.ok(eventTrigger.rows.some(row => row.tgname === 'identity_l3_decision_events_append_only'));
+      const eventForeignKeys = await client.query(
+        `SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
+         WHERE conrelid = 'identity_l3_decision_events'::regclass AND contype = 'f'`
+      );
+      assert.equal(eventForeignKeys.rows.some(row => /actor_user_id/.test(row.definition)), false,
+        'actor identifiers must remain immutable when a moderator account is deleted');
 
       const fn = await client.query(
         `SELECT pg_get_functiondef('guard_identity_l3_submission_transition()'::regprocedure) AS definition`
