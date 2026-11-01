@@ -61,20 +61,27 @@ export async function enqueueExpiredGiftPaymentReconciliation(client, orderId) {
   const task = await client.query(
     `INSERT INTO gift_payment_reconciliation_tasks (order_id, reason)
      VALUES ($1, 'expired_active_payment')
-     ON CONFLICT (order_id, reason) DO NOTHING
+     ON CONFLICT DO NOTHING
      RETURNING order_id`,
     [orderId]
   );
-  if (task.rowCount === 1) {
-    await client.query(
-      `INSERT INTO gift_delivery_order_events
-         (order_id, actor_type, event_type, from_status, to_status, metadata)
-       SELECT id, 'system', 'payment_reconciliation_required', status, status,
-              jsonb_build_object('reason', 'expired_active_payment')
-       FROM gift_delivery_orders WHERE id = $1`,
-      [orderId]
-    );
-  }
+  // Expiry is an independent audit cause even if another trigger already
+  // owns the single open reconciliation task for this order.
+  await client.query(
+    `INSERT INTO gift_delivery_order_events
+       (order_id, actor_type, event_type, from_status, to_status, metadata)
+     SELECT id, 'system', 'payment_reconciliation_required', status, status,
+            jsonb_build_object('reason', 'expired_active_payment')
+     FROM gift_delivery_orders
+     WHERE id = $1
+       AND NOT EXISTS (
+         SELECT 1 FROM gift_delivery_order_events e
+         WHERE e.order_id = gift_delivery_orders.id
+           AND e.event_type = 'payment_reconciliation_required'
+           AND e.metadata->>'reason' = 'expired_active_payment'
+       )`,
+    [orderId]
+  );
   return task.rowCount === 1;
 }
 
