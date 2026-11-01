@@ -100,6 +100,7 @@ CREATE TABLE identity_l3_decision_events (
     'revoked', 'expired'
   )),
   reason_code TEXT CHECK (reason_code IS NULL OR (length(reason_code) BETWEEN 1 AND 64 AND reason_code !~ '[^a-z0-9_]')),
+  occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CHECK (event_type NOT IN ('approved', 'rejected') OR (actor_user_id IS NOT NULL AND actor_user_id <> user_id)),
   CHECK (event_type <> 'revoked' OR actor_user_id IS NULL OR actor_user_id <> user_id)
 );
