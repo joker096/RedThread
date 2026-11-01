@@ -2031,7 +2031,7 @@ app.post('/api/identity/didit/session', validateRequestOrigin, requireSession, p
       );
       const currentIdentity = current.rows[0];
       if (currentIdentity?.status === 'verified') return { kind: 'verified' };
-      const restartableProviderStatuses = new Set(['Declined', 'Expired', 'Abandoned', 'Kyc Expired']);
+      const restartableProviderStatuses = new Set(['Approved', 'Declined', 'Expired', 'Abandoned', 'Kyc Expired']);
       if (currentIdentity?.status === 'pending' && currentIdentity.provider_session_id &&
           !restartableProviderStatuses.has(currentIdentity.provider_status)) {
         return { kind: 'in_progress' };
