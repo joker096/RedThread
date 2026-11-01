@@ -134,3 +134,5 @@ The database now exposes one canonical current-decision lookup (`identity_l3_cur
 The account-deletion preflight checks for stored L3 object keys before making any external Paddle cancellation call, then repeats the check inside the destructive database transaction. Any future upload/processing route must acquire the same per-account safety advisory lock so a new media object cannot race between those checks and deletion.
 
 A newer rejected re-verification also supersedes an older approval. Withdrawn or still-pending attempts do not erase a still-valid approval; a later approval can restore access, while a later rejection or revocation fails closed.
+
+The event actor UUID is retained as an immutable audit identifier without a foreign key that would attempt to `SET NULL` on moderator account deletion (which would conflict with append-only enforcement). The submission owner remains linked for account-level privacy cascade cleanup.
