@@ -3,7 +3,11 @@ const DIDIT_API_BASE = 'https://verification.didit.me';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DIDIT_STATUSES = new Set(['Not Started', 'In Progress', 'Approved', 'Declined', 'In Review', 'Awaiting User', 'Resubmitted', 'Expired', 'Abandoned', 'Kyc Expired']);
 export function isDiditConfigured(env = process.env) {
-  return env.DIDIT_ENVIRONMENT === 'sandbox' && env.DIDIT_SANDBOX_KEY_CONFIRMED === 'true' && Boolean(env.DIDIT_API_KEY) &&
+  const environment = env.DIDIT_ENVIRONMENT;
+  const environmentConfirmed = environment === 'sandbox'
+    ? env.DIDIT_SANDBOX_KEY_CONFIRMED === 'true'
+    : environment === 'live' && env.DIDIT_LIVE_KEY_CONFIRMED === 'true';
+  return ['sandbox', 'live'].includes(environment) && environmentConfirmed && Boolean(env.DIDIT_API_KEY) &&
     UUID_PATTERN.test(env.DIDIT_WORKFLOW_ID || '') && UUID_PATTERN.test(env.DIDIT_APPLICATION_ID || '') && Boolean(env.DIDIT_WEBHOOK_SECRET);
 }
 function serializeCanonicalValue(value) {
@@ -41,7 +45,18 @@ export function verifyDiditWebhook({ payload, signature, timestampHeader, secret
   };
   return verify(secret, signature) || verify(previousSecret, previousSignature);
 }
-export function projectDiditStatus(status) { return DIDIT_STATUSES.has(status) ? 'pending' : null; }
+export function projectDiditStatus(status, environment, decision) {
+  if (!DIDIT_STATUSES.has(status) || !['sandbox', 'live'].includes(environment)) return null;
+  // Sandbox verdicts are deterministic simulations, never proof of identity.
+  if (environment === 'sandbox') return 'pending';
+  if (status === 'Declined') return 'rejected';
+  if (status !== 'Approved') return 'pending';
+  const hasApprovedFeature = key => Array.isArray(decision?.[key]) && decision[key].length > 0 &&
+    decision[key].every(item => item && item.status === 'Approved');
+  return hasApprovedFeature('id_verifications') &&
+    hasApprovedFeature('liveness_checks') &&
+    hasApprovedFeature('face_matches') ? 'verified' : 'pending';
+}
 export function isDiditStatus(value) { return DIDIT_STATUSES.has(value); }
 export function isDiditUuid(value) { return typeof value === 'string' && UUID_PATTERN.test(value); }
 export async function createDiditSession({ userId, env = process.env, fetchImpl = fetch, callbackOrigin = env.APP_ORIGIN || 'http://localhost:3000' }) {
@@ -70,5 +85,5 @@ export async function createDiditSession({ userId, env = process.env, fetchImpl 
     url = new URL(result.url);
     if (url.protocol !== 'https:' || url.hostname !== 'verify.didit.me' || url.username || url.password || url.port) throw new Error('bad_url');
   } catch { throw new Error('didit_session_response_invalid'); }
-  return { sessionId: result.session_id, verificationUrl: url.toString(), providerStatus: DIDIT_STATUSES.has(result.status) ? result.status : 'Not Started' };
+  return { sessionId: result.session_id, verificationUrl: url.toString(), providerStatus: DIDIT_STATUSES.has(result.status) ? result.status : 'Not Started', environment: env.DIDIT_ENVIRONMENT };
 }
