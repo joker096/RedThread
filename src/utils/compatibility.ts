@@ -18,58 +18,107 @@ export function calculateCompatibility(
   const greenFlags: string[] = [];
   const frictionPoints: string[] = [];
 
-  // 1. Intent match
-  if (myIntent === target.intent) {
-    familyScore += 20;
-    valuesScore += 15;
-    if (target.intent === 'marriage_family') {
-      greenFlags.push('Общая цель: создание крепкой семьи и брак в ближайшее время');
+  // 1. Relationship intent: distinguish a shared goal from compatible-but-different
+  // expectations. Every supported intent pair is handled explicitly; unknown values
+  // are neutral rather than silently treated as a match.
+  const supportedIntents = new Set(['marriage_family', 'serious_relationship', 'cohabitation', 'not_sure']);
+  const ownIntent = typeof myIntent === 'string' ? myIntent.trim() : '';
+  const targetIntent = typeof target.intent === 'string' ? target.intent.trim() : '';
+  if (supportedIntents.has(ownIntent) && supportedIntents.has(targetIntent)) {
+    if (ownIntent === targetIntent) {
+      familyScore += 20;
+      valuesScore += 15;
+      greenFlags.push(ownIntent === 'marriage_family'
+        ? 'Общая цель: создание семьи и официальный брак'
+        : 'Совпадают заявленные намерения в отношениях');
     } else {
-      greenFlags.push('Совпадение долгосрочных жизненных намерений');
+      const pair = new Set([ownIntent, targetIntent]);
+      if (pair.has('marriage_family') && pair.has('not_sure')) {
+        familyScore -= 30;
+        frictionPoints.push('Разный темп: один готов к созданию семьи, другой пока не определился');
+      } else if (pair.has('marriage_family') && pair.has('cohabitation')) {
+        familyScore -= 25;
+        valuesScore -= 10;
+        frictionPoints.push('Разные ожидания от официального брака и совместного проживания');
+      } else if (pair.has('marriage_family') && pair.has('serious_relationship')) {
+        familyScore -= 10;
+        frictionPoints.push('Один明确 обозначил цель брака, другой пока говорит о серьёзных отношениях без такого уточнения');
+      } else if (pair.has('not_sure')) {
+        familyScore -= 20;
+        frictionPoints.push('Один из участников пока не определился с форматом отношений');
+      } else {
+        familyScore -= 10;
+        frictionPoints.push('Намерения близки, но предполагают разный формат отношений');
+      }
     }
-  } else if (
-    (myIntent === 'marriage_family' && target.intent === 'not_sure') ||
-    (myIntent === 'not_sure' && target.intent === 'marriage_family')
-  ) {
-    familyScore -= 30;
-    frictionPoints.push('Разный темп: один готов к семье, другой пока не уверен');
   }
 
-  // 2. Crucial answer: Marriage & Kids
-  if (myAnswers.marriage_and_kids === target.crucialAnswers.marriage_and_kids) {
+  // Empty or malformed answers are missing information, not evidence of a match.
+  const normalizeAnswer = (value: unknown): string | null => {
+    if (typeof value !== 'string') return null;
+    const normalized = value.trim().normalize('NFKC').toLocaleLowerCase();
+    return normalized.length > 0 && normalized.length <= 500 ? normalized : null;
+  };
+  const compareAnswer = (own: unknown, other: unknown): boolean | null => {
+    const left = normalizeAnswer(own);
+    const right = normalizeAnswer(other);
+    return left === null || right === null ? null : left === right;
+  };
+
+  // 2. Family plans and children
+  const familyAnswersMatch = compareAnswer(myAnswers?.marriage_and_kids, target.crucialAnswers?.marriage_and_kids);
+  if (familyAnswersMatch === true) {
     familyScore += 15;
-    greenFlags.push('Синхронность взглядов на детей и родительские роли');
-  } else {
-    frictionPoints.push('Возможные разногласия по срокам появления детей');
+    greenFlags.push('Совпадают заявленные взгляды на детей и родительские роли');
+  } else if (familyAnswersMatch === false) {
+    familyScore -= 20;
+    frictionPoints.push('Возможны разногласия по желанию иметь детей или срокам их появления');
   }
 
   // 3. Finances
-  if (myAnswers.finances === target.crucialAnswers.finances) {
+  const financeAnswersMatch = compareAnswer(myAnswers?.finances, target.crucialAnswers?.finances);
+  if (financeAnswersMatch === true) {
     valuesScore += 15;
-    greenFlags.push('Одинаковое понимание семейного бюджета и финансовой ответственности');
-  } else {
-    frictionPoints.push('Разные ожидания от распределения расходов и заработка в паре');
+    greenFlags.push('Совпадают ожидания от семейного бюджета и финансовой ответственности');
+  } else if (financeAnswersMatch === false) {
+    valuesScore -= 15;
+    frictionPoints.push('Разные ожидания от распределения расходов и финансовой ответственности');
   }
 
-  // 4. Free time & lifestyle
-  if (myAnswers.free_time === target.crucialAnswers.free_time) {
+  // 4. Free time and lifestyle
+  const lifestyleAnswersMatch = compareAnswer(myAnswers?.free_time, target.crucialAnswers?.free_time);
+  if (lifestyleAnswersMatch === true) {
     lifestyleScore += 20;
     greenFlags.push('Похожий формат отдыха и свободного времени');
-  } else {
+  } else if (lifestyleAnswersMatch === false) {
+    lifestyleScore -= 10;
     frictionPoints.push('Разные предпочтения по отдыху и свободному времени');
   }
 
-  // 5. Conflict resolution
-  if (myAnswers.conflict_resolution === target.crucialAnswers.conflict_resolution) {
+  // 5. Conflict resolution. Similar answers are a preference match, not proof
+  // that either person is mature or free of manipulative behaviour.
+  const conflictAnswersMatch = compareAnswer(myAnswers?.conflict_resolution, target.crucialAnswers?.conflict_resolution);
+  if (conflictAnswersMatch === true) {
     communicationScore += 20;
     temperamentScore += 15;
-    greenFlags.push('Зрелый стиль урегулирования конфликтов без манипуляций');
-  } else {
-    frictionPoints.push('Разные паттерны в стрессе: одному нужно обсудить сразу, другому остыть');
+    greenFlags.push('Похожие предпочтения в обсуждении и разрешении конфликтов');
+  } else if (conflictAnswersMatch === false) {
+    communicationScore -= 15;
+    temperamentScore -= 10;
+    frictionPoints.push('Различаются предпочтения по тому, как обсуждать разногласия и справляться со стрессом');
   }
 
-  // 6. Common interests boost
-  const commonInterests = myInterests.filter(i => target.interests.includes(i));
+  // 6. Common interests: normalize and deduplicate so case or duplicate values
+  // cannot inflate the score.
+  const normalizeInterest = (value: unknown): string | null =>
+    typeof value === 'string' && value.trim()
+      ? value.trim().normalize('NFKC').toLocaleLowerCase()
+      : null;
+  const targetInterests = new Set((Array.isArray(target.interests) ? target.interests : [])
+    .map(normalizeInterest).filter((value): value is string => value !== null));
+  const commonInterests = [...new Set((Array.isArray(myInterests) ? myInterests : [])
+    .map(normalizeInterest).filter((value): value is string => value !== null))]
+    .filter(interest => targetInterests.has(interest));
   if (commonInterests.length >= 2) {
     lifestyleScore += 10;
     greenFlags.push(`Общие увлечения: ${commonInterests.slice(0, 3).join(', ')}`);
