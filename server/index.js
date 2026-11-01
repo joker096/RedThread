@@ -4128,15 +4128,6 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
       await client.query('ROLLBACK');
       return res.status(409).json({ error: 'gift_request_not_actionable' });
     }
-    // Decline remains available as a protective action even when identity
-    // verification is absent or revoked. Acceptance requires both participants
-    // to retain their trusted, current identity levels.
-    if (action === 'accept' &&
-        (!order.sender_identity_verified || !order.recipient_identity_verified ||
-         !order.sender_l3_approved || !order.recipient_l3_approved)) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'gift_identity_verification_required' });
-    }
     if (order.match_status !== 'active' || order.has_block === true ||
         order.has_open_report === true || order.safety_restricted === true) {
       await client.query('ROLLBACK');
@@ -4173,6 +4164,15 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
       }
       await client.query('COMMIT');
       return res.status(409).json({ error: 'gift_request_not_actionable' });
+    }
+
+    // Expiry and other terminal safety transitions must be committed even if
+    // a participant has since lost identity eligibility. Only acceptance is gated.
+    if (action === 'accept' &&
+        (!order.sender_identity_verified || !order.recipient_identity_verified ||
+         !order.sender_l3_approved || !order.recipient_l3_approved)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_identity_verification_required' });
     }
 
     if (action === 'accept') {
