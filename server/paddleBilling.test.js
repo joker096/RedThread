@@ -578,6 +578,10 @@ test('a new subscription may replace a terminal prior subscription but not an ac
     const created = await capture('subscription.created', 'evt_new_subscription');
     assert.ok(created, 'expected the new subscription lifecycle update');
     assert.equal(created.params[8], true, 'subscription.created may replace an already terminal subscription');
+    assert.match(created.sql, /paddle_subscription_id IS DISTINCT FROM \$3 AND lower\(paddle_subscription_status\) IN \('canceled', 'completed'\)/,
+      'a terminal prior subscription may be replaced only by a different provider subscription ID');
+    assert.match(created.sql, /paddle_subscription_id = \$3 AND COALESCE\(lower\(paddle_subscription_status\), ''\) NOT IN \('canceled', 'completed'\)/,
+      'a same-ID created event may finish first-time linking, but must never resurrect a terminal subscription');
     assert.match(created.sql, /lower\(paddle_subscription_status\) IN \('canceled', 'completed'\)/);
 
     const updated = await capture('subscription.updated', 'evt_updated_subscription');
