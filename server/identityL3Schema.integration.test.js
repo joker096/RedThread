@@ -55,6 +55,8 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       );
       assert.ok(decisionConstraints.rows.some(row => /decision_reason_code/.test(row.definition)),
         'moderator decisions must carry a bounded reason code');
+      assert.ok(decisionConstraints.rows.some(row => /processing_completed_at/.test(row.definition)),
+        'review decisions must not bypass completed media processing');
 
       const indexes = await client.query(
         `SELECT indexname, indexdef FROM pg_indexes
