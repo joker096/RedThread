@@ -4,7 +4,7 @@ Vow uses Didit V3 hosted verification sessions. The current adapter is deliberat
 
 ## Didit setup
 
-1. Create a Didit account and a separate **Sandbox** application at https://business.didit.me/.
+1. Create a Didit account and a separate **Sandbox** application at https://business.didit.me/. Sandbox has separate keys and workflows from Live; Didit says a Live key can spend real credits even when the local environment variable says sandbox. Confirm the console's Sandbox banner and selected application before setting `DIDIT_SANDBOX_KEY_CONFIRMED=true`.
 2. Create a KYC workflow for Vow. For a free-tier candidate, select only ID Verification, Passive Liveness, Face Match 1:1 and Device & IP Analysis. Do not enable AML, active liveness, NFC, phone/email verification, white-label/custom branding, age estimation or other paid modules.
 3. Confirm the current Billing & Plan page for the organization before activation. Didit's help centre announced a monthly credit-model change for 1 November 2026; do not rely on historical free-tier wording or assume over-quota usage is blocked automatically.
 4. Copy the workflow UUID and application UUID from the Didit console.
@@ -13,6 +13,7 @@ Vow uses Didit V3 hosted verification sessions. The current adapter is deliberat
 
 ```dotenv
 DIDIT_ENVIRONMENT=sandbox
+DIDIT_SANDBOX_KEY_CONFIRMED=false
 DIDIT_API_KEY=
 DIDIT_WORKFLOW_ID=
 DIDIT_APPLICATION_ID=
@@ -20,7 +21,7 @@ DIDIT_WEBHOOK_SECRET=
 DIDIT_WEBHOOK_SECRET_PREVIOUS=
 ```
 
-## Runtime flow
+Sandbox sessions are not billable and are limited to 500 session creations per 24 hours. However, Didit states that media captured in Sandbox (documents, selfies and liveness video) is stored just as in Live. Use only provider-supplied sample documents and test data; never upload a real identity document, selfie or real personal data to this Sandbox workflow.\n\n## Runtime flow
 
 - An authenticated Vow user starts verification from the Trust Center.
 - Vow creates a Didit V3 session server-side with the user's opaque account UUID in `vendor_data`; the browser receives only the hosted verification URL.
