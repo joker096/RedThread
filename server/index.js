@@ -1957,6 +1957,44 @@ app.delete('/api/assessment', validateRequestOrigin, requireSession, async (req,
   }
 });
 
+app.get('/api/trust/summary', requireSession, async (req, res) => {
+  try {
+    const read = await withActiveAccountRead(req.authUser.id, client => client.query(
+      `SELECT u.email_verified_at AS "emailVerifiedAt",
+              u.phone_verified_at AS "phoneVerifiedAt",
+              COALESCE(
+                json_agg(
+                  json_build_object(
+                    'status', a.review_status,
+                    'createdAt', a.created_at
+                  ) ORDER BY a.created_at DESC
+                ) FILTER (WHERE a.id IS NOT NULL),
+                '[]'::json
+              ) AS photos
+       FROM users u
+       JOIN profiles p ON p.user_id = u.id
+       LEFT JOIN photo_assets a
+         ON a.user_id = u.id
+        AND ('/api/photos/' || a.id::text) = ANY(COALESCE(p.photo_urls, ARRAY[]::text[]))
+       WHERE u.id = $1 AND u.status = 'active'
+       GROUP BY u.id, u.email_verified_at, u.phone_verified_at`,
+      [req.authUser.id]
+    ));
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    const account = read.value.rows[0];
+    if (!account) return res.status(404).json({ error: 'trust_summary_not_found' });
+    return res.json({
+      email: { status: account.emailVerifiedAt ? 'verified' : 'unverified', verifiedAt: account.emailVerifiedAt },
+      phone: { status: account.phoneVerifiedAt ? 'verified' : 'not_verified', verifiedAt: account.phoneVerifiedAt },
+      identity: { status: 'not_configured' },
+      photos: account.photos
+    });
+  } catch (error) {
+    console.error('Trust summary read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'trust_summary_unavailable' });
+  }
+});
+
 app.get('/api/profiles/me', requireSession, async (req, res) => {
   try {
     const read = await withActiveAccountRead(req.authUser.id, client => client.query(
