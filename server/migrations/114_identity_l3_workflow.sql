@@ -72,9 +72,10 @@ CREATE INDEX identity_l3_expiry_idx
   WHERE status = 'approved';
 CREATE INDEX identity_l3_current_decision_idx
   ON identity_l3_submissions(
-    user_id, approved_at DESC, (COALESCE(revoked_at, approved_at)) DESC, created_at DESC, id DESC
+    user_id, (COALESCE(approved_at, reviewed_at)) DESC,
+    (COALESCE(revoked_at, approved_at, reviewed_at)) DESC, created_at DESC, id DESC
   )
-  WHERE status IN ('approved', 'revoked', 'expired');
+  WHERE status IN ('approved', 'rejected', 'revoked', 'expired');
 
 CREATE TABLE identity_l3_decision_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -222,8 +223,10 @@ BEGIN
   SELECT s.status, s.expires_at
   FROM identity_l3_submissions s
   WHERE s.user_id = p_user_id
-    AND s.status IN ('approved', 'revoked', 'expired')
-  ORDER BY s.approved_at DESC, COALESCE(s.revoked_at, s.approved_at) DESC, s.created_at DESC, s.id DESC
+    AND s.status IN ('approved', 'rejected', 'revoked', 'expired')
+  ORDER BY COALESCE(s.approved_at, s.reviewed_at) DESC,
+           COALESCE(s.revoked_at, s.approved_at, s.reviewed_at) DESC,
+           s.created_at DESC, s.id DESC
   LIMIT 1
   FOR SHARE;
 END;
