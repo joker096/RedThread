@@ -227,7 +227,7 @@ test('auth API supports registration, session lookup, logout and login', {
     const trustPayload = await trustSummary.json();
     assert.ok(['verified', 'unverified'].includes(trustPayload.email.status));
     assert.ok(['verified', 'not_verified'].includes(trustPayload.phone.status));
-    assert.deepEqual(trustPayload.identity, { status: 'not_configured' });
+    assert.deepEqual(trustPayload.identity, { status: 'not_configured', l3: { status: 'not_started', decisionStatus: 'none' } });
     assert.ok(Array.isArray(trustPayload.photos));
     assert.ok(trustPayload.photos.length <= 6);
     assert.equal(JSON.stringify(trustPayload).includes('storagePath'), false,
@@ -1520,6 +1520,12 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.ok(l3AuditEvents.rows.some(row => row.event_type === expectedEvent),
         `L3 transition ${expectedEvent} must be recorded transactionally`);
     }
+    const maleTrustSummary = await request('/api/trust/summary', { headers: { Cookie: maleCookie } });
+    assert.equal(maleTrustSummary.status, 200);
+    const maleTrustIdentity = (await maleTrustSummary.json()).identity;
+    assert.equal(maleTrustIdentity.l3.status, 'approved');
+    assert.equal(maleTrustIdentity.l3.decisionStatus, 'approved');
+    assert.equal(typeof maleTrustIdentity.l3.expiresAt, 'string');
 
     // A newer revocation must supersede an older still-unexpired approval;
     // authorization must never fall back to that stale approval.
@@ -1640,6 +1646,11 @@ test('auth API supports registration, session lookup, logout and login', {
     );
     assert.deepEqual(rejectedDecision.rows, [{ status: 'rejected', is_active: false }],
       'a newer rejected re-verification must also invalidate older approval history');
+    const rejectedTrustSummary = await request('/api/trust/summary', { headers: { Cookie: secondMaleCookie } });
+    assert.equal(rejectedTrustSummary.status, 200);
+    const rejectedTrustIdentity = (await rejectedTrustSummary.json()).identity;
+    assert.equal(rejectedTrustIdentity.l3.status, 'rejected');
+    assert.equal(rejectedTrustIdentity.l3.decisionStatus, 'rejected');
     const assessmentAnswers = {
       relationshipGoal: 'marriage_soon',
       children: 'want_soon',
