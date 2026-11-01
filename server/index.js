@@ -2333,11 +2333,11 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
               (SELECT l3.status FROM identity_l3_submissions l3
                WHERE l3.user_id = p.user_id AND l3.status = 'approved'
                  AND l3.expires_at > NOW()
-               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1) AS l3_status,
+               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1 FOR SHARE) AS l3_status,
               (SELECT l3.expires_at FROM identity_l3_submissions l3
                WHERE l3.user_id = p.user_id AND l3.status = 'approved'
                  AND l3.expires_at > NOW()
-               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1) AS l3_expires_at
+               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1 FOR SHARE) AS l3_expires_at
        FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
        WHERE p.user_id = $1 FOR SHARE OF p`,
       [req.authUser.id]
@@ -2467,11 +2467,11 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
               (SELECT l3.status FROM identity_l3_submissions l3
                WHERE l3.user_id = p.user_id AND l3.status = 'approved'
                  AND l3.expires_at > NOW()
-               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1) AS l3_status,
+               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1 FOR SHARE) AS l3_status,
               (SELECT l3.expires_at FROM identity_l3_submissions l3
                WHERE l3.user_id = p.user_id AND l3.status = 'approved'
                  AND l3.expires_at > NOW()
-               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1) AS l3_expires_at
+               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1 FOR SHARE) AS l3_expires_at
        FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
        WHERE p.user_id = $1 FOR SHARE OF p`,
       [req.authUser.id]
@@ -2545,11 +2545,11 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
               (SELECT l3.status FROM identity_l3_submissions l3
                WHERE l3.user_id = p.user_id AND l3.status = 'approved'
                  AND l3.expires_at > NOW()
-               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1) AS l3_status,
+               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1 FOR SHARE) AS l3_status,
               (SELECT l3.expires_at FROM identity_l3_submissions l3
                WHERE l3.user_id = p.user_id AND l3.status = 'approved'
                  AND l3.expires_at > NOW()
-               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1) AS l3_expires_at
+               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1 FOR SHARE) AS l3_expires_at
        FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
        WHERE p.user_id = $1 FOR SHARE OF p`,
       [req.authUser.id]
@@ -2700,11 +2700,11 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
               (SELECT l3.status FROM identity_l3_submissions l3
                WHERE l3.user_id = p.user_id AND l3.status = 'approved'
                  AND l3.expires_at > NOW()
-               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1) AS l3_status,
+               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1 FOR SHARE) AS l3_status,
               (SELECT l3.expires_at FROM identity_l3_submissions l3
                WHERE l3.user_id = p.user_id AND l3.status = 'approved'
                  AND l3.expires_at > NOW()
-               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1) AS l3_expires_at
+               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1 FOR SHARE) AS l3_expires_at
        FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
        WHERE p.user_id = $1 FOR SHARE OF p`,
       [req.authUser.id]
@@ -3031,11 +3031,11 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
               (SELECT l3.status FROM identity_l3_submissions l3
                WHERE l3.user_id = p.user_id AND l3.status = 'approved'
                  AND l3.expires_at > NOW()
-               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1) AS l3_status,
+               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1 FOR SHARE) AS l3_status,
               (SELECT l3.expires_at FROM identity_l3_submissions l3
                WHERE l3.user_id = p.user_id AND l3.status = 'approved'
                  AND l3.expires_at > NOW()
-               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1) AS l3_expires_at
+               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1 FOR SHARE) AS l3_expires_at
        FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
        WHERE p.user_id = $1 FOR SHARE OF p`,
       [req.authUser.id]
