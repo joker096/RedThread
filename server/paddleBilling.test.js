@@ -1660,7 +1660,7 @@ test('Paddle checkout reconciles a provider transaction when the account becomes
   const route = source.slice(start, end);
   assert.match(route, /const recoveredStatus = providerTransactionStatus === 'canceled'/);
   assert.match(route, /SET transaction_id = COALESCE\(transaction_id, \$2\)/);
-  assert.match(route, /status = \$4, updated_at = NOW\(\)/);
+  assert.match(route, /status = CASE WHEN transaction_id IS NULL OR transaction_id = \$2 THEN \$4 ELSE 'reconciliation_required' END/s);
   assert.match(route, /AND status = 'creating'/);
   assert.match(route, /providerTransactionStatus = canceledTransaction\.status/);
   assert.match(route, /paddle_checkout_reconciliation_required/);
