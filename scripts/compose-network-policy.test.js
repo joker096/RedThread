@@ -12,9 +12,11 @@ test('Docker database network is isolated from the public web proxy container', 
   };
   const networksFor = name => {
     const block = serviceBlock(name);
-    const match = /^    networks: \\[(.*?)\\]$/m.exec(block);
-    assert.ok(match, `missing explicit network assignment for ${name}`);
-    return match[1].split(',').map(value => value.trim());
+    const line = block.split('\\n').find(value => value.trimStart().startsWith('networks:'));
+    assert.ok(line, `missing explicit network assignment for ${name}`);
+    const value = line.trim().slice('networks:'.length).trim();
+    assert.ok(value.startsWith('[') && value.endsWith(']'), `invalid network list for ${name}`);
+    return value.slice(1, -1).split(',').map(item => item.trim());
   };
 
   assert.deepEqual(networksFor('db'), ['backend']);
@@ -24,8 +26,10 @@ test('Docker database network is isolated from the public web proxy container', 
   assert.deepEqual(networksFor('api'), ['backend', 'frontend', 'egress']);
   assert.deepEqual(networksFor('web'), ['frontend']);
 
-  assert.match(compose, /^  backend:\\n    internal: true$/m);
-  assert.match(compose, /^  frontend:\\n    internal: true$/m);
+  assert.ok(compose.includes(`  backend:
+    internal: true`));
+  assert.ok(compose.includes(`  frontend:
+    internal: true`));
   assert.doesNotMatch(serviceBlock('db'), /^    ports:/m,
     'PostgreSQL must not publish a host port');
 });
