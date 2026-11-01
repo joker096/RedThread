@@ -1602,8 +1602,8 @@ test('Paddle checkout route reuses its checked-out client instead of querying th
   assert.ok(route.includes('await client.query('),
     'checkout attempt persistence must use the checked-out client');
 
-  const committed = route.indexOf("await client.query('COMMIT');\\n    attemptStarted = true;");
-  const released = route.indexOf('client.release();\\n    client = null;', committed);
+  const committed = route.indexOf("await client.query('COMMIT');\n    attemptStarted = true;");
+  const released = route.indexOf('client.release();\n    client = null;', committed);
   const providerRequest = route.indexOf("await fetch('https://sandbox-api.paddle.com/transactions'", released);
   const responseParsed = route.indexOf('const payload = await response.json()', providerRequest);
   const reconnected = route.indexOf('client = await pool.connect()', responseParsed);
