@@ -22,11 +22,15 @@ export async function acquireGiftOrderRateLocks(client, ...userIds) {
 }
 
 export async function hasPendingRecipientDecline(client, orderId) {
+  // Reconciliation tasks are deduplicated per order and retain only the first
+  // trigger reason. The immutable audit event is the source of truth for the
+  // recipient's decline intent, even when another safety/expiry task came first.
   const pending = await client.query(
     `SELECT 1
-     FROM gift_payment_reconciliation_tasks
+     FROM gift_delivery_order_events
      WHERE order_id = $1
-       AND reason = 'recipient_declined_active_payment'
+       AND event_type = 'payment_reconciliation_required'
+       AND metadata->>'reason' = 'recipient_declined_active_payment'
      LIMIT 1`,
     [orderId]
   );
