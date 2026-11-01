@@ -61,6 +61,8 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       assert.ok(eventChecks.rows.some(row => /event_type/.test(row.definition) &&
         /actor_user_id/.test(row.definition) && /user_id/.test(row.definition)),
         'applicants may be actors, but approval/rejection actors must be independent reviewers');
+      assert.ok(eventChecks.rows.some(row => /actor_user_id IS NOT NULL/.test(row.definition)),
+        'approval and rejection audit events must identify their independent reviewer');
 
       const fn = await client.query(
         `SELECT pg_get_functiondef('guard_identity_l3_submission_transition()'::regprocedure) AS definition`
