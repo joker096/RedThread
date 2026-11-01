@@ -15,6 +15,7 @@ import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
 import { createDiditSession, isDiditConfigured, isDiditStatus, projectDiditStatus, verifyDiditWebhook, isDiditUuid } from './diditIdentity.js';
 import { canInteract as canIdentityInteract } from './identityAccessPolicy.js';
+import { DIDIT_FREE_MONTHLY_SESSION_LIMIT } from './diditQuota.js';
 import express from 'express';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import { withPooledTransaction, rollbackPooledTransaction } from './withPooledTransaction.js';
@@ -2052,9 +2053,9 @@ app.post('/api/identity/didit/session', validateRequestOrigin, requireSession, p
            ON CONFLICT (month_start) DO UPDATE
              SET reserved_count = didit_monthly_quota_usage.reserved_count + 1,
                  updated_at = statement_timestamp()
-             WHERE didit_monthly_quota_usage.reserved_count < 500
+             WHERE didit_monthly_quota_usage.reserved_count < $2
            RETURNING reserved_count`,
-          [month.rows[0].month_start]
+          [month.rows[0].month_start, DIDIT_FREE_MONTHLY_SESSION_LIMIT]
         );
         if (!usage.rowCount) return { kind: 'quota' };
       }
@@ -2072,7 +2073,7 @@ app.post('/api/identity/didit/session', validateRequestOrigin, requireSession, p
     if (reservation.kind === 'inactive') return res.status(401).json({ error: 'account_not_active' });
     if (reservation.kind === 'verified') return res.status(409).json({ error: 'identity_already_verified' });
     if (reservation.kind === 'in_progress') return res.status(409).json({ error: 'identity_verification_in_progress' });
-    if (reservation.kind === 'quota') return res.status(429).json({ error: 'didit_monthly_free_quota_reached', monthlyLimit: 500 });
+    if (reservation.kind === 'quota') return res.status(429).json({ error: 'didit_monthly_free_quota_reached', monthlyLimit: DIDIT_FREE_MONTHLY_SESSION_LIMIT });
 
     // An ambiguous timeout deliberately keeps the reservation, preventing a retry
     // from accidentally creating a second billable provider session.
