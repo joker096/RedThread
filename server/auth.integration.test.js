@@ -2483,6 +2483,16 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.ok(consentHistoryBeforeDeletion.rows[0].count >= 1,
         'the account must have at least one consent-history row before deletion');
 
+      const diditSessionId = randomUUID();
+      const diditEventId = randomUUID();
+      await deletionSafetyDb.query(
+        "INSERT INTO identity_verifications (user_id, provider, provider_session_id, workflow_id, status, provider_status, provider_environment) VALUES ($1, 'didit', $2, $3, 'pending', 'Approved', 'sandbox')",
+        [registered.user.id, diditSessionId, randomUUID()]
+      );
+      await deletionSafetyDb.query(
+        "INSERT INTO identity_verification_events (event_id, user_id, provider_session_id, provider_event_at) VALUES ($1, $2, $3, NOW())",
+        [diditEventId, registered.user.id, diditSessionId]
+      );
       const staleMessageCountBefore = await deletionSafetyDb.query(
         'SELECT COUNT(*)::int AS count FROM messages WHERE match_id = $1 AND sender_id = $2',
         [matchPayload.match.id, registered.user.id]
@@ -2800,6 +2810,18 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       assert.equal(consentPreferencesAfterDeletion.rows[0].count, 0,
         'account deletion must purge the current advertising consent state as well');
+      const diditIdentityAfterDeletion = await deletionSafetyDb.query(
+        'SELECT COUNT(*)::int AS count FROM identity_verifications WHERE user_id = $1',
+        [registered.user.id]
+      );
+      assert.equal(diditIdentityAfterDeletion.rows[0].count, 0,
+        'account deletion must purge Didit identity session and sandbox decision metadata');
+      const diditEventsAfterDeletion = await deletionSafetyDb.query(
+        'SELECT COUNT(*)::int AS count FROM identity_verification_events WHERE user_id = $1',
+        [registered.user.id]
+      );
+      assert.equal(diditEventsAfterDeletion.rows[0].count, 0,
+        'account deletion must purge user-linked Didit webhook idempotency metadata');
       const adEventsAfterDeletion = await deletionSafetyDb.query(
         'SELECT COUNT(*)::int AS count FROM ad_events WHERE user_id = $1',
         [registered.user.id]
