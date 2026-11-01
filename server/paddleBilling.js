@@ -393,10 +393,25 @@ export async function processPaddleEvent(pool, rawEvent) {
       }
     } else if (eventType === 'transaction.canceled') {
       if (typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
+        // The cancellation webhook can arrive after Paddle creates the
+        // transaction but before the checkout HTTP response attaches its ID
+        // to the durable attempt. Bind by the immutable attempt metadata in
+        // that race; otherwise the webhook would be consumed while the row is
+        // still "creating", and the HTTP response could later resurrect it
+        // as pending using its stale draft/ready response.
         await client.query(
-          `UPDATE paddle_checkout_attempts SET status = 'canceled', updated_at = NOW()
-           WHERE transaction_id = $1 AND status IN ('pending', 'reconciliation_required')`,
-          [data.id]
+          `UPDATE paddle_checkout_attempts
+           SET transaction_id = COALESCE(transaction_id, $1),
+               status = 'canceled', updated_at = NOW()
+           WHERE (
+             ($2::uuid IS NOT NULL AND user_id = $2::uuid
+               AND attempt_id = $3::uuid AND plan = $4)
+             OR ($3::uuid IS NULL AND transaction_id = $1)
+           )
+             AND (transaction_id IS NULL OR transaction_id = $1)
+             AND status IN ('creating', 'pending', 'reconciliation_required')`,
+          [data.id, reconciliationContext?.userId || null,
+            reconciliationContext?.attemptId || null, reconciliationContext?.plan || null]
         );
       }
     } else if (eventType === 'customer.created' || eventType === 'customer.updated') {
