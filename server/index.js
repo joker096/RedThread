@@ -2067,7 +2067,11 @@ app.get('/api/trust/summary', requireSession, async (req, res) => {
     return res.json({
       email: { status: account.emailVerifiedAt ? 'verified' : 'unverified', verifiedAt: account.emailVerifiedAt },
       phone: { status: account.phoneVerifiedAt ? 'verified' : 'not_verified', verifiedAt: account.phoneVerifiedAt },
-      identity: { status: account.identityStatus || (isDiditConfigured() ? 'not_started' : 'not_configured'), providerStatus: account.identityProviderStatus || null, environment: account.identityProviderEnvironment || null },
+      identity: {
+        status: account.identityStatus || (isDiditConfigured() ? 'not_started' : 'not_configured'),
+        ...(account.identityProviderStatus ? { providerStatus: account.identityProviderStatus } : {}),
+        ...(account.identityProviderEnvironment ? { environment: account.identityProviderEnvironment } : {})
+      },
       photos: account.photos
     });
   } catch (error) {
