@@ -21,6 +21,7 @@ export function evaluateGiftOrderCreation(context, { now = Date.now() } = {}) {
   if (sender.accountStatus !== 'active' || recipient.accountStatus !== 'active') return deny('account_ineligible');
   if (sender.isAdult !== true || recipient.isAdult !== true) return deny('adult_accounts_required');
   if (sender.identityVerified !== true) return deny('sender_identity_not_verified');
+  if (recipient.identityVerified !== true) return deny('recipient_identity_not_verified');
   if (sender.safetyRestricted !== false || recipient.safetyRestricted !== false) return deny('safety_state_unavailable_or_restricted');
   if (typeof safety.snapshotAt !== 'string' || safety.snapshotAt.trim().length === 0) return deny('safety_snapshot_stale_or_invalid');
   const safetySnapshotTime = Date.parse(safety.snapshotAt);
