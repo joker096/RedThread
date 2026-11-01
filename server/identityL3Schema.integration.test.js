@@ -70,7 +70,15 @@ test('L3 schema persists metadata only and protects workflow decisions', {
             reviewed_at timestamptz,
             decision_reason_code text,
             approved_at timestamptz,
-            expires_at timestamptz
+            expires_at timestamptz,
+            storage_object_key text,
+            media_sha256 char(64),
+            media_mime_type text,
+            media_size_bytes bigint,
+            media_duration_seconds smallint,
+            uploaded_at timestamptz,
+            processing_completed_at timestamptz,
+            media_purged_at timestamptz
           ) ON COMMIT DROP
         `);
         await client.query(`
@@ -94,6 +102,35 @@ test('L3 schema persists metadata only and protects workflow decisions', {
         );
         await client.query('ROLLBACK TO SAVEPOINT reject_invalid_l3_transition');
         await client.query('RELEASE SAVEPOINT reject_invalid_l3_transition');
+
+        await client.query(
+          'UPDATE identity_l3_submission_trigger_test SET status = $1 WHERE id = $2',
+          ['upload_authorized', submissionId]
+        );
+        await client.query(
+          `UPDATE identity_l3_submission_trigger_test
+           SET status = 'uploaded', storage_object_key = 'private/l3/test-object',
+               media_sha256 = repeat('a', 64), media_mime_type = 'video/mp4',
+               media_size_bytes = 1024, media_duration_seconds = 30, uploaded_at = NOW()
+           WHERE id = $1`,
+          [submissionId]
+        );
+        await client.query('SAVEPOINT reject_l3_media_replacement');
+        await assert.rejects(
+          client.query(
+            `UPDATE identity_l3_submission_trigger_test
+             SET media_sha256 = repeat('b', 64) WHERE id = $1`,
+            [submissionId]
+          ),
+          error => error.code === '23514'
+        );
+        await client.query('ROLLBACK TO SAVEPOINT reject_l3_media_replacement');
+        await client.query('RELEASE SAVEPOINT reject_l3_media_replacement');
+        await client.query(
+          `UPDATE identity_l3_submission_trigger_test
+           SET storage_object_key = NULL, media_purged_at = NOW() WHERE id = $1`,
+          [submissionId]
+        );
 
         await client.query(`
           CREATE TEMP TABLE identity_l3_event_trigger_test (id integer PRIMARY KEY, event_type text)
