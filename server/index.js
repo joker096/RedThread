@@ -3665,6 +3665,11 @@ app.get('/api/gifts/matches', requireSession, requirePaidFeatures, profileAction
        WHERE (m.user_a_id = $1 OR m.user_b_id = $1)
          AND m.status = 'active'
          AND other.user_id = ANY($2::uuid[])
+         AND (other.gender <> 'male' OR EXISTS (
+           SELECT 1 FROM identity_verifications iv
+           WHERE iv.user_id = other.user_id AND iv.provider = 'didit'
+             AND iv.status = 'verified' AND iv.provider_environment = 'live'
+         ))
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = $1 AND b.blocked_id = other.user_id)
