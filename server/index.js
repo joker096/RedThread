@@ -14,6 +14,7 @@ import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSEN
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
 import { createDiditSession, isDiditConfigured, isDiditStatus, projectDiditStatus, verifyDiditWebhook, isDiditUuid } from './diditIdentity.js';
+import { canInteract as canIdentityInteract } from './identityAccessPolicy.js';
 import express from 'express';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import { withPooledTransaction, rollbackPooledTransaction } from './withPooledTransaction.js';
@@ -1766,6 +1767,11 @@ app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req,
          AND p.has_children IS NOT NULL
          AND p.birth_date IS NOT NULL
          AND u.status = 'active'
+         AND (p.gender <> 'male' OR EXISTS (
+           SELECT 1 FROM identity_verifications iv
+           WHERE iv.user_id = p.user_id AND iv.provider = 'didit'
+             AND iv.status = 'verified' AND iv.provider_environment = 'live'
+         ))
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = $1 AND b.blocked_id = p.user_id)
@@ -2409,6 +2415,19 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
     client = await pool.connect();
     await client.query('BEGIN');
     await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
+    const actorIdentity = await client.query(
+      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment
+       FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       WHERE p.user_id = $1 FOR SHARE OF p`,
+      [req.authUser.id]
+    );
+    const actor = actorIdentity.rows[0];
+    if (!actor || !canIdentityInteract({
+      gender: actor.gender, status: actor.identity_status, environment: actor.identity_environment
+    })) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2' });
+    }
     const targetResult = await client.query(
       `SELECT p.user_id, p.gender
        FROM profiles p
@@ -2828,6 +2847,19 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
     // Lock both accounts before revalidating the match. A deletion/suspension
     // that wins this lock must prevent a stale authenticated message from landing.
     await acquireGiftSafetyUserLocks(client, req.authUser.id, recipientId);
+    const actorIdentity = await client.query(
+      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment
+       FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       WHERE p.user_id = $1 FOR SHARE OF p`,
+      [req.authUser.id]
+    );
+    const actor = actorIdentity.rows[0];
+    if (!actor || !canIdentityInteract({
+      gender: actor.gender, status: actor.identity_status, environment: actor.identity_environment
+    })) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2' });
+    }
     const access = await client.query(
       `SELECT m.user_a_id, m.user_b_id
        FROM matches m
