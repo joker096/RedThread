@@ -159,6 +159,66 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       await client.query('BEGIN');
       try {
         await client.query(`
+          CREATE TEMP TABLE identity_l3_upload_token_trigger_test (
+            id uuid PRIMARY KEY,
+            submission_id uuid NOT NULL,
+            user_id uuid NOT NULL,
+            token_sha256 char(64) NOT NULL,
+            created_at timestamptz NOT NULL,
+            expires_at timestamptz NOT NULL,
+            consumed_at timestamptz,
+            revoked_at timestamptz
+          ) ON COMMIT DROP
+        `);
+        await client.query(`
+          CREATE TRIGGER identity_l3_upload_token_guard_test
+          BEFORE INSERT OR UPDATE ON identity_l3_upload_token_trigger_test
+          FOR EACH ROW EXECUTE FUNCTION guard_identity_l3_upload_token()
+        `);
+        const tokenId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+        await client.query(
+          `INSERT INTO identity_l3_upload_token_trigger_test
+           (id, submission_id, user_id, token_sha256, created_at, expires_at)
+           VALUES ($1, $2, $3, repeat('a', 64), NOW(), NOW() + INTERVAL '10 minutes')`,
+          [tokenId, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa']
+        );
+        await client.query('SAVEPOINT reject_l3_token_hash_mutation');
+        await assert.rejects(
+          client.query(
+            `UPDATE identity_l3_upload_token_trigger_test
+             SET token_sha256 = repeat('b', 64) WHERE id = $1`,
+            [tokenId]
+          ),
+          error => error.code === '23514'
+        );
+        await client.query('ROLLBACK TO SAVEPOINT reject_l3_token_hash_mutation');
+        await client.query('RELEASE SAVEPOINT reject_l3_token_hash_mutation');
+        await client.query(
+          'UPDATE identity_l3_upload_token_trigger_test SET consumed_at = NOW() WHERE id = $1',
+          [tokenId]
+        );
+        await client.query('SAVEPOINT reject_l3_token_replay');
+        await assert.rejects(
+          client.query(
+            'UPDATE identity_l3_upload_token_trigger_test SET consumed_at = NOW() WHERE id = $1',
+            [tokenId]
+          ),
+          error => error.code === '23514'
+        );
+        await client.query('ROLLBACK TO SAVEPOINT reject_l3_token_replay');
+        await client.query('RELEASE SAVEPOINT reject_l3_token_replay');
+        await client.query('SAVEPOINT reject_l3_token_revoke_after_consume');
+        await assert.rejects(
+          client.query(
+            'UPDATE identity_l3_upload_token_trigger_test SET revoked_at = NOW() WHERE id = $1',
+            [tokenId]
+          ),
+          error => error.code === '23514'
+        );
+        await client.query('ROLLBACK TO SAVEPOINT reject_l3_token_revoke_after_consume');
+        await client.query('RELEASE SAVEPOINT reject_l3_token_revoke_after_consume');
+
+        await client.query(`
           CREATE TEMP TABLE identity_l3_submission_trigger_test (
             id uuid PRIMARY KEY,
             user_id uuid NOT NULL,
