@@ -181,7 +181,10 @@ BEGIN
     NEW.media_size_bytes IS DISTINCT FROM OLD.media_size_bytes OR
     NEW.media_duration_seconds IS DISTINCT FROM OLD.media_duration_seconds OR
     NEW.uploaded_at IS DISTINCT FROM OLD.uploaded_at OR
-    NEW.processing_completed_at IS DISTINCT FROM OLD.processing_completed_at OR
+    (NEW.processing_completed_at IS DISTINCT FROM OLD.processing_completed_at AND NOT (
+      OLD.status = 'uploaded' AND NEW.status = 'processing'
+      AND OLD.processing_completed_at IS NULL AND NEW.processing_completed_at IS NOT NULL
+    )) OR
     (NEW.storage_object_key IS DISTINCT FROM OLD.storage_object_key AND NOT (
       OLD.media_purged_at IS NULL AND NEW.media_purged_at IS NOT NULL
       AND OLD.storage_object_key IS NOT NULL AND NEW.storage_object_key IS NULL
