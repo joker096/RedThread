@@ -13,7 +13,9 @@ test('a pending recipient decline blocks a later gift acceptance', async () => {
   assert.equal(await hasPendingRecipientDecline(client, 'order-123'), true);
   assert.deepEqual(captured.values, ['order-123']);
   assert.match(captured.sql, /recipient_declined_active_payment/);
-  assert.match(captured.sql, /gift_payment_reconciliation_tasks/);
+  assert.match(captured.sql, /payment_reconciliation_required/);
+  assert.match(captured.sql, /metadata->>'reason'/);
+  assert.match(captured.sql, /gift_delivery_order_events/);
 });
 
 test('a gift remains acceptable only when no decline reconciliation intent exists', async () => {
