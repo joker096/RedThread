@@ -667,6 +667,36 @@ test('auth API supports registration, session lookup, logout and login', {
           status: 'awaiting_recipient_consent',
           payment_status: 'authorized'
         }, 'pending reconciliation must not falsely mark the order declined or payment voided');
+
+        // Exercise the public decision route before expiry/opt-out can reject
+        // the request for an unrelated reason. Reset only this integration
+        // test's shared profile limiter so the assertion reaches the guard.
+        await giftTestDb.query(
+          "DELETE FROM api_rate_limit_counters WHERE key LIKE 'profile:%'"
+        );
+        const acceptAfterPendingDecline = await request(
+          `/api/gifts/orders/${activePaymentReference}/decision`,
+          {
+            method: 'POST',
+            headers: { Cookie: secondCookie },
+            body: JSON.stringify({ action: 'accept' })
+          }
+        );
+        assert.equal(acceptAfterPendingDecline.status, 409,
+          'a recipient cannot accept a gift after saving a decline that requires payment reconciliation');
+        assert.deepEqual(await acceptAfterPendingDecline.json(), {
+          error: 'gift_request_not_actionable'
+        });
+        const stillPendingAfterRejectedAccept = await giftTestDb.query(
+          'SELECT status, payment_status, recipient_consent_at FROM gift_delivery_orders WHERE id = $1',
+          [activePaymentOrderId]
+        );
+        assert.deepEqual(stillPendingAfterRejectedAccept.rows[0], {
+          status: 'awaiting_recipient_consent',
+          payment_status: 'authorized',
+          recipient_consent_at: null
+        }, 'a rejected acceptance must not create consent or alter the active payment');
+
         await giftTestDb.query(
           'UPDATE gift_delivery_orders SET expires_at = NOW() - INTERVAL \'1 minute\' WHERE id = $1',
           [activePaymentOrderId]
