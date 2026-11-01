@@ -1766,9 +1766,10 @@ test('auth API supports registration, session lookup, logout and login', {
     const firstPageData = await firstSearchPage.json();
     const secondPageData = await secondSearchPage.json();
     assert.equal(firstPageData.profiles.length, 1);
-    assert.equal(secondPageData.profiles.length, 1,
-      'the second locked search page must not reapply its offset to an already selected candidate page');
-    assert.notEqual(firstPageData.profiles[0].id, secondPageData.profiles[0].id);
+    assert.equal(secondPageData.profiles.length, 0,
+      'the second page must not expose the L2-only male profile excluded by the active L3 visibility gate');
+    assert.equal(firstPageData.profiles.length, 1,
+      'the only eligible male profile with active L2 and L3 approval remains discoverable');
 
     const wrongLocation = await request('/api/profiles/search?country=' + encodeURIComponent('Россия'), {
       headers: { Cookie: secondCookie }
