@@ -2597,6 +2597,11 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.ok(consentHistoryBeforeDeletion.rows[0].count >= 1,
         'the account must have at least one consent-history row before deletion');
 
+      const l3DraftId = randomUUID();
+      await deletionSafetyDb.query(
+        'INSERT INTO identity_l3_submissions (id, user_id) VALUES ($1, $2)',
+        [l3DraftId, registered.user.id]
+      );
       const diditSessionId = randomUUID();
       const diditEventId = randomUUID();
       await deletionSafetyDb.query(
@@ -2956,6 +2961,12 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       assert.equal(diditEventsAfterDeletion.rows[0].count, 0,
         'account deletion must purge user-linked Didit webhook idempotency metadata');
+      const l3SubmissionsAfterDeletion = await deletionSafetyDb.query(
+        'SELECT COUNT(*)::int AS count FROM identity_l3_submissions WHERE user_id = $1',
+        [registered.user.id]
+      );
+      assert.equal(l3SubmissionsAfterDeletion.rows[0].count, 0,
+        'account deletion must purge L3 submission metadata and decision history when no media object is present');
       const adEventsAfterDeletion = await deletionSafetyDb.query(
         'SELECT COUNT(*)::int AS count FROM ad_events WHERE user_id = $1',
         [registered.user.id]
