@@ -2423,6 +2423,11 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
        WHERE p.user_id = $1 AND u.status = 'active' AND p.is_visible = TRUE
          AND p.birth_date IS NOT NULL
          AND p.children_disclosure_confirmed_at IS NOT NULL AND p.has_children IS NOT NULL
+         AND (p.gender <> 'male' OR EXISTS (
+           SELECT 1 FROM identity_verifications iv
+           WHERE iv.user_id = p.user_id AND iv.provider = 'didit'
+             AND iv.status = 'verified' AND iv.provider_environment = 'live'
+         ))
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = $2 AND b.blocked_id = p.user_id)
