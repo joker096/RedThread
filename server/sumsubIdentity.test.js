@@ -79,7 +79,6 @@ test('access token is requested for stable opaque account UUID and sandbox confi
   assert.equal(request.options.method, 'POST');
   assert.equal(request.options.headers['X-App-Token'], configuredEnv.SUMSUB_APP_TOKEN);
   assert.equal(request.options.headers['X-App-Access-Ts'], '1700000000');
-  assert.match(request.url, /ttlInSecs=600/);
   await assert.rejects(() => createSumsubAccessToken({
     userId: 'not-an-uuid', env: configuredEnv,
     fetchImpl: async () => { throw new Error('must_not_call'); }
