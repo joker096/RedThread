@@ -58,6 +58,9 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       );
       assert.ok(eventChecks.rows.some(row => /reason_code/.test(row.definition) && /a-z0-9_/.test(row.definition)),
         'audit reasons must be bounded machine-readable codes, not free-form personal data');
+      assert.ok(eventChecks.rows.some(row => /event_type/.test(row.definition) &&
+        /actor_user_id/.test(row.definition) && /user_id/.test(row.definition)),
+        'applicants may be actors, but approval/rejection actors must be independent reviewers');
 
       const fn = await client.query(
         `SELECT pg_get_functiondef('guard_identity_l3_submission_transition()'::regprocedure) AS definition`
