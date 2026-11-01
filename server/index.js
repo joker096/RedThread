@@ -13,6 +13,7 @@ import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReaso
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
+import { createSumsubAccessToken, isSumsubConfigured, projectSumsubReview, verifySumsubWebhook } from './sumsubIdentity.js';
 import express from 'express';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import { withPooledTransaction, rollbackPooledTransaction } from './withPooledTransaction.js';
@@ -83,7 +84,10 @@ app.use((_req, res, next) => {
   if (process.env.NODE_ENV === 'production') {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  const identityCameraPolicy = isSumsubConfigured()
+    ? 'camera=(self "https://api.sumsub.com"), microphone=(self "https://api.sumsub.com")'
+    : 'camera=(), microphone=()';
+  res.setHeader('Permissions-Policy', `${identityCameraPolicy}, geolocation=()`);
   res.setHeader('Cache-Control', 'no-store');
   next();
 });
@@ -113,6 +117,50 @@ app.post('/api/paddle/webhook', express.raw({ type: 'application/json', limit: '
   } catch (error) {
     console.error('Paddle webhook processing failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'paddle_webhook_processing_failed' });
+  }
+});
+
+app.post('/api/sumsub/webhook', express.raw({ type: 'application/json', limit: '256kb' }), async (req, res) => {
+  const secret = process.env.SUMSUB_WEBHOOK_SECRET;
+  if (process.env.SUMSUB_ENVIRONMENT !== 'sandbox' || !secret || !Buffer.isBuffer(req.body)) {
+    return res.status(503).json({ error: 'sumsub_webhook_not_configured' });
+  }
+  const digest = req.get('x-payload-digest') || '';
+  const algorithm = req.get('x-payload-digest-alg') || '';
+  if (!verifySumsubWebhook({ rawBody: req.body, digest, algorithm, secret })) {
+    return res.status(401).json({ error: 'invalid_sumsub_webhook_signature' });
+  }
+  let event;
+  try { event = JSON.parse(req.body.toString('utf8')); }
+  catch { return res.status(400).json({ error: 'invalid_sumsub_webhook_payload' }); }
+  if (event?.type !== 'applicantReviewed') return res.status(200).json({ received: true, ignored: true });
+  const status = projectSumsubReview(event);
+  if (!['verified', 'rejected'].includes(status) || event.reviewStatus !== 'completed' ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(event.externalUserId || '') ||
+      typeof event.applicantId !== 'string' || event.applicantId.length < 1 || event.applicantId.length > 200 ||
+      event.levelName !== process.env.SUMSUB_LEVEL_NAME || typeof event.createdAtMs !== 'string') {
+    return res.status(400).json({ error: 'invalid_sumsub_review_event' });
+  }
+  const eventTime = new Date(event.createdAtMs.replace(' ', 'T') + 'Z');
+  if (!Number.isFinite(eventTime.getTime())) return res.status(400).json({ error: 'invalid_sumsub_review_timestamp' });
+  try {
+    await pool.query(
+      `INSERT INTO identity_verifications
+         (user_id, provider, applicant_id, level_name, status, review_answer, provider_event_at)
+       SELECT u.id, 'sumsub', $2, $3, $4, $5, $6
+       FROM users u WHERE u.id = $1 AND u.status = 'active'
+       ON CONFLICT (user_id) DO UPDATE SET
+         applicant_id = EXCLUDED.applicant_id, level_name = EXCLUDED.level_name,
+         status = EXCLUDED.status, review_answer = EXCLUDED.review_answer,
+         provider_event_at = EXCLUDED.provider_event_at, updated_at = NOW()
+       WHERE identity_verifications.provider_event_at IS NULL
+          OR identity_verifications.provider_event_at < EXCLUDED.provider_event_at` ,
+      [event.externalUserId, event.applicantId, event.levelName, status, event.reviewResult.reviewAnswer, eventTime]
+    );
+    return res.status(200).json({ received: true });
+  } catch (error) {
+    console.error('Sumsub webhook processing failed:', error?.code || 'unknown_error');
+    return res.status(500).json({ error: 'sumsub_webhook_processing_failed' });
   }
 });
 
@@ -1957,11 +2005,42 @@ app.delete('/api/assessment', validateRequestOrigin, requireSession, async (req,
   }
 });
 
+app.post('/api/identity/sumsub/access-token', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  if (!isSumsubConfigured()) return res.status(503).json({ error: 'sumsub_sandbox_not_configured' });
+  try {
+    const current = await withActiveAccountRead(req.authUser.id, client => client.query(
+      'SELECT status FROM identity_verifications WHERE user_id = $1', [req.authUser.id]
+    ));
+    if (!current.active) return res.status(401).json({ error: 'account_not_active' });
+    if (current.value.rows[0]?.status === 'verified') return res.status(409).json({ error: 'identity_already_verified' });
+    const accessToken = await createSumsubAccessToken({ userId: req.authUser.id });
+    const saved = await withPooledTransaction(pool, async client => {
+      await acquireGiftSafetyUserLocks(client, req.authUser.id);
+      const account = await client.query("SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE", [req.authUser.id]);
+      if (!account.rowCount) return false;
+      await client.query(
+        `INSERT INTO identity_verifications (user_id, provider, level_name, status)
+         VALUES ($1, 'sumsub', $2, 'pending')
+         ON CONFLICT (user_id) DO UPDATE SET level_name = EXCLUDED.level_name, updated_at = NOW()
+         WHERE identity_verifications.status <> 'verified'`,
+        [req.authUser.id, process.env.SUMSUB_LEVEL_NAME]
+      );
+      return true;
+    });
+    if (!saved) return res.status(401).json({ error: 'account_not_active' });
+    return res.json({ accessToken, expiresIn: 600 });
+  } catch (error) {
+    console.error('Sumsub access token request failed:', error?.message || 'unknown_error');
+    return res.status(503).json({ error: 'sumsub_access_token_unavailable' });
+  }
+});
+
 app.get('/api/trust/summary', requireSession, async (req, res) => {
   try {
     const read = await withActiveAccountRead(req.authUser.id, client => client.query(
       `SELECT u.email_verified_at AS "emailVerifiedAt",
               u.phone_verified_at AS "phoneVerifiedAt",
+              iv.status AS "identityStatus",
               COALESCE(
                 json_agg(
                   json_build_object(
@@ -1973,11 +2052,12 @@ app.get('/api/trust/summary', requireSession, async (req, res) => {
               ) AS photos
        FROM users u
        JOIN profiles p ON p.user_id = u.id
+       LEFT JOIN identity_verifications iv ON iv.user_id = u.id
        LEFT JOIN photo_assets a
          ON a.user_id = u.id
         AND ('/api/photos/' || a.id::text) = ANY(COALESCE(p.photo_urls, ARRAY[]::text[]))
        WHERE u.id = $1 AND u.status = 'active'
-       GROUP BY u.id, u.email_verified_at, u.phone_verified_at`,
+       GROUP BY u.id, u.email_verified_at, u.phone_verified_at, iv.status`,
       [req.authUser.id]
     ));
     if (!read.active) return res.status(401).json({ error: 'account_not_active' });
@@ -1986,7 +2066,7 @@ app.get('/api/trust/summary', requireSession, async (req, res) => {
     return res.json({
       email: { status: account.emailVerifiedAt ? 'verified' : 'unverified', verifiedAt: account.emailVerifiedAt },
       phone: { status: account.phoneVerifiedAt ? 'verified' : 'not_verified', verifiedAt: account.phoneVerifiedAt },
-      identity: { status: 'not_configured' },
+      identity: { status: account.identityStatus || (isSumsubConfigured() ? 'not_started' : 'not_configured') },
       photos: account.photos
     });
   } catch (error) {
