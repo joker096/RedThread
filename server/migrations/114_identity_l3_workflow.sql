@@ -72,7 +72,7 @@ CREATE INDEX identity_l3_expiry_idx
   WHERE status = 'approved';
 CREATE INDEX identity_l3_current_decision_idx
   ON identity_l3_submissions(
-    user_id, (COALESCE(revoked_at, approved_at)) DESC, created_at DESC, id DESC
+    user_id, approved_at DESC, (COALESCE(revoked_at, approved_at)) DESC, created_at DESC, id DESC
   )
   WHERE status IN ('approved', 'revoked', 'expired');
 
@@ -223,7 +223,7 @@ BEGIN
   FROM identity_l3_submissions s
   WHERE s.user_id = p_user_id
     AND s.status IN ('approved', 'revoked', 'expired')
-  ORDER BY COALESCE(s.revoked_at, s.approved_at) DESC, s.created_at DESC, s.id DESC
+  ORDER BY s.approved_at DESC, COALESCE(s.revoked_at, s.approved_at) DESC, s.created_at DESC, s.id DESC
   LIMIT 1
   FOR SHARE;
 END;
