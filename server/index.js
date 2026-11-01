@@ -380,7 +380,11 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
       const recovered = await client.query(
         `UPDATE paddle_checkout_attempts
          SET transaction_id = COALESCE(transaction_id, $2),
-             status = $4, updated_at = NOW()
+             status = CASE
+               WHEN transaction_id IS NULL OR transaction_id = $2 THEN $4
+               ELSE 'reconciliation_required'
+             END,
+             updated_at = NOW()
          WHERE user_id = $1 AND attempt_id = $3
            AND status = 'creating'
          RETURNING status`,
