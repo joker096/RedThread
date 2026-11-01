@@ -44,6 +44,7 @@ import { AdManagerModal } from './components/AdManagerModal.tsx';
 import { FilterDrawer } from './components/FilterDrawer.tsx';
 import { BrandNamingModal, brandOptions } from './components/BrandNamingModal.tsx';
 import { GenderSpecificTests } from './components/GenderSpecificTests.tsx';
+import { TrustCenterPanel } from './components/TrustCenterPanel.tsx';
 
 export default function App() {
   const { t } = useLocale();
@@ -697,57 +698,7 @@ export default function App() {
         );
 
       case 'safety':
-        return (
-          <div className="w-full max-w-md mx-auto p-2 text-left">
-            <div className="p-5 rounded-3xl bg-stone-900 border border-white/10 shadow-2xl mb-4">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-2xl bg-emerald-950 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
-                  <Brain className="w-5 h-5 text-rose-400" />
-                </div>
-                <div>
-                  <h3 className="font-heading font-black text-white text-base">Психотипы & Защита от ботов</h3>
-                  <p className="text-[11px] text-stone-400">Демо-анализ анкеты; проверка личности не подключена</p>
-                </div>
-              </div>
-
-              <p className="text-xs text-stone-300 leading-relaxed mb-4">
-                В демо можно оценить ответы и текст анкеты. Биометрическая проверка, поведенческий анализ и серверная модерация пока не подключены.
-              </p>
-
-              <div className="space-y-2 mb-4">
-                <div className="text-[11px] font-bold text-white uppercase tracking-wider">
-                  Проверить профили кандидатов:
-                </div>
-                {profiles.map(p => (
-                  <div
-                    key={p.id}
-                    onClick={() => {
-                      setBotScanTargetProfile(p);
-                      setIsBotScannerOpen(true);
-                    }}
-                    className="p-2.5 rounded-2xl bg-stone-950 border border-white/5 hover:border-rose-500/40 cursor-pointer flex items-center justify-between transition-all"
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <img src={p.photos[0] || p.avatar} alt={p.name} className="w-9 h-9 rounded-xl object-cover" />
-                      <div>
-                        <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                          <span>{p.name}</span>
-                          {p.mbti && <span className="text-[10px] text-rose-400 font-normal">({p.mbti.split('•')[0]})</span>}
-                        </div>
-                        <div className="text-[10px] text-stone-400">{p.occupation || p.city}</div>
-                      </div>
-                    </div>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                      p.verification.isVerified ? 'bg-emerald-950 text-emerald-300' : 'bg-rose-950 text-rose-300'
-                    }`}>
-                      {p.verification.isVerified ? 'Проверен (демо)' : 'Не проверен'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        );
+        return <TrustCenterPanel />;
 
       case 'monetization':
         return (
