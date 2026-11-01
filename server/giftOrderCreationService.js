@@ -681,7 +681,19 @@ export async function listGiftCatalogForMatch(client, { senderId, matchId }) {
              ELSE 2147483647
            END
        ) AS sender_identity_verified,
-       identity_l3_has_active_approval(sender.id) AS sender_l3_approved,
+       COALESCE((
+          SELECT decision.status = 'approved' AND decision.expires_at > statement_timestamp()
+          FROM (
+            SELECT status, expires_at
+            FROM identity_l3_submissions
+            WHERE user_id = sender.id
+              AND status IN ('approved', 'rejected', 'revoked', 'expired')
+            ORDER BY COALESCE(approved_at, reviewed_at) DESC,
+                     COALESCE(revoked_at, approved_at, reviewed_at) DESC,
+                     created_at DESC, id DESC
+            LIMIT 1
+          ) decision
+        ), FALSE) AS sender_l3_approved,
        EXISTS (
          SELECT 1 FROM user_identity_verifications iv
          WHERE iv.user_id = recipient.id
@@ -694,7 +706,19 @@ export async function listGiftCatalogForMatch(client, { senderId, matchId }) {
              ELSE 2147483647
            END
        ) AS recipient_identity_verified,
-       identity_l3_has_active_approval(recipient.id) AS recipient_l3_approved,
+       COALESCE((
+          SELECT decision.status = 'approved' AND decision.expires_at > statement_timestamp()
+          FROM (
+            SELECT status, expires_at
+            FROM identity_l3_submissions
+            WHERE user_id = recipient.id
+              AND status IN ('approved', 'rejected', 'revoked', 'expired')
+            ORDER BY COALESCE(approved_at, reviewed_at) DESC,
+                     COALESCE(revoked_at, approved_at, reviewed_at) DESC,
+                     created_at DESC, id DESC
+            LIMIT 1
+          ) decision
+        ), FALSE) AS recipient_l3_approved,
        EXISTS (
          SELECT 1 FROM user_safety_screenings ss
          WHERE ss.user_id = sender.id AND ss.severity = 'high'
