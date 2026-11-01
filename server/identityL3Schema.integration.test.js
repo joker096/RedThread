@@ -133,6 +133,33 @@ test('L3 schema persists metadata only and protects workflow decisions', {
         );
         await client.query('ROLLBACK TO SAVEPOINT reject_l3_media_replacement');
         await client.query('RELEASE SAVEPOINT reject_l3_media_replacement');
+        await client.query('SAVEPOINT reject_early_l3_purge');
+        await assert.rejects(
+          client.query(
+            `UPDATE identity_l3_submission_trigger_test
+             SET storage_object_key = NULL, media_purged_at = NOW() WHERE id = $1`,
+            [submissionId]
+          ),
+          error => error.code === '23514'
+        );
+        await client.query('ROLLBACK TO SAVEPOINT reject_early_l3_purge');
+        await client.query('RELEASE SAVEPOINT reject_early_l3_purge');
+        await client.query(
+          `UPDATE identity_l3_submission_trigger_test
+           SET status = 'processing', processing_completed_at = NOW() WHERE id = $1`,
+          [submissionId]
+        );
+        await client.query(
+          "UPDATE identity_l3_submission_trigger_test SET status = 'pending_review' WHERE id = $1",
+          [submissionId]
+        );
+        await client.query(
+          `UPDATE identity_l3_submission_trigger_test
+           SET status = 'rejected', reviewed_by = $2, reviewed_at = NOW(),
+               decision_reason_code = 'integration_test_rejected'
+           WHERE id = $1`,
+          [submissionId, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc']
+        );
         await client.query(
           `UPDATE identity_l3_submission_trigger_test
            SET storage_object_key = NULL, media_purged_at = NOW() WHERE id = $1`,
