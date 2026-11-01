@@ -25,11 +25,11 @@ test('Sumsub is configured only when sandbox credentials and level are present',
 
 test('Sumsub API signature covers timestamp, method, URI and exact body', () => {
   const expected = createHmac('sha256', 'secret')
-    .update('1700000000POST/resources/accessTokens?userId=abc{}')
+    .update('1700000000POST/resources/accessTokens/sdk{"userId":"123e4567-e89b-42d3-a456-426614174000","levelName":"vow-l2-document-liveness","ttlInSecs":600}')
     .digest('hex');
   assert.equal(createSumsubSignature({
     secretKey: 'secret', timestamp: 1700000000, method: 'post',
-    path: '/resources/accessTokens?userId=abc', body: '{}'
+    path: '/resources/accessTokens/sdk', body: '{"userId":"123e4567-e89b-42d3-a456-426614174000","levelName":"vow-l2-document-liveness","ttlInSecs":600}'
   }), expected);
   assert.throws(() => createSumsubSignature({
     secretKey: 'secret', timestamp: 0, method: 'GET', path: '/x'
@@ -66,11 +66,16 @@ test('access token is requested for stable opaque account UUID and sandbox confi
     now: () => 1700000000000,
     fetchImpl: async (url, options) => {
       request = { url, options };
-      return { ok: true, json: async () => ({ token: '_act-sbx-test' }) };
+      return { ok: true, json: async () => ({ token: 'sandbox-sdk-token' }) };
     }
   });
-  assert.equal(token, '_act-sbx-test');
-  assert.match(request.url, /^https:\/\/api\.sumsub\.com\/resources\/accessTokens\?/);
+  assert.equal(token, 'sandbox-sdk-token');
+  assert.equal(request.url, 'https://api.sumsub.com/resources/accessTokens/sdk');
+  assert.equal(request.options.body, JSON.stringify({
+    userId: '123e4567-e89b-42d3-a456-426614174000',
+    levelName: configuredEnv.SUMSUB_LEVEL_NAME,
+    ttlInSecs: 600
+  }));
   assert.equal(request.options.method, 'POST');
   assert.equal(request.options.headers['X-App-Token'], configuredEnv.SUMSUB_APP_TOKEN);
   assert.equal(request.options.headers['X-App-Access-Ts'], '1700000000');
