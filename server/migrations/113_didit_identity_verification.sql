@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS identity_verifications (
       'Awaiting User', 'Resubmitted', 'Expired', 'Abandoned', 'Kyc Expired'
     )),
   provider_environment TEXT NOT NULL DEFAULT 'sandbox'
-    CHECK (provider_environment = 'sandbox'),
+    CHECK (provider_environment IN ('sandbox', 'live')),
   provider_event_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
