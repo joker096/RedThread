@@ -67,8 +67,11 @@ CREATE INDEX IF NOT EXISTS identity_verification_session_reservations_monthly_id
 
 COMMENT ON TABLE identity_verification_consents IS
   'Append-only record of user consent version and timestamp before sending data to Didit; no identity media or extracted personal data.';
+CREATE UNIQUE INDEX IF NOT EXISTS identity_verification_one_reservation_per_user_uidx
+  ON identity_verification_session_reservations (user_id) WHERE status = 'reserved';
+
 COMMENT ON TABLE identity_verifications IS
-  'Minimal Didit sandbox identity-verification state only; no identity documents, images, extracted fields or biometric data are stored.';
+  'Minimal Didit identity-verification state; no identity documents, images, extracted fields or biometric data are stored.';
 COMMENT ON TABLE identity_verification_session_reservations IS
   'Counts Vow-originated Didit sessions for a local monthly free-tier cap; unresolved requests keep their reserved slot to avoid paid overages.';
 COMMENT ON TABLE identity_verification_events IS
