@@ -290,7 +290,8 @@ export async function createGiftOrderRequest(client, {
                ELSE 2147483647
              END
          ) AS recipient_identity_verified,
-         (recipient_profile.gender <> 'male' OR identity_l3_has_active_approval(recipient.id)) AS recipient_l3_gate,
+         (recipient_profile.gender = 'female' OR
+           (recipient_profile.gender = 'male' AND identity_l3_has_active_approval(recipient.id))) AS recipient_l3_gate,
          EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = sender.id AND b.blocked_id = recipient.id)
@@ -532,8 +533,9 @@ export async function createGiftOrderRequest(client, {
       id: contextRow.recipient_id,
       accountStatus: contextRow.recipient_status,
       isAdult: contextRow.recipient_is_adult === true,
-      identityVerified: contextRow.recipient_identity_verified === true &&
-        (contextRow.recipient_gender !== 'male' || contextRow.recipient_l3_approved === true),
+      identityVerified: contextRow.recipient_gender === 'female' ||
+        (contextRow.recipient_gender === 'male' && contextRow.recipient_identity_verified === true &&
+          contextRow.recipient_l3_approved === true),
       safetyRestricted: contextRow.recipient_safety_restricted === true,
       giftRequestsEnabled: requestsEnabled
     },
@@ -783,8 +785,9 @@ export async function listGiftCatalogForMatch(client, { senderId, matchId }) {
       id: row.recipient_id,
       accountStatus: row.recipient_status,
       isAdult: row.recipient_is_adult === true,
-      identityVerified: row.recipient_identity_verified === true &&
-        (row.recipient_gender !== 'male' || row.recipient_l3_approved === true),
+      identityVerified: row.recipient_gender === 'female' ||
+        (row.recipient_gender === 'male' && row.recipient_identity_verified === true &&
+          row.recipient_l3_approved === true),
       safetyRestricted: row.recipient_safety_restricted === true,
       giftRequestsEnabled: row.requests_enabled === true
     },
