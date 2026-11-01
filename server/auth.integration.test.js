@@ -154,6 +154,13 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(photoUpload.status, 201);
     const uploadedPhoto = await photoUpload.json();
+    const trustAfterPhotoUpload = await request('/api/trust/summary', { headers: { Cookie: firstCookie } });
+    assert.equal(trustAfterPhotoUpload.status, 200);
+    const trustAfterPhotoPayload = await trustAfterPhotoUpload.json();
+    assert.equal(trustAfterPhotoPayload.photos.length, 1,
+      'trust summary should include only the current account photo attached to its profile');
+    assert.ok(['pending', 'approved', 'rejected'].includes(trustAfterPhotoPayload.photos[0].status));
+    assert.equal(typeof trustAfterPhotoPayload.photos[0].createdAt, 'string');
     assert.match(uploadedPhoto.photoUrl, /^\/api\/photos\/[a-f0-9-]{36}$/i);
     const photoRead = await request(uploadedPhoto.photoUrl, { headers: { Cookie: firstCookie } });
     assert.equal(photoRead.status, 200);
