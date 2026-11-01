@@ -47,10 +47,9 @@ test('gift payment reconciliation outbox is installed with retryable states and 
     await client.query('BEGIN');
     try {
       await client.query(`
-        CREATE TEMP TABLE gift_reconciliation_one_task_test (
-          order_id uuid PRIMARY KEY,
-          reason text NOT NULL
-        ) ON COMMIT DROP
+        CREATE TEMP TABLE gift_reconciliation_one_task_test
+        (LIKE gift_payment_reconciliation_tasks INCLUDING ALL)
+        ON COMMIT DROP
       `);
       const testOrderId = '00000000-0000-4000-8000-000000000001';
       await client.query(
