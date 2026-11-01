@@ -96,3 +96,10 @@ Approval expires at `approved_at + interval '6 months'`. Every authorization che
 ## Current repository boundary
 
 The current deployment has a private `private_photos` volume for profile photos, and Didit L2 stores provider session/status metadata only. Neither is an L3 video storage or manual-review system. Do not point L3 video at `PHOTO_STORAGE_DIR`, and do not infer L3 from the Didit `verified` status. The L3 feature remains disabled until the storage and moderation workflow above exists.
+
+
+## Interim enforcement state (2026-11-01)
+
+The shared `canInteract` policy now requires all of the following for male accounts: Didit L2 status `verified` in the `live` environment, L3 status `approved`, and an L3 expiry timestamp later than the current time. Missing or malformed L3 fields deny access. All five existing restricted interaction routes return `requiredLevel: L2_AND_L3`. Women remain outside this male-specific gate.
+
+Important operational consequence: the current database/API does not yet persist trusted L3 decisions, so existing male accounts are intentionally denied these restricted actions until the complete L3 submission, private media processing, moderator decision, revocation, and expiry workflow is implemented and deployed. This is a deliberate fail-closed release hold, not a claim that L3 is operational. Do not bypass it by setting client fields or by treating Didit L2 as L3.
