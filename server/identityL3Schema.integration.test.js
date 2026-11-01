@@ -32,6 +32,15 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       assert.equal(uploadTokenColumnTypes.has('token'), false, 'plaintext bearer tokens must never be stored');
       assert.ok(uploadTokenColumnTypes.has('consumed_at'));
       assert.ok(uploadTokenColumnTypes.has('revoked_at'));
+      const uploadTokenForeignKeys = await client.query(
+        `SELECT pg_get_constraintdef(oid) AS definition
+         FROM pg_constraint
+         WHERE conrelid = 'identity_l3_upload_tokens'::regclass AND contype = 'f'`
+      );
+      assert.ok(uploadTokenForeignKeys.rows.some(row =>
+        /FOREIGN KEY \(submission_id, user_id\)/.test(row.definition) &&
+        /REFERENCES identity_l3_submissions\(id, user_id\)/.test(row.definition)
+      ), 'upload token owner must be enforced by a composite database foreign key');
       const uploadTokenIndexes = await client.query(
         `SELECT indexname, indexdef FROM pg_indexes
          WHERE schemaname = 'public' AND tablename = 'identity_l3_upload_tokens'`
