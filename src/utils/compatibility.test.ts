@@ -278,6 +278,12 @@ test('empty assessment answers are missing data, not false positive matches', ()
   assert.equal(result.greenFlags.some(flag => flag.includes('отдыха')), false);
   assert.equal(result.greenFlags.some(flag => flag.includes('конфликтов')), false);
   assert.equal(result.frictionPoints.length, 0);
+  assert.equal(result.dataCoverage, 17, 'only the mutually declared relationship intent is comparable');
+});
+
+test('compatibility reports complete evidence coverage when all answer groups are available', () => {
+  const result = calculateCompatibility(mockAnswers, 'marriage_family', ['спорт'], mockTargetProfile);
+  assert.equal(result.dataCoverage, 100);
 });
 
 test('compatibility normalizes answer casing and deduplicates common interests', () => {
