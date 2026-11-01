@@ -2329,14 +2329,22 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
     client = await pool.connect();
     await client.query('BEGIN');
     const actorIdentity = await client.query(
-      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment
+      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment,
+              (SELECT l3.status FROM identity_l3_submissions l3
+               WHERE l3.user_id = p.user_id AND l3.status = 'approved'
+                 AND l3.expires_at > NOW()
+               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1) AS l3_status,
+              (SELECT l3.expires_at FROM identity_l3_submissions l3
+               WHERE l3.user_id = p.user_id AND l3.status = 'approved'
+                 AND l3.expires_at > NOW()
+               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1) AS l3_expires_at
        FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
        WHERE p.user_id = $1 FOR SHARE OF p`,
       [req.authUser.id]
     );
     const identityActor = actorIdentity.rows[0];
     if (!identityActor || !canIdentityInteract({
-      gender: identityActor.gender, status: identityActor.identity_status, environment: identityActor.identity_environment
+      gender: identityActor.gender, status: identityActor.identity_status, environment: identityActor.identity_environment, l3Status: identityActor.l3_status, l3ExpiresAt: identityActor.l3_expires_at
     })) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
@@ -2455,14 +2463,22 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
     client = await pool.connect();
     await client.query('BEGIN');
     const actorIdentity = await client.query(
-      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment
+      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment,
+              (SELECT l3.status FROM identity_l3_submissions l3
+               WHERE l3.user_id = p.user_id AND l3.status = 'approved'
+                 AND l3.expires_at > NOW()
+               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1) AS l3_status,
+              (SELECT l3.expires_at FROM identity_l3_submissions l3
+               WHERE l3.user_id = p.user_id AND l3.status = 'approved'
+                 AND l3.expires_at > NOW()
+               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1) AS l3_expires_at
        FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
        WHERE p.user_id = $1 FOR SHARE OF p`,
       [req.authUser.id]
     );
     const identityActor = actorIdentity.rows[0];
     if (!identityActor || !canIdentityInteract({
-      gender: identityActor.gender, status: identityActor.identity_status, environment: identityActor.identity_environment
+      gender: identityActor.gender, status: identityActor.identity_status, environment: identityActor.identity_environment, l3Status: identityActor.l3_status, l3ExpiresAt: identityActor.l3_expires_at
     })) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
@@ -2525,14 +2541,22 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
     await client.query('BEGIN');
     await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
     const actorIdentity = await client.query(
-      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment
+      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment,
+              (SELECT l3.status FROM identity_l3_submissions l3
+               WHERE l3.user_id = p.user_id AND l3.status = 'approved'
+                 AND l3.expires_at > NOW()
+               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1) AS l3_status,
+              (SELECT l3.expires_at FROM identity_l3_submissions l3
+               WHERE l3.user_id = p.user_id AND l3.status = 'approved'
+                 AND l3.expires_at > NOW()
+               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1) AS l3_expires_at
        FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
        WHERE p.user_id = $1 FOR SHARE OF p`,
       [req.authUser.id]
     );
     const actor = actorIdentity.rows[0];
     if (!actor || !canIdentityInteract({
-      gender: actor.gender, status: actor.identity_status, environment: actor.identity_environment
+      gender: actor.gender, status: actor.identity_status, environment: actor.identity_environment, l3Status: actor.l3_status, l3ExpiresAt: actor.l3_expires_at
     })) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
@@ -2672,14 +2696,22 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
     client = await pool.connect();
     await client.query('BEGIN');
     const actorIdentity = await client.query(
-      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment
+      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment,
+              (SELECT l3.status FROM identity_l3_submissions l3
+               WHERE l3.user_id = p.user_id AND l3.status = 'approved'
+                 AND l3.expires_at > NOW()
+               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1) AS l3_status,
+              (SELECT l3.expires_at FROM identity_l3_submissions l3
+               WHERE l3.user_id = p.user_id AND l3.status = 'approved'
+                 AND l3.expires_at > NOW()
+               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1) AS l3_expires_at
        FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
        WHERE p.user_id = $1 FOR SHARE OF p`,
       [req.authUser.id]
     );
     const identityActor = actorIdentity.rows[0];
     if (!identityActor || !canIdentityInteract({
-      gender: identityActor.gender, status: identityActor.identity_status, environment: identityActor.identity_environment
+      gender: identityActor.gender, status: identityActor.identity_status, environment: identityActor.identity_environment, l3Status: identityActor.l3_status, l3ExpiresAt: identityActor.l3_expires_at
     })) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
@@ -2995,14 +3027,22 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
     // that wins this lock must prevent a stale authenticated message from landing.
     await acquireGiftSafetyUserLocks(client, req.authUser.id, recipientId);
     const actorIdentity = await client.query(
-      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment
+      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment,
+              (SELECT l3.status FROM identity_l3_submissions l3
+               WHERE l3.user_id = p.user_id AND l3.status = 'approved'
+                 AND l3.expires_at > NOW()
+               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1) AS l3_status,
+              (SELECT l3.expires_at FROM identity_l3_submissions l3
+               WHERE l3.user_id = p.user_id AND l3.status = 'approved'
+                 AND l3.expires_at > NOW()
+               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1) AS l3_expires_at
        FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
        WHERE p.user_id = $1 FOR SHARE OF p`,
       [req.authUser.id]
     );
     const actor = actorIdentity.rows[0];
     if (!actor || !canIdentityInteract({
-      gender: actor.gender, status: actor.identity_status, environment: actor.identity_environment
+      gender: actor.gender, status: actor.identity_status, environment: actor.identity_environment, l3Status: actor.l3_status, l3ExpiresAt: actor.l3_expires_at
     })) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
