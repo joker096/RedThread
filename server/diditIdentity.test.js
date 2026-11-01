@@ -18,6 +18,7 @@ test('V3 canonical payload sorts nested keys, preserves arrays and Unicode', () 
   assert.equal(canonicalizeDiditPayload({ z: 'Ж', nested: { b: 2, a: 1 }, list: [{ z: true, a: false }, 3] }),
     '{"list":[{"a":false,"z":true},3],"nested":{"a":1,"b":2},"z":"Ж"}');
   assert.throws(() => canonicalizeDiditPayload([]), /invalid_didit_webhook_payload/);
+  assert.equal(canonicalizeDiditPayload({ '2': 'second', '10': 'tenth' }), '{"10":"tenth","2":"second"}');
 });
 test('webhook HMAC authenticates the entire canonical body and enforces freshness', () => {
   const payload = { event_id: '123e4567-e89b-42d3-a456-426614174002', webhook_type: 'status.updated',
