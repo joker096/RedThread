@@ -356,7 +356,7 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
           // A concurrent account deactivation can make the normal save fail
           // after Paddle has created a draft. Persist the confirmed cancellation
           // so a reactivated account is not stranded in "creating".
-          await markPaddleCheckoutAttemptCanceled(pool, {
+          await markPaddleCheckoutAttemptCanceled(client, {
             userId: req.authUser.id,
             attemptId: checkoutAttemptId,
             transactionId
