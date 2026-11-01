@@ -4077,14 +4077,19 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
                   AND iv.verified_at <= statement_timestamp() AND iv.expires_at > statement_timestamp()
                   AND iv.verification_level >= CASE WHEN sender_profile.gender = 'male' THEN 3 WHEN sender_profile.gender = 'female' THEN 1 ELSE 2147483647 END
               ) AS sender_identity_verified,
-              EXISTS (
-                SELECT 1 FROM user_identity_verifications iv
-                WHERE iv.user_id = recipient.id AND iv.status = 'approved'
-                  AND iv.verified_at <= statement_timestamp() AND iv.expires_at > statement_timestamp()
-                  AND iv.verification_level >= CASE WHEN recipient_profile.gender = 'male' THEN 3 WHEN recipient_profile.gender = 'female' THEN 1 ELSE 2147483647 END
-              ) AS recipient_identity_verified,
+              CASE
+                WHEN recipient_profile.gender = 'female' THEN TRUE
+                WHEN recipient_profile.gender = 'male' THEN EXISTS (
+                  SELECT 1 FROM user_identity_verifications iv
+                  WHERE iv.user_id = recipient.id AND iv.status = 'approved'
+                    AND iv.verified_at <= statement_timestamp() AND iv.expires_at > statement_timestamp()
+                    AND iv.verification_level >= 3
+                )
+                ELSE FALSE
+              END AS recipient_identity_verified,
               (sender_profile.gender <> 'male' OR identity_l3_has_active_approval(sender.id)) AS sender_l3_approved,
-              (recipient_profile.gender <> 'male' OR identity_l3_has_active_approval(recipient.id)) AS recipient_l3_approved,
+              (recipient_profile.gender = 'female' OR
+                (recipient_profile.gender = 'male' AND identity_l3_has_active_approval(recipient.id))) AS recipient_l3_approved,
               COALESCE(pref.requests_enabled, FALSE) AS requests_enabled,
               EXISTS (
                 SELECT 1 FROM user_blocks b
