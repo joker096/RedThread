@@ -4025,9 +4025,10 @@ app.get('/api/gifts/orders', requireSession, profileActionLimiter, async (req, r
               payment_status AS "paymentStatus",
               recipient_requests_disabled_at AS "recipientRequestsDisabledAt",
               EXISTS (
-                SELECT 1 FROM gift_payment_reconciliation_tasks task
-                WHERE task.order_id = gift_delivery_orders.id
-                  AND task.reason = 'recipient_declined_active_payment'
+                SELECT 1 FROM gift_delivery_order_events decline_event
+                WHERE decline_event.order_id = gift_delivery_orders.id
+                  AND decline_event.event_type = 'payment_reconciliation_required'
+                  AND decline_event.metadata->>'reason' = 'recipient_declined_active_payment'
               ) AS "pendingRecipientDecline",
               statement_timestamp() AS "serverNow",
               created_at AS "createdAt",
