@@ -39,6 +39,7 @@ test('L3 schema persists metadata only and protects workflow decisions', {
         `SELECT pg_get_functiondef('record_identity_l3_submission_event()'::regprocedure) AS definition`
       );
       assert.match(eventRecorder.rows[0].definition, /processing_completed/);
+      assert.match(eventRecorder.rows[0].definition, /processing_failed/);
       assert.match(eventRecorder.rows[0].definition, /submitted_for_review/);
 
       const eventTrigger = await client.query(
@@ -97,6 +98,8 @@ test('L3 schema persists metadata only and protects workflow decisions', {
         'an approval must have a non-null six-month expiry timestamp');
       assert.ok(decisionConstraints.rows.some(row => /processing_completed_at/.test(row.definition)),
         'review decisions must not bypass completed media processing');
+      assert.ok(decisionConstraints.rows.some(row => /failed/.test(row.definition)),
+        'processing failure must be represented as a terminal workflow state');
 
       const indexes = await client.query(
         `SELECT indexname, indexdef FROM pg_indexes
