@@ -34,9 +34,9 @@ async function lockL3Account(client, userId) {
             iv.status AS identity_status, iv.provider_environment
      FROM users u
      JOIN profiles p ON p.user_id = u.id
-     LEFT JOIN identity_verifications iv ON iv.user_id = u.id
+     JOIN identity_verifications iv ON iv.user_id = u.id
      WHERE u.id = $1
-     FOR UPDATE OF u, p`,
+     FOR UPDATE OF u, p, iv`,
     [userId]
   );
   const account = result.rows[0];
