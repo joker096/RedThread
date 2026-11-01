@@ -1,19 +1,22 @@
-# Didit identity verification (sandbox only)
+# Didit identity verification (Sandbox and Live)
 
-Vow uses Didit V3 hosted verification sessions. The current adapter is deliberately **sandbox-only**. Sandbox sessions use mocked checks and must never be treated as real identity verification or grant a trust badge or access permission.
+Vow integrates Didit V3 hosted identity verification. The provider API key and signing secret stay server-side. Vow stores only opaque session IDs, provider statuses, timestamps, and the user's consent version; it does not store identity documents, selfies, extracted identity fields, biometric templates, or raw webhook payloads.
 
-## Didit setup
+## Provider setup
 
-1. Create a Didit account and a separate **Sandbox** application at https://business.didit.me/. Sandbox has separate keys and workflows from Live; Didit says a Live key can spend real credits even when the local environment variable says sandbox. Confirm the console's Sandbox banner and selected application before setting `DIDIT_SANDBOX_KEY_CONFIRMED=true`.
-2. Create a KYC workflow for Vow. For a free-tier candidate, select only ID Verification, Passive Liveness, Face Match 1:1 and Device & IP Analysis. Do not enable AML, active liveness, NFC, phone/email verification, white-label/custom branding, age estimation or other paid modules.
-3. Confirm the current Billing & Plan page for the organization before activation. Didit's help centre announced a monthly credit-model change for 1 November 2026; do not rely on historical free-tier wording or assume over-quota usage is blocked automatically.
-4. Copy the workflow UUID and application UUID from the Didit console.
-5. Add an HTTPS webhook destination for `https://YOUR_VOW_HOST/api/didit/webhook`, version `v3`, subscribed event `status.updated`. Save the destination's `secret_shared_key` as `DIDIT_WEBHOOK_SECRET`.
-6. Add the sandbox API key and identifiers to the server environment below. Never expose these values through `VITE_*`, client code, logs or support tickets.
+1. Create a dedicated Didit application/workspace for Vow at https://business.didit.me/. Keep Sandbox and Live credentials separate and confirm the selected environment in the console before copying a key.
+2. Create one KYC workflow containing **ID Verification, Passive Liveness, Face Match 1:1, and Device & IP Analysis**. Do not add AML, NFC, phone/email verification, age estimation, or other paid modules unless separately approved.
+3. Configure a V3 webhook destination for `https://YOUR_VOW_HOST/api/didit/webhook`, subscribe to `status.updated`, and copy that destination's `secret_shared_key` into `DIDIT_WEBHOOK_SECRET`.
+4. Copy the selected application's API key, workflow UUID, and application UUID into the server environment. Never expose these values through `VITE_*`, browser code, logs, or support tickets.
+5. Use only sample data in Sandbox. Didit states that Sandbox media uploads (documents, selfies and liveness video) are stored by the provider just as Live media is. Never upload real identity documents, real selfies, or personal data to Sandbox.
+
+## Environment configuration
+
+Sandbox is the default and never grants real identity status:
 
 ```dotenv
 DIDIT_ENVIRONMENT=sandbox
-DIDIT_SANDBOX_KEY_CONFIRMED=false
+DIDIT_SANDBOX_KEY_CONFIRMED=true
 DIDIT_LIVE_KEY_CONFIRMED=false
 DIDIT_API_KEY=
 DIDIT_WORKFLOW_ID=
@@ -22,16 +25,46 @@ DIDIT_WEBHOOK_SECRET=
 DIDIT_WEBHOOK_SECRET_PREVIOUS=
 ```
 
-Sandbox sessions are not billable and are limited to 500 session creations per 24 hours. For Live, set `DIDIT_ENVIRONMENT=live` and `DIDIT_LIVE_KEY_CONFIRMED=true` only after selecting the Live application and reviewing the plan. Didit currently advertises 500 full KYC checks per month free; checks beyond that quota can be charged at its published usage rates. Vow does not yet enforce a shared-account 500-check monthly hard cap, so keep Live disabled until a quota guard is implemented and tested. However, Didit states that media captured in Sandbox (documents, selfies and liveness video) is stored just as in Live. Use only provider-supplied sample documents and test data; never upload a real identity document, selfie or real personal data to this Sandbox workflow.\n\n## Runtime flow
+To enable Live, deliberately change to `DIDIT_ENVIRONMENT=live`, set `DIDIT_SANDBOX_KEY_CONFIRMED=false`, and set `DIDIT_LIVE_KEY_CONFIRMED=true` only after verifying the selected Live application and its billing plan. A wrong environment/key pairing must not be treated as a harmless test.
 
-- An authenticated Vow user starts verification from the Trust Center.
+## Free-tier spending guard
+
+Didit currently advertises 500 full KYC verifications per month on its Free tier. Vow enforces a stricter local cap of **500 Live session reservations per UTC calendar month**:
+
+- The cap is checked and reserved atomically in PostgreSQL before any Live session request is sent to Didit.
+- At 500 reservations, Vow returns `429 didit_monthly_free_quota_reached` and does not call Didit.
+- The aggregate monthly counter contains no user identifiers and survives account deletion, so deleting accounts cannot reset the local cap.
+- A provider timeout or ambiguous session-creation failure keeps its reserved slot. This deliberately prefers a lost free slot over accidentally creating a second potentially billable session.
+- The cap covers Vow-originated sessions only. Use a dedicated Didit workspace/application for Vow; usage from other apps sharing the same provider quota is not visible to Vow and can consume the same free allowance.
+
+The free allowance and module pricing are provider terms and may change. Verify Billing & Plan in the Didit console before enabling Live. The local cap does not guarantee that Didit will never bill for separately enabled paid modules.
+
+## User flow and consent
+
+- The user must explicitly accept Vow's identity-processing consent (`didit-kyc-v1`) before the server creates a session.
+- The consent record stores only the user ID, policy version, environment, and timestamp.
 - Vow creates a Didit V3 session server-side with the user's opaque account UUID in `vendor_data`; the browser receives only the hosted verification URL.
-- The user is redirected to Didit's hosted page. Callback query parameters are not trusted and do not determine verification status.
-- Vow accepts only a signed V3 `status.updated` webhook for the configured application, sandbox environment, workflow and a session ID already stored against the account.
+- Callback query parameters are not trusted and do not determine verification status.
+- A pending or in-review session cannot be recreated by repeatedly clicking the button. This avoids duplicate sessions and duplicate billing.
+- A session reservation is made before the provider call. If the provider call times out ambiguously, the reservation remains counted pending manual reconciliation.
+
+## Server-side verdict rules
+
+Vow accepts only a signed V3 `status.updated` webhook for the configured application, environment, workflow, and a session ID already stored against the account.
+
 - Webhook signatures use `X-Signature-V2`: HMAC-SHA256 over recursively key-sorted compact JSON with Unicode preserved. The signed payload timestamp and `X-Timestamp` must match and be within five minutes. Secret-rotation `-Previous` signatures are accepted only with the separately configured previous secret.
-- Event IDs are deduplicated in PostgreSQL and provider event time prevents older deliveries from overwriting newer state.
-- **Sandbox `Approved` is recorded only as a provider test result. It remains `pending` in Vow and never grants a verified badge or protected access.** No raw webhook payload, document, selfie, extracted identity field or biometric score is persisted.
+- Event IDs are deduplicated in PostgreSQL. Provider event time and the exact current session ID prevent old sessions or out-of-order deliveries from overwriting newer state.
+- Sandbox statuses always remain `pending`, including simulated `Approved`.
+- In Live, `Declined` becomes `rejected`. `Approved` becomes `verified` only if the signed decision contains non-empty arrays for `id_verifications`, `liveness_checks`, and `face_matches`, and every item in each array has status `Approved`. Missing or incomplete evidence remains `pending`.
+- All other statuses remain `pending`.
+- No raw webhook payload, document, selfie, extracted identity field, or biometric score is persisted.
 
-## Production release gate
+## Vow access enforcement
 
-Do not set `DIDIT_ENVIRONMENT=live`: the current adapter rejects Live credentials by design. Before production, separately review Didit's current pricing and credit eligibility, paid-module exclusions, country/document coverage, legal basis and privacy notice, retention/deletion controls, webhook reconciliation and retries, account recovery, manual-review handling, mobile camera permissions, and end-to-end tests with an approved Live application. A sandbox approval is not evidence of a real person's identity.
+For male accounts, server-side L2 access requires `status=verified` and `provider_environment=live`. Sandbox cannot make a male profile discoverable, cannot allow likes, and cannot allow sending messages. The same rules are checked in direct API routes, not only in the interface. Women are not blocked by this male-specific L2 gate.
+
+**L3 manual verification is a separate release gate and is not implemented by this Didit integration.** Until a reviewed 30–60 second statement, moderator decision, and six-month re-verification process are implemented and tested, do not describe the full three-level Vow verification program as complete or enable production access based on L2 alone.
+
+## Production release checklist
+
+Before enabling Live, verify the current provider plan, country/document coverage, legal basis and privacy notice, data-retention/deletion controls, webhook delivery/reconciliation, account recovery, mobile camera permissions, and end-to-end Live evidence mapping. Test signature failures, duplicate and out-of-order webhooks, old-session events, missing evidence arrays, quota exhaustion, concurrent session requests, and account deletion. A Sandbox approval is not evidence of a real person's identity.
