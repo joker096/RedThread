@@ -602,6 +602,26 @@ export async function cancelPaddleSubscription({
 }
 
 
+
+/** Persist a provider-confirmed cancellation when checkout creation lost its race with account deactivation. */
+export async function markPaddleCheckoutAttemptCanceled(pool, { userId, attemptId, transactionId } = {}) {
+  const validUuid = value => typeof value === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+  if (!validUuid(userId) || !validUuid(attemptId) || !isValidPaddleTransactionId(transactionId)) {
+    throw new Error('invalid_paddle_checkout_cancellation_identity');
+  }
+  const result = await pool.query(
+    `UPDATE paddle_checkout_attempts
+     SET transaction_id = COALESCE(transaction_id, $3),
+         status = 'canceled', updated_at = NOW()
+     WHERE user_id = $1::uuid AND attempt_id = $2::uuid
+       AND status = 'creating'
+       AND (transaction_id IS NULL OR transaction_id = $3)`,
+    [userId, attemptId, transactionId]
+  );
+  return result.rowCount;
+}
+
 function isValidPaddleTransactionId(value) {
   return typeof value === 'string' && /^txn_[A-Za-z0-9]+$/.test(value);
 }
