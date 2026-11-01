@@ -313,7 +313,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
         <div className="flex items-center gap-1.5 text-stone-300">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
           <span className="text-[11px] font-semibold text-stone-400">
-            {t('compatibility')}: <strong className="text-white">{compatibility.overallScore}%</strong>
+            {t('compatibility')}: <strong className="text-white">{compatibility.dataCoverage >= 50 ? `${compatibility.overallScore}%` : t('compatibilityInsufficientData')}</strong>
           </span>
         </div>
 
@@ -474,7 +474,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
               >
                 <div className="vow-compatibility-orb w-7 h-7 rounded-full p-0.5 flex items-center justify-center font-black text-xs text-white">
                   <div className="w-full h-full rounded-full bg-stone-950 flex items-center justify-center">
-                    <span className="text-[10px] font-black">{compatibility.overallScore}%</span>
+                    <span className="text-[10px] font-black">{compatibility.dataCoverage >= 50 ? `${compatibility.overallScore}%` : '—'}</span>
                   </div>
                 </div>
                 <div>
@@ -483,7 +483,7 @@ export const RadarDiscovery: React.FC<RadarDiscoveryProps> = ({
                     <ChevronRight className="w-2.5 h-2.5 text-rose-400" />
                   </div>
                   <div className="text-[10px] font-bold text-emerald-400">
-                    {compatibility.overallScore >= 85 ? t('highChemistry') : t('goodConnection')}
+                    {compatibility.dataCoverage < 50 ? t('compatibilityInsufficientData') : compatibility.overallScore >= 85 ? t('highChemistry') : t('goodConnection')}
                   </div>
                 </div>
               </button>
