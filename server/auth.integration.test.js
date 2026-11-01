@@ -1471,6 +1471,42 @@ test('auth API supports registration, session lookup, logout and login', {
         [userId, randomUUID(), randomUUID()]
       );
     }
+
+    // This synthetic fixture exercises the trusted server-side L3 approval
+    // path. Production approvals can only be created by the moderator workflow.
+    const l3SubmissionId = randomUUID();
+    await identityGateDb.query(
+      "INSERT INTO identity_l3_submissions (id, user_id) VALUES ($1, $2)",
+      [l3SubmissionId, maleRegistered.user.id]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'upload_authorized' WHERE id = $1",
+      [l3SubmissionId]
+    );
+    await identityGateDb.query(
+      `UPDATE identity_l3_submissions
+       SET status = 'uploaded', storage_object_key = $2, media_sha256 = repeat('a', 64),
+           media_mime_type = 'video/mp4', media_size_bytes = 1024,
+           media_duration_seconds = 30, uploaded_at = NOW()
+       WHERE id = $1`,
+      [l3SubmissionId, `test-only/${l3SubmissionId}`]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'processing', processing_completed_at = NOW() WHERE id = $1",
+      [l3SubmissionId]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'pending_review' WHERE id = $1",
+      [l3SubmissionId]
+    );
+    await identityGateDb.query(
+      `UPDATE identity_l3_submissions
+       SET status = 'approved', reviewed_by = $2, reviewed_at = NOW(),
+           decision_reason_code = 'integration_test_approved',
+           approved_at = NOW(), expires_at = NOW() + INTERVAL '6 months'
+       WHERE id = $1`,
+      [l3SubmissionId, randomUUID()]
+    );
     const assessmentAnswers = {
       relationshipGoal: 'marriage_soon',
       children: 'want_soon',
@@ -1530,6 +1566,21 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(directLikeUnverifiedMale.status, 404,
       'direct API requests must not like a male profile hidden by the L2 gate');
     await identityGateDb.query("UPDATE identity_verifications SET provider_environment = 'live' WHERE user_id = $1", [secondMaleRegistered.user.id]);
+    const l2OnlyMaleLike = await request(`/api/likes/${registered.user.id}`, {
+      method: 'POST', headers: { Cookie: secondMaleCookie }
+    });
+    assert.equal(l2OnlyMaleLike.status, 403,
+      'live L2 without a trusted active L3 approval must not perform restricted interactions');
+    const l2OnlyMalePass = await request(`/api/passes/${registered.user.id}`, {
+      method: 'POST', headers: { Cookie: secondMaleCookie }
+    });
+    assert.equal(l2OnlyMalePass.status, 403,
+      'live L2 without a trusted active L3 approval must not pass profiles');
+    const l2OnlyMaleUndo = await request('/api/discovery/undo', {
+      method: 'POST', headers: { Cookie: secondMaleCookie }
+    });
+    assert.equal(l2OnlyMaleUndo.status, 403,
+      'live L2 without a trusted active L3 approval must not undo discovery actions');
 
     const firstSearchPage = await request('/api/profiles/search?limit=1&offset=0', {
       headers: { Cookie: secondCookie }
