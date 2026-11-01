@@ -276,7 +276,7 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
     const transactionId = transaction?.id;
     if (!response.ok) {
       const nextStatus = response.status >= 500 ? 'reconciliation_required' : 'canceled';
-      await pool.query(
+      await client.query(
         `UPDATE paddle_checkout_attempts SET status = $2, updated_at = NOW()
          WHERE user_id = $1 AND attempt_id = $3 AND status = 'creating'`,
         [req.authUser.id, nextStatus, checkoutAttemptId]
@@ -288,7 +288,7 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
         transaction?.custom_data?.userId !== req.authUser.id ||
         transaction?.custom_data?.plan !== plan ||
         transaction?.custom_data?.checkoutAttemptId !== checkoutAttemptId) {
-      await pool.query(
+      await client.query(
         `UPDATE paddle_checkout_attempts SET status = 'reconciliation_required', updated_at = NOW()
          WHERE user_id = $1 AND attempt_id = $2 AND status = 'creating'`,
         [req.authUser.id, checkoutAttemptId]
@@ -299,7 +299,7 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
     const attemptStatus = ['draft', 'ready'].includes(providerStatus) ? 'pending'
       : ['completed', 'paid'].includes(providerStatus) ? 'completed'
         : providerStatus === 'canceled' ? 'canceled' : 'reconciliation_required';
-    const savedAttempt = await pool.query(
+    const savedAttempt = await client.query(
       `UPDATE paddle_checkout_attempts
        SET transaction_id = $2, status = $3, updated_at = NOW()
        WHERE user_id = $1 AND attempt_id = $4 AND status = 'creating'
@@ -374,11 +374,23 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
       if (client && !await rollbackPooledTransaction(client)) client = null;
     }
     if (attemptStarted) {
-      await pool.query(
-        `UPDATE paddle_checkout_attempts SET status = 'reconciliation_required', updated_at = NOW()
-         WHERE user_id = $1 AND attempt_id = $2 AND status = 'creating'`,
-        [req.authUser.id, checkoutAttemptId]
-      ).catch(() => {});
+      let reconciliationClient = client;
+      let releaseReconciliationClient = false;
+      try {
+        if (!reconciliationClient) {
+          reconciliationClient = await pool.connect();
+          releaseReconciliationClient = true;
+        }
+        await reconciliationClient.query(
+          `UPDATE paddle_checkout_attempts SET status = 'reconciliation_required', updated_at = NOW()
+           WHERE user_id = $1 AND attempt_id = $2 AND status = 'creating'`,
+          [req.authUser.id, checkoutAttemptId]
+        );
+      } catch {
+        // Preserve the original checkout error; the attempt remains fail-closed.
+      } finally {
+        if (releaseReconciliationClient) reconciliationClient?.release();
+      }
     }
     console.error('Paddle sandbox checkout request failed:', error?.message || 'unknown error');
     return res.status(502).json({ error: 'paddle_checkout_unavailable' });
