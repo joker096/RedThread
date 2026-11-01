@@ -112,6 +112,7 @@ export const TrustCenterPanel: React.FC = () => {
                   ? 'Проверка личности доступна через защищённую страницу Didit (Sandbox).'
                   : 'Проверка через внешнего провайдера не настроена. Значок верификации не присваивается.'}</p>
           {canStartIdentity && <button type="button" onClick={() => void startVerification()} disabled={startingVerification} className="mt-3 min-h-11 w-full rounded-xl bg-rose-700 px-4 text-sm font-semibold text-white disabled:opacity-50">{startingVerification ? 'Подготавливаем проверку…' : data.identity.status === 'pending' ? 'Продолжить проверку' : data.identity.status === 'rejected' ? 'Повторить проверку' : 'Начать проверку'}</button>}
+          {data.identity.status !== 'not_configured' && <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-950/20 p-2 text-[11px] text-amber-200">Sandbox имитирует проверку. Не загружайте реальные документы, селфи или личные данные: Didit сохраняет захваченные материалы и в Sandbox. Тестовый результат не подтверждает личность.</p>}
           {data.identity.environment === 'sandbox' && data.identity.providerStatus && <p className="mt-2 text-[11px] text-amber-300">Тестовый ответ Didit: {data.identity.providerStatus}. Он не является подтверждением личности.</p>}
         </div>
         <div className="rounded-2xl bg-stone-950 p-3"><div className="flex justify-between"><span className="text-sm text-white">Фотографии</span><span className="text-xs text-stone-300">{data.photos.length} / 6</span></div>
