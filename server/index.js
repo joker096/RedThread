@@ -2014,18 +2014,37 @@ app.delete('/api/assessment', validateRequestOrigin, requireSession, async (req,
 });
 
 app.post('/api/identity/didit/session', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
-  if (!isDiditConfigured()) return res.status(503).json({ error: 'didit_sandbox_not_configured' });
-  let liveQuotaReservationId = null;
+  if (!isDiditConfigured()) return res.status(503).json({ error: 'didit_not_configured' });
+  if (req.body?.consentVersion !== 'didit-kyc-v1') {
+    return res.status(400).json({ error: 'identity_processing_consent_required' });
+  }
   try {
-    const current = await withActiveAccountRead(req.authUser.id, client => client.query(
-      'SELECT status FROM identity_verifications WHERE user_id = $1', [req.authUser.id]
-    ));
-    if (!current.active) return res.status(401).json({ error: 'account_not_active' });
-    if (current.value.rows[0]?.status === 'verified') return res.status(409).json({ error: 'identity_already_verified' });
-    if (process.env.DIDIT_ENVIRONMENT === 'live') {
-      liveQuotaReservationId = await withPooledTransaction(pool, async client => {
-        const monthKey = new Date().toISOString().slice(0, 7);
-        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`didit-live-free-quota:${monthKey}`]);
+    const reservation = await withPooledTransaction(pool, async client => {
+      await acquireGiftSafetyUserLocks(client, req.authUser.id);
+      const account = await client.query(
+        "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+        [req.authUser.id]
+      );
+      if (!account.rowCount) return { kind: 'inactive' };
+      const current = await client.query(
+        'SELECT status, provider_status, provider_session_id FROM identity_verifications WHERE user_id = $1 FOR UPDATE',
+        [req.authUser.id]
+      );
+      const currentIdentity = current.rows[0];
+      if (currentIdentity?.status === 'verified') return { kind: 'verified' };
+      const restartableProviderStatuses = new Set(['Declined', 'Expired', 'Abandoned', 'Kyc Expired']);
+      if (currentIdentity?.status === 'pending' && currentIdentity.provider_session_id &&
+          !restartableProviderStatuses.has(currentIdentity.provider_status)) {
+        return { kind: 'in_progress' };
+      }
+      const activeReservation = await client.query(
+        "SELECT id FROM identity_verification_session_reservations WHERE user_id = $1 AND status = 'reserved' FOR UPDATE",
+        [req.authUser.id]
+      );
+      if (activeReservation.rowCount) return { kind: 'in_progress' };
+
+      if (process.env.DIDIT_ENVIRONMENT === 'live') {
+        await client.query("SELECT pg_advisory_xact_lock(hashtext('didit-live-free-quota'))");
         const count = await client.query(
           `SELECT COUNT(*)::int AS count
            FROM identity_verification_session_reservations
@@ -2033,35 +2052,54 @@ app.post('/api/identity/didit/session', validateRequestOrigin, requireSession, p
              AND created_at >= (date_trunc('month', statement_timestamp() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
              AND created_at < ((date_trunc('month', statement_timestamp() AT TIME ZONE 'UTC') + INTERVAL '1 month') AT TIME ZONE 'UTC')`
         );
-        if (!canReserveDiditFreeSession(count.rows[0]?.count)) return null;
-        const reservation = await client.query(
-          "INSERT INTO identity_verification_session_reservations (user_id, environment, status) VALUES ($1, 'live', 'reserved') RETURNING id",
-          [req.authUser.id]
-        );
-        return reservation.rows[0]?.id || null;
-      });
-      if (!liveQuotaReservationId) return res.status(429).json({ error: 'didit_monthly_free_quota_reached', monthlyLimit: 500 });
-    }
+        if (!canReserveDiditFreeSession(count.rows[0]?.count)) return { kind: 'quota' };
+      }
+
+      await client.query(
+        'INSERT INTO identity_verification_consents (user_id, consent_version, provider, environment) VALUES ($1, $2, \'didit\', $3)',
+        [req.authUser.id, 'didit-kyc-v1', process.env.DIDIT_ENVIRONMENT]
+      );
+      const created = await client.query(
+        "INSERT INTO identity_verification_session_reservations (user_id, environment, status) VALUES ($1, $2, 'reserved') RETURNING id",
+        [req.authUser.id, process.env.DIDIT_ENVIRONMENT]
+      );
+      return { kind: 'reserved', id: created.rows[0].id };
+    });
+    if (reservation.kind === 'inactive') return res.status(401).json({ error: 'account_not_active' });
+    if (reservation.kind === 'verified') return res.status(409).json({ error: 'identity_already_verified' });
+    if (reservation.kind === 'in_progress') return res.status(409).json({ error: 'identity_verification_in_progress' });
+    if (reservation.kind === 'quota') return res.status(429).json({ error: 'didit_monthly_free_quota_reached', monthlyLimit: 500 });
+
+    // An ambiguous timeout deliberately keeps the reservation, preventing a retry
+    // from accidentally creating a second billable provider session.
     const session = await createDiditSession({ userId: req.authUser.id, callbackOrigin: allowedOrigin });
     const saved = await withPooledTransaction(pool, async client => {
       await acquireGiftSafetyUserLocks(client, req.authUser.id);
-      const account = await client.query("SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE", [req.authUser.id]);
-      if (!account.rowCount) return false;
-      if (liveQuotaReservationId) {
-        await client.query(
-          "UPDATE identity_verification_session_reservations SET provider_session_id = $2, status = 'created' WHERE id = $1 AND user_id = $3 AND environment = 'live' AND status = 'reserved'",
-          [liveQuotaReservationId, session.sessionId, req.authUser.id]
-        );
-      }
-      await client.query(
-        'INSERT INTO identity_verifications (user_id, provider, provider_session_id, workflow_id, status, provider_status, provider_environment) VALUES ($1, \'didit\', $2, $3, \'pending\', $4, $5) ON CONFLICT (user_id) DO UPDATE SET provider_session_id = EXCLUDED.provider_session_id, workflow_id = EXCLUDED.workflow_id, status = \'pending\', provider_status = EXCLUDED.provider_status, provider_environment = EXCLUDED.provider_environment, provider_event_at = NULL, updated_at = NOW() WHERE identity_verifications.status <> \'verified\'',
+      const account = await client.query(
+        "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+        [req.authUser.id]
+      );
+      if (!account.rowCount) return 'inactive';
+      const reserved = await client.query(
+        "UPDATE identity_verification_session_reservations SET provider_session_id = $2, status = 'created' WHERE id = $1 AND user_id = $3 AND environment = $4 AND status = 'reserved' RETURNING id",
+        [reservation.id, session.sessionId, req.authUser.id, session.environment]
+      );
+      if (!reserved.rowCount) return 'reservation_lost';
+      const savedIdentity = await client.query(
+        'INSERT INTO identity_verifications (user_id, provider, provider_session_id, workflow_id, status, provider_status, provider_environment) VALUES ($1, \'didit\', $2, $3, \'pending\', $4, $5) ON CONFLICT (user_id) DO UPDATE SET provider_session_id = EXCLUDED.provider_session_id, workflow_id = EXCLUDED.workflow_id, status = \'pending\', provider_status = EXCLUDED.provider_status, provider_environment = EXCLUDED.provider_environment, provider_event_at = NULL, updated_at = NOW() WHERE identity_verifications.status <> \'verified\' RETURNING user_id',
         [req.authUser.id, session.sessionId, process.env.DIDIT_WORKFLOW_ID, session.providerStatus, session.environment]
       );
-      return true;
+      return savedIdentity.rowCount === 1 ? 'saved' : 'verified';
     });
-    if (!saved) return res.status(401).json({ error: 'account_not_active' });
-    return res.json({ sessionId: session.sessionId, verificationUrl: session.verificationUrl,
-      providerStatus: session.providerStatus, environment: session.environment });
+    if (saved === 'inactive') return res.status(401).json({ error: 'account_not_active' });
+    if (saved === 'verified') return res.status(409).json({ error: 'identity_already_verified' });
+    if (saved !== 'saved') return res.status(503).json({ error: 'didit_session_persistence_unavailable' });
+    return res.json({
+      sessionId: session.sessionId,
+      verificationUrl: session.verificationUrl,
+      providerStatus: session.providerStatus,
+      environment: session.environment
+    });
   } catch (error) {
     console.error('Didit session request failed:', error?.message || 'unknown_error');
     return res.status(503).json({ error: 'didit_session_unavailable' });
