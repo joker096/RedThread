@@ -1665,4 +1665,8 @@ test('Paddle checkout reconciles a provider transaction when the account becomes
   assert.match(route, /providerTransactionStatus = canceledTransaction\.status/);
   assert.match(route, /paddle_checkout_reconciliation_required/);
   assert.match(route, /paddle_checkout_cancelled/);
+  assert.match(route, /let providerTransactionId = null/);
+  assert.match(route, /providerTransactionId = transactionId/);
+  assert.match(route, /SET transaction_id = COALESCE\(transaction_id, \$3\)/);
+  assert.match(route, /providerTransactionId\]/);
 });
