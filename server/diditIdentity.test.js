@@ -8,8 +8,9 @@ const env = {
   DIDIT_APPLICATION_ID: '123e4567-e89b-42d3-a456-426614174001',
   DIDIT_WEBHOOK_SECRET: 'webhook-secret', APP_ORIGIN: 'https://vow.example'
 };
-test('Didit configuration is complete and sandbox-only', () => {
+test('Didit configuration requires explicit environment-specific key confirmation', () => {
   assert.equal(isDiditConfigured(env), true);
+  assert.equal(isDiditConfigured({ ...env, DIDIT_ENVIRONMENT: 'live', DIDIT_LIVE_KEY_CONFIRMED: 'true' }), true);
   assert.equal(isDiditConfigured({ ...env, DIDIT_ENVIRONMENT: 'live' }), false);
   assert.equal(isDiditConfigured({ ...env, DIDIT_SANDBOX_KEY_CONFIRMED: 'false' }), false);
   assert.equal(isDiditConfigured({ ...env, DIDIT_WEBHOOK_SECRET: '' }), false);
@@ -36,8 +37,14 @@ test('webhook HMAC authenticates the entire canonical body and enforces freshnes
   assert.equal(verifyDiditWebhook({ payload, signature: digest, timestampHeader: '1700000001', secret: 'webhook-secret', now }), false);
 });
 test('Sandbox verdicts never become real identity verification', () => {
-  for (const status of ['Approved', 'Declined', 'In Review', 'Kyc Expired']) assert.equal(projectDiditStatus(status), 'pending');
-  assert.equal(projectDiditStatus('unknown'), null);
+  const evidence = { id_verifications: [{ status: 'Approved' }], liveness_checks: [{ status: 'Approved' }], face_matches: [{ status: 'Approved' }] };
+  for (const status of ['Approved', 'Declined', 'In Review', 'Kyc Expired']) assert.equal(projectDiditStatus(status, 'sandbox', evidence), 'pending');
+  assert.equal(projectDiditStatus('unknown', 'sandbox', evidence), null);
+  assert.equal(projectDiditStatus('Approved', 'live', evidence), 'verified');
+  assert.equal(projectDiditStatus('Declined', 'live', evidence), 'rejected');
+  assert.equal(projectDiditStatus('In Review', 'live', evidence), 'pending');
+  assert.equal(projectDiditStatus('Approved', 'live', { id_verifications: evidence.id_verifications, liveness_checks: evidence.liveness_checks }), 'pending');
+  assert.equal(projectDiditStatus('Approved', 'live', { ...evidence, face_matches: [{ status: 'Declined' }] }), 'pending');
   assert.equal(isDiditStatus('Resubmitted'), true);
   assert.equal(isDiditStatus('approved'), false);
 });
@@ -60,8 +67,13 @@ test('session creation keeps API key server-side and validates the hosted URL', 
   assert.equal(result.sessionId, '123e4567-e89b-42d3-a456-426614174011');
   assert.equal(result.verificationUrl, 'https://verify.didit.me/en/session/abc123');
   await assert.rejects(() => createDiditSession({ userId: 'bad', env, fetchImpl: async () => { throw new Error('must_not_call'); } }), /invalid_didit_user_id/);
-  await assert.rejects(() => createDiditSession({ userId: '123e4567-e89b-42d3-a456-426614174010',
-    env: { ...env, DIDIT_ENVIRONMENT: 'live' }, fetchImpl: async () => { throw new Error('must_not_call'); } }), /didit_sandbox_not_configured/);
+  const liveEnv = { ...env, DIDIT_ENVIRONMENT: 'live', DIDIT_SANDBOX_KEY_CONFIRMED: 'false', DIDIT_LIVE_KEY_CONFIRMED: 'true' };
+  const liveResult = await createDiditSession({
+    userId: '123e4567-e89b-42d3-a456-426614174010', env: liveEnv,
+    fetchImpl: async () => ({ ok: true, json: async () => ({ session_id: '123e4567-e89b-42d3-a456-426614174011',
+      workflow_id: env.DIDIT_WORKFLOW_ID, url: 'https://verify.didit.me/en/session/live123', status: 'Not Started' }) })
+  });
+  assert.equal(liveResult.environment, 'live');
   await assert.rejects(() => createDiditSession({ userId: '123e4567-e89b-42d3-a456-426614174010',
     env, callbackOrigin: 'https://attacker.example', fetchImpl: async () => ({ ok: true, json: async () => ({
       session_id: '123e4567-e89b-42d3-a456-426614174011', workflow_id: env.DIDIT_WORKFLOW_ID,
