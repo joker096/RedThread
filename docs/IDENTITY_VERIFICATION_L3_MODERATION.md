@@ -110,3 +110,8 @@ Important operational consequence: the current database/API does not yet persist
 Migration `114_identity_l3_workflow.sql` adds metadata-only submission records, a one-open-submission-per-user constraint, moderation/expiry indexes, and append-only decision-event storage. Database guards restrict lifecycle transitions, prevent submission identity changes, prohibit self-review, and make the moderator decision fields immutable after a decision. Approval expiry is constrained to exactly six calendar months after approval. The integration schema test is included in `npm test`.
 
 This is a schema foundation, not an operational L3 feature. There is still no upload authorization endpoint, private encrypted video object store, malware/transcode/metadata scanning worker, moderator UI/API, event-writing service, retention worker, or production query that loads the trusted L3 decision into the interaction gate. Therefore the fail-closed male interaction restriction remains in force. Do not manually populate approval fields or treat this migration as a completed verification workflow.
+
+
+## Latest schema hardening (2026-11-01)
+
+Migration 114 additionally requires a bounded reason code for every approval, rejection, and revocation. Once a video upload has been accepted, its checksum, MIME type, byte count, duration, upload timestamp, processing timestamp, and object identity cannot be replaced by a later update. The only allowed object-key mutation is a one-way purge operation that clears the key and records `media_purged_at` atomically. PostgreSQL integration coverage exercises attempted media replacement and the permitted purge transition, and verifies the decision-reason constraint.
