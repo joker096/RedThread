@@ -55,3 +55,8 @@ test('terminal sender states remain privacy-safe and accepted orders are not cha
   }, now), 'recipient_accepted');
   assert.equal(projectGiftOrderStatus({ status: 'awaiting_recipient_consent', myRole: 'unknown' }, now), 'not_available');
 });
+
+test('a recipient decline awaiting payment reconciliation is non-actionable and hidden from sender', () => {
+  assert.equal(projectGiftOrderStatus(pending({ pendingRecipientDecline: true }), now), 'decision_pending_reconciliation');
+  assert.equal(projectGiftOrderStatus(pending({ myRole: 'sender', pendingRecipientDecline: true }), now), 'not_available');
+});
