@@ -259,8 +259,15 @@ export async function processPaddleEvent(pool, rawEvent) {
           -- Do not silently replace this account's established Paddle identities.
           AND (
             ($9::boolean AND (
-              paddle_subscription_id IS NULL OR paddle_subscription_id = $3
-              OR lower(paddle_subscription_status) IN ('canceled', 'completed')
+              paddle_subscription_id IS NULL
+              OR (
+                paddle_subscription_id = $3
+                AND COALESCE(lower(paddle_subscription_status), '') NOT IN ('canceled', 'completed')
+              )
+              OR (
+                paddle_subscription_id IS DISTINCT FROM $3
+                AND lower(paddle_subscription_status) IN ('canceled', 'completed')
+              )
             ))
             OR (NOT $9::boolean AND paddle_subscription_id = $3)
           )
