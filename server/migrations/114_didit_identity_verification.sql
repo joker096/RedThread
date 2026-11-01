@@ -17,6 +17,7 @@ ALTER TABLE identity_verifications
 UPDATE identity_verifications SET status = 'pending', provider_session_id = NULL, provider_status = NULL, provider_event_at = NULL, provider_environment = 'sandbox', updated_at = NOW();
 CREATE TABLE IF NOT EXISTS identity_verification_events (
   event_id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   provider_session_id UUID NOT NULL,
   provider_event_at TIMESTAMPTZ NOT NULL,
   received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
