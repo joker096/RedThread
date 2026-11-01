@@ -200,7 +200,7 @@ test('L3 schema persists metadata only and protects workflow decisions', {
         await client.query('SAVEPOINT reject_l3_token_replay');
         await assert.rejects(
           client.query(
-            'UPDATE identity_l3_upload_token_trigger_test SET consumed_at = NOW() WHERE id = $1',
+            'UPDATE identity_l3_upload_token_trigger_test SET consumed_at = consumed_at + INTERVAL '1 second' WHERE id = $1',
             [tokenId]
           ),
           error => error.code === '23514'
