@@ -1651,3 +1651,18 @@ test('Paddle checkout route reuses its checked-out client instead of querying th
     responseParsed > providerRequest && reconnected > responseParsed,
     'the database connection must be released during the external Paddle request and reacquired only to persist its result');
 });
+
+test('Paddle checkout reconciles a provider transaction when the account becomes inactive before response persistence', async () => {
+  const source = await readFile(new URL('./index.js', import.meta.url), 'utf8');
+  const start = source.indexOf("app.post('/api/paddle/checkout'");
+  const end = source.indexOf("app.post('/api/paddle/checkout", start + 10);
+  assert.ok(start >= 0 && end > start, 'expected one bounded Paddle checkout route');
+  const route = source.slice(start, end);
+  assert.match(route, /const recoveredStatus = providerTransactionStatus === 'canceled'/);
+  assert.match(route, /SET transaction_id = COALESCE\\(transaction_id, \\$3\\)/);
+  assert.match(route, /status = \\$5, updated_at = NOW\\(\\)/);
+  assert.match(route, /AND status = 'creating'/);
+  assert.match(route, /providerTransactionStatus = canceledTransaction\\.status/);
+  assert.match(route, /paddle_checkout_reconciliation_required/);
+  assert.match(route, /paddle_checkout_cancelled/);
+});
