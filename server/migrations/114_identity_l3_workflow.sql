@@ -46,6 +46,7 @@ CREATE TABLE identity_l3_submissions (
       AND reviewed_by <> user_id
     )
   ),
+  CHECK (status NOT IN ('pending_review', 'approved', 'rejected') OR processing_completed_at IS NOT NULL),
   CHECK (status <> 'revoked' OR revoked_at IS NOT NULL),
   CHECK (
     status NOT IN ('approved', 'rejected', 'revoked')
@@ -165,6 +166,15 @@ BEGIN
   -- Once bytes have been accepted, their identity and validation metadata cannot
   -- be swapped underneath a moderation decision. The sole permitted mutation is
   -- clearing the object key while atomically marking the media as purged.
+  IF NEW.media_purged_at IS DISTINCT FROM OLD.media_purged_at AND NOT (
+    OLD.media_purged_at IS NULL AND NEW.media_purged_at IS NOT NULL
+    AND OLD.storage_object_key IS NOT NULL AND NEW.storage_object_key IS NULL
+    AND OLD.status IN ('approved', 'rejected', 'withdrawn', 'revoked', 'expired')
+    AND NEW.status = OLD.status
+  ) THEN
+    RAISE EXCEPTION 'identity L3 media purge must be a one-way terminal-state operation' USING ERRCODE = '23514';
+  END IF;
+
   IF OLD.status NOT IN ('draft', 'upload_authorized') AND (
     NEW.media_sha256 IS DISTINCT FROM OLD.media_sha256 OR
     NEW.media_mime_type IS DISTINCT FROM OLD.media_mime_type OR
@@ -174,9 +184,10 @@ BEGIN
     NEW.processing_completed_at IS DISTINCT FROM OLD.processing_completed_at OR
     (NEW.storage_object_key IS DISTINCT FROM OLD.storage_object_key AND NOT (
       OLD.media_purged_at IS NULL AND NEW.media_purged_at IS NOT NULL
-      AND NEW.storage_object_key IS NULL
-    )) OR
-    (OLD.media_purged_at IS NOT NULL AND NEW.media_purged_at IS DISTINCT FROM OLD.media_purged_at)
+      AND OLD.storage_object_key IS NOT NULL AND NEW.storage_object_key IS NULL
+      AND OLD.status IN ('approved', 'rejected', 'withdrawn', 'revoked', 'expired')
+      AND NEW.status = OLD.status
+    ))
   ) THEN
     RAISE EXCEPTION 'identity L3 media metadata is immutable after upload' USING ERRCODE = '23514';
   END IF;
