@@ -53,11 +53,6 @@ export async function createSumsubAccessToken({ userId, env = process.env, fetch
   if (typeof userId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId)) {
     throw new TypeError('invalid_sumsub_user_id');
   }
-  const query = new URLSearchParams({
-    userId,
-    levelName: env.SUMSUB_LEVEL_NAME,
-    ttlInSecs: '600'
-  });
   const requestBody = JSON.stringify({ userId, levelName: env.SUMSUB_LEVEL_NAME, ttlInSecs: 600 });
   const requestPath = '/resources/accessTokens/sdk';
   const timestamp = Math.floor(now() / 1000);
