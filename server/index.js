@@ -2339,7 +2339,7 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
       gender: identityActor.gender, status: identityActor.identity_status, environment: identityActor.identity_environment
     })) {
       await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2' });
+      return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
     }
     await client.query('BEGIN');
     const requestedTargetId = req.body?.targetId ?? null;
@@ -2465,7 +2465,7 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
       gender: identityActor.gender, status: identityActor.identity_status, environment: identityActor.identity_environment
     })) {
       await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2' });
+      return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
     }
     await client.query('BEGIN');
     await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
@@ -2535,7 +2535,7 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
       gender: actor.gender, status: actor.identity_status, environment: actor.identity_environment
     })) {
       await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2' });
+      return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
     }
     const targetResult = await client.query(
       `SELECT p.user_id, p.gender
@@ -2682,7 +2682,7 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
       gender: identityActor.gender, status: identityActor.identity_status, environment: identityActor.identity_environment
     })) {
       await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2' });
+      return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
     }
     await client.query('BEGIN');
     const preview = await client.query(
@@ -3005,7 +3005,7 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
       gender: actor.gender, status: actor.identity_status, environment: actor.identity_environment
     })) {
       await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2' });
+      return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
     }
     const access = await client.query(
       `SELECT m.user_a_id, m.user_b_id
