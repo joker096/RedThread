@@ -368,6 +368,36 @@ async function seedFixture(pool) {
       [ids.sender, ids.moderator]
     );
 
+    // Synthetic, database-only L3 approval for this integration fixture.
+    // No production approval or external video storage is created.
+    const l3 = await client.query(
+      "INSERT INTO identity_l3_submissions (user_id) VALUES ($1) RETURNING id",
+      [ids.sender]
+    );
+    const l3Id = l3.rows[0].id;
+    await client.query("UPDATE identity_l3_submissions SET status = 'upload_authorized' WHERE id = $1", [l3Id]);
+    await client.query(
+      `UPDATE identity_l3_submissions
+       SET status = 'uploaded', storage_object_key = 'integration-test/opaque-video',
+           media_sha256 = repeat('a', 64), media_mime_type = 'video/mp4',
+           media_size_bytes = 1024, media_duration_seconds = 30, uploaded_at = NOW()
+       WHERE id = $1`,
+      [l3Id]
+    );
+    await client.query(
+      "UPDATE identity_l3_submissions SET status = 'processing', processing_completed_at = NOW() WHERE id = $1",
+      [l3Id]
+    );
+    await client.query("UPDATE identity_l3_submissions SET status = 'pending_review' WHERE id = $1", [l3Id]);
+    await client.query(
+      `UPDATE identity_l3_submissions
+       SET status = 'approved', reviewed_by = $2, reviewed_at = NOW(),
+           decision_reason_code = 'test_approved', approved_at = NOW(),
+           expires_at = NOW() + INTERVAL '6 months'
+       WHERE id = $1`,
+      [l3Id, ids.moderator]
+    );
+
     await client.query(
       `INSERT INTO gift_suppliers
          (supplier_key, display_name, status, privacy_reviewed_at, contract_reviewed_at)
