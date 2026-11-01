@@ -17,7 +17,7 @@ The server refuses checkout unless `PADDLE_ENVIRONMENT=sandbox` and the client t
 ## Dashboard tasks
 
 1. In the Paddle **Sandbox** account, create the Vow Premium products/prices that match the current Vow offer and put their price IDs into the environment variables above. The current code accepts monthly, three-month, and optional lifetime price IDs; a lifetime option is a one-time purchase, not a recurring subscription.
-2. Create a sandbox notification destination for `/api/paddle/webhook`; subscribe to `subscription.created`, `subscription.updated`, `subscription.canceled`, `customer.created`, `customer.updated`, and `transaction.completed`. Copy its notification signing secret into `PADDLE_WEBHOOK_SECRET`.
+2. Create a sandbox notification destination for `/api/paddle/webhook`; subscribe to `subscription.created`, `subscription.updated`, `subscription.canceled`, `customer.created`, `customer.updated`, `transaction.completed`, and `transaction.canceled`. Copy its notification signing secret into `PADDLE_WEBHOOK_SECRET`.
 3. Configure the sandbox default payment link under Checkout > Checkout configuration to a page on your own domain. Do not use localhost for the Paddle default payment link.
 4. Run `npm run db:migrate`, restart the API, and sign in with an eligible female test account. The account panel displays Paddle Sandbox checkout only after configuration.
 5. Use Paddle's sandbox successful test card `4242 4242 4242 4242` with any future expiry date; also test declined card `4000 0000 0000 0002`. Verify the overlay, completed transaction, webhook 2xx delivery, and database state. Do not use real card data.
