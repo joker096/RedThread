@@ -600,26 +600,6 @@ export default function App() {
     }));
   };
 
-  // Report profile
-  const handleReportProfile = (profileId: string, reason: string) => {
-    setProfiles(prev =>
-      prev.map(p => {
-        if (p.id === profileId) {
-          return {
-            ...p,
-            verification: {
-              ...p.verification,
-              reportCount: p.verification.reportCount + 1,
-              botRiskLevel: 'high',
-              noBotScore: Math.max(10, p.verification.noBotScore - 30)
-            }
-          };
-        }
-        return p;
-      })
-    );
-  };
-
   // Filtered profiles strictly binary (Women see Men, Men see Women)
   const binaryPool = excludeSponsoredDiscoveryProfiles(filterBinaryCandidates(profiles, currentGender));
   const filteredProfiles = binaryPool.filter(p => {
@@ -1165,7 +1145,6 @@ export default function App() {
         isOpen={isBotScannerOpen}
         onClose={() => setIsBotScannerOpen(false)}
         targetProfile={botScanTargetProfile}
-        onReportProfile={handleReportProfile}
       />
 
       {/* 4. Ad Revenue Manager */}
