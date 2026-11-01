@@ -2538,6 +2538,14 @@ test('auth API supports registration, session lookup, logout and login', {
         "INSERT INTO identity_verification_events (event_id, user_id, provider_session_id, provider_event_at) VALUES ($1, $2, $3, NOW())",
         [diditEventId, registered.user.id, diditSessionId]
       );
+      await deletionSafetyDb.query(
+        "INSERT INTO identity_verification_consents (user_id, consent_version, provider, environment) VALUES ($1, 'didit-kyc-v1', 'didit', 'sandbox')",
+        [registered.user.id]
+      );
+      await deletionSafetyDb.query(
+        "INSERT INTO identity_verification_session_reservations (user_id, provider_session_id, environment, status) VALUES ($1, $2, 'sandbox', 'reserved')",
+        [registered.user.id, randomUUID()]
+      );
       const staleMessageCountBefore = await deletionSafetyDb.query(
         'SELECT COUNT(*)::int AS count FROM messages WHERE match_id = $1 AND sender_id = $2',
         [matchPayload.match.id, registered.user.id]
@@ -2861,6 +2869,18 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       assert.equal(diditIdentityAfterDeletion.rows[0].count, 0,
         'account deletion must purge Didit identity session and sandbox decision metadata');
+      const diditConsentAfterDeletion = await deletionSafetyDb.query(
+        'SELECT COUNT(*)::int AS count FROM identity_verification_consents WHERE user_id = $1',
+        [registered.user.id]
+      );
+      assert.equal(diditConsentAfterDeletion.rows[0].count, 0,
+        'account deletion must purge the identity-consent record');
+      const diditReservationsAfterDeletion = await deletionSafetyDb.query(
+        'SELECT COUNT(*)::int AS count FROM identity_verification_session_reservations WHERE user_id = $1',
+        [registered.user.id]
+      );
+      assert.equal(diditReservationsAfterDeletion.rows[0].count, 0,
+        'account deletion must purge user-linked Didit session reservations');
       const diditEventsAfterDeletion = await deletionSafetyDb.query(
         'SELECT COUNT(*)::int AS count FROM identity_verification_events WHERE user_id = $1',
         [registered.user.id]
