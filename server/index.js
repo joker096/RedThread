@@ -144,6 +144,7 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
   let client;
   let attemptStarted = false;
   let checkoutAttemptId = null;
+  let providerTransactionId = null;
   try {
     const {
       isPremiumCheckoutBlocked,
@@ -302,6 +303,7 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
       );
       return res.status(502).json({ error: 'paddle_checkout_session_failed' });
     }
+    providerTransactionId = transactionId;
     const providerStatus = String(transaction.status || '').toLowerCase();
     const attemptStatus = ['draft', 'ready'].includes(providerStatus) ? 'pending'
       : ['completed', 'paid'].includes(providerStatus) ? 'completed'
@@ -413,9 +415,11 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
           releaseReconciliationClient = true;
         }
         await reconciliationClient.query(
-          `UPDATE paddle_checkout_attempts SET status = 'reconciliation_required', updated_at = NOW()
+          `UPDATE paddle_checkout_attempts
+           SET transaction_id = COALESCE(transaction_id, $3),
+               status = 'reconciliation_required', updated_at = NOW()
            WHERE user_id = $1 AND attempt_id = $2 AND status = 'creating'`,
-          [req.authUser.id, checkoutAttemptId]
+          [req.authUser.id, checkoutAttemptId, providerTransactionId]
         );
       } catch {
         // Preserve the original checkout error; the attempt remains fail-closed.
