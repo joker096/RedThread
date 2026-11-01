@@ -215,6 +215,76 @@ CREATE TRIGGER identity_l3_submission_transition_guard
   BEFORE INSERT OR UPDATE ON identity_l3_submissions
   FOR EACH ROW EXECUTE FUNCTION guard_identity_l3_submission_transition();
 
+CREATE OR REPLACE FUNCTION record_identity_l3_submission_event()
+RETURNS trigger LANGUAGE plpgsql AS $
+DECLARE
+  next_event_type TEXT;
+  event_actor UUID;
+  event_reason TEXT;
+BEGIN
+  event_actor := NULLIF(current_setting('app.identity_l3_actor_user_id', TRUE), '')::UUID;
+  event_reason := NULLIF(current_setting('app.identity_l3_reason_code', TRUE), '');
+
+  IF TG_OP = 'INSERT' THEN
+    INSERT INTO identity_l3_decision_events
+      (submission_id, user_id, actor_user_id, event_type, from_status, to_status, reason_code)
+    VALUES (NEW.id, NEW.user_id, event_actor, 'created', NULL, NEW.status, event_reason);
+    RETURN NEW;
+  END IF;
+
+  IF NEW.status IS DISTINCT FROM OLD.status THEN
+    IF NEW.status = 'processing' AND NEW.processing_completed_at IS NOT NULL
+       AND OLD.processing_completed_at IS NULL THEN
+      INSERT INTO identity_l3_decision_events
+        (submission_id, user_id, actor_user_id, event_type, from_status, to_status, reason_code)
+      VALUES
+        (NEW.id, NEW.user_id, event_actor, 'processing_started', OLD.status, NEW.status, event_reason),
+        (NEW.id, NEW.user_id, event_actor, 'processing_completed', NEW.status, NEW.status, event_reason);
+      RETURN NEW;
+    END IF;
+
+    next_event_type := CASE NEW.status
+      WHEN 'upload_authorized' THEN 'upload_authorized'
+      WHEN 'uploaded' THEN 'uploaded'
+      WHEN 'processing' THEN 'processing_started'
+      WHEN 'pending_review' THEN 'submitted_for_review'
+      WHEN 'approved' THEN 'approved'
+      WHEN 'rejected' THEN 'rejected'
+      WHEN 'withdrawn' THEN 'withdrawn'
+      WHEN 'revoked' THEN 'revoked'
+      WHEN 'expired' THEN 'expired'
+      ELSE NULL
+    END;
+    IF next_event_type IS NOT NULL THEN
+      INSERT INTO identity_l3_decision_events
+        (submission_id, user_id, actor_user_id, event_type, from_status, to_status, reason_code)
+      VALUES (
+        NEW.id, NEW.user_id,
+        CASE WHEN NEW.status IN ('approved', 'rejected') THEN NEW.reviewed_by ELSE event_actor END,
+        next_event_type, OLD.status, NEW.status,
+        CASE WHEN NEW.status IN ('approved', 'rejected') THEN NEW.decision_reason_code ELSE event_reason END
+      );
+    END IF;
+  ELSIF NEW.processing_completed_at IS DISTINCT FROM OLD.processing_completed_at
+        AND NEW.processing_completed_at IS NOT NULL THEN
+    INSERT INTO identity_l3_decision_events
+      (submission_id, user_id, actor_user_id, event_type, from_status, to_status, reason_code)
+    VALUES (NEW.id, NEW.user_id, event_actor, 'processing_completed', OLD.status, NEW.status, event_reason);
+  ELSIF NEW.media_purged_at IS DISTINCT FROM OLD.media_purged_at
+        AND NEW.media_purged_at IS NOT NULL THEN
+    INSERT INTO identity_l3_decision_events
+      (submission_id, user_id, actor_user_id, event_type, from_status, to_status, reason_code)
+    VALUES (NEW.id, NEW.user_id, event_actor, 'media_purged', OLD.status, NEW.status, event_reason);
+  END IF;
+
+  RETURN NEW;
+END;
+$;
+
+CREATE TRIGGER identity_l3_submission_event_recorder
+  AFTER INSERT OR UPDATE ON identity_l3_submissions
+  FOR EACH ROW EXECUTE FUNCTION record_identity_l3_submission_event();
+
 CREATE OR REPLACE FUNCTION identity_l3_current_decision(p_user_id UUID)
 RETURNS TABLE(status TEXT, expires_at TIMESTAMPTZ)
 LANGUAGE plpgsql VOLATILE AS $
