@@ -44,8 +44,21 @@ export async function processExpiredGiftRequestBatch(pool, {
        FROM gift_delivery_orders
        WHERE status = 'awaiting_recipient_consent'
          AND expires_at <= NOW()
-         -- Include orders that already have a task: expiry is an independent
-         -- audit cause, while the unique order index suppresses duplicate work.
+         AND (
+           payment_status IN ('not_started', 'voided', 'failed')
+           OR NOT EXISTS (
+             SELECT 1
+             FROM gift_payment_reconciliation_tasks tasks
+             WHERE tasks.order_id = gift_delivery_orders.id
+           )
+           OR NOT EXISTS (
+             SELECT 1
+             FROM gift_delivery_order_events expiry_event
+             WHERE expiry_event.order_id = gift_delivery_orders.id
+               AND expiry_event.event_type = 'payment_reconciliation_required'
+               AND expiry_event.metadata->>'reason' = 'expired_active_payment'
+           )
+         )
      ) candidates
      -- Rotate the bounded window each minute so a persistently failing early
      -- pair cannot monopolize the same first slots on every worker invocation.
