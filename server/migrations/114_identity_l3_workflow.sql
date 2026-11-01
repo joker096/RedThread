@@ -81,7 +81,7 @@ CREATE TABLE identity_l3_decision_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   submission_id UUID NOT NULL REFERENCES identity_l3_submissions(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  actor_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  actor_user_id UUID, -- immutable audit identifier; intentionally survives actor account deletion
   event_type TEXT NOT NULL CHECK (event_type IN (
     'created', 'upload_authorized', 'uploaded', 'processing_started',
     'processing_completed', 'submitted_for_review', 'approved',
