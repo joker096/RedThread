@@ -222,7 +222,7 @@ CREATE TRIGGER identity_l3_submission_transition_guard
   FOR EACH ROW EXECUTE FUNCTION guard_identity_l3_submission_transition();
 
 CREATE OR REPLACE FUNCTION record_identity_l3_submission_event()
-RETURNS trigger LANGUAGE plpgsql AS $
+RETURNS trigger LANGUAGE plpgsql AS $l3_event$
 DECLARE
   next_event_type TEXT;
   event_actor UUID;
@@ -286,7 +286,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$;
+$l3_event$;
 
 CREATE TRIGGER identity_l3_submission_event_recorder
   AFTER INSERT OR UPDATE ON identity_l3_submissions
