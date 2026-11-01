@@ -102,7 +102,7 @@ The current deployment has a private `private_photos` volume for profile photos,
 
 The shared `canInteract` policy now requires all of the following for male accounts: Didit L2 status `verified` in the `live` environment, L3 status `approved`, and an L3 expiry timestamp later than the current time. Missing or malformed L3 fields deny access. All five existing restricted interaction routes return `requiredLevel: L2_AND_L3`. Women remain outside this male-specific gate.
 
-Important operational consequence: the current database/API does not yet persist trusted L3 decisions, so existing male accounts are intentionally denied these restricted actions until the complete L3 submission, private media processing, moderator decision, revocation, and expiry workflow is implemented and deployed. This is a deliberate fail-closed release hold, not a claim that L3 is operational. Do not bypass it by setting client fields or by treating Didit L2 as L3.
+Important operational consequence: trusted L3 decisions are now stored and read from PostgreSQL, but there is no production submission, private-media processing, or moderator workflow capable of creating a legitimate approval. Existing male accounts are therefore intentionally denied restricted actions until the complete L3 workflow is implemented and deployed. This is a deliberate fail-closed release hold, not a claim that L3 is operational. Do not bypass it by setting client fields or by treating Didit L2 as L3.
 
 
 ## PostgreSQL foundation added (migration 114)
