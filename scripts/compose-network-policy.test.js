@@ -12,7 +12,7 @@ test('Docker database network is isolated from the public web proxy container', 
   };
   const networksFor = name => {
     const block = serviceBlock(name);
-    const line = block.split('\\n').find(value => value.trimStart().startsWith('networks:'));
+    const line = block.split(String.fromCharCode(10)).find(value => value.trimStart().startsWith('networks:'));
     assert.ok(line, `missing explicit network assignment for ${name}`);
     const value = line.trim().slice('networks:'.length).trim();
     assert.ok(value.startsWith('[') && value.endsWith(']'), `invalid network list for ${name}`);
