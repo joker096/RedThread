@@ -131,7 +131,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
               <div>
                 <span className="text-white font-medium">Фильтр спама и внешних ссылок</span>
-                <p className="text-[10px] text-stone-400">Локальная демонстрационная эвристика; серверная модерация не подключена</p>
+                <p className="text-[10px] text-stone-400">Автоматический фильтр спама и внешних ссылок пока не подключён</p>
               </div>
             </div>
             <span className="text-xs font-bold text-stone-400 font-mono">
@@ -148,7 +148,7 @@ export const BotSafetyScanner: React.FC<BotSafetyScannerProps> = ({
                 <p className="text-[10px] text-stone-400">Серверная телеметрия действий пока не подключена</p>
               </div>
             </div>
-            <span className="text-xs font-bold text-emerald-400 font-mono">
+            <span className="text-xs font-bold text-stone-400 font-mono">
               Нет данных
             </span>
           </div>
