@@ -86,6 +86,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
   if (!isOpen || !profile) return null;
 
   const compatibility = calculateCompatibility(myAnswers, myIntent, myInterests, profile);
+  const hasEnoughCompatibilityData = compatibility.dataCoverage >= 50;
   const displayScore = compatibility.overallScore;
 
   // These prompts are conversation starters only. A real compatibility
@@ -138,13 +139,13 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
         <div className="p-4 rounded-2xl bg-gradient-to-r from-rose-950/60 via-red-950/40 to-stone-950 border border-rose-600/30 mb-5 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-rose-600 to-red-500 text-white flex flex-col items-center justify-center font-black shadow-lg shadow-rose-950">
-              <span className="text-xl leading-none">{displayScore}%</span>
+              <span className="text-xl leading-none">{hasEnoughCompatibilityData ? `${displayScore}%` : '—'}</span>
               <span className="text-[9px] uppercase tracking-tighter opacity-80 mt-0.5">Индекс</span>
             </div>
             <div>
               <div className="text-sm font-bold text-white flex items-center gap-1.5">
-                <span>{displayScore >= 85 ? t('compatibilityHighAlignment') : t('compatibilitySomeAlignment')}</span>
-                <Flame className="w-4 h-4 text-amber-400 fill-amber-400" />
+                <span>{!hasEnoughCompatibilityData ? t('compatibilityInsufficientData') : displayScore >= 85 ? t('compatibilityHighAlignment') : t('compatibilitySomeAlignment')}</span>
+                {hasEnoughCompatibilityData && <Flame className="w-4 h-4 text-amber-400 fill-amber-400" />}
               </div>
               <p className="text-xs text-rose-300/90 mt-0.5">
                 {t('compatibilityScoreDisclaimer')}
