@@ -95,7 +95,7 @@ Approval expires at `approved_at + interval '6 months'`. Every authorization che
 
 ## Current repository boundary
 
-The current deployment has a private `private_photos` volume for profile photos, and Didit L2 stores provider session/status metadata only. Neither is an L3 video storage or manual-review system. Do not point L3 video at `PHOTO_STORAGE_DIR`, and do not infer L3 from the Didit `verified` status. The L3 feature remains disabled until the storage and moderation workflow above exists.
+The current deployment has a private `private_photos` volume for profile photos, and Didit L2 stores provider session/status metadata only. Neither is an L3 video storage or manual-review system. Do not point L3 video at `PHOTO_STORAGE_DIR`, and do not infer L3 from the Didit `verified` status. The L3 feature remains operationally unavailable until the storage and moderation workflow above exists.
 
 
 ## Interim enforcement state (2026-11-01)
@@ -115,3 +115,8 @@ This is a schema foundation, not an operational L3 feature. There is still no up
 ## Latest schema hardening (2026-11-01)
 
 Migration 114 additionally requires a bounded reason code for every approval, rejection, and revocation. Once a video upload has been accepted, its checksum, MIME type, byte count, duration, upload timestamp, processing timestamp, and object identity cannot be replaced by a later update. The only allowed object-key mutation is a one-way purge operation that clears the key and records `media_purged_at` atomically. PostgreSQL integration coverage exercises attempted media replacement and the permitted purge transition, and verifies the decision-reason constraint.
+
+
+## Trusted L3 lookup wired into restricted actions (2026-11-01)
+
+All five restricted interaction handlers now read the current approved, unexpired L3 submission from PostgreSQL rather than relying on request fields or a hard-coded missing value. The lookup is performed inside the action transaction and takes a row-level `FOR SHARE` lock on the selected approval so a concurrent revocation/expiry transition cannot race past an in-flight restricted action; the revocation/expiry update waits for that action transaction to finish, and subsequent actions see the new state. Integration coverage creates a synthetic approved L3 row for the positive path and verifies that a second account with live L2 but no L3 remains denied for like, pass, and discovery undo. This does not enable L3 in production: the secure upload, scanning, moderator workflow and retention components are still absent.
