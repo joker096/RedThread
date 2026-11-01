@@ -637,6 +637,14 @@ test('auth API supports registration, session lookup, logout and login', {
       const activePaymentOrderId = activePaymentOrder.rows[0].id;
       const activePaymentReference = activePaymentOrder.rows[0].public_reference;
       try {
+        // Simulate a safety-triggered task arriving first. The later recipient
+        // decline must still be durable in the event log and block acceptance,
+        // while the order retains exactly one provider task.
+        await giftTestDb.query(
+          `INSERT INTO gift_payment_reconciliation_tasks (order_id, reason)
+           VALUES ($1, 'safety_hold')`,
+          [activePaymentOrderId]
+        );
         const declineActivePayment = await request(
           `/api/gifts/orders/${activePaymentReference}/decision`,
           {
@@ -652,13 +660,22 @@ test('auth API supports registration, session lookup, logout and login', {
         });
         const pendingDeclineTask = await giftTestDb.query(
           `SELECT reason, status FROM gift_payment_reconciliation_tasks
-           WHERE order_id = $1 AND reason = 'recipient_declined_active_payment'`,
+           WHERE order_id = $1`,
           [activePaymentOrderId]
         );
         assert.deepEqual(pendingDeclineTask.rows, [{
-          reason: 'recipient_declined_active_payment',
+          reason: 'safety_hold',
           status: 'pending'
-        }], 'recipient decline must be durable while payment remains active');
+        }], 'a pre-existing safety task must be reused rather than duplicated');
+        const declineIntentEvent = await giftTestDb.query(
+          `SELECT 1 FROM gift_delivery_order_events
+           WHERE order_id = $1
+             AND event_type = 'payment_reconciliation_required'
+             AND metadata->>'reason' = 'recipient_declined_active_payment'`,
+          [activePaymentOrderId]
+        );
+        assert.equal(declineIntentEvent.rowCount, 1,
+          'recipient decline intent must be durable independently of the task reason');
         const unchangedActiveOrder = await giftTestDb.query(
           'SELECT status, payment_status FROM gift_delivery_orders WHERE id = $1',
           [activePaymentOrderId]
@@ -716,7 +733,7 @@ test('auth API supports registration, session lookup, logout and login', {
           [activePaymentOrderId]
         );
         assert.deepEqual(queuedByCatalog.rows, [{
-          reason: 'recipient_declined_active_payment',
+          reason: 'safety_hold',
           status: 'pending',
           attempt_count: 0
         }], 'catalog expiry must reuse the existing order-level task rather than enqueue duplicate provider work');
@@ -838,7 +855,7 @@ test('auth API supports registration, session lookup, logout and login', {
           [activePaymentOrderId]
         );
         assert.deepEqual(reconciliationTask.rows, [{
-          reason: 'recipient_declined_active_payment',
+          reason: 'safety_hold',
           status: 'pending',
           attempt_count: 0
         }], 'decline, expiry, and opt-out must share exactly one durable reconciliation task per order');
