@@ -81,6 +81,7 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       assert.ok(indexes.rows.some(row => row.indexname === 'identity_l3_one_open_submission_per_user_uidx' && /UNIQUE/.test(row.indexdef)));
       assert.ok(indexes.rows.some(row => row.indexname === 'identity_l3_moderation_queue_idx'));
       assert.ok(indexes.rows.some(row => row.indexname === 'identity_l3_expiry_idx'));
+      assert.ok(indexes.rows.some(row => row.indexname === 'identity_l3_current_decision_idx'));
 
       await client.query('BEGIN');
       try {
