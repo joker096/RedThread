@@ -42,7 +42,7 @@ export function calculateCompatibility(
         frictionPoints.push('Разные ожидания от официального брака и совместного проживания');
       } else if (pair.has('marriage_family') && pair.has('serious_relationship')) {
         familyScore -= 10;
-        frictionPoints.push('Один明确 обозначил цель брака, другой пока говорит о серьёзных отношениях без такого уточнения');
+        frictionPoints.push('Один прямо обозначил цель брака, другой пока говорит о серьёзных отношениях без такого уточнения');
       } else if (pair.has('not_sure')) {
         familyScore -= 20;
         frictionPoints.push('Один из участников пока не определился с форматом отношений');
