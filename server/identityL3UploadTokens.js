@@ -115,7 +115,10 @@ export async function issueIdentityL3UploadCapability(client, { userId }) {
 
 /**
  * Atomically consumes a bearer token for its authenticated owner. Must run in a
- * transaction before accepting any request bytes. Failed uploads require a new token.
+ * caller-owned transaction before accepting bytes. Keep that transaction and its
+ * account advisory lock open until the encrypted object key is persisted on the
+ * submission, or commit the consumed token on failure. This prevents account deletion
+ * from racing an in-flight upload and leaving an orphaned private object.
  */
 export async function consumeIdentityL3UploadCapability(client, { userId, uploadToken }) {
   const tokenHash = hashIdentityL3UploadToken(uploadToken);
