@@ -31,6 +31,7 @@ test('L3 storage encrypts streams and decrypts only authenticated content', asyn
     assert.equal(stored.sizeBytes, original.length);
     assert.equal(stored.sha256.length, 64);
     const encrypted = await readFile(path.join(root, stored.objectKey));
+    assert.deepEqual(encrypted.subarray(0, 8), Buffer.from([0x56, 0x4f, 0x57, 0x4c, 0x33, 0x56, 0x31, 0x00]));
     assert.equal(encrypted.includes(original), false);
     assert.deepEqual(await collect(await openIdentityL3Stream({ objectKey: stored.objectKey, root, key })), original);
     assert.deepEqual((await readdir(root)).sort(), [stored.objectKey]);
