@@ -58,7 +58,7 @@ test('expiry worker takes creation locks in the established order and commits sa
     'an existing task must not suppress a missing expiry audit event');
   assert.match(discovery.sql, /expired_active_payment/,
     'the candidate scan must detect whether the independent expiry cause was audited');
-  assert.match(discovery.sql, /payment_status IN \\('not_started', 'voided', 'failed'\\)/,
+  assert.match(discovery.sql, /payment_status IN \('not_started', 'voided', 'failed'\)/,
     'definitively inactive payments can be expired without reconciliation');
   assert.doesNotMatch(discovery.sql, /SELECT DISTINCT/i, 'migration 033 guarantees one pending order per unordered pair');
   assert.match(discovery.sql, /ORDER BY md5\(concat_ws/);
