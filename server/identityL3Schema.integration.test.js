@@ -34,6 +34,12 @@ test('L3 schema persists metadata only and protects workflow decisions', {
          WHERE tgrelid = 'identity_l3_submissions'::regclass AND NOT tgisinternal`
       );
       assert.ok(triggerNames.rows.some(row => row.tgname === 'identity_l3_submission_transition_guard'));
+      assert.ok(triggerNames.rows.some(row => row.tgname === 'identity_l3_submission_event_recorder'));
+      const eventRecorder = await client.query(
+        `SELECT pg_get_functiondef('record_identity_l3_submission_event()'::regprocedure) AS definition`
+      );
+      assert.match(eventRecorder.rows[0].definition, /processing_completed/);
+      assert.match(eventRecorder.rows[0].definition, /submitted_for_review/);
 
       const eventTrigger = await client.query(
         `SELECT tgname FROM pg_trigger
