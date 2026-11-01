@@ -11,9 +11,9 @@ export function canInteract({
   if (gender === 'female') return true;
   if (gender !== 'male') return false;
 
-  // L2 is necessary but no longer sufficient. L3 has no production upload,
-  // scan, moderator-decision or revocation pipeline yet, so current routes
-  // intentionally fail closed for men until trusted L3 state is wired in.
+  // L2 is necessary but no longer sufficient. Callers must supply L3 state
+  // loaded from the database inside the action transaction; request fields
+  // must never be passed here. No production workflow can create that state yet.
   if (status !== 'verified' || environment !== 'live' || l3Status !== 'approved') return false;
 
   const expiry = typeof l3ExpiresAt === 'string' || l3ExpiresAt instanceof Date
