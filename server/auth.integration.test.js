@@ -1509,6 +1509,87 @@ test('auth API supports registration, session lookup, logout and login', {
        WHERE id = $1`,
       [l3SubmissionId, randomUUID()]
     );
+
+    // A newer revocation must supersede an older still-unexpired approval;
+    // authorization must never fall back to that stale approval.
+    const olderApprovalId = randomUUID();
+    await identityGateDb.query(
+      'INSERT INTO identity_l3_submissions (id, user_id) VALUES ($1, $2)',
+      [olderApprovalId, secondMaleRegistered.user.id]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'upload_authorized' WHERE id = $1",
+      [olderApprovalId]
+    );
+    await identityGateDb.query(
+      `UPDATE identity_l3_submissions
+       SET status = 'uploaded', storage_object_key = $2, media_sha256 = repeat('b', 64),
+           media_mime_type = 'video/mp4', media_size_bytes = 1024,
+           media_duration_seconds = 30, uploaded_at = NOW()
+       WHERE id = $1`,
+      [olderApprovalId, `test-only/${olderApprovalId}`]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'processing', processing_completed_at = NOW() WHERE id = $1",
+      [olderApprovalId]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'pending_review' WHERE id = $1",
+      [olderApprovalId]
+    );
+    await identityGateDb.query(
+      `UPDATE identity_l3_submissions
+       SET status = 'approved', reviewed_by = $2, reviewed_at = NOW(),
+           decision_reason_code = 'integration_test_older_approval',
+           approved_at = NOW() - INTERVAL '1 month',
+           expires_at = (NOW() - INTERVAL '1 month') + INTERVAL '6 months'
+       WHERE id = $1`,
+      [olderApprovalId, randomUUID()]
+    );
+    const newerRevokedId = randomUUID();
+    await identityGateDb.query(
+      'INSERT INTO identity_l3_submissions (id, user_id) VALUES ($1, $2)',
+      [newerRevokedId, secondMaleRegistered.user.id]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'upload_authorized' WHERE id = $1",
+      [newerRevokedId]
+    );
+    await identityGateDb.query(
+      `UPDATE identity_l3_submissions
+       SET status = 'uploaded', storage_object_key = $2, media_sha256 = repeat('c', 64),
+           media_mime_type = 'video/mp4', media_size_bytes = 1024,
+           media_duration_seconds = 30, uploaded_at = NOW()
+       WHERE id = $1`,
+      [newerRevokedId, `test-only/${newerRevokedId}`]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'processing', processing_completed_at = NOW() WHERE id = $1",
+      [newerRevokedId]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'pending_review' WHERE id = $1",
+      [newerRevokedId]
+    );
+    await identityGateDb.query(
+      `UPDATE identity_l3_submissions
+       SET status = 'approved', reviewed_by = $2, reviewed_at = NOW(),
+           decision_reason_code = 'integration_test_newer_approval',
+           approved_at = NOW(), expires_at = NOW() + INTERVAL '6 months'
+       WHERE id = $1`,
+      [newerRevokedId, randomUUID()]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'revoked', revoked_at = NOW() WHERE id = $1",
+      [newerRevokedId]
+    );
+    const revokedDecision = await identityGateDb.query(
+      `SELECT status, identity_l3_has_active_approval($1) AS is_active
+       FROM identity_l3_current_decision($1)`,
+      [secondMaleRegistered.user.id]
+    );
+    assert.deepEqual(revokedDecision.rows, [{ status: 'revoked', is_active: false }],
+      'a newer revocation must invalidate an older unexpired approval');
     const assessmentAnswers = {
       relationshipGoal: 'marriage_soon',
       children: 'want_soon',
