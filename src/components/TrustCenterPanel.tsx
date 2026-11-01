@@ -21,7 +21,7 @@ function validSummary(value: unknown): value is Summary {
     && ['verified', 'not_verified'].includes(String(v.phone.status)) && date(v.phone.verifiedAt)
     && ['not_configured', 'not_started', 'pending', 'verified', 'rejected'].includes(String(v.identity.status))
     && (v.identity.providerStatus === undefined || v.identity.providerStatus === null || ['Not Started', 'In Progress', 'Approved', 'Declined', 'In Review', 'Awaiting User', 'Resubmitted', 'Expired', 'Abandoned', 'Kyc Expired'].includes(String(v.identity.providerStatus)))
-    && (v.identity.environment === undefined || v.identity.environment === null || v.identity.environment === 'sandbox')
+    && (v.identity.environment === undefined || v.identity.environment === null || ['sandbox', 'live'].includes(String(v.identity.environment)))
     && v.photos.length <= 6
     && v.photos.every((photo: unknown) => isRecord(photo)
       && ['pending', 'approved', 'rejected'].includes(String(photo.status))
@@ -36,6 +36,7 @@ export const TrustCenterPanel: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [startingVerification, setStartingVerification] = useState(false);
+  const [identityConsent, setIdentityConsent] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -57,12 +58,16 @@ export const TrustCenterPanel: React.FC = () => {
     try {
       const response = await fetch('/api/identity/didit/session', {
         method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ consentVersion: 'didit-kyc-v1' })
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok || typeof payload?.verificationUrl !== 'string' ||
           typeof payload?.sessionId !== 'string' || !['sandbox', 'live'].includes(payload.environment)) {
-        if (response.status === 409) throw new Error('Личность уже подтверждена.');
+        if (response.status === 409) throw new Error(payload?.error === 'identity_verification_in_progress'
+          ? 'Проверка уже запущена. Не создаём дубликат сессии — дождитесь решения Didit.'
+          : 'Личность уже подтверждена.');
+        if (response.status === 429) throw new Error('Бесплатный месячный лимит проверок исчерпан. Новая сессия не создана.');
         if (response.status === 503) throw new Error('Проверка личности пока не настроена или временно недоступна.');
         throw new Error('Не удалось начать проверку личности. Попробуйте ещё раз.');
       }
@@ -70,6 +75,7 @@ export const TrustCenterPanel: React.FC = () => {
       if (verificationUrl.protocol !== 'https:' || verificationUrl.hostname !== 'verify.didit.me') {
         throw new Error('Получена недействительная ссылка проверки.');
       }
+      setIdentityConsent(false);
       window.location.assign(verificationUrl.toString());
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось начать проверку.');
@@ -88,7 +94,9 @@ export const TrustCenterPanel: React.FC = () => {
     rejected: 'Требуется повторная проверка'
   };
   const identityVerified = data?.identity.status === 'verified' && data.identity.environment !== 'sandbox';
-  const canStartIdentity = data?.identity.status === 'not_started' || data?.identity.status === 'pending' || data?.identity.status === 'rejected';
+  const terminalProviderStatuses = ['Declined', 'Expired', 'Abandoned', 'Kyc Expired'];
+  const canStartIdentity = data?.identity.status === 'not_started' || data?.identity.status === 'rejected' ||
+    (data?.identity.status === 'pending' && terminalProviderStatuses.includes(data.identity.providerStatus || ''));
 
   return <section className="w-full max-w-xl mx-auto p-3 text-left" aria-labelledby="trust-center-title">
     <div className="rounded-3xl bg-stone-900 border border-white/10 p-5 shadow-xl">
@@ -106,13 +114,17 @@ export const TrustCenterPanel: React.FC = () => {
           <p className="text-[11px] text-stone-500 mt-1">{identityVerified
             ? 'Проверка личности подтверждена.'
             : data.identity.status === 'pending'
-              ? (data.identity.environment === 'sandbox' ? 'Тестовая сессия Didit. Даже Approved в Sandbox не подтверждает личность.' : 'Ожидается решение Didit. Доступ к функциям откроется только после подтверждённой проверки.')
+              ? (data.identity.environment === 'sandbox' ? (data.identity.environment === 'sandbox' ? 'Тестовая сессия Didit. Даже Approved в Sandbox не подтверждает личность.' : 'Ожидается решение Didit. Не запускайте повторную сессию, пока текущая проверка не завершена.') : 'Ожидается решение Didit. Доступ к функциям откроется только после подтверждённой проверки.')
               : data.identity.status === 'rejected'
                 ? 'Провайдер не подтвердил проверку. Можно пройти её повторно.'
                 : data.identity.status === 'not_started'
                   ? 'Проверка личности доступна через защищённую страницу Didit.'
                   : 'Проверка через внешнего провайдера не настроена. Значок верификации не присваивается.'}</p>
-          {canStartIdentity && <button type="button" onClick={() => void startVerification()} disabled={startingVerification} className="mt-3 min-h-11 w-full rounded-xl bg-rose-700 px-4 text-sm font-semibold text-white disabled:opacity-50">{startingVerification ? 'Подготавливаем проверку…' : data.identity.status === 'pending' ? 'Продолжить проверку' : data.identity.status === 'rejected' ? 'Повторить проверку' : 'Начать проверку'}</button>}
+          {canStartIdentity && <label className="mt-3 flex items-start gap-2 rounded-xl border border-white/10 bg-stone-900 p-3 text-[11px] leading-relaxed text-stone-300">
+            <input type="checkbox" checked={identityConsent} onChange={event => setIdentityConsent(event.target.checked)} className="mt-0.5 h-4 w-4 accent-rose-600" />
+            <span>Я даю согласие на передачу Didit данных, необходимых для проверки личности: изображения документа, селфи и видео liveness, а также биометрическое сравнение лица. Didit обрабатывает и хранит эти материалы по своим правилам. Vow сохраняет только идентификаторы сессии, технический статус и запись о версии согласия; сами документы и биометрические материалы в Vow не сохраняются.</span>
+          </label>}
+          {canStartIdentity && <button type="button" onClick={() => void startVerification()} disabled={startingVerification || !identityConsent} className="mt-3 min-h-11 w-full rounded-xl bg-rose-700 px-4 text-sm font-semibold text-white disabled:opacity-50">{startingVerification ? 'Подготавливаем проверку…' : data.identity.status === 'pending' ? 'Продолжить проверку' : data.identity.status === 'rejected' ? 'Повторить проверку' : 'Начать проверку'}</button>}
           {data.identity.environment === 'sandbox' && <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-950/20 p-2 text-[11px] text-amber-200">Sandbox имитирует проверку. Не загружайте реальные документы, селфи или личные данные. Тестовый результат не подтверждает личность.</p>}
           {data.identity.providerStatus && <p className="mt-2 text-[11px] text-stone-400">Ответ Didit ({data.identity.environment}): {data.identity.providerStatus}.</p>}
         </div>
