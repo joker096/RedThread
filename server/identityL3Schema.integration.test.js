@@ -19,6 +19,34 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       assert.equal(tables.rows[0].submissions, 'identity_l3_submissions');
       assert.equal(tables.rows[0].events, 'identity_l3_decision_events');
 
+      const uploadTokenTable = await client.query(
+        "SELECT to_regclass('public.identity_l3_upload_tokens') AS tokens"
+      );
+      assert.equal(uploadTokenTable.rows[0].tokens, 'identity_l3_upload_tokens');
+      const uploadTokenColumns = await client.query(
+        `SELECT column_name, data_type FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'identity_l3_upload_tokens'`
+      );
+      const uploadTokenColumnTypes = new Map(uploadTokenColumns.rows.map(row => [row.column_name, row.data_type]));
+      assert.equal(uploadTokenColumnTypes.get('token_sha256'), 'character');
+      assert.equal(uploadTokenColumnTypes.has('token'), false, 'plaintext bearer tokens must never be stored');
+      assert.ok(uploadTokenColumnTypes.has('consumed_at'));
+      assert.ok(uploadTokenColumnTypes.has('revoked_at'));
+      const uploadTokenIndexes = await client.query(
+        `SELECT indexname, indexdef FROM pg_indexes
+         WHERE schemaname = 'public' AND tablename = 'identity_l3_upload_tokens'`
+      );
+      assert.ok(uploadTokenIndexes.rows.some(row =>
+        row.indexname === 'identity_l3_upload_tokens_one_active_per_submission_uidx' &&
+        /UNIQUE/.test(row.indexdef) && /consumed_at IS NULL/.test(row.indexdef)
+      ));
+      const uploadTokenTrigger = await client.query(
+        `SELECT pg_get_functiondef('guard_identity_l3_upload_token()'::regprocedure) AS definition`
+      );
+      assert.match(uploadTokenTrigger.rows[0].definition, /token identity is immutable/);
+      assert.match(uploadTokenTrigger.rows[0].definition, /cannot be consumed/);
+      assert.match(uploadTokenTrigger.rows[0].definition, /cannot be revoked/);
+
       const columns = await client.query(
         `SELECT column_name, data_type
          FROM information_schema.columns
