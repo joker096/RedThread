@@ -1646,6 +1646,22 @@ test('auth API supports registration, session lookup, logout and login', {
     );
     assert.deepEqual(rejectedDecision.rows, [{ status: 'rejected', is_active: false }],
       'a newer rejected re-verification must also invalidate older approval history');
+    const purgedRejectedMedia = await identityGateDb.query(
+      `UPDATE identity_l3_submissions
+       SET storage_object_key = NULL, media_purged_at = NOW()
+       WHERE id = $1
+       RETURNING status, storage_object_key, media_purged_at`,
+      [rejectedReverificationId]
+    );
+    assert.equal(purgedRejectedMedia.rows[0].status, 'rejected');
+    assert.equal(purgedRejectedMedia.rows[0].storage_object_key, null);
+    assert.ok(purgedRejectedMedia.rows[0].media_purged_at,
+      'terminal media purge must satisfy the real production table constraints');
+    const purgeEvent = await identityGateDb.query(
+      "SELECT event_type FROM identity_l3_decision_events WHERE submission_id = $1 AND event_type = 'media_purged'",
+      [rejectedReverificationId]
+    );
+    assert.equal(purgeEvent.rowCount, 1, 'media purge must be audited in the same transaction');
     const rejectedTrustSummary = await request('/api/trust/summary', { headers: { Cookie: secondMaleCookie } });
     assert.equal(rejectedTrustSummary.status, 200);
     const rejectedTrustIdentity = (await rejectedTrustSummary.json()).identity;
