@@ -3846,20 +3846,19 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
       });
     }
 
-    const pendingDecline = await client.query(
-      `SELECT 1
-       FROM gift_payment_reconciliation_tasks
-       WHERE order_id = $1
-         AND reason = 'recipient_declined_active_payment'
-       LIMIT 1`,
-      [order.id]
-    );
-    if (pendingDecline.rowCount > 0) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'gift_request_not_actionable' });
-    }
-
     if (action === 'accept') {
+      const pendingDecline = await client.query(
+        `SELECT 1
+         FROM gift_payment_reconciliation_tasks
+         WHERE order_id = $1
+           AND reason = 'recipient_declined_active_payment'
+         LIMIT 1`,
+        [order.id]
+      );
+      if (pendingDecline.rowCount > 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'gift_request_not_actionable' });
+      }
       // The same recipient-level rate lock is used by request creation. Count
       // historical consent events (including later withdrawn/cancelled requests)
       // so parallel acceptances cannot exceed one accepted gift per 7 days.
