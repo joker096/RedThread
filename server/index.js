@@ -133,7 +133,7 @@ app.post('/api/didit/webhook', express.json({ limit: '256kb', strict: true }), a
   const event = req.body;
   if (event.webhook_type !== 'status.updated') return res.status(200).json({ received: true, ignored: true });
   const eventTime = new Date(Number(event.created_at) * 1000);
-  if (event.environment !== 'sandbox' || event.application_id !== process.env.DIDIT_APPLICATION_ID ||
+  if (event.environment !== process.env.DIDIT_ENVIRONMENT || event.application_id !== process.env.DIDIT_APPLICATION_ID ||
       event.workflow_id !== process.env.DIDIT_WORKFLOW_ID || !isDiditUuid(event.event_id) ||
       !isDiditUuid(event.session_id) || !Number.isSafeInteger(event.created_at) ||
       event.created_at <= 0 || !isDiditStatus(event.status) || !Number.isFinite(eventTime.getTime())) {
@@ -142,8 +142,8 @@ app.post('/api/didit/webhook', express.json({ limit: '256kb', strict: true }), a
   try {
     await withPooledTransaction(pool, async client => {
       const session = await client.query(
-        'SELECT user_id FROM identity_verifications WHERE provider = \'didit\' AND provider_environment = \'sandbox\' AND provider_session_id = $1 FOR UPDATE',
-        [event.session_id]
+        'SELECT user_id FROM identity_verifications WHERE provider = \'didit\' AND provider_environment = $2 AND provider_session_id = $1 FOR UPDATE',
+        [event.session_id, event.environment]
       );
       // Do not bind an account from vendor_data; only our persisted session mapping is authoritative.
       if (!session.rowCount) return;
@@ -154,7 +154,7 @@ app.post('/api/didit/webhook', express.json({ limit: '256kb', strict: true }), a
       if (!inserted.rowCount) return;
       await client.query(
         'UPDATE identity_verifications SET provider_status = $2, status = $3, provider_event_at = $4, updated_at = NOW() WHERE user_id = $1 AND (provider_event_at IS NULL OR provider_event_at < $4)',
-        [session.rows[0].user_id, event.status, projectDiditStatus(event.status), eventTime]
+        [session.rows[0].user_id, event.status, projectDiditStatus(event.status, event.environment, event.decision), eventTime]
       );
     });
     return res.status(200).json({ received: true });
@@ -2026,14 +2026,14 @@ app.post('/api/identity/didit/session', validateRequestOrigin, requireSession, p
       const account = await client.query("SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE", [req.authUser.id]);
       if (!account.rowCount) return false;
       await client.query(
-        'INSERT INTO identity_verifications (user_id, provider, provider_session_id, workflow_id, status, provider_status, provider_environment) VALUES ($1, \'didit\', $2, $3, \'pending\', $4, \'sandbox\') ON CONFLICT (user_id) DO UPDATE SET provider_session_id = EXCLUDED.provider_session_id, workflow_id = EXCLUDED.workflow_id, status = \'pending\', provider_status = EXCLUDED.provider_status, provider_environment = \'sandbox\', provider_event_at = NULL, updated_at = NOW() WHERE identity_verifications.status <> \'verified\'',
-        [req.authUser.id, session.sessionId, process.env.DIDIT_WORKFLOW_ID, session.providerStatus]
+        'INSERT INTO identity_verifications (user_id, provider, provider_session_id, workflow_id, status, provider_status, provider_environment) VALUES ($1, \'didit\', $2, $3, \'pending\', $4, $5) ON CONFLICT (user_id) DO UPDATE SET provider_session_id = EXCLUDED.provider_session_id, workflow_id = EXCLUDED.workflow_id, status = \'pending\', provider_status = EXCLUDED.provider_status, provider_environment = EXCLUDED.provider_environment, provider_event_at = NULL, updated_at = NOW() WHERE identity_verifications.status <> \'verified\'',
+        [req.authUser.id, session.sessionId, process.env.DIDIT_WORKFLOW_ID, session.providerStatus, session.environment]
       );
       return true;
     });
     if (!saved) return res.status(401).json({ error: 'account_not_active' });
     return res.json({ sessionId: session.sessionId, verificationUrl: session.verificationUrl,
-      providerStatus: session.providerStatus, environment: 'sandbox' });
+      providerStatus: session.providerStatus, environment: session.environment });
   } catch (error) {
     console.error('Didit session request failed:', error?.message || 'unknown_error');
     return res.status(503).json({ error: 'didit_session_unavailable' });
