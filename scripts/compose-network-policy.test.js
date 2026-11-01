@@ -4,15 +4,19 @@ import { readFile } from 'node:fs/promises';
 
 test('Docker database network is isolated from the public web proxy container', async () => {
   const compose = await readFile(new URL('../compose.yaml', import.meta.url), 'utf8');
+  const lines = compose.split(String.fromCharCode(10));
   const serviceBlock = name => {
-    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const match = new RegExp(`^  ${escaped}:\\n([\\s\\S]*?)(?=^  [a-z][a-z-]*:\\n|^networks:\\n|$)`, 'm').exec(compose);
-    assert.ok(match, `missing compose service: ${name}`);
-    return match[1];
+    const start = lines.indexOf(`  ${name}:`);
+    assert.ok(start >= 0, `missing compose service: ${name}`);
+    let end = lines.findIndex((line, index) =>
+      index > start && (line === 'networks:' || /^  [a-z][a-z-]*:$/.test(line))
+    );
+    if (end < 0) end = lines.length;
+    return lines.slice(start + 1, end).join(String.fromCharCode(10));
   };
   const networksFor = name => {
-    const block = serviceBlock(name);
-    const line = block.split(String.fromCharCode(10)).find(value => value.trimStart().startsWith('networks:'));
+    const line = serviceBlock(name).split(String.fromCharCode(10))
+      .find(value => value.trimStart().startsWith('networks:'));
     assert.ok(line, `missing explicit network assignment for ${name}`);
     const value = line.trim().slice('networks:'.length).trim();
     assert.ok(value.startsWith('[') && value.endsWith(']'), `invalid network list for ${name}`);
