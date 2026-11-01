@@ -135,7 +135,7 @@ app.post('/api/sumsub/webhook', express.raw({ type: 'application/json', limit: '
   catch { return res.status(400).json({ error: 'invalid_sumsub_webhook_payload' }); }
   if (event?.type !== 'applicantReviewed') return res.status(200).json({ received: true, ignored: true });
   const status = projectSumsubReview(event);
-  if (!['verified', 'rejected'].includes(status) || event.reviewStatus !== 'completed' ||
+  if (event.testMode === true || !['verified', 'rejected'].includes(status) || event.reviewStatus !== 'completed' ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(event.externalUserId || '') ||
       typeof event.applicantId !== 'string' || event.applicantId.length < 1 || event.applicantId.length > 200 ||
       event.levelName !== process.env.SUMSUB_LEVEL_NAME || typeof event.createdAtMs !== 'string') {
