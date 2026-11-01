@@ -98,6 +98,11 @@ CREATE INDEX identity_l3_decision_events_user_idx
 CREATE OR REPLACE FUNCTION prevent_identity_l3_decision_event_mutation()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
+  -- Permit only referential cleanup initiated by a parent-row cascade (for
+  -- example, account deletion). Direct UPDATE/DELETE remains prohibited.
+  IF TG_OP = 'DELETE' AND pg_trigger_depth() > 1 THEN
+    RETURN OLD;
+  END IF;
   RAISE EXCEPTION 'identity L3 decision events are append-only'
     USING ERRCODE = '55000';
 END;
