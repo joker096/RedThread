@@ -1,9 +1,15 @@
 -- Single-use, short-lived upload capabilities. Store only SHA-256 token digests.
 -- The plaintext capability is returned once to the authenticated applicant and is never persisted.
+-- A composite FK makes it impossible to bind a submission's token to another account.
+ALTER TABLE identity_l3_submissions
+  ADD CONSTRAINT identity_l3_submissions_id_user_key UNIQUE (id, user_id);
+
 CREATE TABLE identity_l3_upload_tokens (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  submission_id UUID NOT NULL REFERENCES identity_l3_submissions(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  submission_id UUID NOT NULL,
+  user_id UUID NOT NULL,
+  FOREIGN KEY (submission_id, user_id)
+    REFERENCES identity_l3_submissions(id, user_id) ON DELETE CASCADE,
   token_sha256 CHAR(64) NOT NULL UNIQUE
     CHECK (token_sha256 ~ '^[0-9a-f]{64}$'),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
