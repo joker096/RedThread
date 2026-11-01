@@ -42,7 +42,8 @@ CREATE TABLE identity_l3_submissions (
     status <> 'approved'
     OR (
       reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL
-      AND approved_at IS NOT NULL AND expires_at = approved_at + INTERVAL '6 months'
+      AND approved_at IS NOT NULL AND expires_at IS NOT NULL
+      AND expires_at = approved_at + INTERVAL '6 months'
       AND reviewed_by <> user_id
     )
   ),
