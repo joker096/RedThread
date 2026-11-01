@@ -52,6 +52,12 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       );
       assert.equal(eventForeignKeys.rows.some(row => /actor_user_id/.test(row.definition)), false,
         'actor identifiers must remain immutable when a moderator account is deleted');
+      const eventChecks = await client.query(
+        `SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
+         WHERE conrelid = 'identity_l3_decision_events'::regclass AND contype = 'c'`
+      );
+      assert.ok(eventChecks.rows.some(row => /reason_code/.test(row.definition) && /a-z0-9_/.test(row.definition)),
+        'audit reasons must be bounded machine-readable codes, not free-form personal data');
 
       const fn = await client.query(
         `SELECT pg_get_functiondef('guard_identity_l3_submission_transition()'::regprocedure) AS definition`
