@@ -72,9 +72,12 @@ export async function processExpiredGiftRequestBatch(pool, {
 
   const summary = { pairsScanned: candidates.rows.length, expiredOrders: 0, reconciliationRequired: 0, pairFailures: 0 };
   for (const pair of candidates.rows) {
-    const client = await pool.connect();
+    let client;
     let releaseError;
     try {
+      // Connection acquisition is part of this pair's work too. A transient
+      // pool/connect failure must not abort the remaining bounded batch.
+      client = await pool.connect();
       await client.query('BEGIN');
       await acquireRateLocks(client, pair.senderId, pair.recipientId);
       await acquireSafetyLocks(client, pair.senderId, pair.recipientId);
@@ -108,7 +111,7 @@ export async function processExpiredGiftRequestBatch(pool, {
       const safeErrorCode = typeof error?.code === 'string' ? error.code : 'unexpected_error';
       console.error('Gift request expiry pair failed:', safeErrorCode);
     } finally {
-      client.release(releaseError);
+      if (client) client.release(releaseError);
     }
   }
   return summary;
