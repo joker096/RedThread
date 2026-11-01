@@ -3817,13 +3817,46 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
       }
     }
 
-    // A decline must not silently abandon an active payment. Gift payment
-    // processing is not integrated yet, so fail closed rather than simulating
-    // a void/refund or relying on a database constraint to raise a 500.
+    // Persist the recipient's decline intent before asking for provider
+    // reconciliation. The order remains non-terminal until the provider confirms
+    // a void/refund; the durable reason also prevents a later acceptance.
     if (action === 'decline' &&
         !['not_started', 'voided', 'failed'].includes(order.payment_status)) {
+      const queued = await client.query(
+        `INSERT INTO gift_payment_reconciliation_tasks (order_id, reason)
+         VALUES ($1, 'recipient_declined_active_payment')
+         ON CONFLICT (order_id, reason) DO NOTHING
+         RETURNING id`,
+        [order.id]
+      );
+      if (queued.rowCount === 1) {
+        await client.query(
+          `INSERT INTO gift_delivery_order_events
+             (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
+           VALUES ($1, $2, 'recipient', 'payment_reconciliation_required',
+                   'awaiting_recipient_consent', 'awaiting_recipient_consent',
+                   jsonb_build_object('reason', 'recipient_declined_active_payment'))`,
+          [order.id, req.authUser.id]
+        );
+      }
+      await client.query('COMMIT');
+      return res.status(202).json({
+        request: { id: reference, status: 'decision_pending_reconciliation' },
+        nextStep: 'payment_reconciliation_required'
+      });
+    }
+
+    const pendingDecline = await client.query(
+      `SELECT 1
+       FROM gift_payment_reconciliation_tasks
+       WHERE order_id = $1
+         AND reason = 'recipient_declined_active_payment'
+       LIMIT 1`,
+      [order.id]
+    );
+    if (pendingDecline.rowCount > 0) {
       await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'gift_payment_requires_reconciliation' });
+      return res.status(409).json({ error: 'gift_request_not_actionable' });
     }
 
     if (action === 'accept') {
