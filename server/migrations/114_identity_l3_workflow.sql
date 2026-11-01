@@ -294,7 +294,7 @@ CREATE TRIGGER identity_l3_submission_event_recorder
 
 CREATE OR REPLACE FUNCTION identity_l3_current_decision(p_user_id UUID)
 RETURNS TABLE(status TEXT, expires_at TIMESTAMPTZ)
-LANGUAGE plpgsql VOLATILE AS $
+LANGUAGE plpgsql VOLATILE AS $l3_decision$
 BEGIN
   RETURN QUERY
   SELECT s.status, s.expires_at
@@ -307,11 +307,11 @@ BEGIN
   LIMIT 1
   FOR SHARE;
 END;
-$;
+$l3_decision$;
 
 CREATE OR REPLACE FUNCTION identity_l3_has_active_approval(p_user_id UUID)
 RETURNS BOOLEAN
-LANGUAGE plpgsql VOLATILE AS $
+LANGUAGE plpgsql VOLATILE AS $l3_active$
 DECLARE
   current_status TEXT;
   current_expiry TIMESTAMPTZ;
@@ -322,7 +322,7 @@ BEGIN
 
   RETURN COALESCE(current_status = 'approved' AND current_expiry > NOW(), FALSE);
 END;
-$;
+$l3_active$;
 
 COMMENT ON TABLE identity_l3_submissions IS
   'L3 video workflow metadata only. Never store video bytes here; storage_object_key must reference private encrypted object storage.';
