@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { normalizePaddleEvent, isPaddleSubscriptionEntitled, isPremiumEntitlementActive, isPremiumCheckoutBlocked } from './paddleBilling.js';
 
 test('normalizes Paddle webhook snake_case and SDK camelCase envelopes', () => {
@@ -1586,4 +1587,18 @@ test('Paddle webhook rolls back the outer transaction if identity-conflict recon
   assert.ok(queries.includes('ROLLBACK TO SAVEPOINT paddle_event_effects'));
   assert.ok(queries.includes('ROLLBACK'), 'the outer transaction must be rolled back after reconciliation failure');
   assert.equal(releaseCount, 1);
+});
+
+
+test('Paddle checkout route reuses its checked-out client instead of querying the pool recursively', async () => {
+  const source = await readFile(new URL('./index.js', import.meta.url), 'utf8');
+  const start = source.indexOf("app.post('/api/paddle/checkout'");
+  const end = source.indexOf("app.post('/api/paddle/checkout", start + 10);
+  assert.ok(start >= 0 && end > start, 'expected one bounded Paddle checkout route');
+  const route = source.slice(start, end);
+  assert.match(route, /client = await pool\\.connect\\(\\)/);
+  assert.doesNotMatch(route, /\\bpool\\.query\\s*\\(/,
+    'a checked-out client must not wait for a second connection from the same pool');
+  assert.match(route, /await client\\.query\\(/,
+    'checkout attempt persistence must use the checked-out client');
 });
