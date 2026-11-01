@@ -140,3 +140,5 @@ The event actor UUID is retained as an immutable audit identifier without a fore
 An `AFTER INSERT OR UPDATE` database trigger now records creation, upload, processing, review, decision, revocation, expiry, withdrawal, and media-purge events in the same transaction as each submission change. Approval/rejection events identify the independent reviewer; other actions can supply a transaction-local `app.identity_l3_actor_user_id` and `app.identity_l3_reason_code`. This removes the possibility that an application handler commits a state change but forgets its audit event.
 
 Submission decision reasons and audit-event reasons are constrained to short lowercase machine-readable codes (`[a-z0-9_]`, at most 64 characters); free-form moderator notes and personal data do not belong in this audit channel.
+
+Applicant-owned events may identify the applicant as actor; only approval/rejection events enforce actor != submission owner. Independent review remains enforced both on the submission row and the corresponding audit event.
