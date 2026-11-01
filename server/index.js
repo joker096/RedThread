@@ -258,6 +258,12 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
     await client.query('COMMIT');
     attemptStarted = true;
 
+    // Do not pin a database connection while waiting on Paddle's network API.
+    // The durable creating attempt is already committed and webhook races are
+    // resolved by the immutable attempt ID when the response is persisted.
+    client.release();
+    client = null;
+
     const response = await fetch('https://sandbox-api.paddle.com/transactions', {
       method: 'POST',
       headers: {
@@ -272,6 +278,7 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
       signal: AbortSignal.timeout(10_000)
     });
     const payload = await response.json().catch(() => null);
+    client = await pool.connect();
     const transaction = payload?.data;
     const transactionId = transaction?.id;
     if (!response.ok) {
