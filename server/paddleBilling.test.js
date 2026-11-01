@@ -1667,6 +1667,11 @@ test('Paddle checkout reconciles a provider transaction when the account becomes
   assert.match(route, /paddle_checkout_cancelled/);
   assert.match(route, /let providerTransactionId = null/);
   assert.match(route, /providerTransactionId = transactionId/);
+  const payloadParsed = route.indexOf('const payload = await response.json()');
+  const providerIdCaptured = route.indexOf('providerTransactionId = transactionId');
+  const databaseReconnected = route.indexOf('client = await pool.connect()', payloadParsed);
+  assert.ok(payloadParsed >= 0 && providerIdCaptured > payloadParsed && databaseReconnected > providerIdCaptured,
+    'capture the validated provider transaction ID before attempting to reconnect to PostgreSQL');
   assert.match(route, /SET transaction_id = COALESCE\(transaction_id, \$3\)/);
   assert.match(route, /providerTransactionId\]/);
 });
