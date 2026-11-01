@@ -47,7 +47,7 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       const l3DecisionFunction = await client.query(
         `SELECT pg_get_functiondef('identity_l3_current_decision(uuid)'::regprocedure) AS definition`
       );
-      assert.match(l3DecisionFunction.rows[0].definition, /COALESCE\(s\.revoked_at, s\.approved_at\)/);
+      assert.match(l3DecisionFunction.rows[0].definition, /COALESCE\(s\.revoked_at, s\.approved_at, s\.reviewed_at\)/);
       assert.match(l3DecisionFunction.rows[0].definition, /COALESCE\(s\.approved_at, s\.reviewed_at\) DESC/);
       assert.match(l3DecisionFunction.rows[0].definition, /FOR SHARE/);
       const l3ActiveFunction = await client.query(
@@ -85,7 +85,7 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       const currentDecisionIndex = indexes.rows.find(row => row.indexname === 'identity_l3_current_decision_idx');
       assert.ok(currentDecisionIndex);
       assert.match(currentDecisionIndex.indexdef, /COALESCE\(approved_at, reviewed_at\) DESC/);
-      assert.match(currentDecisionIndex.indexdef, /COALESCE\(revoked_at, approved_at\)/);
+      assert.match(currentDecisionIndex.indexdef, /COALESCE\(revoked_at, approved_at, reviewed_at\)/);
 
       await client.query('BEGIN');
       try {
