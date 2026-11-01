@@ -96,7 +96,9 @@ export async function processExpiredGiftRequestBatch(pool, {
       // Discard a client after any failed transaction operation. In particular,
       // a failed COMMIT/ROLLBACK can leave its protocol state uncertain; it must
       // not be handed back to the pool as a healthy connection.
-      releaseError = error;
+      // A successful rollback restores a reusable PostgreSQL connection.
+      // Only pass an error to pg's release() when rollback itself fails and the
+      // connection protocol state can no longer be trusted.
       await client.query('ROLLBACK').catch(rollbackError => {
         releaseError = rollbackError;
       });
