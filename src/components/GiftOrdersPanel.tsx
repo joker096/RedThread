@@ -186,6 +186,11 @@ export const GiftOrdersPanel: React.FC = () => {
       if (!response.ok) {
         throw new Error(t('giftOrdersDecisionError'));
       }
+      if (response.status === 202 && action === 'decline') {
+        setNotice(t('giftOrdersDeclinePending'));
+        await load({ preserveNotice: true });
+        return;
+      }
       setNotice(action === 'accept' ? t('giftOrdersAcceptedNoDelivery') : t('giftOrdersDeclined'));
       await load({ preserveNotice: true });
     } catch (error) {
