@@ -6,15 +6,23 @@ export function isDiditConfigured(env = process.env) {
   return env.DIDIT_ENVIRONMENT === 'sandbox' && Boolean(env.DIDIT_API_KEY) &&
     UUID_PATTERN.test(env.DIDIT_WORKFLOW_ID || '') && UUID_PATTERN.test(env.DIDIT_APPLICATION_ID || '') && Boolean(env.DIDIT_WEBHOOK_SECRET);
 }
-function normalizeForSignature(value) {
-  if (Array.isArray(value)) return value.map(normalizeForSignature);
-  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(key => [key, normalizeForSignature(value[key])]));
-  return value;
+function serializeCanonicalValue(value) {
+  if (Array.isArray(value)) return '[' + value.map(serializeCanonicalValue).join(',') + ']';
+  if (value && typeof value === 'object') {
+    // Serialize sorted entries directly. Rebuilding an object can reorder
+    // integer-like keys numerically before JSON.stringify sees them.
+    return '{' + Object.keys(value).sort()
+      .map(key => JSON.stringify(key) + ':' + serializeCanonicalValue(value[key]))
+      .join(',') + '}';
+  }
+  return JSON.stringify(value);
 }
+
 export function canonicalizeDiditPayload(payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new TypeError('invalid_didit_webhook_payload');
-  return JSON.stringify(normalizeForSignature(payload));
+  return serializeCanonicalValue(payload);
 }
+
 function safeHexEqual(expectedHex, receivedHex) {
   if (typeof receivedHex !== 'string' || !/^[a-f0-9]{64}$/i.test(receivedHex)) return false;
   const expected = Buffer.from(expectedHex, 'hex'), received = Buffer.from(receivedHex, 'hex');
