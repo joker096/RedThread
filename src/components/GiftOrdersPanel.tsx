@@ -247,6 +247,7 @@ export const GiftOrdersPanel: React.FC = () => {
   const statusLabel = (status: string) => {
     const labels: Record<string, string> = {
       awaiting_recipient_consent: t('giftOrdersStatusPending'),
+      decision_pending_reconciliation: t('giftOrdersDeclinePending'),
       recipient_accepted: t('giftOrdersStatusAccepted'),
       address_verified: t('giftOrdersStatusAccepted'),
       fulfilment_authorized: t('giftOrdersStatusProcessing'),
