@@ -214,6 +214,20 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(me.status, 200);
     assert.equal((await me.json()).user.email, email);
 
+    const trustSummary = await request('/api/trust/summary', { headers: { Cookie: firstCookie } });
+    assert.equal(trustSummary.status, 200);
+    const trustPayload = await trustSummary.json();
+    assert.ok(['verified', 'unverified'].includes(trustPayload.email.status));
+    assert.ok(['verified', 'not_verified'].includes(trustPayload.phone.status));
+    assert.deepEqual(trustPayload.identity, { status: 'not_configured' });
+    assert.ok(Array.isArray(trustPayload.photos));
+    assert.ok(trustPayload.photos.length <= 6);
+    assert.equal(JSON.stringify(trustPayload).includes('storagePath'), false,
+      'trust summary must never expose private photo storage paths');
+    const anonymousTrustSummary = await request('/api/trust/summary');
+    assert.equal(anonymousTrustSummary.status, 401,
+      'trust summary must require an authenticated account');
+
     const logout = await request('/api/auth/logout', {
       method: 'POST',
       headers: { Cookie: firstCookie }
