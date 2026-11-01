@@ -3,7 +3,7 @@ const DIDIT_API_BASE = 'https://verification.didit.me';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DIDIT_STATUSES = new Set(['Not Started', 'In Progress', 'Approved', 'Declined', 'In Review', 'Awaiting User', 'Resubmitted', 'Expired', 'Abandoned', 'Kyc Expired']);
 export function isDiditConfigured(env = process.env) {
-  return env.DIDIT_ENVIRONMENT === 'sandbox' && Boolean(env.DIDIT_API_KEY) &&
+  return env.DIDIT_ENVIRONMENT === 'sandbox' && env.DIDIT_SANDBOX_KEY_CONFIRMED === 'true' && Boolean(env.DIDIT_API_KEY) &&
     UUID_PATTERN.test(env.DIDIT_WORKFLOW_ID || '') && UUID_PATTERN.test(env.DIDIT_APPLICATION_ID || '') && Boolean(env.DIDIT_WEBHOOK_SECRET);
 }
 function serializeCanonicalValue(value) {
