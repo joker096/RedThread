@@ -121,7 +121,7 @@ app.post('/api/paddle/webhook', express.raw({ type: 'application/json', limit: '
 app.post('/api/didit/webhook', express.json({ limit: '256kb', strict: true }), async (req, res) => {
   const secret = process.env.DIDIT_WEBHOOK_SECRET;
   if (!isDiditConfigured() || !secret || !req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
-    return res.status(503).json({ error: 'didit_sandbox_webhook_not_configured' });
+    return res.status(503).json({ error: 'didit_webhook_not_configured' });
   }
   const signature = req.get('x-signature-v2') || '';
   const previousSignature = req.get('x-signature-v2-previous') || '';
@@ -153,8 +153,8 @@ app.post('/api/didit/webhook', express.json({ limit: '256kb', strict: true }), a
       );
       if (!inserted.rowCount) return;
       await client.query(
-        'UPDATE identity_verifications SET provider_status = $2, status = $3, provider_event_at = $4, updated_at = NOW() WHERE user_id = $1 AND (provider_event_at IS NULL OR provider_event_at < $4)',
-        [session.rows[0].user_id, event.status, projectDiditStatus(event.status, event.environment, event.decision), eventTime]
+        'UPDATE identity_verifications SET provider_status = $2, status = $3, provider_event_at = $4, updated_at = NOW() WHERE user_id = $1 AND provider_session_id = $5 AND provider_environment = $6 AND (provider_event_at IS NULL OR provider_event_at < $4)',
+        [session.rows[0].user_id, event.status, projectDiditStatus(event.status, event.environment, event.decision), eventTime, event.session_id, event.environment]
       );
     });
     return res.status(200).json({ received: true });
