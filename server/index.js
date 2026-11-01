@@ -1242,20 +1242,27 @@ async function enqueueGiftSafetyPaymentReconciliation(client, gift, { actorUserI
   const task = await client.query(
     `INSERT INTO gift_payment_reconciliation_tasks (order_id, reason)
      VALUES ($1, 'safety_hold')
-     ON CONFLICT (order_id, reason) DO NOTHING
+     ON CONFLICT DO NOTHING
      RETURNING order_id`,
     [gift.id]
   );
-  if (task.rowCount === 1) {
-    await client.query(
-      `INSERT INTO gift_delivery_order_events
-         (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
-       SELECT id, $2, $3, 'payment_reconciliation_required', status, status,
-              jsonb_build_object('reason', 'safety_hold')
-       FROM gift_delivery_orders WHERE id = $1`,
-      [gift.id, actorUserId, actorType]
-    );
-  }
+  // Keep each distinct safety trigger in the immutable event log even when
+  // another reason already owns the single open reconciliation task.
+  await client.query(
+    `INSERT INTO gift_delivery_order_events
+       (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
+     SELECT id, $2, $3, 'payment_reconciliation_required', status, status,
+            jsonb_build_object('reason', 'safety_hold')
+     FROM gift_delivery_orders
+     WHERE id = $1
+       AND NOT EXISTS (
+         SELECT 1 FROM gift_delivery_order_events e
+         WHERE e.order_id = gift_delivery_orders.id
+           AND e.event_type = 'payment_reconciliation_required'
+           AND e.metadata->>'reason' = 'safety_hold'
+       )`,
+    [gift.id, actorUserId, actorType]
+  );
   return task.rowCount === 1;
 }
 
@@ -3523,7 +3530,7 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
              updated_at = statement_timestamp()
          WHERE recipient_id = $1
            AND status = 'awaiting_recipient_consent'
-         RETURNING id, sender_id, public_reference`,
+         RETURNING id, sender_id, public_reference, payment_status`,
         [req.authUser.id]
       );
       // Notify every affected sender, including requests awaiting payment
@@ -3535,25 +3542,30 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
       }
       // Durable outbox entry for requests that cannot be cancelled safely because
       // their payment may still be active. Enqueueing is not a payment outcome.
-      const reconciliationTasks = await client.query(
-        `INSERT INTO gift_payment_reconciliation_tasks (order_id, reason)
-         SELECT id, 'recipient_opted_out'
-         FROM gift_delivery_orders
-         WHERE recipient_id = $1
-           AND status = 'awaiting_recipient_consent'
-           AND payment_status IN ('authorization_pending', 'authorized', 'captured', 'refund_pending')
-         ON CONFLICT (order_id, reason) DO NOTHING
-         RETURNING order_id`,
-        [req.authUser.id]
-      );
-      for (const task of reconciliationTasks.rows) {
+      for (const order of invalidatedOrders.rows) {
+        if (!['authorization_pending', 'authorized', 'captured', 'refund_pending'].includes(order.payment_status)) continue;
+        await client.query(
+          `INSERT INTO gift_payment_reconciliation_tasks (order_id, reason)
+           VALUES ($1, 'recipient_opted_out')
+           ON CONFLICT DO NOTHING`,
+          [order.id]
+        );
+        // Preserve the opt-out cause even when a decline or safety trigger
+        // already created the single open reconciliation task.
         await client.query(
           `INSERT INTO gift_delivery_order_events
              (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
            SELECT id, $2, 'recipient', 'payment_reconciliation_required', status, status,
                   jsonb_build_object('reason', 'recipient_opted_out')
-           FROM gift_delivery_orders WHERE id = $1`,
-          [task.order_id, req.authUser.id]
+           FROM gift_delivery_orders
+           WHERE id = $1
+             AND NOT EXISTS (
+               SELECT 1 FROM gift_delivery_order_events e
+               WHERE e.order_id = gift_delivery_orders.id
+                 AND e.event_type = 'payment_reconciliation_required'
+                 AND e.metadata->>'reason' = 'recipient_opted_out'
+             )`,
+          [order.id, req.authUser.id]
         );
       }
     }
@@ -3822,23 +3834,28 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
     // a void/refund; the durable reason also prevents a later acceptance.
     if (action === 'decline' &&
         !['not_started', 'voided', 'failed'].includes(order.payment_status)) {
-      const queued = await client.query(
+      await client.query(
         `INSERT INTO gift_payment_reconciliation_tasks (order_id, reason)
          VALUES ($1, 'recipient_declined_active_payment')
-         ON CONFLICT (order_id, reason) DO NOTHING
-         RETURNING id`,
+         ON CONFLICT DO NOTHING`,
         [order.id]
       );
-      if (queued.rowCount === 1) {
-        await client.query(
-          `INSERT INTO gift_delivery_order_events
-             (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
-           VALUES ($1, $2, 'recipient', 'payment_reconciliation_required',
-                   'awaiting_recipient_consent', 'awaiting_recipient_consent',
-                   jsonb_build_object('reason', 'recipient_declined_active_payment'))`,
-          [order.id, req.authUser.id]
-        );
-      }
+      await client.query(
+        `INSERT INTO gift_delivery_order_events
+           (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
+         SELECT id, $2, 'recipient', 'payment_reconciliation_required',
+                'awaiting_recipient_consent', 'awaiting_recipient_consent',
+                jsonb_build_object('reason', 'recipient_declined_active_payment')
+         FROM gift_delivery_orders
+         WHERE id = $1
+           AND NOT EXISTS (
+             SELECT 1 FROM gift_delivery_order_events e
+             WHERE e.order_id = gift_delivery_orders.id
+               AND e.event_type = 'payment_reconciliation_required'
+               AND e.metadata->>'reason' = 'recipient_declined_active_payment'
+           )`,
+        [order.id, req.authUser.id]
+      );
       await client.query('COMMIT');
       return res.status(202).json({
         request: { id: reference, status: 'decision_pending_reconciliation' },
