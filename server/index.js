@@ -346,11 +346,9 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
       if (completedAttempt.rows[0]?.status === 'canceled') {
         return res.status(409).json({ error: 'paddle_checkout_cancelled' });
       }
+      let providerTransactionStatus = providerStatus;
       if (['draft', 'ready'].includes(providerStatus)) {
-        const {
-          cancelPaddleCheckoutTransaction,
-          markPaddleCheckoutAttemptCanceled
-        } = await import('./paddleBilling.js');
+        const { cancelPaddleCheckoutTransaction } = await import('./paddleBilling.js');
         const canceledTransaction = await cancelPaddleCheckoutTransaction({
           apiKey: process.env.PADDLE_API_KEY,
           environment: process.env.PADDLE_ENVIRONMENT,
@@ -359,18 +357,45 @@ app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (r
           expectedPlan: plan,
           expectedAttemptId: checkoutAttemptId
         });
-        if (canceledTransaction.status === 'canceled') {
-          // A concurrent account deactivation can make the normal save fail
-          // after Paddle has created a draft. Persist the confirmed cancellation
-          // so a reactivated account is not stranded in "creating".
-          await markPaddleCheckoutAttemptCanceled(client, {
-            userId: req.authUser.id,
-            attemptId: checkoutAttemptId,
-            transactionId
-          });
-        }
+        providerTransactionStatus = canceledTransaction.status;
       }
-      return res.status(409).json({ error: 'account_not_available' });
+
+      // The provider response is authoritative even when the account became
+      // inactive before it could be persisted. Never leave a confirmed or
+      // ambiguous provider transaction attached to a permanent "creating"
+      // attempt; retain its exact transaction ID for later reconciliation.
+      const recoveredStatus = providerTransactionStatus === 'canceled'
+        ? 'canceled'
+        : 'reconciliation_required';
+      const recovered = await client.query(
+        \`UPDATE paddle_checkout_attempts
+         SET transaction_id = COALESCE(transaction_id, $3),
+             status = $5, updated_at = NOW()
+         WHERE user_id = $1 AND plan = $2 AND attempt_id = $4
+           AND status = 'creating'
+           AND (transaction_id IS NULL OR transaction_id = $3)
+         RETURNING status\`,
+        [req.authUser.id, plan, transactionId, checkoutAttemptId, recoveredStatus]
+      );
+      let finalAttemptStatus = recovered.rows[0]?.status;
+      if (!finalAttemptStatus) {
+        const currentAttempt = await client.query(
+          \`SELECT status FROM paddle_checkout_attempts
+           WHERE user_id = $1 AND attempt_id = $2\`,
+          [req.authUser.id, checkoutAttemptId]
+        );
+        finalAttemptStatus = currentAttempt.rows[0]?.status || 'reconciliation_required';
+      }
+      if (finalAttemptStatus === 'linked') {
+        return res.status(409).json({ error: 'premium_already_active' });
+      }
+      if (finalAttemptStatus === 'completed') {
+        return res.status(409).json({ error: 'paddle_checkout_processing' });
+      }
+      if (finalAttemptStatus === 'canceled') {
+        return res.status(409).json({ error: 'paddle_checkout_cancelled' });
+      }
+      return res.status(409).json({ error: 'paddle_checkout_reconciliation_required' });
     }
     if (attemptStatus === 'pending') return res.json({ transactionId, environment: 'sandbox' });
     if (attemptStatus === 'completed') return res.status(409).json({ error: 'paddle_checkout_processing' });
