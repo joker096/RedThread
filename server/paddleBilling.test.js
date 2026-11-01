@@ -1596,9 +1596,9 @@ test('Paddle checkout route reuses its checked-out client instead of querying th
   const end = source.indexOf("app.post('/api/paddle/checkout", start + 10);
   assert.ok(start >= 0 && end > start, 'expected one bounded Paddle checkout route');
   const route = source.slice(start, end);
-  assert.match(route, /client = await pool\\.connect\\(\\)/);
-  assert.doesNotMatch(route, /\\bpool\\.query\\s*\\(/,
+  assert.ok(route.includes('client = await pool.connect()'));
+  assert.equal(route.includes('pool.query('), false,
     'a checked-out client must not wait for a second connection from the same pool');
-  assert.match(route, /await client\\.query\\(/,
+  assert.ok(route.includes('await client.query('),
     'checkout attempt persistence must use the checked-out client');
 });
