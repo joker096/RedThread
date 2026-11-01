@@ -1626,6 +1626,12 @@ test('auth API supports registration, session lookup, logout and login', {
       body: JSON.stringify({ answers: assessmentAnswers })
     });
     assert.equal(savedMaleAssessment.status, 200);
+    const savedSecondMaleAssessment = await request('/api/assessment', {
+      method: 'PUT',
+      headers: { Cookie: secondMaleCookie },
+      body: JSON.stringify({ answers: assessmentAnswers })
+    });
+    assert.equal(savedSecondMaleAssessment.status, 200);
 
     const assessmentRead = await request('/api/assessment', { headers: { Cookie: secondCookie } });
     assert.equal(assessmentRead.status, 200);
@@ -1637,6 +1643,8 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(search.status, 200);
     const searchResult = await search.json();
     assert.equal(searchResult.profiles.some(profile => profile.id === registered.user.id), false);
+    assert.equal(searchResult.profiles.some(profile => profile.id === secondMaleRegistered.user.id), false,
+      'a male profile with an older approval superseded by a newer revocation must not appear in women\'s discovery');
     assert.equal(searchResult.profiles.some(profile => profile.displayName === 'Тестовый профиль' && profile.gender === 'male'), true);
 
     await identityGateDb.query("UPDATE identity_verifications SET provider_environment = 'sandbox' WHERE user_id = $1", [secondMaleRegistered.user.id]);
