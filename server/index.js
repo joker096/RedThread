@@ -2141,6 +2141,9 @@ app.get('/api/trust/summary', requireSession, async (req, res) => {
               iv.status AS "identityStatus",
               iv.provider_status AS "identityProviderStatus",
               iv.provider_environment AS "identityProviderEnvironment",
+              l3_submission.status AS "identityL3SubmissionStatus",
+              l3_decision.status AS "identityL3DecisionStatus",
+              l3_decision.expires_at AS "identityL3ExpiresAt",
               COALESCE(
                 json_agg(
                   json_build_object(
@@ -2153,11 +2156,19 @@ app.get('/api/trust/summary', requireSession, async (req, res) => {
        FROM users u
        JOIN profiles p ON p.user_id = u.id
        LEFT JOIN identity_verifications iv ON iv.user_id = u.id
+       LEFT JOIN LATERAL (
+         SELECT submission.status
+         FROM identity_l3_submissions submission
+         WHERE submission.user_id = u.id
+         ORDER BY submission.created_at DESC, submission.id DESC
+         LIMIT 1 FOR SHARE
+       ) l3_submission ON TRUE
+       LEFT JOIN LATERAL identity_l3_current_decision(u.id) l3_decision ON TRUE
        LEFT JOIN photo_assets a
          ON a.user_id = u.id
         AND ('/api/photos/' || a.id::text) = ANY(COALESCE(p.photo_urls, ARRAY[]::text[]))
        WHERE u.id = $1 AND u.status = 'active'
-       GROUP BY u.id, u.email_verified_at, u.phone_verified_at, iv.status, iv.provider_status, iv.provider_environment`,
+       GROUP BY u.id, u.email_verified_at, u.phone_verified_at, iv.status, iv.provider_status, iv.provider_environment, l3_submission.status, l3_decision.status, l3_decision.expires_at`,
       [req.authUser.id]
     ));
     if (!read.active) return res.status(401).json({ error: 'account_not_active' });
@@ -2169,7 +2180,12 @@ app.get('/api/trust/summary', requireSession, async (req, res) => {
       identity: {
         status: account.identityStatus || (isDiditConfigured() ? 'not_started' : 'not_configured'),
         ...(account.identityProviderStatus ? { providerStatus: account.identityProviderStatus } : {}),
-        ...(account.identityProviderEnvironment ? { environment: account.identityProviderEnvironment } : {})
+        ...(account.identityProviderEnvironment ? { environment: account.identityProviderEnvironment } : {}),
+        l3: {
+          status: account.identityL3SubmissionStatus || 'not_started',
+          decisionStatus: account.identityL3DecisionStatus || 'none',
+          ...(account.identityL3ExpiresAt ? { expiresAt: account.identityL3ExpiresAt } : {})
+        }
       },
       photos: account.photos
     });
