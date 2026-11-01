@@ -1103,13 +1103,13 @@ test('only a verified new subscription event links a completed recurring checkou
 test('confirmed checkout cancellation settles only the matching creating attempt', async () => {
   const { markPaddleCheckoutAttemptCanceled } = await import('./paddleBilling.js');
   const calls = [];
-  const pool = {
+  const client = {
     async query(sql, params) {
       calls.push({ sql: String(sql), params });
       return { rowCount: 1 };
     }
   };
-  const result = await markPaddleCheckoutAttemptCanceled(pool, {
+  const result = await markPaddleCheckoutAttemptCanceled(client, {
     userId: '00000000-0000-4000-8000-000000000001',
     attemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     transactionId: 'txn_0123456789abcdef01234567'
