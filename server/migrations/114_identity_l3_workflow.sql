@@ -6,8 +6,7 @@ CREATE TABLE identity_l3_submissions (
   status TEXT NOT NULL DEFAULT 'draft'
     CHECK (status IN (
       'draft', 'upload_authorized', 'uploaded', 'processing', 'failed',
-      'pending_review', 'approved', 'rejected', 'withdrawn',
-      'revoked', 'expired'
+      'pending_review', 'approved', 'rejected', 'withdrawn', 'revoked', 'expired'
     )),
   storage_object_key TEXT,
   media_sha256 CHAR(64),
@@ -32,8 +31,10 @@ CREATE TABLE identity_l3_submissions (
   CHECK (
     status NOT IN ('uploaded', 'processing', 'failed', 'pending_review', 'approved', 'rejected')
     OR (
-      media_sha256 IS NOT NULL AND media_mime_type IS NOT NULL
-      AND media_size_bytes IS NOT NULL AND media_duration_seconds IS NOT NULL
+      media_sha256 IS NOT NULL
+      AND media_mime_type IS NOT NULL
+      AND media_size_bytes IS NOT NULL
+      AND media_duration_seconds IS NOT NULL
       AND uploaded_at IS NOT NULL
       AND (
         (storage_object_key IS NOT NULL AND length(storage_object_key) BETWEEN 1 AND 512)
@@ -44,8 +45,10 @@ CREATE TABLE identity_l3_submissions (
   CHECK (
     status <> 'approved'
     OR (
-      reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL
-      AND approved_at IS NOT NULL AND expires_at IS NOT NULL
+      reviewed_by IS NOT NULL
+      AND reviewed_at IS NOT NULL
+      AND approved_at IS NOT NULL
+      AND expires_at IS NOT NULL
       AND expires_at = approved_at + INTERVAL '6 months'
       AND reviewed_by <> user_id
     )
@@ -78,8 +81,11 @@ CREATE INDEX identity_l3_expiry_idx
   WHERE status = 'approved';
 CREATE INDEX identity_l3_current_decision_idx
   ON identity_l3_submissions(
-    user_id, (COALESCE(approved_at, reviewed_at)) DESC,
-    (COALESCE(revoked_at, approved_at, reviewed_at)) DESC, created_at DESC, id DESC
+    user_id,
+    (COALESCE(approved_at, reviewed_at)) DESC,
+    (COALESCE(revoked_at, approved_at, reviewed_at)) DESC,
+    created_at DESC,
+    id DESC
   )
   WHERE status IN ('approved', 'rejected', 'revoked', 'expired');
 
@@ -90,27 +96,33 @@ CREATE TABLE identity_l3_decision_events (
   actor_user_id UUID, -- immutable audit identifier; intentionally survives actor account deletion
   event_type TEXT NOT NULL CHECK (event_type IN (
     'created', 'upload_authorized', 'uploaded', 'processing_started',
-    'processing_completed', 'processing_failed', 'submitted_for_review', 'approved',
-    'rejected', 'withdrawn', 'revoked', 'expired', 'media_purged'
+    'processing_completed', 'processing_failed', 'submitted_for_review',
+    'approved', 'rejected', 'withdrawn', 'revoked', 'expired', 'media_purged'
   )),
   from_status TEXT,
   to_status TEXT NOT NULL CHECK (to_status IN (
     'draft', 'upload_authorized', 'uploaded', 'processing', 'failed',
-    'pending_review', 'approved', 'rejected', 'withdrawn',
-    'revoked', 'expired'
+    'pending_review', 'approved', 'rejected', 'withdrawn', 'revoked', 'expired'
   )),
-  reason_code TEXT CHECK (reason_code IS NULL OR (length(reason_code) BETWEEN 1 AND 64 AND reason_code !~ '[^a-z0-9_]')),
+  reason_code TEXT CHECK (
+    reason_code IS NULL OR
+    (length(reason_code) BETWEEN 1 AND 64 AND reason_code !~ '[^a-z0-9_]')
+  ),
   occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CHECK (event_type NOT IN ('approved', 'rejected') OR (actor_user_id IS NOT NULL AND actor_user_id <> user_id)),
+  CHECK (
+    event_type NOT IN ('approved', 'rejected')
+    OR (actor_user_id IS NOT NULL AND actor_user_id <> user_id)
+  ),
   CHECK (event_type <> 'revoked' OR actor_user_id IS NULL OR actor_user_id <> user_id)
 );
+
 CREATE INDEX identity_l3_decision_events_submission_idx
   ON identity_l3_decision_events(submission_id, occurred_at, id);
 CREATE INDEX identity_l3_decision_events_user_idx
   ON identity_l3_decision_events(user_id, occurred_at DESC);
 
 CREATE OR REPLACE FUNCTION prevent_identity_l3_decision_event_mutation()
-RETURNS trigger LANGUAGE plpgsql AS $$
+RETURNS trigger LANGUAGE plpgsql AS $l3_append$
 BEGIN
   -- Permit only referential cleanup initiated by a parent-row cascade (for
   -- example, account deletion). Direct UPDATE/DELETE remains prohibited.
@@ -120,13 +132,14 @@ BEGIN
   RAISE EXCEPTION 'identity L3 decision events are append-only'
     USING ERRCODE = '55000';
 END;
-$$;
+$l3_append$;
+
 CREATE TRIGGER identity_l3_decision_events_append_only
   BEFORE UPDATE OR DELETE ON identity_l3_decision_events
   FOR EACH ROW EXECUTE FUNCTION prevent_identity_l3_decision_event_mutation();
 
 CREATE OR REPLACE FUNCTION guard_identity_l3_submission_transition()
-RETURNS trigger LANGUAGE plpgsql AS $$
+RETURNS trigger LANGUAGE plpgsql AS $l3_guard$
 DECLARE
   allowed BOOLEAN := FALSE;
 BEGIN
@@ -137,7 +150,8 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  IF NEW.id IS DISTINCT FROM OLD.id OR NEW.user_id IS DISTINCT FROM OLD.user_id
+  IF NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.user_id IS DISTINCT FROM OLD.user_id
      OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
     RAISE EXCEPTION 'identity L3 submission identity is immutable' USING ERRCODE = '23514';
   END IF;
@@ -158,16 +172,16 @@ BEGIN
     END IF;
   END IF;
 
-  IF NEW.status IN ('approved', 'rejected') AND
-     (NEW.reviewed_by IS NULL OR NEW.reviewed_at IS NULL OR NEW.reviewed_by = NEW.user_id) THEN
+  IF NEW.status IN ('approved', 'rejected')
+     AND (NEW.reviewed_by IS NULL OR NEW.reviewed_at IS NULL OR NEW.reviewed_by = NEW.user_id) THEN
     RAISE EXCEPTION 'identity L3 decision requires an independent reviewer' USING ERRCODE = '23514';
   END IF;
   IF OLD.reviewed_at IS NOT NULL AND (
-     NEW.reviewed_by IS DISTINCT FROM OLD.reviewed_by OR
-     NEW.reviewed_at IS DISTINCT FROM OLD.reviewed_at OR
-     NEW.decision_reason_code IS DISTINCT FROM OLD.decision_reason_code OR
-     NEW.approved_at IS DISTINCT FROM OLD.approved_at OR
-     NEW.expires_at IS DISTINCT FROM OLD.expires_at
+    NEW.reviewed_by IS DISTINCT FROM OLD.reviewed_by
+    OR NEW.reviewed_at IS DISTINCT FROM OLD.reviewed_at
+    OR NEW.decision_reason_code IS DISTINCT FROM OLD.decision_reason_code
+    OR NEW.approved_at IS DISTINCT FROM OLD.approved_at
+    OR NEW.expires_at IS DISTINCT FROM OLD.expires_at
   ) THEN
     RAISE EXCEPTION 'identity L3 moderator decision is immutable' USING ERRCODE = '23514';
   END IF;
@@ -182,34 +196,46 @@ BEGIN
     RAISE EXCEPTION 'identity L3 decision requires a bounded reason code' USING ERRCODE = '23514';
   END IF;
 
-  -- Once bytes have been accepted, their identity and validation metadata cannot
-  -- be swapped underneath a moderation decision. The sole permitted mutation is
-  -- clearing the object key while atomically marking the media as purged.
+  -- Purging is one-way and allowed only after a terminal workflow decision.
   IF NEW.media_purged_at IS DISTINCT FROM OLD.media_purged_at AND NOT (
-    OLD.media_purged_at IS NULL AND NEW.media_purged_at IS NOT NULL
-    AND OLD.storage_object_key IS NOT NULL AND NEW.storage_object_key IS NULL
+    OLD.media_purged_at IS NULL
+    AND NEW.media_purged_at IS NOT NULL
+    AND OLD.storage_object_key IS NOT NULL
+    AND NEW.storage_object_key IS NULL
     AND OLD.status IN ('approved', 'rejected', 'withdrawn', 'revoked', 'expired', 'failed')
     AND NEW.status = OLD.status
   ) THEN
     RAISE EXCEPTION 'identity L3 media purge must be a one-way terminal-state operation' USING ERRCODE = '23514';
   END IF;
 
+  -- Media identity is immutable after upload. Processing completion may be
+  -- recorded exactly once while advancing uploaded -> processing.
   IF OLD.status NOT IN ('draft', 'upload_authorized') AND (
-    NEW.media_sha256 IS DISTINCT FROM OLD.media_sha256 OR
-    NEW.media_mime_type IS DISTINCT FROM OLD.media_mime_type OR
-    NEW.media_size_bytes IS DISTINCT FROM OLD.media_size_bytes OR
-    NEW.media_duration_seconds IS DISTINCT FROM OLD.media_duration_seconds OR
-    NEW.uploaded_at IS DISTINCT FROM OLD.uploaded_at OR
-    (NEW.processing_completed_at IS DISTINCT FROM OLD.processing_completed_at AND NOT (
-      OLD.status = 'uploaded' AND NEW.status = 'processing'
-      AND OLD.processing_completed_at IS NULL AND NEW.processing_completed_at IS NOT NULL
-    )) OR
-    (NEW.storage_object_key IS DISTINCT FROM OLD.storage_object_key AND NOT (
-      OLD.media_purged_at IS NULL AND NEW.media_purged_at IS NOT NULL
-      AND OLD.storage_object_key IS NOT NULL AND NEW.storage_object_key IS NULL
-      AND OLD.status IN ('approved', 'rejected', 'withdrawn', 'revoked', 'expired', 'failed')
-      AND NEW.status = OLD.status
-    ))
+    NEW.media_sha256 IS DISTINCT FROM OLD.media_sha256
+    OR NEW.media_mime_type IS DISTINCT FROM OLD.media_mime_type
+    OR NEW.media_size_bytes IS DISTINCT FROM OLD.media_size_bytes
+    OR NEW.media_duration_seconds IS DISTINCT FROM OLD.media_duration_seconds
+    OR NEW.uploaded_at IS DISTINCT FROM OLD.uploaded_at
+    OR (
+      NEW.processing_completed_at IS DISTINCT FROM OLD.processing_completed_at
+      AND NOT (
+        OLD.status = 'uploaded'
+        AND NEW.status = 'processing'
+        AND OLD.processing_completed_at IS NULL
+        AND NEW.processing_completed_at IS NOT NULL
+      )
+    )
+    OR (
+      NEW.storage_object_key IS DISTINCT FROM OLD.storage_object_key
+      AND NOT (
+        OLD.media_purged_at IS NULL
+        AND NEW.media_purged_at IS NOT NULL
+        AND OLD.storage_object_key IS NOT NULL
+        AND NEW.storage_object_key IS NULL
+        AND OLD.status IN ('approved', 'rejected', 'withdrawn', 'revoked', 'expired', 'failed')
+        AND NEW.status = OLD.status
+      )
+    )
   ) THEN
     RAISE EXCEPTION 'identity L3 media metadata is immutable after upload' USING ERRCODE = '23514';
   END IF;
@@ -217,7 +243,8 @@ BEGIN
   NEW.updated_at := NOW();
   RETURN NEW;
 END;
-$$;
+$l3_guard$;
+
 CREATE TRIGGER identity_l3_submission_transition_guard
   BEFORE INSERT OR UPDATE ON identity_l3_submissions
   FOR EACH ROW EXECUTE FUNCTION guard_identity_l3_submission_transition();
@@ -240,7 +267,8 @@ BEGIN
   END IF;
 
   IF NEW.status IS DISTINCT FROM OLD.status THEN
-    IF NEW.status = 'processing' AND NEW.processing_completed_at IS NOT NULL
+    IF NEW.status = 'processing'
+       AND NEW.processing_completed_at IS NOT NULL
        AND OLD.processing_completed_at IS NULL THEN
       INSERT INTO identity_l3_decision_events
         (submission_id, user_id, actor_user_id, event_type, from_status, to_status, reason_code)
@@ -267,9 +295,12 @@ BEGIN
       INSERT INTO identity_l3_decision_events
         (submission_id, user_id, actor_user_id, event_type, from_status, to_status, reason_code)
       VALUES (
-        NEW.id, NEW.user_id,
+        NEW.id,
+        NEW.user_id,
         CASE WHEN NEW.status IN ('approved', 'rejected') THEN NEW.reviewed_by ELSE event_actor END,
-        next_event_type, OLD.status, NEW.status,
+        next_event_type,
+        OLD.status,
+        NEW.status,
         CASE WHEN NEW.status IN ('approved', 'rejected') THEN NEW.decision_reason_code ELSE event_reason END
       );
     END IF;
@@ -331,29 +362,3 @@ COMMENT ON TABLE identity_l3_decision_events IS
   'Append-only L3 workflow and moderation audit events. Avoid raw video, biometric data, document data and free-form personal information.';
 COMMENT ON COLUMN identity_l3_submissions.expires_at IS
   'Approval expiry must be exactly six calendar months after approved_at; authorization must check this timestamp against database NOW().';
-)
-  ),
-  CHECK (media_purged_at IS NULL OR storage_object_key IS NULL)
-);
-
--- One live workflow per account; old decisions remain available for audit.
-CREATE UNIQUE INDEX identity_l3_one_open_submission_per_user_uidx
-  ON identity_l3_submissions(user_id)
-  WHERE status IN ('draft', 'upload_authorized', 'uploaded', 'processing', 'pending_review');
-
-CREATE INDEX identity_l3_moderation_queue_idx
-  ON identity_l3_submissions(created_at, id)
-  WHERE status = 'pending_review';
-CREATE INDEX identity_l3_active_approval_idx
-  ON identity_l3_submissions(user_id, expires_at DESC)
-  WHERE status = 'approved';
-CREATE INDEX identity_l3_expiry_idx
-  ON identity_l3_submissions(expires_at, id)
-  WHERE status = 'approved';
-CREATE INDEX identity_l3_current_decision_idx
-  ON identity_l3_submissions(
-    user_id, (COALESCE(approved_at, reviewed_at)) DESC,
-    (COALESCE(revoked_at, approved_at, reviewed_at)) DESC, created_at DESC, id DESC
-  )
-  WHERE status IN ('approved', 'rejected', 'revoked', 'expired');
-
