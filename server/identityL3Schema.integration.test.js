@@ -169,15 +169,23 @@ test('L3 schema persists metadata only and protects workflow decisions', {
         );
 
         await client.query(`
-          CREATE TEMP TABLE identity_l3_event_trigger_test (id integer PRIMARY KEY, event_type text)
+          CREATE TEMP TABLE identity_l3_event_parent_test (id integer PRIMARY KEY)
           ON COMMIT DROP
+        `);
+        await client.query(`
+          CREATE TEMP TABLE identity_l3_event_trigger_test (
+            id integer PRIMARY KEY,
+            parent_id integer NOT NULL REFERENCES identity_l3_event_parent_test(id) ON DELETE CASCADE,
+            event_type text
+          ) ON COMMIT DROP
         `);
         await client.query(`
           CREATE TRIGGER identity_l3_event_append_only_test
           BEFORE UPDATE OR DELETE ON identity_l3_event_trigger_test
           FOR EACH ROW EXECUTE FUNCTION prevent_identity_l3_decision_event_mutation()
         `);
-        await client.query("INSERT INTO identity_l3_event_trigger_test (id, event_type) VALUES (1, 'created')");
+        await client.query('INSERT INTO identity_l3_event_parent_test (id) VALUES (1)');
+        await client.query("INSERT INTO identity_l3_event_trigger_test (id, parent_id, event_type) VALUES (1, 1, 'created')");
         await client.query('SAVEPOINT reject_l3_event_mutation');
         await assert.rejects(
           client.query("UPDATE identity_l3_event_trigger_test SET event_type = 'approved' WHERE id = 1"),
@@ -185,6 +193,17 @@ test('L3 schema persists metadata only and protects workflow decisions', {
         );
         await client.query('ROLLBACK TO SAVEPOINT reject_l3_event_mutation');
         await client.query('RELEASE SAVEPOINT reject_l3_event_mutation');
+        await client.query('SAVEPOINT reject_direct_l3_event_delete');
+        await assert.rejects(
+          client.query('DELETE FROM identity_l3_event_trigger_test WHERE id = 1'),
+          error => error.code === '55000'
+        );
+        await client.query('ROLLBACK TO SAVEPOINT reject_direct_l3_event_delete');
+        await client.query('RELEASE SAVEPOINT reject_direct_l3_event_delete');
+        await client.query('DELETE FROM identity_l3_event_parent_test WHERE id = 1');
+        const cascadedEvents = await client.query('SELECT COUNT(*)::int AS count FROM identity_l3_event_trigger_test');
+        assert.equal(cascadedEvents.rows[0].count, 0,
+          'account/submission privacy deletion must be able to cascade dependent audit rows');
       } finally {
         await client.query('ROLLBACK');
       }
