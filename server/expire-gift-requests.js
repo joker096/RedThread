@@ -102,9 +102,11 @@ export async function processExpiredGiftRequestBatch(pool, {
       // A successful rollback restores a reusable PostgreSQL connection.
       // Only pass an error to pg's release() when rollback itself fails and the
       // connection protocol state can no longer be trusted.
-      await client.query('ROLLBACK').catch(rollbackError => {
-        releaseError = rollbackError;
-      });
+      if (client) {
+        await client.query('ROLLBACK').catch(rollbackError => {
+          releaseError = rollbackError;
+        });
+      }
       summary.pairFailures += 1;
       // Isolate a broken pair: a transient database/application error must not
       // abort the remaining bounded batch and starve unrelated expired requests.
