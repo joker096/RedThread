@@ -37,6 +37,15 @@ CREATE INDEX IF NOT EXISTS identity_verification_events_user_idx
 
 
 
+
+-- Aggregate monthly reservations are intentionally not linked to user accounts,
+-- so account deletion cannot reset the free-tier spending guard.
+CREATE TABLE IF NOT EXISTS didit_monthly_quota_usage (
+  month_start DATE PRIMARY KEY,
+  reserved_count INTEGER NOT NULL DEFAULT 0 CHECK (reserved_count BETWEEN 0 AND 500),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Record explicit user consent before sending identity data to Didit.
 CREATE TABLE IF NOT EXISTS identity_verification_consents (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -65,6 +74,8 @@ CREATE INDEX IF NOT EXISTS identity_verification_session_reservations_monthly_id
   ON identity_verification_session_reservations (environment, created_at)
   WHERE status IN ('reserved', 'created');
 
+COMMENT ON TABLE didit_monthly_quota_usage IS
+  'Non-identifying UTC monthly count of Vow-originated Didit Live session reservations; deliberately survives account deletion to prevent quota reset.';
 COMMENT ON TABLE identity_verification_consents IS
   'Append-only record of user consent version and timestamp before sending data to Didit; no identity media or extracted personal data.';
 CREATE UNIQUE INDEX IF NOT EXISTS identity_verification_one_reservation_per_user_uidx
