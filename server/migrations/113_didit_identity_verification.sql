@@ -35,7 +35,25 @@ CREATE INDEX IF NOT EXISTS identity_verification_events_session_idx
 CREATE INDEX IF NOT EXISTS identity_verification_events_user_idx
   ON identity_verification_events (user_id);
 
+
+-- Reserve one slot before calling Didit Live so concurrent requests cannot
+-- exceed Vow's local free-tier cap. Ambiguous provider timeouts keep the slot.
+CREATE TABLE IF NOT EXISTS identity_verification_session_reservations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider_session_id UUID UNIQUE,
+  environment TEXT NOT NULL CHECK (environment IN ('sandbox', 'live')),
+  status TEXT NOT NULL DEFAULT 'reserved' CHECK (status IN ('reserved', 'created')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS identity_verification_session_reservations_monthly_idx
+  ON identity_verification_session_reservations (environment, created_at)
+  WHERE status IN ('reserved', 'created');
+
 COMMENT ON TABLE identity_verifications IS
   'Minimal Didit sandbox identity-verification state only; no identity documents, images, extracted fields or biometric data are stored.';
+COMMENT ON TABLE identity_verification_session_reservations IS
+  'Counts Vow-originated Didit sessions for a local monthly free-tier cap; unresolved requests keep their reserved slot to avoid paid overages.';
 COMMENT ON TABLE identity_verification_events IS
   'Didit webhook idempotency and ordering metadata only; no verification payload or personal data is stored.';
