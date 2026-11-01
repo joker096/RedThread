@@ -1926,7 +1926,7 @@ app.get('/api/photos/:photoId', requireSession, async (req,res) => {
        JOIN users viewer ON viewer.id=$2 AND viewer.status='active'
        WHERE a.id=$1 AND u.status='active'
          AND ('/api/photos/' || a.id::text)=ANY(COALESCE(p.photo_urls,'{}'))
-         AND (a.user_id=$2 OR ($3::boolean AND a.review_status IN ('pending','approved','rejected')) OR (a.review_status='approved' AND p.is_visible=TRUE AND NOT EXISTS (
+         AND (a.user_id=$2 OR ($3::boolean AND a.review_status IN ('pending','approved','rejected')) OR (a.review_status='approved' AND p.is_visible=TRUE AND (p.gender <> 'male' OR EXISTS (SELECT 1 FROM identity_verifications iv WHERE iv.user_id = p.user_id AND iv.provider = 'didit' AND iv.status = 'verified' AND iv.provider_environment = 'live')) AND NOT EXISTS (
            SELECT 1 FROM user_blocks b WHERE (b.blocker_id=$2 AND b.blocked_id=a.user_id) OR (b.blocker_id=a.user_id AND b.blocked_id=$2)
          ))) LIMIT 1`,
       [req.params.photoId,req.authUser.id,['admin','moderator'].includes(req.authUser.role)]
@@ -2346,6 +2346,11 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
            WHERE iv.user_id = p.user_id AND iv.provider = 'didit'
              AND iv.status = 'verified' AND iv.provider_environment = 'live'
          ))
+         AND (p.gender <> 'male' OR EXISTS (
+           SELECT 1 FROM identity_verifications iv
+           WHERE iv.user_id = p.user_id AND iv.provider = 'didit'
+             AND iv.status = 'verified' AND iv.provider_environment = 'live'
+         ))
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = $1 AND b.blocked_id = p.user_id)
@@ -2378,7 +2383,12 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
          AND ($2::uuid IS NULL OR pp.passed_user_id = $2)
          AND u.status = 'active' AND p.is_visible = TRUE
          AND p.children_disclosure_confirmed_at IS NOT NULL AND p.has_children IS NOT NULL
-         AND p.gender <> $3
+         AND (p.gender <> 'male' OR EXISTS (
+           SELECT 1 FROM identity_verifications iv
+           WHERE iv.user_id = p.user_id AND iv.provider = 'didit'
+             AND iv.status = 'verified' AND iv.provider_environment = 'live'
+         ))
+          AND p.gender <> $3
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = $1 AND b.blocked_id = p.user_id)
@@ -2708,7 +2718,12 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
        WHERE p.user_id = $1 AND u.status = 'active' AND p.is_visible = TRUE
          AND p.birth_date IS NOT NULL
          AND p.children_disclosure_confirmed_at IS NOT NULL AND p.has_children IS NOT NULL
-         AND p.gender <> $3
+         AND (p.gender <> 'male' OR EXISTS (
+           SELECT 1 FROM identity_verifications iv
+           WHERE iv.user_id = p.user_id AND iv.provider = 'didit'
+             AND iv.status = 'verified' AND iv.provider_environment = 'live'
+         ))
+          AND p.gender <> $3
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = $2 AND b.blocked_id = p.user_id)
