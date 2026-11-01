@@ -52,9 +52,10 @@ test('expiry worker takes creation locks in the established order and commits sa
     }
   });
   const discovery = pool.calls.find(call => typeof call === 'object');
-  assert.match(discovery.sql, /NOT EXISTS/);
-  assert.match(discovery.sql, /gift_payment_reconciliation_tasks/);
-  assert.match(discovery.sql, /payment_status IN \('not_started', 'voided', 'failed'\)/);
+  assert.doesNotMatch(discovery.sql, /NOT EXISTS/i,
+    'an existing reconciliation task must not suppress an independent expiry audit event');
+  assert.doesNotMatch(discovery.sql, /payment_status IN/i,
+    'all expired pending-consent orders must reach the idempotent pair transition');
   assert.doesNotMatch(discovery.sql, /SELECT DISTINCT/i, 'migration 033 guarantees one pending order per unordered pair');
   assert.match(discovery.sql, /ORDER BY md5\(concat_ws/);
   assert.match(discovery.sql, /date_trunc\('minute', NOW\(\)\)/);
