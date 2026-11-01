@@ -228,3 +228,74 @@ test('createAdEventId always returns a UUID accepted by the ad event API', () =>
   const eventId = createAdEventId();
   assert.match(eventId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
 });
+
+
+test('compatibility treats marriage and cohabitation as different family expectations', () => {
+  const result = calculateCompatibility(
+    mockAnswers,
+    'marriage_family',
+    [],
+    { ...mockTargetProfile, intent: 'cohabitation' }
+  );
+
+  assert.ok(result.familyGoalsMatch < 85);
+  assert.ok(result.valuesMatch < 85);
+  assert.ok(result.frictionPoints.some(point => point.includes('официального брака')));
+});
+
+test('compatibility treats serious relationship as distinct from an explicit marriage goal', () => {
+  const result = calculateCompatibility(
+    mockAnswers,
+    'marriage_family',
+    [],
+    { ...mockTargetProfile, intent: 'serious_relationship' }
+  );
+
+  assert.ok(result.familyGoalsMatch < 85);
+  assert.ok(result.frictionPoints.some(point => point.includes('цель брака')));
+});
+
+test('empty assessment answers are missing data, not false positive matches', () => {
+  const profile = {
+    ...mockTargetProfile,
+    crucialAnswers: {
+      marriage_and_kids: '',
+      finances: '   ',
+      free_time: '',
+      conflict_resolution: ''
+    }
+  };
+
+  const result = calculateCompatibility(
+    { marriage_and_kids: '', finances: ' ', free_time: '', conflict_resolution: '' },
+    'marriage_family',
+    [],
+    profile
+  );
+
+  assert.equal(result.greenFlags.some(flag => flag.includes('детей')), false);
+  assert.equal(result.greenFlags.some(flag => flag.includes('бюджета')), false);
+  assert.equal(result.greenFlags.some(flag => flag.includes('отдыха')), false);
+  assert.equal(result.greenFlags.some(flag => flag.includes('конфликтов')), false);
+  assert.equal(result.frictionPoints.length, 0);
+});
+
+test('compatibility normalizes answer casing and deduplicates common interests', () => {
+  const result = calculateCompatibility(
+    {
+      marriage_and_kids: '  ХОЧУ СЕМЬЮ И ДЕТЕЙ В БЛИЖАЙШИЕ 1-2 ГОДА ',
+      finances: 'мужчина основной добытчик',
+      free_time: 'ПУТЕШЕСТВИЯ И АКТИВНЫЙ ОТДЫХ',
+      conflict_resolution: 'спокойно говорим через рот сразу'
+    },
+    'marriage_family',
+    [' СПОРТ ', 'спорт', 'ПУТЕШЕСТВИЯ'],
+    mockTargetProfile
+  );
+
+  assert.ok(result.greenFlags.some(flag => flag.includes('детей')));
+  assert.ok(result.greenFlags.some(flag => flag.includes('бюджета')));
+  assert.ok(result.greenFlags.some(flag => flag.includes('отдыха')));
+  assert.equal(result.greenFlags.filter(flag => flag.startsWith('Общие увлечения:')).length, 1);
+  assert.ok(result.greenFlags.some(flag => flag.includes('Спорт, путешествия')));
+});
