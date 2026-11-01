@@ -118,7 +118,6 @@ export const TrustCenterPanel: React.FC = () => {
       })
         .withConf({ lang: 'ru', theme: 'dark' })
         .withOptions({ addViewportTag: false, adaptIframeHeight: true })
-        .on('idCheck.onStepCompleted', () => { void load(); })
         .on('idCheck.onError', () => { if (!disposed) setError('Проверка не завершена. Проверьте соединение и попробуйте продолжить.'); })
         .build();
       instance.launch('#sumsub-websdk-container');
