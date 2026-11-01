@@ -14,12 +14,14 @@ const pair = {
 
 function mockPool(rows = [pair]) {
   const calls = [];
+  const releases = [];
   const client = {
     async query(sql) { calls.push(sql); return { rows: [] }; },
-    release() { calls.push('RELEASE'); }
+    release(error) { calls.push('RELEASE'); releases.push(error); }
   };
   return {
     calls,
+    releases,
     async query(sql, values) {
       calls.push({ sql, values });
       return { rows };
@@ -119,6 +121,20 @@ test('expiry worker isolates a failed pair and continues the bounded batch', asy
   assert.deepEqual(result, { pairsScanned: 2, expiredOrders: 1, reconciliationRequired: 0, pairFailures: 1 });
   assert.ok(pool.calls.includes('ROLLBACK'));
   assert.equal(pool.calls.filter(call => call === 'RELEASE').length, 2);
+});
+
+test('expiry worker reuses a connection after a successful rollback', async () => {
+  const pool = mockPool();
+  const result = await processExpiredGiftRequestBatch(pool, {
+    acquireRateLocks: async () => { throw new Error('simulated application failure'); },
+    acquireSafetyLocks: async () => {},
+    acquirePairLock: async () => {},
+    expirePair: async () => ({ ok: true, expiredOrders: [] })
+  });
+  assert.equal(result.pairFailures, 1);
+  assert.equal(pool.releases.length, 1);
+  assert.equal(pool.releases[0], undefined,
+    'a successful rollback restores the connection and must not force pg to destroy it');
 });
 
 test('expiry worker does not open transactions when no expired pairs exist', async () => {
