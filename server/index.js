@@ -2351,15 +2351,9 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
     await client.query('BEGIN');
     const actorIdentity = await client.query(
       `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment,
-              (SELECT l3.status FROM identity_l3_submissions l3
-               WHERE l3.user_id = p.user_id AND l3.status = 'approved'
-                 AND l3.expires_at > NOW()
-               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1 FOR SHARE) AS l3_status,
-              (SELECT l3.expires_at FROM identity_l3_submissions l3
-               WHERE l3.user_id = p.user_id AND l3.status = 'approved'
-                 AND l3.expires_at > NOW()
-               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1 FOR SHARE) AS l3_expires_at
+              l3.status AS l3_status, l3.expires_at AS l3_expires_at
        FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
        WHERE p.user_id = $1 FOR SHARE OF p`,
       [req.authUser.id]
     );
@@ -2490,15 +2484,9 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
     await client.query('BEGIN');
     const actorIdentity = await client.query(
       `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment,
-              (SELECT l3.status FROM identity_l3_submissions l3
-               WHERE l3.user_id = p.user_id AND l3.status = 'approved'
-                 AND l3.expires_at > NOW()
-               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1 FOR SHARE) AS l3_status,
-              (SELECT l3.expires_at FROM identity_l3_submissions l3
-               WHERE l3.user_id = p.user_id AND l3.status = 'approved'
-                 AND l3.expires_at > NOW()
-               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1 FOR SHARE) AS l3_expires_at
+              l3.status AS l3_status, l3.expires_at AS l3_expires_at
        FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
        WHERE p.user_id = $1 FOR SHARE OF p`,
       [req.authUser.id]
     );
@@ -2573,15 +2561,9 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
     await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
     const actorIdentity = await client.query(
       `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment,
-              (SELECT l3.status FROM identity_l3_submissions l3
-               WHERE l3.user_id = p.user_id AND l3.status = 'approved'
-                 AND l3.expires_at > NOW()
-               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1 FOR SHARE) AS l3_status,
-              (SELECT l3.expires_at FROM identity_l3_submissions l3
-               WHERE l3.user_id = p.user_id AND l3.status = 'approved'
-                 AND l3.expires_at > NOW()
-               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1 FOR SHARE) AS l3_expires_at
+              l3.status AS l3_status, l3.expires_at AS l3_expires_at
        FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
        WHERE p.user_id = $1 FOR SHARE OF p`,
       [req.authUser.id]
     );
@@ -2733,15 +2715,9 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
     await client.query('BEGIN');
     const actorIdentity = await client.query(
       `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment,
-              (SELECT l3.status FROM identity_l3_submissions l3
-               WHERE l3.user_id = p.user_id AND l3.status = 'approved'
-                 AND l3.expires_at > NOW()
-               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1 FOR SHARE) AS l3_status,
-              (SELECT l3.expires_at FROM identity_l3_submissions l3
-               WHERE l3.user_id = p.user_id AND l3.status = 'approved'
-                 AND l3.expires_at > NOW()
-               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1 FOR SHARE) AS l3_expires_at
+              l3.status AS l3_status, l3.expires_at AS l3_expires_at
        FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
        WHERE p.user_id = $1 FOR SHARE OF p`,
       [req.authUser.id]
     );
@@ -3079,15 +3055,9 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
     await acquireGiftSafetyUserLocks(client, req.authUser.id, recipientId);
     const actorIdentity = await client.query(
       `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment,
-              (SELECT l3.status FROM identity_l3_submissions l3
-               WHERE l3.user_id = p.user_id AND l3.status = 'approved'
-                 AND l3.expires_at > NOW()
-               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1 FOR SHARE) AS l3_status,
-              (SELECT l3.expires_at FROM identity_l3_submissions l3
-               WHERE l3.user_id = p.user_id AND l3.status = 'approved'
-                 AND l3.expires_at > NOW()
-               ORDER BY l3.approved_at DESC, l3.id DESC LIMIT 1 FOR SHARE) AS l3_expires_at
+              l3.status AS l3_status, l3.expires_at AS l3_expires_at
        FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
        WHERE p.user_id = $1 FOR SHARE OF p`,
       [req.authUser.id]
     );
