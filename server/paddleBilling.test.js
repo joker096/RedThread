@@ -144,6 +144,38 @@ test('subscription updates compare source timestamps and do not bypass ordering 
   assert.equal(update.params[7], '2026-10-24T20:00:00Z');
 });
 
+test('subscription.canceled wins an equal-timestamp lifecycle ordering tie', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      const statement = String(sql);
+      queries.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: 'evt_tied_cancellation' }] };
+      }
+      if (statement.includes('SELECT id FROM users WHERE paddle_subscription_id')) {
+        return { rowCount: 1, rows: [{ id: '00000000-0000-4000-8000-000000000001' }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+
+  await processPaddleEvent({ async connect() { return client; } }, {
+    eventId: 'evt_tied_cancellation',
+    eventType: 'subscription.canceled',
+    occurredAt: '2026-10-24T20:00:00Z',
+    data: { id: 'sub_tied123', status: 'canceled' }
+  });
+
+  const update = queries.find(query => query.statement.includes('paddle_subscription_updated_at = COALESCE'));
+  assert.ok(update, 'expected the cancellation lifecycle update');
+  assert.equal(update.params[3], 'canceled');
+  assert.equal(update.params[8], false, 'cancellation does not claim a newly-created subscription');
+  assert.equal(update.params[9], true, 'cancellation must be allowed to win an equal-timestamp tie');
+});
+
 test('subscription lifecycle only grants Premium for explicitly configured Vow recurring prices', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const originalOneMonth = process.env.PADDLE_PRICE_ID_1MONTH;
