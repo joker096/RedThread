@@ -15,6 +15,7 @@ import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
 import { createDiditSession, isDiditConfigured, isDiditStatus, projectDiditStatus, verifyDiditWebhook, isDiditUuid } from './diditIdentity.js';
 import { canInteract as canIdentityInteract } from './identityAccessPolicy.js';
+import { canReserveDiditFreeSession } from './diditQuota.js';
 import express from 'express';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import { withPooledTransaction, rollbackPooledTransaction } from './withPooledTransaction.js';
@@ -2014,17 +2015,44 @@ app.delete('/api/assessment', validateRequestOrigin, requireSession, async (req,
 
 app.post('/api/identity/didit/session', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
   if (!isDiditConfigured()) return res.status(503).json({ error: 'didit_sandbox_not_configured' });
+  let liveQuotaReservationId = null;
   try {
     const current = await withActiveAccountRead(req.authUser.id, client => client.query(
       'SELECT status FROM identity_verifications WHERE user_id = $1', [req.authUser.id]
     ));
     if (!current.active) return res.status(401).json({ error: 'account_not_active' });
     if (current.value.rows[0]?.status === 'verified') return res.status(409).json({ error: 'identity_already_verified' });
+    if (process.env.DIDIT_ENVIRONMENT === 'live') {
+      liveQuotaReservationId = await withPooledTransaction(pool, async client => {
+        const monthKey = new Date().toISOString().slice(0, 7);
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`didit-live-free-quota:${monthKey}`]);
+        const count = await client.query(
+          `SELECT COUNT(*)::int AS count
+           FROM identity_verification_session_reservations
+           WHERE environment = 'live'
+             AND created_at >= (date_trunc('month', statement_timestamp() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
+             AND created_at < ((date_trunc('month', statement_timestamp() AT TIME ZONE 'UTC') + INTERVAL '1 month') AT TIME ZONE 'UTC')`
+        );
+        if (!canReserveDiditFreeSession(count.rows[0]?.count)) return null;
+        const reservation = await client.query(
+          "INSERT INTO identity_verification_session_reservations (user_id, environment, status) VALUES ($1, 'live', 'reserved') RETURNING id",
+          [req.authUser.id]
+        );
+        return reservation.rows[0]?.id || null;
+      });
+      if (!liveQuotaReservationId) return res.status(429).json({ error: 'didit_monthly_free_quota_reached', monthlyLimit: 500 });
+    }
     const session = await createDiditSession({ userId: req.authUser.id, callbackOrigin: allowedOrigin });
     const saved = await withPooledTransaction(pool, async client => {
       await acquireGiftSafetyUserLocks(client, req.authUser.id);
       const account = await client.query("SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE", [req.authUser.id]);
       if (!account.rowCount) return false;
+      if (liveQuotaReservationId) {
+        await client.query(
+          "UPDATE identity_verification_session_reservations SET provider_session_id = $2, status = 'created' WHERE id = $1 AND user_id = $3 AND environment = 'live' AND status = 'reserved'",
+          [liveQuotaReservationId, session.sessionId, req.authUser.id]
+        );
+      }
       await client.query(
         'INSERT INTO identity_verifications (user_id, provider, provider_session_id, workflow_id, status, provider_status, provider_environment) VALUES ($1, \'didit\', $2, $3, \'pending\', $4, $5) ON CONFLICT (user_id) DO UPDATE SET provider_session_id = EXCLUDED.provider_session_id, workflow_id = EXCLUDED.workflow_id, status = \'pending\', provider_status = EXCLUDED.provider_status, provider_environment = EXCLUDED.provider_environment, provider_event_at = NULL, updated_at = NOW() WHERE identity_verifications.status <> \'verified\'',
         [req.authUser.id, session.sessionId, process.env.DIDIT_WORKFLOW_ID, session.providerStatus, session.environment]
