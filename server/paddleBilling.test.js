@@ -1100,6 +1100,43 @@ test('only a verified new subscription event links a completed recurring checkou
 });
 
 
+test('confirmed checkout cancellation settles only the matching creating attempt', async () => {
+  const { markPaddleCheckoutAttemptCanceled } = await import('./paddleBilling.js');
+  const calls = [];
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql: String(sql), params });
+      return { rowCount: 1 };
+    }
+  };
+  const result = await markPaddleCheckoutAttemptCanceled(pool, {
+    userId: '00000000-0000-4000-8000-000000000001',
+    attemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    transactionId: 'txn_0123456789abcdef01234567'
+  });
+  assert.equal(result, 1);
+  assert.deepEqual(calls[0].params, [
+    '00000000-0000-4000-8000-000000000001',
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    'txn_0123456789abcdef01234567'
+  ]);
+  assert.match(calls[0].sql, /status = 'creating'/);
+  assert.match(calls[0].sql, /transaction_id = COALESCE\(transaction_id, \$3\)/);
+  assert.match(calls[0].sql, /transaction_id IS NULL OR transaction_id = \$3/);
+});
+
+test('confirmed checkout cancellation rejects malformed attempt identity', async () => {
+  const { markPaddleCheckoutAttemptCanceled } = await import('./paddleBilling.js');
+  await assert.rejects(
+    markPaddleCheckoutAttemptCanceled({ async query() { throw new Error('must not query'); } }, {
+      userId: 'not-a-uuid',
+      attemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      transactionId: 'txn_0123456789abcdef01234567'
+    }),
+    /invalid_paddle_checkout_cancellation_identity/
+  );
+});
+
 test('transaction.canceled webhook clears a pending checkout attempt', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const queries = [];
