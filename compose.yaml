@@ -13,7 +13,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-    networks: [private]
+    networks: [backend]
 
   migrate:
     build:
@@ -27,7 +27,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    networks: [private]
+    networks: [backend]
 
   ad-event-retention:
     build:
@@ -49,7 +49,7 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-    networks: [private]
+    networks: [backend]
 
   gift-request-expiry:
     build:
@@ -71,7 +71,7 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-    networks: [private]
+    networks: [backend]
 
   api:
     build:
@@ -112,7 +112,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
-    networks: [private, egress]
+    networks: [backend, frontend, egress]
 
   web:
     build:
@@ -124,14 +124,16 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    networks: [private]
+    networks: [backend]
 
 volumes:
   postgres_data:
   private_photos:
 
 networks:
-  private:
+  backend:
+    internal: true
+  frontend:
     internal: true
   egress:
     driver: bridge
