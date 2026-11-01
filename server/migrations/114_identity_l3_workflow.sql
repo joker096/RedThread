@@ -208,6 +208,36 @@ CREATE TRIGGER identity_l3_submission_transition_guard
   BEFORE INSERT OR UPDATE ON identity_l3_submissions
   FOR EACH ROW EXECUTE FUNCTION guard_identity_l3_submission_transition();
 
+CREATE OR REPLACE FUNCTION identity_l3_current_decision(p_user_id UUID)
+RETURNS TABLE(status TEXT, expires_at TIMESTAMPTZ)
+LANGUAGE plpgsql VOLATILE AS $
+BEGIN
+  RETURN QUERY
+  SELECT s.status, s.expires_at
+  FROM identity_l3_submissions s
+  WHERE s.user_id = p_user_id
+    AND s.status IN ('approved', 'revoked', 'expired')
+  ORDER BY COALESCE(s.revoked_at, s.approved_at) DESC, s.created_at DESC, s.id DESC
+  LIMIT 1
+  FOR SHARE;
+END;
+$;
+
+CREATE OR REPLACE FUNCTION identity_l3_has_active_approval(p_user_id UUID)
+RETURNS BOOLEAN
+LANGUAGE plpgsql VOLATILE AS $
+DECLARE
+  current_status TEXT;
+  current_expiry TIMESTAMPTZ;
+BEGIN
+  SELECT decision.status, decision.expires_at
+    INTO current_status, current_expiry
+  FROM identity_l3_current_decision(p_user_id) AS decision;
+
+  RETURN COALESCE(current_status = 'approved' AND current_expiry > NOW(), FALSE);
+END;
+$;
+
 COMMENT ON TABLE identity_l3_submissions IS
   'L3 video workflow metadata only. Never store video bytes here; storage_object_key must reference private encrypted object storage.';
 COMMENT ON TABLE identity_l3_decision_events IS
