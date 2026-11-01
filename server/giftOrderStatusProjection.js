@@ -19,6 +19,9 @@ export function projectGiftOrderStatus(order, now = Date.now()) {
   }
 
   if (order.status !== PENDING_CONSENT) return order.status;
+  if (order.pendingRecipientDecline === true) {
+    return role === 'recipient' ? 'decision_pending_reconciliation' : 'not_available';
+  }
   if (order.recipientRequestsDisabledAt !== null && order.recipientRequestsDisabledAt !== undefined) {
     return 'not_available';
   }
