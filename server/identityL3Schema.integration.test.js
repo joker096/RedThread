@@ -44,6 +44,20 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       const fn = await client.query(
         `SELECT pg_get_functiondef('guard_identity_l3_submission_transition()'::regprocedure) AS definition`
       );
+      const l3DecisionFunction = await client.query(
+        `SELECT pg_get_functiondef('identity_l3_current_decision(uuid)'::regprocedure) AS definition`
+      );
+      assert.match(l3DecisionFunction.rows[0].definition, /COALESCE\(s\.revoked_at, s\.approved_at\)/);
+      assert.match(l3DecisionFunction.rows[0].definition, /FOR SHARE/);
+      const l3ActiveFunction = await client.query(
+        `SELECT pg_get_functiondef('identity_l3_has_active_approval(uuid)'::regprocedure) AS definition`
+      );
+      assert.match(l3ActiveFunction.rows[0].definition, /identity_l3_current_decision/);
+      const absentL3Decision = await client.query(
+        'SELECT identity_l3_has_active_approval($1) AS active',
+        ['dddddddd-dddd-4ddd-8ddd-dddddddddddd']
+      );
+      assert.equal(absentL3Decision.rows[0].active, false);
       assert.match(fn.rows[0].definition, /identity L3 submission identity is immutable/);
       assert.match(fn.rows[0].definition, /independent reviewer/);
       assert.match(fn.rows[0].definition, /moderator decision is immutable/);
