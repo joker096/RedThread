@@ -5,7 +5,7 @@ CREATE TABLE identity_l3_submissions (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   status TEXT NOT NULL DEFAULT 'draft'
     CHECK (status IN (
-      'draft', 'upload_authorized', 'uploaded', 'processing',
+      'draft', 'upload_authorized', 'uploaded', 'processing', 'failed',
       'pending_review', 'approved', 'rejected', 'withdrawn',
       'revoked', 'expired'
     )),
@@ -30,12 +30,15 @@ CREATE TABLE identity_l3_submissions (
   CHECK (media_size_bytes IS NULL OR media_size_bytes BETWEEN 1 AND 104857600),
   CHECK (media_duration_seconds IS NULL OR media_duration_seconds BETWEEN 30 AND 60),
   CHECK (
-    status NOT IN ('uploaded', 'processing', 'pending_review', 'approved', 'rejected')
+    status NOT IN ('uploaded', 'processing', 'failed', 'pending_review', 'approved', 'rejected')
     OR (
-      storage_object_key IS NOT NULL AND length(storage_object_key) BETWEEN 1 AND 512
-      AND media_sha256 IS NOT NULL AND media_mime_type IS NOT NULL
+      media_sha256 IS NOT NULL AND media_mime_type IS NOT NULL
       AND media_size_bytes IS NOT NULL AND media_duration_seconds IS NOT NULL
       AND uploaded_at IS NOT NULL
+      AND (
+        (storage_object_key IS NOT NULL AND length(storage_object_key) BETWEEN 1 AND 512)
+        OR (media_purged_at IS NOT NULL AND storage_object_key IS NULL)
+      )
     )
   ),
   CHECK (
@@ -51,8 +54,10 @@ CREATE TABLE identity_l3_submissions (
   CHECK (status <> 'revoked' OR revoked_at IS NOT NULL),
   CHECK (
     status NOT IN ('approved', 'rejected', 'revoked')
-    OR (length(btrim(COALESCE(decision_reason_code, ''))) BETWEEN 1 AND 64
-      AND decision_reason_code ~ '^[a-z0-9_]{1,64}
+    OR (
+      length(btrim(COALESCE(decision_reason_code, ''))) BETWEEN 1 AND 64
+      AND decision_reason_code !~ '[^a-z0-9_]'
+    )
   ),
   CHECK (media_purged_at IS NULL OR storage_object_key IS NULL)
 );
@@ -85,16 +90,16 @@ CREATE TABLE identity_l3_decision_events (
   actor_user_id UUID, -- immutable audit identifier; intentionally survives actor account deletion
   event_type TEXT NOT NULL CHECK (event_type IN (
     'created', 'upload_authorized', 'uploaded', 'processing_started',
-    'processing_completed', 'submitted_for_review', 'approved',
+    'processing_completed', 'processing_failed', 'submitted_for_review', 'approved',
     'rejected', 'withdrawn', 'revoked', 'expired', 'media_purged'
   )),
   from_status TEXT,
   to_status TEXT NOT NULL CHECK (to_status IN (
-    'draft', 'upload_authorized', 'uploaded', 'processing',
+    'draft', 'upload_authorized', 'uploaded', 'processing', 'failed',
     'pending_review', 'approved', 'rejected', 'withdrawn',
     'revoked', 'expired'
   )),
-  reason_code TEXT CHECK (reason_code IS NULL OR reason_code ~ '^[a-z0-9_]{1,64}
+  reason_code TEXT CHECK (reason_code IS NULL OR (length(reason_code) BETWEEN 1 AND 64 AND reason_code !~ '[^a-z0-9_]')),
   CHECK (event_type NOT IN ('approved', 'rejected') OR (actor_user_id IS NOT NULL AND actor_user_id <> user_id)),
   CHECK (event_type <> 'revoked' OR actor_user_id IS NULL OR actor_user_id <> user_id)
 );
@@ -140,8 +145,8 @@ BEGIN
     allowed := CASE OLD.status
       WHEN 'draft' THEN NEW.status IN ('upload_authorized', 'withdrawn')
       WHEN 'upload_authorized' THEN NEW.status IN ('uploaded', 'withdrawn')
-      WHEN 'uploaded' THEN NEW.status IN ('processing', 'withdrawn')
-      WHEN 'processing' THEN NEW.status IN ('pending_review', 'withdrawn')
+      WHEN 'uploaded' THEN NEW.status IN ('processing', 'withdrawn', 'failed')
+      WHEN 'processing' THEN NEW.status IN ('pending_review', 'withdrawn', 'failed')
       WHEN 'pending_review' THEN NEW.status IN ('approved', 'rejected', 'withdrawn')
       WHEN 'approved' THEN NEW.status IN ('revoked', 'expired')
       ELSE FALSE
@@ -182,7 +187,7 @@ BEGIN
   IF NEW.media_purged_at IS DISTINCT FROM OLD.media_purged_at AND NOT (
     OLD.media_purged_at IS NULL AND NEW.media_purged_at IS NOT NULL
     AND OLD.storage_object_key IS NOT NULL AND NEW.storage_object_key IS NULL
-    AND OLD.status IN ('approved', 'rejected', 'withdrawn', 'revoked', 'expired')
+    AND OLD.status IN ('approved', 'rejected', 'withdrawn', 'revoked', 'expired', 'failed')
     AND NEW.status = OLD.status
   ) THEN
     RAISE EXCEPTION 'identity L3 media purge must be a one-way terminal-state operation' USING ERRCODE = '23514';
@@ -201,7 +206,7 @@ BEGIN
     (NEW.storage_object_key IS DISTINCT FROM OLD.storage_object_key AND NOT (
       OLD.media_purged_at IS NULL AND NEW.media_purged_at IS NOT NULL
       AND OLD.storage_object_key IS NOT NULL AND NEW.storage_object_key IS NULL
-      AND OLD.status IN ('approved', 'rejected', 'withdrawn', 'revoked', 'expired')
+      AND OLD.status IN ('approved', 'rejected', 'withdrawn', 'revoked', 'expired', 'failed')
       AND NEW.status = OLD.status
     ))
   ) THEN
@@ -248,6 +253,7 @@ BEGIN
       WHEN 'upload_authorized' THEN 'upload_authorized'
       WHEN 'uploaded' THEN 'uploaded'
       WHEN 'processing' THEN 'processing_started'
+      WHEN 'failed' THEN 'processing_failed'
       WHEN 'pending_review' THEN 'submitted_for_review'
       WHEN 'approved' THEN 'approved'
       WHEN 'rejected' THEN 'rejected'
