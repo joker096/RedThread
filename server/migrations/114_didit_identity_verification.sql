@@ -15,8 +15,6 @@ ALTER TABLE identity_verifications
   )),
   ADD COLUMN provider_environment TEXT NOT NULL DEFAULT 'sandbox' CHECK (provider_environment = 'sandbox');
 UPDATE identity_verifications SET status = 'pending', provider_session_id = NULL, provider_status = NULL, provider_event_at = NULL, provider_environment = 'sandbox', updated_at = NOW();
-CREATE UNIQUE INDEX IF NOT EXISTS identity_verifications_provider_session_uidx
-  ON identity_verifications (provider_session_id) WHERE provider_session_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS identity_verification_events (
   event_id UUID PRIMARY KEY,
   provider_session_id UUID NOT NULL,
