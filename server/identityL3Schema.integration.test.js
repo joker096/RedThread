@@ -56,6 +56,59 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       assert.ok(indexes.rows.some(row => row.indexname === 'identity_l3_one_open_submission_per_user_uidx' && /UNIQUE/.test(row.indexdef)));
       assert.ok(indexes.rows.some(row => row.indexname === 'identity_l3_moderation_queue_idx'));
       assert.ok(indexes.rows.some(row => row.indexname === 'identity_l3_expiry_idx'));
+
+      await client.query('BEGIN');
+      try {
+        await client.query(`
+          CREATE TEMP TABLE identity_l3_submission_trigger_test (
+            id uuid PRIMARY KEY,
+            user_id uuid NOT NULL,
+            status text NOT NULL,
+            created_at timestamptz NOT NULL DEFAULT NOW(),
+            updated_at timestamptz NOT NULL DEFAULT NOW(),
+            reviewed_by uuid,
+            reviewed_at timestamptz,
+            decision_reason_code text,
+            approved_at timestamptz,
+            expires_at timestamptz
+          ) ON COMMIT DROP
+        `);
+        await client.query(`
+          CREATE TRIGGER identity_l3_submission_guard_test
+          BEFORE INSERT OR UPDATE ON identity_l3_submission_trigger_test
+          FOR EACH ROW EXECUTE FUNCTION guard_identity_l3_submission_transition()
+        `);
+        const ownerId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        const submissionId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+        await client.query(
+          'INSERT INTO identity_l3_submission_trigger_test (id, user_id, status) VALUES ($1, $2, $3)',
+          [submissionId, ownerId, 'draft']
+        );
+        await assert.rejects(
+          client.query(
+            'UPDATE identity_l3_submission_trigger_test SET status = $1 WHERE id = $2',
+            ['approved', submissionId]
+          ),
+          error => error.code === '23514'
+        );
+
+        await client.query(`
+          CREATE TEMP TABLE identity_l3_event_trigger_test (id integer PRIMARY KEY, event_type text)
+          ON COMMIT DROP
+        `);
+        await client.query(`
+          CREATE TRIGGER identity_l3_event_append_only_test
+          BEFORE UPDATE OR DELETE ON identity_l3_event_trigger_test
+          FOR EACH ROW EXECUTE FUNCTION prevent_identity_l3_decision_event_mutation()
+        `);
+        await client.query("INSERT INTO identity_l3_event_trigger_test (id, event_type) VALUES (1, 'created')");
+        await assert.rejects(
+          client.query("UPDATE identity_l3_event_trigger_test SET event_type = 'approved' WHERE id = 1"),
+          error => error.code === '55000'
+        );
+      } finally {
+        await client.query('ROLLBACK');
+      }
     } finally {
       client.release();
     }
