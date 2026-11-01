@@ -147,8 +147,8 @@ app.post('/api/didit/webhook', express.json({ limit: '256kb', strict: true }), a
       // Do not bind an account from vendor_data; only our persisted session mapping is authoritative.
       if (!session.rowCount) return;
       const inserted = await client.query(
-        'INSERT INTO identity_verification_events (event_id, provider_session_id, provider_event_at) VALUES ($1, $2, $3) ON CONFLICT (event_id) DO NOTHING RETURNING event_id',
-        [event.event_id, event.session_id, eventTime]
+        'INSERT INTO identity_verification_events (event_id, user_id, provider_session_id, provider_event_at) VALUES ($1, $2, $3, $4) ON CONFLICT (event_id) DO NOTHING RETURNING event_id',
+        [event.event_id, session.rows[0].user_id, event.session_id, eventTime]
       );
       if (!inserted.rowCount) return;
       await client.query(
@@ -1556,6 +1556,8 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     await client.query('DELETE FROM photo_assets WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM sessions WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
+    await client.query('DELETE FROM identity_verification_events WHERE user_id = $1', [req.authUser.id]);
+    await client.query('DELETE FROM identity_verifications WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM likes WHERE sender_id = $1 OR target_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM profile_passes WHERE passer_id = $1 OR passed_user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM profile_preferences WHERE user_id = $1', [req.authUser.id]);
