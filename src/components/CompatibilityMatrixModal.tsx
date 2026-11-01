@@ -33,7 +33,6 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
   onStartChat
 }) => {
   const { t } = useLocale();
-  const [chemistryStep, setChemistryStep] = useState<number>(0);
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   const profileId = profile?.id;
@@ -41,10 +40,6 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
-
-  useEffect(() => {
-    setChemistryStep(0);
-  }, [isOpen, profile?.id]);
 
   useEffect(() => {
     if (!isOpen || profileId == null) return;
