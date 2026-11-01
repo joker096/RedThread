@@ -4166,15 +4166,6 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
       return res.status(409).json({ error: 'gift_request_not_actionable' });
     }
 
-    // Expiry and other terminal safety transitions must be committed even if
-    // a participant has since lost identity eligibility. Only acceptance is gated.
-    if (action === 'accept' &&
-        (!order.sender_identity_verified || !order.recipient_identity_verified ||
-         !order.sender_l3_approved || !order.recipient_l3_approved)) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'gift_identity_verification_required' });
-    }
-
     if (action === 'accept') {
       // The pair lock is already held before the order row lock. Re-read
       // safety-critical state now that block/report actions are serialized.
@@ -4264,6 +4255,13 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
       if (await hasPendingRecipientDecline(client, order.id)) {
         await client.query('ROLLBACK');
         return res.status(409).json({ error: 'gift_request_not_actionable' });
+      }
+      // Identity eligibility is checked after terminal-state and reconciliation
+      // guards so those durable safety outcomes are never masked.
+      if (!order.sender_identity_verified || !order.recipient_identity_verified ||
+          !order.sender_l3_approved || !order.recipient_l3_approved) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'gift_identity_verification_required' });
       }
       // The same recipient-level rate lock is used by request creation. Count
       // historical consent events (including later withdrawn/cancelled requests)
