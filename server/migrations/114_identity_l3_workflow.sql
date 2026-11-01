@@ -16,7 +16,7 @@ CREATE TABLE identity_l3_submissions (
   media_duration_seconds SMALLINT,
   uploaded_at TIMESTAMPTZ,
   processing_completed_at TIMESTAMPTZ,
-  reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  reviewed_by UUID, -- immutable audit identifier; intentionally survives reviewer account deletion
   reviewed_at TIMESTAMPTZ,
   decision_reason_code TEXT,
   approved_at TIMESTAMPTZ,
