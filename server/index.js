@@ -1772,7 +1772,12 @@ app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req,
            SELECT 1 FROM identity_verifications iv
            WHERE iv.user_id = p.user_id AND iv.provider = 'didit'
              AND iv.status = 'verified' AND iv.provider_environment = 'live'
-         ))
+         ) AND EXISTS (
+             SELECT 1 FROM identity_l3_submissions l3
+             WHERE l3.user_id = p.user_id
+               AND l3.status = 'approved' AND l3.expires_at > NOW()
+             FOR SHARE
+           ))
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = $1 AND b.blocked_id = p.user_id)
@@ -1927,7 +1932,12 @@ app.get('/api/photos/:photoId', requireSession, async (req,res) => {
        JOIN users viewer ON viewer.id=$2 AND viewer.status='active'
        WHERE a.id=$1 AND u.status='active'
          AND ('/api/photos/' || a.id::text)=ANY(COALESCE(p.photo_urls,'{}'))
-         AND (a.user_id=$2 OR ($3::boolean AND a.review_status IN ('pending','approved','rejected')) OR (a.review_status='approved' AND p.is_visible=TRUE AND (p.gender <> 'male' OR EXISTS (SELECT 1 FROM identity_verifications iv WHERE iv.user_id = p.user_id AND iv.provider = 'didit' AND iv.status = 'verified' AND iv.provider_environment = 'live')) AND NOT EXISTS (
+         AND (a.user_id=$2 OR ($3::boolean AND a.review_status IN ('pending','approved','rejected')) OR (a.review_status='approved' AND p.is_visible=TRUE AND (p.gender <> 'male' OR EXISTS (SELECT 1 FROM identity_verifications iv WHERE iv.user_id = p.user_id AND iv.provider = 'didit' AND iv.status = 'verified' AND iv.provider_environment = 'live') AND EXISTS (
+             SELECT 1 FROM identity_l3_submissions l3
+             WHERE l3.user_id = p.user_id
+               AND l3.status = 'approved' AND l3.expires_at > NOW()
+             FOR SHARE
+           )) AND NOT EXISTS (
            SELECT 1 FROM user_blocks b WHERE (b.blocker_id=$2 AND b.blocked_id=a.user_id) OR (b.blocker_id=a.user_id AND b.blocked_id=$2)
          ))) LIMIT 1`,
       [req.params.photoId,req.authUser.id,['admin','moderator'].includes(req.authUser.role)]
@@ -2368,7 +2378,12 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
            SELECT 1 FROM identity_verifications iv
            WHERE iv.user_id = p.user_id AND iv.provider = 'didit'
              AND iv.status = 'verified' AND iv.provider_environment = 'live'
-         ))
+         ) AND EXISTS (
+             SELECT 1 FROM identity_l3_submissions l3
+             WHERE l3.user_id = p.user_id
+               AND l3.status = 'approved' AND l3.expires_at > NOW()
+             FOR SHARE
+           ))
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = $1 AND b.blocked_id = p.user_id)
@@ -2496,7 +2511,12 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
            SELECT 1 FROM identity_verifications iv
            WHERE iv.user_id = p.user_id AND iv.provider = 'didit'
              AND iv.status = 'verified' AND iv.provider_environment = 'live'
-         ))
+         ) AND EXISTS (
+             SELECT 1 FROM identity_l3_submissions l3
+             WHERE l3.user_id = p.user_id
+               AND l3.status = 'approved' AND l3.expires_at > NOW()
+             FOR SHARE
+           ))
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = $2 AND b.blocked_id = p.user_id)
@@ -2574,7 +2594,12 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
            SELECT 1 FROM identity_verifications iv
            WHERE iv.user_id = p.user_id AND iv.provider = 'didit'
              AND iv.status = 'verified' AND iv.provider_environment = 'live'
-         ))
+         ) AND EXISTS (
+             SELECT 1 FROM identity_l3_submissions l3
+             WHERE l3.user_id = p.user_id
+               AND l3.status = 'approved' AND l3.expires_at > NOW()
+             FOR SHARE
+           ))
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = $2 AND b.blocked_id = p.user_id)
@@ -2787,7 +2812,12 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
            SELECT 1 FROM identity_verifications iv
            WHERE iv.user_id = p.user_id AND iv.provider = 'didit'
              AND iv.status = 'verified' AND iv.provider_environment = 'live'
-         ))
+         ) AND EXISTS (
+             SELECT 1 FROM identity_l3_submissions l3
+             WHERE l3.user_id = p.user_id
+               AND l3.status = 'approved' AND l3.expires_at > NOW()
+             FOR SHARE
+           ))
           AND p.gender <> $3
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
@@ -2905,7 +2935,12 @@ app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) =>
            SELECT 1 FROM identity_verifications iv
            WHERE iv.user_id = other.user_id AND iv.provider = 'didit'
              AND iv.status = 'verified' AND iv.provider_environment = 'live'
-         ))
+         ) AND EXISTS (
+             SELECT 1 FROM identity_l3_submissions l3
+             WHERE l3.user_id = other.user_id
+               AND l3.status = 'approved' AND l3.expires_at > NOW()
+             FOR SHARE
+           ))
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = $1 AND b.blocked_id = other.user_id)
@@ -2964,7 +2999,12 @@ app.get('/api/matches/:matchId/messages', requireSession, requirePaidFeatures, a
                SELECT 1 FROM identity_verifications iv
                WHERE iv.user_id = partner_profile.user_id AND iv.provider = 'didit'
                  AND iv.status = 'verified' AND iv.provider_environment = 'live'
-             ))
+             ) AND EXISTS (
+             SELECT 1 FROM identity_l3_submissions l3
+             WHERE l3.user_id = partner_profile.user_id
+               AND l3.status = 'approved' AND l3.expires_at > NOW()
+             FOR SHARE
+           ))
          )
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
@@ -3061,7 +3101,12 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
                SELECT 1 FROM identity_verifications iv
                WHERE iv.user_id = recipient_profile.user_id AND iv.provider = 'didit'
                  AND iv.status = 'verified' AND iv.provider_environment = 'live'
-             ))
+             ) AND EXISTS (
+             SELECT 1 FROM identity_l3_submissions l3
+             WHERE l3.user_id = recipient_profile.user_id
+               AND l3.status = 'approved' AND l3.expires_at > NOW()
+             FOR SHARE
+           ))
          )
        FOR UPDATE OF m, sender, recipient`,
       [req.params.matchId, req.authUser.id, recipientId]
@@ -3737,7 +3782,12 @@ app.get('/api/gifts/matches', requireSession, requirePaidFeatures, profileAction
            SELECT 1 FROM identity_verifications iv
            WHERE iv.user_id = other.user_id AND iv.provider = 'didit'
              AND iv.status = 'verified' AND iv.provider_environment = 'live'
-         ))
+         ) AND EXISTS (
+             SELECT 1 FROM identity_l3_submissions l3
+             WHERE l3.user_id = other.user_id
+               AND l3.status = 'approved' AND l3.expires_at > NOW()
+             FOR SHARE
+           ))
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = $1 AND b.blocked_id = other.user_id)
