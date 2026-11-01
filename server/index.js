@@ -8,7 +8,7 @@ import { AD_EVENT_FREQUENCY_COUNTS_SQL } from './adEventFrequencyQuery.js';
 import { validateGiftDecisionInput } from './giftDecisionInput.js';
 import { projectGiftOrderStatus } from './giftOrderStatusProjection.js';
 import { normalizeGiftRequestInput } from './giftRequestInput.js';
-import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, acquireGiftSafetyUserLocks, recipientGiftAcceptanceLimitReached, expireStaleGiftRequestsForPair, enqueueExpiredGiftPaymentReconciliation, notifyGiftRequestUpdate } from './giftOrderCreationService.js';
+import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, acquireGiftSafetyUserLocks, recipientGiftAcceptanceLimitReached, expireStaleGiftRequestsForPair, enqueueExpiredGiftPaymentReconciliation, notifyGiftRequestUpdate, hasPendingRecipientDecline } from './giftOrderCreationService.js';
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
@@ -3847,15 +3847,7 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
     }
 
     if (action === 'accept') {
-      const pendingDecline = await client.query(
-        `SELECT 1
-         FROM gift_payment_reconciliation_tasks
-         WHERE order_id = $1
-           AND reason = 'recipient_declined_active_payment'
-         LIMIT 1`,
-        [order.id]
-      );
-      if (pendingDecline.rowCount > 0) {
+      if (await hasPendingRecipientDecline(client, order.id)) {
         await client.query('ROLLBACK');
         return res.status(409).json({ error: 'gift_request_not_actionable' });
       }
