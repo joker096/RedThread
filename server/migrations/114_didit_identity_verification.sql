@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS identity_verification_events (
 );
 CREATE INDEX IF NOT EXISTS identity_verification_events_session_idx
   ON identity_verification_events (provider_session_id, provider_event_at DESC);
+CREATE INDEX IF NOT EXISTS identity_verification_events_user_idx
+  ON identity_verification_events (user_id);
 COMMENT ON TABLE identity_verifications IS
   'Minimal Didit sandbox identity-verification state only; no identity documents, images, extracted fields or biometric data are stored.';
 COMMENT ON TABLE identity_verification_events IS
