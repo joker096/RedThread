@@ -141,7 +141,7 @@ app.post('/api/sumsub/webhook', express.raw({ type: 'application/json', limit: '
       event.levelName !== process.env.SUMSUB_LEVEL_NAME || typeof event.createdAtMs !== 'string') {
     return res.status(400).json({ error: 'invalid_sumsub_review_event' });
   }
-  const eventTimestamp = /(?:Z|[+-]\\d{2}:?\\d{2})$/i.test(event.createdAtMs)
+  const eventTimestamp = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(event.createdAtMs)
     ? event.createdAtMs
     : event.createdAtMs.replace(' ', 'T') + 'Z';
   const eventTime = new Date(eventTimestamp);
