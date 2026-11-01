@@ -87,12 +87,13 @@ export const TrustCenterPanel: React.FC = () => {
     verified: 'Личность подтверждена',
     rejected: 'Требуется повторная проверка'
   };
+  const identityVerified = data?.identity.status === 'verified' && data.identity.environment !== 'sandbox';
   const canStartIdentity = data?.identity.status === 'not_started' || data?.identity.status === 'pending' || data?.identity.status === 'rejected';
 
   return <section className="w-full max-w-xl mx-auto p-3 text-left" aria-labelledby="trust-center-title">
     <div className="rounded-3xl bg-stone-900 border border-white/10 p-5 shadow-xl">
       <div className="flex items-center justify-between gap-3 mb-4">
-        <div><h2 id="trust-center-title" className="text-lg font-heading font-black text-white">Центр безопасности</h2><p className="text-xs text-stone-400 mt-1">Реальные статусы вашего аккаунта</p></div>
+        <div><h2 id="trust-center-title" className="text-lg font-heading font-black text-white">Центр безопасности</h2><p className="text-xs text-stone-400 mt-1">Статусы безопасности аккаунта</p></div>
         <button type="button" onClick={() => void load()} disabled={loading} className="min-h-11 px-3 rounded-xl bg-stone-800 text-xs text-white disabled:opacity-50">{loading ? 'Загрузка…' : 'Обновить'}</button>
       </div>
       {loading && <p role="status" className="text-sm text-stone-300">Загружаем статусы…</p>}
@@ -101,8 +102,8 @@ export const TrustCenterPanel: React.FC = () => {
         <div className="rounded-2xl bg-stone-950 p-3"><div className="flex justify-between"><span className="text-sm text-white">Email</span>{status(data.email.status === 'verified', 'Подтверждён', 'Не подтверждён')}</div>{data.email.verifiedAt && <p className="text-[11px] text-stone-500 mt-1">Подтверждён: {formatDate(data.email.verifiedAt)}</p>}</div>
         <div className="rounded-2xl bg-stone-950 p-3"><div className="flex justify-between"><span className="text-sm text-white">Телефон</span>{status(data.phone.status === 'verified', 'Подтверждён', 'Нет подтверждения')}</div>{data.phone.verifiedAt ? <p className="text-[11px] text-stone-500 mt-1">Подтверждён: {formatDate(data.phone.verifiedAt)}</p> : <p className="text-[11px] text-stone-500 mt-1">SMS-проверка пока не подключена.</p>}</div>
         <div className="rounded-2xl bg-stone-950 p-3">
-          <div className="flex justify-between gap-3"><span className="text-sm text-white">Документы и liveness</span>{status(data.identity.status === 'verified', identityLabels[data.identity.status], identityLabels[data.identity.status])}</div>
-          <p className="text-[11px] text-stone-500 mt-1">{data.identity.status === 'verified'
+          <div className="flex justify-between gap-3"><span className="text-sm text-white">Документы и liveness</span>{status(identityVerified, data.identity.environment === 'sandbox' ? 'Sandbox · тест' : identityLabels[data.identity.status], identityLabels[data.identity.status])}</div>
+          <p className="text-[11px] text-stone-500 mt-1">{identityVerified
             ? 'Проверка личности подтверждена.'
             : data.identity.status === 'pending'
               ? 'Тестовая сессия Didit. Даже результат Approved в Sandbox не подтверждает личность и не выдаёт значок.'
