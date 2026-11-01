@@ -1552,6 +1552,17 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     await client.query('BEGIN');
     // The session-level account-safety lock acquired before Paddle calls is
     // still held by this connection, excluding concurrent account mutations.
+    const l3Media = await client.query(
+      'SELECT id FROM identity_l3_submissions WHERE user_id = $1 AND storage_object_key IS NOT NULL FOR UPDATE',
+      [req.authUser.id]
+    );
+    if (l3Media.rowCount) {
+      // Never discard the only object key while no private-media deletion
+      // worker is configured; otherwise account deletion would orphan video.
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'identity_l3_media_purge_unavailable' });
+    }
+    await client.query('DELETE FROM identity_l3_submissions WHERE user_id = $1', [req.authUser.id]);
     await suspendGiftOrdersForUser(client, req.authUser.id, { reason: 'account_deleted' });
     const photoFiles = await client.query('SELECT storage_path FROM photo_assets WHERE user_id = $1', [req.authUser.id]);
     privatePhotoPaths = photoFiles.rows.map(row => row.storage_path);
