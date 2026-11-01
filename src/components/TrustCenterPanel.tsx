@@ -9,13 +9,19 @@ type Summary = {
 };
 
 function validSummary(value: unknown): value is Summary {
-  if (!value || typeof value !== 'object') return false;
-  const v = value as Record<string, any>;
-  const date = (x: unknown) => x === null || (typeof x === 'string' && Number.isFinite(Date.parse(x)));
-  return !!v.email && ['verified', 'unverified'].includes(v.email.status) && date(v.email.verifiedAt)
-    && !!v.phone && ['verified', 'not_verified'].includes(v.phone.status) && date(v.phone.verifiedAt)
-    && v.identity?.status === 'not_configured' && Array.isArray(v.photos) && v.photos.length <= 6
-    && v.photos.every((p: any) => p && ['pending', 'approved', 'rejected'].includes(p.status) && typeof p.createdAt === 'string' && date(p.createdAt));
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const v = value as Record<string, unknown>;
+  const isRecord = (item: unknown): item is Record<string, unknown> =>
+    !!item && typeof item === 'object' && !Array.isArray(item);
+  const date = (item: unknown) => item === null ||
+    (typeof item === 'string' && Number.isFinite(Date.parse(item)));
+  if (!isRecord(v.email) || !isRecord(v.phone) || !isRecord(v.identity) || !Array.isArray(v.photos)) return false;
+  return ['verified', 'unverified'].includes(String(v.email.status)) && date(v.email.verifiedAt)
+    && ['verified', 'not_verified'].includes(String(v.phone.status)) && date(v.phone.verifiedAt)
+    && v.identity.status === 'not_configured' && v.photos.length <= 6
+    && v.photos.every((photo: unknown) => isRecord(photo)
+      && ['pending', 'approved', 'rejected'].includes(String(photo.status))
+      && typeof photo.createdAt === 'string' && date(photo.createdAt));
 }
 
 const formatDate = (value: string) => new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
