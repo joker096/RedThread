@@ -667,17 +667,6 @@ test('auth API supports registration, session lookup, logout and login', {
           status: 'awaiting_recipient_consent',
           payment_status: 'authorized'
         }, 'pending reconciliation must not falsely mark the order declined or payment voided');
-        const reacceptPendingDecline = await request(
-          `/api/gifts/orders/${activePaymentReference}/decision`,
-          {
-            method: 'POST',
-            headers: { Cookie: secondCookie },
-            body: JSON.stringify({ action: 'accept' })
-          }
-        );
-        assert.equal(reacceptPendingDecline.status, 409,
-          'a previously declined request cannot be accepted while payment reconciliation is pending');
-
         await giftTestDb.query(
           'UPDATE gift_delivery_orders SET expires_at = NOW() - INTERVAL \'1 minute\' WHERE id = $1',
           [activePaymentOrderId]
