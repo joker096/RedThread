@@ -36,6 +36,7 @@ test('gift payment reconciliation outbox is installed with retryable states and 
     assert.match(definitions, /recipient_opted_out/, 'recipient opt-out reconciliation should be supported');
     assert.match(definitions, /safety_hold/, 'block, report, and account-safety transitions should queue reconciliation');
     assert.match(definitions, /expired_active_payment/, 'expired requests with unresolved payment must be reconcilable');
+    assert.match(definitions, /recipient_declined_active_payment/, 'recipient declines with unresolved payment must be durably recorded');
     assert.match(definitions, /pending/, 'tasks should support retryable pending work');
     assert.match(definitions, /completed_at/, 'completion timestamp must be constrained to completed tasks');
 
