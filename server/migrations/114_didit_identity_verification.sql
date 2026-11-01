@@ -6,6 +6,9 @@ ALTER TABLE identity_verifications
 ALTER TABLE identity_verifications RENAME COLUMN applicant_id TO provider_session_id;
 ALTER TABLE identity_verifications RENAME COLUMN level_name TO workflow_id;
 ALTER TABLE identity_verifications DROP COLUMN review_answer;
+-- All prior rows came from the sandbox-only Sumsub adapter. Remove those
+-- non-authoritative decisions before constraining the provider to Didit.
+DELETE FROM identity_verifications;
 ALTER TABLE identity_verifications
   ALTER COLUMN provider SET DEFAULT 'didit',
   ADD CONSTRAINT identity_verifications_provider_check CHECK (provider = 'didit'),
@@ -14,7 +17,6 @@ ALTER TABLE identity_verifications
     'Awaiting User', 'Resubmitted', 'Expired', 'Abandoned', 'Kyc Expired'
   )),
   ADD COLUMN provider_environment TEXT NOT NULL DEFAULT 'sandbox' CHECK (provider_environment = 'sandbox');
-UPDATE identity_verifications SET status = 'pending', provider_session_id = NULL, provider_status = NULL, provider_event_at = NULL, provider_environment = 'sandbox', updated_at = NOW();
 CREATE TABLE IF NOT EXISTS identity_verification_events (
   event_id UUID PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
