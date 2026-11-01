@@ -1615,6 +1615,17 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(unverifiedMaleLike.status, 403,
       'a male account without live L2 verification must not like profiles');
+
+    const unverifiedMalePass = await request(`/api/passes/${registered.user.id}`, {
+      method: 'POST', headers: { Cookie: maleCookie }
+    });
+    assert.equal(unverifiedMalePass.status, 403,
+      'a male account without live L2 verification must not pass profiles');
+    const unverifiedMaleDiscoveryUndo = await request('/api/discovery/undo', {
+      method: 'POST', headers: { Cookie: maleCookie }
+    });
+    assert.equal(unverifiedMaleDiscoveryUndo.status, 403,
+      'a male account without live L2 verification must not invoke discovery undo');
     await identityGateDb.query("UPDATE identity_verifications SET provider_environment = 'live' WHERE user_id = $1", [maleRegistered.user.id]);
 
     const firstLike = await request(`/api/likes/${maleRegistered.user.id}`, {
