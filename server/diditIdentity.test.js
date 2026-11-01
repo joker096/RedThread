@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { canonicalizeDiditPayload, createDiditSession, isDiditConfigured, isDiditStatus, projectDiditStatus, verifyDiditWebhook } from './diditIdentity.js';
 const env = {
-  DIDIT_ENVIRONMENT: 'sandbox', DIDIT_API_KEY: 'sandbox-api-key',
+  DIDIT_ENVIRONMENT: 'sandbox', DIDIT_SANDBOX_KEY_CONFIRMED: 'true', DIDIT_API_KEY: 'sandbox-api-key',
   DIDIT_WORKFLOW_ID: '123e4567-e89b-42d3-a456-426614174000',
   DIDIT_APPLICATION_ID: '123e4567-e89b-42d3-a456-426614174001',
   DIDIT_WEBHOOK_SECRET: 'webhook-secret', APP_ORIGIN: 'https://vow.example'
@@ -11,6 +11,7 @@ const env = {
 test('Didit configuration is complete and sandbox-only', () => {
   assert.equal(isDiditConfigured(env), true);
   assert.equal(isDiditConfigured({ ...env, DIDIT_ENVIRONMENT: 'live' }), false);
+  assert.equal(isDiditConfigured({ ...env, DIDIT_SANDBOX_KEY_CONFIRMED: 'false' }), false);
   assert.equal(isDiditConfigured({ ...env, DIDIT_WEBHOOK_SECRET: '' }), false);
   assert.equal(isDiditConfigured({ ...env, DIDIT_WORKFLOW_ID: 'bad' }), false);
 });
