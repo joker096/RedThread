@@ -5,7 +5,7 @@ import path from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-const MAGIC = Buffer.from('VOWL3V1\\0', 'ascii');
+const MAGIC = Buffer.from([0x56, 0x4f, 0x57, 0x4c, 0x33, 0x56, 0x31, 0x00]);
 const NONCE_BYTES = 12;
 const TAG_BYTES = 16;
 const HEADER_BYTES = MAGIC.length + NONCE_BYTES;
