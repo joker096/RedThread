@@ -53,7 +53,7 @@ test('expiry worker takes creation locks in the established order and commits sa
   });
   const discovery = pool.calls.find(call => typeof call === 'object');
   assert.match(discovery.sql, /NOT EXISTS/);
-  assert.match(discovery.sql, /expired_active_payment/);
+  assert.match(discovery.sql, /gift_payment_reconciliation_tasks/);
   assert.match(discovery.sql, /payment_status IN \('not_started', 'voided', 'failed'\)/);
   assert.doesNotMatch(discovery.sql, /SELECT DISTINCT/i, 'migration 033 guarantees one pending order per unordered pair');
   assert.match(discovery.sql, /ORDER BY md5\(concat_ws/);
