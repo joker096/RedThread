@@ -36,6 +36,20 @@ CREATE INDEX IF NOT EXISTS identity_verification_events_user_idx
   ON identity_verification_events (user_id);
 
 
+
+-- Record explicit user consent before sending identity data to Didit.
+CREATE TABLE IF NOT EXISTS identity_verification_consents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  consent_version TEXT NOT NULL,
+  provider TEXT NOT NULL CHECK (provider = 'didit'),
+  environment TEXT NOT NULL CHECK (environment IN ('sandbox', 'live')),
+  consented_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS identity_verification_consents_user_idx
+  ON identity_verification_consents (user_id, consented_at DESC);
+
 -- Reserve one slot before calling Didit Live so concurrent requests cannot
 -- exceed Vow's local free-tier cap. Ambiguous provider timeouts keep the slot.
 CREATE TABLE IF NOT EXISTS identity_verification_session_reservations (
@@ -51,6 +65,8 @@ CREATE INDEX IF NOT EXISTS identity_verification_session_reservations_monthly_id
   ON identity_verification_session_reservations (environment, created_at)
   WHERE status IN ('reserved', 'created');
 
+COMMENT ON TABLE identity_verification_consents IS
+  'Append-only record of user consent version and timestamp before sending data to Didit; no identity media or extracted personal data.';
 COMMENT ON TABLE identity_verifications IS
   'Minimal Didit sandbox identity-verification state only; no identity documents, images, extracted fields or biometric data are stored.';
 COMMENT ON TABLE identity_verification_session_reservations IS
