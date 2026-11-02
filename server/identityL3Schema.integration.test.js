@@ -262,6 +262,14 @@ test('L3 schema persists metadata only and protects workflow decisions', {
           ) ON COMMIT DROP
         `);
         await client.query(`
+          ALTER TABLE identity_l3_submission_trigger_test
+          ADD CONSTRAINT identity_l3_review_requires_validated_duration_check
+          CHECK (
+            status NOT IN ('pending_review', 'approved', 'rejected')
+            OR (media_duration_seconds IS NOT NULL AND media_duration_seconds BETWEEN 30 AND 60)
+          )
+        `);
+        await client.query(`
           CREATE TRIGGER identity_l3_submission_guard_test
           BEFORE INSERT OR UPDATE ON identity_l3_submission_trigger_test
           FOR EACH ROW EXECUTE FUNCTION guard_identity_l3_submission_transition()
