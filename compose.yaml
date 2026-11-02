@@ -105,12 +105,15 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
       PGSSL: "${PGSSL:-false}"
       IDENTITY_L3_STORAGE_DIR: /app/uploads/private-identity-l3
+      IDENTITY_L3_TEMP_DIR: /run/identity-l3-tmp
       IDENTITY_L3_ENCRYPTION_KEY: ${IDENTITY_L3_ENCRYPTION_KEY:-}
       IDENTITY_L3_CLAMD_HOST: clamav
       IDENTITY_L3_CLAMD_PORT: "3310"
     command: ["node", "server/process-identity-l3-queue.js"]
     volumes:
       - private_identity_l3:/app/uploads/private-identity-l3:ro
+    tmpfs:
+      - /run/identity-l3-tmp:rw,noexec,nosuid,nodev,size=256m,mode=0700,uid=1000,gid=1000
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -191,6 +194,7 @@ services:
       DIDIT_WEBHOOK_SECRET_PREVIOUS: ${DIDIT_WEBHOOK_SECRET_PREVIOUS:-}
       IDENTITY_L3_ENABLED: ${IDENTITY_L3_ENABLED:-false}
       IDENTITY_L3_STORAGE_DIR: /app/uploads/private-identity-l3
+      IDENTITY_L3_TEMP_DIR: /run/identity-l3-tmp
       IDENTITY_L3_ENCRYPTION_KEY: ${IDENTITY_L3_ENCRYPTION_KEY:-}
       PHOTO_STORAGE_DIR: /app/uploads/private-photos
       PHOTO_AI_ENABLED: ${PHOTO_AI_ENABLED:-false}
@@ -200,6 +204,8 @@ services:
     volumes:
       - private_photos:/app/uploads/private-photos
       - private_identity_l3:/app/uploads/private-identity-l3
+    tmpfs:
+      - /run/identity-l3-tmp:rw,noexec,nosuid,nodev,size=256m,mode=0700,uid=1000,gid=1000
     depends_on:
       migrate:
         condition: service_completed_successfully
