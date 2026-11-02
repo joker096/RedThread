@@ -11,7 +11,7 @@ import { normalizeGiftRequestInput } from './giftRequestInput.js';
 import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, acquireGiftSafetyUserLocks, recipientGiftAcceptanceLimitReached, expireStaleGiftRequestsForPair, enqueueExpiredGiftPaymentReconciliation, notifyGiftRequestUpdate, hasPendingRecipientDecline } from './giftOrderCreationService.js';
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
-import { IDENTITY_L3_CONSENT_VERSION } from './identityL3UploadTokens.js';
+import { IDENTITY_L3_CONSENT_NOTICE, IDENTITY_L3_CONSENT_VERSION } from './identityL3UploadTokens.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
 import { createDiditSession, isDiditConfigured, isDiditStatus, projectDiditStatus, verifyDiditWebhook, isDiditUuid } from './diditIdentity.js';
@@ -4477,6 +4477,7 @@ app.get('/api/identity/l3/consent', requireSession, async (req, res) => {
     const consent = read.value.rows[0];
     return res.json({
       version: IDENTITY_L3_CONSENT_VERSION,
+      notice: IDENTITY_L3_CONSENT_NOTICE,
       accepted: Boolean(consent && consent.consent_version === IDENTITY_L3_CONSENT_VERSION && !consent.withdrawn_at),
       grantedAt: consent?.granted_at || null,
       withdrawnAt: consent?.withdrawn_at || null
