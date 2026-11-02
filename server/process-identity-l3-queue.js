@@ -6,7 +6,7 @@ import {
   IdentityL3MediaProcessingError,
   processIdentityL3Media
 } from './identityL3MediaProcessing.js';
-import { deleteIdentityL3Object, openIdentityL3Stream, parseIdentityL3EncryptionKey, sweepIdentityL3OrphanObjects } from './identityL3Storage.js';
+import { clearIdentityL3TemporaryFiles, deleteIdentityL3Object, openIdentityL3Stream, parseIdentityL3EncryptionKey, sweepIdentityL3OrphanObjects } from './identityL3Storage.js';
 
 const { Pool } = pg;
 export const IDENTITY_L3_WORKER_LEASE_MS = 180_000;
@@ -185,13 +185,14 @@ export async function claimIdentityL3Submission(pool, {
  */
 export async function processClaimedIdentityL3Submission(pool, claim, {
   storageRoot = process.env.IDENTITY_L3_STORAGE_DIR,
+  tempRoot = process.env.IDENTITY_L3_TEMP_DIR,
   encryptionKey = process.env.IDENTITY_L3_ENCRYPTION_KEY,
   leaseMs = IDENTITY_L3_WORKER_LEASE_MS,
   heartbeatMs = IDENTITY_L3_WORKER_HEARTBEAT_MS,
   processMedia = processIdentityL3Media
 } = {}) {
   const { client, row, leaseToken } = claim;
-  if (!storageRoot || !encryptionKey) {
+  if (!storageRoot || !tempRoot || !encryptionKey) {
     throw new Error('identity_l3_worker_storage_not_configured');
   }
   const parsedKey = parseIdentityL3EncryptionKey(encryptionKey);
@@ -227,7 +228,7 @@ export async function processClaimedIdentityL3Submission(pool, claim, {
       encryptionKey: parsedKey,
       declaredMimeType: row.media_mime_type,
       openDecryptedStream: ({ objectKey, root, key }) =>
-        openIdentityL3Stream({ objectKey, root, key })
+        openIdentityL3Stream({ objectKey, root, tempRoot, key })
     });
   } catch (error) {
     processingError = error;
@@ -518,10 +519,13 @@ export async function runIdentityL3PurgeOnce(pool, {
 async function main() {
   const purgeOnly = process.argv.includes('--purge-only');
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required for the identity L3 worker');
-  if (!process.env.IDENTITY_L3_STORAGE_DIR || (!purgeOnly && !process.env.IDENTITY_L3_ENCRYPTION_KEY)) {
+  if (!process.env.IDENTITY_L3_STORAGE_DIR || (!purgeOnly && (!process.env.IDENTITY_L3_TEMP_DIR || !process.env.IDENTITY_L3_ENCRYPTION_KEY))) {
     throw new Error('identity L3 encrypted storage is not configured');
   }
-  if (!purgeOnly) parseIdentityL3EncryptionKey(process.env.IDENTITY_L3_ENCRYPTION_KEY);
+  if (!purgeOnly) {
+    parseIdentityL3EncryptionKey(process.env.IDENTITY_L3_ENCRYPTION_KEY);
+    await clearIdentityL3TemporaryFiles({ root: process.env.IDENTITY_L3_TEMP_DIR });
+  }
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     max: 2,
