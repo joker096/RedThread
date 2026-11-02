@@ -399,6 +399,12 @@ async function seedFixture(pool) {
     );
 
     await client.query(
+      `INSERT INTO identity_l3_consents (user_id, consent_version, granted_at)
+       VALUES ($1, 1, statement_timestamp())`,
+      [ids.sender]
+    );
+
+    await client.query(
       `INSERT INTO gift_suppliers
          (supplier_key, display_name, status, privacy_reviewed_at, contract_reviewed_at)
        VALUES ($1, 'Test supplier', 'verified', NOW(), NOW())`,
