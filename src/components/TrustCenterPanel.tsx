@@ -221,7 +221,9 @@ export const TrustCenterPanel: React.FC = () => {
       if (!capabilityResponse.ok || typeof capability?.uploadToken !== 'string') {
         throw new Error(capability?.error === 'l3_consent_required'
           ? 'Согласие L3 больше не действует. Обновите Центр безопасности.'
-          : 'Не удалось подготовить защищённую загрузку видео.');
+          : capability?.error === 'l3_media_purge_pending'
+            ? 'Предыдущее видео ещё удаляется. Новая загрузка станет доступна после подтверждения физического удаления.'
+            : 'Не удалось подготовить защищённую загрузку видео.');
       }
       const uploadResponse = await fetch('/api/identity/l3/upload', {
         method: 'POST',
