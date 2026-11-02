@@ -49,6 +49,19 @@ test('L3 schema persists metadata only and protects workflow decisions', {
         "SELECT to_regclass('public.identity_l3_media_purge_jobs') AS purge_jobs"
       );
       assert.equal(purgeQueueTable.rows[0].purge_jobs, 'identity_l3_media_purge_jobs');
+      const purgeEnqueueTrigger = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'identity_l3_submissions'::regclass AND NOT tgisinternal`
+      );
+      assert.ok(purgeEnqueueTrigger.rows.some(row =>
+        row.tgname === 'identity_l3_submission_enqueue_media_purge'
+      ), 'terminal media must automatically enter the durable purge queue');
+      const purgeEnqueueFunction = await client.query(
+        `SELECT pg_get_functiondef('enqueue_identity_l3_media_purge()'::regprocedure) AS definition`
+      );
+      for (const terminalStatus of ['rejected', 'withdrawn', 'revoked', 'expired', 'failed']) {
+        assert.match(purgeEnqueueFunction.rows[0].definition, new RegExp(terminalStatus));
+      }
       const purgeQueueIndexes = await client.query(
         `SELECT indexname, indexdef FROM pg_indexes
          WHERE schemaname = 'public' AND tablename = 'identity_l3_media_purge_jobs'`
