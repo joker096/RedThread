@@ -135,6 +135,7 @@ test('L3 worker only advances a submission after processing and fences completio
   };
   const result = await processClaimedIdentityL3Submission({}, claim, {
     storageRoot: '/private/l3',
+    tempRoot: '/private/l3-scratch',
     encryptionKey: '8f'.repeat(32),
     heartbeatMs: 60_000,
     processMedia: async input => {
@@ -165,6 +166,7 @@ test('L3 worker schedules infrastructure retries but terminally fails malware de
   });
   const options = {
     storageRoot: '/private/l3',
+    tempRoot: '/private/l3-scratch',
     encryptionKey: '8f'.repeat(32),
     heartbeatMs: 60_000
   };
