@@ -2143,6 +2143,7 @@ app.get('/api/trust/summary', requireSession, async (req, res) => {
     const read = await withActiveAccountRead(req.authUser.id, client => client.query(
       `SELECT u.email_verified_at AS "emailVerifiedAt",
               u.phone_verified_at AS "phoneVerifiedAt",
+              p.gender AS "gender",
               iv.status AS "identityStatus",
               iv.provider_status AS "identityProviderStatus",
               iv.provider_environment AS "identityProviderEnvironment",
@@ -2173,7 +2174,7 @@ app.get('/api/trust/summary', requireSession, async (req, res) => {
          ON a.user_id = u.id
         AND ('/api/photos/' || a.id::text) = ANY(COALESCE(p.photo_urls, ARRAY[]::text[]))
        WHERE u.id = $1 AND u.status = 'active'
-       GROUP BY u.id, u.email_verified_at, u.phone_verified_at, iv.status, iv.provider_status, iv.provider_environment, l3_submission.status, l3_decision.status, l3_decision.expires_at`,
+       GROUP BY u.id, u.email_verified_at, u.phone_verified_at, p.gender, iv.status, iv.provider_status, iv.provider_environment, l3_submission.status, l3_decision.status, l3_decision.expires_at`,
       [req.authUser.id]
     ));
     if (!read.active) return res.status(401).json({ error: 'account_not_active' });
@@ -2183,6 +2184,7 @@ app.get('/api/trust/summary', requireSession, async (req, res) => {
       email: { status: account.emailVerifiedAt ? 'verified' : 'unverified', verifiedAt: account.emailVerifiedAt },
       phone: { status: account.phoneVerifiedAt ? 'verified' : 'not_verified', verifiedAt: account.phoneVerifiedAt },
       identity: {
+        gender: account.gender,
         status: account.identityStatus || (isDiditConfigured() ? 'not_started' : 'not_configured'),
         ...(account.identityProviderStatus ? { providerStatus: account.identityProviderStatus } : {}),
         ...(account.identityProviderEnvironment ? { environment: account.identityProviderEnvironment } : {}),
@@ -4468,19 +4470,35 @@ app.get('/api/gifts/orders', requireSession, profileActionLimiter, async (req, r
 
 app.get('/api/identity/l3/consent', requireSession, async (req, res) => {
   try {
-    const read = await withActiveAccountRead(req.authUser.id, client => client.query(
-      `SELECT consent_version, granted_at, withdrawn_at
-       FROM identity_l3_consents WHERE user_id = $1`,
-      [req.authUser.id]
-    ));
+    const read = await withActiveAccountRead(req.authUser.id, async client => {
+      const consent = await client.query(
+        `SELECT consent_version, granted_at, withdrawn_at
+         FROM identity_l3_consents WHERE user_id = $1`,
+        [req.authUser.id]
+      );
+      const purge = await client.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE status IN ('queued', 'processing'))::int AS pending,
+           COUNT(*) FILTER (WHERE status = 'failed')::int AS failed
+         FROM identity_l3_media_purge_jobs
+         WHERE user_id = $1`,
+        [req.authUser.id]
+      );
+      return { consent: consent.rows[0] || null, purge: purge.rows[0] };
+    });
     if (!read.active) return res.status(401).json({ error: 'account_not_active' });
-    const consent = read.value.rows[0];
+    const consent = read.value.consent;
+    const pendingPurgeJobs = Number(read.value.purge?.pending || 0);
+    const failedPurgeJobs = Number(read.value.purge?.failed || 0);
     return res.json({
       version: IDENTITY_L3_CONSENT_VERSION,
       notice: IDENTITY_L3_CONSENT_NOTICE,
       accepted: Boolean(consent && consent.consent_version === IDENTITY_L3_CONSENT_VERSION && !consent.withdrawn_at),
       grantedAt: consent?.granted_at || null,
-      withdrawnAt: consent?.withdrawn_at || null
+      withdrawnAt: consent?.withdrawn_at || null,
+      purgeStatus: failedPurgeJobs > 0 ? 'failed' : pendingPurgeJobs > 0 ? 'pending' : 'complete',
+      pendingPurgeJobs,
+      failedPurgeJobs
     });
   } catch (error) {
     console.error('L3 consent read failed:', error?.message || 'unknown error');
