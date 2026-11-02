@@ -27,6 +27,10 @@ export function buildIdentityL3FfprobeArgs(filePath) {
     // Untrusted media must never be allowed to make ffprobe open network
     // protocols from the API/worker's internal backend network.
     '-protocol_whitelist', 'file,pipe',
+    // Only parse the two container families accepted by the product. This
+    // excludes playlist/concat demuxers that could make ffprobe open unrelated
+    // local files even though network protocols are disabled.
+    '-format_whitelist', 'mov,matroska,webm',
     '-show_entries', 'format=format_name,duration:stream=codec_type,codec_name',
     '-of', 'json',
     filePath
