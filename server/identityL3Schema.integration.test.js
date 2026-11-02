@@ -446,6 +446,44 @@ test('L3 schema persists metadata only and protects workflow decisions', {
           [submissionId]
         );
 
+        const staleReviewId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+        await client.query(
+          'INSERT INTO identity_l3_submission_trigger_test (id, user_id, status) VALUES ($1, $2, $3)',
+          [staleReviewId, ownerId, 'draft']
+        );
+        await client.query(
+          "UPDATE identity_l3_submission_trigger_test SET status = 'upload_authorized' WHERE id = $1",
+          [staleReviewId]
+        );
+        await client.query(
+          `UPDATE identity_l3_submission_trigger_test
+           SET status = 'uploaded', storage_object_key = 'private/l3/stale-review',
+               media_sha256 = repeat('d', 64), media_mime_type = 'video/mp4',
+               media_size_bytes = 1024, uploaded_at = NOW()
+           WHERE id = $1`,
+          [staleReviewId]
+        );
+        await client.query(
+          "UPDATE identity_l3_submission_trigger_test SET status = 'processing' WHERE id = $1",
+          [staleReviewId]
+        );
+        await client.query(
+          `UPDATE identity_l3_submission_trigger_test
+           SET media_duration_seconds = 42, status = 'pending_review',
+               processing_completed_at = NOW() WHERE id = $1`,
+          [staleReviewId]
+        );
+        await client.query(
+          "UPDATE identity_l3_submission_trigger_test SET status = 'expired' WHERE id = $1",
+          [staleReviewId]
+        );
+        const staleReview = await client.query(
+          'SELECT status FROM identity_l3_submission_trigger_test WHERE id = $1',
+          [staleReviewId]
+        );
+        assert.equal(staleReview.rows[0].status, 'expired',
+          'the 30-day retention worker must be allowed to expire pending-review submissions');
+
         await client.query(`
           CREATE TEMP TABLE identity_l3_event_parent_test (id integer PRIMARY KEY)
           ON COMMIT DROP
