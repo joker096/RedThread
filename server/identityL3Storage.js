@@ -94,6 +94,13 @@ async function ensurePrivateRoot(root) {
   return absoluteRoot;
 }
 
+export async function assertIdentityL3StorageReady({ root, tempRoot, key }) {
+  parseIdentityL3EncryptionKey(key);
+  await ensurePrivateRoot(root);
+  await ensurePrivateRoot(tempRoot);
+  return true;
+}
+
 async function writeFully(handle, buffer, position) {
   let written = 0;
   while (written < buffer.length) {
