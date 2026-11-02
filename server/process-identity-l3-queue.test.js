@@ -5,6 +5,7 @@ import {
   IDENTITY_L3_WORKER_LEASE_MS,
   claimIdentityL3Submission,
   processClaimedIdentityL3Submission,
+  runIdentityL3WorkerOnce,
   identityL3RetryDelayMs,
   isPermanentIdentityL3ProcessingError,
   IDENTITY_L3_PURGE_MAX_ATTEMPTS,
@@ -152,6 +153,67 @@ test('L3 worker only advances a submission after processing and fences completio
   assert.match(completion.sql, /processing_lease_token = \$2/);
   assert.match(completion.sql, /processing_lease_expires_at > statement_timestamp\(\)/);
   assert.equal(completion.params[2], 42);
+});
+
+test('L3 worker discards a connection when transaction rollback fails', async () => {
+  const calls = [];
+  let submissionUpdates = 0;
+  let releasedWithError = null;
+  const client = {
+    async query(sql) {
+      const statement = String(sql);
+      calls.push(statement);
+      if (statement.includes('SELECT id FROM users')) {
+        return { rows: [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }], rowCount: 1 };
+      }
+      if (statement.includes('SELECT id, user_id, status, storage_object_key')) {
+        return {
+          rows: [{
+            id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            user_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            status: 'uploaded',
+            storage_object_key: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+            media_mime_type: 'video/mp4',
+            processing_attempts: 0
+          }],
+          rowCount: 1
+        };
+      }
+      if (statement.includes('UPDATE identity_l3_submissions')) {
+        submissionUpdates += 1;
+        if (submissionUpdates === 1) {
+          return { rows: [{ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }], rowCount: 1 };
+        }
+        throw new Error('completion_write_failed');
+      }
+      if (statement === 'ROLLBACK') throw new Error('rollback_failed');
+      return { rows: [], rowCount: 0 };
+    },
+    release(error) { releasedWithError = error || null; }
+  };
+  const pool = {
+    async query() {
+      return { rows: [{ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', user_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }], rowCount: 1 };
+    },
+    async connect() { return client; }
+  };
+
+  await assert.rejects(
+    runIdentityL3WorkerOnce(pool, {
+      storageRoot: '/private/l3',
+      tempRoot: '/private/l3-scratch',
+      encryptionKey: '8f'.repeat(32),
+      heartbeatMs: 60_000,
+      processMedia: async () => ({ durationSeconds: 42, sizeBytes: 1024 })
+    }),
+    error => error.message === 'completion_write_failed' &&
+      error.discardClient === true &&
+      error.rollbackError?.message === 'rollback_failed'
+  );
+  assert.ok(releasedWithError,
+    'the PostgreSQL client must be destroyed rather than returned to the pool');
+  assert.ok(!calls.some(statement => statement.includes('pg_advisory_unlock')),
+    'do not issue more SQL on a connection whose transaction state is uncertain');
 });
 
 test('L3 worker schedules infrastructure retries but terminally fails malware detections', async () => {
