@@ -119,21 +119,39 @@ export async function scanIdentityL3FileWithClamD(filePath, {
   }
   const socket = net.createConnection({ host, port });
   socket.setTimeout(timeoutMs);
-  let response = '';
+  let response = Buffer.alloc(0);
   let responseResolve;
   let responseReject;
+  let responseSettled = false;
   const responsePromise = new Promise((resolve, reject) => {
-    responseResolve = resolve;
-    responseReject = reject;
+    responseResolve = value => {
+      if (responseSettled) return;
+      responseSettled = true;
+      resolve(value);
+    };
+    responseReject = error => {
+      if (responseSettled) return;
+      responseSettled = true;
+      reject(error);
+    };
   });
-  socket.once('data', chunk => {
-    response += chunk.toString('utf8');
-    responseResolve(response);
+  socket.on('data', chunk => {
+    response = Buffer.concat([response, chunk]);
+    if (response.length > 4096) {
+      responseReject(new IdentityL3MediaProcessingError('l3_media_scanner_rejected'));
+      socket.destroy();
+      return;
+    }
+    const terminator = response.indexOf(0);
+    if (terminator !== -1) responseResolve(response.subarray(0, terminator).toString('utf8'));
   });
   socket.once('error', () => responseReject(new IdentityL3MediaProcessingError('l3_media_scanner_unavailable')));
   socket.once('timeout', () => {
-    socket.destroy();
     responseReject(new IdentityL3MediaProcessingError('l3_media_scanner_timeout'));
+    socket.destroy();
+  });
+  socket.once('close', () => {
+    if (!responseSettled) responseReject(new IdentityL3MediaProcessingError('l3_media_scanner_rejected'));
   });
 
   try {
@@ -141,7 +159,7 @@ export async function scanIdentityL3FileWithClamD(filePath, {
       socket.once('connect', resolve);
       socket.once('error', () => reject(new IdentityL3MediaProcessingError('l3_media_scanner_unavailable')));
     });
-    await writeSocket(socket, Buffer.from('zINSTREAM\\0', 'utf8'));
+    await writeSocket(socket, Buffer.from('zINSTREAM\\0', 'binary'));
     for await (const chunk of createReadStream(filePath, { highWaterMark: 64 * 1024 })) {
       const header = Buffer.allocUnsafe(4);
       header.writeUInt32BE(chunk.length, 0);
@@ -149,12 +167,11 @@ export async function scanIdentityL3FileWithClamD(filePath, {
       await writeSocket(socket, chunk);
     }
     await writeSocket(socket, Buffer.alloc(4));
-    socket.end();
     const result = await responsePromise;
-    if (/FOUND\\s*\\0?$/i.test(result.trim())) {
+    if (/FOUND\\s*$/i.test(result)) {
       throw new IdentityL3MediaProcessingError('l3_media_malware_detected');
     }
-    if (!/OK\\s*\\0?$/i.test(result.trim())) {
+    if (!/OK\\s*$/i.test(result)) {
       throw new IdentityL3MediaProcessingError('l3_media_scanner_rejected');
     }
     return { clean: true };
