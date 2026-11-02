@@ -11,6 +11,7 @@ import { normalizeGiftRequestInput } from './giftRequestInput.js';
 import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, acquireGiftSafetyUserLocks, recipientGiftAcceptanceLimitReached, expireStaleGiftRequestsForPair, enqueueExpiredGiftPaymentReconciliation, notifyGiftRequestUpdate, hasPendingRecipientDecline } from './giftOrderCreationService.js';
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
+import { IDENTITY_L3_CONSENT_VERSION } from './identityL3UploadTokens.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
 import { createDiditSession, isDiditConfigured, isDiditStatus, projectDiditStatus, verifyDiditWebhook, isDiditUuid } from './diditIdentity.js';
@@ -4460,6 +4461,97 @@ app.get('/api/gifts/orders', requireSession, profileActionLimiter, async (req, r
   } catch (error) {
     console.error('Gift order list failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'gift_orders_unavailable' });
+  }
+});
+
+app.get('/api/identity/l3/consent', requireSession, async (req, res) => {
+  try {
+    const read = await withActiveAccountRead(req.authUser.id, client => client.query(
+      `SELECT consent_version, granted_at, withdrawn_at
+       FROM identity_l3_consents WHERE user_id = $1`,
+      [req.authUser.id]
+    ));
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    const consent = read.value.rows[0];
+    return res.json({
+      version: IDENTITY_L3_CONSENT_VERSION,
+      accepted: Boolean(consent && consent.consent_version === IDENTITY_L3_CONSENT_VERSION && !consent.withdrawn_at),
+      grantedAt: consent?.granted_at || null,
+      withdrawnAt: consent?.withdrawn_at || null
+    });
+  } catch (error) {
+    console.error('L3 consent read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'l3_consent_unavailable' });
+  }
+});
+
+app.put('/api/identity/l3/consent', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  const keys = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+    ? Object.keys(req.body).sort()
+    : [];
+  if (keys.length !== 2 || keys[0] !== 'accepted' || keys[1] !== 'version' ||
+      req.body.accepted !== true || req.body.version !== IDENTITY_L3_CONSENT_VERSION) {
+    return res.status(400).json({ error: 'explicit_l3_consent_required' });
+  }
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const account = await client.query(
+      `SELECT u.status AS account_status, p.gender,
+              iv.status AS identity_status, iv.provider_environment,
+              iv.provider_status, iv.provider_session_id
+       FROM users u
+       JOIN profiles p ON p.user_id = u.id
+       JOIN identity_verifications iv ON iv.user_id = u.id
+       WHERE u.id = $1 AND iv.provider = 'didit'
+       FOR UPDATE OF u, p, iv`,
+      [req.authUser.id]
+    );
+    const verified = account.rows[0];
+    if (!verified || verified.account_status !== 'active' || verified.gender !== 'male' ||
+        verified.identity_status !== 'verified' || verified.provider_environment !== 'live' ||
+        verified.provider_status !== 'Approved' || !verified.provider_session_id) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'l3_consent_requires_live_l2' });
+    }
+
+    const current = await client.query(
+      'SELECT consent_version, withdrawn_at FROM identity_l3_consents WHERE user_id = $1 FOR UPDATE',
+      [req.authUser.id]
+    );
+    const existing = current.rows[0];
+    if (existing && existing.consent_version === IDENTITY_L3_CONSENT_VERSION && !existing.withdrawn_at) {
+      await client.query('COMMIT');
+      return res.json({ version: IDENTITY_L3_CONSENT_VERSION, accepted: true, alreadyAccepted: true });
+    }
+
+    await client.query(
+      `INSERT INTO identity_l3_consents (user_id, consent_version, granted_at, withdrawn_at, updated_at)
+       VALUES ($1, $2, statement_timestamp(), NULL, statement_timestamp())
+       ON CONFLICT (user_id) DO UPDATE SET
+         consent_version = EXCLUDED.consent_version,
+         granted_at = EXCLUDED.granted_at,
+         withdrawn_at = NULL,
+         updated_at = statement_timestamp()`,
+      [req.authUser.id, IDENTITY_L3_CONSENT_VERSION]
+    );
+    await client.query(
+      `INSERT INTO identity_l3_consent_events
+         (user_id, actor_user_id, event_type, consent_version)
+       VALUES ($1, $1, 'granted', $2)`,
+      [req.authUser.id, IDENTITY_L3_CONSENT_VERSION]
+    );
+    await client.query('COMMIT');
+    return res.status(201).json({ version: IDENTITY_L3_CONSENT_VERSION, accepted: true });
+  } catch (error) {
+    if (client && !await rollbackPooledTransaction(client)) client = null;
+    console.error('L3 consent grant failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'l3_consent_unavailable' });
+  } finally {
+    client?.release();
   }
 });
 
