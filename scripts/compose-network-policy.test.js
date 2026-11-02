@@ -43,6 +43,8 @@ test('Docker database network is isolated from the public web proxy container', 
   assert.match(l3Worker, /profiles: \["identity-l3"\]/);
   assert.match(l3Worker, /private_identity_l3:\/app\/uploads\/private-identity-l3:ro/,
     'the processing worker must mount encrypted media read-only');
+  assert.match(l3Worker, /IDENTITY_L3_REQUIRE_MOUNT: "true"/,
+    'the processing worker must refuse an unmounted persistent media volume');
   assert.match(l3Worker, /IDENTITY_L3_TEMP_DIR: \/run\/identity-l3-tmp/,
     'the processing worker must use a separate plaintext scratch directory');
   assert.match(l3Worker, /tmpfs:\n      - \/run\/identity-l3-tmp:rw,noexec,nosuid,nodev,size=256m,mode=0700,uid=1000,gid=1000/,
@@ -50,6 +52,8 @@ test('Docker database network is isolated from the public web proxy container', 
   assert.match(l3Worker, /clamav:\n        condition: service_healthy/,
     'the worker must wait for a healthy malware scanner');
   assert.match(l3PurgeWorker, /--purge-only/);
+  assert.match(l3PurgeWorker, /IDENTITY_L3_REQUIRE_MOUNT: "true"/,
+    'the always-on purge worker must refuse an unmounted media volume');
   assert.doesNotMatch(l3PurgeWorker, /profiles:/,
     'privacy purge must remain active even when the optional L3 processing profile is disabled');
   assert.match(l3PurgeWorker, /private_identity_l3:\/app\/uploads\/private-identity-l3(\n|$)/,
@@ -61,6 +65,7 @@ test('Docker database network is isolated from the public web proxy container', 
   const web = serviceBlock('web');
   assert.ok(api.includes('IDENTITY_L3_STORAGE_DIR: /app/uploads/private-identity-l3'));
   assert.ok(api.includes('IDENTITY_L3_ENCRYPTION_KEY: ${IDENTITY_L3_ENCRYPTION_KEY:-}'));
+  assert.ok(api.includes('IDENTITY_L3_REQUIRE_MOUNT: "true"'));
   assert.ok(api.includes('IDENTITY_L3_TEMP_DIR: /run/identity-l3-tmp'));
   assert.match(api, /tmpfs:\n      - \/run\/identity-l3-tmp:rw,noexec,nosuid,nodev,size=256m,mode=0700,uid=1000,gid=1000/,
     'moderator plaintext staging must use a bounded private tmpfs');
