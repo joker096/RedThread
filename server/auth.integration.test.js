@@ -1487,30 +1487,31 @@ test('auth API supports registration, session lookup, logout and login', {
     const consentBeforePayload = await consentBefore.json();
     assert.equal(consentBeforePayload.accepted, false,
       'L3 consent must default to off');
-    assert.equal(consentBeforePayload.notice.version, 1);
+    assert.equal(consentBeforePayload.notice.version, 2,
+      'the updated retention notice must require a new explicit consent version');
     assert.equal(consentBeforePayload.enabled, false);
     assert.match(consentBeforePayload.notice.text, /уполномоченные модераторы Vow/);
     const femaleL3Consent = await request('/api/identity/l3/consent', {
       method: 'PUT',
       headers: { Cookie: secondCookie },
-      body: JSON.stringify({ accepted: true, version: 1 })
+      body: JSON.stringify({ accepted: true, version: 2 })
     });
     assert.equal(femaleL3Consent.status, 409,
       'L3 consent grant must require a male applicant with live L2 verification');
     const invalidL3Consent = await request('/api/identity/l3/consent', {
       method: 'PUT',
       headers: { Cookie: secondMaleCookie },
-      body: JSON.stringify({ accepted: true, version: 1, marketing: true })
+      body: JSON.stringify({ accepted: true, version: 2, marketing: true })
     });
     assert.equal(invalidL3Consent.status, 400,
       'L3 consent must reject extra or ambiguous fields');
     const grantedL3Consent = await request('/api/identity/l3/consent', {
       method: 'PUT',
       headers: { Cookie: secondMaleCookie },
-      body: JSON.stringify({ accepted: true, version: 1 })
+      body: JSON.stringify({ accepted: true, version: 2 })
     });
     assert.equal(grantedL3Consent.status, 201);
-    assert.deepEqual(await grantedL3Consent.json(), { version: 1, accepted: true });
+    assert.deepEqual(await grantedL3Consent.json(), { version: 2, accepted: true });
     const disabledL3Capability = await request('/api/identity/l3/upload-capability', {
       method: 'POST',
       headers: { Cookie: secondMaleCookie }
@@ -1521,7 +1522,7 @@ test('auth API supports registration, session lookup, logout and login', {
     const repeatedL3Consent = await request('/api/identity/l3/consent', {
       method: 'PUT',
       headers: { Cookie: secondMaleCookie },
-      body: JSON.stringify({ accepted: true, version: 1 })
+      body: JSON.stringify({ accepted: true, version: 2 })
     });
     assert.equal(repeatedL3Consent.status, 200);
     assert.equal((await repeatedL3Consent.json()).alreadyAccepted, true);
