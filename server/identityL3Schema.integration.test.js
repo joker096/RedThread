@@ -82,7 +82,7 @@ test('L3 schema persists metadata only and protects workflow decisions', {
         `SELECT pg_get_functiondef('record_identity_l3_submission_event()'::regprocedure) AS definition`
       );
       assert.match(eventRecorder.rows[0].definition, /processing_completed/);
-      assert.match(eventRecorder.rows[0].definition, /OLD\\.status = 'processing'/,
+      assert.match(eventRecorder.rows[0].definition, /OLD\.status = 'processing'/,
         'processing completion must be recorded only after the processing state finishes');
       assert.match(eventRecorder.rows[0].definition, /processing_failed/);
       assert.match(eventRecorder.rows[0].definition, /submitted_for_review/);
