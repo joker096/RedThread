@@ -79,10 +79,13 @@ services:
     profiles: ["identity-l3"]
     environment:
       CLAMD_CONF_StreamMaxLength: 120M
+      CLAMD_CONF_TemporaryDirectory: /tmp
       CLAMD_CONF_MaxFileSize: 120M
       CLAMD_CONF_MaxScanSize: 120M
       CLAMD_CONF_MaxThreads: 2
       CLAMD_CONF_MaxQueue: 4
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777
     volumes:
       - clamav_database:/var/lib/clamav
     mem_limit: 4g
