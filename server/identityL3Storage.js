@@ -39,11 +39,42 @@ async function ensurePrivateRoot(root) {
     throw new IdentityL3StorageError('l3_storage_root_missing');
   }
   const absoluteRoot = path.resolve(root);
-  await mkdir(absoluteRoot, { recursive: true, mode: 0o700 });
+  const parsedRoot = path.parse(absoluteRoot);
+  const components = absoluteRoot.slice(parsedRoot.root.length).split(path.sep).filter(Boolean);
+  let currentPath = parsedRoot.root;
+  let stat;
 
-  // Checking only the final component with lstat() is insufficient: an ancestor
-  // may be a symlink and redirect private media into a different filesystem path.
-  // realpath() must resolve to the exact configured absolute path before use.
+  // Walk and inspect every component before descending into it. Recursive mkdir()
+  // would follow an existing symlinked parent and create directories outside the
+  // configured storage tree before a later realpath() check could reject the path.
+  for (const component of components) {
+    currentPath = path.join(currentPath, component);
+    try {
+      stat = await lstat(currentPath);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') {
+        throw new IdentityL3StorageError('l3_storage_root_unsafe');
+      }
+      try {
+        await mkdir(currentPath, { mode: 0o700 });
+      } catch (mkdirError) {
+        if (mkdirError?.code !== 'EEXIST') {
+          throw new IdentityL3StorageError('l3_storage_root_unsafe');
+        }
+      }
+      try {
+        stat = await lstat(currentPath);
+      } catch {
+        throw new IdentityL3StorageError('l3_storage_root_unsafe');
+      }
+    }
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      throw new IdentityL3StorageError('l3_storage_root_unsafe');
+    }
+  }
+
+  // Re-check canonical resolution after creation; the configured path must not
+  // traverse a symlink even if a component changed between the lstat() calls.
   let resolvedRoot;
   try {
     resolvedRoot = await realpath(absoluteRoot);
@@ -54,7 +85,7 @@ async function ensurePrivateRoot(root) {
     throw new IdentityL3StorageError('l3_storage_root_unsafe');
   }
 
-  const stat = await lstat(absoluteRoot);
+  stat = await lstat(absoluteRoot);
   if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0) {
     // Never silently chmod an operator-managed mount. Fail closed if group/other
     // principals can traverse or list the directory containing identity media.
