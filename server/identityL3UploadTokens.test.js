@@ -77,6 +77,7 @@ test('upload capability issuance persists only a digest and returns plaintext on
     { rows: [], rowCount: 0 },
     { rows: [{ account_status: 'active', gender: 'male', identity_status: 'verified', provider_environment: 'live', l3_consent_active: true }], rowCount: 1 },
     { rows: [], rowCount: 0 },
+    { rows: [{ media_purge_pending: false }], rowCount: 1 },
     { rows: [{ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', status: 'draft' }], rowCount: 1 },
     { rows: [], rowCount: 1 },
     { rows: [], rowCount: 0 },
@@ -93,6 +94,28 @@ test('upload capability issuance persists only a digest and returns plaintext on
   assert.ok(insert);
   assert.equal(insert.params[2], hashIdentityL3UploadToken(result.uploadToken));
   assert.notEqual(insert.params[2], result.uploadToken);
+});
+
+test('replacement L3 uploads wait until every terminal prior video is physically purged', async () => {
+  const { issueIdentityL3UploadCapability } = await import('./identityL3UploadTokens.js');
+  const client = fakeClient([
+    { rows: [], rowCount: 0 },
+    { rows: [{
+      account_status: 'active', gender: 'male', identity_status: 'verified',
+      provider_environment: 'live', l3_consent_active: true
+    }], rowCount: 1 },
+    { rows: [], rowCount: 0 },
+    { rows: [{ media_purge_pending: true }], rowCount: 1 }
+  ]);
+  await assert.rejects(
+    issueIdentityL3UploadCapability(client, {
+      userId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    }),
+    error => error instanceof IdentityL3UploadTokenError && error.code === 'l3_media_purge_pending'
+  );
+  assert.equal(client.calls.length, 4, 'no replacement submission or token may be created before purge');
+  assert.match(client.calls[3].sql, /storage_object_key IS NOT NULL/);
+  assert.match(client.calls[3].sql, /'withdrawn', 'revoked', 'rejected', 'expired', 'failed'/);
 });
 
 test('upload capability consumption binds the token to the authenticated user and submission', async () => {
