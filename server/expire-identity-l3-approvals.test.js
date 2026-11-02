@@ -63,7 +63,8 @@ test('L3 expiry worker uses bounded candidate discovery and expires under accoun
   const update = pool.calls.find(call => call.sql.includes('UPDATE identity_l3_submissions'));
   assert.match(update.sql, /status = 'expired'/);
   assert.match(update.sql, /expires_at <= NOW\(\)/);
-  const pendingUpdate = pool.calls.find(call => call.sql.includes("status = 'pending_review'"));
+  const pendingUpdate = pool.calls.find(call => call.scope === 'client' &&
+    call.sql.includes('UPDATE identity_l3_submissions') && call.sql.includes("status = 'pending_review'"));
   assert.match(pendingUpdate.sql, /processing_completed_at <= NOW\(\) - \(\$2::int \* INTERVAL '1 day'\)/);
   assert.deepEqual(pendingUpdate.params, ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 30]);
   assert.ok(pool.calls.some(call => call.sql.includes('moderation_retention_expired')));
@@ -78,6 +79,7 @@ test('L3 expiry worker isolates account failures and continues the bounded batch
       { user_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }
     ],
     expiredRows: [{ id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' }],
+    pendingExpiredRows: [{ id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' }],
     failForUser: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
   });
   const originalError = console.error;
