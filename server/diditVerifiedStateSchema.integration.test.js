@@ -29,12 +29,14 @@ test('verified Didit state requires a persisted live Approved provider session',
     // Clone the production table constraints so the regression test exercises
     // the actual installed CHECK expression without creating a users fixture.
     const client = await pool.connect();
+    let transactionOpen = false;
     try {
       await client.query(`
         CREATE TEMP TABLE didit_verified_null_check_test
         (LIKE public.identity_verifications INCLUDING ALL)
       `);
       await client.query('BEGIN');
+      transactionOpen = true;
       await client.query(
         `INSERT INTO didit_verified_null_check_test
          (user_id, workflow_id, provider_session_id, status, provider_status, provider_environment)
@@ -61,11 +63,12 @@ test('verified Didit state requires a persisted live Approved provider session',
       );
       await client.query('ROLLBACK TO SAVEPOINT reject_null_provider_verdict');
       await client.query('COMMIT');
+      transactionOpen = false;
     } finally {
-      if (client) {
+      if (transactionOpen) {
         try { await client.query('ROLLBACK'); } catch {}
-        client.release();
       }
+      client.release();
     }
   } finally {
     await pool.end();
