@@ -4557,6 +4557,131 @@ app.put('/api/identity/l3/consent', validateRequestOrigin, requireSession, profi
   }
 });
 
+app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const account = await client.query(
+      "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR UPDATE",
+      [req.authUser.id]
+    );
+    if (!account.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+
+    const current = await client.query(
+      'SELECT consent_version, withdrawn_at FROM identity_l3_consents WHERE user_id = $1 FOR UPDATE',
+      [req.authUser.id]
+    );
+    const consent = current.rows[0];
+    const wasActive = Boolean(
+      consent && consent.consent_version === IDENTITY_L3_CONSENT_VERSION && !consent.withdrawn_at
+    );
+    if (wasActive) {
+      await client.query(
+        'UPDATE identity_l3_consents SET withdrawn_at = statement_timestamp(), updated_at = statement_timestamp() WHERE user_id = $1 AND withdrawn_at IS NULL',
+        [req.authUser.id]
+      );
+      await client.query(
+        `INSERT INTO identity_l3_consent_events
+           (user_id, actor_user_id, event_type, consent_version)
+         VALUES ($1, $1, 'withdrawn', $2)`,
+        [req.authUser.id, IDENTITY_L3_CONSENT_VERSION]
+      );
+    }
+
+    await client.query(
+      `UPDATE identity_l3_upload_tokens
+       SET revoked_at = statement_timestamp()
+       WHERE user_id = $1 AND consumed_at IS NULL AND revoked_at IS NULL`,
+      [req.authUser.id]
+    );
+    await client.query(
+      "SELECT set_config('app.identity_l3_actor_user_id', '', true), set_config('app.identity_l3_reason_code', 'consent_withdrawn', true)"
+    );
+
+    const submissions = await client.query(
+      `SELECT id, status, storage_object_key
+       FROM identity_l3_submissions
+       WHERE user_id = $1
+         AND (
+           status IN ('draft', 'upload_authorized', 'uploaded', 'processing', 'pending_review', 'approved')
+           OR storage_object_key IS NOT NULL
+         )
+       ORDER BY created_at, id
+       FOR UPDATE`,
+      [req.authUser.id]
+    );
+    let queuedPurgeJobs = 0;
+    for (const submission of submissions.rows) {
+      if (['draft', 'upload_authorized', 'uploaded', 'processing', 'pending_review'].includes(submission.status)) {
+        await client.query(
+          "UPDATE identity_l3_submissions SET status = 'withdrawn' WHERE id = $1 AND user_id = $2",
+          [submission.id, req.authUser.id]
+        );
+      } else if (submission.status === 'approved') {
+        // Revoke profile access immediately. Keep the original reviewer decision
+        // fields immutable; the consent-withdrawal reason is recorded separately.
+        await client.query(
+          "UPDATE identity_l3_submissions SET status = 'revoked', revoked_at = statement_timestamp() WHERE id = $1 AND user_id = $2",
+          [submission.id, req.authUser.id]
+        );
+      }
+
+      if (submission.storage_object_key) {
+        const queued = await client.query(
+          `INSERT INTO identity_l3_media_purge_jobs (submission_id, user_id)
+           VALUES ($1, $2)
+           ON CONFLICT (submission_id) DO UPDATE SET
+             status = CASE WHEN identity_l3_media_purge_jobs.status = 'failed' THEN 'queued'
+                           ELSE identity_l3_media_purge_jobs.status END,
+             attempts = CASE WHEN identity_l3_media_purge_jobs.status = 'failed' THEN 0
+                             ELSE identity_l3_media_purge_jobs.attempts END,
+             next_attempt_at = CASE WHEN identity_l3_media_purge_jobs.status = 'failed'
+                                    THEN statement_timestamp()
+                                    ELSE identity_l3_media_purge_jobs.next_attempt_at END,
+             lease_token = CASE WHEN identity_l3_media_purge_jobs.status = 'failed' THEN NULL
+                                ELSE identity_l3_media_purge_jobs.lease_token END,
+             lease_expires_at = CASE WHEN identity_l3_media_purge_jobs.status = 'failed' THEN NULL
+                                     ELSE identity_l3_media_purge_jobs.lease_expires_at END,
+             last_error_code = CASE WHEN identity_l3_media_purge_jobs.status = 'failed' THEN NULL
+                                    ELSE identity_l3_media_purge_jobs.last_error_code END,
+             updated_at = statement_timestamp()
+           WHERE identity_l3_media_purge_jobs.status = 'failed'
+           RETURNING id`,
+          [submission.id, req.authUser.id]
+        );
+        queuedPurgeJobs += queued.rowCount;
+      }
+    }
+
+    const pending = await client.query(
+      `SELECT COUNT(*)::int AS count
+       FROM identity_l3_media_purge_jobs
+       WHERE user_id = $1 AND status IN ('queued', 'processing', 'failed')`,
+      [req.authUser.id]
+    );
+    await client.query('COMMIT');
+    return res.json({
+      version: IDENTITY_L3_CONSENT_VERSION,
+      accepted: false,
+      withdrawn: wasActive,
+      purgeStatus: Number(pending.rows[0]?.count || 0) > 0 ? 'pending' : 'complete',
+      pendingPurgeJobs: Number(pending.rows[0]?.count || 0),
+      requeuedFailedJobs: queuedPurgeJobs
+    });
+  } catch (error) {
+    if (client && !await rollbackPooledTransaction(client)) client = null;
+    console.error('L3 consent withdrawal failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'l3_consent_withdrawal_unavailable' });
+  } finally {
+    client?.release();
+  }
+});
+
 app.get('/api/ads/consent', requireSession, async (req, res) => {
   try {
     const read = await withActiveAccountRead(req.authUser.id, client => client.query(
