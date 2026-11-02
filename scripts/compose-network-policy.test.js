@@ -34,6 +34,7 @@ test('Docker database network is isolated from the public web proxy container', 
   const clamav = serviceBlock('clamav');
   const l3Worker = serviceBlock('identity-l3-worker');
   const l3PurgeWorker = serviceBlock('identity-l3-purge-worker');
+  const l3ExpiryWorker = serviceBlock('identity-l3-expiry');
   assert.match(clamav, /profiles: \["identity-l3"\]/);
   assert.doesNotMatch(clamav, /^    ports:/m, 'ClamAV must never publish its scanner port to the host');
   assert.match(clamav, /CLAMD_CONF_StreamMaxLength: 120M/);
@@ -53,6 +54,11 @@ test('Docker database network is isolated from the public web proxy container', 
     'the worker scratch directory must be a bounded private tmpfs owned by the unprivileged node user');
   assert.match(l3Worker, /clamav:\n        condition: service_healthy/,
     'the worker must wait for a healthy malware scanner');
+  assert.match(l3ExpiryWorker, /cap_drop: \[ALL\]/);
+  assert.match(l3ExpiryWorker, /no-new-privileges:true/);
+  assert.match(l3ExpiryWorker, /IDENTITY_L3_EXPIRY_BATCH_SIZE/);
+  assert.doesNotMatch(l3ExpiryWorker, /profiles:/,
+    'approval and pending-review expiry must continue while optional processing is disabled');
   assert.match(l3PurgeWorker, /--purge-only/);
   assert.match(l3PurgeWorker, /cap_drop: \[ALL\]/);
   assert.match(l3PurgeWorker, /no-new-privileges:true/);
