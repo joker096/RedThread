@@ -155,10 +155,10 @@ test('upload capability consumption fails closed after L3 consent is absent or w
 test('L3 consent notice is explicit and versioned', () => {
   assert.equal(IDENTITY_L3_CONSENT_NOTICE.version, IDENTITY_L3_CONSENT_VERSION);
   assert.equal(IDENTITY_L3_CONSENT_VERSION, 1);
-  assert.match(IDENTITY_L3_CONSENT_NOTICE.text, /30–60 second video statement/);
-  assert.match(IDENTITY_L3_CONSENT_NOTICE.text, /authorized Vow moderators/);
-  assert.match(IDENTITY_L3_CONSENT_NOTICE.text, /withdraw this consent at any time/);
-  assert.match(IDENTITY_L3_CONSENT_NOTICE.text, /queued for deletion/);
-  assert.match(IDENTITY_L3_CONSENT_NOTICE.text, /six months/);
+  assert.match(IDENTITY_L3_CONSENT_NOTICE.text, /30–60 секунд/);
+  assert.match(IDENTITY_L3_CONSENT_NOTICE.text, /уполномоченные модераторы Vow/);
+  assert.match(IDENTITY_L3_CONSENT_NOTICE.text, /отозвать согласие в любое время/);
+  assert.match(IDENTITY_L3_CONSENT_NOTICE.text, /очередь на удаление/);
+  assert.match(IDENTITY_L3_CONSENT_NOTICE.text, /шесть месяцев/);
   assert.equal(Object.isFrozen(IDENTITY_L3_CONSENT_NOTICE), true);
 });
