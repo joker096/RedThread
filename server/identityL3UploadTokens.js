@@ -3,7 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 const TOKEN_BYTES = 32;
 const TOKEN_LIFETIME_MINUTES = 10;
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
-export const IDENTITY_L3_CONSENT_VERSION = 1;
+export const IDENTITY_L3_CONSENT_VERSION = 2;
 export const IDENTITY_L3_CONSENT_NOTICE = Object.freeze({
   version: IDENTITY_L3_CONSENT_VERSION,
   title: 'Consent to L3 video identity verification',
