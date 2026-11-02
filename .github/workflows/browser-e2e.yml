@@ -3,6 +3,8 @@ name: Browser E2E
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: ["feat/contextual-advertising-policy"]
 
 permissions:
   contents: read
@@ -15,6 +17,26 @@ jobs:
   browser-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: nit_test
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: nit_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nit_test -d nit_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://nit_test:test_password@localhost:5432/nit_test
+      PGSSL: "false"
+      API_PORT: "3001"
+      APP_ORIGIN: http://127.0.0.1:4173
+      NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,6 +44,7 @@ jobs:
           node-version: 22
       - run: npm install --no-audit --no-fund
       - run: npx playwright install --with-deps chromium
+      - run: npm run db:migrate
       - run: npm run build
       - run: npm run test:e2e
       - name: Generate feature graphic

@@ -9,6 +9,10 @@ type PaddleRuntime = {
 };
 type PriceLabels = Record<string, string>;
 
+export function isCurrentPaddleSessionAction(actionEpoch: number, currentEpoch: number): boolean {
+  return Number.isSafeInteger(actionEpoch) && Number.isSafeInteger(currentEpoch) && actionEpoch === currentEpoch;
+}
+
 const PLAN_LABELS: Record<Plan['id'], { title: string; description: string }> = {
   '1month': { title: 'Premium на 1 месяц', description: 'Месячный доступ' },
   '3months': { title: 'Premium на 3 месяца', description: 'Доступ на квартал' },
@@ -49,22 +53,48 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
   const [loading, setLoading] = useState(true);
   const [busyPlan, setBusyPlan] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
+  const [premiumActive, setPremiumActive] = useState(false);
+  const [premiumLifetime, setPremiumLifetime] = useState(false);
+  const [billingManageable, setBillingManageable] = useState(false);
+  const [billingNeedsAttention, setBillingNeedsAttention] = useState(false);
+  const [pendingCheckoutStatus, setPendingCheckoutStatus] = useState<string | null>(null);
+  const [pendingCheckoutPlan, setPendingCheckoutPlan] = useState<Plan['id'] | null>(null);
+  const [pendingCancelBusy, setPendingCancelBusy] = useState(false);
+  const [portalBusy, setPortalBusy] = useState(false);
   const paddleRef = useRef<PaddleRuntime | null>(null);
   const mountedRef = useRef(true);
+  const sessionEpoch = useRef(0);
 
   useEffect(() => {
     mountedRef.current = true;
     let cancelled = false;
     const load = async () => {
+      const loadEpoch = sessionEpoch.current;
       try {
-        const response = await fetch('/api/paddle/config', { credentials: 'include' });
-        const next = await response.json() as PaddleConfig;
-        if (!response.ok || !next.configured || next.environment !== 'sandbox' || !next.clientToken?.startsWith('test_')) {
+        const [response, statusResponse] = await Promise.all([
+          fetch('/api/paddle/config', { credentials: 'include' }),
+          fetch('/api/billing/status', { credentials: 'include' })
+        ]);
+        const [next, status] = await Promise.all([
+          response.json() as Promise<PaddleConfig>,
+          statusResponse.json() as Promise<{ premiumActive?: boolean; premiumLifetime?: boolean; billingManageable?: boolean; billingNeedsAttention?: boolean; pendingCheckoutStatus?: string | null; pendingCheckoutPlan?: Plan['id'] | null }>
+        ]);
+        if (!response.ok || !statusResponse.ok) throw new Error('paddle_status_unavailable');
+        if (cancelled || !isCurrentPaddleSessionAction(loadEpoch, sessionEpoch.current)) return;
+        if (!cancelled && isCurrentPaddleSessionAction(loadEpoch, sessionEpoch.current)) {
+          setPremiumActive(status.premiumActive === true);
+          setPremiumLifetime(status.premiumLifetime === true);
+          setBillingManageable(status.billingManageable === true);
+          setBillingNeedsAttention(status.billingNeedsAttention === true);
+          setPendingCheckoutStatus(status.pendingCheckoutStatus || null);
+          setPendingCheckoutPlan(status.pendingCheckoutPlan || null);
+        }
+        if (!next.configured || next.environment !== 'sandbox' || !next.clientToken?.startsWith('test_')) {
           if (!cancelled) setConfig({ configured: false, environment: 'sandbox', plans: [] });
           return;
         }
         const paddle = await initializePaddle({ token: next.clientToken, environment: 'sandbox' });
-        if (cancelled) return;
+        if (cancelled || !isCurrentPaddleSessionAction(loadEpoch, sessionEpoch.current)) return;
         if (!paddle) throw new Error('paddle_sdk_initialization_failed');
         paddleRef.current = paddle as unknown as PaddleRuntime;
         setConfig(next);
@@ -80,26 +110,116 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
               return [plan.id, null] as const;
             }
           }));
-          if (!cancelled) setPrices(Object.fromEntries(previews.filter(entry => Boolean(entry[1])) as Array<readonly [string, string]>));
+          if (!cancelled && isCurrentPaddleSessionAction(loadEpoch, sessionEpoch.current)) setPrices(Object.fromEntries(previews.filter(entry => Boolean(entry[1])) as Array<readonly [string, string]>));
         }
       } catch {
-        if (!cancelled) {
+        if (!cancelled && isCurrentPaddleSessionAction(loadEpoch, sessionEpoch.current)) {
           setConfig({ configured: false, environment: 'sandbox', plans: [] });
           setNotice('Не удалось подключить Paddle Sandbox. Проверьте test-токен и настройки.');
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && isCurrentPaddleSessionAction(loadEpoch, sessionEpoch.current)) setLoading(false);
       }
     };
+    const refreshOnSession = () => {
+      sessionEpoch.current += 1;
+      setConfig(null);
+      setPrices({});
+      paddleRef.current = null;
+      setLoading(true);
+      setPremiumActive(false);
+      setPremiumLifetime(false);
+      setBillingManageable(false);
+      setBillingNeedsAttention(false);
+      setPendingCheckoutStatus(null);
+      setPendingCheckoutPlan(null);
+      setBusyPlan(null);
+      setPendingCancelBusy(false);
+      setPortalBusy(false);
+      setNotice('');
+      void load();
+    };
     void load();
+    window.addEventListener('vow:session-changed', refreshOnSession);
     return () => {
       cancelled = true;
+      sessionEpoch.current += 1;
+      window.removeEventListener('vow:session-changed', refreshOnSession);
       mountedRef.current = false;
     };
   }, []);
 
+
+  const openCustomerPortal = async () => {
+    if (portalBusy || !billingManageable) return;
+    const actionEpoch = sessionEpoch.current;
+    setPortalBusy(true);
+    setNotice('');
+    try {
+      const response = await fetch('/api/paddle/portal', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}'
+      });
+      if (!isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) return;
+      const result = await response.json() as { url?: string; error?: string };
+      if (!isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) return;
+      if (!response.ok || typeof result.url !== 'string') {
+        throw new Error(result.error || 'paddle_portal_unavailable');
+      }
+      const portalUrl = new URL(result.url);
+      if (portalUrl.protocol !== 'https:' || portalUrl.hostname !== 'customer-portal.paddle.com') {
+        throw new Error('paddle_portal_url_invalid');
+      }
+      window.location.assign(portalUrl.toString());
+    } catch {
+      if (mountedRef.current && isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) setNotice('Не удалось открыть управление подпиской Paddle. Попробуйте ещё раз.');
+    } finally {
+      if (mountedRef.current && isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) setPortalBusy(false);
+    }
+  };
+
+
+  const cancelPendingCheckout = async () => {
+    if (pendingCancelBusy) return;
+    const actionEpoch = sessionEpoch.current;
+    setPendingCancelBusy(true);
+    setNotice('');
+    try {
+      const response = await fetch('/api/paddle/checkout/cancel', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}'
+      });
+      if (!isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) return;
+      if (response.status === 204) {
+        if (mountedRef.current) {
+          setPendingCheckoutStatus('canceled');
+          setPendingCheckoutPlan(null);
+          setNotice('Незавершённая платёжная транзакция отменена. Теперь можно выбрать другой тариф.');
+        }
+        return;
+      }
+      const result = await response.json() as { error?: string };
+      if (!isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) return;
+      if (mountedRef.current && result.error === 'paddle_checkout_processing') {
+        setPendingCheckoutStatus('completed');
+      } else if (mountedRef.current) {
+        setPendingCheckoutStatus('reconciliation_required');
+      }
+      throw new Error(result.error || 'paddle_checkout_cancel_failed');
+    } catch {
+      if (mountedRef.current && isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) setNotice('Не удалось безопасно отменить платёж. Повторная оплата заблокирована до сверки.');
+    } finally {
+      if (mountedRef.current && isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) setPendingCancelBusy(false);
+    }
+  };
+
   const startCheckout = async (plan: Plan) => {
     if (busyPlan || !paddleRef.current) return;
+    const actionEpoch = sessionEpoch.current;
     setBusyPlan(plan.id);
     setNotice('');
     try {
@@ -109,9 +229,45 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ plan: plan.id })
       });
-      const result = await response.json() as { transactionId?: string; environment?: string; error?: string };
+      if (!isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) return;
+      const result = await response.json() as { transactionId?: string; environment?: string; error?: string; pendingPlan?: Plan['id'] };
+      if (!isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) return;
       if (!response.ok || !result.transactionId || result.environment !== 'sandbox') {
+        if (response.status === 409 && result.error === 'paddle_checkout_already_pending') {
+          if (mountedRef.current) {
+            setPendingCheckoutStatus('pending');
+            setPendingCheckoutPlan(result.pendingPlan || null);
+            setNotice('Уже существует незавершённая оплата другого тарифа. Продолжите её или отмените перед выбором нового.');
+          }
+          return;
+        }
+        if (response.status === 409 && result.error === 'paddle_checkout_creating') {
+          if (mountedRef.current) setPendingCheckoutStatus('creating');
+          setNotice('Создание платёжной сессии уже выполняется в другой вкладке. Подождите и обновите окно Premium.');
+          return;
+        }
+        if (response.status === 409 && result.error === 'paddle_checkout_processing') {
+          if (mountedRef.current) setPendingCheckoutStatus('completed');
+          setNotice('Платёж уже подтверждается. Повторная оплата заблокирована.');
+          return;
+        }
+        if (response.status === 409 && result.error === 'paddle_checkout_reconciliation_required') {
+          if (mountedRef.current) setPendingCheckoutStatus('reconciliation_required');
+          setNotice('Платёж требует сверки. Повторная оплата временно заблокирована.');
+          return;
+        }
+        if (response.status === 409 && result.error === 'premium_already_active') {
+          if (mountedRef.current) {
+            setPremiumActive(true);
+            setNotice('Premium уже активен для этого аккаунта. Повторная оплата отключена.');
+          }
+          return;
+        }
         throw new Error(result.error || 'paddle_checkout_unavailable');
+      }
+      if (mountedRef.current) {
+        setPendingCheckoutStatus('pending');
+        setPendingCheckoutPlan(plan.id);
       }
       paddleRef.current.Checkout.open({
         transactionId: result.transactionId,
@@ -123,14 +279,14 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
         }
       });
     } catch {
-      setNotice('Не удалось открыть тестовую оплату. Проверьте настройки Paddle Sandbox и попробуйте ещё раз.');
+      if (mountedRef.current && isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) setNotice('Не удалось открыть тестовую оплату. Проверьте настройки Paddle Sandbox и попробуйте ещё раз.');
     } finally {
-      if (mountedRef.current) setBusyPlan(null);
+      if (mountedRef.current && isCurrentPaddleSessionAction(actionEpoch, sessionEpoch.current)) setBusyPlan(null);
     }
   };
 
   return (
-    <section aria-busy={loading || Boolean(busyPlan)} className="rounded-xl border border-rose-500/20 bg-rose-950/20 p-3">
+    <section aria-busy={loading || Boolean(busyPlan) || portalBusy || pendingCancelBusy} className="rounded-xl border border-rose-500/20 bg-rose-950/20 p-3">
       <div className="flex items-start justify-between gap-2">
         <div>
           <h4 className="text-sm font-semibold text-white">Vow Premium</h4>
@@ -138,7 +294,53 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
         </div>
         <span className="shrink-0 rounded-full border border-amber-400/30 px-2 py-1 text-[10px] font-semibold text-amber-200">SANDBOX</span>
       </div>
-      {loading ? <p className="mt-3 text-xs text-stone-400">Подключаем тестовый checkout…</p> : !config?.configured ? (
+      {loading ? <p className="mt-3 text-xs text-stone-400">Подключаем тестовый checkout…</p> : premiumActive || billingNeedsAttention ? (
+        <div className="mt-3">
+          <p className={`text-xs leading-relaxed ${premiumActive ? "text-emerald-300" : "text-amber-200"}`}>
+            {premiumActive
+              ? (premiumLifetime ? 'Пожизненный Premium уже активен.' : 'Premium уже активен. Повторная покупка отключена.')
+              : 'У существующей подписки есть незавершённое состояние. Повторная покупка отключена до сверки.'}
+          </p>
+          {billingManageable ? (
+            <button type="button" onClick={() => void openCustomerPortal()} disabled={portalBusy} className="mt-3 min-h-11 w-full rounded-lg border border-amber-400/30 px-3 py-2 text-xs font-semibold text-amber-100 disabled:opacity-50">
+              {portalBusy ? 'Открываем управление…' : 'Управлять подпиской и платежами'}
+            </button>
+          ) : (
+            <p className="mt-2 text-xs text-amber-200">Управление подпиской временно недоступно. Обратитесь в поддержку для сверки платежа.</p>
+          )}
+        </div>
+      ) : pendingCheckoutStatus === 'pending' ? (
+        <div className="mt-3 space-y-2">
+          <p className="text-xs leading-relaxed text-amber-200">
+            Незавершённая оплата: {pendingCheckoutPlan ? PLAN_LABELS[pendingCheckoutPlan].title : 'тариф Premium'}.
+            Повторное создание платёжной транзакции заблокировано.
+          </p>
+          <button type="button" onClick={() => {
+            const pendingPlan = config?.plans.find(item => item.id === pendingCheckoutPlan);
+            if (pendingPlan) void startCheckout(pendingPlan);
+          }} disabled={!config?.configured || !pendingCheckoutPlan || Boolean(busyPlan)} className="min-h-11 w-full rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
+            {busyPlan ? 'Открываем…' : 'Продолжить текущую оплату'}
+          </button>
+          <button type="button" onClick={() => void cancelPendingCheckout()} disabled={pendingCancelBusy} className="min-h-11 w-full rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-stone-200 disabled:opacity-50">
+            {pendingCancelBusy ? 'Проверяем и отменяем…' : 'Отменить незавершённую оплату'}
+          </button>
+        </div>
+      ) : ['creating', 'completed', 'reconciliation_required'].includes(pendingCheckoutStatus || '') ? (
+        <div className="mt-3">
+          <p className="text-xs leading-relaxed text-amber-200">
+            {pendingCheckoutStatus === 'completed'
+              ? 'Платёж уже принят. Ожидается подтверждение подписки от Paddle; повторная оплата заблокирована.'
+              : pendingCheckoutStatus === 'creating'
+                ? 'Платёжная сессия создаётся или проверяется в другой вкладке. Подождите и обновите окно Premium.'
+                : 'Состояние платёжной транзакции требует проверки. Повторная оплата заблокирована, обратитесь в поддержку.'}
+          </p>
+          {['completed', 'reconciliation_required'].includes(pendingCheckoutStatus || '') && billingManageable && (
+            <button type="button" onClick={() => void openCustomerPortal()} disabled={portalBusy} className="mt-3 min-h-11 w-full rounded-lg border border-amber-400/30 px-3 py-2 text-xs font-semibold text-amber-100 disabled:opacity-50">
+              {portalBusy ? 'Открываем управление…' : 'Открыть управление в Paddle'}
+            </button>
+          )}
+        </div>
+      ) : !config?.configured ? (
         <p className="mt-3 text-xs leading-relaxed text-stone-400">Paddle Sandbox пока не настроен. Добавьте test client token и Price ID тарифов в серверное окружение.</p>
       ) : (
         <div className="mt-3 grid gap-2">
@@ -148,7 +350,7 @@ export const PaddleSubscriptionPanel: React.FC<{ email: string }> = ({ email }) 
                 <p className="text-xs font-semibold text-white">{PLAN_LABELS[plan.id].title}</p>
                 <p className="mt-1 text-[10px] text-stone-400">{prices[plan.id] || 'Цена будет показана в Paddle Checkout'}</p>
               </div>
-              <button type="button" onClick={() => void startCheckout(plan)} disabled={Boolean(busyPlan)} className="min-h-11 shrink-0 rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
+              <button type="button" onClick={() => void startCheckout(plan)} disabled={Boolean(busyPlan) || premiumActive} className="min-h-11 shrink-0 rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
                 {busyPlan === plan.id ? 'Открываем…' : 'Тестировать'}
               </button>
             </div>

@@ -20,6 +20,7 @@ interface AdManagerModalProps {
   onWatchRewardedAd: () => void;
   superLikesCount: number;
   boostActive: boolean;
+  isDemoMode: boolean;
 }
 
 export const AdManagerModal: React.FC<AdManagerModalProps> = ({
@@ -28,7 +29,8 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
   stats,
   onWatchRewardedAd,
   superLikesCount,
-  boostActive
+  boostActive,
+  isDemoMode
 }) => {
   const [isPlayingVideo, setIsPlayingVideo] = useState(false);
   const [countdown, setCountdown] = useState(5);
@@ -37,6 +39,8 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   const onWatchRewardedAdRef = useRef(onWatchRewardedAd);
+  const isDemoModeRef = useRef(isDemoMode);
+  isDemoModeRef.current = isDemoMode;
 
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -97,9 +101,28 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
     };
   }, [isOpen]);
 
+  useEffect(() => {
+    if (isDemoMode) return;
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = null;
+    setIsPlayingVideo(false);
+    setCountdown(5);
+    setRewardClaimed(false);
+  }, [isDemoMode]);
+
+  useEffect(() => {
+    if (isOpen) return;
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = null;
+    setIsPlayingVideo(false);
+    setCountdown(5);
+    setRewardClaimed(false);
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const startRewardedSimulation = () => {
+    if (!isDemoModeRef.current) return;
     setIsPlayingVideo(true);
     setRewardClaimed(false);
     setCountdown(5);
@@ -109,6 +132,13 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
     timerRef.current = setInterval(() => {
       secondsRemaining -= 1;
       setCountdown(secondsRemaining);
+      if (!isDemoModeRef.current) {
+        if (timerRef.current) clearInterval(timerRef.current);
+        timerRef.current = null;
+        setIsPlayingVideo(false);
+        setCountdown(5);
+        return;
+      }
       if (secondsRemaining <= 0) {
         if (timerRef.current) clearInterval(timerRef.current);
         timerRef.current = null;
@@ -163,8 +193,12 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
           </div>
 
           <p className="text-xs text-stone-300 mb-3 leading-relaxed">
-            В демонстрации можно запустить короткую симуляцию награды и получить <strong className="text-white">+3 Супер-симпатии</strong> и <strong className="text-white">Буст анкеты</strong> в рамках тестового сценария. Это не реальный рекламный показ.
+            {isDemoMode
+              ? <>В демонстрации можно запустить короткую симуляцию награды и получить <strong className="text-white">+3 Супер-симпатии</strong> и <strong className="text-white">Буст анкеты</strong> в рамках тестового сценария. Это не реальный рекламный показ.</>
+              : <>Реальная рекламная сеть и серверная проверка наград пока не подключены. В серверном режиме получение бонусов отключено.</>}
           </p>
+
+          {!isDemoMode && <p id="rewarded-ad-unavailable" className="text-xs text-amber-200 mb-3">Нельзя начислить бонус без подтверждённого рекламного показа.</p>}
 
           {/* Current inventory */}
           <div className="flex items-center gap-3 mb-3 text-xs">
@@ -193,10 +227,12 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
             <button
               type="button"
               onClick={startRewardedSimulation}
-              className="w-full min-h-11 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-rose-600 hover:from-amber-400 hover:to-rose-500 font-bold text-stone-950 text-xs flex items-center justify-center gap-2 shadow-lg transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
+              disabled={!isDemoMode}
+              aria-describedby={!isDemoMode ? 'rewarded-ad-unavailable' : undefined}
+              className="w-full min-h-11 disabled:cursor-not-allowed disabled:opacity-50 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-rose-600 hover:from-amber-400 hover:to-rose-500 font-bold text-stone-950 text-xs flex items-center justify-center gap-2 shadow-lg transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
             >
               <Play className="w-4 h-4 fill-stone-950" />
-              <span>Протестировать просмотр ролика (Получить Буст)</span>
+              <span>{isDemoMode ? 'Протестировать просмотр ролика (Получить Буст)' : 'Награды недоступны в серверном режиме'}</span>
             </button>
           )}
         </div>
@@ -257,12 +293,12 @@ export const AdManagerModal: React.FC<AdManagerModalProps> = ({
         <div className="p-3.5 rounded-2xl bg-stone-950/50 border border-white/5 text-xs text-stone-300 mb-5">
           <div className="font-bold text-white mb-1.5 flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-rose-400" />
-            <span>Форматы монетизации в приложении:</span>
+            <span>Планируемые форматы (не активны в production):</span>
           </div>
           <ul className="space-y-1 text-[11px] text-stone-400">
-            <li>• <strong>Нативные спонсорские карточки</strong> в ленте (рестораны, цветы, романтические поездки).</li>
-            <li>• <strong>Rewarded-ролики</strong>: получение бустов и супер-лайков бесплатно.</li>
-            <li>• <strong>Lady VIP</strong>: платный переход, полностью отключающий любую рекламу.</li>
+            <li>• <strong>Контекстные предложения</strong> — только на отдельно разрешённых поверхностях. Не в ленте знакомств, личных чатах, звонках, проверке, жалобах, блокировках и оплате.</li>
+            <li>• <strong>Rewarded-видео</strong> — сейчас доступна только локальная симуляция награды; реальный ролик и рекламный SDK не подключены.</li>
+            <li>• <strong>Lady VIP</strong> — отключение рекламы должно обеспечиваться production-политикой; эта демонстрационная панель не подтверждает работу реальной рекламной выдачи.</li>
           </ul>
         </div>
 

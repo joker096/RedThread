@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import pg from 'pg';
 import {
   AD_EVENT_RETENTION_DAYS,
   DEFAULT_AD_EVENT_CLEANUP_BATCH_SIZE,
@@ -35,4 +36,116 @@ test('cleanup deletes in bounded batches until the last partial batch', async ()
   const deleted = await cleanupExpiredAdEvents(fakePool, { retentionDays: 90, batchSize: 2 });
   assert.equal(deleted, 3);
   assert.deepEqual(batchSizes, [2, 1]);
+});
+
+
+test('PostgreSQL retention cleanup deletes only events strictly older than the retention boundary', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
+  await client.connect();
+
+  try {
+    await client.query('BEGIN');
+    await client.query(`
+      CREATE TEMP TABLE ad_events (
+        event_id uuid PRIMARY KEY,
+        created_at timestamptz NOT NULL
+      ) ON COMMIT PRESERVE ROWS
+    `);
+    await client.query(
+      `INSERT INTO ad_events (event_id, created_at)
+       VALUES
+         ('00000000-0000-4000-8000-000000000001', NOW() - INTERVAL '90 days 1 second'),
+         ('00000000-0000-4000-8000-000000000002', NOW() - INTERVAL '90 days'),
+         ('00000000-0000-4000-8000-000000000003', NOW() - INTERVAL '89 days 23 hours 59 minutes 59 seconds')`
+    );
+
+    const deleted = await cleanupExpiredAdEvents(client, { retentionDays: 90, batchSize: 1 });
+    assert.equal(deleted, 1, 'only the row older than 90 days is removed');
+
+    const remaining = await client.query(
+      'SELECT event_id::text FROM ad_events ORDER BY event_id'
+    );
+    assert.deepEqual(
+      remaining.rows.map(row => row.event_id),
+      [
+        '00000000-0000-4000-8000-000000000002',
+        '00000000-0000-4000-8000-000000000003'
+      ],
+      'the exact 90-day boundary and newer rows are retained'
+    );
+    await client.query('ROLLBACK');
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    await client.end();
+  }
+});
+
+test('cleanup uses deterministic oldest-first ordering and checks for another batch after a full batch', async () => {
+  const calls = [];
+  const fakePool = {
+    async query(sql, params) {
+      assert.match(sql, /ORDER BY created_at, event_id/);
+      assert.match(sql, /LIMIT \$2/);
+      assert.deepEqual(params, [90, 2]);
+      calls.push(sql);
+      return { rowCount: calls.length <= 2 ? 2 : 0 };
+    }
+  };
+
+  const deleted = await cleanupExpiredAdEvents(fakePool, { retentionDays: 90, batchSize: 2 });
+  assert.equal(deleted, 4);
+  assert.equal(calls.length, 3, 'a full final batch is followed by an empty query to prove cleanup is complete');
+});
+
+test('cleanup stops immediately and propagates a failed batch query', async () => {
+  const failure = new Error('database unavailable');
+  let calls = 0;
+  const fakePool = {
+    async query() {
+      calls += 1;
+      throw failure;
+    }
+  };
+
+  await assert.rejects(
+    cleanupExpiredAdEvents(fakePool, { retentionDays: 90, batchSize: 2 }),
+    error => error === failure
+  );
+  assert.equal(calls, 1, 'a failed batch must not be retried or counted as successful');
+});
+
+test('cleanup options accept documented endpoints and reject non-integer values', () => {
+  assert.deepEqual(normalizeCleanupOptions({ retentionDays: 1, batchSize: 1 }), {
+    retentionDays: 1,
+    batchSize: 1
+  });
+  assert.deepEqual(normalizeCleanupOptions({ retentionDays: 365, batchSize: 5000 }), {
+    retentionDays: 365,
+    batchSize: 5000
+  });
+  assert.throws(() => normalizeCleanupOptions({ retentionDays: 1.5 }), /retentionDays/);
+  assert.throws(() => normalizeCleanupOptions({ batchSize: 1.5 }), /batchSize/);
+  assert.throws(() => normalizeCleanupOptions({ batchSize: Number.NaN }), /batchSize/);
+});
+
+test('cleanup counts returned deleted IDs when the driver omits rowCount', async () => {
+  const responses = [
+    { rowCount: null, rows: [{ event_id: 'one' }, { event_id: 'two' }] },
+    { rowCount: null, rows: [{ event_id: 'three' }] }
+  ];
+  let calls = 0;
+  const fakePool = {
+    async query() {
+      return responses[calls++] ?? { rowCount: null, rows: [] };
+    }
+  };
+
+  const deleted = await cleanupExpiredAdEvents(fakePool, { retentionDays: 90, batchSize: 2 });
+  assert.equal(deleted, 3);
+  assert.equal(calls, 2);
 });

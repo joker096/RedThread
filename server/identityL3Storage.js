@@ -1,0 +1,475 @@
+import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
+import { constants, createReadStream, createWriteStream } from 'node:fs';
+import { lstat, mkdir, open, readFile, readdir, realpath, rename, rm, unlink } from 'node:fs/promises';
+import path from 'node:path';
+import { Readable, Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+
+const MAGIC = Buffer.from([0x56, 0x4f, 0x57, 0x4c, 0x33, 0x56, 0x32, 0x00]);
+const NONCE_BYTES = 12;
+const TAG_BYTES = 16;
+const HEADER_BYTES = MAGIC.length + NONCE_BYTES;
+const DEFAULT_MAX_BYTES = 100 * 1024 * 1024;
+const OBJECT_KEY_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export class IdentityL3StorageError extends Error {
+  constructor(code, message = code) {
+    super(message);
+    this.name = 'IdentityL3StorageError';
+    this.code = code;
+  }
+}
+
+export function parseIdentityL3EncryptionKey(value) {
+  if (typeof value !== 'string' || !/^[0-9a-f]{64}$/i.test(value)) {
+    throw new IdentityL3StorageError('l3_storage_key_invalid');
+  }
+  return Buffer.from(value, 'hex');
+}
+
+function validateObjectKey(objectKey) {
+  if (typeof objectKey !== 'string' || !OBJECT_KEY_PATTERN.test(objectKey)) {
+    throw new IdentityL3StorageError('l3_storage_object_key_invalid');
+  }
+  return objectKey;
+}
+
+async function ensurePrivateRoot(root) {
+  if (typeof root !== 'string' || !root.trim()) {
+    throw new IdentityL3StorageError('l3_storage_root_missing');
+  }
+  const absoluteRoot = path.resolve(root);
+  const parsedRoot = path.parse(absoluteRoot);
+  const components = absoluteRoot.slice(parsedRoot.root.length).split(path.sep).filter(Boolean);
+  let currentPath = parsedRoot.root;
+  let stat;
+
+  // Walk and inspect every component before descending into it. Recursive mkdir()
+  // would follow an existing symlinked parent and create directories outside the
+  // configured storage tree before a later realpath() check could reject the path.
+  for (const component of components) {
+    currentPath = path.join(currentPath, component);
+    try {
+      stat = await lstat(currentPath);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') {
+        throw new IdentityL3StorageError('l3_storage_root_unsafe');
+      }
+      try {
+        await mkdir(currentPath, { mode: 0o700 });
+      } catch (mkdirError) {
+        if (mkdirError?.code !== 'EEXIST') {
+          throw new IdentityL3StorageError('l3_storage_root_unsafe');
+        }
+      }
+      try {
+        stat = await lstat(currentPath);
+      } catch {
+        throw new IdentityL3StorageError('l3_storage_root_unsafe');
+      }
+    }
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      throw new IdentityL3StorageError('l3_storage_root_unsafe');
+    }
+  }
+
+  // Re-check canonical resolution after creation; the configured path must not
+  // traverse a symlink even if a component changed between the lstat() calls.
+  let resolvedRoot;
+  try {
+    resolvedRoot = await realpath(absoluteRoot);
+  } catch {
+    throw new IdentityL3StorageError('l3_storage_root_unsafe');
+  }
+  if (resolvedRoot !== absoluteRoot) {
+    throw new IdentityL3StorageError('l3_storage_root_unsafe');
+  }
+
+  stat = await lstat(absoluteRoot);
+  const currentUid = typeof process.getuid === 'function' ? process.getuid() : null;
+  if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0 ||
+      (currentUid !== null && stat.uid !== currentUid)) {
+    // Never silently chmod/chown an operator-managed mount. Fail closed if
+    // group/other principals can traverse it or the unprivileged app user does
+    // not own the directory containing identity media.
+    throw new IdentityL3StorageError('l3_storage_root_unsafe');
+  }
+  return absoluteRoot;
+}
+
+async function assertIdentityL3MountPoint(directory) {
+  let mountInfo;
+  try {
+    mountInfo = await readFile('/proc/self/mountinfo', 'utf8');
+  } catch {
+    throw new IdentityL3StorageError('l3_storage_mount_check_failed');
+  }
+  const mountPoints = mountInfo.split('\n').flatMap(line => {
+    const fields = line.split(' ');
+    if (fields.length < 5) return [];
+    const decoded = fields[4].replace(/\\([0-7]{3})/g, (_match, octal) =>
+      String.fromCharCode(Number.parseInt(octal, 8))
+    );
+    return [decoded];
+  });
+  if (!mountPoints.includes(directory)) {
+    throw new IdentityL3StorageError('l3_storage_mount_missing');
+  }
+}
+
+export async function assertIdentityL3StorageRootReady({
+  root,
+  requireMount = process.env.IDENTITY_L3_REQUIRE_MOUNT === 'true'
+}) {
+  const directory = await ensurePrivateRoot(root);
+  if (requireMount) await assertIdentityL3MountPoint(directory);
+  return true;
+}
+
+export async function assertIdentityL3StorageReady({
+  root,
+  tempRoot,
+  key,
+  requireMount = process.env.IDENTITY_L3_REQUIRE_MOUNT === 'true'
+}) {
+  parseIdentityL3EncryptionKey(key);
+  await assertIdentityL3StorageRootReady({ root, requireMount });
+  const scratchDirectory = await ensurePrivateRoot(tempRoot);
+  if (requireMount) await assertIdentityL3MountPoint(scratchDirectory);
+  return true;
+}
+
+async function writeFully(handle, buffer, position) {
+  let written = 0;
+  while (written < buffer.length) {
+    const result = await handle.write(
+      buffer,
+      written,
+      buffer.length - written,
+      position + written
+    );
+    if (!result.bytesWritten) {
+      throw new IdentityL3StorageError('l3_storage_write_incomplete');
+    }
+    written += result.bytesWritten;
+  }
+}
+
+function createMeter(maxBytes) {
+  const hash = createHash('sha256');
+  let size = 0;
+  const stream = new Transform({
+    transform(chunk, _encoding, callback) {
+      size += chunk.length;
+      if (size > maxBytes) {
+        callback(new IdentityL3StorageError('l3_media_too_large'));
+        return;
+      }
+      hash.update(chunk);
+      callback(null, chunk);
+    }
+  });
+  return {
+    stream,
+    get size() { return size; },
+    digest() { return hash.digest('hex'); }
+  };
+}
+
+/**
+ * Encrypt a readable media stream into a private, atomically published object.
+ * The on-disk format is MAGIC || nonce || ciphertext || GCM authentication tag.
+ * Object keys are generated by the server and are not filesystem paths supplied by callers.
+ */
+export async function storeIdentityL3Stream({ source, root, key, maxBytes = DEFAULT_MAX_BYTES }) {
+  if (!source || typeof source.pipe !== 'function') {
+    throw new IdentityL3StorageError('l3_media_stream_invalid');
+  }
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > DEFAULT_MAX_BYTES) {
+    throw new IdentityL3StorageError('l3_media_limit_invalid');
+  }
+  const encryptionKey = Buffer.isBuffer(key) ? Buffer.from(key) : parseIdentityL3EncryptionKey(key);
+  if (encryptionKey.length !== 32) throw new IdentityL3StorageError('l3_storage_key_invalid');
+
+  const directory = await ensurePrivateRoot(root);
+  const objectKey = randomUUID();
+  const temporaryPath = path.join(directory, `.tmp-${objectKey}`);
+  const finalPath = path.join(directory, objectKey);
+  const nonceBytes = randomBytes(NONCE_BYTES);
+  const cipher = createCipheriv('aes-256-gcm', encryptionKey, nonceBytes);
+  // Bind each encrypted object to its server-generated key so copying a valid
+  // ciphertext under another user's object key cannot authenticate.
+  cipher.setAAD(Buffer.from(objectKey, 'utf8'));
+  const meter = createMeter(maxBytes);
+  let handle;
+  let published = false;
+
+  try {
+    handle = await open(temporaryPath, 'wx', 0o600);
+    await writeFully(handle, Buffer.concat([MAGIC, nonceBytes]), 0);
+    const output = createWriteStream(temporaryPath, {
+      fd: handle.fd,
+      autoClose: false,
+      start: HEADER_BYTES
+    });
+    await pipeline(source, meter.stream, cipher, output);
+    const tag = cipher.getAuthTag();
+    const encryptedStat = await handle.stat();
+    await writeFully(handle, tag, encryptedStat.size);
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    await rename(temporaryPath, finalPath);
+    published = true;
+    // Persist the directory entry as well as the encrypted file contents. Without
+    // this fsync, a power loss can lose the rename after the API reports success.
+    const directoryHandle = await open(directory, constants.O_RDONLY);
+    try {
+      await directoryHandle.sync();
+    } finally {
+      await directoryHandle.close();
+    }
+    return {
+      objectKey,
+      sha256: meter.digest(),
+      sizeBytes: meter.size
+    };
+  } catch (error) {
+    if (handle) await handle.close().catch(() => {});
+    await unlink(temporaryPath).catch(() => {});
+    if (published) await unlink(finalPath).catch(() => {});
+    throw error;
+  }
+}
+
+let activeIdentityL3Decryptions = 0;
+export const IDENTITY_L3_MAX_CONCURRENT_DECRYPTIONS = 2;
+
+/**
+ * Return a decrypting stream. Consumers must read it to completion: GCM authenticity
+ * is established only when the final authentication tag has been checked.
+ *
+ * Decrypted staging bytes are written to a separate private scratch directory. In
+ * production this is a bounded tmpfs, never the read-only encrypted-media volume.
+ */
+export async function openIdentityL3Stream({
+  objectKey,
+  root,
+  tempRoot = root,
+  key,
+  maxBytes = DEFAULT_MAX_BYTES
+}) {
+  validateObjectKey(objectKey);
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > DEFAULT_MAX_BYTES) {
+    throw new IdentityL3StorageError('l3_media_limit_invalid');
+  }
+  const encryptionKey = Buffer.isBuffer(key) ? Buffer.from(key) : parseIdentityL3EncryptionKey(key);
+  if (encryptionKey.length !== 32) throw new IdentityL3StorageError('l3_storage_key_invalid');
+  if (activeIdentityL3Decryptions >= IDENTITY_L3_MAX_CONCURRENT_DECRYPTIONS) {
+    throw new IdentityL3StorageError('l3_storage_decryption_busy');
+  }
+  activeIdentityL3Decryptions += 1;
+
+  let sourceHandle;
+  let outputHandle;
+  let plaintextReady = false;
+  let handedOff = false;
+  let plaintextPath;
+  try {
+    const directory = await ensurePrivateRoot(root);
+    const stagingDirectory = await ensurePrivateRoot(tempRoot);
+    const objectPath = path.join(directory, objectKey);
+    plaintextPath = path.join(stagingDirectory, `.decrypt-${randomUUID()}`);
+
+    // Keep one no-follow descriptor for metadata, header, tag, and ciphertext.
+    // This prevents a path swap between validation and decryption.
+    sourceHandle = await open(objectPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const stat = await sourceHandle.stat();
+    const expectedSize = stat.size;
+    if (!stat.isFile() || expectedSize < HEADER_BYTES + TAG_BYTES ||
+        expectedSize > HEADER_BYTES + maxBytes + TAG_BYTES) {
+      throw new IdentityL3StorageError('l3_storage_object_invalid');
+    }
+
+    const header = Buffer.alloc(HEADER_BYTES);
+    const tag = Buffer.alloc(TAG_BYTES);
+    const headerRead = await sourceHandle.read(header, 0, header.length, 0);
+    const tagRead = await sourceHandle.read(tag, 0, tag.length, expectedSize - TAG_BYTES);
+    if (headerRead.bytesRead !== HEADER_BYTES || tagRead.bytesRead !== TAG_BYTES ||
+        !header.subarray(0, MAGIC.length).equals(MAGIC)) {
+      throw new IdentityL3StorageError('l3_storage_object_invalid');
+    }
+
+    const nonce = header.subarray(MAGIC.length);
+    const decipher = createDecipheriv('aes-256-gcm', encryptionKey, nonce);
+    decipher.setAAD(Buffer.from(objectKey, 'utf8'));
+    decipher.setAuthTag(tag);
+
+    // GCM plaintext must not reach a moderator/client until final() authenticates
+    // the complete ciphertext. Decrypt to a mode-0600 staging file, then publish
+    // a read stream only after pipeline() has completed the authentication check.
+    outputHandle = await open(plaintextPath, 'wx', 0o600);
+    const output = createWriteStream(plaintextPath, {
+      fd: outputHandle.fd,
+      autoClose: false
+    });
+    const ciphertext = sourceHandle.createReadStream({
+      start: HEADER_BYTES,
+      end: expectedSize - TAG_BYTES - 1,
+      autoClose: false
+    });
+    await pipeline(ciphertext, decipher, output);
+    await outputHandle.sync();
+    await outputHandle.close();
+    outputHandle = null;
+    plaintextReady = true;
+
+    const plaintext = createReadStream(plaintextPath);
+    // Release the bounded scratch slot and unlink on normal completion,
+    // cancellation, or stream error/close.
+    plaintext.once('close', () => {
+      activeIdentityL3Decryptions = Math.max(0, activeIdentityL3Decryptions - 1);
+      unlink(plaintextPath).catch(() => {});
+    });
+    plaintext.once('error', () => {
+      plaintext.destroy();
+    });
+    handedOff = true;
+    return plaintext;
+  } catch (error) {
+    if (error?.code === 'ELOOP') {
+      throw new IdentityL3StorageError('l3_storage_object_invalid');
+    }
+    if (error?.code === 'ERR_OSSL_EVP_BAD_DECRYPT' ||
+        error?.code === 'ERR_CRYPTO_AUTH_FAILED') {
+      throw new IdentityL3StorageError('l3_storage_authentication_failed');
+    }
+    if (error instanceof IdentityL3StorageError) throw error;
+    if (error?.message?.toLowerCase().includes('authenticate') ||
+        error?.message?.toLowerCase().includes('bad decrypt')) {
+      throw new IdentityL3StorageError('l3_storage_authentication_failed');
+    }
+    throw error;
+  } finally {
+    if (sourceHandle) await sourceHandle.close().catch(() => {});
+    if (outputHandle) await outputHandle.close().catch(() => {});
+    if (!plaintextReady && plaintextPath) await unlink(plaintextPath).catch(() => {});
+    if (!handedOff) activeIdentityL3Decryptions = Math.max(0, activeIdentityL3Decryptions - 1);
+  }
+}
+
+/**
+ * Remove abandoned decrypted staging files after a process restart. This must be
+ * called before accepting requests/starting jobs in a container-private scratch
+ * directory; it never touches encrypted objects or caller-supplied paths.
+ */
+export async function clearIdentityL3TemporaryFiles({ root }) {
+  // This directory is a dedicated ephemeral scratch mount. At process startup
+  // there are no live readers, so remove every abandoned entry rather than
+  // relying on filename/type hints from the mounted filesystem.
+  const directory = await ensurePrivateRoot(root);
+  const entries = await readdir(directory);
+  let deletedCount = 0;
+  for (const name of entries) {
+    const filePath = path.join(directory, name);
+    const stat = await lstat(filePath).catch(error => {
+      if (error?.code === 'ENOENT') return null;
+      throw new IdentityL3StorageError('l3_storage_root_unsafe');
+    });
+    if (!stat) continue;
+    // fs.rm does not follow symlinks; a symlink entry is unlinked, never traversed.
+    await rm(filePath, { recursive: true, force: true });
+    deletedCount += 1;
+  }
+  if (deletedCount) {
+    const directoryHandle = await open(directory, constants.O_RDONLY);
+    try {
+      await directoryHandle.sync();
+    } finally {
+      await directoryHandle.close();
+    }
+  }
+  return { deletedCount };
+}
+
+export async function deleteIdentityL3Object({ objectKey, root }) {
+  validateObjectKey(objectKey);
+  const directory = await ensurePrivateRoot(root);
+  const objectPath = path.join(directory, objectKey);
+  try {
+    const stat = await lstat(objectPath);
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+      throw new IdentityL3StorageError('l3_storage_object_invalid');
+    }
+    await unlink(objectPath);
+    // Persist the directory entry removal before the caller clears its DB reference.
+    const directoryHandle = await open(directory, constants.O_RDONLY);
+    try {
+      await directoryHandle.sync();
+    } finally {
+      await directoryHandle.close();
+    }
+    return true;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+export const IDENTITY_L3_MAX_MEDIA_BYTES = DEFAULT_MAX_BYTES;
+
+const ORPHAN_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const TEMP_OBJECT_PATTERN = /^(?:\.tmp-|\.decrypt-)([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i;
+
+/**
+ * Remove only stale UUID media files that have no database reference, plus
+ * abandoned encrypted/decryption staging files. The age guard prevents races
+ * with slow uploads or active moderator streams after a process crash.
+ */
+export async function sweepIdentityL3OrphanObjects({
+  root,
+  referencedObjectKeys = [],
+  olderThanMs = ORPHAN_MAX_AGE_MS,
+  now = Date.now()
+}) {
+  if (!Number.isSafeInteger(olderThanMs) || olderThanMs < 60 * 60 * 1000 ||
+      olderThanMs > 7 * 24 * 60 * 60 * 1000 || !Number.isFinite(now)) {
+    throw new IdentityL3StorageError('l3_orphan_sweep_options_invalid');
+  }
+  const directory = await ensurePrivateRoot(root);
+  const referenced = new Set(referencedObjectKeys);
+  const entries = await readdir(directory, { withFileTypes: true });
+  let deletedCount = 0;
+
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const isTemporary = TEMP_OBJECT_PATTERN.test(entry.name);
+    if (!isTemporary && !OBJECT_KEY_PATTERN.test(entry.name)) continue;
+    if (!isTemporary && referenced.has(entry.name)) continue;
+    const objectPath = path.join(directory, entry.name);
+    let stat;
+    try {
+      stat = await lstat(objectPath);
+    } catch (error) {
+      if (error?.code === 'ENOENT') continue;
+      throw new IdentityL3StorageError('l3_storage_root_unsafe');
+    }
+    if (!stat.isFile() || stat.isSymbolicLink() || now - stat.mtimeMs < olderThanMs) continue;
+    try {
+      await unlink(objectPath);
+      deletedCount += 1;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+  }
+
+  if (deletedCount) {
+    const directoryHandle = await open(directory, constants.O_RDONLY);
+    try {
+      await directoryHandle.sync();
+    } finally {
+      await directoryHandle.close();
+    }
+  }
+  return { deletedCount };
+}

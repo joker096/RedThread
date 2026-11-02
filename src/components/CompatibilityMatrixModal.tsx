@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { 
   X, 
   Sparkles, 
@@ -33,8 +33,6 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
   onStartChat
 }) => {
   const { t } = useLocale();
-  const [chemistryStep, setChemistryStep] = useState<number>(0);
-  const [chemistryScoreBonus, setChemistryScoreBonus] = useState<number>(0);
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   const profileId = profile?.id;
@@ -42,11 +40,6 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
-
-  useEffect(() => {
-    setChemistryStep(0);
-    setChemistryScoreBonus(0);
-  }, [isOpen, profile?.id]);
 
   useEffect(() => {
     if (!isOpen || profileId == null) return;
@@ -93,42 +86,16 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
   if (!isOpen || !profile) return null;
 
   const compatibility = calculateCompatibility(myAnswers, myIntent, myInterests, profile);
-  const displayScore = Math.min(99, compatibility.overallScore + chemistryScoreBonus);
+  const hasEnoughCompatibilityData = compatibility.dataCoverage >= 50;
+  const displayScore = compatibility.overallScore;
 
-  // Blitz chemistry test questions
-  const blitzQuestions = [
-    {
-      q: 'Идеальный вечер пятницы после сложной недели?',
-      options: [
-        { label: 'Ужин дома вдвоем за бокалом вина и глубоким разговором', match: true },
-        { label: 'Шумный бар или вечеринка с друзьями до утра', match: false },
-        { label: 'Прогулка в парке или кино', match: true }
-      ]
-    },
-    {
-      q: 'Кто принимает финальное решение по крупным покупкам?',
-      options: [
-        { label: 'Вместе на семейном совете, уважая аргументы друг друга', match: true },
-        { label: 'Каждый тратит только свои заработанные деньги', match: false },
-        { label: 'Мужчина берет на себя основные расходы и ответственность', match: true }
-      ]
-    },
-    {
-      q: 'Если произошла размолвка или недопонимание?',
-      options: [
-        { label: 'Сразу спокойно обсуждаем вслух, без обид и молчанки', match: true },
-        { label: 'Ждем сутки, пока само рассосется', match: false },
-        { label: 'Обнимемся и переключимся на решение задачи', match: true }
-      ]
-    }
+  // These prompts are conversation starters only. A real compatibility
+  // comparison requires independently submitted answers from both people.
+  const conversationPrompts = [
+    'Как выглядит ваш идеальный вечер после сложной недели?',
+    'Как вы предпочитаете принимать важные финансовые решения в паре?',
+    'Что помогает вам спокойно обсудить разногласия?'
   ];
-
-  const handleBlitzAnswer = (isMatch: boolean) => {
-    if (isMatch) {
-      setChemistryScoreBonus(prev => Math.min(5, prev + 2));
-    }
-    setChemistryStep(prev => prev + 1);
-  };
 
   return (
     <div className="vow-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
@@ -172,13 +139,13 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
         <div className="p-4 rounded-2xl bg-gradient-to-r from-rose-950/60 via-red-950/40 to-stone-950 border border-rose-600/30 mb-5 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-rose-600 to-red-500 text-white flex flex-col items-center justify-center font-black shadow-lg shadow-rose-950">
-              <span className="text-xl leading-none">{displayScore}%</span>
+              <span className="text-xl leading-none">{hasEnoughCompatibilityData ? `${displayScore}%` : '—'}</span>
               <span className="text-[9px] uppercase tracking-tighter opacity-80 mt-0.5">Индекс</span>
             </div>
             <div>
               <div className="text-sm font-bold text-white flex items-center gap-1.5">
-                <span>{displayScore >= 85 ? t('compatibilityHighAlignment') : t('compatibilitySomeAlignment')}</span>
-                <Flame className="w-4 h-4 text-amber-400 fill-amber-400" />
+                <span>{!hasEnoughCompatibilityData ? t('compatibilityInsufficientData') : displayScore >= 85 ? t('compatibilityHighAlignment') : t('compatibilitySomeAlignment')}</span>
+                {hasEnoughCompatibilityData && <Flame className="w-4 h-4 text-amber-400 fill-amber-400" />}
               </div>
               <p className="text-xs text-rose-300/90 mt-0.5">
                 {t('compatibilityScoreDisclaimer')}
@@ -226,7 +193,7 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
             {/* 3. Communication & Maturity */}
             <div>
               <div className="flex justify-between text-stone-300 mb-1">
-                <span>Зрелость в конфликтах (без манипуляций)</span>
+                <span>Предпочтения в разрешении конфликтов</span>
                 <span className="font-bold text-rose-400">{compatibility.communicationMatch}%</span>
               </div>
               <div className="h-2 rounded-full bg-stone-800 overflow-hidden">
@@ -297,36 +264,23 @@ export const CompatibilityMatrixModal: React.FC<CompatibilityMatrixModalProps> =
           <div className="flex items-center justify-between mb-2">
             <span className="font-bold text-white flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              <span>Экспресс-тест на химию (30 секунд)</span>
+              <span>Вопросы для первого разговора</span>
             </span>
             <span className="text-[10px] text-stone-400">
-              {chemistryStep < blitzQuestions.length ? `Вопрос ${chemistryStep + 1} из 3` : 'Тест пройден!'}
+              {conversationPrompts.length} темы
             </span>
           </div>
 
-          {chemistryStep < blitzQuestions.length ? (
-            <div>
-              <p className="text-stone-200 mb-2 font-medium">
-                {blitzQuestions[chemistryStep].q}
-              </p>
-              <div className="space-y-1.5">
-                {blitzQuestions[chemistryStep].options.map((opt, idx) => (
-                  <button type="button"
-                    key={idx}
-                    onClick={() => handleBlitzAnswer(opt.match)}
-                    className="w-full min-h-11 text-left p-2 rounded-xl bg-stone-900 hover:bg-rose-950/60 hover:border-rose-500/40 border border-white/5 text-stone-300 hover:text-white transition-all text-[11px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+          <div className="space-y-2">
+            {conversationPrompts.map((prompt, index) => (
+              <div key={prompt} className="rounded-xl border border-white/5 bg-stone-900 p-3 text-stone-200">
+                <span className="mr-2 text-rose-300">{index + 1}.</span>{prompt}
               </div>
-            </div>
-          ) : (
-            <div className="p-2.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-200 flex items-center justify-between">
-              <span>Ответы совпали по этому мини-тесту. Это ориентир для разговора, а не научный прогноз отношений.</span>
-              <span className="text-[10px] font-bold text-white bg-rose-600 px-2 py-0.5 rounded-full">Ответы совпали</span>
-            </div>
-          )}
+            ))}
+          </div>
+          <p className="mt-2 text-[10px] leading-relaxed text-stone-400">
+            Это темы для открытого разговора, а не тест. Они не изменяют процент совместимости: для сравнения нужны ответы обоих участников.
+          </p>
         </div>
 
         {/* Modal Action Footer */}

@@ -25,6 +25,7 @@ export interface VerificationData {
 
 export interface CompatibilityBreakdown {
   overallScore: number; // 0 - 100
+  dataCoverage: number; // 0 - 100; share of six comparable evidence groups
   valuesMatch: number;  // 0 - 100
   familyGoalsMatch: number;
   lifestyleMatch: number;

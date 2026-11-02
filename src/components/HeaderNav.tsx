@@ -12,6 +12,7 @@ interface HeaderNavProps {
   brandName: string;
   onOpenBrandModal: () => void;
   onToggleGender: () => void;
+  allowDemoGenderSwitch: boolean;
   onToggleDeviceFrame: (frame: DeviceFrame) => void;
   onOpenPremiumModal: () => void;
   onOpenBotScanner: () => void;
@@ -32,6 +33,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   brandName,
   onOpenBrandModal,
   onToggleGender,
+  allowDemoGenderSwitch,
   onToggleDeviceFrame,
   onOpenPremiumModal,
   onOpenBotScanner,
@@ -163,8 +165,10 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           {/* Binary Role Switcher */}
           <button
             type="button"
-            onClick={onToggleGender}
-            className={`focus-visible:border-rose-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 vow-motion-button flex min-h-11 min-w-11 shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-2 text-[11px] font-semibold transition-all ${
+            onClick={allowDemoGenderSwitch ? onToggleGender : undefined}
+            disabled={!allowDemoGenderSwitch}
+            aria-disabled={!allowDemoGenderSwitch}
+            className={`focus-visible:border-rose-400 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 vow-motion-button flex min-h-11 min-w-11 shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-2 text-[11px] font-semibold transition-all ${
               currentGender === 'female'
                 ? 'bg-rose-950/40 border-rose-500/40 text-rose-200'
                 : 'bg-blue-950/40 border-blue-500/40 text-blue-200'

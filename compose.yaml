@@ -13,7 +13,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-    networks: [private]
+    networks: [backend]
 
   migrate:
     build:
@@ -27,13 +27,158 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    networks: [private]
+    networks: [backend]
+
+  ad-event-retention:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
+      PGSSL: "false"
+      AD_EVENT_CLEANUP_BATCH_SIZE: ${AD_EVENT_CLEANUP_BATCH_SIZE:-1000}
+    command:
+      - sh
+      - -c
+      - |
+        while :; do
+          node scripts/cleanup-ad-events.js || echo "Ad-event cleanup failed; retrying on the next daily cycle."
+          sleep 86400
+        done
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [backend]
+
+  gift-request-expiry:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
+      PGSSL: "false"
+      GIFT_EXPIRY_BATCH_SIZE: ${GIFT_EXPIRY_BATCH_SIZE:-100}
+    command:
+      - sh
+      - -c
+      - |
+        while :; do
+          node server/expire-gift-requests.js || echo "Gift request expiry failed; retrying on the next minute."
+          sleep 60
+        done
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [backend]
+
+  clamav:
+    image: ${CLAMAV_IMAGE:-clamav/clamav:stable}
+    restart: unless-stopped
+    profiles: ["identity-l3"]
+    environment:
+      CLAMD_CONF_StreamMaxLength: 120M
+      CLAMD_CONF_TemporaryDirectory: /tmp
+      CLAMD_CONF_MaxFileSize: 120M
+      CLAMD_CONF_MaxScanSize: 120M
+      CLAMD_CONF_MaxThreads: 2
+      CLAMD_CONF_MaxQueue: 4
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777
+    volumes:
+      - clamav_database:/var/lib/clamav
+    mem_limit: 4g
+    mem_reservation: 3g
+    healthcheck:
+      test: ["CMD-SHELL", "clamdscan --ping 3"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10m
+    networks: [backend]
+
+  identity-l3-worker:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    profiles: ["identity-l3"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
+      PGSSL: "${PGSSL:-false}"
+      IDENTITY_L3_STORAGE_DIR: /app/uploads/private-identity-l3
+      IDENTITY_L3_REQUIRE_MOUNT: "true"
+      IDENTITY_L3_TEMP_DIR: /run/identity-l3-tmp
+      IDENTITY_L3_ENCRYPTION_KEY: ${IDENTITY_L3_ENCRYPTION_KEY:-}
+      IDENTITY_L3_CLAMD_HOST: clamav
+      IDENTITY_L3_CLAMD_PORT: "3310"
+    command: ["node", "server/process-identity-l3-queue.js"]
+    volumes:
+      - private_identity_l3:/app/uploads/private-identity-l3:ro
+    tmpfs:
+      - /run/identity-l3-tmp:rw,noexec,nosuid,nodev,size=256m,mode=0700,uid=1000,gid=1000
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      clamav:
+        condition: service_healthy
+    networks: [backend]
+
+  identity-l3-purge-worker:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # Privacy cleanup must continue even while new L3 uploads/moderation are disabled.
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
+      PGSSL: "${PGSSL:-false}"
+      IDENTITY_L3_STORAGE_DIR: /app/uploads/private-identity-l3
+      IDENTITY_L3_REQUIRE_MOUNT: "true"
+    command: ["node", "server/process-identity-l3-queue.js", "--purge-only"]
+    volumes:
+      - private_identity_l3:/app/uploads/private-identity-l3
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [backend]
+
+  identity-l3-expiry:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
+      PGSSL: "${PGSSL:-false}"
+      IDENTITY_L3_EXPIRY_BATCH_SIZE: ${IDENTITY_L3_EXPIRY_BATCH_SIZE:-100}
+    command:
+      - sh
+      - -c
+      - |
+        while :; do
+          node server/expire-identity-l3-approvals.js || echo "L3 approval expiry failed; retrying on the next minute."
+          sleep 60
+        done
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [backend]
 
   api:
     build:
       context: .
       target: api
     restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     environment:
       NODE_ENV: production
       API_PORT: "3001"
@@ -45,11 +190,26 @@ services:
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-resend}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-Vow <noreply@example.com>}
-      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
-      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
-      STRIPE_PRICE_ID_1MONTH: ${STRIPE_PRICE_ID_1MONTH:-}
-      STRIPE_PRICE_ID_3MONTHS: ${STRIPE_PRICE_ID_3MONTHS:-}
-      STRIPE_PRICE_ID_LIFETIME: ${STRIPE_PRICE_ID_LIFETIME:-}
+      PADDLE_ENVIRONMENT: ${PADDLE_ENVIRONMENT:-sandbox}
+      PADDLE_API_KEY: ${PADDLE_API_KEY:-}
+      PADDLE_WEBHOOK_SECRET: ${PADDLE_WEBHOOK_SECRET:-}
+      PADDLE_CLIENT_TOKEN: ${PADDLE_CLIENT_TOKEN:-}
+      PADDLE_PRICE_ID_1MONTH: ${PADDLE_PRICE_ID_1MONTH:-}
+      PADDLE_PRICE_ID_3MONTHS: ${PADDLE_PRICE_ID_3MONTHS:-}
+      PADDLE_PRICE_ID_LIFETIME: ${PADDLE_PRICE_ID_LIFETIME:-}
+      DIDIT_ENVIRONMENT: ${DIDIT_ENVIRONMENT:-sandbox}
+      DIDIT_SANDBOX_KEY_CONFIRMED: ${DIDIT_SANDBOX_KEY_CONFIRMED:-false}
+      DIDIT_LIVE_KEY_CONFIRMED: ${DIDIT_LIVE_KEY_CONFIRMED:-false}
+      DIDIT_API_KEY: ${DIDIT_API_KEY:-}
+      DIDIT_WORKFLOW_ID: ${DIDIT_WORKFLOW_ID:-}
+      DIDIT_APPLICATION_ID: ${DIDIT_APPLICATION_ID:-}
+      DIDIT_WEBHOOK_SECRET: ${DIDIT_WEBHOOK_SECRET:-}
+      DIDIT_WEBHOOK_SECRET_PREVIOUS: ${DIDIT_WEBHOOK_SECRET_PREVIOUS:-}
+      IDENTITY_L3_ENABLED: ${IDENTITY_L3_ENABLED:-false}
+      IDENTITY_L3_STORAGE_DIR: /app/uploads/private-identity-l3
+      IDENTITY_L3_REQUIRE_MOUNT: "true"
+      IDENTITY_L3_TEMP_DIR: /run/identity-l3-tmp
+      IDENTITY_L3_ENCRYPTION_KEY: ${IDENTITY_L3_ENCRYPTION_KEY:-}
       PHOTO_STORAGE_DIR: /app/uploads/private-photos
       PHOTO_AI_ENABLED: ${PHOTO_AI_ENABLED:-false}
       PHOTO_AI_MODEL: ${PHOTO_AI_MODEL:-llava:7b}
@@ -57,6 +217,9 @@ services:
       LOCAL_AI_MODEL: ${LOCAL_AI_MODEL:-qwen2.5:3b}
     volumes:
       - private_photos:/app/uploads/private-photos
+      - private_identity_l3:/app/uploads/private-identity-l3
+    tmpfs:
+      - /run/identity-l3-tmp:rw,noexec,nosuid,nodev,size=256m,mode=0700,uid=1000,gid=1000
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -66,7 +229,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
-    networks: [private, egress]
+    networks: [backend, frontend, egress]
 
   web:
     build:
@@ -78,14 +241,18 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    networks: [private]
+    networks: [frontend]
 
 volumes:
   postgres_data:
   private_photos:
+  private_identity_l3:
+  clamav_database:
 
 networks:
-  private:
+  backend:
+    internal: true
+  frontend:
     internal: true
   egress:
     driver: bridge

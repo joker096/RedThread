@@ -5,10 +5,12 @@ import {
   detectBotRisk,
   checkAntiChitChatDeadline,
   shouldShowAds,
-  filterBinaryCandidates
+  filterBinaryCandidates,
+  excludeSponsoredDiscoveryProfiles
 } from './compatibility.ts';
 import type { UserProfile, CrucialAnswers } from '../types/index.ts';
 import { matchesProfileLocation } from './location.ts';
+import { createAdEventId } from './adEvents.ts';
 
 const mockAnswers: CrucialAnswers = {
   marriage_and_kids: 'Хочу семью и детей в ближайшие 1-2 года',
@@ -138,17 +140,19 @@ test('filterBinaryCandidates strictly ensures women see men and men see women', 
     { ...mockTargetProfile, id: 'man_1', gender: 'male' },
     { ...mockTargetProfile, id: 'man_2', gender: 'male' },
     { ...mockTargetProfile, id: 'woman_1', gender: 'female' },
-    { ...mockTargetProfile, id: 'ad_1', isSponsorAd: true, gender: 'male' }
+    { ...mockTargetProfile, id: 'ad_1', isSponsorAd: true, gender: 'male' },
+    { ...mockTargetProfile, id: 'ad_2', isSponsorAd: 'true' as unknown as boolean, gender: 'male' }
   ];
 
   const forFemaleUser = filterBinaryCandidates(sampleProfiles, 'female');
   assert.equal(forFemaleUser.some(p => p.id === 'woman_1'), false, 'Female user must NOT see female candidates');
   assert.equal(forFemaleUser.some(p => p.id === 'man_1'), true, 'Female user must see male candidates');
-  assert.equal(forFemaleUser.some(p => p.isSponsorAd), true, 'Sponsor ad should be visible');
+  assert.equal(forFemaleUser.some(p => p.isSponsorAd), false, 'Sponsored placements must never enter discovery');
 
   const forMaleUser = filterBinaryCandidates(sampleProfiles, 'male');
   assert.equal(forMaleUser.some(p => p.id === 'man_1'), false, 'Male user must NOT see male candidates');
   assert.equal(forMaleUser.some(p => p.id === 'woman_1'), true, 'Male user must see female candidates');
+  assert.equal(forMaleUser.some(p => p.isSponsorAd), false, 'Sponsored placements must never enter discovery for men either');
 });
 
 
@@ -207,4 +211,116 @@ test('location filters allow all locations and do not guess missing country', ()
   assert.equal(matchesProfileLocation({ city: 'Москва' }, 'all', 'all'), true);
   assert.equal(matchesProfileLocation({ city: 'Москва' }, 'Россия', 'all'), false);
   assert.equal(matchesProfileLocation({ country: 'ОАЭ / Россия', city: 'Дубай / Москва' }, 'ОАЭ', 'Дубай'), true);
+});
+
+
+test('excludeSponsoredDiscoveryProfiles removes sponsored cards but keeps ordinary candidates', () => {
+  const sponsored = { ...mockTargetProfile, id: 'ad_1', isSponsorAd: true };
+  const ordinary = { ...mockTargetProfile, id: 'person_1', isSponsorAd: false };
+  const withoutSponsorFlag = { ...mockTargetProfile, id: 'person_2' };
+
+  const result = excludeSponsoredDiscoveryProfiles([sponsored, ordinary, withoutSponsorFlag]);
+  assert.deepEqual(result.map(profile => profile.id), ['person_1', 'person_2']);
+});
+
+
+test('createAdEventId always returns a UUID accepted by the ad event API', () => {
+  const eventId = createAdEventId();
+  assert.match(eventId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+});
+
+
+test('compatibility treats marriage and cohabitation as different family expectations', () => {
+  const result = calculateCompatibility(
+    mockAnswers,
+    'marriage_family',
+    [],
+    { ...mockTargetProfile, intent: 'cohabitation' }
+  );
+
+  assert.ok(result.familyGoalsMatch < 85);
+  assert.ok(result.valuesMatch < 85);
+  assert.ok(result.frictionPoints.some(point => point.includes('официального брака')));
+});
+
+test('compatibility treats serious relationship as distinct from an explicit marriage goal', () => {
+  const result = calculateCompatibility(
+    mockAnswers,
+    'marriage_family',
+    [],
+    { ...mockTargetProfile, intent: 'serious_relationship' }
+  );
+
+  assert.ok(result.familyGoalsMatch < 85);
+  assert.ok(result.frictionPoints.some(point => point.includes('цель брака')));
+});
+
+test('empty assessment answers are missing data, not false positive matches', () => {
+  const profile = {
+    ...mockTargetProfile,
+    crucialAnswers: {
+      marriage_and_kids: '',
+      finances: '   ',
+      free_time: '',
+      conflict_resolution: ''
+    }
+  };
+
+  const result = calculateCompatibility(
+    { marriage_and_kids: '', finances: ' ', free_time: '', conflict_resolution: '' },
+    'marriage_family',
+    [],
+    profile
+  );
+
+  assert.equal(result.greenFlags.some(flag => flag.includes('детей')), false);
+  assert.equal(result.greenFlags.some(flag => flag.includes('бюджета')), false);
+  assert.equal(result.greenFlags.some(flag => flag.includes('отдыха')), false);
+  assert.equal(result.greenFlags.some(flag => flag.includes('конфликтов')), false);
+  assert.equal(result.frictionPoints.length, 0);
+  assert.equal(result.dataCoverage, 17, 'only the mutually declared relationship intent is comparable');
+});
+
+test('compatibility reports complete evidence coverage when all answer groups are available', () => {
+  const result = calculateCompatibility(mockAnswers, 'marriage_family', ['спорт'], mockTargetProfile);
+  assert.equal(result.dataCoverage, 100);
+});
+
+test('compatibility normalizes answer casing and deduplicates common interests', () => {
+  const result = calculateCompatibility(
+    {
+      marriage_and_kids: '  ХОЧУ СЕМЬЮ И ДЕТЕЙ В БЛИЖАЙШИЕ 1-2 ГОДА ',
+      finances: 'мужчина основной добытчик',
+      free_time: 'ПУТЕШЕСТВИЯ И АКТИВНЫЙ ОТДЫХ',
+      conflict_resolution: 'спокойно говорим через рот сразу'
+    },
+    'marriage_family',
+    [],
+    mockTargetProfile
+  );
+
+  assert.ok(result.greenFlags.some(flag => flag.includes('детей')));
+  assert.ok(result.greenFlags.some(flag => flag.includes('бюджета')));
+  assert.ok(result.greenFlags.some(flag => flag.includes('отдыха')));
+});
+
+test('compatibility deduplicates common interests regardless of casing and whitespace', () => {
+  const target = {
+    ...mockTargetProfile,
+    crucialAnswers: {
+      marriage_and_kids: 'Другое значение',
+      finances: 'Другое значение',
+      free_time: 'Другое значение',
+      conflict_resolution: 'Другое значение'
+    }
+  };
+  const result = calculateCompatibility(
+    mockAnswers,
+    'marriage_family',
+    [' СПОРТ ', 'спорт', 'ПУТЕШЕСТВИЯ'],
+    target
+  );
+
+  assert.equal(result.greenFlags.filter(flag => flag.startsWith('Общие увлечения:')).length, 1);
+  assert.ok(result.greenFlags.some(flag => flag.includes('спорт, путешествия')));
 });
