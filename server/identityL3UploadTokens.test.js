@@ -68,7 +68,7 @@ test('upload capability issuance fails closed unless persisted account and Didit
   assert.equal(client.calls.length, 2);
   assert.match(client.calls[1].sql, /FOR UPDATE OF u, p, iv/);
   assert.match(client.calls[1].sql, /identity_l3_consents/);
-  assert.equal(client.calls[1].params[0], 1);
+  assert.equal(client.calls[1].params[0], 2);
 });
 
 test('upload capability issuance persists only a digest and returns plaintext once', async () => {
