@@ -4507,7 +4507,7 @@ app.post('/api/identity/l3/upload', validateRequestOrigin, requireSession, ident
   }
   if (lengthHeader !== undefined &&
       (!/^\d+$/.test(lengthHeader) || Number(lengthHeader) < 1 || Number(lengthHeader) > IDENTITY_L3_MAX_MEDIA_BYTES)) {
-    return res.status(Number(lengthHeader) > IDENTITY_L3_MAX_MEDIA_BYTES ? 413 : 400, {
+    return res.status(Number(lengthHeader) > IDENTITY_L3_MAX_MEDIA_BYTES ? 413 : 400).json({
       error: Number(lengthHeader) > IDENTITY_L3_MAX_MEDIA_BYTES ? 'l3_media_too_large' : 'l3_content_length_invalid'
     });
   }
