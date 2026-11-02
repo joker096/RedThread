@@ -374,7 +374,9 @@ export async function clearIdentityL3TemporaryFiles({ root }) {
     const processingSuffixLength = entry.name.startsWith(processingDirectoryPrefix)
       ? entry.name.length - processingDirectoryPrefix.length
       : 0;
-    const isProcessingDirectory = entry.isDirectory() &&
+    // Use lstat below for the final type check rather than trusting Dirent
+    // type hints, which may be unavailable on some mounted filesystems.
+    const isProcessingDirectory =
       processingSuffixLength >= 6 && processingSuffixLength <= 32;
     if (!isDecryptFile && !isProcessingDirectory) continue;
     const filePath = path.join(directory, entry.name);
