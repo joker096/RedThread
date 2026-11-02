@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
-import { createReadStream, createWriteStream } from 'node:fs';
+import { constants, createWriteStream } from 'node:fs';
 import { lstat, mkdir, open, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { Transform } from 'node:stream';
@@ -91,6 +91,7 @@ export async function storeIdentityL3Stream({ source, root, key, maxBytes = DEFA
   const cipher = createCipheriv('aes-256-gcm', encryptionKey, nonceBytes);
   const meter = createMeter(maxBytes);
   let handle;
+  let published = false;
 
   try {
     handle = await open(temporaryPath, 'wx', 0o600);
@@ -108,6 +109,15 @@ export async function storeIdentityL3Stream({ source, root, key, maxBytes = DEFA
     await handle.close();
     handle = null;
     await rename(temporaryPath, finalPath);
+    published = true;
+    // Persist the directory entry as well as the encrypted file contents. Without
+    // this fsync, a power loss can lose the rename after the API reports success.
+    const directoryHandle = await open(directory, constants.O_RDONLY);
+    try {
+      await directoryHandle.sync();
+    } finally {
+      await directoryHandle.close();
+    }
     return {
       objectKey,
       sha256: meter.digest(),
@@ -116,6 +126,7 @@ export async function storeIdentityL3Stream({ source, root, key, maxBytes = DEFA
   } catch (error) {
     if (handle) await handle.close().catch(() => {});
     await unlink(temporaryPath).catch(() => {});
+    if (published) await unlink(finalPath).catch(() => {});
     throw error;
   }
 }
@@ -130,21 +141,29 @@ export async function openIdentityL3Stream({ objectKey, root, key }) {
   if (encryptionKey.length !== 32) throw new IdentityL3StorageError('l3_storage_key_invalid');
   const directory = await ensurePrivateRoot(root);
   const objectPath = path.join(directory, objectKey);
-  const stat = await lstat(objectPath);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size < HEADER_BYTES + TAG_BYTES) {
-    throw new IdentityL3StorageError('l3_storage_object_invalid');
-  }
-
-  const headerHandle = await open(objectPath, 'r');
+  // Open once with O_NOFOLLOW and use that same descriptor for metadata and bytes.
+  // A path-based lstat followed by createReadStream(path) allowed a local path
+  // replacement between the check and the actual read.
+  let sourceHandle;
   let header;
+  let stat;
   try {
+    sourceHandle = await open(objectPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+    stat = await sourceHandle.stat();
+    if (!stat.isFile() || stat.size < HEADER_BYTES + TAG_BYTES) {
+      throw new IdentityL3StorageError('l3_storage_object_invalid');
+    }
     header = Buffer.alloc(HEADER_BYTES);
-    const { bytesRead } = await headerHandle.read(header, 0, HEADER_BYTES, 0);
+    const { bytesRead } = await sourceHandle.read(header, 0, HEADER_BYTES, 0);
     if (bytesRead !== HEADER_BYTES || !header.subarray(0, MAGIC.length).equals(MAGIC)) {
       throw new IdentityL3StorageError('l3_storage_object_invalid');
     }
-  } finally {
-    await headerHandle.close();
+  } catch (error) {
+    if (sourceHandle) await sourceHandle.close().catch(() => {});
+    if (error?.code === 'ELOOP') {
+      throw new IdentityL3StorageError('l3_storage_object_invalid');
+    }
+    throw error;
   }
 
   const nonce = header.subarray(MAGIC.length);
@@ -182,9 +201,10 @@ export async function openIdentityL3Stream({ objectKey, root, key }) {
     }
   });
 
-  const source = createReadStream(objectPath, {
+  const source = sourceHandle.createReadStream({
     start: HEADER_BYTES,
-    end: HEADER_BYTES + ciphertextLength + TAG_BYTES - 1
+    end: HEADER_BYTES + ciphertextLength + TAG_BYTES - 1,
+    autoClose: true
   });
   source.on('error', error => authenticated.destroy(error));
   return source.pipe(authenticated);
