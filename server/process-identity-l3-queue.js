@@ -474,7 +474,16 @@ export async function runIdentityL3PurgeOnce(pool, {
       );
       await client.query('COMMIT');
       transactionOpen = false;
-      return { processed: true, purgeJobId: job.id, status: terminal ? 'failed' : 'retry_scheduled', errorCode: code };
+      const errorDiagnostic = typeof error?.message === 'string' &&
+        /^[a-zA-Z0-9 _.:()'-]{1,180}$/.test(error.message)
+        ? error.message : code;
+      return {
+        processed: true,
+        purgeJobId: job.id,
+        status: terminal ? 'failed' : 'retry_scheduled',
+        errorCode: code,
+        errorDiagnostic
+      };
     }
   } catch (error) {
     if (transactionOpen) {
