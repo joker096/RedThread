@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import {
+  clearIdentityL3TemporaryFiles,
   deleteIdentityL3Object,
   IdentityL3StorageError,
   openIdentityL3Stream,
@@ -71,6 +72,37 @@ test('L3 storage encrypts streams and decrypts only authenticated content', asyn
     assert.equal(encrypted.includes(original), false);
     assert.deepEqual(await collect(await openIdentityL3Stream({ objectKey: stored.objectKey, root, key })), original);
     assert.deepEqual((await readdir(root)).sort(), [stored.objectKey]);
+  });
+});
+
+test('L3 decryption stages plaintext only in a separate private scratch directory', async () => {
+  await withStorage(async root => {
+    const encryptedRoot = path.join(root, 'encrypted');
+    const scratchRoot = path.join(root, 'scratch');
+    await mkdir(encryptedRoot, { mode: 0o700 });
+    await mkdir(scratchRoot, { mode: 0o700 });
+    const original = Buffer.from('private moderator review video'.repeat(2048));
+    const stored = await storeIdentityL3Stream({
+      source: Readable.from([original]), root: encryptedRoot, key
+    });
+    const stream = await openIdentityL3Stream({
+      objectKey: stored.objectKey,
+      root: encryptedRoot,
+      tempRoot: scratchRoot,
+      key
+    });
+    assert.deepEqual(await collect(stream), original);
+    assert.deepEqual(await readdir(encryptedRoot), [stored.objectKey],
+      'the read-only encrypted-media directory must never receive plaintext staging files');
+    assert.deepEqual(await readdir(scratchRoot), [],
+      'the private scratch file must be removed when the stream closes');
+
+    const abandoned = path.join(scratchRoot, '.decrypt-cccccccc-cccc-4ccc-8ccc-cccccccccccc');
+    await writeFile(abandoned, 'stale plaintext', { mode: 0o600 });
+    await writeFile(path.join(scratchRoot, 'keep-me.txt'), 'not a staging object');
+    const cleanup = await clearIdentityL3TemporaryFiles({ root: scratchRoot });
+    assert.equal(cleanup.deletedCount, 1);
+    assert.deepEqual((await readdir(scratchRoot)).sort(), ['keep-me.txt']);
   });
 });
 
