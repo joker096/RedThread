@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID }
 import { constants, createWriteStream } from 'node:fs';
 import { lstat, mkdir, open, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
-import { Transform } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 const MAGIC = Buffer.from([0x56, 0x4f, 0x57, 0x4c, 0x33, 0x56, 0x31, 0x00]);
@@ -153,79 +153,65 @@ export async function storeIdentityL3Stream({ source, root, key, maxBytes = DEFA
  * Return a decrypting stream. Consumers must read it to completion: GCM authenticity
  * is established only when the final authentication tag has been checked.
  */
-export async function openIdentityL3Stream({ objectKey, root, key }) {
+export async function openIdentityL3Stream({ objectKey, root, key, maxBytes = DEFAULT_MAX_BYTES }) {
   validateObjectKey(objectKey);
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > DEFAULT_MAX_BYTES) {
+    throw new IdentityL3StorageError('l3_media_limit_invalid');
+  }
   const encryptionKey = Buffer.isBuffer(key) ? Buffer.from(key) : parseIdentityL3EncryptionKey(key);
   if (encryptionKey.length !== 32) throw new IdentityL3StorageError('l3_storage_key_invalid');
   const directory = await ensurePrivateRoot(root);
   const objectPath = path.join(directory, objectKey);
-  // Open once with O_NOFOLLOW and use that same descriptor for metadata and bytes.
-  // A path-based lstat followed by createReadStream(path) allowed a local path
-  // replacement between the check and the actual read.
   let sourceHandle;
-  let header;
-  let stat;
+  let encrypted;
+  let expectedSize;
   try {
+    // Open once with O_NOFOLLOW and read from that descriptor. Never authenticate
+    // a different path than the one whose metadata was checked.
     sourceHandle = await open(objectPath, constants.O_RDONLY | constants.O_NOFOLLOW);
-    stat = await sourceHandle.stat();
-    if (!stat.isFile() || stat.size < HEADER_BYTES + TAG_BYTES) {
+    const stat = await sourceHandle.stat();
+    expectedSize = stat.size;
+    if (!stat.isFile() || expectedSize < HEADER_BYTES + TAG_BYTES ||
+        expectedSize > HEADER_BYTES + maxBytes + TAG_BYTES) {
       throw new IdentityL3StorageError('l3_storage_object_invalid');
     }
-    header = Buffer.alloc(HEADER_BYTES);
-    const { bytesRead } = await sourceHandle.read(header, 0, HEADER_BYTES, 0);
-    if (bytesRead !== HEADER_BYTES || !header.subarray(0, MAGIC.length).equals(MAGIC)) {
-      throw new IdentityL3StorageError('l3_storage_object_invalid');
-    }
+    encrypted = await sourceHandle.readFile();
   } catch (error) {
-    if (sourceHandle) await sourceHandle.close().catch(() => {});
     if (error?.code === 'ELOOP') {
       throw new IdentityL3StorageError('l3_storage_object_invalid');
     }
     throw error;
+  } finally {
+    if (sourceHandle) await sourceHandle.close().catch(() => {});
   }
 
-  const nonce = header.subarray(MAGIC.length);
-  const ciphertextLength = stat.size - HEADER_BYTES - TAG_BYTES;
-  const decipher = createDecipheriv('aes-256-gcm', encryptionKey, nonce);
-  let pending = Buffer.alloc(0);
-  const authenticated = new Transform({
-    transform(chunk, _encoding, callback) {
-      const combined = pending.length ? Buffer.concat([pending, chunk]) : chunk;
-      if (combined.length <= TAG_BYTES) {
-        pending = combined;
-        callback();
-        return;
-      }
-      const emitLength = combined.length - TAG_BYTES;
-      const ciphertext = combined.subarray(0, emitLength);
-      pending = combined.subarray(emitLength);
-      try {
-        callback(null, decipher.update(ciphertext));
-      } catch {
-        callback(new IdentityL3StorageError('l3_storage_authentication_failed'));
-      }
-    },
-    flush(callback) {
-      try {
-        if (pending.length !== TAG_BYTES) {
-          callback(new IdentityL3StorageError('l3_storage_object_invalid'));
-          return;
-        }
-        decipher.setAuthTag(pending);
-        callback(null, decipher.final());
-      } catch {
-        callback(new IdentityL3StorageError('l3_storage_authentication_failed'));
-      }
-    }
-  });
+  // AES-GCM authenticates the complete ciphertext only at final(). Returning
+  // decipher.update() chunks to an HTTP consumer before final() would expose
+  // unauthenticated plaintext if the stored object had been tampered with.
+  // Bound the complete read, authenticate it first, and only then expose bytes.
+  if (!Buffer.isBuffer(encrypted) || encrypted.length !== expectedSize ||
+      encrypted.length < HEADER_BYTES + TAG_BYTES ||
+      encrypted.length > HEADER_BYTES + maxBytes + TAG_BYTES ||
+      !encrypted.subarray(0, MAGIC.length).equals(MAGIC)) {
+    throw new IdentityL3StorageError('l3_storage_object_invalid');
+  }
 
-  const source = sourceHandle.createReadStream({
-    start: HEADER_BYTES,
-    end: HEADER_BYTES + ciphertextLength + TAG_BYTES - 1,
-    autoClose: true
-  });
-  source.on('error', error => authenticated.destroy(error));
-  return source.pipe(authenticated);
+  const nonce = encrypted.subarray(MAGIC.length, HEADER_BYTES);
+  const ciphertext = encrypted.subarray(HEADER_BYTES, encrypted.length - TAG_BYTES);
+  const tag = encrypted.subarray(encrypted.length - TAG_BYTES);
+  const decipher = createDecipheriv('aes-256-gcm', encryptionKey, nonce);
+  let plaintext;
+  try {
+    decipher.setAuthTag(tag);
+    plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  } catch {
+    throw new IdentityL3StorageError('l3_storage_authentication_failed');
+  }
+  if (plaintext.length > maxBytes) {
+    plaintext.fill(0);
+    throw new IdentityL3StorageError('l3_media_too_large');
+  }
+  return Readable.from([plaintext], { objectMode: false });
 }
 
 export async function deleteIdentityL3Object({ objectKey, root }) {
