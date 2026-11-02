@@ -6,6 +6,7 @@ type L3Consent = {
   version: number;
   notice: { version: number; title: string; text: string };
   accepted: boolean;
+  enabled: boolean;
   grantedAt: string | null;
   withdrawnAt: string | null;
   purgeStatus: 'complete' | 'pending' | 'failed';
@@ -29,6 +30,7 @@ function validL3Consent(value: unknown): value is L3Consent {
     && typeof notice.title === 'string' && notice.title.length > 0
     && typeof notice.text === 'string' && notice.text.length > 0
     && typeof v.accepted === 'boolean'
+    && typeof v.enabled === 'boolean'
     && (v.grantedAt === null || (typeof v.grantedAt === 'string' && Number.isFinite(Date.parse(v.grantedAt))))
     && (v.withdrawnAt === null || (typeof v.withdrawnAt === 'string' && Number.isFinite(Date.parse(v.withdrawnAt))))
     && ['complete', 'pending', 'failed'].includes(String(v.purgeStatus))
@@ -90,6 +92,7 @@ export const TrustCenterPanel: React.FC = () => {
       if (!validL3Consent(consentPayload)) throw new Error('Сервер вернул некорректное состояние согласия L3.');
       setData(payload);
       setL3Consent(consentPayload);
+      setL3ConsentAcknowledged(false);
     } catch (e) {
       setData(null); setL3Consent(null); setError(e instanceof Error ? e.message : 'Ошибка загрузки.');
     } finally { setLoading(false); }
@@ -310,7 +313,7 @@ export const TrustCenterPanel: React.FC = () => {
                 {savingL3Consent ? 'Сохраняем…' : 'Предоставить согласие L3'}
               </button>
             </>}
-            {l3Consent.accepted && !['uploaded', 'processing', 'pending_review', 'approved'].includes(data.identity.l3.status) && <>
+            {l3Consent.accepted && l3Consent.enabled && !['uploaded', 'processing', 'pending_review', 'approved'].includes(data.identity.l3.status) && <>
               <label className="mt-3 block rounded-xl border border-white/10 bg-stone-900 p-3 text-[11px] text-stone-300">
                 <span className="mb-2 block font-semibold text-white">Видео-заявление · 30–60 секунд · MP4 или WebM · до 100 МБ</span>
                 <input type="file" accept="video/mp4,video/webm"
@@ -327,12 +330,13 @@ export const TrustCenterPanel: React.FC = () => {
                 {uploadingL3Video ? 'Загружаем и шифруем…' : 'Отправить видео на проверку L3'}
               </button>
             </>}
-            {l3Consent.accepted && ['uploaded', 'processing', 'pending_review'].includes(data.identity.l3.status) &&
+            {l3Consent.accepted && l3Consent.enabled && ['uploaded', 'processing', 'pending_review'].includes(data.identity.l3.status) &&
               <p className="mt-3 rounded-lg bg-amber-950/20 p-2 text-[11px] text-amber-200">
                 Видео получено. Проверка формата и безопасности выполняется; повторно загружать файл пока не нужно.
               </p>}
-            {l3Consent.accepted && data.identity.l3.status === 'approved' &&
+            {l3Consent.accepted && l3Consent.enabled && data.identity.l3.status === 'approved' &&
               <p className="mt-3 text-[11px] text-emerald-200">Проверка L3 подтверждена. Повторная загрузка не требуется до окончания срока действия.</p>}
+            {!l3Consent.enabled && <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-950/20 p-2 text-[11px] text-amber-200">L3 временно отключена до завершения полного защищённого потока модерации. Согласие можно отозвать в любое время; загрузка видео пока закрыта.</p>}
             {l3Consent.purgeStatus !== 'complete' && <p role="status" className={l3Consent.purgeStatus === 'failed'
               ? 'mt-2 rounded-lg bg-rose-950/30 p-2 text-[11px] text-rose-200'
               : 'mt-2 rounded-lg bg-amber-950/20 p-2 text-[11px] text-amber-200'}>
