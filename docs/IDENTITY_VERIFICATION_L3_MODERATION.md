@@ -175,7 +175,7 @@ This does not complete the L3 workflow. Authenticated video upload, private volu
 
 The current branch now contains an integrated, feature-flagged L3 workflow rather than only the earlier schema/storage foundations:
 
-- Applicants grant versioned consent, receive a short-lived single-use upload capability, and upload bounded MP4/WebM bytes over the authenticated API. The capability is consumed in the same account-locked transaction that stores the encrypted object reference.
+- Applicants grant versioned consent, receive a short-lived single-use upload capability, and upload bounded MP4/WebM bytes over the authenticated API. Nginx has an exact-match 110 MiB upload route with request buffering disabled and 180-second body/proxy timeouts, so plaintext video is streamed to the API rather than spooled to the proxy filesystem; the generic API limit remains 9 MiB. The capability is consumed in the same account-locked transaction that stores the encrypted object reference.
 - The API writes AES-256-GCM encrypted objects to the private `private_identity_l3` volume. Object keys are server-generated UUIDs; the database stores only metadata and opaque keys.
 - The processing worker reads the encrypted volume read-only, authenticates/decrypts the object, scans it with ClamAV, and validates the actual container, codecs and 30–60 second duration with ffprobe before moving the submission to moderator review.
 - The moderator console provides audited private playback and independent approve/reject decisions. Current consent and pending-review state are checked again at playback and decision time.
