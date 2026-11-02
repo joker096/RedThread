@@ -32,10 +32,10 @@ test('Docker database network is isolated from the public web proxy container', 
   assert.deepEqual(networksFor('identity-l3-worker'), ['backend']);
   const clamav = serviceBlock('clamav');
   const l3Worker = serviceBlock('identity-l3-worker');
-  assert.match(clamav, /profiles: \\["identity-l3"\\]/);
+  assert.match(clamav, /profiles: \["identity-l3"\]/);
   assert.doesNotMatch(clamav, /^    ports:/m, 'ClamAV must never publish its scanner port to the host');
   assert.match(clamav, /CLAMD_CONF_StreamMaxLength: 120M/);
-  assert.match(l3Worker, /profiles: \\["identity-l3"\\]/);
+  assert.match(l3Worker, /profiles: \["identity-l3"\]/);
   assert.match(l3Worker, /private_identity_l3:\/app\/uploads\/private-identity-l3:ro/,
     'the processing worker must mount encrypted media read-only');
   assert.match(l3Worker, /clamav:\n        condition: service_healthy/,
