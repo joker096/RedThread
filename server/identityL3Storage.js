@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 import { constants, createReadStream, createWriteStream } from 'node:fs';
-import { lstat, mkdir, open, readdir, realpath, rename, rm, unlink } from 'node:fs/promises';
+import { lstat, mkdir, open, readFile, readdir, realpath, rename, rm, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -94,10 +94,45 @@ async function ensurePrivateRoot(root) {
   return absoluteRoot;
 }
 
-export async function assertIdentityL3StorageReady({ root, tempRoot, key }) {
+async function assertIdentityL3MountPoint(directory) {
+  let mountInfo;
+  try {
+    mountInfo = await readFile('/proc/self/mountinfo', 'utf8');
+  } catch {
+    throw new IdentityL3StorageError('l3_storage_mount_check_failed');
+  }
+  const mountPoints = mountInfo.split('\n').flatMap(line => {
+    const fields = line.split(' ');
+    if (fields.length < 5) return [];
+    const decoded = fields[4].replace(/\\([0-7]{3})/g, (_match, octal) =>
+      String.fromCharCode(Number.parseInt(octal, 8))
+    );
+    return [decoded];
+  });
+  if (!mountPoints.includes(directory)) {
+    throw new IdentityL3StorageError('l3_storage_mount_missing');
+  }
+}
+
+export async function assertIdentityL3StorageRootReady({
+  root,
+  requireMount = process.env.IDENTITY_L3_REQUIRE_MOUNT === 'true'
+}) {
+  const directory = await ensurePrivateRoot(root);
+  if (requireMount) await assertIdentityL3MountPoint(directory);
+  return true;
+}
+
+export async function assertIdentityL3StorageReady({
+  root,
+  tempRoot,
+  key,
+  requireMount = process.env.IDENTITY_L3_REQUIRE_MOUNT === 'true'
+}) {
   parseIdentityL3EncryptionKey(key);
-  await ensurePrivateRoot(root);
-  await ensurePrivateRoot(tempRoot);
+  await assertIdentityL3StorageRootReady({ root, requireMount });
+  const scratchDirectory = await ensurePrivateRoot(tempRoot);
+  if (requireMount) await assertIdentityL3MountPoint(scratchDirectory);
   return true;
 }
 
