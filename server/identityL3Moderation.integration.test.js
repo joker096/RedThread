@@ -253,7 +253,7 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     assert.deepEqual(queued.rows, [{ status: 'queued' }],
       'rejected media must be queued for physical deletion automatically');
 
-    const purged = await runIdentityL3PurgeOnce(pool, { storageRoot });
+    const purged = await runIdentityL3PurgeOnce(pool, { storageRoot, submissionId: second.submissionId });
     assert.equal(purged.status, 'completed', 'rejected-media purge must complete: ' + JSON.stringify(purged));
     const purgeState = await pool.query(
       `SELECT j.status AS purge_status, s.storage_object_key, s.media_purged_at
