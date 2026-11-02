@@ -3,10 +3,11 @@ type Screening={id:string;userId:string;scope:string;flags:string[];severity:str
 type Report={id:string;reporterId:string;reportedUserId:string;reportedDisplayName:string;category:string;details:string;status:string;createdAt:string};
 type AuditEntry={id:string;moderatorId:string|null;action:string;targetType:string;targetId:string;reason:string|null;details:unknown;createdAt:string};
 type PendingPhoto={id:string;userId:string;displayName:string;mimeType:string;width:number;height:number;createdAt:string};
+type PendingL3={submissionId:string;applicantReference:string;uploadedAt:string;mimeType:'video/mp4'|'video/webm';sizeBytes:number;durationSeconds:number;processingAttempts:number};
 
 export const ModeratorConsolePanel:React.FC=()=>{
  const [allowed,setAllowed]=useState(false),[ready,setReady]=useState(false),[busy,setBusy]=useState(false),[notice,setNotice]=useState('');
- const [screenings,setScreenings]=useState<Screening[]>([]),[reports,setReports]=useState<Report[]>([]),[audit,setAudit]=useState<AuditEntry[]>([]),[photos,setPhotos]=useState<PendingPhoto[]>([]);
+ const [screenings,setScreenings]=useState<Screening[]>([]),[reports,setReports]=useState<Report[]>([]),[audit,setAudit]=useState<AuditEntry[]>([]),[photos,setPhotos]=useState<PendingPhoto[]>([]),[l3Submissions,setL3Submissions]=useState<PendingL3[]>([]),[l3Enabled,setL3Enabled]=useState(false);
  const refreshRequestId=React.useRef(0);
  const sessionEpoch=React.useRef(0);
  const refresh=useCallback(async()=>{
@@ -18,14 +19,15 @@ export const ModeratorConsolePanel:React.FC=()=>{
     fetch('/api/admin/screenings',{credentials:'include'}),
     fetch('/api/admin/reports',{credentials:'include'}),
     fetch('/api/admin/audit-log?limit=30',{credentials:'include'}),
-    fetch('/api/admin/photos',{credentials:'include'})
+    fetch('/api/admin/photos',{credentials:'include'}),
+    fetch('/api/moderation/identity-l3/submissions',{credentials:'include'})
    ]);
    if(requestId!==refreshRequestId.current||actionEpoch!==sessionEpoch.current)return;
    if(responses.some(r=>r.status===401||r.status===403)){setAllowed(false);setReady(true);return;}
-   const data=await Promise.all(responses.map(async r=>{const d=await r.json().catch(()=>null);if(!r.ok)throw new Error('Не удалось загрузить данные модерации.');return d||{};}));
+   const data=await Promise.all(responses.map(async (r,index)=>{const d=await r.json().catch(()=>null);if(index===4&&r.status===503&&d?.error==='l3_feature_disabled')return {submissions:[],disabled:true};if(!r.ok)throw new Error('Не удалось загрузить данные модерации.');return d||{};}));
    if(requestId!==refreshRequestId.current||actionEpoch!==sessionEpoch.current)return;
    const safeArray=<T,>(value: unknown): T[] => Array.isArray(value) ? value : [];
-   setScreenings(safeArray<Screening>(data[0]?.screenings));setReports(safeArray<Report>(data[1]?.reports));setAudit(safeArray<AuditEntry>(data[2]?.entries));setPhotos(safeArray<PendingPhoto>(data[3]?.photos));setAllowed(true);setReady(true);setNotice('');
+   setScreenings(safeArray<Screening>(data[0]?.screenings));setReports(safeArray<Report>(data[1]?.reports));setAudit(safeArray<AuditEntry>(data[2]?.entries));setPhotos(safeArray<PendingPhoto>(data[3]?.photos));setL3Submissions(safeArray<PendingL3>(data[4]?.submissions));setL3Enabled(data[4]?.disabled!==true);setAllowed(true);setReady(true);setNotice('');
   }catch(e){if(requestId===refreshRequestId.current&&actionEpoch===sessionEpoch.current){setNotice(e instanceof Error?e.message:'Ошибка загрузки панели.');setReady(true);}}
   finally{if(requestId===refreshRequestId.current&&actionEpoch===sessionEpoch.current)setBusy(false);}
  },[]);
@@ -46,6 +48,32 @@ export const ModeratorConsolePanel:React.FC=()=>{
  return <section aria-busy={busy} className="vow-screen mb-5 rounded-3xl border border-violet-500/30 bg-stone-900/90 p-4 sm:p-5">
   <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] uppercase tracking-[0.2em] text-violet-300">Только модераторы</p><h3 className="mt-1 text-lg font-bold text-white">Панель безопасности Vow</h3><p className="mt-1 text-xs text-stone-400">Очередь проверок, жалобы и журнал решений.</p></div><button type="button" onClick={()=>void refresh()} disabled={busy} className="min-h-11 rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-200 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400">Обновить</button></div>
   {notice&&<p role="status" aria-live="polite" aria-atomic="true" className="mt-3 rounded-xl bg-stone-950 p-3 text-xs text-stone-300">{notice}</p>}
+  <div className="mt-4 rounded-2xl border border-violet-500/20 bg-stone-950/60 p-3">
+   <div className="flex flex-wrap items-center justify-between gap-2">
+    <h4 className="text-sm font-semibold text-white">Видео-проверки L3 ({l3Submissions.length})</h4>
+    <span className="text-[10px] text-stone-500">{l3Enabled?'Live-модерация включена':'L3 отключена'}</span>
+   </div>
+   {!l3Enabled?<p className="mt-2 text-xs text-stone-500">Очередь L3 закрыта до включения полного защищённого процесса.</p>
+    :!l3Submissions.length?<p className="mt-2 text-xs text-stone-500">Ожидающих видео-проверок нет.</p>
+    :<div className="mt-3 grid min-w-0 gap-3 lg:grid-cols-2">{l3Submissions.map(item=><article key={item.submissionId} className="min-w-0 rounded-xl border border-white/10 p-3">
+      <p className="break-all text-[10px] text-stone-400">Заявка: {item.submissionId}</p>
+      <p className="mt-1 break-all text-[10px] text-stone-500">Пользователь: {item.applicantReference}</p>
+      <p className="mt-1 text-[10px] text-stone-400">{item.durationSeconds} сек. · {(item.sizeBytes/(1024*1024)).toFixed(1)} МБ · {item.mimeType} · попыток обработки: {item.processingAttempts}</p>
+      <video controls playsInline preload="none"
+       src={'/api/moderation/identity-l3/submissions/'+encodeURIComponent(item.submissionId)+'/media'}
+       aria-label="Видео-заявление L3 на проверке"
+       className="mt-3 max-h-72 w-full rounded-lg bg-black" />
+      <div className="mt-3 flex flex-wrap gap-2">
+       <button type="button" disabled={busy} onClick={()=>void act('/api/moderation/identity-l3/submissions/'+encodeURIComponent(item.submissionId)+'/decision',{decision:'approved',reasonCode:'video_matches_l2'})}
+        className="inline-flex min-h-11 items-center justify-center rounded-lg bg-emerald-800 px-3 py-2 text-[10px] font-semibold text-white disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400">Одобрить на 6 месяцев</button>
+       <button type="button" disabled={busy} onClick={()=>void act('/api/moderation/identity-l3/submissions/'+encodeURIComponent(item.submissionId)+'/decision',{decision:'rejected',reasonCode:'video_mismatch'})}
+        className="inline-flex min-h-11 items-center justify-center rounded-lg border border-red-500/30 px-3 py-2 text-[10px] text-red-200 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400">Отклонить: несовпадение</button>
+       <button type="button" disabled={busy} onClick={()=>void act('/api/moderation/identity-l3/submissions/'+encodeURIComponent(item.submissionId)+'/decision',{decision:'rejected',reasonCode:'statement_incomplete'})}
+        className="inline-flex min-h-11 items-center justify-center rounded-lg border border-white/10 px-3 py-2 text-[10px] text-stone-200 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400">Отклонить: неполное видео</button>
+      </div>
+     </article>)}</div>}
+   <p className="mt-3 text-[10px] text-stone-500">Просмотр видео журналируется. Одобренное видео хранится до истечения шести месяцев; отклонённое автоматически ставится в очередь на удаление.</p>
+  </div>
   <div className="mt-4 rounded-2xl border border-white/10 bg-stone-950/60 p-3"><h4 className="text-sm font-semibold text-white">Фотографии на проверке ({photos.length})</h4>
    {!photos.length?<p className="mt-2 text-xs text-stone-500">Ожидающих фотографий нет.</p>:<div className="mt-2 grid min-w-0 gap-3 sm:grid-cols-2">{photos.map(photo=><div key={photo.id} className="min-w-0 rounded-xl border border-white/10 p-3"><img src={'/api/photos/'+encodeURIComponent(photo.id)} alt={'Фото анкеты '+photo.displayName} loading="lazy" referrerPolicy="no-referrer" className="mb-2 max-h-64 w-full rounded-lg object-contain bg-black" /><p className="text-xs text-stone-200">{photo.displayName}</p><p className="text-[10px] text-stone-500">{photo.width}×{photo.height} · {photo.mimeType}</p><div className="mt-2 flex flex-wrap gap-2"><button type="button" disabled={busy} onClick={()=>void act('/api/admin/photos/'+encodeURIComponent(photo.id)+'/review',{decision:'approve'})} className="inline-flex min-h-11 items-center justify-center rounded-lg bg-emerald-800 px-3 py-2 text-[10px] font-semibold text-white disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400">Одобрить</button><button type="button" disabled={busy} onClick={()=>void act('/api/admin/photos/'+encodeURIComponent(photo.id)+'/review',{decision:'reject'})} className="inline-flex min-h-11 items-center justify-center rounded-lg border border-red-500/30 px-3 py-2 text-[10px] text-red-200 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400">Отклонить</button></div></div>)}</div>}
   </div>
