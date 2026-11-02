@@ -220,6 +220,13 @@ export async function deleteIdentityL3Object({ objectKey, root }) {
       throw new IdentityL3StorageError('l3_storage_object_invalid');
     }
     await unlink(objectPath);
+    // Persist the directory entry removal before the caller clears its DB reference.
+    const directoryHandle = await open(directory, constants.O_RDONLY);
+    try {
+      await directoryHandle.sync();
+    } finally {
+      await directoryHandle.close();
+    }
     return true;
   } catch (error) {
     if (error?.code === 'ENOENT') return false;
