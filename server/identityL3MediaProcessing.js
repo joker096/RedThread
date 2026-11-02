@@ -39,6 +39,13 @@ function runFfprobe(filePath, {
 } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(executable, buildIdentityL3FfprobeArgs(filePath), {
+      // ffprobe parses untrusted media. Do not expose DATABASE_URL, encryption
+      // keys, session secrets, or the worker's full environment to that process.
+      env: {
+        PATH: process.env.PATH || '/usr/bin:/bin',
+        LANG: 'C',
+        LC_ALL: 'C'
+      },
       stdio: ['ignore', 'pipe', 'ignore'],
       windowsHide: true
     });
