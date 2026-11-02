@@ -24,6 +24,8 @@ test('ffprobe is restricted to local file protocols for untrusted media', () => 
   const args = buildIdentityL3FfprobeArgs(filePath);
   assert.ok(args.includes('-protocol_whitelist'));
   assert.equal(args[args.indexOf('-protocol_whitelist') + 1], 'file,pipe');
+  assert.ok(args.includes('-format_whitelist'));
+  assert.equal(args[args.indexOf('-format_whitelist') + 1], 'mov,matroska,webm');
   assert.equal(args.at(-1), filePath);
   assert.throws(() => buildIdentityL3FfprobeArgs(''), TypeError);
 });
