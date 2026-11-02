@@ -20,6 +20,11 @@ type Summary = {
   photos: Photo[];
 };
 
+export function shouldOfferL3PurgeRetry(consent: L3Consent | null): boolean {
+  return Boolean(consent && !consent.accepted &&
+    consent.purgeStatus === 'failed' && consent.failedPurgeJobs > 0);
+}
+
 export function validL3Consent(value: unknown): value is L3Consent {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const v = value as Record<string, unknown>;
@@ -156,7 +161,12 @@ export const TrustCenterPanel: React.FC = () => {
   }, [data, l3Consent, l3ConsentAcknowledged, load]);
 
   const withdrawL3Consent = useCallback(async () => {
-    if (!window.confirm('Отозвать согласие L3? Доступ к подтверждённому статусу будет немедленно закрыт, а видео поставлено в очередь на удаление.')) return;
+    const retryingPurge = Boolean(l3Consent && !l3Consent.accepted &&
+      l3Consent.purgeStatus === 'failed' && l3Consent.failedPurgeJobs > 0);
+    const confirmation = retryingPurge
+      ? 'Повторить удаление видео L3? Доступ к подтверждённому статусу уже закрыт.'
+      : 'Отозвать согласие L3? Доступ к подтверждённому статусу будет немедленно закрыт, а видео поставлено в очередь на удаление.';
+    if (!window.confirm(confirmation)) return;
     setSavingL3Consent(true);
     setError('');
     try {
@@ -172,7 +182,7 @@ export const TrustCenterPanel: React.FC = () => {
     } finally {
       setSavingL3Consent(false);
     }
-  }, [load]);
+  }, [l3Consent, load]);
 
   const uploadL3Video = useCallback(async () => {
     if (!selectedL3Video || !l3Consent?.accepted || !data ||
@@ -312,6 +322,11 @@ export const TrustCenterPanel: React.FC = () => {
                 className="mt-3 min-h-11 w-full rounded-xl bg-rose-700 px-4 text-sm font-semibold text-white disabled:opacity-50">
                 {savingL3Consent ? 'Сохраняем…' : 'Предоставить согласие L3'}
               </button>
+              {shouldOfferL3PurgeRetry(l3Consent) && <button type="button"
+                onClick={() => void withdrawL3Consent()} disabled={savingL3Consent}
+                className="mt-3 min-h-11 w-full rounded-xl border border-rose-500/40 px-4 text-sm font-semibold text-rose-200 disabled:opacity-50">
+                {savingL3Consent ? 'Повторяем удаление…' : 'Повторить удаление видео'}
+              </button>}
             </>}
             {l3Consent.accepted && l3Consent.enabled && !['uploaded', 'processing', 'pending_review', 'approved'].includes(data.identity.l3.status) && <>
               <label className="mt-3 block rounded-xl border border-white/10 bg-stone-900 p-3 text-[11px] text-stone-300">
