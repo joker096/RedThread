@@ -6,7 +6,7 @@ import {
   IdentityL3MediaProcessingError,
   processIdentityL3Media
 } from './identityL3MediaProcessing.js';
-import { openIdentityL3Stream, parseIdentityL3EncryptionKey } from './identityL3Storage.js';
+import { deleteIdentityL3Object, openIdentityL3Stream, parseIdentityL3EncryptionKey } from './identityL3Storage.js';
 
 const { Pool } = pg;
 export const IDENTITY_L3_WORKER_LEASE_MS = 180_000;
@@ -319,6 +319,174 @@ export async function runIdentityL3WorkerOnce(pool, options = {}) {
   }
 }
 
+
+export const IDENTITY_L3_PURGE_MAX_ATTEMPTS = 5;
+export const IDENTITY_L3_PURGE_LEASE_MS = 180_000;
+
+export function identityL3PurgeRetryDelayMs(attempt) {
+  if (!Number.isInteger(attempt) || attempt < 1 || attempt > IDENTITY_L3_PURGE_MAX_ATTEMPTS) {
+    throw new RangeError('identity L3 purge attempt is outside the supported range');
+  }
+  return Math.min(60 * 60_000, 60_000 * (2 ** (attempt - 1)));
+}
+
+/**
+ * Purge jobs share the account advisory lock with uploads, processing, consent
+ * withdrawal and account deletion. A missing file is treated as already deleted,
+ * making the unlink -> database-commit crash window safely retryable.
+ */
+export async function runIdentityL3PurgeOnce(pool, {
+  storageRoot = process.env.IDENTITY_L3_STORAGE_DIR,
+  deleteObject = deleteIdentityL3Object
+} = {}) {
+  const candidate = await pool.query(
+    `SELECT j.id, j.user_id
+     FROM identity_l3_media_purge_jobs j
+     WHERE j.status IN ('queued', 'processing')
+       AND j.attempts < $1
+       AND j.next_attempt_at <= statement_timestamp()
+       AND (j.lease_expires_at IS NULL OR j.lease_expires_at <= statement_timestamp())
+     ORDER BY j.next_attempt_at, j.created_at, j.id
+     LIMIT 1`,
+    [IDENTITY_L3_PURGE_MAX_ATTEMPTS]
+  );
+  const selected = candidate.rows[0];
+  if (!selected) return { processed: false };
+
+  const client = await pool.connect();
+  let lockAcquired = false;
+  let transactionOpen = false;
+  try {
+    await client.query('SELECT pg_advisory_lock(hashtext($1))', [
+      `gift-safety-user:${selected.user_id}`
+    ]);
+    lockAcquired = true;
+    await client.query('BEGIN');
+    transactionOpen = true;
+    const locked = await client.query(
+      `SELECT j.id, j.submission_id, j.user_id, j.attempts,
+              s.status AS submission_status, s.storage_object_key,
+              s.media_purged_at
+       FROM identity_l3_media_purge_jobs j
+       JOIN identity_l3_submissions s
+         ON s.id = j.submission_id AND s.user_id = j.user_id
+       WHERE j.id = $1
+         AND j.status IN ('queued', 'processing')
+         AND j.attempts < $2
+         AND j.next_attempt_at <= statement_timestamp()
+         AND (j.lease_expires_at IS NULL OR j.lease_expires_at <= statement_timestamp())
+       FOR UPDATE OF j, s SKIP LOCKED`,
+      [selected.id, IDENTITY_L3_PURGE_MAX_ATTEMPTS]
+    );
+    const job = locked.rows[0];
+    if (!job) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      await releaseAccountLock(client, selected.user_id);
+      lockAcquired = false;
+      client.release();
+      return { processed: false };
+    }
+    if (!['approved', 'rejected', 'withdrawn', 'revoked', 'expired', 'failed'].includes(job.submission_status)) {
+      throw new Error('identity_l3_purge_submission_not_terminal');
+    }
+    const leaseToken = randomUUID();
+    const attempt = job.attempts + 1;
+    await client.query(
+      `UPDATE identity_l3_media_purge_jobs
+       SET status = 'processing', attempts = $2, lease_token = $3,
+           lease_expires_at = statement_timestamp() + ($4::int * INTERVAL '1 millisecond'),
+           updated_at = statement_timestamp(), last_error_code = NULL
+       WHERE id = $1`,
+      [job.id, attempt, leaseToken, IDENTITY_L3_PURGE_LEASE_MS]
+    );
+    await client.query('COMMIT');
+    transactionOpen = false;
+
+    try {
+      if (job.storage_object_key) {
+        if (!storageRoot) throw new Error('l3_storage_root_missing');
+        await deleteObject({ objectKey: job.storage_object_key, root: storageRoot });
+      }
+
+      await client.query('BEGIN');
+      transactionOpen = true;
+      await client.query(
+        "SELECT set_config('app.identity_l3_actor_user_id', '', true), set_config('app.identity_l3_reason_code', 'media_purged', true)"
+      );
+      if (job.storage_object_key) {
+        const cleared = await client.query(
+          `UPDATE identity_l3_submissions
+           SET storage_object_key = NULL,
+               media_purged_at = COALESCE(media_purged_at, statement_timestamp())
+           WHERE id = $1 AND user_id = $2
+             AND storage_object_key = $3
+             AND status IN ('approved', 'rejected', 'withdrawn', 'revoked', 'expired', 'failed')
+           RETURNING id`,
+          [job.submission_id, job.user_id, job.storage_object_key]
+        );
+        if (!cleared.rowCount) throw new Error('identity_l3_purge_submission_changed');
+      }
+      await client.query(
+        `UPDATE identity_l3_media_purge_jobs
+         SET status = 'completed', lease_token = NULL, lease_expires_at = NULL,
+             completed_at = statement_timestamp(), updated_at = statement_timestamp(),
+             last_error_code = NULL
+         WHERE id = $1 AND status = 'processing' AND lease_token = $2`,
+        [job.id, leaseToken]
+      );
+      await client.query('COMMIT');
+      transactionOpen = false;
+      return { processed: true, purgeJobId: job.id, status: 'completed' };
+    } catch (error) {
+      if (transactionOpen) {
+        await client.query('ROLLBACK');
+        transactionOpen = false;
+      }
+      const code = safeErrorCode(error);
+      const terminal = attempt >= IDENTITY_L3_PURGE_MAX_ATTEMPTS;
+      const delay = terminal ? 0 : identityL3PurgeRetryDelayMs(attempt);
+      await client.query('BEGIN');
+      transactionOpen = true;
+      await client.query(
+        `UPDATE identity_l3_media_purge_jobs
+         SET status = $3, lease_token = NULL, lease_expires_at = NULL,
+             next_attempt_at = statement_timestamp() + ($4::int * INTERVAL '1 millisecond'),
+             last_error_code = $5, updated_at = statement_timestamp()
+         WHERE id = $1 AND status = 'processing' AND lease_token = $2`,
+        [job.id, leaseToken, terminal ? 'failed' : 'queued', delay, code]
+      );
+      await client.query('COMMIT');
+      transactionOpen = false;
+      return { processed: true, purgeJobId: job.id, status: terminal ? 'failed' : 'retry_scheduled', errorCode: code };
+    }
+  } catch (error) {
+    if (transactionOpen) {
+      try {
+        await client.query('ROLLBACK');
+        transactionOpen = false;
+      } catch (rollbackError) {
+        error.rollbackError = rollbackError;
+        client.release(error);
+        return Promise.reject(error);
+      }
+    }
+    throw error;
+  } finally {
+    if (lockAcquired) {
+      try {
+        await releaseAccountLock(client, selected.user_id);
+        client.release();
+      } catch (error) {
+        client.release(error);
+        throw error;
+      }
+    } else if (!client.released) {
+      client.release();
+    }
+  }
+}
+
 async function main() {
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required for the identity L3 worker');
   if (!process.env.IDENTITY_L3_STORAGE_DIR || !process.env.IDENTITY_L3_ENCRYPTION_KEY) {
@@ -337,7 +505,8 @@ async function main() {
   process.on('SIGTERM', stop);
   try {
     while (!stopping) {
-      const result = await runIdentityL3WorkerOnce(pool);
+      const purgeResult = await runIdentityL3PurgeOnce(pool);
+      const result = purgeResult.processed ? purgeResult : await runIdentityL3WorkerOnce(pool);
       if (!result.processed && !stopping) {
         await new Promise(resolve => setTimeout(resolve, 1_500));
       } else if (result.processed) {
