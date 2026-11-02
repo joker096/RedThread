@@ -62,6 +62,8 @@ test('L3 storage rejects a wrong key and ciphertext tampering', async () => {
       () => openIdentityL3Stream({ objectKey: stored.objectKey, root, key: otherKey }),
       error => error instanceof IdentityL3StorageError && error.code === 'l3_storage_authentication_failed'
     );
+    assert.deepEqual((await readdir(root)).sort(), [stored.objectKey],
+      'failed authentication must remove any staged plaintext');
     const filePath = path.join(root, stored.objectKey);
     const encrypted = await readFile(filePath);
     encrypted[encrypted.length - 17] ^= 0x01;
@@ -70,6 +72,8 @@ test('L3 storage rejects a wrong key and ciphertext tampering', async () => {
       () => openIdentityL3Stream({ objectKey: stored.objectKey, root, key }),
       error => error instanceof IdentityL3StorageError && error.code === 'l3_storage_authentication_failed'
     );
+    assert.deepEqual((await readdir(root)).sort(), [stored.objectKey],
+      'tampered ciphertext must never leave a staged plaintext file');
   });
 });
 
