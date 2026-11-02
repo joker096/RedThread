@@ -62,6 +62,8 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       for (const terminalStatus of ['rejected', 'withdrawn', 'revoked', 'expired', 'failed']) {
         assert.match(purgeEnqueueFunction.rows[0].definition, new RegExp(terminalStatus));
       }
+      assert.doesNotMatch(purgeEnqueueFunction.rows[0].definition, /approved/,
+        'an active six-month approval must retain its encrypted evidence');
       const purgeQueueIndexes = await client.query(
         `SELECT indexname, indexdef FROM pg_indexes
          WHERE schemaname = 'public' AND tablename = 'identity_l3_media_purge_jobs'`
