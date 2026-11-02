@@ -4504,7 +4504,7 @@ app.get('/api/moderation/identity-l3/submissions', requireSession, async (req, r
   }
 });
 
-app.get('/api/moderation/identity-l3/submissions/:submissionId/media', requireSession, async (req, res) => {
+app.get('/api/moderation/identity-l3/submissions/:submissionId/media', requireSession, identityL3Limiter, async (req, res) => {
   if (process.env.IDENTITY_L3_ENABLED !== 'true') return res.status(503).json({ error: 'l3_feature_disabled' });
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(req.params.submissionId)) {
     return res.status(400).json({ error: 'l3_submission_id_invalid' });
@@ -4599,7 +4599,7 @@ app.get('/api/moderation/identity-l3/submissions/:submissionId/media', requireSe
   }
 });
 
-app.post('/api/moderation/identity-l3/submissions/:submissionId/decision', validateRequestOrigin, requireSession, async (req, res) => {
+app.post('/api/moderation/identity-l3/submissions/:submissionId/decision', validateRequestOrigin, requireSession, identityL3Limiter, async (req, res) => {
   if (process.env.IDENTITY_L3_ENABLED !== 'true') return res.status(503).json({ error: 'l3_feature_disabled' });
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(req.params.submissionId)) {
     return res.status(400).json({ error: 'l3_submission_id_invalid' });
