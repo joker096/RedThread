@@ -11,7 +11,8 @@ import { normalizeGiftRequestInput } from './giftRequestInput.js';
 import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, acquireGiftSafetyUserLocks, recipientGiftAcceptanceLimitReached, expireStaleGiftRequestsForPair, enqueueExpiredGiftPaymentReconciliation, notifyGiftRequestUpdate, hasPendingRecipientDecline } from './giftOrderCreationService.js';
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
-import { IDENTITY_L3_CONSENT_NOTICE, IDENTITY_L3_CONSENT_VERSION } from './identityL3UploadTokens.js';
+import { consumeIdentityL3UploadCapability, IDENTITY_L3_CONSENT_NOTICE, IDENTITY_L3_CONSENT_VERSION, IdentityL3UploadTokenError, issueIdentityL3UploadCapability } from './identityL3UploadTokens.js';
+import { deleteIdentityL3Object, IDENTITY_L3_MAX_MEDIA_BYTES, IdentityL3StorageError, parseIdentityL3EncryptionKey, storeIdentityL3Stream } from './identityL3Storage.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
 import { createDiditSession, isDiditConfigured, isDiditStatus, projectDiditStatus, verifyDiditWebhook, isDiditUuid } from './diditIdentity.js';
@@ -4473,6 +4474,124 @@ app.get('/api/gifts/orders', requireSession, profileActionLimiter, async (req, r
   } catch (error) {
     console.error('Gift order list failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'gift_orders_unavailable' });
+  }
+});
+
+app.post('/api/identity/l3/upload-capability', validateRequestOrigin, requireSession, identityL3Limiter, async (req, res) => {
+  try {
+    const capability = await withPooledTransaction(pool, client =>
+      issueIdentityL3UploadCapability(client, { userId: req.authUser.id })
+    );
+    return res.status(201).json(capability);
+  } catch (error) {
+    if (error instanceof IdentityL3UploadTokenError) {
+      const status = error.code === 'l3_consent_required' ? 403
+        : error.code === 'l3_submission_not_uploadable' ? 409 : 403;
+      return res.status(status).json({ error: error.code });
+    }
+    console.error('L3 upload capability issue failed:', error?.message || 'unknown error');
+    return res.status(503).json({ error: 'l3_upload_unavailable' });
+  }
+});
+
+app.post('/api/identity/l3/upload', validateRequestOrigin, requireSession, identityL3Limiter, async (req, res) => {
+  const contentType = String(req.get('content-type') || '').split(';', 1)[0].trim().toLowerCase();
+  const contentEncoding = String(req.get('content-encoding') || 'identity').trim().toLowerCase();
+  const token = req.get('x-identity-l3-upload-token');
+  const lengthHeader = req.get('content-length');
+  if (!['video/mp4', 'video/webm'].includes(contentType) || contentEncoding !== 'identity') {
+    return res.status(415).json({ error: 'l3_media_type_not_supported' });
+  }
+  if (typeof token !== 'string' || token.length > 64) {
+    return res.status(401).json({ error: 'l3_upload_token_invalid_or_expired' });
+  }
+  if (lengthHeader !== undefined &&
+      (!/^\d+$/.test(lengthHeader) || Number(lengthHeader) < 1 || Number(lengthHeader) > IDENTITY_L3_MAX_MEDIA_BYTES)) {
+    return res.status(Number(lengthHeader) > IDENTITY_L3_MAX_MEDIA_BYTES ? 413 : 400, {
+      error: Number(lengthHeader) > IDENTITY_L3_MAX_MEDIA_BYTES ? 'l3_media_too_large' : 'l3_content_length_invalid'
+    });
+  }
+  const storageRoot = process.env.IDENTITY_L3_STORAGE_DIR;
+  let encryptionKey;
+  try {
+    encryptionKey = parseIdentityL3EncryptionKey(process.env.IDENTITY_L3_ENCRYPTION_KEY);
+  } catch {
+    return res.status(503).json({ error: 'l3_upload_unavailable' });
+  }
+  if (!storageRoot) return res.status(503).json({ error: 'l3_upload_unavailable' });
+
+  let storedObject = null;
+  let committed = false;
+  try {
+    const uploaded = await withPooledTransaction(pool, async client => {
+      const { submissionId } = await consumeIdentityL3UploadCapability(client, {
+        userId: req.authUser.id,
+        uploadToken: token
+      });
+      storedObject = await storeIdentityL3Stream({
+        source: req,
+        root: storageRoot,
+        key: encryptionKey,
+        maxBytes: IDENTITY_L3_MAX_MEDIA_BYTES
+      });
+      if (storedObject.sizeBytes < 1) {
+        throw new IdentityL3StorageError('l3_media_empty');
+      }
+      await client.query(
+        "SELECT set_config('app.identity_l3_actor_user_id', $1, true), set_config('app.identity_l3_reason_code', 'applicant_media_uploaded', true)",
+        [req.authUser.id]
+      );
+      const saved = await client.query(
+        `UPDATE identity_l3_submissions
+         SET status = 'uploaded',
+             storage_object_key = $3,
+             media_sha256 = $4,
+             media_mime_type = $5,
+             media_size_bytes = $6,
+             uploaded_at = statement_timestamp()
+         WHERE id = $1 AND user_id = $2 AND status = 'upload_authorized'
+         RETURNING id, status, uploaded_at`,
+        [submissionId, req.authUser.id, storedObject.objectKey, storedObject.sha256, contentType, storedObject.sizeBytes]
+      );
+      if (!saved.rowCount) throw new IdentityL3UploadTokenError('l3_submission_not_uploadable');
+      return saved.rows[0];
+    });
+    committed = true;
+    return res.status(201).json({
+      submissionId: uploaded.id,
+      status: uploaded.status,
+      uploadedAt: uploaded.uploaded_at
+    });
+  } catch (error) {
+    // The transaction helper rolls back token consumption and submission metadata.
+    // Delete any atomically published encrypted object unless the database actually
+    // committed its reference (the commit result can be ambiguous after a connection loss).
+    if (storedObject && !committed) {
+      try {
+        const reference = await pool.query(
+          'SELECT 1 FROM identity_l3_submissions WHERE user_id = $1 AND storage_object_key = $2 LIMIT 1',
+          [req.authUser.id, storedObject.objectKey]
+        );
+        if (!reference.rowCount) {
+          await deleteIdentityL3Object({ objectKey: storedObject.objectKey, root: storageRoot });
+        }
+      } catch (cleanupError) {
+        console.error('L3 upload orphan cleanup deferred:', cleanupError?.code || 'storage_cleanup_failed');
+      }
+    }
+    if (error instanceof IdentityL3UploadTokenError) {
+      return res.status(error.code === 'l3_consent_required' ? 403
+        : error.code === 'l3_upload_requires_live_l2' ? 403
+          : error.code === 'l3_submission_not_uploadable' ? 409 : 401).json({ error: error.code });
+    }
+    if (error instanceof IdentityL3StorageError) {
+      const status = error.code === 'l3_media_too_large' ? 413
+        : error.code === 'l3_media_empty' ? 400
+          : error.code === 'l3_storage_key_invalid' || error.code === 'l3_storage_root_missing' ? 503 : 400;
+      return res.status(status).json({ error: error.code });
+    }
+    console.error('L3 encrypted upload failed:', error?.code || 'upload_failed');
+    return res.status(500).json({ error: 'l3_upload_failed' });
   }
 });
 
