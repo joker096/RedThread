@@ -5,6 +5,7 @@ import { acquireGiftSafetyUserLocks } from './giftOrderCreationService.js';
 
 const { Pool } = pg;
 export const DEFAULT_IDENTITY_L3_EXPIRY_BATCH_SIZE = 100;
+export const IDENTITY_L3_PENDING_REVIEW_RETENTION_DAYS = 30;
 
 export function normalizeIdentityL3ExpiryBatchSize(value = DEFAULT_IDENTITY_L3_EXPIRY_BATCH_SIZE) {
   const batchSize = Number(value);
@@ -15,11 +16,11 @@ export function normalizeIdentityL3ExpiryBatchSize(value = DEFAULT_IDENTITY_L3_E
 }
 
 /**
- * Expire approvals in bounded account batches. Candidate discovery takes no row
- * locks; each account is then serialized behind the same safety advisory lock
- * used by account deletion and restricted identity-gated actions, before locking
- * submission rows. Authorization itself checks expires_at against NOW(), so
- * this worker is audit/state cleanup, never the access-control boundary.
+ * Expire approvals and stale pending-review submissions in bounded account
+ * batches. Candidate discovery takes no row locks; each account is serialized
+ * behind the same safety advisory lock used by account deletion and restricted
+ * identity-gated actions. Authorization checks expiry synchronously; this worker
+ * performs audit/state cleanup and queues physical media deletion.
  */
 export async function processExpiredIdentityL3ApprovalBatch(pool, {
   batchSize = DEFAULT_IDENTITY_L3_EXPIRY_BATCH_SIZE,
@@ -31,14 +32,21 @@ export async function processExpiredIdentityL3ApprovalBatch(pool, {
      FROM (
        SELECT DISTINCT user_id
        FROM identity_l3_submissions
-       WHERE status = 'approved' AND expires_at <= NOW()
+       WHERE (status = 'approved' AND expires_at <= NOW())
+          OR (status = 'pending_review'
+              AND processing_completed_at <= NOW() - ($1::int * INTERVAL '1 day'))
      ) candidates
      ORDER BY md5(concat_ws(':', candidates.user_id::text, date_trunc('minute', NOW())::text))
      LIMIT $1`,
     [limit]
   );
 
-  const summary = { accountsScanned: candidates.rows.length, approvalsExpired: 0, accountFailures: 0 };
+  const summary = {
+    accountsScanned: candidates.rows.length,
+    approvalsExpired: 0,
+    pendingReviewsExpired: 0,
+    accountFailures: 0
+  };
   for (const candidate of candidates.rows) {
     let client;
     let releaseError;
@@ -58,16 +66,28 @@ export async function processExpiredIdentityL3ApprovalBatch(pool, {
       await client.query(
         "SELECT set_config('app.identity_l3_actor_user_id', '', true), set_config('app.identity_l3_reason_code', 'approval_expired', true)"
       );
-      const expired = await client.query(
+      const expiredApprovals = await client.query(
         `UPDATE identity_l3_submissions
          SET status = 'expired'
          WHERE user_id = $1 AND status = 'approved' AND expires_at <= NOW()
          RETURNING id`,
         [candidate.user_id]
       );
+      await client.query(
+        "SELECT set_config('app.identity_l3_actor_user_id', '', true), set_config('app.identity_l3_reason_code', 'moderation_retention_expired', true)"
+      );
+      const expiredPendingReviews = await client.query(
+        `UPDATE identity_l3_submissions
+         SET status = 'expired'
+         WHERE user_id = $1 AND status = 'pending_review'
+           AND processing_completed_at <= NOW() - ($2::int * INTERVAL '1 day')
+         RETURNING id`,
+        [candidate.user_id, IDENTITY_L3_PENDING_REVIEW_RETENTION_DAYS]
+      );
       await client.query('COMMIT');
       transactionOpen = false;
-      summary.approvalsExpired += expired.rowCount ?? expired.rows?.length ?? 0;
+      summary.approvalsExpired += expiredApprovals.rowCount ?? expiredApprovals.rows?.length ?? 0;
+      summary.pendingReviewsExpired += expiredPendingReviews.rowCount ?? expiredPendingReviews.rows?.length ?? 0;
     } catch (error) {
       if (client && transactionOpen) {
         try {
