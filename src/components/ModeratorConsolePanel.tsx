@@ -64,11 +64,11 @@ export const ModeratorConsolePanel:React.FC=()=>{
        aria-label="Видео-заявление L3 на проверке"
        className="mt-3 max-h-72 w-full rounded-lg bg-black" />
       <div className="mt-3 flex flex-wrap gap-2">
-       <button type="button" disabled={busy} onClick={()=>void act('/api/moderation/identity-l3/submissions/'+encodeURIComponent(item.submissionId)+'/decision',{decision:'approved',reasonCode:'video_matches_l2'})}
+       <button type="button" disabled={busy} onClick={()=>{if(window.confirm('Одобрить L3 на шесть месяцев?'))void act('/api/moderation/identity-l3/submissions/'+encodeURIComponent(item.submissionId)+'/decision',{decision:'approved',reasonCode:'video_matches_l2'});}}
         className="inline-flex min-h-11 items-center justify-center rounded-lg bg-emerald-800 px-3 py-2 text-[10px] font-semibold text-white disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400">Одобрить на 6 месяцев</button>
-       <button type="button" disabled={busy} onClick={()=>void act('/api/moderation/identity-l3/submissions/'+encodeURIComponent(item.submissionId)+'/decision',{decision:'rejected',reasonCode:'video_mismatch'})}
+       <button type="button" disabled={busy} onClick={()=>{if(window.confirm('Отклонить видео как не совпадающее с L2? Видео будет поставлено в очередь на удаление.'))void act('/api/moderation/identity-l3/submissions/'+encodeURIComponent(item.submissionId)+'/decision',{decision:'rejected',reasonCode:'video_mismatch'});}}
         className="inline-flex min-h-11 items-center justify-center rounded-lg border border-red-500/30 px-3 py-2 text-[10px] text-red-200 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400">Отклонить: несовпадение</button>
-       <button type="button" disabled={busy} onClick={()=>void act('/api/moderation/identity-l3/submissions/'+encodeURIComponent(item.submissionId)+'/decision',{decision:'rejected',reasonCode:'statement_incomplete'})}
+       <button type="button" disabled={busy} onClick={()=>{if(window.confirm('Отклонить видео как неполное? Видео будет поставлено в очередь на удаление.'))void act('/api/moderation/identity-l3/submissions/'+encodeURIComponent(item.submissionId)+'/decision',{decision:'rejected',reasonCode:'statement_incomplete'});}}
         className="inline-flex min-h-11 items-center justify-center rounded-lg border border-white/10 px-3 py-2 text-[10px] text-stone-200 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400">Отклонить: неполное видео</button>
       </div>
      </article>)}</div>}
