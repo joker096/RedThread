@@ -6,7 +6,10 @@ import {
   claimIdentityL3Submission,
   processClaimedIdentityL3Submission,
   identityL3RetryDelayMs,
-  isPermanentIdentityL3ProcessingError
+  isPermanentIdentityL3ProcessingError,
+  IDENTITY_L3_PURGE_MAX_ATTEMPTS,
+  identityL3PurgeRetryDelayMs,
+  runIdentityL3PurgeOnce
 } from './process-identity-l3-queue.js';
 import { IdentityL3MediaProcessingError } from './identityL3MediaProcessing.js';
 
@@ -183,4 +186,117 @@ test('L3 worker schedules infrastructure retries but terminally fails malware de
   assert.equal(failed.status, 'failed');
   const failedUpdate = malwareClaim.client.calls.find(call => call.sql.includes('UPDATE identity_l3_submissions'));
   assert.match(failedUpdate.sql, /THEN 'failed'/);
+});
+
+function fakePurgePool({ job = true } = {}) {
+  const calls = [];
+  let released = false;
+  const client = {
+    calls,
+    get released() { return released; },
+    async query(sql, params = []) {
+      const statement = String(sql);
+      calls.push({ sql: statement, params });
+      if (statement.includes('SELECT j.id, j.submission_id, j.user_id, j.attempts')) {
+        return {
+          rows: job ? [{
+            id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+            submission_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            user_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            attempts: 0,
+            submission_status: 'withdrawn',
+            storage_object_key: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+            media_purged_at: null
+          }] : [],
+          rowCount: job ? 1 : 0
+        };
+      }
+      if (statement.includes('UPDATE identity_l3_submissions')) {
+        return { rows: [{ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }], rowCount: 1 };
+      }
+      if (statement.includes('UPDATE identity_l3_media_purge_jobs') &&
+          statement.includes("SET status = 'completed'")) {
+        return { rows: [{ id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    },
+    release() { released = true; }
+  };
+  return {
+    client,
+    pool: {
+      async query() {
+        return {
+          rows: job ? [{
+            id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+            user_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+          }] : [],
+          rowCount: job ? 1 : 0
+        };
+      },
+      async connect() { return client; }
+    }
+  };
+}
+
+test('L3 purge retries use bounded exponential delays', () => {
+  assert.equal(IDENTITY_L3_PURGE_MAX_ATTEMPTS, 5);
+  assert.equal(identityL3PurgeRetryDelayMs(1), 60_000);
+  assert.equal(identityL3PurgeRetryDelayMs(2), 120_000);
+  assert.equal(identityL3PurgeRetryDelayMs(5), 960_000);
+  for (const attempt of [0, 6, 1.5, '1']) {
+    assert.throws(() => identityL3PurgeRetryDelayMs(attempt), RangeError);
+  }
+});
+
+test('L3 purge worker deletes encrypted media under the account lock and clears the DB key only after unlink', async () => {
+  const { pool, client } = fakePurgePool();
+  const deleted = [];
+  const result = await runIdentityL3PurgeOnce(pool, {
+    storageRoot: '/private/l3',
+    deleteObject: async input => { deleted.push(input); return true; }
+  });
+  assert.deepEqual(result, {
+    processed: true,
+    purgeJobId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    status: 'completed'
+  });
+  assert.deepEqual(deleted, [{
+    objectKey: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    root: '/private/l3'
+  }]);
+  const clearIndex = client.calls.findIndex(call => call.sql.includes('UPDATE identity_l3_submissions'));
+  const completeIndex = client.calls.findIndex(call =>
+    call.sql.includes("SET status = 'completed'") && call.sql.includes('identity_l3_media_purge_jobs')
+  );
+  assert.ok(clearIndex >= 0 && completeIndex > clearIndex);
+  assert.ok(client.calls.some(call => call.sql.includes('pg_advisory_lock')));
+  assert.ok(client.calls.some(call => call.sql.includes('pg_advisory_unlock')));
+  assert.equal(client.released, true);
+});
+
+test('L3 purge worker retries storage failures without clearing the encrypted object key', async () => {
+  const { pool, client } = fakePurgePool();
+  const result = await runIdentityL3PurgeOnce(pool, {
+    storageRoot: '/private/l3',
+    deleteObject: async () => { throw Object.assign(new Error('storage unavailable'), { code: 'l3_storage_root_unsafe' }); }
+  });
+  assert.equal(result.status, 'retry_scheduled');
+  assert.equal(result.errorCode, 'l3_storage_root_unsafe');
+  assert.equal(client.calls.some(call => call.sql.includes('UPDATE identity_l3_submissions')), false);
+  const retry = client.calls.find(call =>
+    call.sql.includes('UPDATE identity_l3_media_purge_jobs') && call.sql.includes('SET status = $3')
+  );
+  assert.equal(retry.params[2], 'queued');
+  assert.equal(retry.params[3], 60_000);
+});
+
+test('L3 purge worker does not connect when no deletion is due', async () => {
+  let connects = 0;
+  const pool = {
+    async query() { return { rows: [], rowCount: 0 }; },
+    async connect() { connects += 1; throw new Error('unexpected connection'); }
+  };
+  assert.deepEqual(await runIdentityL3PurgeOnce(pool), { processed: false });
+  assert.equal(connects, 0);
 });
