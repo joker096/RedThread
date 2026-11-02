@@ -2669,9 +2669,21 @@ test('auth API supports registration, session lookup, logout and login', {
     const l3DeletionGuardSubmissionId = randomUUID();
     try {
       await l3DeletionGuardDb.query(
-        `INSERT INTO identity_l3_submissions (id, user_id, status, storage_object_key)
-         VALUES ($1, $2, 'draft', $3)`,
-        [l3DeletionGuardSubmissionId, registered.user.id, randomUUID()]
+        'INSERT INTO identity_l3_submissions (id, user_id, status) VALUES ($1, $2, \'draft\')',
+        [l3DeletionGuardSubmissionId, registered.user.id]
+      );
+      await l3DeletionGuardDb.query(
+        "UPDATE identity_l3_submissions SET status = 'upload_authorized' WHERE id = $1",
+        [l3DeletionGuardSubmissionId]
+      );
+      await l3DeletionGuardDb.query(
+        `UPDATE identity_l3_submissions
+         SET status = 'uploaded', storage_object_key = $2,
+             media_sha256 = repeat('a', 64), media_mime_type = 'video/mp4',
+             media_size_bytes = 1024, media_duration_seconds = 30,
+             uploaded_at = statement_timestamp()
+         WHERE id = $1`,
+        [l3DeletionGuardSubmissionId, randomUUID()]
       );
       const blockedL3AccountDeletion = await request('/api/account', {
         method: 'DELETE',
