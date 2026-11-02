@@ -1,6 +1,6 @@
 # Vow L3 manual verification: implementation and security design
 
-Status: design baseline only. This document does not claim that L3 upload, moderation, or approval is implemented. Until the complete workflow is deployed and tested, no Didit L2 result or client-supplied field may be treated as L3.
+Status: implementation exists in this PR behind the server-side `IDENTITY_L3_ENABLED` flag; this is not a production-readiness claim. The repository now contains explicit versioned consent and withdrawal, single-use upload capabilities, streaming AES-256-GCM private-volume storage, asynchronous media scanning, authenticated moderator review and decisions, append-only audit events, retryable physical purge, orphan cleanup, and six-month approval expiry. PostgreSQL integration tests exercise upload, moderator review, decision, and rejected-media purge. Keep the flag disabled in production until the deployment has a durable private volume, managed secret/key rotation and backup controls, ClamAV/probe health, a running purge worker and expiry worker, monitored deletion failures, and a completed operational/security review. L2 alone and all client-supplied L3 fields remain insufficient for L3 access.
 
 ## Required access model
 
