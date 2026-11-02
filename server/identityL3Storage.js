@@ -322,11 +322,15 @@ export async function clearIdentityL3TemporaryFiles({ root }) {
   const directory = await ensurePrivateRoot(root);
   const entries = await readdir(directory, { withFileTypes: true });
   const decryptFilePattern = /^\\.decrypt-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  const processingDirectoryPattern = /^vow-l3-check-[A-Za-z0-9_-]{6,32}$/;
+  const processingDirectoryPrefix = 'vow-l3-check-';
   let deletedCount = 0;
   for (const entry of entries) {
     const isDecryptFile = entry.isFile() && decryptFilePattern.test(entry.name);
-    const isProcessingDirectory = entry.isDirectory() && processingDirectoryPattern.test(entry.name);
+    const processingSuffixLength = entry.name.startsWith(processingDirectoryPrefix)
+      ? entry.name.length - processingDirectoryPrefix.length
+      : 0;
+    const isProcessingDirectory = entry.isDirectory() &&
+      processingSuffixLength >= 6 && processingSuffixLength <= 32;
     if (!isDecryptFile && !isProcessingDirectory) continue;
     const filePath = path.join(directory, entry.name);
     const stat = await lstat(filePath).catch(error => {
