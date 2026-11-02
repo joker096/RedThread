@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
-import { mkdtemp, chmod, rm } from 'node:fs/promises';
+import { mkdtemp, chmod, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import pg from 'pg';
@@ -35,6 +35,8 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
   const moderatorId = randomUUID();
   const storageRoot = await mkdtemp(path.join(tmpdir(), 'vow-identity-l3-moderation-'));
   await chmod(storageRoot, 0o700);
+  const tempRoot = path.join(storageRoot, 'scratch');
+  await mkdir(tempRoot, { mode: 0o700 });
   const encryptionKey = randomBytes(32).toString('hex');
   const applicantSession = createSessionToken();
   const moderatorSession = createSessionToken();
@@ -133,6 +135,7 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
         EMAIL_VERIFICATION_REQUIRED: 'false',
         IDENTITY_L3_ENABLED: 'true',
         IDENTITY_L3_STORAGE_DIR: storageRoot,
+        IDENTITY_L3_TEMP_DIR: tempRoot,
         IDENTITY_L3_ENCRYPTION_KEY: encryptionKey,
         PG_STATEMENT_TIMEOUT_MS: '8000'
       },
