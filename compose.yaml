@@ -103,6 +103,8 @@ services:
       context: .
       target: api
     restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     profiles: ["identity-l3"]
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
@@ -130,6 +132,8 @@ services:
       context: .
       target: api
     restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     # Privacy cleanup must continue even while new L3 uploads/moderation are disabled.
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
@@ -171,6 +175,8 @@ services:
       context: .
       target: api
     restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     environment:
       NODE_ENV: production
       API_PORT: "3001"
