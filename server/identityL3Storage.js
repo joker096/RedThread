@@ -201,21 +201,45 @@ export async function storeIdentityL3Stream({ source, root, key, maxBytes = DEFA
  * Return a decrypting stream. Consumers must read it to completion: GCM authenticity
  * is established only when the final authentication tag has been checked.
  */
-export async function openIdentityL3Stream({ objectKey, root, key, maxBytes = DEFAULT_MAX_BYTES }) {
+let activeIdentityL3Decryptions = 0;
+export const IDENTITY_L3_MAX_CONCURRENT_DECRYPTIONS = 2;
+
+/**
+ * Return a decrypting stream. Consumers must read it to completion: GCM authenticity
+ * is established only when the final authentication tag has been checked.
+ *
+ * Decrypted staging bytes are written to a separate private scratch directory. In
+ * production this is a bounded tmpfs, never the read-only encrypted-media volume.
+ */
+export async function openIdentityL3Stream({
+  objectKey,
+  root,
+  tempRoot = root,
+  key,
+  maxBytes = DEFAULT_MAX_BYTES
+}) {
   validateObjectKey(objectKey);
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > DEFAULT_MAX_BYTES) {
     throw new IdentityL3StorageError('l3_media_limit_invalid');
   }
   const encryptionKey = Buffer.isBuffer(key) ? Buffer.from(key) : parseIdentityL3EncryptionKey(key);
   if (encryptionKey.length !== 32) throw new IdentityL3StorageError('l3_storage_key_invalid');
-  const directory = await ensurePrivateRoot(root);
-  const objectPath = path.join(directory, objectKey);
-  const plaintextPath = path.join(directory, `.decrypt-${randomUUID()}`);
+  if (activeIdentityL3Decryptions >= IDENTITY_L3_MAX_CONCURRENT_DECRYPTIONS) {
+    throw new IdentityL3StorageError('l3_storage_decryption_busy');
+  }
+  activeIdentityL3Decryptions += 1;
+
   let sourceHandle;
   let outputHandle;
   let plaintextReady = false;
-
+  let handedOff = false;
+  let plaintextPath;
   try {
+    const directory = await ensurePrivateRoot(root);
+    const stagingDirectory = await ensurePrivateRoot(tempRoot);
+    const objectPath = path.join(directory, objectKey);
+    plaintextPath = path.join(stagingDirectory, `.decrypt-${randomUUID()}`);
+
     // Keep one no-follow descriptor for metadata, header, tag, and ciphertext.
     // This prevents a path swap between validation and decryption.
     sourceHandle = await open(objectPath, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -258,6 +282,19 @@ export async function openIdentityL3Stream({ objectKey, root, key, maxBytes = DE
     await outputHandle.close();
     outputHandle = null;
     plaintextReady = true;
+
+    const plaintext = createReadStream(plaintextPath);
+    // Release the bounded scratch slot and unlink on normal completion,
+    // cancellation, or stream error/close.
+    plaintext.once('close', () => {
+      activeIdentityL3Decryptions = Math.max(0, activeIdentityL3Decryptions - 1);
+      unlink(plaintextPath).catch(() => {});
+    });
+    plaintext.once('error', () => {
+      plaintext.destroy();
+    });
+    handedOff = true;
+    return plaintext;
   } catch (error) {
     if (error?.code === 'ELOOP') {
       throw new IdentityL3StorageError('l3_storage_object_invalid');
@@ -267,7 +304,6 @@ export async function openIdentityL3Stream({ objectKey, root, key, maxBytes = DE
       throw new IdentityL3StorageError('l3_storage_authentication_failed');
     }
     if (error instanceof IdentityL3StorageError) throw error;
-    // Node reports GCM tag failures as an authentication/finalization error.
     if (error?.message?.toLowerCase().includes('authenticate') ||
         error?.message?.toLowerCase().includes('bad decrypt')) {
       throw new IdentityL3StorageError('l3_storage_authentication_failed');
@@ -276,19 +312,43 @@ export async function openIdentityL3Stream({ objectKey, root, key, maxBytes = DE
   } finally {
     if (sourceHandle) await sourceHandle.close().catch(() => {});
     if (outputHandle) await outputHandle.close().catch(() => {});
-    if (!plaintextReady) await unlink(plaintextPath).catch(() => {});
+    if (!plaintextReady && plaintextPath) await unlink(plaintextPath).catch(() => {});
+    if (!handedOff) activeIdentityL3Decryptions = Math.max(0, activeIdentityL3Decryptions - 1);
   }
+}
 
-  const plaintext = createReadStream(plaintextPath);
-  // The authenticated staging file is private and short-lived. Cleanup runs on
-  // normal completion, consumer cancellation, or stream error/close.
-  plaintext.once('close', () => {
-    unlink(plaintextPath).catch(() => {});
-  });
-  plaintext.once('error', () => {
-    plaintext.destroy();
-  });
-  return plaintext;
+/**
+ * Remove abandoned decrypted staging files after a process restart. This must be
+ * called before accepting requests/starting jobs in a container-private scratch
+ * directory; it never touches encrypted objects or caller-supplied paths.
+ */
+export async function clearIdentityL3TemporaryFiles({ root }) {
+  const directory = await ensurePrivateRoot(root);
+  const entries = await readdir(directory, { withFileTypes: true });
+  const pattern = /^\\.decrypt-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  let deletedCount = 0;
+  for (const entry of entries) {
+    if (!pattern.test(entry.name) || !entry.isFile()) continue;
+    const filePath = path.join(directory, entry.name);
+    const stat = await lstat(filePath).catch(error => {
+      if (error?.code === 'ENOENT') return null;
+      throw new IdentityL3StorageError('l3_storage_root_unsafe');
+    });
+    if (!stat || !stat.isFile() || stat.isSymbolicLink()) continue;
+    await unlink(filePath).catch(error => {
+      if (error?.code !== 'ENOENT') throw error;
+    });
+    deletedCount += 1;
+  }
+  if (deletedCount) {
+    const directoryHandle = await open(directory, constants.O_RDONLY);
+    try {
+      await directoryHandle.sync();
+    } finally {
+      await directoryHandle.close();
+    }
+  }
+  return { deletedCount };
 }
 
 export async function deleteIdentityL3Object({ objectKey, root }) {
