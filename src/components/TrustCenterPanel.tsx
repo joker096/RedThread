@@ -330,7 +330,7 @@ export const TrustCenterPanel: React.FC = () => {
                 {savingL3Consent ? 'Повторяем удаление…' : 'Повторить удаление видео'}
               </button>}
             </>}
-            {l3Consent.accepted && l3Consent.enabled && !['uploaded', 'processing', 'pending_review', 'approved'].includes(data.identity.l3.status) && <>
+            {l3Consent.accepted && l3Consent.enabled && l3Consent.purgeStatus === 'complete' && !['uploaded', 'processing', 'pending_review', 'approved'].includes(data.identity.l3.status) && <>
               <label className="mt-3 block rounded-xl border border-white/10 bg-stone-900 p-3 text-[11px] text-stone-300">
                 <span className="mb-2 block font-semibold text-white">Видео-заявление · 30–60 секунд · MP4 или WebM · до 100 МБ</span>
                 <input type="file" accept="video/mp4,video/webm"
