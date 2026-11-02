@@ -4,6 +4,8 @@ import {
   createIdentityL3UploadToken,
   hashIdentityL3UploadToken,
   IDENTITY_L3_UPLOAD_TOKEN_LIFETIME_MINUTES,
+  IDENTITY_L3_CONSENT_VERSION,
+  IDENTITY_L3_CONSENT_NOTICE,
   IdentityL3UploadTokenError
 } from './identityL3UploadTokens.js';
 
@@ -148,4 +150,15 @@ test('upload capability consumption fails closed after L3 consent is absent or w
     error => error.code === 'l3_consent_required'
   );
   assert.equal(client.calls.length, 2, 'a token lookup must not occur after consent is missing');
+});
+
+test('L3 consent notice is explicit and versioned', () => {
+  assert.equal(IDENTITY_L3_CONSENT_NOTICE.version, IDENTITY_L3_CONSENT_VERSION);
+  assert.equal(IDENTITY_L3_CONSENT_VERSION, 1);
+  assert.match(IDENTITY_L3_CONSENT_NOTICE.text, /30–60 second video statement/);
+  assert.match(IDENTITY_L3_CONSENT_NOTICE.text, /authorized Vow moderators/);
+  assert.match(IDENTITY_L3_CONSENT_NOTICE.text, /withdraw this consent at any time/);
+  assert.match(IDENTITY_L3_CONSENT_NOTICE.text, /queued for deletion/);
+  assert.match(IDENTITY_L3_CONSENT_NOTICE.text, /six months/);
+  assert.equal(Object.isFrozen(IDENTITY_L3_CONSENT_NOTICE), true);
 });
