@@ -6,7 +6,7 @@ import {
   IdentityL3MediaProcessingError,
   processIdentityL3Media
 } from './identityL3MediaProcessing.js';
-import { deleteIdentityL3Object, openIdentityL3Stream, parseIdentityL3EncryptionKey } from './identityL3Storage.js';
+import { deleteIdentityL3Object, openIdentityL3Stream, parseIdentityL3EncryptionKey, sweepIdentityL3OrphanObjects } from './identityL3Storage.js';
 
 const { Pool } = pg;
 export const IDENTITY_L3_WORKER_LEASE_MS = 180_000;
@@ -320,6 +320,21 @@ export async function runIdentityL3WorkerOnce(pool, options = {}) {
 }
 
 
+export async function sweepIdentityL3Orphans(pool, {
+  storageRoot = process.env.IDENTITY_L3_STORAGE_DIR,
+  olderThanMs
+} = {}) {
+  if (!storageRoot) throw Object.assign(new Error('l3_storage_root_missing'), { code: 'l3_storage_root_missing' });
+  const referenced = await pool.query(
+    'SELECT storage_object_key FROM identity_l3_submissions WHERE storage_object_key IS NOT NULL'
+  );
+  return sweepIdentityL3OrphanObjects({
+    root: storageRoot,
+    referencedObjectKeys: referenced.rows.map(row => row.storage_object_key),
+    ...(olderThanMs === undefined ? {} : { olderThanMs })
+  });
+}
+
 export const IDENTITY_L3_PURGE_MAX_ATTEMPTS = 5;
 export const IDENTITY_L3_PURGE_LEASE_MS = 180_000;
 
@@ -498,11 +513,17 @@ async function main() {
     ssl: process.env.PGSSL === 'true' ? { rejectUnauthorized: true } : undefined
   });
   let stopping = false;
+  let lastOrphanSweepAt = 0;
   const stop = () => { stopping = true; };
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
   try {
     while (!stopping) {
+      if (purgeOnly && Date.now() - lastOrphanSweepAt >= 60 * 60 * 1000) {
+        const sweep = await sweepIdentityL3Orphans(pool);
+        lastOrphanSweepAt = Date.now();
+        if (sweep.deletedCount > 0) console.log('Identity L3 orphan files removed:', sweep.deletedCount);
+      }
       const result = purgeOnly
         ? await runIdentityL3PurgeOnce(pool)
         : await runIdentityL3WorkerOnce(pool);
