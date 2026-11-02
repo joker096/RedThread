@@ -53,7 +53,9 @@ test('L3 media processing requires both actual probe validation and a clean malw
       openDecryptedStream: async () => Readable.from([Buffer.from('encrypted-content-decoded')]),
       probe: async filePath => {
         events.push('probe');
-        assert.ok((await stat(filePath)).size > 0);
+        const stagedStat = await stat(filePath);
+        assert.ok(stagedStat.size > 0);
+        assert.equal(stagedStat.mode & 0o077, 0, 'plaintext staging file must be owner-only');
         return mp4Probe;
       },
       scanner: async filePath => {
