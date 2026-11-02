@@ -59,7 +59,7 @@ test('L3 storage rejects a wrong key and ciphertext tampering', async () => {
       source: Readable.from([Buffer.from('sensitive video payload')]), root, key
     });
     await assert.rejects(
-      collect(await openIdentityL3Stream({ objectKey: stored.objectKey, root, key: otherKey })),
+      () => openIdentityL3Stream({ objectKey: stored.objectKey, root, key: otherKey }),
       error => error instanceof IdentityL3StorageError && error.code === 'l3_storage_authentication_failed'
     );
     const filePath = path.join(root, stored.objectKey);
@@ -67,7 +67,7 @@ test('L3 storage rejects a wrong key and ciphertext tampering', async () => {
     encrypted[encrypted.length - 17] ^= 0x01;
     await writeFile(filePath, encrypted);
     await assert.rejects(
-      collect(await openIdentityL3Stream({ objectKey: stored.objectKey, root, key })),
+      () => openIdentityL3Stream({ objectKey: stored.objectKey, root, key }),
       error => error instanceof IdentityL3StorageError && error.code === 'l3_storage_authentication_failed'
     );
   });
