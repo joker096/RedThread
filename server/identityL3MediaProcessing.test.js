@@ -3,10 +3,13 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readdir, rm, stat, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import net from 'node:net';
+import { writeFile } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import {
   IdentityL3MediaProcessingError,
   processIdentityL3Media,
+  scanIdentityL3FileWithClamD,
   validateIdentityL3Probe
 } from './identityL3MediaProcessing.js';
 
@@ -107,4 +110,78 @@ test('L3 media processing fails closed when ffprobe cannot be run', async () => 
     }),
     error => error.code === 'l3_media_probe_unavailable'
   );
+});
+
+
+async function withFakeClamD(responseParts, callback) {
+  const received = [];
+  const server = net.createServer(socket => {
+    let buffer = Buffer.alloc(0);
+    let commandRead = false;
+    let payloadLength = null;
+    socket.on('data', chunk => {
+      buffer = Buffer.concat([buffer, chunk]);
+      if (!commandRead) {
+        const commandEnd = buffer.indexOf(0);
+        if (commandEnd === -1) return;
+        assert.equal(buffer.subarray(0, commandEnd).toString(), 'zINSTREAM');
+        buffer = buffer.subarray(commandEnd + 1);
+        commandRead = true;
+      }
+      while (commandRead) {
+        if (payloadLength === null) {
+          if (buffer.length < 4) return;
+          payloadLength = buffer.readUInt32BE(0);
+          buffer = buffer.subarray(4);
+          if (payloadLength === 0) {
+            for (const part of responseParts) socket.write(part);
+            return;
+          }
+        }
+        if (buffer.length < payloadLength) return;
+        received.push(buffer.subarray(0, payloadLength));
+        buffer = buffer.subarray(payloadLength);
+        payloadLength = null;
+      }
+    });
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  try {
+    await callback(server.address().port, received);
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+}
+
+test('ClamAV INSTREAM sends NUL-framed command and accepts fragmented clean response', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'vow-clamd-test-'));
+  const filePath = path.join(directory, 'sample.bin');
+  try {
+    await writeFile(filePath, Buffer.from('known-clean-payload'));
+    await withFakeClamD([Buffer.from('stream: O'), Buffer.from('K\\0')], async (port, received) => {
+      await scanIdentityL3FileWithClamD(filePath, { host: '127.0.0.1', port, timeoutMs: 2000 });
+      assert.equal(Buffer.concat(received).toString(), 'known-clean-payload');
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('ClamAV INSTREAM rejects a fragmented malware FOUND response', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'vow-clamd-test-'));
+  const filePath = path.join(directory, 'sample.bin');
+  try {
+    await writeFile(filePath, Buffer.from('infected-payload'));
+    await withFakeClamD([Buffer.from('stream: Eicar-Test'), Buffer.from('-Signature FOUND\\0')], async (port) => {
+      await assert.rejects(
+        scanIdentityL3FileWithClamD(filePath, { host: '127.0.0.1', port, timeoutMs: 2000 }),
+        error => error.code === 'l3_media_malware_detected'
+      );
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
