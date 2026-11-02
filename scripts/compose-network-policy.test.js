@@ -111,14 +111,22 @@ test('Docker database network is isolated from the public web proxy container', 
 
 test('Nginx streams L3 video uploads without plaintext disk buffering', async () => {
   const nginx = await readFile(new URL('../docker/nginx.conf', import.meta.url), 'utf8');
-  const uploadBlock = nginx.match(/location = \/api\/identity\/l3\/upload \\{([\\s\\S]*?)\\n    \\}/)?.[1];
-  assert.ok(uploadBlock, 'L3 upload must have a dedicated exact-match Nginx location');
+  const uploadStart = nginx.indexOf('location = /api/identity/l3/upload {');
+  assert.notEqual(uploadStart, -1, 'L3 upload must have a dedicated exact-match Nginx location');
+  const uploadEnd = nginx.indexOf('\n    }', uploadStart);
+  assert.ok(uploadEnd > uploadStart, 'L3 upload location must be closed');
+  const uploadBlock = nginx.slice(uploadStart, uploadEnd);
   assert.match(uploadBlock, /client_max_body_size 110m;/);
   assert.match(uploadBlock, /client_body_timeout 180s;/);
   assert.match(uploadBlock, /proxy_request_buffering off;/,
     'plaintext video bodies must stream directly to the API, never to Nginx disk buffers');
   assert.match(uploadBlock, /proxy_send_timeout 180s;/);
   assert.match(uploadBlock, /proxy_read_timeout 180s;/);
-  assert.match(nginx, /location \/api\/ \\{[\\s\\S]*?client_max_body_size 9m;/,
+
+  const genericStart = nginx.indexOf('location /api/ {');
+  assert.notEqual(genericStart, -1);
+  const genericEnd = nginx.indexOf('\n    }', genericStart);
+  const genericApiBlock = nginx.slice(genericStart, genericEnd);
+  assert.match(genericApiBlock, /client_max_body_size 9m;/,
     'the larger video limit must not weaken unrelated API request limits');
 });
