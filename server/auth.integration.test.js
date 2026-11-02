@@ -2663,6 +2663,38 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(deleteWrongPassword.status, 401);
 
+    // Account deletion must not erase the only database reference to encrypted
+    // identity video while the private-media purge has not been confirmed.
+    const l3DeletionGuardDb = new Pool({ connectionString: process.env.DATABASE_URL });
+    const l3DeletionGuardSubmissionId = randomUUID();
+    try {
+      await l3DeletionGuardDb.query(
+        `INSERT INTO identity_l3_submissions (id, user_id, status, storage_object_key)
+         VALUES ($1, $2, 'draft', $3)`,
+        [l3DeletionGuardSubmissionId, registered.user.id, randomUUID()]
+      );
+      const blockedL3AccountDeletion = await request('/api/account', {
+        method: 'DELETE',
+        headers: { Cookie: secondCookie },
+        body: JSON.stringify({ password: activePassword })
+      });
+      assert.equal(blockedL3AccountDeletion.status, 409);
+      assert.deepEqual(await blockedL3AccountDeletion.json(),
+        { error: 'identity_l3_media_purge_unavailable' });
+      const retainedL3Reference = await l3DeletionGuardDb.query(
+        'SELECT storage_object_key FROM identity_l3_submissions WHERE id = $1',
+        [l3DeletionGuardSubmissionId]
+      );
+      assert.equal(retainedL3Reference.rowCount, 1,
+        'account deletion must retain the object key until physical media purge is confirmed');
+    } finally {
+      await l3DeletionGuardDb.query(
+        'DELETE FROM identity_l3_submissions WHERE id = $1',
+        [l3DeletionGuardSubmissionId]
+      ).catch(() => {});
+      await l3DeletionGuardDb.end();
+    }
+
     // Moderator suspension must also revoke gift address access while keeping
     // provider payment state truthful.
     const moderationSafetyDb = new Pool({
