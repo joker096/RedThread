@@ -1733,6 +1733,25 @@ test('auth API supports registration, session lookup, logout and login', {
     );
     assert.deepEqual(revokedDecision.rows, [{ status: 'revoked', is_active: false }],
       'a newer revocation must invalidate an older unexpired approval');
+    const purgedRevokedMedia = await identityGateDb.query(
+      `UPDATE identity_l3_submissions
+       SET storage_object_key = NULL, media_purged_at = NOW()
+       WHERE id = $1
+       RETURNING status, storage_object_key, media_purged_at`,
+      [newerRevokedId]
+    );
+    assert.deepEqual(purgedRevokedMedia.rows.map(row => ({
+      status: row.status,
+      storage_object_key: row.storage_object_key,
+      purged: Boolean(row.media_purged_at)
+    })), [{ status: 'revoked', storage_object_key: null, purged: true }],
+    'a revoked decision must still allow the one-way physical-media purge');
+    const revokedPurgeAudit = await identityGateDb.query(
+      "SELECT event_type FROM identity_l3_decision_events WHERE submission_id = $1 AND event_type = 'media_purged'",
+      [newerRevokedId]
+    );
+    assert.equal(revokedPurgeAudit.rowCount, 1,
+      'purging media from a revoked submission must remain auditable');
     const rejectedReverificationId = randomUUID();
     await identityGateDb.query(
       'INSERT INTO identity_l3_submissions (id, user_id) VALUES ($1, $2)',
