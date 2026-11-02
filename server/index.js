@@ -4658,19 +4658,24 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, pr
       }
     }
 
-    const pending = await client.query(
-      `SELECT COUNT(*)::int AS count
+    const purgeCounts = await client.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE status IN ('queued', 'processing'))::int AS pending,
+         COUNT(*) FILTER (WHERE status = 'failed')::int AS failed
        FROM identity_l3_media_purge_jobs
-       WHERE user_id = $1 AND status IN ('queued', 'processing', 'failed')`,
+       WHERE user_id = $1`,
       [req.authUser.id]
     );
+    const pendingCount = Number(purgeCounts.rows[0]?.pending || 0);
+    const failedCount = Number(purgeCounts.rows[0]?.failed || 0);
     await client.query('COMMIT');
     return res.json({
       version: IDENTITY_L3_CONSENT_VERSION,
       accepted: false,
       withdrawn: wasActive,
-      purgeStatus: Number(pending.rows[0]?.count || 0) > 0 ? 'pending' : 'complete',
-      pendingPurgeJobs: Number(pending.rows[0]?.count || 0),
+      purgeStatus: failedCount > 0 ? 'failed' : pendingCount > 0 ? 'pending' : 'complete',
+      pendingPurgeJobs: pendingCount,
+      failedPurgeJobs: failedCount,
       requeuedFailedJobs: queuedPurgeJobs
     });
   } catch (error) {
