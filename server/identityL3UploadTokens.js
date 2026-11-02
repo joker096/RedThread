@@ -31,7 +31,7 @@ async function lockL3Account(client, userId) {
   );
   const result = await client.query(
     `SELECT u.status AS account_status, p.gender,
-            iv.status AS identity_status, iv.provider_environment
+            iv.provider, iv.status AS identity_status, iv.provider_environment
      FROM users u
      JOIN profiles p ON p.user_id = u.id
      JOIN identity_verifications iv ON iv.user_id = u.id
@@ -41,7 +41,7 @@ async function lockL3Account(client, userId) {
   );
   const account = result.rows[0];
   if (!account || account.account_status !== 'active' || account.gender !== 'male' ||
-      account.identity_status !== 'verified' || account.provider_environment !== 'live') {
+      account.provider !== 'didit' || account.identity_status !== 'verified' || account.provider_environment !== 'live') {
     throw new IdentityL3UploadTokenError('l3_upload_requires_live_l2');
   }
 }
