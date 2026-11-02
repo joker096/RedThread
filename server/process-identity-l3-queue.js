@@ -233,6 +233,11 @@ export async function processClaimedIdentityL3Submission(pool, claim, {
     processingError = error;
   } finally {
     clearInterval(heartbeat);
+    // Do not race a final in-flight lease extension against the completion or
+    // retry transaction on this same PostgreSQL connection.
+    while (heartbeatRunning) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
   }
 
   if (leaseLost) throw new Error('identity_l3_worker_lease_lost');
