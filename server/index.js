@@ -4581,6 +4581,8 @@ app.get('/api/moderation/identity-l3/submissions/:submissionId/media', requireSe
     res.setHeader('Cache-Control', 'private, no-store, max-age=0');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
     res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
     await pipeline(mediaStream, res);
   } catch (error) {
