@@ -318,7 +318,7 @@ export async function deleteIdentityL3Object({ objectKey, root }) {
 export const IDENTITY_L3_MAX_MEDIA_BYTES = DEFAULT_MAX_BYTES;
 
 const ORPHAN_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-const TEMP_OBJECT_PATTERN = /^(?:\\.tmp-|\\.decrypt-)([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i;
+const TEMP_OBJECT_PATTERN = /^(?:\.tmp-|\.decrypt-)([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i;
 
 /**
  * Remove only stale UUID media files that have no database reference, plus
