@@ -324,6 +324,11 @@ export const TrustCenterPanel: React.FC = () => {
                 className="mt-3 min-h-11 w-full rounded-xl bg-rose-700 px-4 text-sm font-semibold text-white disabled:opacity-50">
                 {savingL3Consent ? 'Сохраняем…' : 'Предоставить согласие L3'}
               </button>
+              {l3Consent.grantedAt && !l3Consent.withdrawnAt && <button type="button"
+                onClick={() => void withdrawL3Consent()} disabled={savingL3Consent}
+                className="mt-3 min-h-11 w-full rounded-xl border border-rose-500/40 px-4 text-sm font-semibold text-rose-200 disabled:opacity-50">
+                {savingL3Consent ? 'Сохраняем…' : 'Отозвать прежнее согласие и удалить видео'}
+              </button>}
               {shouldOfferL3PurgeRetry(l3Consent) && <button type="button"
                 onClick={() => void withdrawL3Consent()} disabled={savingL3Consent}
                 className="mt-3 min-h-11 w-full rounded-xl border border-rose-500/40 px-4 text-sm font-semibold text-rose-200 disabled:opacity-50">
