@@ -1476,8 +1476,8 @@ test('auth API supports registration, session lookup, logout and login', {
 
     await identityGateDb.query(
       `INSERT INTO identity_l3_consents (user_id, consent_version, granted_at)
-       VALUES ($1, 1, statement_timestamp())`,
-      [maleRegistered.user.id]
+       VALUES ($1, 2, statement_timestamp()), ($2, 1, statement_timestamp())`,
+      [maleRegistered.user.id, secondMaleRegistered.user.id]
     );
 
     const consentBefore = await request('/api/identity/l3/consent', {
