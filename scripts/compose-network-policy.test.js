@@ -9,7 +9,7 @@ test('Docker database network is isolated from the public web proxy container', 
     const start = lines.indexOf(`  ${name}:`);
     assert.ok(start >= 0, `missing compose service: ${name}`);
     let end = lines.findIndex((line, index) =>
-      index > start && (line === 'networks:' || /^  [a-z][a-z-]*:$/.test(line))
+      index > start && /^(?:[a-z][a-z-]*:|  [a-z][a-z-]*:)$/.test(line)
     );
     if (end < 0) end = lines.length;
     return lines.slice(start + 1, end).join(String.fromCharCode(10));
