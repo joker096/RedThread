@@ -1724,7 +1724,7 @@ test('auth API supports registration, session lookup, logout and login', {
       'a male profile with an older approval superseded by a newer revocation must not appear in women\'s discovery');
     assert.equal(searchResult.profiles.some(profile => profile.displayName === 'Тестовый профиль' && profile.gender === 'male'), true);
 
-    await identityGateDb.query("UPDATE identity_verifications SET provider_environment = 'sandbox' WHERE user_id = $1", [secondMaleRegistered.user.id]);
+    await identityGateDb.query("UPDATE identity_verifications SET status = 'pending', provider_environment = 'sandbox' WHERE user_id = $1", [secondMaleRegistered.user.id]);
     const hiddenUnverifiedMale = await request('/api/profiles/search', { headers: { Cookie: secondCookie } });
     assert.equal((await hiddenUnverifiedMale.json()).profiles.some(profile => profile.id === secondMaleRegistered.user.id), false,
       'women must not discover a male profile without live L2 verification');
