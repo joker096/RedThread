@@ -19,6 +19,30 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       assert.equal(tables.rows[0].submissions, 'identity_l3_submissions');
       assert.equal(tables.rows[0].events, 'identity_l3_decision_events');
 
+      const consentTables = await client.query(
+        `SELECT to_regclass('public.identity_l3_consents') AS current_consent,
+                to_regclass('public.identity_l3_consent_events') AS consent_events`
+      );
+      assert.equal(consentTables.rows[0].current_consent, 'identity_l3_consents');
+      assert.equal(consentTables.rows[0].consent_events, 'identity_l3_consent_events');
+      const consentColumns = await client.query(
+        `SELECT column_name, data_type FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'identity_l3_consents'`
+      );
+      const consentColumnNames = new Set(consentColumns.rows.map(row => row.column_name));
+      assert.ok(consentColumnNames.has('consent_version'));
+      assert.ok(consentColumnNames.has('granted_at'));
+      assert.ok(consentColumnNames.has('withdrawn_at'));
+      const consentAuditTrigger = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'identity_l3_consent_events'::regclass AND NOT tgisinternal`
+      );
+      assert.ok(consentAuditTrigger.rows.some(row => row.tgname === 'identity_l3_consent_events_append_only'));
+      const consentAuditGuard = await client.query(
+        `SELECT pg_get_functiondef('prevent_identity_l3_consent_event_mutation()'::regprocedure) AS definition`
+      );
+      assert.match(consentAuditGuard.rows[0].definition, /consent events are append-only/);
+
       const uploadTokenTable = await client.query(
         "SELECT to_regclass('public.identity_l3_upload_tokens') AS tokens"
       );
