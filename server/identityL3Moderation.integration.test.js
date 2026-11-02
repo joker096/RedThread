@@ -169,8 +169,6 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
 
     const firstVideo = Buffer.from('private encrypted L3 moderator review fixture');
     const first = await createPendingSubmission(firstVideo, request, applicantCookie);
-    const secondVideo = Buffer.from('private encrypted L3 rejected media fixture');
-    const second = await createPendingSubmission(secondVideo, request, applicantCookie);
     const forbiddenQueue = await request('/api/moderation/identity-l3/submissions', {
       headers: { Cookie: applicantCookie }
     });
@@ -182,8 +180,8 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     assert.equal(queue.status, 200);
     const queuePayload = await queue.json();
     assert.deepEqual(
-      queuePayload.submissions.map(item => item.submissionId).sort(),
-      [first.submissionId, second.submissionId].sort()
+      queuePayload.submissions.map(item => item.submissionId),
+      [first.submissionId]
     );
     assert.equal(JSON.stringify(queuePayload).includes(storageRoot), false,
       'moderation queue must never expose private storage paths');
@@ -225,6 +223,21 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     });
     assert.equal(mediaAfterApproval.status, 404,
       'a decision closes the pending-review media endpoint');
+
+    // The workflow permits only one active submission per applicant. Resolve the
+    // first submission before creating the second so this test exercises the
+    // supported lifecycle instead of bypassing the single-active-submission rule.
+    const secondVideo = Buffer.from('private encrypted L3 rejected media fixture');
+    const second = await createPendingSubmission(secondVideo, request, applicantCookie);
+    const queueAfterSecondUpload = await request('/api/moderation/identity-l3/submissions', {
+      headers: { Cookie: moderatorCookie }
+    });
+    assert.equal(queueAfterSecondUpload.status, 200);
+    const queueAfterSecondUploadPayload = await queueAfterSecondUpload.json();
+    assert.deepEqual(
+      queueAfterSecondUploadPayload.submissions.map(item => item.submissionId),
+      [second.submissionId]
+    );
 
     const rejected = await request('/api/moderation/identity-l3/submissions/' + second.submissionId + '/decision', {
       method: 'POST',
