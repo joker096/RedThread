@@ -79,6 +79,21 @@ export async function issueIdentityL3UploadCapability(client, { userId }) {
   await lockL3Account(client, userId);
   await setAuditActor(client, userId);
 
+  // Never authorize a replacement upload while an earlier terminal submission
+  // still has encrypted media awaiting physical purge. The shared account lock
+  // serializes this check with purge completion and consent withdrawal.
+  const pendingPurge = await client.query(
+    `SELECT EXISTS (
+       SELECT 1 FROM identity_l3_submissions
+       WHERE user_id = $1 AND storage_object_key IS NOT NULL
+         AND status IN ('withdrawn', 'revoked', 'rejected', 'expired', 'failed')
+     ) AS media_purge_pending`,
+    [userId]
+  );
+  if (pendingPurge.rows[0]?.media_purge_pending === true) {
+    throw new IdentityL3UploadTokenError('l3_media_purge_pending');
+  }
+
   let submission = await client.query(
     `SELECT id, status FROM identity_l3_submissions
      WHERE user_id = $1
