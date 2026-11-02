@@ -1614,6 +1614,8 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     );
     // Account deletion removes both the current consent state and its history.
     // Migration 104 permits history purge only after the account is marked deleted.
+    await client.query('DELETE FROM identity_l3_consent_events WHERE user_id = $1', [req.authUser.id]);
+    await client.query('DELETE FROM identity_l3_consents WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM ad_consent_preferences WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM ad_consent_history WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM gift_receiving_preferences WHERE user_id = $1', [req.authUser.id]);
