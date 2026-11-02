@@ -38,8 +38,6 @@ test('Docker database network is isolated from the public web proxy container', 
     'L3 media storage and encryption key must be API-only');
   assert.deepEqual(networksFor('web'), ['frontend']);
 
-  const api = serviceBlock('api');
-  const web = serviceBlock('web');
   const diditVariables = [
     'DIDIT_ENVIRONMENT',
     'DIDIT_SANDBOX_KEY_CONFIRMED',
