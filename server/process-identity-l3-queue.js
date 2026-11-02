@@ -485,11 +485,12 @@ export async function runIdentityL3PurgeOnce(pool, {
 }
 
 async function main() {
+  const purgeOnly = process.argv.includes('--purge-only');
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required for the identity L3 worker');
-  if (!process.env.IDENTITY_L3_STORAGE_DIR || !process.env.IDENTITY_L3_ENCRYPTION_KEY) {
+  if (!process.env.IDENTITY_L3_STORAGE_DIR || (!purgeOnly && !process.env.IDENTITY_L3_ENCRYPTION_KEY)) {
     throw new Error('identity L3 encrypted storage is not configured');
   }
-  parseIdentityL3EncryptionKey(process.env.IDENTITY_L3_ENCRYPTION_KEY);
+  if (!purgeOnly) parseIdentityL3EncryptionKey(process.env.IDENTITY_L3_ENCRYPTION_KEY);
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     max: 2,
@@ -502,8 +503,9 @@ async function main() {
   process.on('SIGTERM', stop);
   try {
     while (!stopping) {
-      const purgeResult = await runIdentityL3PurgeOnce(pool);
-      const result = purgeResult.processed ? purgeResult : await runIdentityL3WorkerOnce(pool);
+      const result = purgeOnly
+        ? await runIdentityL3PurgeOnce(pool)
+        : await runIdentityL3WorkerOnce(pool);
       if (!result.processed && !stopping) {
         await new Promise(resolve => setTimeout(resolve, 1_500));
       } else if (result.processed) {
