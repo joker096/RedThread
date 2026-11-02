@@ -30,8 +30,10 @@ test('Docker database network is isolated from the public web proxy container', 
   assert.deepEqual(networksFor('identity-l3-expiry'), ['backend']);
   assert.deepEqual(networksFor('clamav'), ['backend']);
   assert.deepEqual(networksFor('identity-l3-worker'), ['backend']);
+  assert.deepEqual(networksFor('identity-l3-purge-worker'), ['backend']);
   const clamav = serviceBlock('clamav');
   const l3Worker = serviceBlock('identity-l3-worker');
+  const l3PurgeWorker = serviceBlock('identity-l3-purge-worker');
   assert.match(clamav, /profiles: \["identity-l3"\]/);
   assert.doesNotMatch(clamav, /^    ports:/m, 'ClamAV must never publish its scanner port to the host');
   assert.match(clamav, /CLAMD_CONF_StreamMaxLength: 120M/);
@@ -40,6 +42,11 @@ test('Docker database network is isolated from the public web proxy container', 
     'the processing worker must mount encrypted media read-only');
   assert.match(l3Worker, /clamav:\n        condition: service_healthy/,
     'the worker must wait for a healthy malware scanner');
+  assert.match(l3PurgeWorker, /--purge-only/);
+  assert.match(l3PurgeWorker, /private_identity_l3:\/app\/uploads\/private-identity-l3(\n|$)/,
+    'the isolated purge worker requires write access to unlink encrypted media');
+  assert.doesNotMatch(l3PurgeWorker, /clamav:/,
+    'the purge-only worker must not depend on or access the malware scanner');
   assert.deepEqual(networksFor('api'), ['backend', 'frontend', 'egress']);
   const api = serviceBlock('api');
   const web = serviceBlock('web');
