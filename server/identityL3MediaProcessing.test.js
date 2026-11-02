@@ -161,7 +161,7 @@ test('ClamAV INSTREAM sends NUL-framed command and accepts fragmented clean resp
   const filePath = path.join(directory, 'sample.bin');
   try {
     await writeFile(filePath, Buffer.from('known-clean-payload'));
-    await withFakeClamD([Buffer.from('stream: O'), Buffer.from('K\\0')], async (port, received) => {
+    await withFakeClamD([Buffer.from('stream: O'), Buffer.from('K\0')], async (port, received) => {
       await scanIdentityL3FileWithClamD(filePath, { host: '127.0.0.1', port, timeoutMs: 2000 });
       assert.equal(Buffer.concat(received).toString(), 'known-clean-payload');
     });
@@ -175,7 +175,7 @@ test('ClamAV INSTREAM rejects a fragmented malware FOUND response', async () => 
   const filePath = path.join(directory, 'sample.bin');
   try {
     await writeFile(filePath, Buffer.from('infected-payload'));
-    await withFakeClamD([Buffer.from('stream: Eicar-Test'), Buffer.from('-Signature FOUND\\0')], async (port) => {
+    await withFakeClamD([Buffer.from('stream: Eicar-Test'), Buffer.from('-Signature FOUND\0')], async (port) => {
       await assert.rejects(
         scanIdentityL3FileWithClamD(filePath, { host: '127.0.0.1', port, timeoutMs: 2000 }),
         error => error.code === 'l3_media_malware_detected'
