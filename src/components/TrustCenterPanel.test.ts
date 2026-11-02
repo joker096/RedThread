@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validL3Consent } from './TrustCenterPanel.tsx';
+import { shouldOfferL3PurgeRetry, validL3Consent } from './TrustCenterPanel.tsx';
 
 const validConsent = {
   version: 1,
@@ -55,4 +55,26 @@ test('accepts an explicitly withdrawn consent with a valid audit timestamp', () 
     purgeStatus: 'pending',
     pendingPurgeJobs: 1
   }), true);
+});
+
+test('offers a retry only when consent is withdrawn and physical media purge has failed', () => {
+  assert.equal(shouldOfferL3PurgeRetry({
+    ...validConsent,
+    accepted: false,
+    purgeStatus: 'failed',
+    failedPurgeJobs: 1
+  }), true);
+  assert.equal(shouldOfferL3PurgeRetry({
+    ...validConsent,
+    accepted: false,
+    purgeStatus: 'pending',
+    pendingPurgeJobs: 1
+  }), false);
+  assert.equal(shouldOfferL3PurgeRetry({
+    ...validConsent,
+    accepted: true,
+    purgeStatus: 'failed',
+    failedPurgeJobs: 1
+  }), false);
+  assert.equal(shouldOfferL3PurgeRetry(null), false);
 });
