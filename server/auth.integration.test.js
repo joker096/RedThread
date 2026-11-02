@@ -1494,11 +1494,11 @@ test('auth API supports registration, session lookup, logout and login', {
       [l3SubmissionId, `test-only/${l3SubmissionId}`]
     );
     await identityGateDb.query(
-      "UPDATE identity_l3_submissions SET status = 'processing', processing_completed_at = NOW() WHERE id = $1",
+      "UPDATE identity_l3_submissions SET status = 'processing' WHERE id = $1",
       [l3SubmissionId]
     );
     await identityGateDb.query(
-      "UPDATE identity_l3_submissions SET status = 'pending_review' WHERE id = $1",
+      "UPDATE identity_l3_submissions SET status = 'pending_review', processing_completed_at = NOW() WHERE id = $1",
       [l3SubmissionId]
     );
     await identityGateDb.query(
