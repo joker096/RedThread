@@ -4482,7 +4482,7 @@ app.get('/api/moderation/identity-l3/submissions', requireSession, async (req, r
   if (process.env.IDENTITY_L3_ENABLED !== 'true') return res.status(503).json({ error: 'l3_feature_disabled' });
   try {
     const result = await withActiveModeratorRead(req.authUser.id, client => client.query(
-      `SELECT s.id AS "submissionId", s.uploaded_at AS "uploadedAt",
+      `SELECT s.id AS "submissionId", s.user_id AS "applicantReference", s.uploaded_at AS "uploadedAt",
               s.media_mime_type AS "mimeType", s.media_size_bytes AS "sizeBytes",
               s.media_duration_seconds AS "durationSeconds",
               s.processing_attempts AS "processingAttempts"
@@ -4569,6 +4569,10 @@ app.get('/api/moderation/identity-l3/submissions/:submissionId/media', requireSe
       key: encryptionKey,
       maxBytes: IDENTITY_L3_MAX_MEDIA_BYTES
     });
+    await client.query(
+      "INSERT INTO identity_l3_media_access_events (submission_id, moderator_user_id, access_type) VALUES ($1, $2, 'viewed')",
+      [req.params.submissionId, req.authUser.id]
+    );
     await client.query('COMMIT');
     transactionOpen = false;
     res.setHeader('Content-Type', row.media_mime_type);
