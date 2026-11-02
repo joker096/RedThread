@@ -1511,6 +1511,13 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(grantedL3Consent.status, 201);
     assert.deepEqual(await grantedL3Consent.json(), { version: 1, accepted: true });
+    const disabledL3Capability = await request('/api/identity/l3/upload-capability', {
+      method: 'POST',
+      headers: { Cookie: secondMaleCookie }
+    });
+    assert.equal(disabledL3Capability.status, 503);
+    assert.equal((await disabledL3Capability.json()).error, 'l3_feature_disabled');
+
     const repeatedL3Consent = await request('/api/identity/l3/consent', {
       method: 'PUT',
       headers: { Cookie: secondMaleCookie },
