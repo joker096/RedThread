@@ -351,7 +351,7 @@ export const TrustCenterPanel: React.FC = () => {
               </p>}
             {l3Consent.accepted && l3Consent.enabled && data.identity.l3.status === 'approved' &&
               <p className="mt-3 text-[11px] text-emerald-200">Проверка L3 подтверждена. Повторная загрузка не требуется до окончания срока действия.</p>}
-            {!l3Consent.enabled && <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-950/20 p-2 text-[11px] text-amber-200">L3 временно отключена до завершения полного защищённого потока модерации. Согласие можно отозвать в любое время; загрузка видео пока закрыта.</p>}
+            {!l3Consent.enabled && <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-950/20 p-2 text-[11px] text-amber-200">L3 пока выключена до проверки production-хранилища, управления ключами, резервного копирования и мониторинга фоновых задач. Согласие можно отозвать в любое время; загрузка видео пока закрыта.</p>}
             {l3Consent.purgeStatus !== 'complete' && <p role="status" className={l3Consent.purgeStatus === 'failed'
               ? 'mt-2 rounded-lg bg-rose-950/30 p-2 text-[11px] text-rose-200'
               : 'mt-2 rounded-lg bg-amber-950/20 p-2 text-[11px] text-amber-200'}>
