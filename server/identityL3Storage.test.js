@@ -47,6 +47,23 @@ test('L3 storage readiness validates key and both private mount permissions', as
   });
 });
 
+if (process.platform === 'linux') {
+  test('L3 production readiness rejects ordinary directories when mountpoints are required', async () => {
+    await withStorage(async root => {
+      const encryptedRoot = path.join(root, 'encrypted');
+      const scratchRoot = path.join(root, 'scratch');
+      await mkdir(encryptedRoot, { mode: 0o700 });
+      await mkdir(scratchRoot, { mode: 0o700 });
+      await assert.rejects(
+        assertIdentityL3StorageReady({
+          root: encryptedRoot, tempRoot: scratchRoot, key, requireMount: true
+        }),
+        error => error instanceof IdentityL3StorageError && error.code === 'l3_storage_mount_missing'
+      );
+    });
+  });
+}
+
 test('L3 storage rejects a symlink in any parent component of the private root', async () => {
   await withStorage(async root => {
     const actualParent = path.join(root, 'actual-parent');
