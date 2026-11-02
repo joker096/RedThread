@@ -45,6 +45,17 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       assert.match(consentAuditGuard.rows[0].definition, /u\.status = 'deleted'/,
         'account deletion may purge consent audit history only after marking the account deleted');
 
+      const mediaAccessAudit = await client.query(
+        `SELECT to_regclass('public.identity_l3_media_access_events') AS access_events`
+      );
+      assert.equal(mediaAccessAudit.rows[0].access_events, 'identity_l3_media_access_events');
+      const mediaAccessTrigger = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'identity_l3_media_access_events'::regclass AND NOT tgisinternal`
+      );
+      assert.ok(mediaAccessTrigger.rows.some(row =>
+        row.tgname === 'identity_l3_media_access_events_append_only'
+      ));
       const purgeQueueTable = await client.query(
         "SELECT to_regclass('public.identity_l3_media_purge_jobs') AS purge_jobs"
       );
