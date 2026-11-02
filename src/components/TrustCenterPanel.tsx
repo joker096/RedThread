@@ -67,6 +67,8 @@ export const TrustCenterPanel: React.FC = () => {
   const [l3Consent, setL3Consent] = useState<L3Consent | null>(null);
   const [l3ConsentAcknowledged, setL3ConsentAcknowledged] = useState(false);
   const [savingL3Consent, setSavingL3Consent] = useState(false);
+  const [selectedL3Video, setSelectedL3Video] = useState<File | null>(null);
+  const [uploadingL3Video, setUploadingL3Video] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [startingVerification, setStartingVerification] = useState(false);
@@ -169,6 +171,70 @@ export const TrustCenterPanel: React.FC = () => {
     }
   }, [load]);
 
+  const uploadL3Video = useCallback(async () => {
+    if (!selectedL3Video || !l3Consent?.accepted || !data ||
+        data.identity.gender !== 'male' || data.identity.status !== 'verified' ||
+        data.identity.environment !== 'live') return;
+    if (!['video/mp4', 'video/webm'].includes(selectedL3Video.type)) {
+      setError('Выберите видео в формате MP4 или WebM.');
+      return;
+    }
+    if (selectedL3Video.size < 1 || selectedL3Video.size > 100 * 1024 * 1024) {
+      setError('Размер видео должен быть не больше 100 МБ.');
+      return;
+    }
+    setUploadingL3Video(true);
+    setError('');
+    let objectUrl: string | null = null;
+    try {
+      objectUrl = URL.createObjectURL(selectedL3Video);
+      const duration = await new Promise<number>((resolve, reject) => {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        video.onloadedmetadata = () => resolve(video.duration);
+        video.onerror = () => reject(new Error('Не удалось прочитать длительность видео.'));
+        video.src = objectUrl as string;
+      });
+      URL.revokeObjectURL(objectUrl);
+      objectUrl = null;
+      if (!Number.isFinite(duration) || duration < 30 || duration > 60) {
+        throw new Error('Длительность видео должна быть от 30 до 60 секунд.');
+      }
+
+      const capabilityResponse = await fetch('/api/identity/l3/upload-capability', {
+        method: 'POST', credentials: 'include'
+      });
+      const capability = await capabilityResponse.json().catch(() => null);
+      if (!capabilityResponse.ok || typeof capability?.uploadToken !== 'string') {
+        throw new Error(capability?.error === 'l3_consent_required'
+          ? 'Согласие L3 больше не действует. Обновите Центр безопасности.'
+          : 'Не удалось подготовить защищённую загрузку видео.');
+      }
+      const uploadResponse = await fetch('/api/identity/l3/upload', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': selectedL3Video.type,
+          'X-Identity-L3-Upload-Token': capability.uploadToken
+        },
+        body: selectedL3Video
+      });
+      const uploaded = await uploadResponse.json().catch(() => null);
+      if (!uploadResponse.ok || uploaded?.status !== 'uploaded') {
+        throw new Error(uploaded?.error === 'l3_media_too_large'
+          ? 'Видео превышает ограничение 100 МБ.'
+          : 'Защищённая загрузка не завершилась. Попробуйте ещё раз.');
+      }
+      setSelectedL3Video(null);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось загрузить видео L3.');
+    } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      setUploadingL3Video(false);
+    }
+  }, [data, l3Consent, selectedL3Video, load]);
+
   useEffect(() => { void load(); }, [load]);
 
 
@@ -244,6 +310,29 @@ export const TrustCenterPanel: React.FC = () => {
                 {savingL3Consent ? 'Сохраняем…' : 'Предоставить согласие L3'}
               </button>
             </>}
+            {l3Consent.accepted && !['uploaded', 'processing', 'pending_review', 'approved'].includes(data.identity.l3.status) && <>
+              <label className="mt-3 block rounded-xl border border-white/10 bg-stone-900 p-3 text-[11px] text-stone-300">
+                <span className="mb-2 block font-semibold text-white">Видео-заявление · 30–60 секунд · MP4 или WebM · до 100 МБ</span>
+                <input type="file" accept="video/mp4,video/webm"
+                  onChange={event => setSelectedL3Video(event.target.files?.[0] || null)}
+                  disabled={uploadingL3Video}
+                  className="block min-h-11 w-full text-xs text-stone-300 file:mr-3 file:min-h-10 file:rounded-lg file:border-0 file:bg-stone-700 file:px-3 file:text-xs file:text-white" />
+                {selectedL3Video && <span className="mt-2 block break-all text-stone-400">
+                  {selectedL3Video.name} · {(selectedL3Video.size / (1024 * 1024)).toFixed(1)} МБ
+                </span>}
+              </label>
+              <button type="button" onClick={() => void uploadL3Video()}
+                disabled={uploadingL3Video || !selectedL3Video}
+                className="mt-3 min-h-11 w-full rounded-xl bg-rose-700 px-4 text-sm font-semibold text-white disabled:opacity-50">
+                {uploadingL3Video ? 'Загружаем и шифруем…' : 'Отправить видео на проверку L3'}
+              </button>
+            </>}
+            {l3Consent.accepted && ['uploaded', 'processing', 'pending_review'].includes(data.identity.l3.status) &&
+              <p className="mt-3 rounded-lg bg-amber-950/20 p-2 text-[11px] text-amber-200">
+                Видео получено. Проверка формата и безопасности выполняется; повторно загружать файл пока не нужно.
+              </p>}
+            {l3Consent.accepted && data.identity.l3.status === 'approved' &&
+              <p className="mt-3 text-[11px] text-emerald-200">Проверка L3 подтверждена. Повторная загрузка не требуется до окончания срока действия.</p>}
             {l3Consent.purgeStatus !== 'complete' && <p role="status" className={l3Consent.purgeStatus === 'failed'
               ? 'mt-2 rounded-lg bg-rose-950/30 p-2 text-[11px] text-rose-200'
               : 'mt-2 rounded-lg bg-amber-950/20 p-2 text-[11px] text-amber-200'}>
