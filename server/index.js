@@ -4478,6 +4478,7 @@ app.get('/api/gifts/orders', requireSession, profileActionLimiter, async (req, r
 });
 
 app.post('/api/identity/l3/upload-capability', validateRequestOrigin, requireSession, identityL3Limiter, async (req, res) => {
+  if (process.env.IDENTITY_L3_ENABLED !== 'true') return res.status(503).json({ error: 'l3_feature_disabled' });
   try {
     const capability = await withPooledTransaction(pool, client =>
       issueIdentityL3UploadCapability(client, { userId: req.authUser.id })
@@ -4495,6 +4496,7 @@ app.post('/api/identity/l3/upload-capability', validateRequestOrigin, requireSes
 });
 
 app.post('/api/identity/l3/upload', validateRequestOrigin, requireSession, identityL3Limiter, async (req, res) => {
+  if (process.env.IDENTITY_L3_ENABLED !== 'true') return res.status(503).json({ error: 'l3_feature_disabled' });
   const contentType = String(req.get('content-type') || '').split(';', 1)[0].trim().toLowerCase();
   const contentEncoding = String(req.get('content-encoding') || 'identity').trim().toLowerCase();
   const token = req.get('x-identity-l3-upload-token');
@@ -4620,6 +4622,7 @@ app.get('/api/identity/l3/consent', requireSession, async (req, res) => {
     return res.json({
       version: IDENTITY_L3_CONSENT_VERSION,
       notice: IDENTITY_L3_CONSENT_NOTICE,
+      enabled: process.env.IDENTITY_L3_ENABLED === 'true',
       accepted: Boolean(consent && consent.consent_version === IDENTITY_L3_CONSENT_VERSION && !consent.withdrawn_at),
       grantedAt: consent?.granted_at || null,
       withdrawnAt: consent?.withdrawn_at || null,
