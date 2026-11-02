@@ -1547,11 +1547,11 @@ test('auth API supports registration, session lookup, logout and login', {
       [olderApprovalId, `test-only/${olderApprovalId}`]
     );
     await identityGateDb.query(
-      "UPDATE identity_l3_submissions SET status = 'processing', processing_completed_at = NOW() WHERE id = $1",
+      "UPDATE identity_l3_submissions SET status = 'processing' WHERE id = $1",
       [olderApprovalId]
     );
     await identityGateDb.query(
-      "UPDATE identity_l3_submissions SET status = 'pending_review' WHERE id = $1",
+      "UPDATE identity_l3_submissions SET status = 'pending_review', processing_completed_at = NOW() WHERE id = $1",
       [olderApprovalId]
     );
     await identityGateDb.query(
@@ -1581,11 +1581,11 @@ test('auth API supports registration, session lookup, logout and login', {
       [newerRevokedId, `test-only/${newerRevokedId}`]
     );
     await identityGateDb.query(
-      "UPDATE identity_l3_submissions SET status = 'processing', processing_completed_at = NOW() WHERE id = $1",
+      "UPDATE identity_l3_submissions SET status = 'processing' WHERE id = $1",
       [newerRevokedId]
     );
     await identityGateDb.query(
-      "UPDATE identity_l3_submissions SET status = 'pending_review' WHERE id = $1",
+      "UPDATE identity_l3_submissions SET status = 'pending_review', processing_completed_at = NOW() WHERE id = $1",
       [newerRevokedId]
     );
     await identityGateDb.query(
@@ -1625,11 +1625,11 @@ test('auth API supports registration, session lookup, logout and login', {
       [rejectedReverificationId, `test-only/${rejectedReverificationId}`]
     );
     await identityGateDb.query(
-      "UPDATE identity_l3_submissions SET status = 'processing', processing_completed_at = NOW() WHERE id = $1",
+      "UPDATE identity_l3_submissions SET status = 'processing' WHERE id = $1",
       [rejectedReverificationId]
     );
     await identityGateDb.query(
-      "UPDATE identity_l3_submissions SET status = 'pending_review' WHERE id = $1",
+      "UPDATE identity_l3_submissions SET status = 'pending_review', processing_completed_at = NOW() WHERE id = $1",
       [rejectedReverificationId]
     );
     await identityGateDb.query(
