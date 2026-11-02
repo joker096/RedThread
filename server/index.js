@@ -647,7 +647,7 @@ const profileActionLimiter = rateLimit({
 const identityL3Limiter = rateLimit({
   ...(pool ? { store: new PostgresRateLimitStore(pool, 'identity_l3') } : {}),
   windowMs: 15 * 60 * 1000,
-  limit: 10,
+  limit: 30,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'too_many_identity_l3_actions' }
