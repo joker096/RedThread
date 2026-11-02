@@ -225,9 +225,12 @@ export async function processIdentityL3Media({
     await fileHandle.close();
     fileHandle = null;
     if (totalBytes < 1) throw new IdentityL3MediaProcessingError('l3_media_empty');
+    // Scan untrusted bytes before invoking ffprobe. The parser is a native
+    // media-processing attack surface; do not expose it to malware that ClamAV
+    // can already identify. A scanner outage remains fail-closed.
+    await scanner(filePath);
     const metadata = await probe(filePath);
     const durationSeconds = validateProbe(metadata, declaredMimeType);
-    await scanner(filePath);
     return { durationSeconds, sizeBytes: totalBytes };
   } catch (error) {
     if (error instanceof IdentityL3MediaProcessingError) throw error;

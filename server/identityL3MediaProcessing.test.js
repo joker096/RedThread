@@ -68,7 +68,7 @@ test('L3 media processing requires both actual probe validation and a clean malw
       }
     });
     assert.deepEqual(result, { durationSeconds: 42, sizeBytes: Buffer.byteLength('encrypted-content-decoded') });
-    assert.deepEqual(events, ['probe', 'scan']);
+    assert.deepEqual(events, ['scan', 'probe']);
     assert.deepEqual(await readdir(tempRoot), [], 'plaintext staging file must be removed');
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
@@ -92,6 +92,35 @@ test('L3 media processing fails closed when scanner is unavailable and removes p
       error => error.code === 'l3_media_scanner_unavailable'
     );
     assert.deepEqual(await readdir(tempRoot), [], 'scanner failure must not leave plaintext staging files');
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('L3 media processing never invokes ffprobe when ClamAV detects malware', async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-l3-test-'));
+  let probeCalled = false;
+  try {
+    await assert.rejects(
+      processIdentityL3Media({
+        objectKey: 'opaque-object',
+        storageRoot: '/private',
+        encryptionKey: 'not-used-by-test-adapter',
+        declaredMimeType: 'video/mp4',
+        tempRoot,
+        openDecryptedStream: async () => Readable.from([Buffer.from('malicious-media')]),
+        scanner: async () => {
+          throw new IdentityL3MediaProcessingError('l3_media_malware_detected');
+        },
+        probe: async () => {
+          probeCalled = true;
+          return mp4Probe;
+        }
+      }),
+      error => error.code === 'l3_media_malware_detected'
+    );
+    assert.equal(probeCalled, false, 'ffprobe must not parse media rejected by ClamAV');
+    assert.deepEqual(await readdir(tempRoot), [], 'rejected plaintext staging must be removed');
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
