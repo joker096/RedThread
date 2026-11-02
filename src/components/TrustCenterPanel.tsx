@@ -29,7 +29,7 @@ export function validL3Consent(value: unknown): value is L3Consent {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const v = value as Record<string, unknown>;
   const notice = v.notice as Record<string, unknown> | null;
-  return Number.isInteger(v.version) && v.version === 1
+  return Number.isInteger(v.version) && v.version === 2
     && !!notice && typeof notice === 'object'
     && notice.version === v.version
     && typeof notice.title === 'string' && notice.title.length > 0
