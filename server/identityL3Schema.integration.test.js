@@ -157,7 +157,8 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       );
       assert.ok(validatedDurationConstraint);
       assert.match(validatedDurationConstraint.definition, /media_duration_seconds IS NOT NULL/);
-      assert.match(validatedDurationConstraint.definition, /BETWEEN 30 AND 60/);
+      assert.match(validatedDurationConstraint.definition, /media_duration_seconds >= 30/);
+      assert.match(validatedDurationConstraint.definition, /media_duration_seconds <= 60/);
       assert.ok(decisionConstraints.rows.some(row => /failed/.test(row.definition)),
         'processing failure must be represented as a terminal workflow state');
 
