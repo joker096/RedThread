@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { shouldOfferL3PurgeRetry, validL3Consent } from './TrustCenterPanel.tsx';
 
 const validConsent = {
-  version: 1,
+  version: 2,
   notice: {
-    version: 1,
+    version: 2,
     title: 'Consent to L3 video identity verification',
     text: 'Explicit consent to process a 30–60 second verification video.'
   },
@@ -23,10 +23,10 @@ test('accepts a complete current L3 consent response', () => {
 });
 
 test('rejects stale or mismatched L3 consent notice versions', () => {
-  assert.equal(validL3Consent({ ...validConsent, version: 2 }), false);
+  assert.equal(validL3Consent({ ...validConsent, version: 1 }), false);
   assert.equal(validL3Consent({
     ...validConsent,
-    notice: { ...validConsent.notice, version: 2 }
+    notice: { ...validConsent.notice, version: 3 }
   }), false);
 });
 
