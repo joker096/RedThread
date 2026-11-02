@@ -34,13 +34,13 @@ CREATE INDEX identity_l3_media_purge_queue_idx
 COMMENT ON TABLE identity_l3_media_purge_jobs IS
   'Durable retryable deletion queue for encrypted L3 video objects. Failed jobs retain the submission object key and block account deletion until reconciled.';
 
--- Every terminal transition with retained media must create a durable purge job,
+-- Every media-retiring terminal transition with retained media must create a durable purge job,
 -- including moderator rejection, processing failure, revocation and six-month expiry.
 CREATE OR REPLACE FUNCTION enqueue_identity_l3_media_purge()
 RETURNS trigger LANGUAGE plpgsql AS $l3_purge_enqueue$
 BEGIN
   IF NEW.storage_object_key IS NOT NULL
-     AND NEW.status IN ('approved', 'rejected', 'withdrawn', 'revoked', 'expired', 'failed')
+     AND NEW.status IN ('rejected', 'withdrawn', 'revoked', 'expired', 'failed')
      AND (
        TG_OP = 'INSERT'
        OR NEW.status IS DISTINCT FROM OLD.status
@@ -62,6 +62,6 @@ CREATE TRIGGER identity_l3_submission_enqueue_media_purge
 INSERT INTO identity_l3_media_purge_jobs (submission_id, user_id)
 SELECT id, user_id
 FROM identity_l3_submissions
-WHERE status IN ('approved', 'rejected', 'withdrawn', 'revoked', 'expired', 'failed')
+WHERE status IN ('rejected', 'withdrawn', 'revoked', 'expired', 'failed')
   AND storage_object_key IS NOT NULL
 ON CONFLICT (submission_id) DO NOTHING;
