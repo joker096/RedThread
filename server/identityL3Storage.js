@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
-import { constants, createWriteStream } from 'node:fs';
+import { constants, createReadStream, createWriteStream } from 'node:fs';
 import { lstat, mkdir, open, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
@@ -165,57 +165,85 @@ export async function openIdentityL3Stream({ objectKey, root, key, maxBytes = DE
   if (encryptionKey.length !== 32) throw new IdentityL3StorageError('l3_storage_key_invalid');
   const directory = await ensurePrivateRoot(root);
   const objectPath = path.join(directory, objectKey);
+  const plaintextPath = path.join(directory, `.decrypt-${randomUUID()}`);
   let sourceHandle;
-  let encrypted;
-  let expectedSize;
+  let outputHandle;
+  let plaintextReady = false;
+
   try {
-    // Open once with O_NOFOLLOW and read from that descriptor. Never authenticate
-    // a different path than the one whose metadata was checked.
+    // Keep one no-follow descriptor for metadata, header, tag, and ciphertext.
+    // This prevents a path swap between validation and decryption.
     sourceHandle = await open(objectPath, constants.O_RDONLY | constants.O_NOFOLLOW);
     const stat = await sourceHandle.stat();
-    expectedSize = stat.size;
+    const expectedSize = stat.size;
     if (!stat.isFile() || expectedSize < HEADER_BYTES + TAG_BYTES ||
         expectedSize > HEADER_BYTES + maxBytes + TAG_BYTES) {
       throw new IdentityL3StorageError('l3_storage_object_invalid');
     }
-    encrypted = await sourceHandle.readFile();
+
+    const header = Buffer.alloc(HEADER_BYTES);
+    const tag = Buffer.alloc(TAG_BYTES);
+    const headerRead = await sourceHandle.read(header, 0, header.length, 0);
+    const tagRead = await sourceHandle.read(tag, 0, tag.length, expectedSize - TAG_BYTES);
+    if (headerRead.bytesRead !== HEADER_BYTES || tagRead.bytesRead !== TAG_BYTES ||
+        !header.subarray(0, MAGIC.length).equals(MAGIC)) {
+      throw new IdentityL3StorageError('l3_storage_object_invalid');
+    }
+
+    const nonce = header.subarray(MAGIC.length);
+    const decipher = createDecipheriv('aes-256-gcm', encryptionKey, nonce);
+    decipher.setAAD(Buffer.from(objectKey, 'utf8'));
+    decipher.setAuthTag(tag);
+
+    // GCM plaintext must not reach a moderator/client until final() authenticates
+    // the complete ciphertext. Decrypt to a mode-0600 staging file, then publish
+    // a read stream only after pipeline() has completed the authentication check.
+    outputHandle = await open(plaintextPath, 'wx', 0o600);
+    const output = createWriteStream(plaintextPath, {
+      fd: outputHandle.fd,
+      autoClose: false
+    });
+    const ciphertext = sourceHandle.createReadStream({
+      start: HEADER_BYTES,
+      end: expectedSize - TAG_BYTES - 1,
+      autoClose: false
+    });
+    await pipeline(ciphertext, decipher, output);
+    await outputHandle.sync();
+    await outputHandle.close();
+    outputHandle = null;
+    plaintextReady = true;
   } catch (error) {
     if (error?.code === 'ELOOP') {
       throw new IdentityL3StorageError('l3_storage_object_invalid');
     }
+    if (error?.code === 'ERR_OSSL_EVP_BAD_DECRYPT' ||
+        error?.code === 'ERR_CRYPTO_AUTH_FAILED') {
+      throw new IdentityL3StorageError('l3_storage_authentication_failed');
+    }
+    if (error instanceof IdentityL3StorageError) throw error;
+    // Node reports GCM tag failures as an authentication/finalization error.
+    if (error?.message?.toLowerCase().includes('authenticate') ||
+        error?.message?.toLowerCase().includes('bad decrypt')) {
+      throw new IdentityL3StorageError('l3_storage_authentication_failed');
+    }
     throw error;
   } finally {
     if (sourceHandle) await sourceHandle.close().catch(() => {});
+    if (outputHandle) await outputHandle.close().catch(() => {});
+    if (!plaintextReady) await unlink(plaintextPath).catch(() => {});
   }
 
-  // AES-GCM authenticates the complete ciphertext only at final(). Returning
-  // decipher.update() chunks to an HTTP consumer before final() would expose
-  // unauthenticated plaintext if the stored object had been tampered with.
-  // Bound the complete read, authenticate it first, and only then expose bytes.
-  if (!Buffer.isBuffer(encrypted) || encrypted.length !== expectedSize ||
-      encrypted.length < HEADER_BYTES + TAG_BYTES ||
-      encrypted.length > HEADER_BYTES + maxBytes + TAG_BYTES ||
-      !encrypted.subarray(0, MAGIC.length).equals(MAGIC)) {
-    throw new IdentityL3StorageError('l3_storage_object_invalid');
-  }
-
-  const nonce = encrypted.subarray(MAGIC.length, HEADER_BYTES);
-  const ciphertext = encrypted.subarray(HEADER_BYTES, encrypted.length - TAG_BYTES);
-  const tag = encrypted.subarray(encrypted.length - TAG_BYTES);
-  const decipher = createDecipheriv('aes-256-gcm', encryptionKey, nonce);
-  decipher.setAAD(Buffer.from(objectKey, 'utf8'));
-  let plaintext;
-  try {
-    decipher.setAuthTag(tag);
-    plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-  } catch {
-    throw new IdentityL3StorageError('l3_storage_authentication_failed');
-  }
-  if (plaintext.length > maxBytes) {
-    plaintext.fill(0);
-    throw new IdentityL3StorageError('l3_media_too_large');
-  }
-  return Readable.from([plaintext], { objectMode: false });
+  const plaintext = createReadStream(plaintextPath);
+  // The authenticated staging file is private and short-lived. Cleanup runs on
+  // normal completion, consumer cancellation, or stream error/close.
+  plaintext.once('close', () => {
+    unlink(plaintextPath).catch(() => {});
+  });
+  plaintext.once('error', () => {
+    plaintext.destroy();
+  });
+  return plaintext;
 }
 
 export async function deleteIdentityL3Object({ objectKey, root }) {
