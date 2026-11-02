@@ -47,6 +47,22 @@ async function ensurePrivateRoot(root) {
   return absoluteRoot;
 }
 
+async function writeFully(handle, buffer, position) {
+  let written = 0;
+  while (written < buffer.length) {
+    const result = await handle.write(
+      buffer,
+      written,
+      buffer.length - written,
+      position + written
+    );
+    if (!result.bytesWritten) {
+      throw new IdentityL3StorageError('l3_storage_write_incomplete');
+    }
+    written += result.bytesWritten;
+  }
+}
+
 function createMeter(maxBytes) {
   const hash = createHash('sha256');
   let size = 0;
@@ -95,7 +111,7 @@ export async function storeIdentityL3Stream({ source, root, key, maxBytes = DEFA
 
   try {
     handle = await open(temporaryPath, 'wx', 0o600);
-    await handle.write(Buffer.concat([MAGIC, nonceBytes]), 0, HEADER_BYTES, 0);
+    await writeFully(handle, Buffer.concat([MAGIC, nonceBytes]), 0);
     const output = createWriteStream(temporaryPath, {
       fd: handle.fd,
       autoClose: false,
@@ -104,7 +120,7 @@ export async function storeIdentityL3Stream({ source, root, key, maxBytes = DEFA
     await pipeline(source, meter.stream, cipher, output);
     const tag = cipher.getAuthTag();
     const encryptedStat = await handle.stat();
-    await handle.write(tag, 0, TAG_BYTES, encryptedStat.size);
+    await writeFully(handle, tag, encryptedStat.size);
     await handle.sync();
     await handle.close();
     handle = null;
