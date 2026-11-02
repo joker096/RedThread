@@ -254,7 +254,7 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
       'rejected media must be queued for physical deletion automatically');
 
     const purged = await runIdentityL3PurgeOnce(pool, { storageRoot });
-    assert.equal(purged.status, 'completed');
+    assert.equal(purged.status, 'completed', 'rejected-media purge must complete: ' + JSON.stringify(purged));
     const purgeState = await pool.query(
       `SELECT j.status AS purge_status, s.storage_object_key, s.media_purged_at
        FROM identity_l3_media_purge_jobs j
