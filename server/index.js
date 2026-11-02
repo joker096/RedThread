@@ -13,7 +13,7 @@ import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLo
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { consumeIdentityL3UploadCapability, IDENTITY_L3_CONSENT_NOTICE, IDENTITY_L3_CONSENT_VERSION, IdentityL3UploadTokenError, issueIdentityL3UploadCapability } from './identityL3UploadTokens.js';
-import { clearIdentityL3TemporaryFiles, deleteIdentityL3Object, IDENTITY_L3_MAX_MEDIA_BYTES, IdentityL3StorageError, openIdentityL3Stream, parseIdentityL3EncryptionKey, storeIdentityL3Stream } from './identityL3Storage.js';
+import { assertIdentityL3StorageReady, clearIdentityL3TemporaryFiles, deleteIdentityL3Object, IDENTITY_L3_MAX_MEDIA_BYTES, IdentityL3StorageError, openIdentityL3Stream, parseIdentityL3EncryptionKey, storeIdentityL3Stream } from './identityL3Storage.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
 import { createDiditSession, isDiditConfigured, isDiditStatus, projectDiditStatus, verifyDiditWebhook, isDiditUuid } from './diditIdentity.js';
@@ -5316,9 +5316,11 @@ app.use('/api', (_req, res) => {
 // bounded private tmpfs. Clear abandoned files from a previous process before
 // accepting any new requests; never place plaintext beside encrypted objects.
 if (process.env.IDENTITY_L3_ENABLED === 'true') {
-  if (!process.env.IDENTITY_L3_TEMP_DIR) {
-    throw new Error('identity L3 temporary storage is not configured');
-  }
+  await assertIdentityL3StorageReady({
+    root: process.env.IDENTITY_L3_STORAGE_DIR,
+    tempRoot: process.env.IDENTITY_L3_TEMP_DIR,
+    key: process.env.IDENTITY_L3_ENCRYPTION_KEY
+  });
   await clearIdentityL3TemporaryFiles({ root: process.env.IDENTITY_L3_TEMP_DIR });
 }
 
