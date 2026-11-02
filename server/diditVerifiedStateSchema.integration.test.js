@@ -23,6 +23,50 @@ test('verified Didit state requires a persisted live Approved provider session',
     assert.match(definition, /provider_environment = 'live'/);
     assert.match(definition, /provider_status = 'Approved'/);
     assert.match(definition, /provider_session_id IS NOT NULL/);
+    assert.match(definition, /IS TRUE/,
+      'the verified evidence predicate must reject SQL UNKNOWN from nullable provider_status');
+
+    // Clone the production table constraints so the regression test exercises
+    // the actual installed CHECK expression without creating a users fixture.
+    await pool.query(`
+      CREATE TEMP TABLE didit_verified_null_check_test
+      (LIKE public.identity_verifications INCLUDING ALL)
+    `);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `INSERT INTO didit_verified_null_check_test
+         (user_id, workflow_id, provider_session_id, status, provider_status, provider_environment)
+         VALUES ($1, $2, $3, 'verified', 'Approved', 'live')`,
+        [
+          'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+        ]
+      );
+      await client.query('SAVEPOINT reject_null_provider_verdict');
+      await assert.rejects(
+        client.query(
+          `INSERT INTO didit_verified_null_check_test
+           (user_id, workflow_id, provider_session_id, status, provider_status, provider_environment)
+           VALUES ($1, $2, $3, 'verified', NULL, 'live')`,
+          [
+            'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+            'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+            'ffffffff-ffff-4fff-8fff-ffffffffffff'
+          ]
+        ),
+        error => error.code === '23514'
+      );
+      await client.query('ROLLBACK TO SAVEPOINT reject_null_provider_verdict');
+      await client.query('COMMIT');
+    } finally {
+      if (client) {
+        try { await client.query('ROLLBACK'); } catch {}
+        client.release();
+      }
+    }
   } finally {
     await pool.end();
   }
