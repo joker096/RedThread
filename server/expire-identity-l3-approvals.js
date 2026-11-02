@@ -34,11 +34,11 @@ export async function processExpiredIdentityL3ApprovalBatch(pool, {
        FROM identity_l3_submissions
        WHERE (status = 'approved' AND expires_at <= NOW())
           OR (status = 'pending_review'
-              AND processing_completed_at <= NOW() - ($1::int * INTERVAL '1 day'))
+              AND processing_completed_at <= NOW() - ($2::int * INTERVAL '1 day'))
      ) candidates
      ORDER BY md5(concat_ws(':', candidates.user_id::text, date_trunc('minute', NOW())::text))
      LIMIT $1`,
-    [limit]
+    [limit, IDENTITY_L3_PENDING_REVIEW_RETENTION_DAYS]
   );
 
   const summary = {
