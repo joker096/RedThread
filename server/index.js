@@ -4950,9 +4950,9 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, id
       [req.authUser.id]
     );
     const consent = current.rows[0];
-    const wasActive = Boolean(
-      consent && consent.consent_version === IDENTITY_L3_CONSENT_VERSION && !consent.withdrawn_at
-    );
+    // Any previously granted version remains withdrawable after a notice
+    // update; the current version is required for access, not for revocation.
+    const wasActive = Boolean(consent && !consent.withdrawn_at);
     if (wasActive) {
       await client.query(
         'UPDATE identity_l3_consents SET withdrawn_at = statement_timestamp(), updated_at = statement_timestamp() WHERE user_id = $1 AND withdrawn_at IS NULL',
@@ -4962,7 +4962,7 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, id
         `INSERT INTO identity_l3_consent_events
            (user_id, actor_user_id, event_type, consent_version)
          VALUES ($1, $1, 'withdrawn', $2)`,
-        [req.authUser.id, IDENTITY_L3_CONSENT_VERSION]
+        [req.authUser.id, consent.consent_version]
       );
     }
 
