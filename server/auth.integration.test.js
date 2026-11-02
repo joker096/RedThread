@@ -1474,6 +1474,100 @@ test('auth API supports registration, session lookup, logout and login', {
       );
     }
 
+    const consentBefore = await request('/api/identity/l3/consent', {
+      headers: { Cookie: secondMaleCookie }
+    });
+    assert.equal(consentBefore.status, 200);
+    assert.equal((await consentBefore.json()).accepted, false,
+      'L3 consent must default to off');
+    const invalidL3Consent = await request('/api/identity/l3/consent', {
+      method: 'PUT',
+      headers: { Cookie: secondMaleCookie },
+      body: JSON.stringify({ accepted: true, version: 1, marketing: true })
+    });
+    assert.equal(invalidL3Consent.status, 400,
+      'L3 consent must reject extra or ambiguous fields');
+    const grantedL3Consent = await request('/api/identity/l3/consent', {
+      method: 'PUT',
+      headers: { Cookie: secondMaleCookie },
+      body: JSON.stringify({ accepted: true, version: 1 })
+    });
+    assert.equal(grantedL3Consent.status, 201);
+    assert.deepEqual(await grantedL3Consent.json(), { version: 1, accepted: true });
+    const repeatedL3Consent = await request('/api/identity/l3/consent', {
+      method: 'PUT',
+      headers: { Cookie: secondMaleCookie },
+      body: JSON.stringify({ accepted: true, version: 1 })
+    });
+    assert.equal(repeatedL3Consent.status, 200);
+    assert.equal((await repeatedL3Consent.json()).alreadyAccepted, true);
+
+    const consentSubmissionId = randomUUID();
+    await identityGateDb.query(
+      'INSERT INTO identity_l3_submissions (id, user_id) VALUES ($1, $2)',
+      [consentSubmissionId, secondMaleRegistered.user.id]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'upload_authorized' WHERE id = $1",
+      [consentSubmissionId]
+    );
+    await identityGateDb.query(
+      `UPDATE identity_l3_submissions
+       SET status = 'uploaded', storage_object_key = $2, media_sha256 = repeat('e', 64),
+           media_mime_type = 'video/mp4', media_size_bytes = 1024,
+           media_duration_seconds = 30, uploaded_at = NOW()
+       WHERE id = $1`,
+      [consentSubmissionId, randomUUID()]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'processing' WHERE id = $1",
+      [consentSubmissionId]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'pending_review', processing_completed_at = NOW() WHERE id = $1",
+      [consentSubmissionId]
+    );
+    await identityGateDb.query(
+      `UPDATE identity_l3_submissions
+       SET status = 'approved', reviewed_by = $2, reviewed_at = NOW(),
+           decision_reason_code = 'integration_test_consent',
+           approved_at = NOW(), expires_at = NOW() + INTERVAL '6 months'
+       WHERE id = $1`,
+      [consentSubmissionId, randomUUID()]
+    );
+    const withdrawnL3Consent = await request('/api/identity/l3/consent', {
+      method: 'DELETE',
+      headers: { Cookie: secondMaleCookie }
+    });
+    assert.equal(withdrawnL3Consent.status, 200);
+    const withdrawnL3Payload = await withdrawnL3Consent.json();
+    assert.equal(withdrawnL3Payload.accepted, false);
+    assert.equal(withdrawnL3Payload.withdrawn, true);
+    assert.equal(withdrawnL3Payload.purgeStatus, 'pending');
+    assert.equal(withdrawnL3Payload.pendingPurgeJobs, 1);
+    const withdrawnSubmission = await identityGateDb.query(
+      'SELECT status, storage_object_key FROM identity_l3_submissions WHERE id = $1',
+      [consentSubmissionId]
+    );
+    assert.equal(withdrawnSubmission.rows[0].status, 'revoked',
+      'withdrawal must revoke an existing L3 approval immediately');
+    assert.ok(withdrawnSubmission.rows[0].storage_object_key,
+      'the encrypted object key must remain until the purge worker confirms deletion');
+    const purgeJob = await identityGateDb.query(
+      'SELECT status FROM identity_l3_media_purge_jobs WHERE submission_id = $1',
+      [consentSubmissionId]
+    );
+    assert.deepEqual(purgeJob.rows, [{ status: 'queued' }]);
+    const consentAudit = await identityGateDb.query(
+      'SELECT event_type FROM identity_l3_consent_events WHERE user_id = $1 ORDER BY occurred_at, id',
+      [secondMaleRegistered.user.id]
+    );
+    assert.deepEqual(consentAudit.rows.map(row => row.event_type), ['granted', 'withdrawn']);
+    const consentAfter = await request('/api/identity/l3/consent', {
+      headers: { Cookie: secondMaleCookie }
+    });
+    assert.equal((await consentAfter.json()).accepted, false);
+
     // This synthetic fixture exercises the trusted server-side L3 approval
     // path. Production approvals can only be created by the moderator workflow.
     const l3SubmissionId = randomUUID();
