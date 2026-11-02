@@ -57,21 +57,21 @@ test('upload capability issuance fails closed unless persisted account and Didit
   const { issueIdentityL3UploadCapability } = await import('./identityL3UploadTokens.js');
   const client = fakeClient([
     { rows: [], rowCount: 0 },
-    { rows: [{ account_status: 'active', gender: 'male', identity_status: 'verified', provider_environment: 'sandbox' }], rowCount: 1 }
+    { rows: [{ account_status: 'active', gender: 'male', identity_status: 'verified', provider_environment: 'sandbox', l3_consent_active: true }], rowCount: 1 }
   ]);
   await assert.rejects(
     issueIdentityL3UploadCapability(client, { userId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }),
     error => error.code === 'l3_upload_requires_live_l2'
   );
   assert.equal(client.calls.length, 2);
-  assert.match(client.calls[1].sql, /FOR UPDATE OF u, p, iv/);
+  assert.match(client.calls[1].sql, /FOR UPDATE OF u, p, iv/);\n  assert.match(client.calls[1].sql, /identity_l3_consents/);\n  assert.equal(client.calls[1].params[0], 1);
 });
 
 test('upload capability issuance persists only a digest and returns plaintext once', async () => {
   const { issueIdentityL3UploadCapability } = await import('./identityL3UploadTokens.js');
   const client = fakeClient([
     { rows: [], rowCount: 0 },
-    { rows: [{ account_status: 'active', gender: 'male', identity_status: 'verified', provider_environment: 'live' }], rowCount: 1 },
+    { rows: [{ account_status: 'active', gender: 'male', identity_status: 'verified', provider_environment: 'live', l3_consent_active: true }], rowCount: 1 },
     { rows: [], rowCount: 0 },
     { rows: [{ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', status: 'draft' }], rowCount: 1 },
     { rows: [], rowCount: 1 },
@@ -109,4 +109,21 @@ test('upload capability consumption binds the token to the authenticated user an
   assert.equal(lookup.params[0], 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
   assert.equal(lookup.params[1], hashIdentityL3UploadToken(token));
   assert.match(lookup.sql, /t\.expires_at > NOW\(\)/);
+});
+
+test('upload capability issuance fails closed when explicit current L3 consent is absent', async () => {
+  const { issueIdentityL3UploadCapability } = await import('./identityL3UploadTokens.js');
+  const client = fakeClient([
+    { rows: [], rowCount: 0 },
+    { rows: [{
+      account_status: 'active', gender: 'male', identity_status: 'verified',
+      provider_environment: 'live', l3_consent_active: false
+    }], rowCount: 1 }
+  ]);
+  await assert.rejects(
+    issueIdentityL3UploadCapability(client, { userId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }),
+    error => error.code === 'l3_consent_required'
+  );
+  assert.equal(client.calls.length, 2);
+  assert.match(client.calls[1].sql, /c\.withdrawn_at IS NULL/);
 });
