@@ -1486,6 +1486,13 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(consentBefore.status, 200);
     assert.equal((await consentBefore.json()).accepted, false,
       'L3 consent must default to off');
+    const femaleL3Consent = await request('/api/identity/l3/consent', {
+      method: 'PUT',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({ accepted: true, version: 1 })
+    });
+    assert.equal(femaleL3Consent.status, 409,
+      'L3 consent grant must require a male applicant with live L2 verification');
     const invalidL3Consent = await request('/api/identity/l3/consent', {
       method: 'PUT',
       headers: { Cookie: secondMaleCookie },
@@ -1564,6 +1571,14 @@ test('auth API supports registration, session lookup, logout and login', {
       [consentSubmissionId]
     );
     assert.deepEqual(purgeJob.rows, [{ status: 'queued' }]);
+    const deletionBeforeMediaPurge = await request('/api/account', {
+      method: 'DELETE',
+      headers: { Cookie: secondMaleCookie },
+      body: JSON.stringify({ password })
+    });
+    assert.equal(deletionBeforeMediaPurge.status, 409);
+    assert.equal((await deletionBeforeMediaPurge.json()).error, 'identity_l3_media_purge_unavailable',
+      'account deletion must remain blocked until encrypted media deletion is confirmed');
     const consentAudit = await identityGateDb.query(
       'SELECT event_type FROM identity_l3_consent_events WHERE user_id = $1 ORDER BY occurred_at, id',
       [secondMaleRegistered.user.id]
