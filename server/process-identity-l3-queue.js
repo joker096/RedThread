@@ -18,6 +18,8 @@ const RETRYABLE_ERROR_CODES = new Set([
   'l3_media_scanner_timeout',
   'l3_media_probe_unavailable',
   'l3_media_probe_timeout',
+  'l3_media_probe_failed',
+  'l3_media_scanner_rejected',
   'l3_media_processing_failed',
   'l3_storage_root_missing',
   'l3_storage_root_unsafe'
@@ -28,7 +30,8 @@ const PERMANENT_ERROR_CODES = new Set([
   'l3_media_format_or_codec_invalid',
   'l3_media_audio_codec_invalid',
   'l3_media_mime_type_invalid',
-  'l3_media_mime_type_invalid',
+  'l3_media_probe_invalid',
+  'l3_media_probe_output_too_large',
   'l3_media_too_large',
   'l3_media_empty',
   'l3_storage_authentication_failed',
@@ -105,6 +108,9 @@ export async function claimIdentityL3Submission(pool, {
     if (!active.rowCount) {
       await client.query('ROLLBACK');
       transactionOpen = false;
+      await releaseAccountLock(client, selected.user_id);
+      lockAcquired = false;
+      client.release();
       return null;
     }
 
@@ -125,6 +131,9 @@ export async function claimIdentityL3Submission(pool, {
     if (!row || !row.storage_object_key || !row.media_mime_type) {
       await client.query('ROLLBACK');
       transactionOpen = false;
+      await releaseAccountLock(client, selected.user_id);
+      lockAcquired = false;
+      client.release();
       return null;
     }
 
