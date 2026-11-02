@@ -189,7 +189,7 @@ Both authenticated decryption staging and the separate ClamAV/ffprobe working co
 
 ### Production remains gated
 
-`IDENTITY_L3_ENABLED` remains `false` by default. The ClamAV and processing-worker services are deliberately behind the optional `identity-l3` Compose profile; start that profile and verify both services before enabling uploads, otherwise the API can accept a submission that has no active processor. The purge-only worker is not profiled and remains active for privacy cleanup.
+`IDENTITY_L3_ENABLED` remains `false` by default. The ClamAV and processing-worker services are deliberately behind the optional `identity-l3` Compose profile; run `docker compose --profile identity-l3 up -d clamav identity-l3-worker` and verify both services before enabling uploads, otherwise the API can accept a submission that has no active processor. The purge-only worker is not profiled and remains active for privacy cleanup.
 
 The approved-status expiry worker enforces the six-month approval limit. There is not yet an automatic maximum age for `pending_review` submissions: those videos remain until a moderator decision or applicant withdrawal. Choose and publish a pending-review retention deadline, then implement its automatic expiry/purge before production launch.
 
