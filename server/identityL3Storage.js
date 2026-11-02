@@ -370,7 +370,7 @@ export async function clearIdentityL3TemporaryFiles({ root }) {
   const processingDirectoryPrefix = 'vow-l3-check-';
   let deletedCount = 0;
   for (const entry of entries) {
-    const isDecryptFile = entry.isFile() && decryptFilePattern.test(entry.name);
+    const isDecryptFile = decryptFilePattern.test(entry.name);
     const processingSuffixLength = entry.name.startsWith(processingDirectoryPrefix)
       ? entry.name.length - processingDirectoryPrefix.length
       : 0;
