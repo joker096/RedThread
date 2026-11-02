@@ -176,6 +176,12 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     assert.equal(media.headers.get('cache-control'), 'private, no-store, max-age=0');
     assert.deepEqual(Buffer.from(await media.arrayBuffer()), firstVideo,
       'moderator receives authenticated plaintext only after encrypted media integrity checks');
+    const mediaAccessAudit = await pool.query(
+      'SELECT moderator_user_id, access_type FROM identity_l3_media_access_events WHERE submission_id = $1',
+      [first.submissionId]
+    );
+    assert.deepEqual(mediaAccessAudit.rows, [{ moderator_user_id: moderatorId, access_type: 'viewed' }]);
+
 
     const approved = await request('/api/moderation/identity-l3/submissions/' + first.submissionId + '/decision', {
       method: 'POST',
