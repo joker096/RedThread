@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 
 const TOKEN_BYTES = 32;
 const TOKEN_LIFETIME_MINUTES = 10;
-const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;\nexport const IDENTITY_L3_CONSENT_VERSION = 1;
 
 export class IdentityL3UploadTokenError extends Error {
   constructor(code) {
@@ -31,7 +31,7 @@ async function lockL3Account(client, userId) {
   );
   const result = await client.query(
     `SELECT u.status AS account_status, p.gender,
-            iv.provider, iv.status AS identity_status, iv.provider_environment
+            iv.provider, iv.status AS identity_status, iv.provider_environment,\n            EXISTS (\n              SELECT 1 FROM identity_l3_consents c\n              WHERE c.user_id = u.id\n                AND c.consent_version = $1::int\n                AND c.withdrawn_at IS NULL\n            ) AS l3_consent_active
      FROM users u
      JOIN profiles p ON p.user_id = u.id
      JOIN identity_verifications iv ON iv.user_id = u.id
@@ -44,8 +44,8 @@ async function lockL3Account(client, userId) {
   );
   const account = result.rows[0];
   if (!account || account.account_status !== 'active' || account.gender !== 'male' ||
-      account.identity_status !== 'verified' || account.provider_environment !== 'live') {
-    throw new IdentityL3UploadTokenError('l3_upload_requires_live_l2');
+      account.identity_status !== 'verified' || account.provider_environment !== 'live' ||\n      account.l3_consent_active !== true) {
+    throw new IdentityL3UploadTokenError(\n      account?.l3_consent_active === true ? 'l3_upload_requires_live_l2' : 'l3_consent_required'\n    );
   }
 }
 
