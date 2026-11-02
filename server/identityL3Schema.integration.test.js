@@ -81,7 +81,7 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       const eventRecorder = await client.query(
         `SELECT pg_get_functiondef('record_identity_l3_submission_event()'::regprocedure) AS definition`
       );
-      assert.match(eventRecorder.rows[0].definition, /processing_completed/);
+      assert.match(eventRecorder.rows[0].definition, /processing_completed/);\n      assert.match(eventRecorder.rows[0].definition, /OLD\\.status = 'processing'/,\n        'processing completion must be recorded only after the processing state finishes');
       assert.match(eventRecorder.rows[0].definition, /processing_failed/);
       assert.match(eventRecorder.rows[0].definition, /submitted_for_review/);
 
@@ -297,12 +297,22 @@ test('L3 schema persists metadata only and protects workflow decisions', {
         await client.query('ROLLBACK TO SAVEPOINT reject_early_l3_purge');
         await client.query('RELEASE SAVEPOINT reject_early_l3_purge');
         await client.query(
-          `UPDATE identity_l3_submission_trigger_test
-           SET status = 'processing', processing_completed_at = NOW() WHERE id = $1`,
+          "UPDATE identity_l3_submission_trigger_test SET status = 'processing' WHERE id = $1",
           [submissionId]
         );
+        await client.query('SAVEPOINT reject_early_l3_processing_completion');
+        await assert.rejects(
+          client.query(
+            'UPDATE identity_l3_submission_trigger_test SET processing_completed_at = NOW() WHERE id = $1',
+            [submissionId]
+          ),
+          error => error.code === '23514'
+        );
+        await client.query('ROLLBACK TO SAVEPOINT reject_early_l3_processing_completion');
+        await client.query('RELEASE SAVEPOINT reject_early_l3_processing_completion');
         await client.query(
-          "UPDATE identity_l3_submission_trigger_test SET status = 'pending_review' WHERE id = $1",
+          `UPDATE identity_l3_submission_trigger_test
+           SET status = 'pending_review', processing_completed_at = NOW() WHERE id = $1`,
           [submissionId]
         );
         await client.query(
