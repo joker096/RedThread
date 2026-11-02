@@ -159,7 +159,7 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       assert.ok(indexes.rows.some(row => row.indexname === 'identity_l3_moderation_queue_idx'));
       const processingQueueIndex = indexes.rows.find(row => row.indexname === 'identity_l3_processing_queue_idx');
       assert.ok(processingQueueIndex, 'uploaded and retryable processing rows need an indexed worker queue');
-      assert.match(processingQueueIndex.indexdef, /status IN \('uploaded', 'processing'\)/);
+      assert.match(processingQueueIndex.indexdef, /status = ANY \\(ARRAY\\['uploaded'::text, 'processing'::text\\]\\)/);
       assert.ok(indexes.rows.some(row => row.indexname === 'identity_l3_expiry_idx'));
       const currentDecisionIndex = indexes.rows.find(row => row.indexname === 'identity_l3_current_decision_idx');
       assert.ok(currentDecisionIndex);
