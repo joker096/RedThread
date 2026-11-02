@@ -5313,14 +5313,16 @@ app.use('/api', (_req, res) => {
 });
 
 // Decrypted moderator-review staging files live only in the API container's
-// bounded private tmpfs. Clear abandoned files from a previous process before
-// accepting any new requests; never place plaintext beside encrypted objects.
+// bounded private tmpfs. Clear abandoned files on every restart, even while the
+// feature flag is off; never leave plaintext from a previous enabled process.
 if (process.env.IDENTITY_L3_ENABLED === 'true') {
   await assertIdentityL3StorageReady({
     root: process.env.IDENTITY_L3_STORAGE_DIR,
     tempRoot: process.env.IDENTITY_L3_TEMP_DIR,
     key: process.env.IDENTITY_L3_ENCRYPTION_KEY
   });
+}
+if (process.env.IDENTITY_L3_TEMP_DIR) {
   await clearIdentityL3TemporaryFiles({ root: process.env.IDENTITY_L3_TEMP_DIR });
 }
 
