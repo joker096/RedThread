@@ -400,7 +400,7 @@ async function seedFixture(pool) {
 
     await client.query(
       `INSERT INTO identity_l3_consents (user_id, consent_version, granted_at)
-       VALUES ($1, 1, statement_timestamp())`,
+       VALUES ($1, 2, statement_timestamp())`,
       [ids.sender]
     );
 
