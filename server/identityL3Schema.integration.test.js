@@ -64,6 +64,11 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       const columnTypes = new Map(columns.rows.map(row => [row.column_name, row.data_type]));
       assert.equal(columnTypes.get('storage_object_key'), 'text');
       assert.equal(columnTypes.get('media_sha256'), 'character');
+      assert.equal(columnTypes.get('processing_attempts'), 'smallint');
+      assert.equal(columnTypes.get('processing_lease_token'), 'uuid');
+      assert.equal(columnTypes.get('processing_lease_expires_at'), 'timestamp with time zone');
+      assert.equal(columnTypes.get('processing_next_attempt_at'), 'timestamp with time zone');
+      assert.equal(columnTypes.has('processing_last_error_code'), true);
       assert.equal(columnTypes.has('video_bytes'), false, 'video content must not be stored in PostgreSQL');
       const eventColumns = await client.query(
         `SELECT column_name FROM information_schema.columns
@@ -152,6 +157,9 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       );
       assert.ok(indexes.rows.some(row => row.indexname === 'identity_l3_one_open_submission_per_user_uidx' && /UNIQUE/.test(row.indexdef)));
       assert.ok(indexes.rows.some(row => row.indexname === 'identity_l3_moderation_queue_idx'));
+      const processingQueueIndex = indexes.rows.find(row => row.indexname === 'identity_l3_processing_queue_idx');
+      assert.ok(processingQueueIndex, 'uploaded and retryable processing rows need an indexed worker queue');
+      assert.match(processingQueueIndex.indexdef, /status IN \('uploaded', 'processing'\)/);
       assert.ok(indexes.rows.some(row => row.indexname === 'identity_l3_expiry_idx'));
       const currentDecisionIndex = indexes.rows.find(row => row.indexname === 'identity_l3_current_decision_idx');
       assert.ok(currentDecisionIndex);
@@ -272,7 +280,7 @@ test('L3 schema persists metadata only and protects workflow decisions', {
           `UPDATE identity_l3_submission_trigger_test
            SET status = 'uploaded', storage_object_key = 'private/l3/test-object',
                media_sha256 = repeat('a', 64), media_mime_type = 'video/mp4',
-               media_size_bytes = 1024, media_duration_seconds = 30, uploaded_at = NOW()
+               media_size_bytes = 1024, media_duration_seconds = NULL, uploaded_at = NOW()
            WHERE id = $1`,
           [submissionId]
         );
@@ -312,9 +320,21 @@ test('L3 schema persists metadata only and protects workflow decisions', {
         );
         await client.query('ROLLBACK TO SAVEPOINT reject_early_l3_processing_completion');
         await client.query('RELEASE SAVEPOINT reject_early_l3_processing_completion');
+        await client.query('SAVEPOINT reject_unprobed_l3_submission');
+        await assert.rejects(
+          client.query(
+            `UPDATE identity_l3_submission_trigger_test
+             SET status = 'pending_review', processing_completed_at = NOW() WHERE id = $1`,
+            [submissionId]
+          ),
+          error => error.code === '23514'
+        );
+        await client.query('ROLLBACK TO SAVEPOINT reject_unprobed_l3_submission');
+        await client.query('RELEASE SAVEPOINT reject_unprobed_l3_submission');
         await client.query(
           `UPDATE identity_l3_submission_trigger_test
-           SET status = 'pending_review', processing_completed_at = NOW() WHERE id = $1`,
+           SET media_duration_seconds = 42, status = 'pending_review',
+               processing_completed_at = NOW() WHERE id = $1`,
           [submissionId]
         );
         await client.query(
