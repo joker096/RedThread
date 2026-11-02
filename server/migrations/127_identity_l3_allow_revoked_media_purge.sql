@@ -1,4 +1,5 @@
--- Permit metadata-only purge updates on an already-revoked submission.
+-- Preserve the validated processing->pending_review duration transition while
+-- allowing metadata-only purge updates on an already-revoked submission.
 -- The prior guard incorrectly re-ran the approval-to-revocation check for every
 -- UPDATE to a revoked row, preventing the purge worker from clearing its object key.
 CREATE OR REPLACE FUNCTION guard_identity_l3_submission_transition()
@@ -72,18 +73,26 @@ BEGIN
   END IF;
 
   -- Media identity is immutable after upload. Processing completion may be
-  -- recorded exactly once while advancing uploaded -> processing.
+  -- recorded exactly once when processing successfully advances to pending_review.
   IF OLD.status NOT IN ('draft', 'upload_authorized') AND (
     NEW.media_sha256 IS DISTINCT FROM OLD.media_sha256
     OR NEW.media_mime_type IS DISTINCT FROM OLD.media_mime_type
     OR NEW.media_size_bytes IS DISTINCT FROM OLD.media_size_bytes
-    OR NEW.media_duration_seconds IS DISTINCT FROM OLD.media_duration_seconds
+    OR (
+      NEW.media_duration_seconds IS DISTINCT FROM OLD.media_duration_seconds
+      AND NOT (
+        OLD.status = 'processing'
+        AND NEW.status = 'pending_review'
+        AND OLD.media_duration_seconds IS NULL
+        AND NEW.media_duration_seconds BETWEEN 30 AND 60
+      )
+    )
     OR NEW.uploaded_at IS DISTINCT FROM OLD.uploaded_at
     OR (
       NEW.processing_completed_at IS DISTINCT FROM OLD.processing_completed_at
       AND NOT (
-        OLD.status = 'uploaded'
-        AND NEW.status = 'processing'
+        OLD.status = 'processing'
+        AND NEW.status = 'pending_review'
         AND OLD.processing_completed_at IS NULL
         AND NEW.processing_completed_at IS NOT NULL
       )
@@ -109,4 +118,4 @@ END;
 $l3_guard$;
 
 COMMENT ON FUNCTION guard_identity_l3_submission_transition() IS
-  'Enforces legal L3 lifecycle transitions and immutable decisions/media; revocation validity is checked only when status actually changes.';
+  'Enforces legal L3 lifecycle transitions, one-time validated media duration, immutable decisions/media, and permits purge after revocation.';
