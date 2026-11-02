@@ -64,7 +64,9 @@ test('upload capability issuance fails closed unless persisted account and Didit
     error => error.code === 'l3_upload_requires_live_l2'
   );
   assert.equal(client.calls.length, 2);
-  assert.match(client.calls[1].sql, /FOR UPDATE OF u, p, iv/);\n  assert.match(client.calls[1].sql, /identity_l3_consents/);\n  assert.equal(client.calls[1].params[0], 1);
+  assert.match(client.calls[1].sql, /FOR UPDATE OF u, p, iv/);
+  assert.match(client.calls[1].sql, /identity_l3_consents/);
+  assert.equal(client.calls[1].params[0], 1);
 });
 
 test('upload capability issuance persists only a digest and returns plaintext once', async () => {
@@ -96,7 +98,7 @@ test('upload capability consumption binds the token to the authenticated user an
   const token = createIdentityL3UploadToken();
   const client = fakeClient([
     { rows: [], rowCount: 0 },
-    { rows: [{ account_status: 'active', gender: 'male', identity_status: 'verified', provider_environment: 'live' }], rowCount: 1 },
+    { rows: [{ account_status: 'active', gender: 'male', identity_status: 'verified', provider_environment: 'live', l3_consent_active: true }], rowCount: 1 },
     { rows: [{ token_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', submission_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', status: 'upload_authorized' }], rowCount: 1 },
     { rows: [{ submission_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }], rowCount: 1 }
   ]);
