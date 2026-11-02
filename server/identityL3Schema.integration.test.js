@@ -212,6 +212,8 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       assert.match(fn.rows[0].definition, /independent reviewer/);
       assert.match(fn.rows[0].definition, /moderator decision is immutable/);
       assert.match(fn.rows[0].definition, /invalid identity L3 status transition/);
+      assert.match(fn.rows[0].definition, /NEW\.status = 'revoked' AND NEW\.status IS DISTINCT FROM OLD\.status AND OLD\.status <> 'approved'/,
+        'purging an already-revoked submission must not be mistaken for a new revocation');
       assert.match(fn.rows[0].definition, /media metadata is immutable after upload/);
       assert.match(fn.rows[0].definition, /OLD\.status = 'processing'/,
         'the worker may set duration only while completing processing');
