@@ -41,7 +41,9 @@ async function ensurePrivateRoot(root) {
   const absoluteRoot = path.resolve(root);
   await mkdir(absoluteRoot, { recursive: true, mode: 0o700 });
   const stat = await lstat(absoluteRoot);
-  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+  if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0) {
+    // Never silently chmod an operator-managed mount. Fail closed if group/other
+    // principals can traverse or list the directory containing identity media.
     throw new IdentityL3StorageError('l3_storage_root_unsafe');
   }
   return absoluteRoot;
