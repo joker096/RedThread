@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import {
+  assertIdentityL3StorageReady,
   clearIdentityL3TemporaryFiles,
   deleteIdentityL3Object,
   IdentityL3StorageError,
@@ -24,6 +25,27 @@ async function withStorage(callback) {
   const root = await mkdtemp(path.join(tmpdir(), 'vow-l3-storage-'));
   try { await callback(root); } finally { await rm(root, { recursive: true, force: true }); }
 }
+
+test('L3 storage readiness validates key and both private mount permissions', async () => {
+  await withStorage(async root => {
+    const encryptedRoot = path.join(root, 'encrypted');
+    const scratchRoot = path.join(root, 'scratch');
+    await mkdir(encryptedRoot, { mode: 0o700 });
+    await mkdir(scratchRoot, { mode: 0o700 });
+    assert.equal(await assertIdentityL3StorageReady({
+      root: encryptedRoot, tempRoot: scratchRoot, key
+    }), true);
+    await assert.rejects(
+      assertIdentityL3StorageReady({ root: encryptedRoot, tempRoot: scratchRoot, key: 'invalid' }),
+      error => error instanceof IdentityL3StorageError && error.code === 'l3_storage_key_invalid'
+    );
+    await chmod(scratchRoot, 0o755);
+    await assert.rejects(
+      assertIdentityL3StorageReady({ root: encryptedRoot, tempRoot: scratchRoot, key }),
+      error => error instanceof IdentityL3StorageError && error.code === 'l3_storage_root_unsafe'
+    );
+  });
+});
 
 test('L3 storage rejects a symlink in any parent component of the private root', async () => {
   await withStorage(async root => {
