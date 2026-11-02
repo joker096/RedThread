@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 import { constants, createReadStream, createWriteStream } from 'node:fs';
-import { lstat, mkdir, open, readdir, realpath, rename, unlink } from 'node:fs/promises';
+import { lstat, mkdir, open, readdir, realpath, rename, rm, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -321,20 +321,28 @@ export async function openIdentityL3Stream({
 export async function clearIdentityL3TemporaryFiles({ root }) {
   const directory = await ensurePrivateRoot(root);
   const entries = await readdir(directory, { withFileTypes: true });
-  const pattern = /^\\.decrypt-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const decryptFilePattern = /^\\.decrypt-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const processingDirectoryPattern = /^vow-l3-check-[A-Za-z0-9_-]{6}$/;
   let deletedCount = 0;
   for (const entry of entries) {
-    if (!pattern.test(entry.name) || !entry.isFile()) continue;
+    const isDecryptFile = entry.isFile() && decryptFilePattern.test(entry.name);
+    const isProcessingDirectory = entry.isDirectory() && processingDirectoryPattern.test(entry.name);
+    if (!isDecryptFile && !isProcessingDirectory) continue;
     const filePath = path.join(directory, entry.name);
     const stat = await lstat(filePath).catch(error => {
       if (error?.code === 'ENOENT') return null;
       throw new IdentityL3StorageError('l3_storage_root_unsafe');
     });
-    if (!stat || !stat.isFile() || stat.isSymbolicLink()) continue;
-    await unlink(filePath).catch(error => {
-      if (error?.code !== 'ENOENT') throw error;
-    });
-    deletedCount += 1;
+    if (!stat || stat.isSymbolicLink()) continue;
+    if (isDecryptFile && stat.isFile()) {
+      await unlink(filePath).catch(error => {
+        if (error?.code !== 'ENOENT') throw error;
+      });
+      deletedCount += 1;
+    } else if (isProcessingDirectory && stat.isDirectory()) {
+      await rm(filePath, { recursive: true, force: true });
+      deletedCount += 1;
+    }
   }
   if (deletedCount) {
     const directoryHandle = await open(directory, constants.O_RDONLY);
