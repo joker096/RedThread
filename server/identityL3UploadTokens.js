@@ -35,7 +35,10 @@ async function lockL3Account(client, userId) {
      FROM users u
      JOIN profiles p ON p.user_id = u.id
      JOIN identity_verifications iv ON iv.user_id = u.id
-     WHERE u.id = $1 AND iv.provider = 'didit'
+     WHERE u.id = $1
+       AND iv.provider = 'didit'
+       AND iv.provider_status = 'Approved'
+       AND iv.provider_session_id IS NOT NULL
      FOR UPDATE OF u, p, iv`,
     [userId]
   );
