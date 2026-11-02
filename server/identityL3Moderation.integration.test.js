@@ -119,7 +119,7 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     );
     await pool.query(
       `INSERT INTO identity_l3_consents (user_id, consent_version, granted_at)
-       VALUES ($1, 1, statement_timestamp())`,
+       VALUES ($1, 2, statement_timestamp())`,
       [applicantId]
     );
 
@@ -294,7 +294,7 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     const regranted = await request('/api/identity/l3/consent', {
       method: 'PUT',
       headers: { Cookie: applicantCookie },
-      body: JSON.stringify({ accepted: true, version: 1 })
+      body: JSON.stringify({ accepted: true, version: 2 })
     });
     assert.equal(regranted.status, 201);
     assert.equal((await regranted.json()).accepted, true);
