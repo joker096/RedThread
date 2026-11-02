@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -82,5 +82,23 @@ test('L3 storage validates keys and never accepts caller-controlled object paths
       error => error instanceof IdentityL3StorageError && error.code === 'l3_storage_object_key_invalid'
     );
     assert.equal(await deleteIdentityL3Object({ objectKey: '00000000-0000-4000-8000-000000000000', root }), false);
+  });
+});
+
+
+test('L3 storage refuses a symlink substituted for a stored object', async () => {
+  await withStorage(async root => {
+    const stored = await storeIdentityL3Stream({
+      source: Readable.from([Buffer.from('private media')]), root, key
+    });
+    const objectPath = path.join(root, stored.objectKey);
+    const movedPath = path.join(root, 'original-object');
+    await rename(objectPath, movedPath);
+    await symlink(movedPath, objectPath);
+    await assert.rejects(
+      openIdentityL3Stream({ objectKey: stored.objectKey, root, key }),
+      error => error instanceof IdentityL3StorageError &&
+        error.code === 'l3_storage_object_invalid'
+    );
   });
 });
