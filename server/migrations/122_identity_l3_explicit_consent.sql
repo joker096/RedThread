@@ -26,7 +26,10 @@ CREATE OR REPLACE FUNCTION prevent_identity_l3_consent_event_mutation()
 RETURNS trigger LANGUAGE plpgsql AS $l3_consent_audit$
 BEGIN
   -- Permit only referential cleanup from a cascading account deletion.
-  IF TG_OP = 'DELETE' AND pg_trigger_depth() > 1 THEN
+  IF TG_OP = 'DELETE' AND (
+    pg_trigger_depth() > 1
+    OR EXISTS (SELECT 1 FROM users u WHERE u.id = OLD.user_id AND u.status = 'deleted')
+  ) THEN
     RETURN OLD;
   END IF;
   RAISE EXCEPTION 'identity L3 consent events are append-only'
