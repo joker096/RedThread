@@ -6,6 +6,7 @@ COPY . .
 RUN npm run build
 
 FROM node:22-alpine AS api
+RUN apk add --no-cache ffmpeg
 ENV NODE_ENV=production
 WORKDIR /app
 COPY package.json ./
