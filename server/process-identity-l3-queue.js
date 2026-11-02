@@ -64,6 +64,24 @@ async function releaseAccountLock(client, userId) {
   ]);
 }
 
+async function beginWorkerTransaction(client) {
+  try {
+    await client.query('BEGIN');
+  } catch (error) {
+    error.discardClient = true;
+    throw error;
+  }
+}
+
+async function rollbackWorkerTransaction(client, error) {
+  try {
+    await client.query('ROLLBACK');
+  } catch (rollbackError) {
+    error.rollbackError = rollbackError;
+    error.discardClient = true;
+  }
+}
+
 /**
  * Claim one row using a fencing token. The session advisory lock is deliberately
  * held for the whole media-processing operation and is identical to the lock
@@ -244,7 +262,7 @@ export async function processClaimedIdentityL3Submission(pool, claim, {
 
   if (leaseLost) throw new Error('identity_l3_worker_lease_lost');
   if (!processingError) {
-    await client.query('BEGIN');
+    await beginWorkerTransaction(client);
     try {
       await client.query(
         "SELECT set_config('app.identity_l3_actor_user_id', '', true), set_config('app.identity_l3_reason_code', 'media_processing_completed', true)"
@@ -268,7 +286,7 @@ export async function processClaimedIdentityL3Submission(pool, claim, {
       await client.query('COMMIT');
       return { status: 'pending_review', durationSeconds: processingResult.durationSeconds };
     } catch (error) {
-      await client.query('ROLLBACK').catch(() => {});
+      await rollbackWorkerTransaction(client, error);
       throw error;
     }
   }
@@ -277,7 +295,7 @@ export async function processClaimedIdentityL3Submission(pool, claim, {
   const terminal = isPermanentIdentityL3ProcessingError(processingError) ||
     row.processing_attempts >= IDENTITY_L3_WORKER_MAX_ATTEMPTS;
   const retryDelay = terminal ? 0 : identityL3RetryDelayMs(row.processing_attempts);
-  await client.query('BEGIN');
+  await beginWorkerTransaction(client);
   try {
     await client.query(
       "SELECT set_config('app.identity_l3_actor_user_id', '', true), set_config('app.identity_l3_reason_code', $1, true)",
@@ -299,7 +317,7 @@ export async function processClaimedIdentityL3Submission(pool, claim, {
     await client.query('COMMIT');
     return { status: terminal ? 'failed' : 'retry_scheduled', errorCode, retryDelay };
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
+    await rollbackWorkerTransaction(client, error);
     throw error;
   }
 }
@@ -307,16 +325,27 @@ export async function processClaimedIdentityL3Submission(pool, claim, {
 export async function runIdentityL3WorkerOnce(pool, options = {}) {
   const claim = await claimIdentityL3Submission(pool, options);
   if (!claim) return { processed: false };
+  let discardClientError = null;
   try {
     const result = await processClaimedIdentityL3Submission(pool, claim, options);
     return { processed: true, submissionId: claim.row.id, ...result };
+  } catch (error) {
+    if (error?.discardClient === true) discardClientError = error;
+    throw error;
   } finally {
-    try {
-      await releaseAccountLock(claim.client, claim.row.user_id);
-      claim.client.release();
-    } catch (error) {
-      claim.client.release(error);
-      throw error;
+    if (discardClientError) {
+      // Destroy the session rather than trying to unlock/return a connection
+      // whose PostgreSQL transaction state is uncertain. Closing it releases
+      // the session advisory lock as well.
+      claim.client.release(discardClientError);
+    } else {
+      try {
+        await releaseAccountLock(claim.client, claim.row.user_id);
+        claim.client.release();
+      } catch (error) {
+        claim.client.release(error);
+        throw error;
+      }
     }
   }
 }
