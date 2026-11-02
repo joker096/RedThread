@@ -7,10 +7,8 @@ import { createServer } from 'node:net';
 import { mkdtemp, chmod, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { Readable } from 'node:stream';
 import pg from 'pg';
 import { createSessionToken, hashSessionToken } from './security.js';
-import { storeIdentityL3Stream } from './identityL3Storage.js';
 import { runIdentityL3PurgeOnce } from './process-identity-l3-queue.js';
 
 const { Pool } = pg;
@@ -59,32 +57,53 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     );
   }
 
-  async function createPendingSubmission(videoBytes) {
-    const stored = await storeIdentityL3Stream({
-      source: Readable.from(videoBytes),
-      root: storageRoot,
-      key: encryptionKey
+  async function createPendingSubmission(videoBytes, request, applicantCookie) {
+    const capabilityResponse = await request('/api/identity/l3/upload-capability', {
+      method: 'POST',
+      headers: { Cookie: applicantCookie }
     });
-    const inserted = await pool.query(
-      'INSERT INTO identity_l3_submissions (user_id) VALUES ($1) RETURNING id',
-      [applicantId]
+    assert.equal(capabilityResponse.status, 201);
+    const capability = await capabilityResponse.json();
+    assert.equal(typeof capability.uploadToken, 'string');
+    assert.equal(capability.maxBytes, 100 * 1024 * 1024);
+
+    const uploadResponse = await request('/api/identity/l3/upload', {
+      method: 'POST',
+      headers: {
+        Cookie: applicantCookie,
+        'Content-Type': 'video/mp4',
+        'X-Identity-L3-Upload-Token': capability.uploadToken
+      },
+      body: videoBytes
+    });
+    assert.equal(uploadResponse.status, 201);
+    const uploaded = await uploadResponse.json();
+    assert.equal(uploaded.submissionId, capability.submissionId);
+    assert.equal(uploaded.status, 'uploaded');
+
+    const replay = await request('/api/identity/l3/upload', {
+      method: 'POST',
+      headers: {
+        Cookie: applicantCookie,
+        'Content-Type': 'video/mp4',
+        'X-Identity-L3-Upload-Token': capability.uploadToken
+      },
+      body: Buffer.from('replay must not be accepted')
+    });
+    assert.equal(replay.status, 401, 'a consumed upload capability must never be reusable');
+
+    await pool.query(
+      "UPDATE identity_l3_submissions SET status = 'processing' WHERE id = $1",
+      [capability.submissionId]
     );
-    const submissionId = inserted.rows[0].id;
-    await pool.query("UPDATE identity_l3_submissions SET status = 'upload_authorized' WHERE id = $1", [submissionId]);
     await pool.query(
       `UPDATE identity_l3_submissions
-       SET status = 'uploaded', storage_object_key = $2, media_sha256 = $3,
-           media_mime_type = 'video/mp4', media_size_bytes = $4,
-           media_duration_seconds = 30, uploaded_at = NOW()
+       SET status = 'pending_review', media_duration_seconds = 30,
+           processing_completed_at = NOW()
        WHERE id = $1`,
-      [submissionId, stored.objectKey, stored.sha256, stored.sizeBytes]
+      [capability.submissionId]
     );
-    await pool.query("UPDATE identity_l3_submissions SET status = 'processing' WHERE id = $1", [submissionId]);
-    await pool.query(
-      "UPDATE identity_l3_submissions SET status = 'pending_review', processing_completed_at = NOW() WHERE id = $1",
-      [submissionId]
-    );
-    return { submissionId, stored };
+    return { submissionId: capability.submissionId };
   }
 
   try {
@@ -101,11 +120,6 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
        VALUES ($1, 1, statement_timestamp())`,
       [applicantId]
     );
-
-    const firstVideo = Buffer.from('private encrypted L3 moderator review fixture');
-    const first = await createPendingSubmission(firstVideo);
-    const secondVideo = Buffer.from('private encrypted L3 rejected media fixture');
-    const second = await createPendingSubmission(secondVideo);
 
     const port = await findFreePort();
     const origin = 'http://localhost:3000';
@@ -152,6 +166,11 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
 
     const moderatorCookie = 'nit_session=' + moderatorSession;
     const applicantCookie = 'nit_session=' + applicantSession;
+
+    const firstVideo = Buffer.from('private encrypted L3 moderator review fixture');
+    const first = await createPendingSubmission(firstVideo, request, applicantCookie);
+    const secondVideo = Buffer.from('private encrypted L3 rejected media fixture');
+    const second = await createPendingSubmission(secondVideo, request, applicantCookie);
     const forbiddenQueue = await request('/api/moderation/identity-l3/submissions', {
       headers: { Cookie: applicantCookie }
     });
