@@ -138,6 +138,10 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       assert.match(fn.rows[0].definition, /moderator decision is immutable/);
       assert.match(fn.rows[0].definition, /invalid identity L3 status transition/);
       assert.match(fn.rows[0].definition, /media metadata is immutable after upload/);
+      assert.match(fn.rows[0].definition, /OLD\.status = 'processing'/,
+        'the worker may set duration only while completing processing');
+      assert.match(fn.rows[0].definition, /OLD\.media_duration_seconds IS NULL/,
+        'a validated duration may be written only once');
       const decisionConstraints = await client.query(
         `SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
          WHERE conrelid = 'identity_l3_submissions'::regclass AND contype = 'c'`
