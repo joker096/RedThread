@@ -227,7 +227,7 @@ test('auth API supports registration, session lookup, logout and login', {
     const trustPayload = await trustSummary.json();
     assert.ok(['verified', 'unverified'].includes(trustPayload.email.status));
     assert.ok(['verified', 'not_verified'].includes(trustPayload.phone.status));
-    assert.deepEqual(trustPayload.identity, { status: 'not_configured', l3: { status: 'not_started', decisionStatus: 'none' } });
+    assert.deepEqual(trustPayload.identity, { gender: 'female', status: 'not_configured', l3: { status: 'not_started', decisionStatus: 'none' } });
     assert.ok(Array.isArray(trustPayload.photos));
     assert.ok(trustPayload.photos.length <= 6);
     assert.equal(JSON.stringify(trustPayload).includes('storagePath'), false,
