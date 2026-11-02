@@ -642,6 +642,14 @@ const profileActionLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'too_many_profile_actions' }
 });
+const identityL3Limiter = rateLimit({
+  ...(pool ? { store: new PostgresRateLimitStore(pool, 'identity_l3') } : {}),
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too_many_identity_l3_actions' }
+});
 const reportLimiter = rateLimit({
   ...(pool ? { store: new PostgresRateLimitStore(pool, 'report') } : {}),
   windowMs: 60 * 60 * 1000,
@@ -4506,7 +4514,7 @@ app.get('/api/identity/l3/consent', requireSession, async (req, res) => {
   }
 });
 
-app.put('/api/identity/l3/consent', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+app.put('/api/identity/l3/consent', validateRequestOrigin, requireSession, identityL3Limiter, async (req, res) => {
   const keys = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
     ? Object.keys(req.body).sort()
     : [];
@@ -4576,7 +4584,7 @@ app.put('/api/identity/l3/consent', validateRequestOrigin, requireSession, profi
   }
 });
 
-app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, identityL3Limiter, async (req, res) => {
   let client;
   try {
     client = await pool.connect();
