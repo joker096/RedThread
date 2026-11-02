@@ -387,7 +387,7 @@ export async function runIdentityL3PurgeOnce(pool, {
       lockAcquired = false;
       return { processed: false };
     }
-    if (!['approved', 'rejected', 'withdrawn', 'revoked', 'expired', 'failed'].includes(job.submission_status)) {
+    if (!['rejected', 'withdrawn', 'revoked', 'expired', 'failed'].includes(job.submission_status)) {
       throw new Error('identity_l3_purge_submission_not_terminal');
     }
     const leaseToken = randomUUID();
@@ -421,7 +421,7 @@ export async function runIdentityL3PurgeOnce(pool, {
                media_purged_at = COALESCE(media_purged_at, statement_timestamp())
            WHERE id = $1 AND user_id = $2
              AND storage_object_key = $3
-             AND status IN ('approved', 'rejected', 'withdrawn', 'revoked', 'expired', 'failed')
+             AND status IN ('rejected', 'withdrawn', 'revoked', 'expired', 'failed')
            RETURNING id`,
           [job.submission_id, job.user_id, job.storage_object_key]
         );
