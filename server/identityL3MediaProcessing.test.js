@@ -137,18 +137,45 @@ test('L3 media processing never invokes ffprobe when ClamAV detects malware', as
 });
 
 test('L3 media processing fails closed when ffprobe cannot be run', async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-l3-test-'));
+  try {
+    await assert.rejects(
+      processIdentityL3Media({
+        objectKey: 'opaque-object',
+        storageRoot: '/private',
+        encryptionKey: 'not-used-by-test-adapter',
+        declaredMimeType: 'video/mp4',
+        tempRoot,
+        openDecryptedStream: async () => Readable.from([Buffer.from('decoded')]),
+        probe: async () => { throw new IdentityL3MediaProcessingError('l3_media_probe_unavailable'); },
+        scanner: async () => ({ clean: true })
+      }),
+      error => error.code === 'l3_media_probe_unavailable'
+    );
+    assert.deepEqual(await readdir(tempRoot), []);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('L3 media processing refuses to fall back to the container default /tmp', async () => {
+  let opened = false;
   await assert.rejects(
     processIdentityL3Media({
       objectKey: 'opaque-object',
       storageRoot: '/private',
       encryptionKey: 'not-used-by-test-adapter',
       declaredMimeType: 'video/mp4',
-      openDecryptedStream: async () => Readable.from([Buffer.from('decoded')]),
-      probe: async () => { throw new IdentityL3MediaProcessingError('l3_media_probe_unavailable'); },
+      openDecryptedStream: async () => {
+        opened = true;
+        return Readable.from([Buffer.from('decoded')]);
+      },
+      probe: async () => mp4Probe,
       scanner: async () => ({ clean: true })
     }),
-    error => error.code === 'l3_media_probe_unavailable'
+    error => error.code === 'l3_media_temp_storage_not_configured'
   );
+  assert.equal(opened, false, 'no decrypted bytes may be opened without an explicit private scratch path');
 });
 
 
