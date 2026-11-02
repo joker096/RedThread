@@ -6,7 +6,7 @@ import {
   IdentityL3MediaProcessingError,
   processIdentityL3Media
 } from './identityL3MediaProcessing.js';
-import { clearIdentityL3TemporaryFiles, deleteIdentityL3Object, openIdentityL3Stream, parseIdentityL3EncryptionKey, sweepIdentityL3OrphanObjects } from './identityL3Storage.js';
+import { assertIdentityL3StorageReady, clearIdentityL3TemporaryFiles, deleteIdentityL3Object, openIdentityL3Stream, parseIdentityL3EncryptionKey, sweepIdentityL3OrphanObjects } from './identityL3Storage.js';
 
 const { Pool } = pg;
 export const IDENTITY_L3_WORKER_LEASE_MS = 180_000;
@@ -524,7 +524,11 @@ async function main() {
     throw new Error('identity L3 encrypted storage is not configured');
   }
   if (!purgeOnly) {
-    parseIdentityL3EncryptionKey(process.env.IDENTITY_L3_ENCRYPTION_KEY);
+    await assertIdentityL3StorageReady({
+      root: process.env.IDENTITY_L3_STORAGE_DIR,
+      tempRoot: process.env.IDENTITY_L3_TEMP_DIR,
+      key: process.env.IDENTITY_L3_ENCRYPTION_KEY
+    });
     await clearIdentityL3TemporaryFiles({ root: process.env.IDENTITY_L3_TEMP_DIR });
   }
   const pool = new Pool({
