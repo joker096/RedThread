@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 import { constants, createReadStream, createWriteStream } from 'node:fs';
-import { lstat, mkdir, open, rename, unlink } from 'node:fs/promises';
+import { lstat, mkdir, open, realpath, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -40,6 +40,20 @@ async function ensurePrivateRoot(root) {
   }
   const absoluteRoot = path.resolve(root);
   await mkdir(absoluteRoot, { recursive: true, mode: 0o700 });
+
+  // Checking only the final component with lstat() is insufficient: an ancestor
+  // may be a symlink and redirect private media into a different filesystem path.
+  // realpath() must resolve to the exact configured absolute path before use.
+  let resolvedRoot;
+  try {
+    resolvedRoot = await realpath(absoluteRoot);
+  } catch {
+    throw new IdentityL3StorageError('l3_storage_root_unsafe');
+  }
+  if (resolvedRoot !== absoluteRoot) {
+    throw new IdentityL3StorageError('l3_storage_root_unsafe');
+  }
+
   const stat = await lstat(absoluteRoot);
   if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0) {
     // Never silently chmod an operator-managed mount. Fail closed if group/other
