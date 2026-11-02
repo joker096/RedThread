@@ -1733,7 +1733,7 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(directLikeUnverifiedMale.status, 404,
       'direct API requests must not like a male profile hidden by the L2 gate');
-    await identityGateDb.query("UPDATE identity_verifications SET provider_environment = 'live' WHERE user_id = $1", [secondMaleRegistered.user.id]);
+    await identityGateDb.query("UPDATE identity_verifications SET status = 'verified', provider_environment = 'live' WHERE user_id = $1", [secondMaleRegistered.user.id]);
     const femaleLikeToL2OnlyMale = await request(`/api/likes/${secondMaleRegistered.user.id}`, {
       method: 'POST', headers: { Cookie: secondCookie }
     });
@@ -1834,7 +1834,7 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(persistedPassUndo.status, 200);
     assert.equal((await persistedPassUndo.json()).type, 'pass');
 
-    await identityGateDb.query("UPDATE identity_verifications SET provider_environment = 'sandbox' WHERE user_id = $1", [maleRegistered.user.id]);
+    await identityGateDb.query("UPDATE identity_verifications SET status = 'pending', provider_environment = 'sandbox' WHERE user_id = $1", [maleRegistered.user.id]);
     const unverifiedMaleLike = await request(`/api/likes/${registered.user.id}`, {
       method: 'POST', headers: { Cookie: maleCookie }
     });
@@ -1851,7 +1851,7 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(unverifiedMaleDiscoveryUndo.status, 403,
       'a male account without live L2 verification must not invoke discovery undo');
-    await identityGateDb.query("UPDATE identity_verifications SET provider_environment = 'live' WHERE user_id = $1", [maleRegistered.user.id]);
+    await identityGateDb.query("UPDATE identity_verifications SET status = 'verified', provider_environment = 'live' WHERE user_id = $1", [maleRegistered.user.id]);
 
     const firstLike = await request(`/api/likes/${maleRegistered.user.id}`, {
       method: 'POST',
@@ -1978,7 +1978,7 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(outsiderSendMessage.status, 404, 'a non-participant must not send messages to another pair\'s conversation');
 
-    await identityGateDb.query("UPDATE identity_verifications SET provider_environment = 'sandbox' WHERE user_id = $1", [maleRegistered.user.id]);
+    await identityGateDb.query("UPDATE identity_verifications SET status = 'pending', provider_environment = 'sandbox' WHERE user_id = $1", [maleRegistered.user.id]);
     const unverifiedMaleMessage = await request(`/api/matches/${matchPayload.match.id}/messages`, {
       method: 'POST', headers: { Cookie: maleCookie }, body: JSON.stringify({ text: 'Сообщение без L2' })
     });
@@ -1989,7 +1989,7 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(femaleMessageToUnverifiedMale.status, 404,
       'women must not message male accounts without live L2 verification');
-    await identityGateDb.query("UPDATE identity_verifications SET provider_environment = 'live' WHERE user_id = $1", [maleRegistered.user.id]);
+    await identityGateDb.query("UPDATE identity_verifications SET status = 'verified', provider_environment = 'live' WHERE user_id = $1", [maleRegistered.user.id]);
 
     const sendMessage = await request(`/api/matches/${matchPayload.match.id}/messages`, {
       method: 'POST',
