@@ -352,8 +352,14 @@ export function identityL3PurgeRetryDelayMs(attempt) {
  */
 export async function runIdentityL3PurgeOnce(pool, {
   storageRoot = process.env.IDENTITY_L3_STORAGE_DIR,
-  deleteObject = deleteIdentityL3Object
+  deleteObject = deleteIdentityL3Object,
+  submissionId = null
 } = {}) {
+  if (submissionId !== null &&
+      (typeof submissionId !== 'string' ||
+       !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(submissionId))) {
+    throw new TypeError('identity L3 purge submission ID must be a UUID');
+  }
   const candidate = await pool.query(
     `SELECT j.id, j.user_id
      FROM identity_l3_media_purge_jobs j
@@ -361,9 +367,10 @@ export async function runIdentityL3PurgeOnce(pool, {
        AND j.attempts < $1
        AND j.next_attempt_at <= statement_timestamp()
        AND (j.lease_expires_at IS NULL OR j.lease_expires_at <= statement_timestamp())
+       AND ($2::uuid IS NULL OR j.submission_id = $2)
      ORDER BY j.next_attempt_at, j.created_at, j.id
      LIMIT 1`,
-    [IDENTITY_L3_PURGE_MAX_ATTEMPTS]
+    [IDENTITY_L3_PURGE_MAX_ATTEMPTS, submissionId]
   );
   const selected = candidate.rows[0];
   if (!selected) return { processed: false };
