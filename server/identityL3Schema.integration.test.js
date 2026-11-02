@@ -203,7 +203,7 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       );
       assert.match(l3ActiveFunction.rows[0].definition, /identity_l3_current_decision/);
       assert.match(l3ActiveFunction.rows[0].definition, /identity_l3_consents/);
-      assert.match(l3ActiveFunction.rows[0].definition, /consent_version = 1/);
+      assert.match(l3ActiveFunction.rows[0].definition, /consent_version = 2/);
       assert.match(l3ActiveFunction.rows[0].definition, /withdrawn_at IS NULL/);
       const absentL3Decision = await client.query(
         'SELECT identity_l3_has_active_approval($1) AS active',
