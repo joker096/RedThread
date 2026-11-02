@@ -225,6 +225,7 @@ export async function processClaimedIdentityL3Submission(pool, claim, {
     processingResult = await processMedia({
       objectKey: row.storage_object_key,
       storageRoot,
+      tempRoot,
       encryptionKey: parsedKey,
       declaredMimeType: row.media_mime_type,
       openDecryptedStream: ({ objectKey, root, key }) =>
