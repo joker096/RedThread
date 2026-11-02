@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 import { constants, createReadStream, createWriteStream } from 'node:fs';
-import { lstat, mkdir, open, realpath, rename, unlink } from 'node:fs/promises';
+import { lstat, mkdir, open, readdir, realpath, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -316,3 +316,59 @@ export async function deleteIdentityL3Object({ objectKey, root }) {
 }
 
 export const IDENTITY_L3_MAX_MEDIA_BYTES = DEFAULT_MAX_BYTES;
+
+const ORPHAN_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const TEMP_OBJECT_PATTERN = /^(?:\\.tmp-|\\.decrypt-)([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i;
+
+/**
+ * Remove only stale UUID media files that have no database reference, plus
+ * abandoned encrypted/decryption staging files. The age guard prevents races
+ * with slow uploads or active moderator streams after a process crash.
+ */
+export async function sweepIdentityL3OrphanObjects({
+  root,
+  referencedObjectKeys = [],
+  olderThanMs = ORPHAN_MAX_AGE_MS,
+  now = Date.now()
+}) {
+  if (!Number.isSafeInteger(olderThanMs) || olderThanMs < 60 * 60 * 1000 ||
+      olderThanMs > 7 * 24 * 60 * 60 * 1000 || !Number.isFinite(now)) {
+    throw new IdentityL3StorageError('l3_orphan_sweep_options_invalid');
+  }
+  const directory = await ensurePrivateRoot(root);
+  const referenced = new Set(referencedObjectKeys);
+  const entries = await readdir(directory, { withFileTypes: true });
+  let deletedCount = 0;
+
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const isTemporary = TEMP_OBJECT_PATTERN.test(entry.name);
+    if (!isTemporary && !OBJECT_KEY_PATTERN.test(entry.name)) continue;
+    if (!isTemporary && referenced.has(entry.name)) continue;
+    const objectPath = path.join(directory, entry.name);
+    let stat;
+    try {
+      stat = await lstat(objectPath);
+    } catch (error) {
+      if (error?.code === 'ENOENT') continue;
+      throw new IdentityL3StorageError('l3_storage_root_unsafe');
+    }
+    if (!stat.isFile() || stat.isSymbolicLink() || now - stat.mtimeMs < olderThanMs) continue;
+    try {
+      await unlink(objectPath);
+      deletedCount += 1;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+  }
+
+  if (deletedCount) {
+    const directoryHandle = await open(directory, constants.O_RDONLY);
+    try {
+      await directoryHandle.sync();
+    } finally {
+      await directoryHandle.close();
+    }
+  }
+  return { deletedCount };
+}
