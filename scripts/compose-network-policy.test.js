@@ -37,6 +37,9 @@ test('Docker database network is isolated from the public web proxy container', 
   assert.match(clamav, /profiles: \["identity-l3"\]/);
   assert.doesNotMatch(clamav, /^    ports:/m, 'ClamAV must never publish its scanner port to the host');
   assert.match(clamav, /CLAMD_CONF_StreamMaxLength: 120M/);
+  assert.match(clamav, /CLAMD_CONF_TemporaryDirectory: \/tmp/);
+  assert.match(clamav, /tmpfs:\n      - \/tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777/,
+    'ClamAV must keep streamed plaintext in bounded ephemeral storage');
   assert.match(l3Worker, /profiles: \["identity-l3"\]/);
   assert.match(l3Worker, /private_identity_l3:\/app\/uploads\/private-identity-l3:ro/,
     'the processing worker must mount encrypted media read-only');
