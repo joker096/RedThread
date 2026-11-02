@@ -12,7 +12,7 @@ COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
 COPY server ./server
 COPY scripts ./scripts
-RUN mkdir -p /app/uploads/private-photos && chown -R node:node /app
+RUN mkdir -p /app/uploads/private-photos /app/uploads/private-identity-l3 && chmod 700 /app/uploads/private-identity-l3 && chown -R node:node /app
 USER node
 EXPOSE 3001
 CMD ["npm", "run", "start:api"]

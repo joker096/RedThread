@@ -29,6 +29,13 @@ test('Docker database network is isolated from the public web proxy container', 
   assert.deepEqual(networksFor('gift-request-expiry'), ['backend']);
   assert.deepEqual(networksFor('identity-l3-expiry'), ['backend']);
   assert.deepEqual(networksFor('api'), ['backend', 'frontend', 'egress']);
+  const api = serviceBlock('api');
+  const web = serviceBlock('web');
+  assert.ok(api.includes('IDENTITY_L3_STORAGE_DIR: /app/uploads/private-identity-l3'));
+  assert.ok(api.includes('IDENTITY_L3_ENCRYPTION_KEY: ${IDENTITY_L3_ENCRYPTION_KEY:-}'));
+  assert.ok(api.includes('private_identity_l3:/app/uploads/private-identity-l3'));
+  assert.doesNotMatch(web, /IDENTITY_L3_ENCRYPTION_KEY|private_identity_l3/,
+    'L3 media storage and encryption key must be API-only');
   assert.deepEqual(networksFor('web'), ['frontend']);
 
   const api = serviceBlock('api');
