@@ -28,12 +28,12 @@ test('verified Didit state requires a persisted live Approved provider session',
 
     // Clone the production table constraints so the regression test exercises
     // the actual installed CHECK expression without creating a users fixture.
-    await pool.query(`
-      CREATE TEMP TABLE didit_verified_null_check_test
-      (LIKE public.identity_verifications INCLUDING ALL)
-    `);
     const client = await pool.connect();
     try {
+      await client.query(`
+        CREATE TEMP TABLE didit_verified_null_check_test
+        (LIKE public.identity_verifications INCLUDING ALL)
+      `);
       await client.query('BEGIN');
       await client.query(
         `INSERT INTO didit_verified_null_check_test
