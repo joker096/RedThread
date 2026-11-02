@@ -27,6 +27,7 @@ test('Docker database network is isolated from the public web proxy container', 
   assert.deepEqual(networksFor('migrate'), ['backend']);
   assert.deepEqual(networksFor('ad-event-retention'), ['backend']);
   assert.deepEqual(networksFor('gift-request-expiry'), ['backend']);
+  assert.deepEqual(networksFor('identity-l3-expiry'), ['backend']);
   assert.deepEqual(networksFor('api'), ['backend', 'frontend', 'egress']);
   assert.deepEqual(networksFor('web'), ['frontend']);
 

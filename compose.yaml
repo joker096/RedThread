@@ -73,6 +73,28 @@ services:
         condition: service_completed_successfully
     networks: [backend]
 
+  identity-l3-expiry:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
+      PGSSL: "${PGSSL:-false}"
+      IDENTITY_L3_EXPIRY_BATCH_SIZE: ${IDENTITY_L3_EXPIRY_BATCH_SIZE:-100}
+    command:
+      - sh
+      - -c
+      - |
+        while :; do
+          node server/expire-identity-l3-approvals.js || echo "L3 approval expiry failed; retrying on the next minute."
+          sleep 60
+        done
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [backend]
+
   api:
     build:
       context: .
