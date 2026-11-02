@@ -356,6 +356,7 @@ export async function runIdentityL3PurgeOnce(pool, {
   const client = await pool.connect();
   let lockAcquired = false;
   let transactionOpen = false;
+  let discardError = null;
   try {
     await client.query('SELECT pg_advisory_lock(hashtext($1))', [
       `gift-safety-user:${selected.user_id}`
@@ -384,7 +385,6 @@ export async function runIdentityL3PurgeOnce(pool, {
       transactionOpen = false;
       await releaseAccountLock(client, selected.user_id);
       lockAcquired = false;
-      client.release();
       return { processed: false };
     }
     if (!['approved', 'rejected', 'withdrawn', 'revoked', 'expired', 'failed'].includes(job.submission_status)) {
@@ -405,7 +405,7 @@ export async function runIdentityL3PurgeOnce(pool, {
 
     try {
       if (job.storage_object_key) {
-        if (!storageRoot) throw new Error('l3_storage_root_missing');
+        if (!storageRoot) throw Object.assign(new Error('l3_storage_root_missing'), { code: 'l3_storage_root_missing' });
         await deleteObject({ objectKey: job.storage_object_key, root: storageRoot });
       }
 
@@ -425,9 +425,9 @@ export async function runIdentityL3PurgeOnce(pool, {
            RETURNING id`,
           [job.submission_id, job.user_id, job.storage_object_key]
         );
-        if (!cleared.rowCount) throw new Error('identity_l3_purge_submission_changed');
+        if (!cleared.rowCount) throw Object.assign(new Error('identity_l3_purge_submission_changed'), { code: 'identity_l3_purge_submission_changed' });
       }
-      await client.query(
+      const completed = await client.query(
         `UPDATE identity_l3_media_purge_jobs
          SET status = 'completed', lease_token = NULL, lease_expires_at = NULL,
              completed_at = statement_timestamp(), updated_at = statement_timestamp(),
@@ -435,6 +435,7 @@ export async function runIdentityL3PurgeOnce(pool, {
          WHERE id = $1 AND status = 'processing' AND lease_token = $2`,
         [job.id, leaseToken]
       );
+      if (!completed.rowCount) throw Object.assign(new Error('identity_l3_purge_lease_lost'), { code: 'identity_l3_purge_lease_lost' });
       await client.query('COMMIT');
       transactionOpen = false;
       return { processed: true, purgeJobId: job.id, status: 'completed' };
@@ -467,23 +468,19 @@ export async function runIdentityL3PurgeOnce(pool, {
         transactionOpen = false;
       } catch (rollbackError) {
         error.rollbackError = rollbackError;
-        client.release(error);
-        return Promise.reject(error);
+        discardError = error;
       }
     }
     throw error;
   } finally {
-    if (lockAcquired) {
+    if (lockAcquired && !discardError) {
       try {
         await releaseAccountLock(client, selected.user_id);
-        client.release();
       } catch (error) {
-        client.release(error);
-        throw error;
+        discardError = error;
       }
-    } else if (!client.released) {
-      client.release();
     }
+    client.release(discardError || undefined);
   }
 }
 
