@@ -40,6 +40,8 @@ test('L3 storage rejects a symlink in any parent component of the private root',
       error => error instanceof IdentityL3StorageError &&
         error.code === 'l3_storage_root_unsafe'
     );
+    assert.deepEqual(await readdir(actualParent), [],
+      'a rejected symlink path must not create directories at its target');
   });
 });
 
