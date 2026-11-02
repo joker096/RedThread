@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, stat, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -53,12 +53,11 @@ test('L3 media processing requires both actual probe validation and a clean malw
       openDecryptedStream: async () => Readable.from([Buffer.from('encrypted-content-decoded')]),
       probe: async filePath => {
         events.push('probe');
-        assert.equal((await import('node:fs/promises')).stat(filePath).then ? true : true, true);
+        assert.ok((await stat(filePath)).size > 0);
         return mp4Probe;
       },
       scanner: async filePath => {
         events.push('scan');
-        const { readFile } = await import('node:fs/promises');
         assert.equal((await readFile(filePath)).toString(), 'encrypted-content-decoded');
         return { clean: true };
       }
