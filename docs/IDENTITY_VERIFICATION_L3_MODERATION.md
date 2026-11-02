@@ -189,12 +189,17 @@ Both authenticated decryption staging and the separate ClamAV/ffprobe working co
 
 ### Production remains gated
 
-`IDENTITY_L3_ENABLED` remains `false` by default. Passing CI does not satisfy the following deployment requirements:
+`IDENTITY_L3_ENABLED` remains `false` by default. The ClamAV and processing-worker services are deliberately behind the optional `identity-l3` Compose profile; start that profile and verify both services before enabling uploads, otherwise the API can accept a submission that has no active processor. The purge-only worker is not profiled and remains active for privacy cleanup.
 
-1. Inject the encryption key through a production secret manager, not a committed file or browser-visible configuration. Define a versioned keyring and a tested rotation/re-encryption procedure before storing real applicant videos; the current single-key object format does not provide transparent rotation.
-2. Use a persistent private volume with restricted host access, encrypted infrastructure/backups, tested restore procedures, retention limits and deletion propagation to snapshots/replicas/backups.
-3. Configure monitoring and alerting for processing, expiry and purge workers, ClamAV health/signature freshness, queue age, repeated failures, tmpfs exhaustion and storage capacity.
-4. Run a production-like deployment test covering upload, scan, moderator playback, approval, consent withdrawal, physical deletion, account deletion, worker restart and restore/recovery.
-5. Complete a privacy/security review of the published consent, retention schedule, access roles, incident response and moderator audit process.
+The approved-status expiry worker enforces the six-month approval limit. There is not yet an automatic maximum age for `pending_review` submissions: those videos remain until a moderator decision or applicant withdrawal. Choose and publish a pending-review retention deadline, then implement its automatic expiry/purge before production launch.
+
+Passing CI does not satisfy the following deployment requirements:
+
+1. Provision the persistent volume and scratch tmpfs with the expected exact mountpoints and ownership by the unprivileged app UID (1000); existing volumes with unsafe permissions/ownership intentionally fail closed. Start and verify the optional processing profile before enabling the API feature flag.
+2. Inject the encryption key through a production secret manager, not a committed file or browser-visible configuration. Define a versioned keyring and a tested rotation/re-encryption procedure before storing real applicant videos; the current single-key object format does not provide transparent rotation.
+3. Use a persistent private volume with restricted host access, encrypted infrastructure/backups, tested restore procedures, retention limits and deletion propagation to snapshots/replicas/backups.
+4. Configure monitoring and alerting for processing, expiry and purge workers, ClamAV health/signature freshness, queue age, repeated failures, tmpfs exhaustion and storage capacity.
+5. Run a production-like deployment test covering upload, scan, moderator playback, approval, consent withdrawal, physical deletion, account deletion, worker restart and restore/recovery.
+6. Complete a privacy/security review of the published consent, retention schedule, access roles, incident response and moderator audit process.
 
 Until those gates are signed off, L3 stays disabled in production. The integrated code and passing automated tests are not a substitute for those operational controls.
