@@ -68,7 +68,7 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       );
       assert.ok(purgeQueueIndexes.rows.some(row =>
         row.indexname === 'identity_l3_media_purge_queue_idx' &&
-        /status IN/.test(row.indexdef) && /queued/.test(row.indexdef) && /processing/.test(row.indexdef)
+        /status (?:= ANY|IN)/.test(row.indexdef) && /queued/.test(row.indexdef) && /processing/.test(row.indexdef)
       ));
       const purgeQueueColumns = await client.query(
         `SELECT column_name FROM information_schema.columns
