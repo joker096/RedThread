@@ -19,17 +19,30 @@ export class IdentityL3MediaProcessingError extends Error {
   }
 }
 
+export function buildIdentityL3FfprobeArgs(filePath) {
+  if (typeof filePath !== 'string' || !filePath) {
+    throw new TypeError('identity L3 ffprobe input path is required');
+  }
+  return [
+    '-v', 'error',
+    // Untrusted media must never be allowed to make ffprobe open network
+    // protocols from the API/worker's internal backend network.
+    '-protocol_whitelist', 'file,pipe',
+    '-show_entries', 'format=format_name,duration:stream=codec_type,codec_name',
+    '-of', 'json',
+    filePath
+  ];
+}
+
 function runFfprobe(filePath, {
   executable = process.env.IDENTITY_L3_FFPROBE_PATH || 'ffprobe',
   timeoutMs = 15_000
 } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(executable, [
-      '-v', 'error',
-      '-show_entries', 'format=format_name,duration:stream=codec_type,codec_name',
-      '-of', 'json',
-      filePath
-    ], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+    const child = spawn(executable, buildIdentityL3FfprobeArgs(filePath), {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      windowsHide: true
+    });
     let stdout = '';
     let settled = false;
     const finish = (error, value) => {
