@@ -224,6 +224,54 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     assert.equal(mediaAfterApproval.status, 404,
       'a decision closes the pending-review media endpoint');
 
+    // Withdrawal revokes an existing approval immediately and the purge worker
+    // must be able to clear media from the now-revoked terminal submission.
+    const withdrawn = await request('/api/identity/l3/consent', {
+      method: 'DELETE',
+      headers: { Cookie: applicantCookie }
+    });
+    assert.equal(withdrawn.status, 200);
+    const withdrawnPayload = await withdrawn.json();
+    assert.equal(withdrawnPayload.accepted, false);
+    assert.equal(withdrawnPayload.withdrawn, true);
+    assert.equal(withdrawnPayload.purgeStatus, 'pending');
+    const revokedApproval = await pool.query(
+      'SELECT status, storage_object_key FROM identity_l3_submissions WHERE id = $1',
+      [first.submissionId]
+    );
+    assert.equal(revokedApproval.rows[0].status, 'revoked');
+    assert.ok(revokedApproval.rows[0].storage_object_key);
+    const revokedPurge = await runIdentityL3PurgeOnce(pool, {
+      storageRoot,
+      submissionId: first.submissionId
+    });
+    assert.equal(revokedPurge.status, 'completed',
+      'revoked media must be physically deleted after consent withdrawal: ' + JSON.stringify(revokedPurge));
+    const revokedPurgeState = await pool.query(
+      `SELECT j.status AS purge_status, s.storage_object_key, s.media_purged_at
+       FROM identity_l3_media_purge_jobs j
+       JOIN identity_l3_submissions s ON s.id = j.submission_id
+       WHERE j.submission_id = $1`,
+      [first.submissionId]
+    );
+    assert.equal(revokedPurgeState.rows[0].purge_status, 'completed');
+    assert.equal(revokedPurgeState.rows[0].storage_object_key, null);
+    assert.ok(revokedPurgeState.rows[0].media_purged_at);
+    const inactiveApproval = await pool.query(
+      'SELECT identity_l3_has_active_approval($1) AS active',
+      [applicantId]
+    );
+    assert.equal(inactiveApproval.rows[0].active, false,
+      'withdrawal must revoke L3 access before physical deletion finishes');
+
+    const regranted = await request('/api/identity/l3/consent', {
+      method: 'PUT',
+      headers: { Cookie: applicantCookie },
+      body: JSON.stringify({ accepted: true, version: 1 })
+    });
+    assert.equal(regranted.status, 201);
+    assert.equal((await regranted.json()).accepted, true);
+
     // The workflow permits only one active submission per applicant. Resolve the
     // first submission before creating the second so this test exercises the
     // supported lifecycle instead of bypassing the single-active-submission rule.
