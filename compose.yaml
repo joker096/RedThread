@@ -73,6 +73,51 @@ services:
         condition: service_completed_successfully
     networks: [backend]
 
+  clamav:
+    image: ${CLAMAV_IMAGE:-clamav/clamav:stable}
+    restart: unless-stopped
+    profiles: ["identity-l3"]
+    environment:
+      CLAMD_CONF_StreamMaxLength: 120M
+      CLAMD_CONF_MaxFileSize: 120M
+      CLAMD_CONF_MaxScanSize: 120M
+      CLAMD_CONF_MaxThreads: 2
+      CLAMD_CONF_MaxQueue: 4
+    volumes:
+      - clamav_database:/var/lib/clamav
+    mem_limit: 4g
+    mem_reservation: 3g
+    healthcheck:
+      test: ["CMD-SHELL", "clamdscan --ping 3 --host 127.0.0.1 --port 3310"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10m
+    networks: [backend]
+
+  identity-l3-worker:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    profiles: ["identity-l3"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
+      PGSSL: "${PGSSL:-false}"
+      IDENTITY_L3_STORAGE_DIR: /app/uploads/private-identity-l3
+      IDENTITY_L3_ENCRYPTION_KEY: ${IDENTITY_L3_ENCRYPTION_KEY:-}
+      IDENTITY_L3_CLAMD_HOST: clamav
+      IDENTITY_L3_CLAMD_PORT: "3310"
+    command: ["node", "server/process-identity-l3-queue.js"]
+    volumes:
+      - private_identity_l3:/app/uploads/private-identity-l3:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      clamav:
+        condition: service_healthy
+    networks: [backend]
+
   identity-l3-expiry:
     build:
       context: .
@@ -163,6 +208,7 @@ volumes:
   postgres_data:
   private_photos:
   private_identity_l3:
+  clamav_database:
 
 networks:
   backend:
