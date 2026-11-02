@@ -46,7 +46,7 @@ test('L3 storage encrypts streams and decrypts only authenticated content', asyn
     assert.equal(stored.sizeBytes, original.length);
     assert.equal(stored.sha256.length, 64);
     const encrypted = await readFile(path.join(root, stored.objectKey));
-    assert.deepEqual(encrypted.subarray(0, 8), Buffer.from([0x56, 0x4f, 0x57, 0x4c, 0x33, 0x56, 0x31, 0x00]));
+    assert.deepEqual(encrypted.subarray(0, 8), Buffer.from([0x56, 0x4f, 0x57, 0x4c, 0x33, 0x56, 0x32, 0x00]));
     assert.equal(encrypted.includes(original), false);
     assert.deepEqual(await collect(await openIdentityL3Stream({ objectKey: stored.objectKey, root, key })), original);
     assert.deepEqual((await readdir(root)).sort(), [stored.objectKey]);
@@ -69,6 +69,24 @@ test('L3 storage rejects a wrong key and ciphertext tampering', async () => {
     await assert.rejects(
       () => openIdentityL3Stream({ objectKey: stored.objectKey, root, key }),
       error => error instanceof IdentityL3StorageError && error.code === 'l3_storage_authentication_failed'
+    );
+  });
+});
+
+test('L3 storage binds authenticated ciphertext to its opaque object key', async () => {
+  await withStorage(async root => {
+    const first = await storeIdentityL3Stream({
+      source: Readable.from([Buffer.from('first account private media')]), root, key
+    });
+    const second = await storeIdentityL3Stream({
+      source: Readable.from([Buffer.from('second account private media')]), root, key
+    });
+    const firstCiphertext = await readFile(path.join(root, first.objectKey));
+    await writeFile(path.join(root, second.objectKey), firstCiphertext);
+    await assert.rejects(
+      () => openIdentityL3Stream({ objectKey: second.objectKey, root, key }),
+      error => error instanceof IdentityL3StorageError &&
+        error.code === 'l3_storage_authentication_failed'
     );
   });
 });

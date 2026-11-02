@@ -5,7 +5,7 @@ import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-const MAGIC = Buffer.from([0x56, 0x4f, 0x57, 0x4c, 0x33, 0x56, 0x31, 0x00]);
+const MAGIC = Buffer.from([0x56, 0x4f, 0x57, 0x4c, 0x33, 0x56, 0x32, 0x00]);
 const NONCE_BYTES = 12;
 const TAG_BYTES = 16;
 const HEADER_BYTES = MAGIC.length + NONCE_BYTES;
@@ -107,6 +107,9 @@ export async function storeIdentityL3Stream({ source, root, key, maxBytes = DEFA
   const finalPath = path.join(directory, objectKey);
   const nonceBytes = randomBytes(NONCE_BYTES);
   const cipher = createCipheriv('aes-256-gcm', encryptionKey, nonceBytes);
+  // Bind each encrypted object to its server-generated key so copying a valid
+  // ciphertext under another user's object key cannot authenticate.
+  cipher.setAAD(Buffer.from(objectKey, 'utf8'));
   const meter = createMeter(maxBytes);
   let handle;
   let published = false;
@@ -200,6 +203,7 @@ export async function openIdentityL3Stream({ objectKey, root, key, maxBytes = DE
   const ciphertext = encrypted.subarray(HEADER_BYTES, encrypted.length - TAG_BYTES);
   const tag = encrypted.subarray(encrypted.length - TAG_BYTES);
   const decipher = createDecipheriv('aes-256-gcm', encryptionKey, nonce);
+  decipher.setAAD(Buffer.from(objectKey, 'utf8'));
   let plaintext;
   try {
     decipher.setAuthTag(tag);
