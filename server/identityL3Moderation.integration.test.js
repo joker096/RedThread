@@ -227,6 +227,30 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     assert.equal(mediaAfterApproval.status, 404,
       'a decision closes the pending-review media endpoint');
 
+    // A pending re-verification that expires for retention is not a new identity
+    // decision and must not supersede the still-valid earlier approval.
+    const staleReviewVideo = Buffer.from('pending review retention fixture');
+    const staleReview = await createPendingSubmission(staleReviewVideo, request, applicantCookie);
+    await pool.query(
+      "SELECT set_config('app.identity_l3_actor_user_id', '', true), set_config('app.identity_l3_reason_code', 'moderation_retention_expired', true)"
+    );
+    await pool.query(
+      "UPDATE identity_l3_submissions SET status = 'expired' WHERE id = $1",
+      [staleReview.submissionId]
+    );
+    const approvalAfterPendingExpiry = await pool.query(
+      'SELECT identity_l3_has_active_approval($1) AS active',
+      [applicantId]
+    );
+    assert.equal(approvalAfterPendingExpiry.rows[0].active, true,
+      'pending-review retention expiry must not invalidate the previous approved L3 decision');
+    const staleReviewPurge = await runIdentityL3PurgeOnce(pool, {
+      storageRoot,
+      submissionId: staleReview.submissionId
+    });
+    assert.equal(staleReviewPurge.status, 'completed',
+      'the expired pending-review video must still be physically purged');
+
     // Withdrawal revokes an existing approval immediately and the purge worker
     // must be able to clear media from the now-revoked terminal submission.
     const withdrawn = await request('/api/identity/l3/consent', {
