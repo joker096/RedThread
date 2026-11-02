@@ -385,10 +385,10 @@ async function seedFixture(pool) {
       [l3Id]
     );
     await client.query(
-      "UPDATE identity_l3_submissions SET status = 'processing', processing_completed_at = NOW() WHERE id = $1",
+      "UPDATE identity_l3_submissions SET status = 'processing' WHERE id = $1",
       [l3Id]
     );
-    await client.query("UPDATE identity_l3_submissions SET status = 'pending_review' WHERE id = $1", [l3Id]);
+    await client.query("UPDATE identity_l3_submissions SET status = 'pending_review', processing_completed_at = NOW() WHERE id = $1", [l3Id]);
     await client.query(
       `UPDATE identity_l3_submissions
        SET status = 'approved', reviewed_by = $2, reviewed_at = NOW(),
