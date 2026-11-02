@@ -197,10 +197,6 @@ export async function storeIdentityL3Stream({ source, root, key, maxBytes = DEFA
   }
 }
 
-/**
- * Return a decrypting stream. Consumers must read it to completion: GCM authenticity
- * is established only when the final authentication tag has been checked.
- */
 let activeIdentityL3Decryptions = 0;
 export const IDENTITY_L3_MAX_CONCURRENT_DECRYPTIONS = 2;
 
