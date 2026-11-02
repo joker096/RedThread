@@ -1488,7 +1488,7 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(consentBeforePayload.accepted, false,
       'L3 consent must default to off');
     assert.equal(consentBeforePayload.notice.version, 1);
-    assert.match(consentBeforePayload.notice.text, /authorized Vow moderators/);
+    assert.match(consentBeforePayload.notice.text, /уполномоченные модераторы Vow/);
     const femaleL3Consent = await request('/api/identity/l3/consent', {
       method: 'PUT',
       headers: { Cookie: secondCookie },
