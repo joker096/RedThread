@@ -129,3 +129,23 @@ test('upload capability issuance fails closed when explicit current L3 consent i
   assert.equal(client.calls.length, 2);
   assert.match(client.calls[1].sql, /c\.withdrawn_at IS NULL/);
 });
+
+test('upload capability consumption fails closed after L3 consent is absent or withdrawn', async () => {
+  const { consumeIdentityL3UploadCapability } = await import('./identityL3UploadTokens.js');
+  const token = createIdentityL3UploadToken();
+  const client = fakeClient([
+    { rows: [], rowCount: 0 },
+    { rows: [{
+      account_status: 'active', gender: 'male', identity_status: 'verified',
+      provider_environment: 'live', l3_consent_active: false
+    }], rowCount: 1 }
+  ]);
+  await assert.rejects(
+    consumeIdentityL3UploadCapability(client, {
+      userId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      uploadToken: token
+    }),
+    error => error.code === 'l3_consent_required'
+  );
+  assert.equal(client.calls.length, 2, 'a token lookup must not occur after consent is missing');
+});
