@@ -4,6 +4,11 @@ const TOKEN_BYTES = 32;
 const TOKEN_LIFETIME_MINUTES = 10;
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 export const IDENTITY_L3_CONSENT_VERSION = 1;
+export const IDENTITY_L3_CONSENT_NOTICE = Object.freeze({
+  version: IDENTITY_L3_CONSENT_VERSION,
+  title: 'Consent to L3 video identity verification',
+  text: 'I expressly consent to Vow collecting and processing my 30–60 second video statement and related technical media metadata for L3 identity and authenticity verification. The video is encrypted in private storage. Automated malware, file-format, duration and media-integrity checks may process it. Only authorized Vow moderators may view it to make the L3 verification decision. The video is not shown to matches, advertisers or delivery partners. I may withdraw this consent at any time; withdrawal immediately disables my L3 approval and invalidates unused upload tokens. Encrypted media is then queued for deletion. If storage is temporarily unavailable, deletion may take time and account deletion remains blocked until the object is confirmed deleted. An L3 approval expires after six months; its video is queued for deletion when the approval expires.'
+});
 
 export class IdentityL3UploadTokenError extends Error {
   constructor(code) {
