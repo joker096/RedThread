@@ -140,10 +140,10 @@ test('L3 decryption stages plaintext only in a separate private scratch director
     await writeFile(abandoned, 'stale plaintext', { mode: 0o600 });
     const abandonedProcessingDirectory = await mkdtemp(path.join(scratchRoot, 'vow-l3-check-'));
     await writeFile(path.join(abandonedProcessingDirectory, 'media.bin'), 'stale processed plaintext', { mode: 0o600 });
-    await writeFile(path.join(scratchRoot, 'keep-me.txt'), 'not a staging object');
     const cleanup = await clearIdentityL3TemporaryFiles({ root: scratchRoot });
-    assert.deepEqual((await readdir(scratchRoot)).sort(), ['keep-me.txt'],
-      `startup cleanup must remove both plaintext staging forms (deletedCount=${cleanup.deletedCount})`);
+    assert.equal(cleanup.deletedCount, 2);
+    assert.deepEqual(await readdir(scratchRoot), [],
+      'startup must empty the dedicated scratch mount after an interrupted process');
   });
 });
 
