@@ -2,7 +2,6 @@ import { spawn } from 'node:child_process';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdtemp, open, rm } from 'node:fs/promises';
 import net from 'node:net';
-import os from 'node:os';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
@@ -210,8 +209,11 @@ export async function processIdentityL3Media({
   openDecryptedStream,
   scanner = scanIdentityL3FileWithClamD,
   probe = runFfprobe,
-  tempRoot = os.tmpdir()
+  tempRoot
 }) {
+  if (typeof tempRoot !== 'string' || !tempRoot.trim()) {
+    throw new IdentityL3MediaProcessingError('l3_media_temp_storage_not_configured');
+  }
   if (typeof openDecryptedStream !== 'function') {
     throw new IdentityL3MediaProcessingError('l3_media_processor_not_configured');
   }
