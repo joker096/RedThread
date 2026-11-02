@@ -7,6 +7,7 @@ import net from 'node:net';
 import { writeFile } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import {
+  buildIdentityL3FfprobeArgs,
   IdentityL3MediaProcessingError,
   processIdentityL3Media,
   scanIdentityL3FileWithClamD,
@@ -17,6 +18,15 @@ const mp4Probe = {
   format: { format_name: 'mov,mp4,m4a,3gp,3g2,mj2', duration: '42.25' },
   streams: [{ codec_type: 'video', codec_name: 'h264' }, { codec_type: 'audio', codec_name: 'aac' }]
 };
+
+test('ffprobe is restricted to local file protocols for untrusted media', () => {
+  const filePath = '/run/identity-l3-tmp/media.bin';
+  const args = buildIdentityL3FfprobeArgs(filePath);
+  assert.ok(args.includes('-protocol_whitelist'));
+  assert.equal(args[args.indexOf('-protocol_whitelist') + 1], 'file,pipe');
+  assert.equal(args.at(-1), filePath);
+  assert.throws(() => buildIdentityL3FfprobeArgs(''), TypeError);
+});
 
 test('L3 media probe accepts only supported MP4/H.264 with 30–60 second duration', () => {
   assert.equal(validateIdentityL3Probe(mp4Probe, 'video/mp4'), 42);
