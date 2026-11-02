@@ -35,13 +35,13 @@ async function lockL3Account(client, userId) {
      FROM users u
      JOIN profiles p ON p.user_id = u.id
      JOIN identity_verifications iv ON iv.user_id = u.id
-     WHERE u.id = $1
+     WHERE u.id = $1 AND iv.provider = 'didit'
      FOR UPDATE OF u, p, iv`,
     [userId]
   );
   const account = result.rows[0];
   if (!account || account.account_status !== 'active' || account.gender !== 'male' ||
-      account.provider !== 'didit' || account.identity_status !== 'verified' || account.provider_environment !== 'live') {
+      account.identity_status !== 'verified' || account.provider_environment !== 'live') {
     throw new IdentityL3UploadTokenError('l3_upload_requires_live_l2');
   }
 }
