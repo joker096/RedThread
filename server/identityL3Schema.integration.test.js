@@ -42,7 +42,29 @@ test('L3 schema persists metadata only and protects workflow decisions', {
         `SELECT pg_get_functiondef('prevent_identity_l3_consent_event_mutation()'::regprocedure) AS definition`
       );
       assert.match(consentAuditGuard.rows[0].definition, /consent events are append-only/);
+      assert.match(consentAuditGuard.rows[0].definition, /u\.status = 'deleted'/,
+        'account deletion may purge consent audit history only after marking the account deleted');
 
+      const purgeQueueTable = await client.query(
+        "SELECT to_regclass('public.identity_l3_media_purge_jobs') AS purge_jobs"
+      );
+      assert.equal(purgeQueueTable.rows[0].purge_jobs, 'identity_l3_media_purge_jobs');
+      const purgeQueueIndexes = await client.query(
+        `SELECT indexname, indexdef FROM pg_indexes
+         WHERE schemaname = 'public' AND tablename = 'identity_l3_media_purge_jobs'`
+      );
+      assert.ok(purgeQueueIndexes.rows.some(row =>
+        row.indexname === 'identity_l3_media_purge_queue_idx' &&
+        /status IN/.test(row.indexdef) && /queued/.test(row.indexdef) && /processing/.test(row.indexdef)
+      ));
+      const purgeQueueColumns = await client.query(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'identity_l3_media_purge_jobs'`
+      );
+      const purgeQueueColumnNames = new Set(purgeQueueColumns.rows.map(row => row.column_name));
+      for (const name of ['attempts', 'next_attempt_at', 'lease_token', 'lease_expires_at', 'last_error_code', 'completed_at']) {
+        assert.ok(purgeQueueColumnNames.has(name), 'purge queue must persist ' + name);
+      }
       const uploadTokenTable = await client.query(
         "SELECT to_regclass('public.identity_l3_upload_tokens') AS tokens"
       );
