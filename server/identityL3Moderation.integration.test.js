@@ -251,6 +251,19 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     assert.equal(staleReviewPurge.status, 'completed',
       'the expired pending-review video must still be physically purged');
 
+    // Simulate an account that has the old notice version: it cannot authorize
+    // access after the version bump, but its original consent remains withdrawable.
+    await pool.query(
+      'UPDATE identity_l3_consents SET consent_version = 1 WHERE user_id = $1',
+      [applicantId]
+    );
+    const staleConsentAccess = await pool.query(
+      'SELECT identity_l3_has_active_approval($1) AS active',
+      [applicantId]
+    );
+    assert.equal(staleConsentAccess.rows[0].active, false,
+      'version-1 consent must not authorize L3 after the version-2 notice is published');
+
     // Withdrawal revokes an existing approval immediately and the purge worker
     // must be able to clear media from the now-revoked terminal submission.
     const withdrawn = await request('/api/identity/l3/consent', {
@@ -262,6 +275,14 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     assert.equal(withdrawnPayload.accepted, false);
     assert.equal(withdrawnPayload.withdrawn, true);
     assert.equal(withdrawnPayload.purgeStatus, 'pending');
+    const oldConsentWithdrawalEvent = await pool.query(
+      `SELECT consent_version FROM identity_l3_consent_events
+       WHERE user_id = $1 AND event_type = 'withdrawn'
+       ORDER BY occurred_at DESC, id DESC LIMIT 1`,
+      [applicantId]
+    );
+    assert.equal(oldConsentWithdrawalEvent.rows[0].consent_version, 1,
+      'withdrawal audit must retain the actual consent version being withdrawn');
     const revokedApproval = await pool.query(
       'SELECT status, storage_object_key FROM identity_l3_submissions WHERE id = $1',
       [first.submissionId]
