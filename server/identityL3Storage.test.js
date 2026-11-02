@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -23,6 +23,25 @@ async function withStorage(callback) {
   const root = await mkdtemp(path.join(tmpdir(), 'vow-l3-storage-'));
   try { await callback(root); } finally { await rm(root, { recursive: true, force: true }); }
 }
+
+test('L3 storage rejects a symlink in any parent component of the private root', async () => {
+  await withStorage(async root => {
+    const actualParent = path.join(root, 'actual-parent');
+    const symlinkParent = path.join(root, 'symlink-parent');
+    await mkdir(actualParent, { mode: 0o700 });
+    await symlink(actualParent, symlinkParent, 'dir');
+
+    await assert.rejects(
+      storeIdentityL3Stream({
+        source: Readable.from([Buffer.from('private media')]),
+        root: path.join(symlinkParent, 'private-l3'),
+        key
+      }),
+      error => error instanceof IdentityL3StorageError &&
+        error.code === 'l3_storage_root_unsafe'
+    );
+  });
+});
 
 test('L3 storage fails closed when the private root is accessible to group or other users', async () => {
   await withStorage(async root => {
