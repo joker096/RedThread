@@ -140,6 +140,8 @@ test('L3 worker only advances a submission after processing and fences completio
     heartbeatMs: 60_000,
     processMedia: async input => {
       assert.equal(input.objectKey, claim.row.storage_object_key);
+      assert.equal(input.tempRoot, '/private/l3-scratch',
+        'the processor must not fall back to the container default /tmp');
       assert.equal(input.declaredMimeType, 'video/mp4');
       return { durationSeconds: 42, sizeBytes: 1024 };
     }
