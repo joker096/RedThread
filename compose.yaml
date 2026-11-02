@@ -108,6 +108,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
       PGSSL: "${PGSSL:-false}"
       IDENTITY_L3_STORAGE_DIR: /app/uploads/private-identity-l3
+      IDENTITY_L3_REQUIRE_MOUNT: "true"
       IDENTITY_L3_TEMP_DIR: /run/identity-l3-tmp
       IDENTITY_L3_ENCRYPTION_KEY: ${IDENTITY_L3_ENCRYPTION_KEY:-}
       IDENTITY_L3_CLAMD_HOST: clamav
@@ -134,6 +135,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
       PGSSL: "${PGSSL:-false}"
       IDENTITY_L3_STORAGE_DIR: /app/uploads/private-identity-l3
+      IDENTITY_L3_REQUIRE_MOUNT: "true"
     command: ["node", "server/process-identity-l3-queue.js", "--purge-only"]
     volumes:
       - private_identity_l3:/app/uploads/private-identity-l3
@@ -197,6 +199,7 @@ services:
       DIDIT_WEBHOOK_SECRET_PREVIOUS: ${DIDIT_WEBHOOK_SECRET_PREVIOUS:-}
       IDENTITY_L3_ENABLED: ${IDENTITY_L3_ENABLED:-false}
       IDENTITY_L3_STORAGE_DIR: /app/uploads/private-identity-l3
+      IDENTITY_L3_REQUIRE_MOUNT: "true"
       IDENTITY_L3_TEMP_DIR: /run/identity-l3-tmp
       IDENTITY_L3_ENCRYPTION_KEY: ${IDENTITY_L3_ENCRYPTION_KEY:-}
       PHOTO_STORAGE_DIR: /app/uploads/private-photos
