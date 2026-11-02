@@ -1590,6 +1590,38 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(deletionBeforeMediaPurge.status, 409);
     assert.equal((await deletionBeforeMediaPurge.json()).error, 'identity_l3_media_purge_unavailable',
       'account deletion must remain blocked until encrypted media deletion is confirmed');
+    await identityGateDb.query(
+      `UPDATE identity_l3_media_purge_jobs
+       SET status = 'failed', attempts = 5, next_attempt_at = NOW(),
+           lease_token = NULL, lease_expires_at = NULL,
+           last_error_code = 'test_storage_failure'
+       WHERE submission_id = $1`,
+      [consentSubmissionId]
+    );
+    const retriedWithdrawal = await request('/api/identity/l3/consent', {
+      method: 'DELETE',
+      headers: { Cookie: secondMaleCookie }
+    });
+    assert.equal(retriedWithdrawal.status, 200);
+    const retriedWithdrawalPayload = await retriedWithdrawal.json();
+    assert.equal(retriedWithdrawalPayload.accepted, false);
+    assert.equal(retriedWithdrawalPayload.withdrawn, false,
+      'retrying a purge must not record a second consent-withdrawal event');
+    assert.equal(retriedWithdrawalPayload.requeuedFailedJobs, 1);
+    assert.equal(retriedWithdrawalPayload.purgeStatus, 'pending');
+    assert.equal(retriedWithdrawalPayload.failedPurgeJobs, 0);
+    const retriedPurgeJob = await identityGateDb.query(
+      `SELECT status, attempts, lease_token, lease_expires_at, last_error_code
+       FROM identity_l3_media_purge_jobs WHERE submission_id = $1`,
+      [consentSubmissionId]
+    );
+    assert.deepEqual(retriedPurgeJob.rows, [{
+      status: 'queued',
+      attempts: 0,
+      lease_token: null,
+      lease_expires_at: null,
+      last_error_code: null
+    }], 'an explicit retry must safely reset only a failed purge lease');
     const consentAudit = await identityGateDb.query(
       'SELECT event_type FROM identity_l3_consent_events WHERE user_id = $1 ORDER BY occurred_at, id',
       [secondMaleRegistered.user.id]
