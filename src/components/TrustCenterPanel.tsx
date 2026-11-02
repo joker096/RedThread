@@ -2,12 +2,39 @@ import React, { useCallback, useEffect, useState } from 'react';
 
 type Photo = { status: 'pending' | 'approved' | 'rejected'; createdAt: string };
 type IdentityStatus = 'not_configured' | 'not_started' | 'pending' | 'verified' | 'rejected';
+type L3Consent = {
+  version: number;
+  notice: { version: number; title: string; text: string };
+  accepted: boolean;
+  grantedAt: string | null;
+  withdrawnAt: string | null;
+  purgeStatus: 'complete' | 'pending' | 'failed';
+  pendingPurgeJobs: number;
+  failedPurgeJobs: number;
+};
 type Summary = {
   email: { status: 'verified' | 'unverified'; verifiedAt: string | null };
   phone: { status: 'verified' | 'not_verified'; verifiedAt: string | null };
-  identity: { status: IdentityStatus; providerStatus?: string | null; environment?: 'sandbox' | 'live' | null };
+  identity: { gender: 'male' | 'female'; status: IdentityStatus; providerStatus?: string | null; environment?: 'sandbox' | 'live' | null; l3: { status: string; decisionStatus: string; expiresAt?: string } };
   photos: Photo[];
 };
+
+function validL3Consent(value: unknown): value is L3Consent {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const v = value as Record<string, unknown>;
+  const notice = v.notice as Record<string, unknown> | null;
+  return Number.isInteger(v.version) && v.version === 1
+    && !!notice && typeof notice === 'object'
+    && notice.version === v.version
+    && typeof notice.title === 'string' && notice.title.length > 0
+    && typeof notice.text === 'string' && notice.text.length > 0
+    && typeof v.accepted === 'boolean'
+    && (v.grantedAt === null || (typeof v.grantedAt === 'string' && Number.isFinite(Date.parse(v.grantedAt))))
+    && (v.withdrawnAt === null || (typeof v.withdrawnAt === 'string' && Number.isFinite(Date.parse(v.withdrawnAt))))
+    && ['complete', 'pending', 'failed'].includes(String(v.purgeStatus))
+    && Number.isInteger(v.pendingPurgeJobs) && Number(v.pendingPurgeJobs) >= 0
+    && Number.isInteger(v.failedPurgeJobs) && Number(v.failedPurgeJobs) >= 0;
+}
 
 function validSummary(value: unknown): value is Summary {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -19,7 +46,11 @@ function validSummary(value: unknown): value is Summary {
   if (!isRecord(v.email) || !isRecord(v.phone) || !isRecord(v.identity) || !Array.isArray(v.photos)) return false;
   return ['verified', 'unverified'].includes(String(v.email.status)) && date(v.email.verifiedAt)
     && ['verified', 'not_verified'].includes(String(v.phone.status)) && date(v.phone.verifiedAt)
+    && ['male', 'female'].includes(String(v.identity.gender))
     && ['not_configured', 'not_started', 'pending', 'verified', 'rejected'].includes(String(v.identity.status))
+    && isRecord(v.identity.l3)
+    && typeof v.identity.l3.status === 'string'
+    && typeof v.identity.l3.decisionStatus === 'string'
     && (v.identity.providerStatus === undefined || v.identity.providerStatus === null || ['Not Started', 'In Progress', 'Approved', 'Declined', 'In Review', 'Awaiting User', 'Resubmitted', 'Expired', 'Abandoned', 'Kyc Expired'].includes(String(v.identity.providerStatus)))
     && (v.identity.environment === undefined || v.identity.environment === null || ['sandbox', 'live'].includes(String(v.identity.environment)))
     && v.photos.length <= 6
@@ -33,6 +64,9 @@ const formatDate = (value: string) => new Intl.DateTimeFormat(undefined, { dateS
 
 export const TrustCenterPanel: React.FC = () => {
   const [data, setData] = useState<Summary | null>(null);
+  const [l3Consent, setL3Consent] = useState<L3Consent | null>(null);
+  const [l3ConsentAcknowledged, setL3ConsentAcknowledged] = useState(false);
+  const [savingL3Consent, setSavingL3Consent] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [startingVerification, setStartingVerification] = useState(false);
@@ -41,14 +75,21 @@ export const TrustCenterPanel: React.FC = () => {
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const response = await fetch('/api/trust/summary', { credentials: 'include', cache: 'no-store' });
+      const [response, consentResponse] = await Promise.all([
+        fetch('/api/trust/summary', { credentials: 'include', cache: 'no-store' }),
+        fetch('/api/identity/l3/consent', { credentials: 'include', cache: 'no-store' })
+      ]);
       if (response.status === 401) throw new Error('Войдите в аккаунт, чтобы просмотреть статусы безопасности.');
       if (!response.ok) throw new Error('Не удалось загрузить данные Центра безопасности.');
       const payload: unknown = await response.json();
       if (!validSummary(payload)) throw new Error('Сервер вернул некорректные данные безопасности.');
+      if (!consentResponse.ok) throw new Error('Не удалось загрузить согласие на видео-проверку L3.');
+      const consentPayload: unknown = await consentResponse.json();
+      if (!validL3Consent(consentPayload)) throw new Error('Сервер вернул некорректное состояние согласия L3.');
       setData(payload);
+      setL3Consent(consentPayload);
     } catch (e) {
-      setData(null); setError(e instanceof Error ? e.message : 'Ошибка загрузки.');
+      setData(null); setL3Consent(null); setError(e instanceof Error ? e.message : 'Ошибка загрузки.');
     } finally { setLoading(false); }
   }, []);
 
@@ -81,6 +122,52 @@ export const TrustCenterPanel: React.FC = () => {
       setError(e instanceof Error ? e.message : 'Не удалось начать проверку.');
     } finally { setStartingVerification(false); }
   }, []);
+
+  const grantL3Consent = useCallback(async () => {
+    if (!l3ConsentAcknowledged || !l3Consent || !data || data.identity.gender !== 'male' ||
+        data.identity.status !== 'verified' || data.identity.environment !== 'live') return;
+    setSavingL3Consent(true);
+    setError('');
+    try {
+      const response = await fetch('/api/identity/l3/consent', {
+        method: 'PUT', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accepted: true, version: l3Consent.version })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(response.status === 409
+        ? 'Для согласия L3 требуется действующая проверка L2 в Live.'
+        : 'Не удалось сохранить согласие L3.');
+      if (payload?.accepted !== true || payload?.version !== l3Consent.version) {
+        throw new Error('Сервер не подтвердил сохранение согласия L3.');
+      }
+      setL3ConsentAcknowledged(false);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось сохранить согласие L3.');
+    } finally {
+      setSavingL3Consent(false);
+    }
+  }, [data, l3Consent, l3ConsentAcknowledged, load]);
+
+  const withdrawL3Consent = useCallback(async () => {
+    if (!window.confirm('Отозвать согласие L3? Доступ к подтверждённому статусу будет немедленно закрыт, а видео поставлено в очередь на удаление.')) return;
+    setSavingL3Consent(true);
+    setError('');
+    try {
+      const response = await fetch('/api/identity/l3/consent', {
+        method: 'DELETE', credentials: 'include'
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error('Не удалось отозвать согласие L3. Попробуйте ещё раз.');
+      if (payload?.accepted !== false) throw new Error('Сервер не подтвердил отзыв согласия L3.');
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось отозвать согласие L3.');
+    } finally {
+      setSavingL3Consent(false);
+    }
+  }, [load]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -128,6 +215,49 @@ export const TrustCenterPanel: React.FC = () => {
           {data.identity.environment === 'sandbox' && <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-950/20 p-2 text-[11px] text-amber-200">Sandbox имитирует проверку. Не загружайте реальные документы, селфи или личные данные. Тестовый результат не подтверждает личность.</p>}
           {data.identity.providerStatus && <p className="mt-2 text-[11px] text-stone-400">Ответ Didit ({data.identity.environment}): {data.identity.providerStatus}.</p>}
         </div>
+        {data.identity.gender === 'male' && <div className="rounded-2xl bg-stone-950 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-white">Видео-проверка L3</span>
+            {status(data.identity.l3.decisionStatus === 'approved' && l3Consent?.accepted === true,
+              'Подтверждена', data.identity.l3.status === 'not_started' ? 'Не начата' : data.identity.l3.status)}
+          </div>
+          {identityVerified && data.identity.environment === 'live' && l3Consent ? <>
+            <p className="mt-2 text-[11px] text-stone-400">
+              Статус: {data.identity.l3.status}. Согласие: {l3Consent.accepted ? 'предоставлено' : 'не предоставлено'}.
+            </p>
+            {l3Consent.accepted ? <>
+              <p className="mt-2 text-[11px] text-emerald-200">Действует согласие версии {l3Consent.version}.</p>
+              <button type="button" onClick={() => void withdrawL3Consent()} disabled={savingL3Consent}
+                className="mt-3 min-h-11 w-full rounded-xl border border-rose-500/40 px-4 text-sm font-semibold text-rose-200 disabled:opacity-50">
+                {savingL3Consent ? 'Сохраняем…' : 'Отозвать согласие L3'}
+              </button>
+            </> : <>
+              <label className="mt-3 flex items-start gap-2 rounded-xl border border-white/10 bg-stone-900 p-3 text-[11px] leading-relaxed text-stone-300">
+                <input type="checkbox" checked={l3ConsentAcknowledged}
+                  onChange={event => setL3ConsentAcknowledged(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-rose-600" />
+                <span><strong>{l3Consent.notice.title}.</strong> {l3Consent.notice.text}</span>
+              </label>
+              <button type="button" onClick={() => void grantL3Consent()}
+                disabled={savingL3Consent || !l3ConsentAcknowledged}
+                className="mt-3 min-h-11 w-full rounded-xl bg-rose-700 px-4 text-sm font-semibold text-white disabled:opacity-50">
+                {savingL3Consent ? 'Сохраняем…' : 'Предоставить согласие L3'}
+              </button>
+            </>}
+            {l3Consent.purgeStatus !== 'complete' && <p role="status" className={l3Consent.purgeStatus === 'failed'
+              ? 'mt-2 rounded-lg bg-rose-950/30 p-2 text-[11px] text-rose-200'
+              : 'mt-2 rounded-lg bg-amber-950/20 p-2 text-[11px] text-amber-200'}>
+              {l3Consent.purgeStatus === 'failed'
+                ? 'Не удалось удалить ' + l3Consent.failedPurgeJobs + ' видео. Удаление аккаунта остаётся заблокированным до завершения очистки.'
+                : 'Видео поставлено в очередь на удаление. Осталось задач: ' + l3Consent.pendingPurgeJobs + '.'}
+            </p>}
+            <p className="mt-2 text-[11px] text-stone-500">
+              Согласие не запускает запись или загрузку видео. Подача L3 станет доступна после подключения полного защищённого потока загрузки и модерации.
+            </p>
+          </> : <p className="mt-2 text-[11px] text-stone-500">
+            Сначала завершите проверку личности L2 в Live. Sandbox не даёт права на L3.
+          </p>}
+        </div>}
         <div className="rounded-2xl bg-stone-950 p-3"><div className="flex justify-between"><span className="text-sm text-white">Фотографии</span><span className="text-xs text-stone-300">{data.photos.length} / 6</span></div>
           {data.photos.length ? <ul className="mt-2 space-y-2">{data.photos.map((p, i) => <li key={p.createdAt + i} className="flex justify-between gap-3 text-xs"><span className="text-stone-400">Фото {i + 1} · {formatDate(p.createdAt)}</span>{status(p.status === 'approved', p.status === 'approved' ? 'Одобрено' : '', p.status === 'pending' ? 'Ожидает проверки' : 'Отклонено')}</li>)}</ul> : <p className="text-[11px] text-stone-500 mt-1">Загруженных фотографий нет.</p>}
           <p className="text-[11px] text-stone-500 mt-2">Одобрение фотографии не подтверждает личность владельца.</p>
