@@ -47,6 +47,8 @@ test('Docker database network is isolated from the public web proxy container', 
   assert.match(l3Worker, /clamav:\n        condition: service_healthy/,
     'the worker must wait for a healthy malware scanner');
   assert.match(l3PurgeWorker, /--purge-only/);
+  assert.doesNotMatch(l3PurgeWorker, /profiles:/,
+    'privacy purge must remain active even when the optional L3 processing profile is disabled');
   assert.match(l3PurgeWorker, /private_identity_l3:\/app\/uploads\/private-identity-l3(\n|$)/,
     'the isolated purge worker requires write access to unlink encrypted media');
   assert.doesNotMatch(l3PurgeWorker, /clamav:/,
