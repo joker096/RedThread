@@ -30,6 +30,28 @@ test('Docker database network is isolated from the public web proxy container', 
   assert.deepEqual(networksFor('api'), ['backend', 'frontend', 'egress']);
   assert.deepEqual(networksFor('web'), ['frontend']);
 
+  const api = serviceBlock('api');
+  const web = serviceBlock('web');
+  const diditVariables = [
+    'DIDIT_ENVIRONMENT',
+    'DIDIT_SANDBOX_KEY_CONFIRMED',
+    'DIDIT_LIVE_KEY_CONFIRMED',
+    'DIDIT_API_KEY',
+    'DIDIT_WORKFLOW_ID',
+    'DIDIT_APPLICATION_ID',
+    'DIDIT_WEBHOOK_SECRET',
+    'DIDIT_WEBHOOK_SECRET_PREVIOUS'
+  ];
+  for (const name of diditVariables) {
+    assert.match(api, new RegExp('^      ' + name + ':', 'm'),
+      name + ' must be passed only to the server API container');
+    assert.doesNotMatch(web, new RegExp('^      ' + name + ':', 'm'),
+      name + ' must never be exposed to the web container');
+  }
+  assert.ok(api.includes('DIDIT_ENVIRONMENT: ${DIDIT_ENVIRONMENT:-sandbox}'));
+  assert.ok(api.includes('DIDIT_SANDBOX_KEY_CONFIRMED: ${DIDIT_SANDBOX_KEY_CONFIRMED:-false}'));
+  assert.ok(api.includes('DIDIT_LIVE_KEY_CONFIRMED: ${DIDIT_LIVE_KEY_CONFIRMED:-false}'));
+
   assert.ok(compose.includes(`  backend:
     internal: true`));
   assert.ok(compose.includes(`  frontend:
