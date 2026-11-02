@@ -86,9 +86,12 @@ async function ensurePrivateRoot(root) {
   }
 
   stat = await lstat(absoluteRoot);
-  if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0) {
-    // Never silently chmod an operator-managed mount. Fail closed if group/other
-    // principals can traverse or list the directory containing identity media.
+  const currentUid = typeof process.getuid === 'function' ? process.getuid() : null;
+  if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0 ||
+      (currentUid !== null && stat.uid !== currentUid)) {
+    // Never silently chmod/chown an operator-managed mount. Fail closed if
+    // group/other principals can traverse it or the unprivileged app user does
+    // not own the directory containing identity media.
     throw new IdentityL3StorageError('l3_storage_root_unsafe');
   }
   return absoluteRoot;
