@@ -169,3 +169,32 @@ A bounded expiry worker is now deployed as a backend-only Compose service. It sc
 The worker is cleanup and audit-state maintenance only. Authorization continues to check `expires_at > NOW()` synchronously in `identity_l3_has_active_approval`; a delayed or unavailable worker cannot extend access. Candidate discovery is bounded and rotated, account failures are isolated, and the worker retries on the next minute. The Compose service runs only on the internal backend network and starts after migrations complete.
 
 This does not complete the L3 workflow. Authenticated video upload, private volume/key configuration, media parsing and malware scanning, moderator queue/playback/decision/revocation endpoints and UI, and policy-defined media retention/deletion remain release blockers.
+
+
+## Integrated L3 workflow and current release boundary (2026-11-02)
+
+The current branch now contains an integrated, feature-flagged L3 workflow rather than only the earlier schema/storage foundations:
+
+- Applicants grant versioned consent, receive a short-lived single-use upload capability, and upload bounded MP4/WebM bytes over the authenticated API. The capability is consumed in the same account-locked transaction that stores the encrypted object reference.
+- The API writes AES-256-GCM encrypted objects to the private `private_identity_l3` volume. Object keys are server-generated UUIDs; the database stores only metadata and opaque keys.
+- The processing worker reads the encrypted volume read-only, authenticates/decrypts the object, scans it with ClamAV, and validates the actual container, codecs and 30–60 second duration with ffprobe before moving the submission to moderator review.
+- The moderator console provides audited private playback and independent approve/reject decisions. Current consent and pending-review state are checked again at playback and decision time.
+- Consent withdrawal revokes unused upload capabilities, immediately invalidates L3 access, and queues durable media deletion. Failed purge jobs can be retried. Six-month expiry is enforced synchronously by the authorization predicate and maintained by a bounded expiry worker.
+- Account deletion is serialized with uploads, processing, moderator reads and purge work. It refuses to remove the account while an L3 object key remains, rather than orphaning the encrypted video.
+- PostgreSQL triggers preserve lifecycle invariants and append-only decision/access events. The relevant integration suites are included in the repository test command.
+
+### Plaintext staging boundary
+
+Both authenticated decryption staging and the separate ClamAV/ffprobe working copy use `IDENTITY_L3_TEMP_DIR`. Compose mounts that directory as a 256 MiB container-private tmpfs owned by the unprivileged `node` user. The processing worker retains a read-only mount of the encrypted volume; the API and worker never need to make that volume writable to decrypt media. Each process allows at most two concurrent authenticated decryptions. Startup removes abandoned `.decrypt-*` files and `vow-l3-check-*` processing directories left by an earlier process. Do not back up or persist this tmpfs.
+
+### Production remains gated
+
+`IDENTITY_L3_ENABLED` remains `false` by default. Passing CI does not satisfy the following deployment requirements:
+
+1. Inject the encryption key through a production secret manager, not a committed file or browser-visible configuration. Define a versioned keyring and a tested rotation/re-encryption procedure before storing real applicant videos; the current single-key object format does not provide transparent rotation.
+2. Use a persistent private volume with restricted host access, encrypted infrastructure/backups, tested restore procedures, retention limits and deletion propagation to snapshots/replicas/backups.
+3. Configure monitoring and alerting for processing, expiry and purge workers, ClamAV health/signature freshness, queue age, repeated failures, tmpfs exhaustion and storage capacity.
+4. Run a production-like deployment test covering upload, scan, moderator playback, approval, consent withdrawal, physical deletion, account deletion, worker restart and restore/recovery.
+5. Complete a privacy/security review of the published consent, retention schedule, access roles, incident response and moderator audit process.
+
+Until those gates are signed off, L3 stays disabled in production. The integrated code and passing automated tests are not a substitute for those operational controls.
