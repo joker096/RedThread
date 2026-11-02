@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { validateAdEventPayload, classifyDuplicateAdEvent, hasExplicitAdConsent, evaluateAdEventFrequency, isAdEventCollectionEnabled } from './adEvents.js';
@@ -12,7 +13,7 @@ import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLo
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { consumeIdentityL3UploadCapability, IDENTITY_L3_CONSENT_NOTICE, IDENTITY_L3_CONSENT_VERSION, IdentityL3UploadTokenError, issueIdentityL3UploadCapability } from './identityL3UploadTokens.js';
-import { deleteIdentityL3Object, IDENTITY_L3_MAX_MEDIA_BYTES, IdentityL3StorageError, parseIdentityL3EncryptionKey, storeIdentityL3Stream } from './identityL3Storage.js';
+import { deleteIdentityL3Object, IDENTITY_L3_MAX_MEDIA_BYTES, IdentityL3StorageError, openIdentityL3Stream, parseIdentityL3EncryptionKey, storeIdentityL3Stream } from './identityL3Storage.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
 import { createDiditSession, isDiditConfigured, isDiditStatus, projectDiditStatus, verifyDiditWebhook, isDiditUuid } from './diditIdentity.js';
@@ -4474,6 +4475,222 @@ app.get('/api/gifts/orders', requireSession, profileActionLimiter, async (req, r
   } catch (error) {
     console.error('Gift order list failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'gift_orders_unavailable' });
+  }
+});
+
+app.get('/api/moderation/identity-l3/submissions', requireSession, async (req, res) => {
+  if (process.env.IDENTITY_L3_ENABLED !== 'true') return res.status(503).json({ error: 'l3_feature_disabled' });
+  try {
+    const result = await withActiveModeratorRead(req.authUser.id, client => client.query(
+      `SELECT s.id AS "submissionId", s.uploaded_at AS "uploadedAt",
+              s.media_mime_type AS "mimeType", s.media_size_bytes AS "sizeBytes",
+              s.media_duration_seconds AS "durationSeconds",
+              s.processing_attempts AS "processingAttempts"
+       FROM identity_l3_submissions s
+       JOIN users u ON u.id = s.user_id AND u.status = 'active'
+       JOIN identity_l3_consents c ON c.user_id = s.user_id
+         AND c.consent_version = $1 AND c.withdrawn_at IS NULL
+       WHERE s.status = 'pending_review'
+       ORDER BY s.processing_completed_at NULLS LAST, s.uploaded_at, s.id
+       LIMIT 50`,
+      [IDENTITY_L3_CONSENT_VERSION]
+    ));
+    if (!result.active) return res.status(401).json({ error: 'account_not_active' });
+    if (result.value?.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    return res.json({ submissions: result.value.rows });
+  } catch (error) {
+    console.error('L3 moderator queue read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'l3_moderation_unavailable' });
+  }
+});
+
+app.get('/api/moderation/identity-l3/submissions/:submissionId/media', requireSession, async (req, res) => {
+  if (process.env.IDENTITY_L3_ENABLED !== 'true') return res.status(503).json({ error: 'l3_feature_disabled' });
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(req.params.submissionId)) {
+    return res.status(400).json({ error: 'l3_submission_id_invalid' });
+  }
+  let encryptionKey;
+  try {
+    encryptionKey = parseIdentityL3EncryptionKey(process.env.IDENTITY_L3_ENCRYPTION_KEY);
+  } catch {
+    return res.status(503).json({ error: 'l3_media_unavailable' });
+  }
+  let client;
+  let transactionOpen = false;
+  let mediaStream = null;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    transactionOpen = true;
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const moderator = await client.query(
+      "SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (!moderator.rowCount) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    if (!['admin', 'moderator'].includes(moderator.rows[0].role)) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return res.status(403).json({ error: 'moderator_access_required' });
+    }
+    const candidate = await client.query(
+      'SELECT user_id FROM identity_l3_submissions WHERE id = $1',
+      [req.params.submissionId]
+    );
+    if (!candidate.rowCount) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return res.status(404).json({ error: 'l3_submission_not_found' });
+    }
+    await acquireGiftSafetyUserLocks(client, candidate.rows[0].user_id);
+    const submission = await client.query(
+      `SELECT s.storage_object_key, s.media_mime_type, s.media_size_bytes
+       FROM identity_l3_submissions s
+       JOIN users u ON u.id = s.user_id AND u.status = 'active'
+       JOIN identity_l3_consents c ON c.user_id = s.user_id
+         AND c.consent_version = $2 AND c.withdrawn_at IS NULL
+       WHERE s.id = $1 AND s.status = 'pending_review'
+       FOR SHARE OF s, u, c`,
+      [req.params.submissionId, IDENTITY_L3_CONSENT_VERSION]
+    );
+    const row = submission.rows[0];
+    if (!row || !row.storage_object_key || !['video/mp4', 'video/webm'].includes(row.media_mime_type)) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return res.status(404).json({ error: 'l3_media_not_available' });
+    }
+    mediaStream = await openIdentityL3Stream({
+      objectKey: row.storage_object_key,
+      root: process.env.IDENTITY_L3_STORAGE_DIR,
+      key: encryptionKey,
+      maxBytes: IDENTITY_L3_MAX_MEDIA_BYTES
+    });
+    await client.query('COMMIT');
+    transactionOpen = false;
+    res.setHeader('Content-Type', row.media_mime_type);
+    res.setHeader('Content-Length', String(row.media_size_bytes));
+    res.setHeader('Content-Disposition', 'inline; filename="identity-l3-review.' + (row.media_mime_type === 'video/mp4' ? 'mp4' : 'webm') + '"');
+    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+    await pipeline(mediaStream, res);
+  } catch (error) {
+    if (transactionOpen && client) {
+      try { await client.query('ROLLBACK'); } catch { client.release(error); client = null; }
+      transactionOpen = false;
+    }
+    if (!res.headersSent) {
+      const status = error instanceof IdentityL3StorageError ? 503 : 500;
+      return res.status(status).json({ error: 'l3_media_unavailable' });
+    }
+    res.destroy(error);
+  } finally {
+    client?.release();
+    if (mediaStream && !mediaStream.destroyed) mediaStream.destroy();
+  }
+});
+
+app.post('/api/moderation/identity-l3/submissions/:submissionId/decision', validateRequestOrigin, requireSession, async (req, res) => {
+  if (process.env.IDENTITY_L3_ENABLED !== 'true') return res.status(503).json({ error: 'l3_feature_disabled' });
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(req.params.submissionId)) {
+    return res.status(400).json({ error: 'l3_submission_id_invalid' });
+  }
+  const keys = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+    ? Object.keys(req.body).sort()
+    : [];
+  const decision = req.body?.decision;
+  const reasonCode = req.body?.reasonCode;
+  const reasonAllowed = decision === 'approved'
+    ? reasonCode === 'video_matches_l2'
+    : decision === 'rejected' && ['video_mismatch', 'statement_incomplete', 'suspected_spoofing', 'quality_insufficient', 'other'].includes(reasonCode);
+  if (keys.length !== 2 || keys[0] !== 'decision' || keys[1] !== 'reasonCode' || !reasonAllowed) {
+    return res.status(400).json({ error: 'l3_moderation_decision_invalid' });
+  }
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const moderator = await client.query(
+      "SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (!moderator.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    if (!['admin', 'moderator'].includes(moderator.rows[0].role)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'moderator_access_required' });
+    }
+    const candidate = await client.query(
+      'SELECT user_id FROM identity_l3_submissions WHERE id = $1',
+      [req.params.submissionId]
+    );
+    if (!candidate.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'l3_submission_not_found' });
+    }
+    await acquireGiftSafetyUserLocks(client, candidate.rows[0].user_id);
+    const submission = await client.query(
+      `SELECT s.id, s.user_id
+       FROM identity_l3_submissions s
+       JOIN users u ON u.id = s.user_id AND u.status = 'active'
+       JOIN identity_l3_consents c ON c.user_id = s.user_id
+         AND c.consent_version = $2 AND c.withdrawn_at IS NULL
+       WHERE s.id = $1 AND s.status = 'pending_review'
+       FOR UPDATE OF s, u, c`,
+      [req.params.submissionId, IDENTITY_L3_CONSENT_VERSION]
+    );
+    if (!submission.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'l3_submission_not_reviewable' });
+    }
+    await client.query(
+      "SELECT set_config('app.identity_l3_actor_user_id', $1, true), set_config('app.identity_l3_reason_code', $2, true)",
+      [req.authUser.id, reasonCode]
+    );
+    const updated = decision === 'approved'
+      ? await client.query(
+        `UPDATE identity_l3_submissions
+         SET status = 'approved', reviewed_by = $2, reviewed_at = statement_timestamp(),
+             decision_reason_code = $3, approved_at = statement_timestamp(),
+             expires_at = statement_timestamp() + INTERVAL '6 months'
+         WHERE id = $1 AND status = 'pending_review'
+         RETURNING id, status, expires_at`,
+        [req.params.submissionId, req.authUser.id, reasonCode]
+      )
+      : await client.query(
+        `UPDATE identity_l3_submissions
+         SET status = 'rejected', reviewed_by = $2, reviewed_at = statement_timestamp(),
+             decision_reason_code = $3
+         WHERE id = $1 AND status = 'pending_review'
+         RETURNING id, status`,
+        [req.params.submissionId, req.authUser.id, reasonCode]
+      );
+    if (!updated.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'l3_submission_not_reviewable' });
+    }
+    await client.query('COMMIT');
+    return res.json({
+      submissionId: updated.rows[0].id,
+      status: updated.rows[0].status,
+      expiresAt: updated.rows[0].expires_at || null,
+      purgeStatus: decision === 'rejected' ? 'queued' : 'not_required'
+    });
+  } catch (error) {
+    if (client && !await rollbackPooledTransaction(client)) client = null;
+    console.error('L3 moderator decision failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'l3_moderation_unavailable' });
+  } finally {
+    client?.release();
   }
 });
 
