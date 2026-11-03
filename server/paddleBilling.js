@@ -200,7 +200,7 @@ async function resolvePaddleAdjustmentReconciliationCases(client, transactionId,
      WHERE cases.event_id = source.event_id
        AND source.transaction_id = $1
        AND cases.status = 'open'
-       AND cases.reason_code = 'lifetime_transaction_unlinked'
+       AND cases.reason_code IN ('transaction_owner_unlinked', 'transaction_owner_unlinked')
        AND (
          SELECT COUNT(DISTINCT (user_id, plan))
          FROM (
@@ -298,8 +298,8 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
     await recordPaddleAdjustmentReconciliationCase(client, {
       eventId, adjustmentId, transactionId,
       reasonCode: linked.rowCount > 1
-        ? 'lifetime_transaction_ambiguous'
-        : 'lifetime_transaction_unlinked'
+        ? 'transaction_owner_ambiguous'
+        : 'transaction_owner_unlinked'
     });
     return { handled: true, adjustmentRecorded: true, reconciliationRequired: true };
   }
@@ -317,7 +317,7 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
   if (linked.rows[0].status !== 'linked') {
     await recordPaddleAdjustmentReconciliationCase(client, {
       eventId, adjustmentId, transactionId,
-      reasonCode: 'lifetime_transaction_unlinked'
+      reasonCode: 'transaction_owner_unlinked'
     });
     return { handled: true, adjustmentRecorded: true, reconciliationRequired: true };
   }
