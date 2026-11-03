@@ -128,7 +128,9 @@ async function findPaddleTransactionOwner(client, {
        LIMIT 2`,
       [transactionId]
     );
-    if (attemptOwner.rowCount === 1) return attemptOwner.rows[0].user_id;
+    if (attemptOwner.rowCount === 1 && typeof attemptOwner.rows?.[0]?.user_id === 'string') {
+      return attemptOwner.rows[0].user_id;
+    }
     if (attemptOwner.rowCount > 1) return null;
   }
   if (!subscriptionId && !customerId) return null;
