@@ -73,6 +73,30 @@ test('stores adjustment amount from Paddle totals.total in minor units and top-l
   assert.equal(insert.params[7], 'USD');
 });
 
+test('does not treat legacy data.amount as a substitute for Paddle totals.total', async () => {
+  const { pool, calls } = makePool();
+  const result = await processPaddleEvent(pool, {
+    eventId: 'evt_adjustment_missing_totals',
+    eventType: 'adjustment.created',
+    occurredAt: '2026-11-03T10:00:00Z',
+    data: {
+      id: 'adj_0123456789abcdef01234567',
+      transaction_id: transactionId,
+      action: 'refund',
+      type: 'full',
+      status: 'approved',
+      amount: '16500',
+      currency_code: 'USD'
+    }
+  });
+  assert.equal(result.reconciliationRequired, true);
+  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')), false);
+  assert.ok(calls.some(call =>
+    call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases') &&
+    call.params[1] === 'invalid_adjustment_payload'
+  ));
+});
+
 test('adjustments for recurring transactions use the transaction ledger and never enter lifetime reconciliation', async () => {
   const { pool, calls } = makePool({ linkedPlan: '1month', linkedStatus: 'linked' });
   const result = await sendAdjustment(pool, {
