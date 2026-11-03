@@ -110,20 +110,42 @@ async function recordPaddleAdjustmentReconciliationCase(client, { eventId, reaso
   );
 }
 
-async function resolvePaddleAdjustmentReconciliationCases(client, transactionId, resolutionNote) {
+async function resolvePaddleAdjustmentReconciliationCases(client, transactionId, userId, resolutionNote) {
   await client.query(
-    `UPDATE paddle_adjustment_reconciliation_cases
+    `UPDATE paddle_adjustment_reconciliation_cases AS cases
      SET status = 'resolved',
-         resolution_note = $2,
+         resolution_note = $3,
          resolution_source = 'automatic_checkout_link',
          resolved_by_ref = NULL,
          resolved_at = statement_timestamp(),
          updated_at = statement_timestamp()
      FROM paddle_adjustment_events AS source
-     WHERE paddle_adjustment_reconciliation_cases.event_id = source.event_id
+     WHERE cases.event_id = source.event_id
        AND source.transaction_id = $1
-       AND paddle_adjustment_reconciliation_cases.status = 'open'`,
-    [transactionId, resolutionNote]
+       AND cases.status = 'open'
+       AND cases.reason_code = 'lifetime_transaction_unlinked'
+       AND (
+         SELECT COUNT(*)
+         FROM (
+           SELECT user_id, transaction_id, status FROM paddle_checkout_attempts
+           UNION ALL
+           SELECT user_id, transaction_id, status FROM paddle_checkout_attempt_history
+         ) AS attempts
+         WHERE attempts.transaction_id = $1
+           AND attempts.status IN ('linked', 'completed')
+       ) = 1
+       AND EXISTS (
+         SELECT 1 FROM paddle_checkout_attempts AS linked_attempt
+         WHERE linked_attempt.transaction_id = $1
+           AND linked_attempt.user_id = $2
+           AND linked_attempt.status IN ('linked', 'completed')
+         UNION ALL
+         SELECT 1 FROM paddle_checkout_attempt_history AS linked_history
+         WHERE linked_history.transaction_id = $1
+           AND linked_history.user_id = $2
+           AND linked_history.status IN ('linked', 'completed')
+       )`,
+    [transactionId, userId, resolutionNote]
   );
 }
 
@@ -683,7 +705,7 @@ export async function processPaddleEvent(pool, rawEvent) {
         );
         if (['linked', 'completed'].includes(nextCheckoutStatus)) {
           await resolvePaddleAdjustmentReconciliationCases(
-            client, data.id, 'transaction_completed_linked_to_vow_checkout'
+            client, data.id, customUserId, 'transaction_completed_linked_to_vow_checkout'
           );
         }
       }
