@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS paddle_checkout_attempt_history (
   attempt_id UUID,
   transaction_id TEXT,
   plan TEXT NOT NULL CHECK (plan IN ('1month', '3months', 'lifetime')),
-  status TEXT NOT NULL CHECK (status IN ('canceled', 'linked')),
+  status TEXT NOT NULL CHECK (status IN ('canceled', 'linked', 'completed')),
   created_at TIMESTAMPTZ NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL,
   archived_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp()
@@ -113,7 +113,7 @@ CREATE INDEX IF NOT EXISTS paddle_checkout_attempt_history_user_time_idx
 CREATE OR REPLACE FUNCTION archive_paddle_checkout_attempt_before_rollover()
 RETURNS trigger LANGUAGE plpgsql AS $checkout_history$
 BEGIN
-  IF OLD.status IN ('canceled', 'linked')
+  IF OLD.status IN ('canceled', 'linked', 'completed')
      AND NEW.status = 'creating'
      AND NEW.attempt_id IS NOT NULL
      AND NEW.attempt_id IS DISTINCT FROM OLD.attempt_id
