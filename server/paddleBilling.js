@@ -184,12 +184,9 @@ async function getPaddleAdjustmentState(client, transactionId) {
          SELECT 1 FROM latest_per_adjustment
          WHERE action = 'refund' AND adjustment_type = 'full' AND status = 'approved'
        ) AS full_refund_active,
-       (
-         SELECT COUNT(*) FROM latest_per_adjustment
+       EXISTS (
+         SELECT 1 FROM latest_per_adjustment
          WHERE action = 'chargeback' AND status = 'approved'
-       ) > (
-         SELECT COUNT(*) FROM latest_per_adjustment
-         WHERE action = 'chargeback_reverse' AND status = 'approved'
        ) AS chargeback_active`,
     [transactionId]
   );
@@ -294,6 +291,15 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
     return { handled: true, reconciliationRequired: true };
   }
 
+  const amountMinorUnits = parsePaddleMinorAmount(data?.totals?.total);
+  const currencyCode = paddleCurrencyCode(data);
+  if (amountMinorUnits === null || currencyCode === null) {
+    await recordPaddleAdjustmentReconciliationCase(client, {
+      eventId, reasonCode: 'invalid_adjustment_payload'
+    });
+    return { handled: true, reconciliationRequired: true };
+  }
+
   await client.query(
     `INSERT INTO paddle_adjustment_events
        (event_id, adjustment_id, transaction_id, action, adjustment_type, status,
@@ -301,7 +307,7 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)
      ON CONFLICT (event_id) DO NOTHING`,
     [eventId, adjustmentId, transactionId, action, type, status,
-      parsePaddleMinorAmount(data?.totals?.total ?? data.amount), paddleCurrencyCode(data), occurredAt]
+      amountMinorUnits, currencyCode, occurredAt]
   );
 
   const linked = await client.query(
