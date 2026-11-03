@@ -69,6 +69,31 @@ async function markPaddleCheckoutAttemptForReconciliation(client, userId, plan, 
 }
 
 
+function parsePaddleMinorAmount(value) {
+  const raw = typeof value === 'string'
+    ? value
+    : Number.isSafeInteger(value) && value >= 0 ? String(value) : null;
+  if (!raw || !/^\\d+$/.test(raw)) return null;
+  try {
+    return BigInt(raw) <= 9223372036854775807n ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function paddleTransactionAmount(data) {
+  return data?.details?.totals?.total ??
+    data?.details?.totals?.grandTotal ??
+    data?.details?.totals?.grand_total ??
+    data?.total ?? data?.amount ?? null;
+}
+
+function paddleCurrencyCode(data) {
+  const value = data?.currencyCode ?? data?.currency_code ?? data?.currency;
+  return typeof value === 'string' && /^[A-Za-z]{3}$/.test(value)
+    ? value.toUpperCase() : null;
+}
+
 function inferPaddleTransactionPlan(data) {
   const items = Array.isArray(data?.items) ? data.items : [];
   const priceIds = items.map(item => item?.priceId || item?.price_id || item?.price?.id).filter(Boolean);
@@ -100,16 +125,19 @@ async function findPaddleTransactionOwner(client, { attemptUserId = null, subscr
 
 async function recordPaddleTransactionEvent(client, {
   eventId, transactionId, userId = null, plan = null, status,
-  subscriptionId = null, customerId = null, occurredAt = null
+  subscriptionId = null, customerId = null, occurredAt = null,
+  amountMinorUnits = null, currencyCode = null
 }) {
   const providerTime = typeof occurredAt === 'string' && Number.isFinite(Date.parse(occurredAt))
     ? occurredAt : null;
   await client.query(
     `INSERT INTO paddle_transaction_events
-       (event_id, transaction_id, user_id, plan, status, subscription_id, customer_id, occurred_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz)
+       (event_id, transaction_id, user_id, plan, status, amount_minor_units, currency_code,
+        subscription_id, customer_id, occurred_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz)
      ON CONFLICT (event_id) DO NOTHING`,
-    [eventId, transactionId, userId, plan, status, subscriptionId, customerId, providerTime]
+    [eventId, transactionId, userId, plan, status, amountMinorUnits, currencyCode,
+      subscriptionId, customerId, providerTime]
   );
 }
 
@@ -225,10 +253,12 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
 
   await client.query(
     `INSERT INTO paddle_adjustment_events
-       (event_id, adjustment_id, transaction_id, action, adjustment_type, status, occurred_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz)
+       (event_id, adjustment_id, transaction_id, action, adjustment_type, status,
+        amount_minor_units, currency_code, occurred_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)
      ON CONFLICT (event_id) DO NOTHING`,
-    [eventId, adjustmentId, transactionId, action, type, status, occurredAt]
+    [eventId, adjustmentId, transactionId, action, type, status,
+      parsePaddleMinorAmount(data.amount), paddleCurrencyCode(data), occurredAt]
   );
 
   const linked = await client.query(
@@ -456,7 +486,9 @@ export async function processPaddleEvent(pool, rawEvent) {
           status: eventType === 'transaction.completed' ? 'completed' : 'canceled',
           subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
           customerId: null,
-          occurredAt
+          occurredAt,
+          amountMinorUnits: parsePaddleMinorAmount(paddleTransactionAmount(data)),
+          currencyCode: paddleCurrencyCode(data)
         });
       }
       const malformedEventTransactionId = eventType === 'transaction.completed'
@@ -612,7 +644,9 @@ export async function processPaddleEvent(pool, rawEvent) {
             plan: inferPaddleTransactionPlan(data), status: 'completed',
             subscriptionId: null,
             customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null,
-            occurredAt
+            occurredAt,
+            amountMinorUnits: parsePaddleMinorAmount(paddleTransactionAmount(data)),
+            currencyCode: paddleCurrencyCode(data)
           });
         }
         await markPaddleCheckoutAttemptForReconciliation(
@@ -671,7 +705,9 @@ export async function processPaddleEvent(pool, rawEvent) {
         status: 'completed',
         subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
         customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null,
-        occurredAt
+        occurredAt,
+        amountMinorUnits: parsePaddleMinorAmount(paddleTransactionAmount(data)),
+        currencyCode: paddleCurrencyCode(data)
       });
       if (!ownsCheckoutAttempt && typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
         // A completed transaction that cannot be tied to the exact server
@@ -827,7 +863,9 @@ export async function processPaddleEvent(pool, rawEvent) {
           status: 'canceled',
           subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
           customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null,
-          occurredAt
+          occurredAt,
+          amountMinorUnits: parsePaddleMinorAmount(paddleTransactionAmount(data)),
+          currencyCode: paddleCurrencyCode(data)
         });
       }
     } else if (eventType === 'customer.created' || eventType === 'customer.updated') {
