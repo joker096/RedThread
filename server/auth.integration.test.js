@@ -192,6 +192,36 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.ok(queue.cases.some(item => item.eventId === reconciliationEventId),
         'authorized moderators must be able to inspect the open reconciliation queue');
 
+      const invalidQueueCursor = await request(
+        '/api/admin/paddle-adjustment-reconciliation?afterCreatedAt=2026-11-03T00%3A00%3A00Z',
+        { headers: { Cookie: firstCookie } }
+      );
+      assert.equal(invalidQueueCursor.status, 400,
+        'queue pagination must reject incomplete cursors');
+
+      const firstQueuePageResponse = await request(
+        '/api/admin/paddle-adjustment-reconciliation?limit=1',
+        { headers: { Cookie: firstCookie } }
+      );
+      assert.equal(firstQueuePageResponse.status, 200);
+      const firstQueuePage = await firstQueuePageResponse.json();
+      assert.equal(firstQueuePage.cases.length, 1);
+      assert.ok(firstQueuePage.nextCursor?.eventId,
+        'a full page must expose a stable continuation cursor');
+      const nextQueuePageQuery = new URLSearchParams({
+        limit: '1',
+        afterCreatedAt: firstQueuePage.nextCursor.createdAt,
+        afterEventId: firstQueuePage.nextCursor.eventId
+      });
+      const nextQueuePageResponse = await request(
+        `/api/admin/paddle-adjustment-reconciliation?${nextQueuePageQuery.toString()}`,
+        { headers: { Cookie: firstCookie } }
+      );
+      assert.equal(nextQueuePageResponse.status, 200);
+      const nextQueuePage = await nextQueuePageResponse.json();
+      assert.ok(!nextQueuePage.cases.some(item => item.eventId === firstQueuePage.cases[0].eventId),
+        'keyset pagination must not repeat the previous page boundary');
+
       const invalidResolution = await request(
         `/api/admin/paddle-adjustment-reconciliation/${reconciliationEventId}/resolve`,
         {
