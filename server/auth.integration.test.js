@@ -2175,6 +2175,12 @@ test('auth API supports registration, session lookup, logout and login', {
       timeZone: 'Asia/Tbilisi',
       isPublicVenue: true
     };
+    // Date-plan consent and cancellation are safety functions, not paid features.
+    // Expire the female trial before exercising the full lifecycle below.
+    await identityGateDb.query(
+      "UPDATE users SET female_trial_ends_at = NOW() - INTERVAL '1 day', premium_until = NULL, premium_lifetime = FALSE WHERE id = $1",
+      [registered.user.id]
+    );
     const datePlanEligibility = await identityGateDb.query(
       `SELECT m.status AS match_status, ua.status AS user_a_status, ub.status AS user_b_status,
         pa.gender AS user_a_gender, pb.gender AS user_b_gender,
@@ -2239,7 +2245,7 @@ test('auth API supports registration, session lookup, logout and login', {
       'changing a confirmed proposal must revoke both previous confirmations');
 
     const cancelDatePlan = await request(datePlanPath + '/cancel', {
-      method: 'POST', headers: { Cookie: maleCookie }
+      method: 'POST', headers: { Cookie: secondCookie }
     });
     assert.equal(cancelDatePlan.status, 200);
     const cancelledDatePlanRead = await request(datePlanPath, { headers: { Cookie: secondCookie } });
