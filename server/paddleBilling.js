@@ -73,7 +73,7 @@ function parsePaddleMinorAmount(value) {
   const raw = typeof value === 'string'
     ? value
     : Number.isSafeInteger(value) && value >= 0 ? String(value) : null;
-  if (!raw || !/^\\d+$/.test(raw)) return null;
+  if (!raw || !/^\d+$/.test(raw)) return null;
   try {
     return BigInt(raw) <= 9223372036854775807n ? raw : null;
   } catch {
