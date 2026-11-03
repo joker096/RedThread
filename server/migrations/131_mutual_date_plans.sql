@@ -37,3 +37,45 @@ CREATE TABLE IF NOT EXISTS date_plan_events (
 
 CREATE INDEX IF NOT EXISTS date_plan_events_plan_created_idx
   ON date_plan_events (date_plan_id, created_at DESC);
+
+CREATE OR REPLACE FUNCTION cancel_date_plans_when_match_closes()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  IF OLD.status = 'active' AND NEW.status <> 'active' THEN
+    UPDATE date_plans
+    SET status = 'cancelled', confirmed_by_a_at = NULL, confirmed_by_b_at = NULL, updated_at = NOW()
+    WHERE match_id = NEW.id AND status IN ('proposed', 'confirmed');
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS matches_cancel_date_plans_on_close ON matches;
+CREATE TRIGGER matches_cancel_date_plans_on_close
+AFTER UPDATE OF status ON matches
+FOR EACH ROW EXECUTE FUNCTION cancel_date_plans_when_match_closes();
+
+CREATE OR REPLACE FUNCTION cancel_date_plans_when_users_block()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  WITH cancelled AS (
+    UPDATE date_plans dp
+    SET status = 'cancelled', confirmed_by_a_at = NULL, confirmed_by_b_at = NULL, updated_at = NOW()
+    FROM matches m
+    WHERE dp.match_id = m.id
+      AND m.status = 'active'
+      AND ((m.user_a_id = NEW.blocker_id AND m.user_b_id = NEW.blocked_id)
+        OR (m.user_a_id = NEW.blocked_id AND m.user_b_id = NEW.blocker_id))
+      AND dp.status IN ('proposed', 'confirmed')
+    RETURNING dp.id
+  )
+  INSERT INTO date_plan_events (date_plan_id, actor_id, event_type)
+  SELECT id, NEW.blocker_id, 'cancelled' FROM cancelled;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS user_blocks_cancel_date_plans ON user_blocks;
+CREATE TRIGGER user_blocks_cancel_date_plans
+AFTER INSERT ON user_blocks
+FOR EACH ROW EXECUTE FUNCTION cancel_date_plans_when_users_block();
