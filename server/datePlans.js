@@ -54,7 +54,12 @@ export function registerDatePlanRoutes(app, deps) {
        FOR UPDATE OF m, ua, ub\`,
       [matchId, userAId, userBId]
     );
-    return access.rowCount ? { userAId, userBId } : null;
+    if (!access.rowCount) return null;
+    await client.query(
+      "UPDATE date_plans SET status = 'expired', confirmed_by_a_at = NULL, confirmed_by_b_at = NULL, updated_at = NOW() WHERE match_id = $1 AND status IN ('proposed', 'confirmed') AND starts_at <= NOW()",
+      [matchId]
+    );
+    return { userAId, userBId };
   }
 
   app.get('/api/matches/:matchId/date-plan', requireSession, requirePaidFeatures, async (req, res) => {
