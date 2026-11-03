@@ -95,6 +95,27 @@ CREATE TRIGGER gift_payment_reconciliation_tasks_no_delete
   BEFORE DELETE ON gift_payment_reconciliation_tasks
   FOR EACH ROW EXECUTE FUNCTION prevent_gift_payment_reconciliation_task_delete();
 
+CREATE OR REPLACE FUNCTION guard_paddle_lifetime_entitlement_identity()
+RETURNS trigger LANGUAGE plpgsql AS $lifetime_entitlement_identity$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'Paddle lifetime entitlement provenance cannot be deleted'
+      USING ERRCODE = '55000';
+  END IF;
+  IF NEW.transaction_id IS DISTINCT FROM OLD.transaction_id
+     OR NEW.user_id IS DISTINCT FROM OLD.user_id
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'Paddle lifetime entitlement transaction ownership is immutable'
+      USING ERRCODE = '55000';
+  END IF;
+  RETURN NEW;
+END;
+$lifetime_entitlement_identity$;
+
+CREATE TRIGGER paddle_lifetime_entitlements_identity_immutable
+  BEFORE UPDATE OR DELETE ON paddle_lifetime_entitlements
+  FOR EACH ROW EXECUTE FUNCTION guard_paddle_lifetime_entitlement_identity();
+
 -- Row-level UPDATE/DELETE triggers do not fire for TRUNCATE. Protect evidence
 -- tables from accidental bulk clearing through direct SQL as well.
 CREATE OR REPLACE FUNCTION prevent_evidence_truncate()
@@ -139,6 +160,8 @@ CREATE TRIGGER gift_payment_reconciliation_tasks_no_truncate
   BEFORE TRUNCATE ON gift_payment_reconciliation_tasks
   FOR EACH STATEMENT EXECUTE FUNCTION prevent_evidence_truncate();
 
+COMMENT ON FUNCTION guard_paddle_lifetime_entitlement_identity() IS
+  'Prevents deletion or reassignment of the user/transaction provenance behind a lifetime Premium entitlement while allowing the status projection to change after verified Paddle adjustments.';
 COMMENT ON FUNCTION guard_gift_delivery_order_immutable_facts() IS
   'Prevents edits to gift purchase identity, product, price, currency, idempotency and creation facts while leaving explicit order/payment lifecycle fields mutable.';
 COMMENT ON TABLE gift_delivery_order_events IS
