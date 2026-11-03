@@ -642,11 +642,12 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
          WHERE tgrelid = 'paddle_adjustment_reconciliation_cases'::regclass
            AND tgname IN (
              'paddle_adjustment_reconciliation_cases_guard',
-             'paddle_adjustment_reconciliation_cases_no_truncate'
+             'paddle_adjustment_reconciliation_cases_no_truncate',
+             'paddle_adjustment_reconciliation_automatic_link_guard'
            )
            AND NOT tgisinternal`
       );
-      assert.equal(adjustmentCaseTriggers.rowCount, 2);
+      assert.equal(adjustmentCaseTriggers.rowCount, 3);
       await client.query('SAVEPOINT adjustment_case_delete_blocked');
       let adjustmentCaseDeleteError;
       try {
@@ -670,6 +671,78 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       await client.query('RELEASE SAVEPOINT adjustment_case_immutable');
       await client.query('ROLLBACK TO SAVEPOINT adjustment_case_resolve');
       await client.query('RELEASE SAVEPOINT adjustment_case_resolve');
+
+      // The automatic path is not a way to bypass the manual audit requirement:
+      // it must be backed by exactly one provider transaction owner. First try
+      // closing an unlinked case and force its deferred constraint to execute.
+      const autoLinkUserId = randomUUID();
+      const autoLinkTransactionId = `txn_${randomUUID().replace(/-/g, '')}`;
+      const autoLinkAdjustmentEventId = `evt_auto_adjustment_${randomUUID().replace(/-/g, '')}`;
+      const autoLinkTransactionEventId = `evt_auto_transaction_${randomUUID().replace(/-/g, '')}`;
+      await client.query(
+        "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
+        [autoLinkUserId, `auto-link-${autoLinkUserId}@example.invalid`]
+      );
+      await client.query(
+        "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'adjustment.created')",
+        [autoLinkAdjustmentEventId]
+      );
+      await client.query(
+        `INSERT INTO paddle_adjustment_events
+         (event_id, adjustment_id, transaction_id, action, adjustment_type, status, occurred_at)
+         VALUES ($1, $2, $3, 'refund', 'partial', 'pending_approval', statement_timestamp())`,
+        [autoLinkAdjustmentEventId, `adj_${randomUUID().replace(/-/g, '')}`, autoLinkTransactionId]
+      );
+      await client.query(
+        "INSERT INTO paddle_adjustment_reconciliation_cases (event_id, reason_code) VALUES ($1, 'transaction_owner_unlinked')",
+        [autoLinkAdjustmentEventId]
+      );
+      await client.query('SAVEPOINT auto_adjustment_without_link');
+      await client.query(
+        `UPDATE paddle_adjustment_reconciliation_cases
+         SET status = 'resolved', resolution_note = 'claimed automatic link without provider evidence',
+             resolution_source = 'automatic_provider_transaction_link', resolved_by_ref = NULL,
+             resolved_at = statement_timestamp(), updated_at = statement_timestamp()
+         WHERE event_id = $1`,
+        [autoLinkAdjustmentEventId]
+      );
+      let missingAutomaticLinkError;
+      try {
+        await client.query('SET CONSTRAINTS paddle_adjustment_reconciliation_automatic_link_guard IMMEDIATE');
+      } catch (error) { missingAutomaticLinkError = error; }
+      assert.equal(missingAutomaticLinkError?.code, '23514',
+        'automatic reconciliation must not close a case without a unique provider transaction owner');
+      await client.query('ROLLBACK TO SAVEPOINT auto_adjustment_without_link');
+      await client.query('RELEASE SAVEPOINT auto_adjustment_without_link');
+      await client.query('SET CONSTRAINTS paddle_adjustment_reconciliation_automatic_link_guard DEFERRED');
+
+      await client.query(
+        "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'transaction.completed')",
+        [autoLinkTransactionEventId]
+      );
+      await client.query(
+        `INSERT INTO paddle_transaction_events
+         (event_id, transaction_id, user_id, plan, status, occurred_at)
+         VALUES ($1, $2, $3, '1month', 'completed', statement_timestamp())`,
+        [autoLinkTransactionEventId, autoLinkTransactionId, autoLinkUserId]
+      );
+      await client.query(
+        `UPDATE paddle_adjustment_reconciliation_cases
+         SET status = 'resolved', resolution_note = 'verified against unique completed provider transaction',
+             resolution_source = 'automatic_provider_transaction_link', resolved_by_ref = NULL,
+             resolved_at = statement_timestamp(), updated_at = statement_timestamp()
+         WHERE event_id = $1`,
+        [autoLinkAdjustmentEventId]
+      );
+      await client.query('SET CONSTRAINTS paddle_adjustment_reconciliation_automatic_link_guard IMMEDIATE');
+      const verifiedAutomaticResolution = await client.query(
+        'SELECT status, resolution_source FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1',
+        [autoLinkAdjustmentEventId]
+      );
+      assert.deepEqual(verifiedAutomaticResolution.rows, [{
+        status: 'resolved',
+        resolution_source: 'automatic_provider_transaction_link'
+      }]);
       await client.query('SAVEPOINT adjustment_event_immutable');
       let adjustmentMutationError;
       try {
