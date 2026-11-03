@@ -2,7 +2,7 @@
 ALTER TABLE profiles ALTER COLUMN gender DROP NOT NULL;
 
 CREATE OR REPLACE FUNCTION require_gender_for_non_deleted_profile()
-RETURNS trigger LANGUAGE plpgsql AS $
+RETURNS trigger LANGUAGE plpgsql AS $gender_guard$
 BEGIN
   IF NEW.gender IS NULL AND EXISTS (
     SELECT 1 FROM users WHERE id = NEW.user_id AND status <> 'deleted'
@@ -11,7 +11,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$;
+$gender_guard$;
 
 DROP TRIGGER IF EXISTS profiles_require_gender_unless_deleted ON profiles;
 CREATE TRIGGER profiles_require_gender_unless_deleted
@@ -46,7 +46,7 @@ FROM users AS u
 WHERE u.id = p.user_id AND u.status = 'deleted';
 
 CREATE OR REPLACE FUNCTION scrub_deleted_account_data()
-RETURNS trigger LANGUAGE plpgsql AS $$
+RETURNS trigger LANGUAGE plpgsql AS $profile_scrub$
 BEGIN
   IF NEW.status = 'deleted' AND OLD.status IS DISTINCT FROM 'deleted' THEN
     DELETE FROM user_safety_screenings WHERE user_id = NEW.id;
@@ -74,7 +74,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$$;
+$profile_scrub$;
 
 DROP TRIGGER IF EXISTS users_scrub_deleted_account_profile ON users;
 DROP TRIGGER IF EXISTS users_scrub_deleted_account_data ON users;
