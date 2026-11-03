@@ -87,7 +87,7 @@ test('approved full refunds revoke the matching lifetime entitlement', async () 
   });
   assert.equal(result.premiumRevoked, true);
   const transactionLookup = calls.find(call => call.statement.includes('FROM paddle_transaction_events'));
-  assert.match(transactionLookup.statement, /plan IN \\('1month', '3months'\\)/,
+  assert.match(transactionLookup.statement, /plan IN \('1month', '3months'\)/,
     'the transaction ledger may resolve recurring renewals but must not bypass verified lifetime checkout attempts');
   const adjustmentStateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
   assert.match(adjustmentStateQuery.statement, /WHEN 'pending_approval' THEN 0[\\s\\S]*WHEN 'reversed' THEN 3/,
