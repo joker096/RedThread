@@ -240,6 +240,39 @@ test('adjustments for recurring Vow purchases do not touch lifetime entitlement'
   assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')), false);
 });
 
+test('transaction.canceled events are retained even without a matched checkout row', async () => {
+  const originalMonthlyPrice = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_monthly_test';
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      calls.push({ statement, params });
+      if (statement.includes('UPDATE paddle_checkout_attempts') && statement.includes("status = 'canceled'")) {
+        return { rowCount: 0, rows: [] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_canceledtransactionhistory',
+      eventType: 'transaction.canceled',
+      occurredAt: '2026-11-03T10:00:00Z',
+      data: { id: transactionId, items: [{ price: { id: 'pri_monthly_test' } }] }
+    });
+    const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
+    assert.ok(ledger);
+    assert.deepEqual(ledger.params.slice(0, 5), [
+      'evt_canceledtransactionhistory', transactionId, null, '1month', 'canceled'
+    ]);
+  } finally {
+    if (originalMonthlyPrice === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalMonthlyPrice;
+  }
+});
+
 test('malformed adjustment payloads create a durable webhook reconciliation case', async () => {
   const { pool, calls } = makePool();
   const result = await processPaddleEvent(pool, {
