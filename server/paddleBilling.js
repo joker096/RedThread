@@ -81,10 +81,34 @@ function parsePaddleMinorAmount(value) {
   }
 }
 
+function parsePaddleSignedMinorAmount(value) {
+  const raw = typeof value === 'string'
+    ? value
+    : Number.isSafeInteger(value) ? String(value) : null;
+  if (!raw || !/^-?\d+$/.test(raw)) return null;
+  try {
+    const parsed = BigInt(raw);
+    const safeLimit = BigInt(Number.MAX_SAFE_INTEGER);
+    return parsed >= -safeLimit && parsed <= safeLimit ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
 function paddleTransactionAmount(data) {
-  // Paddle documents details.totals.total as the source of truth for a
-  // transaction total. Do not substitute grand_total, top-level total, or amount.
+  // Paddle details.totals.total is the amount after discounts and tax,
+  // before credits. Keep it separate from grand_total (net due after credits).
   return data?.details?.totals?.total ?? null;
+}
+
+function paddleTransactionFinancialTotals(data) {
+  const totals = data?.details?.totals ?? {};
+  return {
+    ...paddleTransactionFinancialTotals(data),
+    grandTotalMinorUnits: parsePaddleSignedMinorAmount(totals.grandTotal ?? totals.grand_total),
+    creditMinorUnits: parsePaddleSignedMinorAmount(totals.credit),
+    balanceMinorUnits: parsePaddleSignedMinorAmount(totals.balance)
+  };
 }
 
 function paddleCurrencyCode(data) {
@@ -147,17 +171,20 @@ async function findPaddleTransactionOwner(client, {
 async function recordPaddleTransactionEvent(client, {
   eventId, transactionId, userId = null, plan = null, status,
   subscriptionId = null, customerId = null, occurredAt = null,
-  amountMinorUnits = null, currencyCode = null
+  amountMinorUnits = null, grandTotalMinorUnits = null,
+  creditMinorUnits = null, balanceMinorUnits = null, currencyCode = null
 }) {
   const providerTime = typeof occurredAt === 'string' && Number.isFinite(Date.parse(occurredAt))
     ? occurredAt : null;
   await client.query(
     `INSERT INTO paddle_transaction_events
-       (event_id, transaction_id, user_id, plan, status, amount_minor_units, currency_code,
+       (event_id, transaction_id, user_id, plan, status, amount_minor_units,
+        grand_total_minor_units, credit_minor_units, balance_minor_units, currency_code,
         subscription_id, customer_id, occurred_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::timestamptz)
      ON CONFLICT (event_id) DO NOTHING`,
-    [eventId, transactionId, userId, plan, status, amountMinorUnits, currencyCode,
+    [eventId, transactionId, userId, plan, status, amountMinorUnits,
+      grandTotalMinorUnits, creditMinorUnits, balanceMinorUnits, currencyCode,
       subscriptionId, customerId, providerTime]
   );
 }
@@ -555,7 +582,7 @@ export async function processPaddleEvent(pool, rawEvent) {
           subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
           customerId: null,
           occurredAt,
-          amountMinorUnits: parsePaddleMinorAmount(paddleTransactionAmount(data)),
+          ...paddleTransactionFinancialTotals(data),
           currencyCode: paddleCurrencyCode(data)
         });
       }
@@ -713,7 +740,7 @@ export async function processPaddleEvent(pool, rawEvent) {
             subscriptionId: null,
             customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null,
             occurredAt,
-            amountMinorUnits: parsePaddleMinorAmount(paddleTransactionAmount(data)),
+            ...paddleTransactionFinancialTotals(data),
             currencyCode: paddleCurrencyCode(data)
           });
         }
@@ -775,7 +802,7 @@ export async function processPaddleEvent(pool, rawEvent) {
         subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
         customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null,
         occurredAt,
-        amountMinorUnits: parsePaddleMinorAmount(paddleTransactionAmount(data)),
+        ...paddleTransactionFinancialTotals(data),
         currencyCode: paddleCurrencyCode(data)
       });
       const transactionPlan = inferPaddleTransactionPlan(data);
@@ -945,7 +972,7 @@ export async function processPaddleEvent(pool, rawEvent) {
           subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
           customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null,
           occurredAt,
-          amountMinorUnits: parsePaddleMinorAmount(paddleTransactionAmount(data)),
+          ...paddleTransactionFinancialTotals(data),
           currencyCode: paddleCurrencyCode(data)
         });
       }
