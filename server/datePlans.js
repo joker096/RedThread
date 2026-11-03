@@ -22,7 +22,7 @@ export function normalizeDatePlanInput(body) {
 }
 
 export function registerDatePlanRoutes(app, deps) {
-  const { pool, requireSession, requirePaidFeatures, validateRequestOrigin, createNotification, acquireGiftSafetyUserLocks, isUuid } = deps;
+  const { pool, requireSession, validateRequestOrigin, createNotification, acquireGiftSafetyUserLocks, isUuid } = deps;
   const limiter = rateLimit({
     ...(pool ? { store: new PostgresRateLimitStore(pool, 'date-plan') } : {}),
     windowMs: 15 * 60_000, limit: 12, standardHeaders: true, legacyHeaders: false,
@@ -149,7 +149,7 @@ export function registerDatePlanRoutes(app, deps) {
     return { userAId, userBId };
   }
 
-  app.get('/api/matches/:matchId/date-plan', requireSession, requirePaidFeatures, async (req, res) => {
+  app.get('/api/matches/:matchId/date-plan', requireSession, async (req, res) => {
     if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
     let client;
     try {
@@ -175,7 +175,7 @@ export function registerDatePlanRoutes(app, deps) {
     } finally { client?.release(); }
   });
 
-  app.post('/api/matches/:matchId/date-plan', limiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+  app.post('/api/matches/:matchId/date-plan', limiter, validateRequestOrigin, requireSession, async (req, res) => {
     if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
     const input = normalizeDatePlanInput(req.body);
     if (!input) return res.status(400).json({ error: 'invalid_date_plan' });
@@ -223,7 +223,7 @@ export function registerDatePlanRoutes(app, deps) {
     } finally { client?.release(); }
   });
 
-  app.post('/api/matches/:matchId/date-plan/confirm', limiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+  app.post('/api/matches/:matchId/date-plan/confirm', limiter, validateRequestOrigin, requireSession, async (req, res) => {
     if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
     let client;
     try {
@@ -269,7 +269,7 @@ export function registerDatePlanRoutes(app, deps) {
     } finally { client?.release(); }
   });
 
-  app.post('/api/matches/:matchId/date-plan/cancel', limiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+  app.post('/api/matches/:matchId/date-plan/cancel', limiter, validateRequestOrigin, requireSession, async (req, res) => {
     if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
     let client;
     try {
@@ -299,7 +299,7 @@ export function registerDatePlanRoutes(app, deps) {
     } finally { client?.release(); }
   });
 
-  app.post('/api/matches/:matchId/date-plan/decline', limiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+  app.post('/api/matches/:matchId/date-plan/decline', limiter, validateRequestOrigin, requireSession, async (req, res) => {
     if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
     let client;
     try {
