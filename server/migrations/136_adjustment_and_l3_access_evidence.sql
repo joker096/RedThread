@@ -29,6 +29,25 @@ CREATE INDEX identity_l3_media_access_submission_ref_idx
 CREATE INDEX identity_l3_media_access_moderator_ref_idx
   ON identity_l3_media_access_events(moderator_ref, accessed_at DESC, id);
 
+-- Populate immutable identity snapshots for all existing and future access
+-- events. Application inserts may continue to provide only the live FK columns.
+CREATE OR REPLACE FUNCTION populate_identity_l3_media_access_event_refs()
+RETURNS trigger LANGUAGE plpgsql AS $l3_media_access_refs$
+BEGIN
+  NEW.submission_ref := NEW.submission_id;
+  NEW.moderator_ref := NEW.moderator_user_id;
+  IF NEW.submission_ref IS NULL OR NEW.moderator_ref IS NULL THEN
+    RAISE EXCEPTION 'L3 media access events require submission and moderator provenance'
+      USING ERRCODE = '23502';
+  END IF;
+  RETURN NEW;
+END;
+$l3_media_access_refs$;
+
+CREATE TRIGGER identity_l3_media_access_events_snapshot_refs
+  BEFORE INSERT ON identity_l3_media_access_events
+  FOR EACH ROW EXECUTE FUNCTION populate_identity_l3_media_access_event_refs();
+
 -- Direct UPDATE/DELETE remains forbidden. Only nested FK SET NULL actions may
 -- clear the live FK columns; immutable UUID snapshots retain the audit linkage.
 CREATE OR REPLACE FUNCTION prevent_identity_l3_media_access_event_mutation()
