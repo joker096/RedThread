@@ -97,6 +97,30 @@ test('does not treat legacy data.amount as a substitute for Paddle totals.total'
   ));
 });
 
+test('invalid Paddle adjustment types are quarantined instead of silently treated as partial', async () => {
+  const { pool, calls } = makePool();
+  const result = await processPaddleEvent(pool, {
+    eventId: 'evt_adjustment_invalid_type',
+    eventType: 'adjustment.created',
+    occurredAt: '2026-11-03T10:00:00Z',
+    data: {
+      id: 'adj_0123456789abcdef01234567',
+      transaction_id: transactionId,
+      action: 'refund',
+      type: 'whole',
+      status: 'approved',
+      currency_code: 'USD',
+      totals: { total: '16500', currency_code: 'USD' }
+    }
+  });
+  assert.equal(result.reconciliationRequired, true);
+  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')), false);
+  assert.ok(calls.some(call =>
+    call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases') &&
+    call.params[1] === 'invalid_adjustment_payload'
+  ));
+});
+
 test('adjustments for recurring transactions use the transaction ledger and never enter lifetime reconciliation', async () => {
   const { pool, calls } = makePool({ linkedPlan: '1month', linkedStatus: 'linked' });
   const result = await sendAdjustment(pool, {
