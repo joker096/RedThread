@@ -2025,6 +2025,22 @@ test('date plan requires both participants and resets confirmations after a chan
   const participantA = await createParticipant(userAId);
   const participantB = await createParticipant(userBId);
   try {
+    // Verify the real date-plan controls at common narrow phone widths, not only desktop.
+    for (const width of [320, 360, 390]) {
+      await participantA.page.setViewportSize({ width, height: 800 });
+      await expect(participantA.page.getByTestId('date-plan-panel')).toBeVisible();
+      const dimensions = await participantA.page.evaluate(() => ({
+        viewport: document.documentElement.clientWidth,
+        document: document.documentElement.scrollWidth,
+        panel: document.querySelector('[data-testid="date-plan-panel"]')?.getBoundingClientRect().width ?? 0
+      }));
+      expect(dimensions.document, `date-plan panel overflows at ${width}px: ${JSON.stringify(dimensions)}`).toBeLessThanOrEqual(dimensions.viewport + 1);
+      expect(dimensions.panel).toBeLessThanOrEqual(width + 1);
+      const proposeButton = participantA.page.getByRole('button', { name: /propose date plan|предложить план встречи/i });
+      await expect(proposeButton).toBeVisible();
+      expect((await proposeButton.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+    await participantA.page.setViewportSize({ width: 390, height: 844 });
     await participantA.page.getByLabel(/venue|место встречи/i).fill('Central Public Cafe');
     const tomorrow = new Date(Date.now() + 48 * 60 * 60 * 1000);
     const dateValue = String(tomorrow.getFullYear()) + '-' + String(tomorrow.getMonth() + 1).padStart(2, '0') + '-' + String(tomorrow.getDate()).padStart(2, '0') + 'T18:30';
