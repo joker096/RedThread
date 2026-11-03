@@ -47,7 +47,7 @@ async function sendAdjustment(pool, { eventId, action, status, type = 'partial',
     occurredAt: '2026-11-03T10:00:00Z',
     data: {
       id: 'adj_0123456789abcdef01234567',
-      transactionId,
+      transaction_id: transactionId,
       action,
       type,
       status,
@@ -156,6 +156,36 @@ test('one approved chargeback reversal cannot clear another active chargeback', 
   const result = await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'approved' });
   assert.equal(result.entitlementChanged, false);
   assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
+});
+
+test('chargeback reversal evidence alone does not restore access before the original chargeback is reversed', async () => {
+  const reversalFirst = makePool({
+    ledgerStatus: 'revoked',
+    revokeReason: 'paddle_chargeback',
+    chargeback: true
+  });
+  const pendingRestore = await sendAdjustment(reversalFirst.pool, {
+    action: 'chargeback_reverse', status: 'approved'
+  });
+  assert.equal(pendingRestore.entitlementChanged, false);
+  assert.equal(reversalFirst.calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
+
+  // Paddle separately updates the original chargeback adjustment to status=reversed.
+  // Only then is the original adverse adjustment no longer active.
+  const originalReversed = makePool({
+    ledgerStatus: 'revoked',
+    revokeReason: 'paddle_chargeback',
+    chargeback: false
+  });
+  const restored = await sendAdjustment(originalReversed.pool, {
+    action: 'chargeback', status: 'reversed', eventType: 'adjustment.updated'
+  });
+  assert.equal(restored.entitlementChanged, true);
+  assert.equal(restored.premiumRevoked, false);
+  assert.deepEqual(
+    originalReversed.calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')).params,
+    [transactionId, userId, 'active', null]
+  );
 });
 
 test('a rejected chargeback reversal cannot restore lifetime Premium', async () => {
