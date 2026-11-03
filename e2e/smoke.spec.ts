@@ -2028,7 +2028,7 @@ test('date plan requires both participants and resets confirmations after a chan
     const tomorrow = new Date(Date.now() + 48 * 60 * 60 * 1000);
     const dateValue = \`\${tomorrow.getFullYear()}-\${String(tomorrow.getMonth() + 1).padStart(2, '0')}-\${String(tomorrow.getDate()).padStart(2, '0')}T18:30\`;
     await participantA.page.getByLabel(/date and time|дата и время/i).fill(dateValue);
-    await participantA.page.getByLabel(/public venue|общественное место/i).check();
+    await participantA.page.getByLabel(/public place|общественное место/i).check();
     await participantA.page.getByRole('button', { name: /propose date plan|предложить план встречи/i }).click();
     await expect(participantA.page.getByText(/both people must confirm|waiting for both|ожидаем подтверждения обоих/i)).toBeVisible();
     await expect(participantA.page.getByRole('button', { name: /confirm|подтвердить/i })).toBeVisible();
