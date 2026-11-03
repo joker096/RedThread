@@ -53,6 +53,10 @@ A manual resolution must set `status = 'resolved'`, a concise `resolution_note`,
 - Gift payment reconciliation tasks may advance through worker states but cannot be deleted or truncated. They remain until a separately approved retention process exists.
 - The order tables must contain only opaque address-vault references, never street address, phone, email, coordinates or delivery instructions. Account deletion/safety actions remove pre-dispatch address pointers and enqueue payment reconciliation without pretending a refund or void occurred.
 
+## Migration ordering dependency
+
+Deploy migrations 135–139 from PR #424 before merging and deploying PR #423's migration 134. Confirm `schema_migrations` contains `136_adjustment_and_l3_access_evidence.sql` before migration 134 is introduced to a deployment. The migration runner applies newly discovered files in filename order; if migrations 134 and 136 are both pending in the same deployment, 134 would run first and could cascade-delete historical L3 access events before their retention foreign keys are changed. Do not merge both PRs into one undeployed release.
+
 ## Operational requirements before production
 
 1. Approve a jurisdiction-specific retention schedule with counsel for reports, moderation decisions, Paddle transaction references, gift/payment disputes, identity verification and audit records.
