@@ -143,7 +143,7 @@ test('auth API supports registration, session lookup, logout and login', {
     const notificationList = await request('/api/notifications', { headers: { Cookie: firstCookie } });
     assert.equal(notificationList.status, 200);
     assert.deepEqual((await notificationList.json()).notifications, []);
-    for (const adminPath of ['/api/admin/reports', '/api/admin/photos', '/api/admin/audit-log']) {
+    for (const adminPath of ['/api/admin/reports', '/api/admin/photos', '/api/admin/audit-log', '/api/admin/paddle-adjustment-reconciliation']) {
       const forbidden = await request(adminPath, { headers: { Cookie: firstCookie } });
       assert.equal(forbidden.status, 403);
     }
@@ -154,6 +154,107 @@ test('auth API supports registration, session lookup, logout and login', {
       body: JSON.stringify({ action: 'suspend_user', confirmed: true, reason: 'authorization regression test' })
     });
     assert.equal(forbiddenModerationAction.status, 403, 'ordinary users must not perform moderator actions');
+
+    const reconciliationEventId = `evt_${randomUUID().replaceAll('-', '').slice(0, 26)}`;
+    const reconciliationDb = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+    try {
+      await reconciliationDb.query(
+        "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'adjustment.created')",
+        [reconciliationEventId]
+      );
+      await reconciliationDb.query(
+        "INSERT INTO paddle_adjustment_reconciliation_cases (event_id, reason_code) VALUES ($1, 'invalid_adjustment_payload')",
+        [reconciliationEventId]
+      );
+      const forbiddenResolution = await request(
+        `/api/admin/paddle-adjustment-reconciliation/${reconciliationEventId}/resolve`,
+        {
+          method: 'POST',
+          headers: { Cookie: firstCookie },
+          body: JSON.stringify({ resolutionNote: 'must be forbidden' })
+        }
+      );
+      assert.equal(forbiddenResolution.status, 403,
+        'ordinary users must not resolve Paddle reconciliation cases');
+
+      await reconciliationDb.query(
+        "UPDATE users SET role = 'moderator' WHERE id = $1",
+        [registered.user.id]
+      );
+      const queueResponse = await request('/api/admin/paddle-adjustment-reconciliation', {
+        headers: { Cookie: firstCookie }
+      });
+      assert.equal(queueResponse.status, 200);
+      const queue = await queueResponse.json();
+      assert.ok(queue.cases.some(item => item.eventId === reconciliationEventId),
+        'authorized moderators must be able to inspect the open reconciliation queue');
+
+      const invalidResolution = await request(
+        `/api/admin/paddle-adjustment-reconciliation/${reconciliationEventId}/resolve`,
+        {
+          method: 'POST',
+          headers: { Cookie: firstCookie },
+          body: JSON.stringify({ resolutionNote: '   ' })
+        }
+      );
+      assert.equal(invalidResolution.status, 400,
+        'manual reconciliation requires a non-empty bounded resolution note');
+
+      const resolutionNote = 'Verified against Paddle Sandbox adjustment record; owner remains unresolved and requires follow-up.';
+      const resolutionResponse = await request(
+        `/api/admin/paddle-adjustment-reconciliation/${reconciliationEventId}/resolve`,
+        {
+          method: 'POST',
+          headers: { Cookie: firstCookie },
+          body: JSON.stringify({ resolutionNote })
+        }
+      );
+      assert.equal(resolutionResponse.status, 200);
+      assert.deepEqual(await resolutionResponse.json(), {
+        eventId: reconciliationEventId,
+        status: 'resolved',
+        resolutionSource: 'manual_operator'
+      });
+
+      const duplicateResolution = await request(
+        `/api/admin/paddle-adjustment-reconciliation/${reconciliationEventId}/resolve`,
+        {
+          method: 'POST',
+          headers: { Cookie: firstCookie },
+          body: JSON.stringify({ resolutionNote })
+        }
+      );
+      assert.equal(duplicateResolution.status, 404,
+        'a resolved case cannot be manually resolved a second time');
+
+      const audit = await reconciliationDb.query(
+        `SELECT moderator_ref, action, details
+         FROM moderation_audit_log
+         WHERE action = 'paddle_adjustment_reconciliation_resolved'
+           AND moderator_id = $1
+           AND details->>'eventId' = $2`,
+        [registered.user.id, reconciliationEventId]
+      );
+      assert.equal(audit.rowCount, 1,
+        'manual case resolution and moderation audit must commit atomically');
+      assert.equal(audit.rows[0].moderator_ref, registered.user.id);
+      assert.equal(audit.rows[0].details.resolutionSource, 'manual_operator');
+      const resolvedCase = await reconciliationDb.query(
+        'SELECT status, resolution_source, resolved_by_ref FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1',
+        [reconciliationEventId]
+      );
+      assert.deepEqual(resolvedCase.rows, [{
+        status: 'resolved',
+        resolution_source: 'manual_operator',
+        resolved_by_ref: registered.user.id
+      }]);
+    } finally {
+      await reconciliationDb.query(
+        "UPDATE users SET role = 'member' WHERE id = $1",
+        [registered.user.id]
+      );
+      await reconciliationDb.end();
+    }
 
     const selfReport = await request('/api/reports', {
       method: 'POST',
