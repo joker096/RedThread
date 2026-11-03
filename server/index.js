@@ -3649,8 +3649,8 @@ app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
         `INSERT INTO moderation_audit_log
            (moderator_id, action, target_type, target_id, reason, details)
          VALUES ($1, 'paddle_adjustment_reconciliation_resolved',
-                 'paddle_adjustment_case', NULL, $2, $3::jsonb)`,
-        [moderator.rows[0].id, resolutionNote, JSON.stringify({
+                 'paddle_adjustment_case', $2, $3, $4::jsonb)`,
+        [moderator.rows[0].id, eventId, resolutionNote, JSON.stringify({
           eventId,
           reasonCode: pending.rows[0].reason_code,
           adjustmentId: pending.rows[0].adjustment_id,
