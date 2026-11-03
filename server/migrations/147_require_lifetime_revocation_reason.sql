@@ -9,7 +9,8 @@ ALTER TABLE paddle_lifetime_entitlements
   CHECK (
     (status = 'active' AND revoke_reason IS NULL)
     OR
-    (status = 'revoked' AND revoke_reason IN ('paddle_full_refund', 'paddle_chargeback'))
+    (status = 'revoked' AND revoke_reason IS NOT NULL
+      AND revoke_reason IN ('paddle_full_refund', 'paddle_chargeback'))
   );
 
 COMMENT ON CONSTRAINT paddle_lifetime_entitlements_status_reason_check
