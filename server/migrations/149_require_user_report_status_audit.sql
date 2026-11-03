@@ -31,7 +31,8 @@ BEGIN
          AND audit.details->>'targetUserId' = NEW.reported_user_id::text
          AND audit.details->>'category' = NEW.category
          AND (
-           (audit.action = 'dismiss' AND NEW.status = 'dismissed')
+           (audit.action = 'review' AND NEW.status = 'reviewing')
+           OR (audit.action = 'dismiss' AND NEW.status = 'dismissed')
            OR (audit.action IN ('resolve', 'suspend_user') AND NEW.status = 'resolved')
          )
          AND moderator.status = 'active'
