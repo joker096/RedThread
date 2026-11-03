@@ -2030,12 +2030,12 @@ test('date plan requires both participants and resets confirmations after a chan
     await participantA.page.getByLabel(/date and time|дата и время/i).fill(dateValue);
     await participantA.page.getByLabel(/public venue|общественное место/i).check();
     await participantA.page.getByRole('button', { name: /propose date plan|предложить план встречи/i }).click();
-    await expect(participantA.page.getByText(/waiting for both|ожидаем подтверждения обоих/i)).toBeVisible();
+    await expect(participantA.page.getByText(/both people must confirm|waiting for both|ожидаем подтверждения обоих/i)).toBeVisible();
     await expect(participantA.page.getByRole('button', { name: /confirm|подтвердить/i })).toBeVisible();
 
     await expect(participantB.page.getByText('Central Public Cafe')).toBeVisible();
     await participantB.page.getByRole('button', { name: /confirm|подтвердить/i }).click();
-    await expect(participantB.page.getByText(/waiting for both|one participant|ожидаем подтверждения обоих|один участник/i)).toBeVisible();
+    await expect(participantB.page.getByText(/both people must confirm|one person has confirmed|waiting for both|ожидаем подтверждения обоих|один участник/i)).toBeVisible();
     expect(plan?.status).toBe('proposed');
     expect(plan?.confirmedByAAt).toBeNull();
     expect(plan?.confirmedByBAt).not.toBeNull();
@@ -2045,8 +2045,8 @@ test('date plan requires both participants and resets confirmations after a chan
     expect(plan?.status).toBe('confirmed');
 
     await participantA.page.getByLabel(/venue|место встречи/i).fill('Riverside Public Cafe');
-    await participantA.page.getByRole('button', { name: /update plan|обновить план/i }).click();
-    await expect(participantA.page.getByText(/waiting for both|ожидаем подтверждения обоих/i)).toBeVisible();
+    await participantA.page.getByRole('button', { name: /update proposal|изменить предложение/i }).click();
+    await expect(participantA.page.getByText(/both people must confirm|waiting for both|ожидаем подтверждения обоих/i)).toBeVisible();
     expect(plan?.status).toBe('proposed');
     expect(plan?.confirmedByAAt).toBeNull();
     expect(plan?.confirmedByBAt).toBeNull();
