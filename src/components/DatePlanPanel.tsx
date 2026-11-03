@@ -119,7 +119,7 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
       )}
       {error && <p role="alert" className="mt-2 text-xs text-rose-300">{error}</p>}
       {notice && <p role="status" className="mt-2 text-xs text-emerald-300">{notice}</p>}
-      {!loading && <button type="button" onClick={() => void refresh()} disabled={saving} className="mt-2 min-h-10 w-full text-xs text-stone-400 underline disabled:opacity-50">{t('refreshMessages')}</button>}
+      {!loading && <button data-testid="date-plan-refresh" type="button" onClick={() => void refresh()} disabled={saving} className="mt-2 min-h-10 w-full text-xs text-stone-400 underline disabled:opacity-50">{t('refreshMessages')}</button>}
     </section>
   );
 };
