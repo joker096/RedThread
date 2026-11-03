@@ -24,7 +24,7 @@ BEGIN
     INSERT INTO date_plan_events (date_plan_id, actor_id, event_type, details)
     VALUES (
       plan_row.id,
-      p_user_id,
+      NULL,
       'cancelled',
       jsonb_build_object('reason', 'participant_safety_eligibility_lost')
     );
@@ -194,7 +194,7 @@ BEGIN
 
   event_actor_id := CASE
     WHEN p_actor_id = match_row.user_a_id OR p_actor_id = match_row.user_b_id THEN p_actor_id
-    ELSE match_row.user_a_id
+    ELSE NULL
   END;
 
   FOR plan_row IN
