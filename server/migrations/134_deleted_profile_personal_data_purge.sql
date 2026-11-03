@@ -41,6 +41,7 @@ WHERE u.id = s.user_id AND u.status = 'deleted';
 UPDATE users
 SET email = 'deleted+' || id::text || '@deleted.invalid',
     password_hash = NULL,
+    email_verified_at = NULL,
     phone_e164 = NULL,
     phone_verified_at = NULL,
     female_trial_ends_at = NULL,
@@ -132,6 +133,7 @@ BEGIN
   IF OLD.status = 'deleted' AND pg_trigger_depth() = 1 AND (
     NEW.email IS DISTINCT FROM OLD.email
     OR NEW.password_hash IS DISTINCT FROM OLD.password_hash
+    OR NEW.email_verified_at IS DISTINCT FROM OLD.email_verified_at
     OR NEW.phone_e164 IS DISTINCT FROM OLD.phone_e164
     OR NEW.phone_verified_at IS DISTINCT FROM OLD.phone_verified_at
     OR NEW.female_trial_ends_at IS DISTINCT FROM OLD.female_trial_ends_at
@@ -152,7 +154,7 @@ $account_tombstone$;
 
 DROP TRIGGER IF EXISTS users_deleted_account_identity_immutable ON users;
 CREATE TRIGGER users_deleted_account_identity_immutable
-  BEFORE UPDATE OF email, password_hash, phone_e164, phone_verified_at,
+  BEFORE UPDATE OF email, password_hash, email_verified_at, phone_e164, phone_verified_at,
     female_trial_ends_at, premium_until, premium_lifetime,
     paddle_customer_id, paddle_subscription_id, paddle_subscription_status,
     paddle_price_id, paddle_subscription_updated_at
@@ -172,6 +174,7 @@ BEGIN
     UPDATE users
     SET email = 'deleted+' || NEW.id::text || '@deleted.invalid',
         password_hash = NULL,
+        email_verified_at = NULL,
         phone_e164 = NULL,
         phone_verified_at = NULL,
         female_trial_ends_at = NULL,
