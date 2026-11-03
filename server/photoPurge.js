@@ -36,7 +36,7 @@ export function resolvePrivatePhotoPath(storagePath, storageRoot) {
 export function privatePhotoPurgeRetryDelayMs(attempts) {
   const count = Number(attempts);
   if (!Number.isInteger(count) || count < 0) throw new RangeError('attempts must be a non-negative integer');
-  return Math.min(PRIVATE_PHOTO_PURGE_MAX_RETRY_DELAY_MS, 60_000 * (2 ** Math.min(count, 8)));
+  return Math.min(PRIVATE_PHOTO_PURGE_MAX_RETRY_DELAY_MS, 60_000 * (2 ** Math.min(count, 16)));
 }
 
 export async function queuePrivatePhotoPurges(client, storagePaths) {
