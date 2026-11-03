@@ -14,7 +14,7 @@ This policy describes the data boundaries implemented in the repository. It does
 ## Paddle adjustments and lifetime access
 
 - Every `adjustment.created` and `adjustment.updated` event is retained as a minimal append-only record in `paddle_adjustment_events`, including event ID, adjustment ID, transaction ID, action, full/partial type, status, amount in provider minor units, ISO currency code and provider event time.
-- Valid adjustments that cannot yet be matched to a unique Vow checkout, and malformed adjustment webhook payloads that cannot safely enter the normalized ledger, are copied into `paddle_adjustment_reconciliation_cases` with a bounded reason code. The source adjustment remains immutable; the case stays open until a verified checkout/entitlement link resolves it or an authorized operator records a bounded resolution note. Query `WHERE status = 'open'` for the operational queue; never discard the case to clear an alert. Resolution records distinguish automatic checkout linkage from manual operator action and retain an opaque `resolved_by_ref` for manual decisions.
+- Valid adjustments that cannot yet be matched to a unique Vow checkout, and malformed adjustment webhook payloads that cannot safely enter the normalized ledger, are copied into `paddle_adjustment_reconciliation_cases` with a bounded reason code. The source adjustment remains immutable; the case stays open until a verified checkout/entitlement link resolves it or an authorized operator records a bounded resolution note. Query `WHERE status = 'open'` for the operational queue; never discard the case to clear an alert. Resolution records distinguish automatic provider transaction linkage from manual operator action and retain an opaque `resolved_by_ref` for manual decisions.
 - A refund in `pending_approval` does not revoke Premium. A rejected refund also does not revoke it. Only an approved full refund revokes the lifetime entitlement tied to that exact transaction; partial refunds and credits do not automatically revoke the lifetime plan.
 - A chargeback revokes the entitlement tied to its transaction. A chargeback reversal can restore it only when no other approved full refund or active chargeback remains for that transaction. Chargeback warnings are retained but do not by themselves revoke access.
 - Lifetime entitlement provenance is stored by transaction ID in `paddle_lifetime_entitlements`. Reconciliation is scoped to the verified lifetime checkout attempt; unknown or ambiguous transactions are retained for manual reconciliation and never guessed.
@@ -31,7 +31,7 @@ WHERE c.status = 'open'
 ORDER BY c.created_at ASC;
 ```
 
-A manual resolution must set `status = 'resolved'`, a concise `resolution_note`, `resolution_source = 'manual_operator'`, and the operator's opaque UUID in `resolved_by_ref`. Automatic closure is reserved for a verified Vow checkout link and is marked `automatic_checkout_link`.
+A manual resolution must set `status = 'resolved'`, a concise `resolution_note`, `resolution_source = 'manual_operator'`, and the operator's opaque UUID in `resolved_by_ref`. Automatic closure is reserved for a verified Vow checkout link and is marked `automatic_provider_transaction_link`.
 
 ## L3 media access audit
 
