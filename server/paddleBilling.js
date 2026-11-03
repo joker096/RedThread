@@ -219,7 +219,7 @@ async function resolvePaddleAdjustmentReconciliationCases(client, transactionId,
     `UPDATE paddle_adjustment_reconciliation_cases AS cases
      SET status = 'resolved',
          resolution_note = $3,
-         resolution_source = 'automatic_checkout_link',
+         resolution_source = 'automatic_provider_transaction_link',
          resolved_by_ref = NULL,
          resolved_at = statement_timestamp(),
          updated_at = statement_timestamp()
