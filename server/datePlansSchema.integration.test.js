@@ -65,6 +65,14 @@ test('date plan schema enforces mutual confirmation and cancels plans on safety 
     assert.ok(partial.rows[0].confirmed_by_a_at);
     assert.equal(partial.rows[0].confirmed_by_b_at, null);
 
+    await client.query('SAVEPOINT invalid_date_plan_confirmation_state');
+    await assert.rejects(
+      client.query("UPDATE date_plans SET confirmed_by_b_at = NOW() WHERE id = $1", [planId]),
+      error => error?.code === '23514',
+      'the database must reject two confirmations while the plan remains proposed'
+    );
+    await client.query('ROLLBACK TO SAVEPOINT invalid_date_plan_confirmation_state');
+
     await client.query(
       "UPDATE date_plans SET confirmed_by_b_at = NOW(), status = 'confirmed' WHERE id = $1",
       [planId]
