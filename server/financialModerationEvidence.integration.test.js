@@ -243,6 +243,76 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
         status: 'completed'
       }], 'completed recurring transactions must also be archived before checkout pointer reuse');
 
+      const linkedTransitionUserId = randomUUID();
+      const linkedTransitionAttemptId = randomUUID();
+      await client.query(
+        "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
+        [linkedTransitionUserId, `completed-linked-${linkedTransitionUserId}@example.invalid`]
+      );
+      await client.query(
+        `INSERT INTO paddle_checkout_attempts
+         (user_id, attempt_id, transaction_id, plan, status, created_at, updated_at)
+         VALUES ($1, $2, 'txn_completedlink123', 'lifetime', 'completed',
+                 statement_timestamp(), statement_timestamp())`,
+        [linkedTransitionUserId, linkedTransitionAttemptId]
+      );
+      await client.query(
+        `UPDATE paddle_checkout_attempts SET status = 'linked', updated_at = statement_timestamp()
+         WHERE user_id = $1 AND attempt_id = $2`,
+        [linkedTransitionUserId, linkedTransitionAttemptId]
+      );
+      const linkedTransition = await client.query(
+        'SELECT status, attempt_id, transaction_id, plan FROM paddle_checkout_attempts WHERE user_id = $1',
+        [linkedTransitionUserId]
+      );
+      assert.deepEqual(linkedTransition.rows, [{
+        status: 'linked',
+        attempt_id: linkedTransitionAttemptId,
+        transaction_id: 'txn_completedlink123',
+        plan: 'lifetime'
+      }], 'a provider-completed lifetime attempt must be allowed to finalize as linked without changing identity');
+
+      await client.query('SAVEPOINT linked_attempt_terminal');
+      let linkedAttemptReopenError;
+      try {
+        await client.query(
+          "UPDATE paddle_checkout_attempts SET status = 'completed' WHERE user_id = $1",
+          [linkedTransitionUserId]
+        );
+      } catch (error) { linkedAttemptReopenError = error; }
+      assert.equal(linkedAttemptReopenError?.code, '23514',
+        'a linked attempt remains terminal after the permitted completed-to-linked transition');
+      await client.query('ROLLBACK TO SAVEPOINT linked_attempt_terminal');
+      await client.query('RELEASE SAVEPOINT linked_attempt_terminal');
+
+      const reconciliationTransitionUserId = randomUUID();
+      const reconciliationTransitionAttemptId = randomUUID();
+      await client.query(
+        "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
+        [reconciliationTransitionUserId, `completed-reconciliation-${reconciliationTransitionUserId}@example.invalid`]
+      );
+      await client.query(
+        `INSERT INTO paddle_checkout_attempts
+         (user_id, attempt_id, transaction_id, plan, status, created_at, updated_at)
+         VALUES ($1, $2, 'txn_completedreconcile123', 'lifetime', 'completed',
+                 statement_timestamp(), statement_timestamp())`,
+        [reconciliationTransitionUserId, reconciliationTransitionAttemptId]
+      );
+      await client.query(
+        `UPDATE paddle_checkout_attempts SET status = 'reconciliation_required', updated_at = statement_timestamp()
+         WHERE user_id = $1 AND attempt_id = $2`,
+        [reconciliationTransitionUserId, reconciliationTransitionAttemptId]
+      );
+      const reconciliationTransition = await client.query(
+        'SELECT status, attempt_id, transaction_id FROM paddle_checkout_attempts WHERE user_id = $1',
+        [reconciliationTransitionUserId]
+      );
+      assert.deepEqual(reconciliationTransition.rows, [{
+        status: 'reconciliation_required',
+        attempt_id: reconciliationTransitionAttemptId,
+        transaction_id: 'txn_completedreconcile123'
+      }], 'a provider-completed attempt must be able to enter reconciliation without rewriting provider identity');
+
       const checkoutFk = await client.query(
         `SELECT pg_get_constraintdef(oid) AS definition
          FROM pg_constraint
