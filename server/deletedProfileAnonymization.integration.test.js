@@ -126,6 +126,20 @@ test('account deletion scrubs profile personal data in the database', {
       error => error.code === '23514'
     );
     await client.query('ROLLBACK TO SAVEPOINT deleted_account_terminal_guard');
+    await client.query('SAVEPOINT deleted_profile_immutable_guard');
+    await assert.rejects(
+      client.query("UPDATE profiles SET display_name = 'Reidentified Profile' WHERE user_id = $1", [userId]),
+      error => error.code === '23514'
+    );
+    await client.query('ROLLBACK TO SAVEPOINT deleted_profile_immutable_guard');
+
+    await client.query('SAVEPOINT deleted_identity_immutable_guard');
+    await assert.rejects(
+      client.query("UPDATE users SET email = 'reidentified@example.invalid' WHERE id = $1", [userId]),
+      error => error.code === '23514'
+    );
+    await client.query('ROLLBACK TO SAVEPOINT deleted_identity_immutable_guard');
+
     const deletedAccount = await client.query(
       'SELECT email, password_hash, phone_e164, phone_verified_at, female_trial_ends_at, premium_until, premium_lifetime FROM users WHERE id = $1',
       [userId]
