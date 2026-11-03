@@ -1233,7 +1233,7 @@ test('user report status changes require an immutable audit row from an active m
          (moderator_id, action, target_type, target_id, reason, details)
        VALUES ($1, 'resolve', 'user_report', $2, 'reviewed',
                jsonb_build_object('newStatus', 'resolved', 'targetUserId', $3::text, 'category', 'spam'))`,
-      [moderatorId, reportId]
+      [moderatorId, reportId, targetId]
     );
     await client.query('SET CONSTRAINTS user_reports_status_audit_guard IMMEDIATE');
     const resolved = await client.query('SELECT status FROM user_reports WHERE id = $1', [reportId]);
@@ -1251,7 +1251,7 @@ test('user report status changes require an immutable audit row from an active m
          (moderator_id, action, target_type, target_id, reason, details)
        VALUES ($1, 'resolve', 'user_report', $2, 'member attempt',
                jsonb_build_object('newStatus', 'resolved', 'targetUserId', $3::text, 'category', 'spam'))`,
-      [reporterId, reportId]
+      [reporterId, reportId, targetId]
     );
     let memberReportAuditError;
     try {
