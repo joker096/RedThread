@@ -156,8 +156,11 @@ export function registerDatePlanRoutes(app, deps) {
       const row = current.rows[0];
       const isA = pair.userAId === req.authUser.id;
       const column = isA ? 'confirmed_by_a_at' : 'confirmed_by_b_at';
-      const both = Boolean(row.confirmed_by_a_at || (isA && row.confirmed_by_a_at)) &&
-        Boolean(row.confirmed_by_b_at || (!isA && row.confirmed_by_b_at));
+      // This request records the current participant's confirmation. The plan
+      // becomes confirmed only if the other participant had already confirmed.
+      const both = isA
+        ? Boolean(row.confirmed_by_b_at)
+        : Boolean(row.confirmed_by_a_at);
       const updated = await client.query(
         `UPDATE date_plans SET ${column} = COALESCE(${column}, NOW()),
            status = CASE WHEN $2 THEN 'confirmed' ELSE 'proposed' END, updated_at = NOW()
