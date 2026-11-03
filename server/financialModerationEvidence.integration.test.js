@@ -419,14 +419,65 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       assert.equal(realReportMutationError?.code, '55000');
       await client.query('ROLLBACK TO SAVEPOINT real_report_content_immutable');
       await client.query('RELEASE SAVEPOINT real_report_content_immutable');
+      const reportModeratorId = randomUUID();
+      await client.query(
+        "INSERT INTO users (id, email, password_hash, role, status) VALUES ($1, $2, 'test-only-hash', 'moderator', 'active')",
+        [reportModeratorId, `report-audit-moderator-${reportModeratorId}@example.invalid`]
+      );
+
+      // Force the deferred audit constraint at a savepoint: a status change
+      // without its same-transaction moderator evidence must be rejected.
+      await client.query('SAVEPOINT report_status_without_audit');
+      await client.query(
+        "UPDATE user_reports SET status = 'reviewing' WHERE id = $1",
+        [realReport.rows[0].id]
+      );
+      let missingReportReviewAuditError;
+      try {
+        await client.query('SET CONSTRAINTS user_reports_status_audit_guard IMMEDIATE');
+      } catch (error) { missingReportReviewAuditError = error; }
+      assert.equal(missingReportReviewAuditError?.code, '23514',
+        'a report must not enter reviewing without matching moderator audit evidence');
+      await client.query('ROLLBACK TO SAVEPOINT report_status_without_audit');
+      await client.query('RELEASE SAVEPOINT report_status_without_audit');
+      await client.query('SET CONSTRAINTS user_reports_status_audit_guard DEFERRED');
+
       await client.query(
         "UPDATE user_reports SET status = 'reviewing' WHERE id = $1",
         [realReport.rows[0].id]
       );
       await client.query(
+        `INSERT INTO moderation_audit_log
+           (moderator_id, action, target_type, target_id, details)
+         VALUES ($1, 'review', 'user_report', $2,
+                 jsonb_build_object('newStatus', 'reviewing', 'targetUserId', $3::text, 'category', 'safety'))`,
+        [reportModeratorId, realReport.rows[0].id, reportedId]
+      );
+      await client.query(
         "UPDATE user_reports SET status = 'resolved' WHERE id = $1",
         [realReport.rows[0].id]
       );
+      await client.query(
+        `INSERT INTO moderation_audit_log
+           (moderator_id, action, target_type, target_id, details)
+         VALUES ($1, 'resolve', 'user_report', $2,
+                 jsonb_build_object('newStatus', 'resolved', 'targetUserId', $3::text, 'category', 'safety'))`,
+        [reportModeratorId, realReport.rows[0].id, reportedId]
+      );
+      await client.query('SET CONSTRAINTS user_reports_status_audit_guard IMMEDIATE');
+      const reportAuditRows = await client.query(
+        `SELECT action, details->>'newStatus' AS new_status, moderator_ref
+         FROM moderation_audit_log
+         WHERE target_type = 'user_report' AND target_id = $1
+         ORDER BY created_at, id`,
+        [realReport.rows[0].id]
+      );
+      assert.deepEqual(reportAuditRows.rows.map(row => ({
+        action: row.action, status: row.new_status, moderatorRef: row.moderator_ref
+      })), [
+        { action: 'review', status: 'reviewing', moderatorRef: reportModeratorId },
+        { action: 'resolve', status: 'resolved', moderatorRef: reportModeratorId }
+      ]);
       await client.query('SAVEPOINT real_report_terminal');
       let realReportReopenError;
       try {
