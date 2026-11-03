@@ -82,7 +82,7 @@ INSERT INTO moderation_audit_log
 SELECT :'moderator_id'::uuid,
        'paddle_adjustment_reconciliation_resolved',
        'paddle_adjustment_case',
-       NULL,
+       event_id,
        btrim(:'resolution_note'),
        jsonb_build_object(
          'eventId', event_id,
