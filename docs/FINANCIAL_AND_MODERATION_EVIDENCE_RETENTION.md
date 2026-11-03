@@ -1,0 +1,32 @@
+# Financial and moderation evidence retention
+
+This policy describes the data boundaries implemented in the repository. It does **not** assign legal retention periods. Those periods must be approved for each operating jurisdiction before production launch; the application must not silently invent a universal expiry.
+
+## Paddle billing
+
+- `paddle_webhook_events` stores only Paddle's event ID, event type and local processing timestamp. It does not store the signed request body, payment credentials, billing address or customer email.
+- The event ledger is immutable. Do not delete deduplication IDs on a short rolling TTL: a delayed/manual provider redelivery must not be allowed to reapply a financial event. Any future compaction must preserve a durable replay barrier and be reviewed against Paddle's current redelivery/replay guarantees.
+- `paddle_checkout_attempts` stores the current attempt for an account. When a terminal attempt is replaced by a new attempt, the previous attempt ID, transaction ID, plan, terminal status and timestamps are copied transactionally into `paddle_checkout_attempt_history`.
+- Current and historical checkout records restrict hard deletion of the referenced user row. The supported account-erasure path is a tombstone, which preserves the minimum financial identity needed for reconciliation. It does not retain card data or full provider payloads.
+- Do not purge attempts in `creating`, `pending`, `completed` or `reconciliation_required` states until the provider state and any refund/cancellation obligation have been reconciled. An outbox task is not proof that a provider action completed.
+
+## User reports and moderation
+
+- A report's reporter, target, category, submitted details and creation time are immutable. Moderation can move status from `open` to `reviewing`, `resolved` or `dismissed`, and from `reviewing` to a terminal status.
+- Hard deletion of either account is restricted while a report references it. The normal account deletion workflow uses a deleted-account tombstone and therefore does not erase report evidence.
+- `moderation_audit_log` is append-only. If a moderator account is physically removed through a separately approved retention operation, its FK reference may be nulled by PostgreSQL; the action record itself remains.
+- Report details are user-supplied free text. The UI and moderator workflow must treat it as potentially sensitive and must not copy it into unrelated analytics, ad targeting, or general-purpose logs. The audit log should contain bounded reason codes and references, not the full report text.
+
+## Gift and delivery evidence
+
+Gift orders, order events, and payment reconciliation tasks are retained while a delivery, payment, refund, dispute or safety investigation is unresolved. The order tables must contain only opaque address-vault references, never street address, phone, email, coordinates or delivery instructions. Account deletion/safety actions remove pre-dispatch address pointers and enqueue payment reconciliation without pretending a refund or void occurred.
+
+## Operational requirements before production
+
+1. Approve a jurisdiction-specific retention schedule with counsel for reports, moderation decisions, Paddle transaction references, gift/payment disputes, identity verification and audit records.
+2. Define the legal-hold and dispute workflow before enabling any automated purge. A legal hold must override ordinary expiry.
+3. Restrict database and audit-log access to authorized operational/moderation roles; protect backups and exports with encryption and access logging.
+4. Monitor reconciliation queues and unresolved payment attempts. Never delete unresolved financial evidence to reduce storage.
+5. If a retention schedule is later automated, use explicit per-record `retain_until` / legal-hold state, a dry-run report, bounded batches, and an immutable purge audit. Do not add a blanket cascade or age-only delete job.
+
+No automated financial/report evidence purge is enabled by this change. That is deliberate until the retention periods and legal-hold rules are approved.
