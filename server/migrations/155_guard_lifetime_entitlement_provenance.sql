@@ -1,35 +1,7 @@
--- A lifetime entitlement is a mutable projection of immutable purchase evidence.
--- Its transaction/account identity must never be rewritten or erased, and every
--- live row must remain tied to exactly one linked lifetime checkout attempt.
-CREATE OR REPLACE FUNCTION prevent_paddle_lifetime_entitlement_identity_mutation()
-RETURNS trigger LANGUAGE plpgsql AS $lifetime_entitlement_identity$
-BEGIN
-  IF TG_OP = 'DELETE' THEN
-    RAISE EXCEPTION 'Paddle lifetime entitlement provenance cannot be deleted'
-      USING ERRCODE = '55000';
-  END IF;
-
-  IF NEW.transaction_id IS DISTINCT FROM OLD.transaction_id
-     OR NEW.user_id IS DISTINCT FROM OLD.user_id
-     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
-    RAISE EXCEPTION 'Paddle lifetime entitlement transaction and account provenance are immutable'
-      USING ERRCODE = '55000';
-  END IF;
-
-  RETURN NEW;
-END;
-$lifetime_entitlement_identity$;
-
-CREATE TRIGGER paddle_lifetime_entitlements_identity_immutable
-  BEFORE UPDATE OR DELETE ON paddle_lifetime_entitlements
-  FOR EACH ROW
-  EXECUTE FUNCTION prevent_paddle_lifetime_entitlement_identity_mutation();
-
-CREATE TRIGGER paddle_lifetime_entitlements_no_truncate
-  BEFORE TRUNCATE ON paddle_lifetime_entitlements
-  FOR EACH STATEMENT
-  EXECUTE FUNCTION prevent_evidence_truncate();
-
+-- Lifetime entitlement transaction/account identity, row deletion and
+-- TRUNCATE are already guarded by migration 137. Add the missing relational
+-- guard: every new or changed projection must still map to exactly one linked
+-- lifetime checkout owner, without contradicting the immutable provider ledger.
 CREATE OR REPLACE FUNCTION require_paddle_lifetime_entitlement_owner_evidence()
 RETURNS trigger LANGUAGE plpgsql AS $lifetime_entitlement_owner$
 DECLARE
@@ -97,7 +69,5 @@ CREATE CONSTRAINT TRIGGER paddle_lifetime_entitlements_owner_evidence_guard
   FOR EACH ROW
   EXECUTE FUNCTION require_paddle_lifetime_entitlement_owner_evidence();
 
-COMMENT ON FUNCTION prevent_paddle_lifetime_entitlement_identity_mutation() IS
-  'Allows the entitlement projection status/reason to change while preventing deletion or rewriting the immutable Paddle transaction and Vow account provenance.';
 COMMENT ON FUNCTION require_paddle_lifetime_entitlement_owner_evidence() IS
-  'Requires each new or updated lifetime entitlement projection to retain exactly one matching linked lifetime checkout owner and no contradictory completed/canceled provider transaction evidence.';
+  'Requires each new or updated lifetime entitlement projection to retain exactly one matching linked lifetime checkout owner and no contradictory completed/canceled provider transaction evidence; migration 137 independently freezes its identity and prevents deletion/TRUNCATE.';
