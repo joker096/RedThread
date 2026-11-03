@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS date_plans (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CHECK (
     (status = 'confirmed' AND confirmed_by_a_at IS NOT NULL AND confirmed_by_b_at IS NOT NULL)
-    OR (status <> 'confirmed' AND confirmed_by_a_at IS NULL AND confirmed_by_b_at IS NULL)
+    OR status = 'proposed'
+    OR (status IN ('declined', 'cancelled', 'expired') AND confirmed_by_a_at IS NULL AND confirmed_by_b_at IS NULL)
   )
 );
 
