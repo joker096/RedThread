@@ -62,8 +62,8 @@ WHERE u.id = a.user_id AND u.status = 'deleted';
 
 -- Backfill active L3 submissions belonging to existing tombstones. The L3
 -- status trigger creates durable purge jobs without discarding object keys.
-SELECT set_config('app.identity_l3_actor_user_id', '', FALSE);
-SELECT set_config('app.identity_l3_reason_code', 'account_deleted', FALSE);
+SELECT set_config('app.identity_l3_actor_user_id', '', TRUE);
+SELECT set_config('app.identity_l3_reason_code', 'account_deleted', TRUE);
 UPDATE identity_l3_submissions AS s
 SET status = CASE WHEN s.status = 'approved' THEN 'revoked' ELSE 'withdrawn' END,
     revoked_at = CASE WHEN s.status = 'approved' THEN statement_timestamp() ELSE s.revoked_at END,
