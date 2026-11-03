@@ -3057,6 +3057,14 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
     // Lock both accounts before revalidating the match. A deletion/suspension
     // that wins this lock must prevent a stale authenticated message from landing.
     await acquireGiftSafetyUserLocks(client, req.authUser.id, recipientId);
+    const activeSender = await client.query(
+      "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (!activeSender.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
     const actorIdentity = await client.query(
       `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment,
               l3.status AS l3_status, l3.expires_at AS l3_expires_at
