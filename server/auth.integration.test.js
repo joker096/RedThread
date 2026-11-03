@@ -2321,6 +2321,61 @@ test('auth API supports registration, session lookup, logout and login', {
       [maleRegistered.user.id]
     );
 
+    // Blocking a participant cancels the plan and notifies only the blocked person.
+    const blockSafetyProposal = await request(datePlanPath, {
+      method: 'POST', headers: { Cookie: secondCookie },
+      body: JSON.stringify({ ...datePlanInput, venueName: 'Block Safety Test Cafe' })
+    });
+    assert.equal(blockSafetyProposal.status, 201);
+    const blockSafetyPlanId = (await blockSafetyProposal.json()).datePlan.id;
+    await identityGateDb.query(
+      'INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2)',
+      [maleRegistered.user.id, registered.user.id]
+    );
+    const blockSafetyCancelled = await identityGateDb.query(
+      'SELECT status FROM date_plans WHERE id = $1',
+      [blockSafetyPlanId]
+    );
+    assert.equal(blockSafetyCancelled.rows[0].status, 'cancelled');
+    const blockSafetyNotifications = await identityGateDb.query(
+      "SELECT user_id FROM user_notifications WHERE type = 'date_plan_cancelled' AND metadata->>'datePlanId' = $1",
+      [blockSafetyPlanId]
+    );
+    assert.deepEqual(blockSafetyNotifications.rows.map(row => row.user_id), [registered.user.id],
+      'only the blocked participant receives the generic date-plan cancellation alert');
+    await identityGateDb.query(
+      'DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2',
+      [maleRegistered.user.id, registered.user.id]
+    );
+
+    // Closing a match cancels the plan and notifies both active participants.
+    const closeSafetyProposal = await request(datePlanPath, {
+      method: 'POST', headers: { Cookie: secondCookie },
+      body: JSON.stringify({ ...datePlanInput, venueName: 'Match Close Safety Cafe' })
+    });
+    assert.equal(closeSafetyProposal.status, 201);
+    const closeSafetyPlanId = (await closeSafetyProposal.json()).datePlan.id;
+    await identityGateDb.query(
+      "UPDATE matches SET status = 'closed' WHERE id = $1",
+      [matchPayload.match.id]
+    );
+    const closeSafetyCancelled = await identityGateDb.query(
+      'SELECT status FROM date_plans WHERE id = $1',
+      [closeSafetyPlanId]
+    );
+    assert.equal(closeSafetyCancelled.rows[0].status, 'cancelled');
+    const closeSafetyNotifications = await identityGateDb.query(
+      "SELECT user_id FROM user_notifications WHERE type = 'date_plan_cancelled' AND metadata->>'datePlanId' = $1 ORDER BY user_id",
+      [closeSafetyPlanId]
+    );
+    assert.deepEqual(closeSafetyNotifications.rows.map(row => row.user_id).sort(),
+      [registered.user.id, maleRegistered.user.id].sort(),
+      'both participants receive a generic alert when the match closes');
+    await identityGateDb.query(
+      "UPDATE matches SET status = 'active' WHERE id = $1",
+      [matchPayload.match.id]
+    );
+
     const previousFemaleBilling = femaleBillingBeforeDatePlan.rows[0];
     await identityGateDb.query(
       `UPDATE users
