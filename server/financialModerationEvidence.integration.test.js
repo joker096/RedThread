@@ -196,6 +196,104 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       );
       assert.equal(reportFks.rowCount, 2);
       assert.ok(reportFks.rows.every(row => /ON DELETE RESTRICT/.test(row.definition)));
+
+      // Exercise the actual report FKs: neither reporter nor target can be
+      // physically deleted while the submitted evidence still references them.
+      const reporterId = randomUUID();
+      const reportedId = randomUUID();
+      await client.query(
+        "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active'), ($3, $4, 'test-only-hash', 'active')",
+        [reporterId, `reporter-${reporterId}@example.invalid`, reportedId, `reported-${reportedId}@example.invalid`]
+      );
+      const realReport = await client.query(
+        "INSERT INTO user_reports (reporter_id, reported_user_id, category, details) VALUES ($1, $2, 'safety', 'immutable evidence') RETURNING id",
+        [reporterId, reportedId]
+      );
+      await client.query('SAVEPOINT report_reporter_restrict');
+      let reporterDeleteError;
+      try { await client.query('DELETE FROM users WHERE id = $1', [reporterId]); }
+      catch (error) { reporterDeleteError = error; }
+      assert.equal(reporterDeleteError?.code, '23503');
+      await client.query('ROLLBACK TO SAVEPOINT report_reporter_restrict');
+      await client.query('RELEASE SAVEPOINT report_reporter_restrict');
+
+      await client.query('SAVEPOINT report_target_restrict');
+      let targetDeleteError;
+      try { await client.query('DELETE FROM users WHERE id = $1', [reportedId]); }
+      catch (error) { targetDeleteError = error; }
+      assert.equal(targetDeleteError?.code, '23503');
+      await client.query('ROLLBACK TO SAVEPOINT report_target_restrict');
+      await client.query('RELEASE SAVEPOINT report_target_restrict');
+      const preservedReport = await client.query(
+        'SELECT id FROM user_reports WHERE id = $1',
+        [realReport.rows[0].id]
+      );
+      assert.equal(preservedReport.rowCount, 1);
+
+      // The audit append-only guard must permit only the nested FK action that
+      // nulls moderator_id when the moderator account is physically removed.
+      const moderatorId = randomUUID();
+      await client.query(
+        "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
+        [moderatorId, `moderator-${moderatorId}@example.invalid`]
+      );
+      const auditEntry = await client.query(
+        "INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id) VALUES ($1, 'test_action', 'test', 'retention-test') RETURNING id",
+        [moderatorId]
+      );
+      await client.query('DELETE FROM users WHERE id = $1', [moderatorId]);
+      const preservedAudit = await client.query(
+        'SELECT moderator_id, action FROM moderation_audit_log WHERE id = $1',
+        [auditEntry.rows[0].id]
+      );
+      assert.deepEqual(preservedAudit.rows[0], { moderator_id: null, action: 'test_action' });
+
+      // Verify the installed webhook trigger itself, not only its function body.
+      const webhookEventId = `evt_retention_${randomUUID().replace(/-/g, '')}`;
+      await client.query(
+        'INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, $2)',
+        [webhookEventId, 'transaction.completed']
+      );
+      await client.query('SAVEPOINT webhook_real_table_immutable');
+      let realWebhookDeleteError;
+      try { await client.query('DELETE FROM paddle_webhook_events WHERE event_id = $1', [webhookEventId]); }
+      catch (error) { realWebhookDeleteError = error; }
+      assert.equal(realWebhookDeleteError?.code, '55000');
+      await client.query('ROLLBACK TO SAVEPOINT webhook_real_table_immutable');
+      await client.query('RELEASE SAVEPOINT webhook_real_table_immutable');
+
+      // Both terminal statuses are eligible for rollover and must be archived.
+      const linkedUserId = randomUUID();
+      await client.query(
+        "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
+        [linkedUserId, `linked-history-${linkedUserId}@example.invalid`]
+      );
+      const linkedAttemptId = randomUUID();
+      const replacementAttemptId = randomUUID();
+      const linkedTransactionId = `txn_${randomUUID().replace(/-/g, '')}`;
+      await client.query(
+        `INSERT INTO paddle_checkout_attempts
+         (user_id, attempt_id, transaction_id, plan, status, created_at, updated_at)
+         VALUES ($1, $2, $3, '3months', 'linked', statement_timestamp(), statement_timestamp())`,
+        [linkedUserId, linkedAttemptId, linkedTransactionId]
+      );
+      await client.query(
+        `UPDATE paddle_checkout_attempts
+         SET attempt_id = $2, transaction_id = NULL, plan = '1month',
+             status = 'creating', created_at = statement_timestamp(), updated_at = statement_timestamp()
+         WHERE user_id = $1`,
+        [linkedUserId, replacementAttemptId]
+      );
+      const linkedHistory = await client.query(
+        'SELECT attempt_id, transaction_id, plan, status FROM paddle_checkout_attempt_history WHERE user_id = $1',
+        [linkedUserId]
+      );
+      assert.deepEqual(linkedHistory.rows, [{
+        attempt_id: linkedAttemptId,
+        transaction_id: linkedTransactionId,
+        plan: '3months',
+        status: 'linked'
+      }]);
       await client.query('ROLLBACK');
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
