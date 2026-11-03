@@ -57,6 +57,7 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
       if (!response.ok) throw new Error(response.status === 404 ? t('datePlanUnavailable') : t('datePlanActionError'));
       if (data?.datePlan) setPlan(data.datePlan);
       if (data?.declined) { setPlan(null); setNotice(t('datePlanDeclined')); }
+      else if (data?.cancelled) { setPlan(null); setNotice(t('datePlanCancelled')); }
       else if (data?.datePlan?.status === 'confirmed') setNotice(t('datePlanConfirmed'));
       else setNotice(t('datePlanSaved'));
       await refresh();
@@ -81,6 +82,7 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
               <p className="mt-1 text-xs text-stone-300">{formatDate(plan.startsAt, { dateStyle: 'medium', timeStyle: 'short' })} · {plan.timeZone}</p>
               {plan.status === 'confirmed' ? (
                 <p role="status" className="mt-2 text-xs font-semibold text-emerald-300">{t('datePlanConfirmed')}</p>
+                <button type="button" disabled={saving} onClick={() => { if (window.confirm(t('datePlanCancelConfirm'))) void submit('/cancel'); }} className="mt-2 min-h-11 w-full rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-stone-200 disabled:opacity-50">{t('datePlanCancel')}</button>
               ) : (
                 <div className="mt-2 space-y-2">
                   <p className="text-xs text-amber-200">{otherConfirmed ? t('datePlanOneConfirmed') : t('datePlanWaitingBoth')}</p>
