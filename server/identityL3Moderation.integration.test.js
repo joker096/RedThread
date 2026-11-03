@@ -391,7 +391,12 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
         new Promise(resolve => setTimeout(resolve, 5_000))
       ]);
     }
-    await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [[applicantId, moderatorId]]).catch(() => {});
+    // Keep the test's identity and moderation evidence on the supported
+    // tombstone path; hard deletion is not a valid cleanup strategy.
+    await pool.query(
+      "UPDATE users SET status = 'deleted' WHERE id = ANY($1::uuid[])",
+      [[applicantId, moderatorId]]
+    );
     await pool.end();
     await rm(storageRoot, { recursive: true, force: true });
   }
