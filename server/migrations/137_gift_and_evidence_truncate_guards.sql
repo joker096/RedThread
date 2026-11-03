@@ -33,6 +33,44 @@ CREATE TRIGGER gift_delivery_order_events_append_only
   BEFORE UPDATE OR DELETE ON gift_delivery_order_events
   FOR EACH ROW EXECUTE FUNCTION prevent_gift_delivery_order_event_mutation();
 
+CREATE OR REPLACE FUNCTION guard_gift_delivery_order_immutable_facts()
+RETURNS trigger LANGUAGE plpgsql AS $gift_order_facts$
+BEGIN
+  IF NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.public_reference IS DISTINCT FROM OLD.public_reference
+     OR NEW.match_id IS DISTINCT FROM OLD.match_id
+     OR NEW.sender_id IS DISTINCT FROM OLD.sender_id
+     OR NEW.recipient_id IS DISTINCT FROM OLD.recipient_id
+     OR NEW.product_name_snapshot IS DISTINCT FROM OLD.product_name_snapshot
+     OR NEW.product_category IS DISTINCT FROM OLD.product_category
+     OR NEW.total_minor_units IS DISTINCT FROM OLD.total_minor_units
+     OR NEW.currency IS DISTINCT FROM OLD.currency
+     OR NEW.idempotency_key IS DISTINCT FROM OLD.idempotency_key
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at
+     OR NEW.expires_at IS DISTINCT FROM OLD.expires_at THEN
+    RAISE EXCEPTION 'gift delivery order purchase facts are immutable'
+      USING ERRCODE = '55000';
+  END IF;
+
+  -- Catalog cleanup may clear only its nullable FK through the nested FK action;
+  -- the product name/category/price snapshots above remain permanently intact.
+  IF NEW.catalog_item_id IS DISTINCT FROM OLD.catalog_item_id
+     AND NOT (
+       pg_trigger_depth() > 1
+       AND OLD.catalog_item_id IS NOT NULL
+       AND NEW.catalog_item_id IS NULL
+     ) THEN
+    RAISE EXCEPTION 'gift delivery order catalog reference is immutable'
+      USING ERRCODE = '55000';
+  END IF;
+  RETURN NEW;
+END;
+$gift_order_facts$;
+
+CREATE TRIGGER gift_delivery_orders_immutable_facts
+  BEFORE UPDATE ON gift_delivery_orders
+  FOR EACH ROW EXECUTE FUNCTION guard_gift_delivery_order_immutable_facts();
+
 CREATE OR REPLACE FUNCTION prevent_gift_delivery_order_delete()
 RETURNS trigger LANGUAGE plpgsql AS $gift_order_delete$
 BEGIN
@@ -101,6 +139,8 @@ CREATE TRIGGER gift_payment_reconciliation_tasks_no_truncate
   BEFORE TRUNCATE ON gift_payment_reconciliation_tasks
   FOR EACH STATEMENT EXECUTE FUNCTION prevent_evidence_truncate();
 
+COMMENT ON FUNCTION guard_gift_delivery_order_immutable_facts() IS
+  'Prevents edits to gift purchase identity, product, price, currency, idempotency and creation facts while leaving explicit order/payment lifecycle fields mutable.';
 COMMENT ON TABLE gift_delivery_order_events IS
   'Append-only gift-order financial/safety audit trail. actor_ref preserves opaque actor provenance after account deletion; metadata excludes recipient secrets.';
 COMMENT ON COLUMN gift_delivery_order_events.actor_ref IS
