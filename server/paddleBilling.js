@@ -104,7 +104,7 @@ function paddleTransactionAmount(data) {
 function paddleTransactionFinancialTotals(data) {
   const totals = data?.details?.totals ?? {};
   return {
-    amountMinorUnits: parsePaddleMinorAmount(paddleTransactionAmount(data)),
+    amountMinorUnits: parsePaddleSignedMinorAmount(paddleTransactionAmount(data)),
     grandTotalMinorUnits: parsePaddleSignedMinorAmount(totals.grandTotal ?? totals.grand_total),
     creditMinorUnits: parsePaddleSignedMinorAmount(totals.credit),
     balanceMinorUnits: parsePaddleSignedMinorAmount(totals.balance)
