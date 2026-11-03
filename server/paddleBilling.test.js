@@ -1761,7 +1761,9 @@ test('transaction history does not substitute legacy top-level amount for Paddle
     occurredAt: '2026-11-03T10:00:00Z',
     data: {
       id: 'txn_transactionlegacyamount123',
+      total: '16500',
       amount: '16500',
+      details: { totals: { grand_total: '16500' } },
       currency_code: 'USD'
     }
   });
