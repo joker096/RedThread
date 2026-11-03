@@ -5,7 +5,7 @@ import { normalizeDatePlanInput } from './datePlans.js';
 const validInput = (overrides = {}) => ({
   venueName: 'Central Park Cafe',
   startsAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
-  timeZone: 'Europe/Tbilisi',
+  timeZone: 'Asia/Tbilisi',
   isPublicVenue: true,
   ...overrides
 });
@@ -14,7 +14,7 @@ test('accepts a bounded public venue proposal with explicit timezone and offset'
   const result = normalizeDatePlanInput(validInput());
   assert.ok(result);
   assert.equal(result.venueName, 'Central Park Cafe');
-  assert.equal(result.timeZone, 'Europe/Tbilisi');
+  assert.equal(result.timeZone, 'Asia/Tbilisi');
   assert.ok(result.startsAt instanceof Date);
 });
 
