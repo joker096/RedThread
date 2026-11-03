@@ -144,6 +144,33 @@ test('date plan schema enforces mutual confirmation and cancels plans on safety 
     assert.equal(cancelled.rows[0].status, 'cancelled');
     assert.equal(cancelled.rows[0].confirmed_by_a_at, null);
     assert.equal(cancelled.rows[0].confirmed_by_b_at, null);
+    const blockEvent = await client.query(
+      `SELECT actor_id, details FROM date_plan_events
+       WHERE date_plan_id = $1 AND event_type = 'cancelled'
+       ORDER BY created_at DESC LIMIT 1`,
+      [planId]
+    );
+    assert.equal(blockEvent.rows[0].actor_id, a,
+      'a participant-initiated block event must identify the blocker');
+
+    await client.query('DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2', [a, b]);
+    const systemPlan = await client.query(
+      `INSERT INTO date_plans (match_id, proposed_by, venue_name, is_public_venue, starts_at, time_zone)
+       VALUES ($1, $2, 'Public Library Cafe', TRUE, NOW() + INTERVAL '3 hours', 'Asia/Tbilisi')
+       RETURNING id`,
+      [matchId, a]
+    );
+    await client.query("UPDATE users SET status = 'suspended' WHERE id = $1", [a]);
+    const systemCancelled = await client.query(
+      `SELECT dp.status, e.actor_id, e.details
+       FROM date_plans dp JOIN date_plan_events e ON e.date_plan_id = dp.id
+       WHERE dp.id = $1 AND e.event_type = 'cancelled'
+       ORDER BY e.created_at DESC LIMIT 1`,
+      [systemPlan.rows[0].id]
+    );
+    assert.equal(systemCancelled.rows[0].status, 'cancelled');
+    assert.equal(systemCancelled.rows[0].actor_id, null,
+      'automatic account-safety cancellation must not be attributed to a participant');
     await client.query('ROLLBACK');
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
