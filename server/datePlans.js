@@ -160,10 +160,25 @@ export function registerDatePlanRoutes(app, deps) {
       }
       return null;
     }
-    await client.query(
-      "UPDATE date_plans SET status = 'expired', confirmed_by_a_at = NULL, confirmed_by_b_at = NULL, updated_at = NOW() WHERE match_id = $1 AND status IN ('proposed', 'confirmed') AND starts_at <= NOW()",
+    const expiredPlans = await client.query(
+      `UPDATE date_plans
+          SET status = 'expired',
+              confirmed_by_a_at = NULL,
+              confirmed_by_b_at = NULL,
+              updated_at = statement_timestamp()
+        WHERE match_id = $1
+          AND status IN ('proposed', 'confirmed')
+          AND starts_at <= statement_timestamp()
+        RETURNING id`,
       [matchId]
     );
+    for (const plan of expiredPlans.rows) {
+      await client.query(
+        `INSERT INTO date_plan_events (date_plan_id, actor_id, event_type, details)
+         VALUES ($1, NULL, 'expired', $2::jsonb)`,
+        [plan.id, JSON.stringify({ reason: 'scheduled_time_elapsed' })]
+      );
+    }
     return { userAId, userBId };
   }
 
