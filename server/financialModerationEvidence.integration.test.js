@@ -1112,6 +1112,50 @@ test('manual Paddle reconciliation resolution requires an immutable moderator au
     assert.deepEqual(resolved.rows, [{ status: 'resolved', resolution_source: 'manual_operator' }]);
     await client.query('ROLLBACK TO SAVEPOINT manual_resolution_with_audit');
     await client.query('RELEASE SAVEPOINT manual_resolution_with_audit');
+
+    const memberId = randomUUID();
+    const memberEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+    await client.query(
+      "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
+      [memberId, `member-adjustment-audit-${memberId}@example.invalid`]
+    );
+    await client.query(
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'adjustment.created')",
+      [memberEventId]
+    );
+    await client.query(
+      "INSERT INTO paddle_adjustment_reconciliation_cases (event_id, reason_code) VALUES ($1, 'transaction_owner_unlinked')",
+      [memberEventId]
+    );
+    await client.query('SAVEPOINT member_resolution_with_audit');
+    await client.query(
+      `UPDATE paddle_adjustment_reconciliation_cases
+       SET status = 'resolved', resolution_note = 'member attempted resolution',
+           resolution_source = 'manual_operator', resolved_by_ref = $2,
+           resolved_at = statement_timestamp(), updated_at = statement_timestamp()
+       WHERE event_id = $1`,
+      [memberEventId, memberId]
+    );
+    await client.query(
+      `INSERT INTO moderation_audit_log
+         (moderator_id, action, target_type, target_id, reason, details)
+       VALUES ($1, 'paddle_adjustment_reconciliation_resolved',
+               'paddle_adjustment_case', $2, 'member attempted resolution',
+               jsonb_build_object(
+                 'eventId', $2,
+                 'reasonCode', 'transaction_owner_unlinked',
+                 'resolutionSource', 'manual_operator'
+               ))`,
+      [memberId, memberEventId]
+    );
+    let memberRoleError;
+    try {
+      await client.query('SET CONSTRAINTS paddle_adjustment_reconciliation_manual_audit_guard IMMEDIATE');
+    } catch (error) { memberRoleError = error; }
+    assert.equal(memberRoleError?.code, '23514',
+      'an active member without moderator/admin role must not resolve a reconciliation case even with an audit row');
+    await client.query('ROLLBACK TO SAVEPOINT member_resolution_with_audit');
+    await client.query('RELEASE SAVEPOINT member_resolution_with_audit');
     await client.query('ROLLBACK');
   } catch (error) {
     try { await client.query('ROLLBACK'); } catch {}
