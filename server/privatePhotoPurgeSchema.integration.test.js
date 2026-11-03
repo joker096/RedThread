@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
@@ -10,7 +11,7 @@ test('private photo purge queue migration provides durable retry state', {
 }, async () => {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   const client = await pool.connect();
-  const storagePath = `/tmp/vow-photo-purge-test-${crypto.randomUUID()}.jpg`;
+  const storagePath = `/tmp/vow-photo-purge-test-${randomUUID()}.jpg`;
   try {
     const table = await client.query(
       `SELECT column_name, is_nullable
