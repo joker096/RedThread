@@ -1039,3 +1039,85 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
     await pool.end();
   }
 });
+
+
+test('manual Paddle reconciliation resolution requires an immutable moderator audit row in the same transaction', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const client = await pool.connect();
+  const moderatorId = randomUUID();
+  const eventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
+      [moderatorId, `manual-adjustment-audit-${moderatorId}@example.invalid`]
+    );
+    await client.query(
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'adjustment.created')",
+      [eventId]
+    );
+    await client.query(
+      "INSERT INTO paddle_adjustment_reconciliation_cases (event_id, reason_code) VALUES ($1, 'transaction_owner_unlinked')",
+      [eventId]
+    );
+
+    await client.query('SAVEPOINT manual_resolution_without_audit');
+    await client.query(
+      `UPDATE paddle_adjustment_reconciliation_cases
+       SET status = 'resolved', resolution_note = 'provider checked',
+           resolution_source = 'manual_operator', resolved_by_ref = $2,
+           resolved_at = statement_timestamp(), updated_at = statement_timestamp()
+       WHERE event_id = $1`,
+      [eventId, moderatorId]
+    );
+    let missingAuditError;
+    try {
+      await client.query('SET CONSTRAINTS paddle_adjustment_reconciliation_manual_audit_guard IMMEDIATE');
+    } catch (error) { missingAuditError = error; }
+    assert.equal(missingAuditError?.code, '23514',
+      'manual resolution must fail at the database boundary if its audit row is missing');
+    await client.query('ROLLBACK TO SAVEPOINT manual_resolution_without_audit');
+    await client.query('RELEASE SAVEPOINT manual_resolution_without_audit');
+    await client.query('SET CONSTRAINTS paddle_adjustment_reconciliation_manual_audit_guard DEFERRED');
+
+    await client.query('SAVEPOINT manual_resolution_with_audit');
+    await client.query(
+      `UPDATE paddle_adjustment_reconciliation_cases
+       SET status = 'resolved', resolution_note = 'provider checked',
+           resolution_source = 'manual_operator', resolved_by_ref = $2,
+           resolved_at = statement_timestamp(), updated_at = statement_timestamp()
+       WHERE event_id = $1`,
+      [eventId, moderatorId]
+    );
+    await client.query(
+      `INSERT INTO moderation_audit_log
+         (moderator_id, action, target_type, target_id, reason, details)
+       VALUES ($1, 'paddle_adjustment_reconciliation_resolved',
+               'paddle_adjustment_case', $2, 'provider checked',
+               jsonb_build_object(
+                 'eventId', $2,
+                 'reasonCode', 'transaction_owner_unlinked',
+                 'resolutionSource', 'manual_operator'
+               ))`,
+      [moderatorId, eventId]
+    );
+    await client.query('SET CONSTRAINTS paddle_adjustment_reconciliation_manual_audit_guard IMMEDIATE');
+    const resolved = await client.query(
+      'SELECT status, resolution_source FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1',
+      [eventId]
+    );
+    assert.deepEqual(resolved.rows, [{ status: 'resolved', resolution_source: 'manual_operator' }]);
+    await client.query('ROLLBACK TO SAVEPOINT manual_resolution_with_audit');
+    await client.query('RELEASE SAVEPOINT manual_resolution_with_audit');
+    await client.query('ROLLBACK');
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw error;
+  } finally {
+    client.release();
+    await pool.end();
+  }
+});
