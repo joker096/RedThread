@@ -22,6 +22,9 @@ test('rejects private-place attestations, missing fields and unsafe venue names'
   assert.equal(normalizeDatePlanInput(validInput({ isPublicVenue: false })), null);
   assert.equal(normalizeDatePlanInput(validInput({ venueName: 'x' })), null);
   assert.equal(normalizeDatePlanInput(validInput({ venueName: 'Home\nAddress' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ venueName: '123 Main Street' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ venueName: '+1 (555) 123-4567' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ venueName: 'https://example.com' })), null);
   assert.equal(normalizeDatePlanInput(validInput({ timeZone: '' })), null);
   assert.equal(normalizeDatePlanInput(validInput({ timeZone: 'Not/A_Zone' })), null);
 });
