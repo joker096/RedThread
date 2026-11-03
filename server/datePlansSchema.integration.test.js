@@ -25,6 +25,24 @@ test('date plan schema enforces mutual confirmation and cancels plans on safety 
       assert.ok(names.has(name), 'date_plans must persist ' + name);
     }
 
+    const eventActorColumn = await client.query(
+      `SELECT is_nullable FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'date_plan_events'
+         AND column_name = 'actor_id'`
+    );
+    assert.equal(eventActorColumn.rows[0]?.is_nullable, 'YES',
+      'system-generated date-plan events must not impersonate a participant');
+
+    const eventConstraint = await client.query(
+      `SELECT pg_get_constraintdef(oid) AS definition
+       FROM pg_constraint
+       WHERE conrelid = 'date_plan_events'::regclass
+         AND conname = 'date_plan_events_event_type_check'`
+    );
+    assert.equal(eventConstraint.rowCount, 1);
+    assert.match(eventConstraint.rows[0].definition, /expired/,
+      'the event ledger must represent automatic expiry');
+
     const notificationConstraint = await client.query(
       `SELECT pg_get_constraintdef(oid) AS definition
        FROM pg_constraint
