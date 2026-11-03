@@ -314,7 +314,7 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
        SELECT user_id, transaction_id, plan, 'linked'::text AS status
        FROM paddle_transaction_events
        WHERE transaction_id = $1 AND status = 'completed'
-         AND user_id IS NOT NULL AND plan IS NOT NULL
+         AND user_id IS NOT NULL AND plan IN ('1month', '3months')
      ) AS attempts
      WHERE transaction_id = $1 AND status IN ('linked', 'completed')
      GROUP BY user_id, plan
