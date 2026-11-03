@@ -2,7 +2,7 @@ import rateLimit from 'express-rate-limit';
 import { PostgresRateLimitStore } from './postgresRateLimitStore.js';
 import { rollbackPooledTransaction } from './withPooledTransaction.js';
 
-function normalizeInput(body) {
+export function normalizeDatePlanInput(body) {
   const venueName = typeof body?.venueName === 'string' ? body.venueName.trim() : '';
   const startsAt = typeof body?.startsAt === 'string' ? body.startsAt : '';
   const timeZone = typeof body?.timeZone === 'string' ? body.timeZone.trim() : '';
@@ -85,7 +85,7 @@ export function registerDatePlanRoutes(app, deps) {
 
   app.post('/api/matches/:matchId/date-plan', limiter, validateRequestOrigin, requireSession, async (req, res) => {
     if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
-    const input = normalizeInput(req.body);
+    const input = normalizeDatePlanInput(req.body);
     if (!input) return res.status(400).json({ error: 'invalid_date_plan' });
     let client;
     try {
