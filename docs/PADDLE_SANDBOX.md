@@ -17,7 +17,7 @@ The server refuses checkout unless `PADDLE_ENVIRONMENT=sandbox` and the client t
 ## Dashboard tasks
 
 1. In the Paddle **Sandbox** account, create the Vow Premium products/prices that match the current Vow offer and put their price IDs into the environment variables above. The current code accepts monthly, three-month, and optional lifetime price IDs; a lifetime option is a one-time purchase, not a recurring subscription.
-2. Create a sandbox notification destination for `/api/paddle/webhook`; subscribe to `subscription.created`, `subscription.updated`, `subscription.canceled`, `customer.created`, `customer.updated`, `transaction.completed`, and `transaction.canceled`. Copy its notification signing secret into `PADDLE_WEBHOOK_SECRET`.
+2. Create a sandbox notification destination for `/api/paddle/webhook`; subscribe to `subscription.created`, `subscription.updated`, `subscription.canceled`, `customer.created`, `customer.updated`, `transaction.completed`, `transaction.canceled`, `adjustment.created`, and `adjustment.updated`. Copy its notification signing secret into `PADDLE_WEBHOOK_SECRET`.
 3. Configure the sandbox default payment link under Checkout > Checkout configuration to a page on your own domain. Do not use localhost for the Paddle default payment link.
 4. Run `npm run db:migrate`, restart the API, and sign in with an eligible female test account. The account panel displays Paddle Sandbox checkout only after configuration.
 5. Use Paddle's sandbox successful test card `4242 4242 4242 4242` with any future expiry date; also test declined card `4000 0000 0000 0002`. Verify the overlay, completed transaction, webhook 2xx delivery, and database state. Do not use real card data.
@@ -36,6 +36,10 @@ The active Premium panel can request a short-lived authenticated Customer Portal
 The portal link opens the subscription cancellation/manage screen when a subscription ID exists, or the customer overview for a one-time lifetime purchase. Account deletion immediately cancels any non-terminal recurring Paddle subscription before deleting the local account. If Paddle does not confirm cancellation, account deletion fails closed rather than leaving recurring billing active. Webhook updates are ignored for accounts already marked deleted.
 
 Test the portal flow with a sandbox customer, verify that the cancellation link belongs to the same customer/subscription, cancel from the portal, and confirm the signed webhook updates entitlement. Also test account deletion with an active sandbox subscription and confirm Paddle reports it as canceled before the local account is deleted. These operations remain Sandbox-only.
+
+## Refunds, credits and chargebacks
+
+The sandbox notification destination must deliver both adjustment events. The handler stores each event as append-only financial evidence and ties it to the original verified lifetime checkout transaction. A refund with status `pending_approval` does not revoke Premium; an approved full refund or chargeback does. A rejected refund does not revoke access. A chargeback reversal can restore access only if no other adverse adjustment remains. Partial refunds, credits and chargeback warnings are recorded but do not automatically revoke the lifetime plan. Verify these transitions in the sandbox before enabling any live Paddle configuration.
 
 ## Current safety boundaries
 
