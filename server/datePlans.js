@@ -93,7 +93,7 @@ export function registerDatePlanRoutes(app, deps) {
     } finally { client?.release(); }
   });
 
-  app.post('/api/matches/:matchId/date-plan', limiter, validateRequestOrigin, requireSession, async (req, res) => {
+  app.post('/api/matches/:matchId/date-plan', limiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
     if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
     const input = normalizeDatePlanInput(req.body);
     if (!input) return res.status(400).json({ error: 'invalid_date_plan' });
@@ -141,7 +141,7 @@ export function registerDatePlanRoutes(app, deps) {
     } finally { client?.release(); }
   });
 
-  app.post('/api/matches/:matchId/date-plan/confirm', limiter, validateRequestOrigin, requireSession, async (req, res) => {
+  app.post('/api/matches/:matchId/date-plan/confirm', limiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
     if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
     let client;
     try {
@@ -184,7 +184,7 @@ export function registerDatePlanRoutes(app, deps) {
     } finally { client?.release(); }
   });
 
-  app.post('/api/matches/:matchId/date-plan/cancel', limiter, validateRequestOrigin, requireSession, async (req, res) => {
+  app.post('/api/matches/:matchId/date-plan/cancel', limiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
     if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
     let client;
     try {
@@ -214,7 +214,7 @@ export function registerDatePlanRoutes(app, deps) {
     } finally { client?.release(); }
   });
 
-  app.post('/api/matches/:matchId/date-plan/decline', limiter, validateRequestOrigin, requireSession, async (req, res) => {
+  app.post('/api/matches/:matchId/date-plan/decline', limiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
     if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
     let client;
     try {
