@@ -2051,7 +2051,7 @@ test('date plan requires both participants and resets confirmations after a chan
         nextPlanId += 1;
         plan = {
           id: 'e2e-plan-' + nextPlanId, proposedBy: participant,
-          venueName: body.venueName, startsAt: body.startsAt, timeZone: body.timeZone,
+          venueName: body.venueName, startsAt: body.startsAt, timeZone: 'Asia/Tbilisi',
           status: 'proposed', confirmedByAAt: null, confirmedByBAt: null
         };
         await route.fulfill({ status: 201, json: { datePlan: plan } }); return;
@@ -2103,6 +2103,7 @@ test('date plan requires both participants and resets confirmations after a chan
     await participantA.page.getByLabel(/public place|общественное место/i).check();
     await participantA.page.getByRole('button', { name: /propose date plan|предложить план встречи/i }).click();
     await expect(participantA.page.getByText(/both people must confirm|waiting for both|оба участника должны подтвердить|ожидаем подтверждения обоих/i)).toBeVisible();
+    await expect(participantA.page.getByTestId('date-plan-time')).toContainText('Asia/Tbilisi');
     await expect(participantA.page.getByRole('button', { name: /^I confirm this plan$|^Подтверждаю этот план$/i })).toBeVisible();
 
     await participantB.page.getByTestId('date-plan-refresh').click();
