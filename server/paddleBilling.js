@@ -277,7 +277,8 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
   const status = String(data.status || '').toLowerCase();
   const validType = data.type === undefined || data.type === null ||
     data.type === 'full' || data.type === 'partial';
-  const invalidRefundType = action === 'refund' && !validType;
+  const invalidTypeMetadata = !validType;
+  const invalidRefundType = action === 'refund' && invalidTypeMetadata;
   const type = data.type === 'full' || data.type === 'partial' ? data.type : null;
   const validAdjustmentId = typeof adjustmentId === 'string' && /^adj_[A-Za-z0-9]+$/.test(adjustmentId);
   const validTransactionId = typeof transactionId === 'string' && /^txn_[A-Za-z0-9]+$/.test(transactionId);
@@ -312,6 +313,15 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
     [eventId, adjustmentId, transactionId, action, type, status,
       amountMinorUnits, currencyCode, occurredAt]
   );
+
+  if (invalidTypeMetadata) {
+    // Type does not affect chargeback/credit handling, so preserve the signed
+    // action semantics while keeping malformed metadata visible for review.
+    await recordPaddleAdjustmentReconciliationCase(client, {
+      eventId, adjustmentId, transactionId,
+      reasonCode: 'invalid_adjustment_payload'
+    });
+  }
 
   const linked = await client.query(
     `SELECT user_id, plan,
