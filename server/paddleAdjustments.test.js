@@ -18,7 +18,7 @@ function makePool({ ledgerStatus = 'active', revokeReason = null, fullRefund = f
       if (statement.includes('INSERT INTO paddle_adjustment_events')) {
         return { rowCount: 1, rows: [{ event_id: params[0] }] };
       }
-      if (statement.includes('SELECT DISTINCT user_id, plan, status FROM (')) {
+      if (statement.includes('SELECT user_id, plan,') && statement.includes('bool_or(status = \'linked\')')) {
         return { rowCount: linkedRowCount, rows: linkedRowCount ? [{ user_id: userId, plan: linkedPlan, status: linkedStatus }] : [] };
       }
       if (statement.includes('SELECT id, status, premium_lifetime FROM users')) {
