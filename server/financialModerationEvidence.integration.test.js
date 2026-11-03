@@ -384,6 +384,44 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
          VALUES ($1, $2, $3, 'refund', 'full', 'pending_approval', statement_timestamp())`,
         [adjustmentEventId, `adj_${randomUUID().replace(/-/g, '')}`, `txn_${randomUUID().replace(/-/g, '')}`]
       );
+      const adjustmentCase = await client.query(
+        `INSERT INTO paddle_adjustment_reconciliation_cases
+         (event_id, adjustment_id, transaction_id, reason_code)
+         SELECT event_id, adjustment_id, transaction_id, 'lifetime_transaction_unlinked'
+         FROM paddle_adjustment_events WHERE event_id = $1
+         RETURNING status`,
+        [adjustmentEventId]
+      );
+      assert.deepEqual(adjustmentCase.rows, [{ status: 'open' }]);
+      await client.query('SAVEPOINT adjustment_case_resolve');
+      await client.query(
+        `UPDATE paddle_adjustment_reconciliation_cases
+         SET status = 'resolved', resolution_note = 'linked and reconciled',
+             resolved_at = statement_timestamp(), updated_at = statement_timestamp()
+         WHERE event_id = $1`,
+        [adjustmentEventId]
+      );
+      const resolvedAdjustmentCase = await client.query(
+        'SELECT status, resolution_note FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1',
+        [adjustmentEventId]
+      );
+      assert.deepEqual(resolvedAdjustmentCase.rows, [{
+        status: 'resolved', resolution_note: 'linked and reconciled'
+      }]);
+      await client.query('SAVEPOINT adjustment_case_immutable');
+      let adjustmentCaseMutationError;
+      try {
+        await client.query(
+          `UPDATE paddle_adjustment_reconciliation_cases
+           SET reason_code = 'lifetime_entitlement_missing' WHERE event_id = $1`,
+          [adjustmentEventId]
+        );
+      } catch (error) { adjustmentCaseMutationError = error; }
+      assert.equal(adjustmentCaseMutationError?.code, '55000');
+      await client.query('ROLLBACK TO SAVEPOINT adjustment_case_immutable');
+      await client.query('RELEASE SAVEPOINT adjustment_case_immutable');
+      await client.query('ROLLBACK TO SAVEPOINT adjustment_case_resolve');
+      await client.query('RELEASE SAVEPOINT adjustment_case_resolve');
       await client.query('SAVEPOINT adjustment_event_immutable');
       let adjustmentMutationError;
       try {
@@ -393,6 +431,19 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       assert.equal(adjustmentMutationError?.code, '55000');
       await client.query('ROLLBACK TO SAVEPOINT adjustment_event_immutable');
       await client.query('RELEASE SAVEPOINT adjustment_event_immutable');
+
+      const adjustmentCaseGuard = await client.query(
+        `SELECT pg_get_functiondef('guard_paddle_adjustment_reconciliation_case()'::regprocedure) AS definition`
+      );
+      assert.match(adjustmentCaseGuard.rows[0].definition, /reconciliation evidence is immutable/);
+      const adjustmentCaseColumns = await client.query(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_schema = current_schema()
+           AND table_name = 'paddle_adjustment_reconciliation_cases'
+           AND column_name IN ('event_id', 'adjustment_id', 'transaction_id', 'reason_code', 'status')`
+      );
+      assert.deepEqual(adjustmentCaseColumns.rows.map(row => row.column_name).sort(),
+        ['adjustment_id', 'event_id', 'reason_code', 'status', 'transaction_id']);
 
       const accessFks = await client.query(
         `SELECT conname, pg_get_constraintdef(oid) AS definition
