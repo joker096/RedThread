@@ -1189,6 +1189,15 @@ test('auth API supports registration, session lookup, logout and login', {
       if (giftMatchId && giftMatchCreated) {
         await giftTestDb.query('DELETE FROM matches WHERE id = $1', [giftMatchId]).catch(() => {});
       }
+      const giftFixtureUserIds = [giftSender.user.id, giftRecipient.user.id];
+      await giftTestDb.query(
+        'DELETE FROM profiles WHERE user_id = ANY($1::uuid[])',
+        [giftFixtureUserIds]
+      ).catch(() => {});
+      await giftTestDb.query(
+        "UPDATE users SET status = 'deleted' WHERE id = ANY($1::uuid[])",
+        [giftFixtureUserIds]
+      ).catch(() => {});
       await giftTestDb.end();
     }
 
