@@ -135,6 +135,54 @@ test('adjustment evidence is processed even when unrelated customer metadata is 
   assert.ok(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')));
 });
 
+test('transaction completion reconciles an approved refund delivered earlier', async () => {
+  const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
+  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_lifetime_test';
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      calls.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      if (statement.includes("SET transaction_id = $1, status = 'completed'")) {
+        return { rowCount: 1, rows: [{ user_id: userId }] };
+      }
+      if (statement.includes('WITH latest_per_adjustment AS')) {
+        return { rowCount: 1, rows: [{ full_refund_active: true, chargeback_active: false }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    const result = await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_transaction_after_refund',
+      eventType: 'transaction.completed',
+      data: {
+        id: transactionId,
+        customerId: 'ctm_0123456789abcdef0123456789',
+        customData: {
+          userId,
+          plan: 'lifetime',
+          checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+        },
+        items: [{ price: { id: 'pri_lifetime_test' } }]
+      }
+    });
+    assert.equal(result.handled, true);
+    const revoke = calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements'));
+    assert.deepEqual(revoke.params, [transactionId, 'paddle_full_refund', userId]);
+    assert.ok(calls.some(call =>
+      call.statement.includes('UPDATE users') && call.statement.includes('premium_lifetime = EXISTS')
+    ), 'the prior approved refund must be applied before the new lifetime entitlement is exposed');
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
+    else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
+  }
+});
+
 test('malformed adjustment identifiers are acknowledged without changing entitlement', async () => {
   const { pool, calls } = makePool();
   const result = await processPaddleEvent(pool, {
