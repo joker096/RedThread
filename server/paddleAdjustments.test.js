@@ -90,7 +90,8 @@ test('chargeback entitlement predicate requires an approved, non-warning dispute
   await sendAdjustment(pool, { action: 'chargeback', status: 'rejected' });
   const stateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
   assert.ok(stateQuery, 'adjustment processing must recompute the authoritative ledger state');
-  assert.match(stateQuery.statement, /action = 'chargeback' AND status = 'approved'/);
+  assert.match(stateQuery.statement,
+    /EXISTS \([\s\S]*?WHERE action = 'chargeback' AND status = 'approved'/);
   assert.doesNotMatch(stateQuery.statement, /status <> 'reversed'/,
     'rejected chargebacks must not be treated as an active dispute');
 });
