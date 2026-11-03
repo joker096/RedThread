@@ -1514,8 +1514,8 @@ test('photo and safety screening review states require matching moderator or aut
     await client.query(
       `INSERT INTO moderation_audit_log (action, target_type, target_id, reason, details)
        VALUES ('photo_ai_approved', 'photo', $1, 'automated review passed',
-               jsonb_build_object('engine', 'test-engine'))`,
-      [autoPhotoId]
+               jsonb_build_object('engine', 'test-engine', 'userId', $2::text))`,
+      [autoPhotoId, ownerId]
     );
     await client.query('SET CONSTRAINTS photo_assets_review_audit_guard IMMEDIATE');
     await client.query('ROLLBACK TO SAVEPOINT auto_photo_with_audit');
@@ -1528,6 +1528,28 @@ test('photo and safety screening review states require matching moderator or aut
        VALUES ($1, $2, $3, 'image/jpeg', 100, 10, 10, 'pending')`,
       [manualPhotoId, ownerId, `/tmp/${manualPhotoId}.jpg`]
     );
+
+    await client.query('SAVEPOINT photo_asset_metadata_immutable');
+    let photoMetadataMutationError;
+    try {
+      await client.query(
+        'UPDATE photo_assets SET storage_path = $2 WHERE id = $1',
+        [manualPhotoId, `/tmp/rewritten-${manualPhotoId}.jpg`]
+      );
+    } catch (error) { photoMetadataMutationError = error; }
+    assert.equal(photoMetadataMutationError?.code, '55000',
+      'photo storage identity and upload metadata must not be rewritten after upload');
+    await client.query('ROLLBACK TO SAVEPOINT photo_asset_metadata_immutable');
+    await client.query('RELEASE SAVEPOINT photo_asset_metadata_immutable');
+
+    await client.query('SAVEPOINT photo_assets_truncate_blocked');
+    let photoAssetsTruncateError;
+    try { await client.query('TRUNCATE photo_assets'); }
+    catch (error) { photoAssetsTruncateError = error; }
+    assert.equal(photoAssetsTruncateError?.code, '55000',
+      'photo review evidence must not be removed with TRUNCATE');
+    await client.query('ROLLBACK TO SAVEPOINT photo_assets_truncate_blocked');
+    await client.query('RELEASE SAVEPOINT photo_assets_truncate_blocked');
     await client.query('SAVEPOINT manual_photo_without_audit');
     await client.query(
       "UPDATE photo_assets SET review_status = 'approved' WHERE id = $1",
@@ -1566,6 +1588,48 @@ test('photo and safety screening review states require matching moderator or aut
        VALUES ($1, $2, 'profile', '[]'::jsonb, 'low', 'pending')`,
       [screeningId, ownerId]
     );
+
+    await client.query('SAVEPOINT screening_classification_immutable');
+    let screeningClassificationMutationError;
+    try {
+      await client.query(
+        "UPDATE user_safety_screenings SET severity = 'none' WHERE id = $1",
+        [screeningId]
+      );
+    } catch (error) { screeningClassificationMutationError = error; }
+    assert.equal(screeningClassificationMutationError?.code, '55000',
+      'screening severity, flags, scope and engine evidence must remain immutable after creation');
+    await client.query('ROLLBACK TO SAVEPOINT screening_classification_immutable');
+    await client.query('RELEASE SAVEPOINT screening_classification_immutable');
+
+    await client.query('SAVEPOINT screening_owner_nullification');
+    let directScreeningOwnerNullificationError;
+    try {
+      await client.query('UPDATE user_safety_screenings SET user_id = NULL WHERE id = $1',
+        [screeningId]);
+    } catch (error) { directScreeningOwnerNullificationError = error; }
+    assert.equal(directScreeningOwnerNullificationError?.code, '55000',
+      'only nested account-deletion FK actions may clear the live screening owner');
+    await client.query('ROLLBACK TO SAVEPOINT screening_owner_nullification');
+    await client.query('RELEASE SAVEPOINT screening_owner_nullification');
+
+    await client.query('SAVEPOINT screening_delete_blocked');
+    let screeningDeleteError;
+    try { await client.query('DELETE FROM user_safety_screenings WHERE id = $1', [screeningId]); }
+    catch (error) { screeningDeleteError = error; }
+    assert.equal(screeningDeleteError?.code, '55000',
+      'safety screening evidence must not be deleted directly');
+    await client.query('ROLLBACK TO SAVEPOINT screening_delete_blocked');
+    await client.query('RELEASE SAVEPOINT screening_delete_blocked');
+
+    await client.query('SAVEPOINT screening_truncate_blocked');
+    let screeningTruncateError;
+    try { await client.query('TRUNCATE user_safety_screenings'); }
+    catch (error) { screeningTruncateError = error; }
+    assert.equal(screeningTruncateError?.code, '55000',
+      'safety screening evidence must not be removed with TRUNCATE');
+    await client.query('ROLLBACK TO SAVEPOINT screening_truncate_blocked');
+    await client.query('RELEASE SAVEPOINT screening_truncate_blocked');
     await client.query('SAVEPOINT screening_metadata_without_transition');
     let reviewerMetadataError;
     try {
@@ -1648,6 +1712,17 @@ test('photo and safety screening review states require matching moderator or aut
     );
     assert.deepEqual(retainedAudit.rows, [{ moderator_id: null, moderator_ref: moderatorId }],
       'the append-only audit snapshot must preserve the reviewer UUID after account deletion');
+
+    // Physical account removal may clear the live screening FK, but its
+    // immutable owner UUID and classification evidence must survive.
+    await client.query('DELETE FROM users WHERE id = $1', [ownerId]);
+    const retainedOwnerSnapshot = await client.query(
+      'SELECT user_id, user_ref, severity, flags, scope FROM user_safety_screenings WHERE id = $1',
+      [screeningId]
+    );
+    assert.deepEqual(retainedOwnerSnapshot.rows, [{
+      user_id: null, user_ref: ownerId, severity: 'low', flags: [], scope: 'profile'
+    }]);
     await client.query('ROLLBACK TO SAVEPOINT screening_with_audit');
     await client.query('RELEASE SAVEPOINT screening_with_audit');
     await client.query('ROLLBACK');
