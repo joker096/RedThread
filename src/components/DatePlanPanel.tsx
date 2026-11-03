@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
+import { resolveUniqueLocalDateTime } from '../utils/zonedDateTime.ts';
 
 type DatePlan = {
   id: string; proposedBy: string; venueName: string; startsAt: string; timeZone: string;
@@ -107,16 +108,20 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
           )}
           <form className="mt-3 space-y-2" onSubmit={event => {
             event.preventDefault();
+            const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            const instant = resolveUniqueLocalDateTime(startsAt, timeZone);
+            if (!instant) {
+              setError(t('datePlanActionError'));
+              return;
+            }
             void submit('', {
-              venueName, startsAt: new Date(startsAt).toISOString(),
-              timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-              isPublicVenue
+              venueName, startsAt: instant.toISOString(), timeZone, isPublicVenue
             });
           }}>
             <label className="block text-xs text-stone-300">{t('datePlanVenue')}
               <input value={venueName} onChange={event => setVenueName(event.target.value)} minLength={2} maxLength={120} required placeholder={t('datePlanVenuePlaceholder')} style={{ minHeight: 48 }} className="mt-1 min-h-[48px] w-full rounded-lg border border-white/10 bg-stone-900 px-3 py-2 text-sm text-white" />
             </label>
-            <label className="block text-xs text-stone-300">{t('datePlanDateTime')}
+            <label className="block text-xs text-stone-300">{t('datePlanDateTime')} ({Intl.DateTimeFormat().resolvedOptions().timeZone})
               <input type="datetime-local" value={startsAt} min={minDate} onChange={event => setStartsAt(event.target.value)} required style={{ minHeight: 48 }} className="mt-1 min-h-[48px] w-full rounded-lg border border-white/10 bg-stone-900 px-3 py-2 text-sm text-white" />
             </label>
             <label style={{ minHeight: 48 }} className="flex min-h-[48px] items-center gap-2 text-xs text-stone-300">
