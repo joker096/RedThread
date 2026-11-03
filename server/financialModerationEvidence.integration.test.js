@@ -576,15 +576,29 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
         ) ON COMMIT DROP
       `);
       await client.query(`
+        CREATE TRIGGER l3_access_snapshot_test
+        BEFORE INSERT ON l3_access_append_only_test
+        FOR EACH ROW EXECUTE FUNCTION snapshot_identity_l3_media_access_event_refs()
+      `);
+      await client.query(`
         CREATE TRIGGER l3_access_append_only_test
         BEFORE UPDATE OR DELETE ON l3_access_append_only_test
         FOR EACH ROW EXECUTE FUNCTION prevent_identity_l3_media_access_event_mutation()
       `);
+      const l3SubmissionId = randomUUID();
+      const l3ModeratorId = randomUUID();
       await client.query(
         `INSERT INTO l3_access_append_only_test
-         VALUES ($1, $2, $1, $2, 'viewed', statement_timestamp())`,
-        [randomUUID(), randomUUID()]
+         VALUES ($1, $2, NULL, NULL, 'viewed', statement_timestamp())`,
+        [l3SubmissionId, l3ModeratorId]
       );
+      const l3SnapshotRow = await client.query(
+        'SELECT submission_ref, moderator_ref FROM l3_access_append_only_test'
+      );
+      assert.deepEqual(l3SnapshotRow.rows, [{
+        submission_ref: l3SubmissionId,
+        moderator_ref: l3ModeratorId
+      }], 'new L3 media access rows must snapshot the live submission and moderator UUIDs');
       await client.query('SAVEPOINT l3_access_no_rewrite');
       let l3AccessUpdateError;
       try {
@@ -644,14 +658,27 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
         ) ON COMMIT DROP
       `);
       await client.query(`
+        CREATE TRIGGER gift_order_event_snapshot_test
+        BEFORE INSERT ON gift_order_event_guard_test
+        FOR EACH ROW EXECUTE FUNCTION snapshot_gift_delivery_order_event_actor()
+      `);
+      await client.query(`
         CREATE TRIGGER gift_order_event_guard_test
         BEFORE UPDATE OR DELETE ON gift_order_event_guard_test
         FOR EACH ROW EXECUTE FUNCTION prevent_gift_delivery_order_event_mutation()
       `);
+      const giftActorId = randomUUID();
       await client.query(
-        'INSERT INTO gift_order_event_guard_test VALUES ($1, $1, $2)',
-        [randomUUID(), 'request_created']
+        'INSERT INTO gift_order_event_guard_test VALUES ($1, NULL, $2)',
+        [giftActorId, 'request_created']
       );
+      const giftActorRow = await client.query(
+        'SELECT actor_user_id, actor_ref FROM gift_order_event_guard_test'
+      );
+      assert.deepEqual(giftActorRow.rows, [{
+        actor_user_id: giftActorId,
+        actor_ref: giftActorId
+      }], 'new gift audit rows must snapshot the live actor UUID');
       await client.query('SAVEPOINT gift_event_append_only');
       let giftEventUpdateError;
       try {
