@@ -116,6 +116,25 @@ test('a chargeback reversal cannot restore access while a full approved refund r
   assert.deepEqual(update.params, [transactionId, userId, 'revoked', 'paddle_full_refund']);
 });
 
+test('adjustment evidence is processed even when unrelated customer metadata is malformed', async () => {
+  const { pool, calls } = makePool({ ledgerStatus: 'active', fullRefund: true });
+  const result = await processPaddleEvent(pool, {
+    eventId: 'evt_malformed_customer_adjustment',
+    eventType: 'adjustment.updated',
+    occurredAt: '2026-11-03T10:00:00Z',
+    data: {
+      id: 'adj_0123456789abcdef01234567',
+      transactionId,
+      customerId: 'not-a-paddle-customer',
+      action: 'refund',
+      type: 'full',
+      status: 'approved'
+    }
+  });
+  assert.equal(result.premiumRevoked, true);
+  assert.ok(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')));
+});
+
 test('malformed adjustment identifiers are acknowledged without changing entitlement', async () => {
   const { pool, calls } = makePool();
   const result = await processPaddleEvent(pool, {
