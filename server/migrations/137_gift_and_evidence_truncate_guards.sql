@@ -29,18 +29,6 @@ CREATE INDEX gift_delivery_order_events_actor_ref_idx
   ON gift_delivery_order_events(actor_ref, created_at DESC)
   WHERE actor_ref IS NOT NULL;
 
-CREATE OR REPLACE FUNCTION populate_gift_delivery_order_event_actor_ref()
-RETURNS trigger LANGUAGE plpgsql AS $gift_order_actor_ref$
-BEGIN
-  NEW.actor_ref := NEW.actor_user_id;
-  RETURN NEW;
-END;
-$gift_order_actor_ref$;
-
-CREATE TRIGGER gift_delivery_order_events_snapshot_actor
-  BEFORE INSERT ON gift_delivery_order_events
-  FOR EACH ROW EXECUTE FUNCTION populate_gift_delivery_order_event_actor_ref();
-
 CREATE OR REPLACE FUNCTION prevent_gift_delivery_order_event_mutation()
 RETURNS trigger LANGUAGE plpgsql AS $gift_order_event_audit$
 BEGIN
