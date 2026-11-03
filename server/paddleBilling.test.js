@@ -1841,3 +1841,50 @@ test('ambiguous cross-account Paddle transaction ownership is retained without a
     else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
   }
 });
+
+
+test('Paddle transaction history preserves negative totals from credit subscription updates', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      calls.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      if (statement.includes('SELECT DISTINCT user_id')) {
+        return { rowCount: 0, rows: [] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+
+  await processPaddleEvent({ async connect() { return client; } }, {
+    eventId: 'evt_negative_subscription_credit_total',
+    eventType: 'transaction.completed',
+    occurredAt: '2026-11-04T00:30:00Z',
+    data: {
+      id: 'txn_negative_subscription_credit123',
+      details: {
+        totals: {
+          total: '-500',
+          grand_total: '-500',
+          credit: '0',
+          balance: '0'
+        }
+      },
+      currency_code: 'GEL'
+    }
+  });
+
+  const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
+  assert.ok(ledger, 'credit transactions must remain in the append-only transaction ledger');
+  assert.equal(ledger.params[5], '-500',
+    'Paddle transaction total may be negative for subscription updates that result in credit');
+  assert.equal(ledger.params[6], '-500');
+  assert.equal(ledger.params[7], '0');
+  assert.equal(ledger.params[8], '0');
+  assert.equal(ledger.params[9], 'GEL');
+});
