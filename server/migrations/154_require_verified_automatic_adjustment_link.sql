@@ -23,32 +23,38 @@ BEGIN
                SELECT user_id, transaction_id, plan, status
                FROM paddle_checkout_attempt_history
                UNION ALL
-               SELECT user_id, transaction_id, plan, 'linked'::text AS status
-               FROM paddle_transaction_events
-               WHERE transaction_id = source.transaction_id
-                 AND status = 'completed'
-                 AND user_id IS NOT NULL
-                 AND plan IS NOT NULL
+               SELECT transaction.user_id, transaction.transaction_id, transaction.plan, 'linked'::text AS status
+               FROM paddle_transaction_events AS transaction
+               JOIN paddle_webhook_events AS webhook
+                 ON webhook.event_id = transaction.event_id
+                AND webhook.event_type = 'transaction.completed'
+               WHERE transaction.transaction_id = source.transaction_id
+                 AND transaction.status = 'completed'
+                 AND transaction.user_id IS NOT NULL
+                 AND transaction.plan IS NOT NULL
              ) AS candidate
              WHERE candidate.transaction_id = source.transaction_id
-               AND candidate.status IN ('linked', 'completed')
+               AND candidate.status = 'linked'
            ) = 1
            AND (
              EXISTS (
                SELECT 1
                FROM paddle_checkout_attempts AS linked_attempt
                WHERE linked_attempt.transaction_id = source.transaction_id
-                 AND linked_attempt.status IN ('linked', 'completed')
+                 AND linked_attempt.status = 'linked'
              )
              OR EXISTS (
                SELECT 1
                FROM paddle_checkout_attempt_history AS linked_history
                WHERE linked_history.transaction_id = source.transaction_id
-                 AND linked_history.status IN ('linked', 'completed')
+                 AND linked_history.status = 'linked'
              )
              OR EXISTS (
                SELECT 1
                FROM paddle_transaction_events AS linked_transaction
+               JOIN paddle_webhook_events AS webhook
+                 ON webhook.event_id = linked_transaction.event_id
+                AND webhook.event_type = 'transaction.completed'
                WHERE linked_transaction.transaction_id = source.transaction_id
                  AND linked_transaction.status = 'completed'
                  AND linked_transaction.user_id IS NOT NULL
