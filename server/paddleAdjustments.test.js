@@ -100,7 +100,7 @@ test('does not treat legacy data.amount as a substitute for Paddle totals.total'
   ));
 });
 
-test('invalid Paddle adjustment types are quarantined instead of silently treated as partial', async () => {
+test('invalid Paddle refund type is retained without inferring a refund scope', async () => {
   const { pool, calls } = makePool();
   const result = await processPaddleEvent(pool, {
     eventId: 'evt_adjustment_invalid_type',
@@ -116,12 +116,43 @@ test('invalid Paddle adjustment types are quarantined instead of silently treate
       totals: { total: '16500', currency_code: 'USD' }
     }
   });
-  assert.equal(result.reconciliationRequired, true);
-  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')), false);
+  assert.notEqual(result.reconciliationRequired, true);
+  const adjustment = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_events'));
+  assert.ok(adjustment, 'the signed provider event must be retained even when refund scope is malformed');
+  assert.equal(adjustment.params[4], null, 'invalid refund scope must never be guessed');
   assert.ok(calls.some(call =>
     call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases') &&
     call.params[1] === 'invalid_adjustment_payload'
   ));
+  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false,
+    'an unclassified refund must not revoke lifetime access');
+});
+
+test('refunds missing an explicit full/partial type are retained for manual reconciliation', async () => {
+  const { pool, calls } = makePool();
+  const result = await processPaddleEvent(pool, {
+    eventId: 'evt_adjustment_missing_type',
+    eventType: 'adjustment.created',
+    occurredAt: '2026-11-03T10:00:00Z',
+    data: {
+      id: 'adj_0123456789abcdef01234567',
+      transaction_id: transactionId,
+      action: 'refund',
+      status: 'approved',
+      currency_code: 'USD',
+      totals: { total: '16500', currency_code: 'USD' }
+    }
+  });
+  assert.notEqual(result.reconciliationRequired, true);
+  const adjustment = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_events'));
+  assert.ok(adjustment, 'the signed provider event must be retained');
+  assert.equal(adjustment.params[4], null);
+  assert.ok(calls.some(call =>
+    call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases') &&
+    call.params[1] === 'invalid_adjustment_payload'
+  ));
+  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false,
+    'a refund with no scope must not revoke lifetime access');
 });
 
 test('chargebacks still revoke lifetime access when unrelated type metadata is malformed', async () => {
