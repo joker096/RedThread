@@ -79,7 +79,7 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
           {plan && (
             <div className="mt-3 rounded-lg border border-white/10 bg-stone-900/70 p-3">
               <p className="text-sm font-semibold text-white">{plan.venueName}</p>
-              <p className="mt-1 text-xs text-stone-300">{formatDate(plan.startsAt, { dateStyle: 'medium', timeStyle: 'short' })} · {Intl.DateTimeFormat().resolvedOptions().timeZone}</p>
+              <p data-testid="date-plan-time" className="mt-1 break-words text-xs text-stone-300">{formatDate(plan.startsAt, { dateStyle: 'medium', timeStyle: 'short', timeZone: plan.timeZone })} · {plan.timeZone}</p>
               {plan.status === 'confirmed' ? (
                 <div>
                   <p role="status" className="mt-2 text-xs font-semibold text-emerald-300">{t('datePlanConfirmed')}</p>
