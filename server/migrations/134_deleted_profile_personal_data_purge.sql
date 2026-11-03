@@ -33,6 +33,62 @@ CREATE TRIGGER profiles_require_gender_unless_deleted
   BEFORE INSERT OR UPDATE OF gender, user_id ON profiles
   FOR EACH ROW EXECUTE FUNCTION require_gender_for_non_deleted_profile();
 
+-- A deleted profile is a tombstone, not an editable hidden profile. The
+-- account-erasure trigger is the only nested writer allowed to scrub it.
+CREATE OR REPLACE FUNCTION prevent_deleted_profile_repopulation()
+RETURNS trigger LANGUAGE plpgsql AS $profile_tombstone$
+BEGIN
+  IF pg_trigger_depth() = 1 AND EXISTS (
+    SELECT 1 FROM users WHERE id = NEW.user_id AND status = 'deleted'
+  ) THEN
+    RAISE EXCEPTION 'deleted account profile is immutable'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$profile_tombstone$;
+
+DROP TRIGGER IF EXISTS profiles_deleted_account_immutable ON profiles;
+CREATE TRIGGER profiles_deleted_account_immutable
+  BEFORE INSERT OR UPDATE ON profiles
+  FOR EACH ROW EXECUTE FUNCTION prevent_deleted_profile_repopulation();
+
+-- Do not allow deleted-account contact, credential, entitlement or Paddle
+-- reconciliation identities to be repopulated or reassigned after scrubbing.
+-- Nested updates from scrub_deleted_account_data() are the trusted erasure path.
+CREATE OR REPLACE FUNCTION prevent_deleted_account_identity_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $account_tombstone$
+BEGIN
+  IF OLD.status = 'deleted' AND pg_trigger_depth() = 1 AND (
+    NEW.email IS DISTINCT FROM OLD.email
+    OR NEW.password_hash IS DISTINCT FROM OLD.password_hash
+    OR NEW.phone_e164 IS DISTINCT FROM OLD.phone_e164
+    OR NEW.phone_verified_at IS DISTINCT FROM OLD.phone_verified_at
+    OR NEW.female_trial_ends_at IS DISTINCT FROM OLD.female_trial_ends_at
+    OR NEW.premium_until IS DISTINCT FROM OLD.premium_until
+    OR NEW.premium_lifetime IS DISTINCT FROM OLD.premium_lifetime
+    OR NEW.paddle_customer_id IS DISTINCT FROM OLD.paddle_customer_id
+    OR NEW.paddle_subscription_id IS DISTINCT FROM OLD.paddle_subscription_id
+    OR NEW.paddle_subscription_status IS DISTINCT FROM OLD.paddle_subscription_status
+    OR NEW.paddle_price_id IS DISTINCT FROM OLD.paddle_price_id
+    OR NEW.paddle_subscription_updated_at IS DISTINCT FROM OLD.paddle_subscription_updated_at
+  ) THEN
+    RAISE EXCEPTION 'deleted account identity and billing tombstone are immutable'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$account_tombstone$;
+
+DROP TRIGGER IF EXISTS users_deleted_account_identity_immutable ON users;
+CREATE TRIGGER users_deleted_account_identity_immutable
+  BEFORE UPDATE OF email, password_hash, phone_e164, phone_verified_at,
+    female_trial_ends_at, premium_until, premium_lifetime,
+    paddle_customer_id, paddle_subscription_id, paddle_subscription_status,
+    paddle_price_id, paddle_subscription_updated_at
+  ON users
+  FOR EACH ROW EXECUTE FUNCTION prevent_deleted_account_identity_mutation();
+
 DELETE FROM user_safety_screenings AS s
 USING users AS u
 WHERE u.id = s.user_id AND u.status = 'deleted';
