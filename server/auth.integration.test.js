@@ -2191,6 +2191,8 @@ test('auth API supports registration, session lookup, logout and login', {
       [matchPayload.match.id, maleRegistered.user.id]
     );
     assert.equal(datePlanEligibility.rowCount, 1, 'date plan fixture match must exist');
+    assert.equal(datePlanEligibility.rows[0].male_l2, true, 'the male fixture must have live L2 verification');
+    assert.equal(datePlanEligibility.rows[0].male_l3, true, 'the male fixture must have an active L3 approval');
     const datePlanProposal = await request(datePlanPath, {
       method: 'POST', headers: { Cookie: secondCookie }, body: JSON.stringify(datePlanInput)
     });
