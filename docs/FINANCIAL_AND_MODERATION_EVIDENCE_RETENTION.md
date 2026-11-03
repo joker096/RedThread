@@ -33,6 +33,15 @@ ORDER BY c.created_at ASC;
 
 A manual resolution must set `status = 'resolved'`, a concise `resolution_note`, `resolution_source = 'manual_operator'`, and the operator's opaque UUID in `resolved_by_ref`. Automatic closure is reserved for a verified Vow checkout link and is marked `automatic_provider_transaction_link`.
 
+The normal operator workflow is available through the moderator API:
+
+- `GET /api/admin/paddle-adjustment-reconciliation` lists open cases (maximum 100 per request).
+- `POST /api/admin/paddle-adjustment-reconciliation/:eventId/resolve` accepts `{ "resolutionNote": "..." }`. It requires an active admin/moderator session and a same-origin request; the note is trimmed and limited to 500 characters.
+- The resolver locks the open case, rechecks the moderator role against the database, and writes the case resolution plus `moderation_audit_log` entry in one transaction. Repeated resolution attempts fail because resolved cases are immutable.
+- This endpoint only closes the operational case. It never grants, revokes, or restores Premium. Entitlement changes remain exclusively tied to verified Paddle adjustment and lifetime-entitlement evidence.
+
+The SQL procedure below is a break-glass fallback for a controlled database operator when the moderator API is unavailable; it must not be used as the routine workflow.
+
 Manual operator runbook (execute through the audited production database role; do not run from application code):
 
 1. Inspect the open case and its immutable source event. Verify the transaction, adjustment status, customer, currency, amount, and Vow account against Paddle's authenticated dashboard/API and the checkout/entitlement ledgers. Do not resolve an ambiguous owner by email or display name alone. If ownership or provider state cannot be proven, leave the case open.
