@@ -192,6 +192,11 @@ test('transaction completion reconciles an approved refund delivered earlier', a
       }
     });
     assert.equal(result.handled, true);
+    const transactionLedger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
+    assert.ok(transactionLedger, 'every completed Paddle transaction must be retained independently of the checkout pointer');
+    assert.deepEqual(transactionLedger.params.slice(0, 5), [
+      'evt_transaction_after_refund', transactionId, userId, 'lifetime', 'completed'
+    ]);
     const transactionLockIndex = calls.findIndex(call => call.statement.includes("paddle-transaction:"));
     const userLockIndex = calls.findIndex(call => call.statement.includes("gift-safety-user:"));
     assert.ok(transactionLockIndex >= 0 && userLockIndex > transactionLockIndex,
