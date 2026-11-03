@@ -1889,3 +1889,25 @@ test('Paddle transaction history preserves negative totals from credit subscript
   assert.equal(ledger.params[8], '0');
   assert.equal(ledger.params[9], 'GEL');
 });
+
+
+test('Paddle paid transactions remain in reconciliation until transaction.completed before cancellation or account deletion', async () => {
+  const source = await readFile(new URL('./index.js', import.meta.url), 'utf8');
+  const cancelStart = source.indexOf("app.post('/api/paddle/checkout/cancel'");
+  const cancelEnd = source.indexOf("app.post('/api/paddle/portal'", cancelStart + 10);
+  assert.ok(cancelStart >= 0 && cancelEnd > cancelStart, 'expected the bounded checkout cancellation route');
+  const cancelRoute = source.slice(cancelStart, cancelEnd);
+  assert.match(cancelRoute, /providerTransaction\.status === 'completed'/);
+  assert.match(cancelRoute, /providerTransaction\.status === 'paid'/);
+  assert.match(cancelRoute, /status = 'reconciliation_required'/);
+  assert.doesNotMatch(cancelRoute, /\['completed', 'paid'\]\.includes\(providerTransaction\.status\)\s*\?\s*'completed'/);
+
+  const deleteStart = source.indexOf("app.delete('/api/account'");
+  const deleteEnd = source.indexOf("app.get('/api/billing/status'", deleteStart + 10);
+  assert.ok(deleteStart >= 0 && deleteEnd > deleteStart, 'expected the bounded account deletion route');
+  const deleteRoute = source.slice(deleteStart, deleteEnd);
+  assert.match(deleteRoute, /providerTransaction\.status === 'paid'/);
+  assert.match(deleteRoute, /status = 'reconciliation_required'/);
+  assert.match(deleteRoute, /providerTransaction\.status === 'completed'/);
+  assert.doesNotMatch(deleteRoute, /\['completed', 'paid'\]\.includes\(providerTransaction\.status\)/);
+});
