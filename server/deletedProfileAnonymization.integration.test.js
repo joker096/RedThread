@@ -142,12 +142,13 @@ test('account deletion scrubs profile personal data in the database', {
     await client.query('ROLLBACK TO SAVEPOINT deleted_identity_immutable_guard');
 
     const deletedAccount = await client.query(
-      'SELECT email, password_hash, phone_e164, phone_verified_at, female_trial_ends_at, premium_until, premium_lifetime FROM users WHERE id = $1',
+      'SELECT email, password_hash, email_verified_at, phone_e164, phone_verified_at, female_trial_ends_at, premium_until, premium_lifetime FROM users WHERE id = $1',
       [userId]
     );
     assert.deepEqual(deletedAccount.rows[0], {
       email: 'deleted+' + userId + '@deleted.invalid',
       password_hash: null,
+      email_verified_at: null,
       phone_e164: null,
       phone_verified_at: null,
       female_trial_ends_at: null,
