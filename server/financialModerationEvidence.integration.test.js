@@ -412,6 +412,25 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       assert.deepEqual(resolvedAdjustmentCase.rows, [{
         status: 'resolved', resolution_note: 'linked and reconciled'
       }]);
+      const adjustmentCaseTriggers = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'paddle_adjustment_reconciliation_cases'::regclass
+           AND tgname IN (
+             'paddle_adjustment_reconciliation_cases_guard',
+             'paddle_adjustment_reconciliation_cases_no_truncate'
+           )
+           AND NOT tgisinternal`
+      );
+      assert.equal(adjustmentCaseTriggers.rowCount, 2);
+      await client.query('SAVEPOINT adjustment_case_delete_blocked');
+      let adjustmentCaseDeleteError;
+      try {
+        await client.query('DELETE FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1',
+          [adjustmentEventId]);
+      } catch (error) { adjustmentCaseDeleteError = error; }
+      assert.equal(adjustmentCaseDeleteError?.code, '55000');
+      await client.query('ROLLBACK TO SAVEPOINT adjustment_case_delete_blocked');
+      await client.query('RELEASE SAVEPOINT adjustment_case_delete_blocked');
       await client.query('SAVEPOINT adjustment_case_immutable');
       let adjustmentCaseMutationError;
       try {
