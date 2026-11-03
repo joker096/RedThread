@@ -68,6 +68,158 @@ async function markPaddleCheckoutAttemptForReconciliation(client, userId, plan, 
   return result.rowCount;
 }
 
+
+export function isPaddleAdjustmentRevokingLifetime({ action, type, status } = {}) {
+  const normalizedAction = String(action || '').toLowerCase();
+  const normalizedStatus = String(status || '').toLowerCase();
+  return (normalizedAction === 'chargeback' && normalizedStatus !== 'reversed') ||
+    (normalizedAction === 'refund' && type === 'full' && normalizedStatus === 'approved');
+}
+
+async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
+  const adjustmentId = data.id;
+  const transactionId = data.transactionId || data.transaction_id;
+  const action = String(data.action || '').toLowerCase();
+  const status = String(data.status || '').toLowerCase();
+  const type = data.type === 'full' || data.type === 'partial' ? data.type : null;
+  const validAdjustmentId = typeof adjustmentId === 'string' && /^adj_[A-Za-z0-9]+$/.test(adjustmentId);
+  const validTransactionId = typeof transactionId === 'string' && /^txn_[A-Za-z0-9]+$/.test(transactionId);
+  const validActions = new Set([
+    'credit', 'refund', 'chargeback', 'chargeback_reverse',
+    'chargeback_warning', 'chargeback_warning_reverse', 'credit_reverse'
+  ]);
+  const validStatuses = new Set(['pending_approval', 'approved', 'rejected', 'reversed']);
+  if (!validAdjustmentId || !validTransactionId || !validActions.has(action) ||
+      !validStatuses.has(status) || !occurredAt || !Number.isFinite(Date.parse(occurredAt))) {
+    return { handled: true, reconciliationRequired: true };
+  }
+
+  await client.query(
+    `INSERT INTO paddle_adjustment_events
+       (event_id, adjustment_id, transaction_id, action, adjustment_type, status, occurred_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz)
+     ON CONFLICT (event_id) DO NOTHING`,
+    [eventId, adjustmentId, transactionId, action, type, status, occurredAt]
+  );
+
+  const linked = await client.query(
+    `SELECT user_id FROM (
+       SELECT user_id, transaction_id, plan, status FROM paddle_checkout_attempts
+       UNION ALL
+       SELECT user_id, transaction_id, plan, status FROM paddle_checkout_attempt_history
+     ) AS attempts
+     WHERE transaction_id = $1 AND plan = 'lifetime' AND status = 'linked'
+     LIMIT 2`,
+    [transactionId]
+  );
+  if (linked.rowCount !== 1) {
+    return { handled: true, reconciliationRequired: true };
+  }
+
+  const userId = linked.rows[0].user_id;
+  await client.query(
+    "SELECT pg_advisory_xact_lock(hashtext('gift-safety-user:' || $1::uuid::text))",
+    [userId]
+  );
+  const userResult = await client.query(
+    'SELECT id, status, premium_lifetime FROM users WHERE id = $1 FOR UPDATE',
+    [userId]
+  );
+  const user = userResult.rows[0];
+  if (!user || user.status !== 'active') {
+    return { handled: true, reconciliationRequired: true };
+  }
+
+  // Backfill is deliberately limited to accounts that still have the lifetime
+  // entitlement. A missing provenance row must never be guessed or re-granted.
+  await client.query(
+    `INSERT INTO paddle_lifetime_entitlements (transaction_id, user_id, status)
+     SELECT $2, id, 'active' FROM users
+     WHERE id = $1 AND premium_lifetime IS TRUE
+     ON CONFLICT (transaction_id) DO NOTHING`,
+    [userId, transactionId]
+  );
+  const entitlementResult = await client.query(
+    'SELECT status, revoke_reason FROM paddle_lifetime_entitlements WHERE transaction_id = $1 AND user_id = $2 FOR UPDATE',
+    [transactionId, userId]
+  );
+  const entitlement = entitlementResult.rows[0];
+  if (!entitlement) {
+    return { handled: true, reconciliationRequired: true };
+  }
+
+  const adjustmentState = await client.query(
+    `WITH latest_per_adjustment AS (
+       SELECT DISTINCT ON (adjustment_id)
+         adjustment_id, action, adjustment_type, status, occurred_at, received_at, event_id
+       FROM paddle_adjustment_events
+       WHERE transaction_id = $1
+       ORDER BY adjustment_id, occurred_at DESC, received_at DESC, event_id DESC
+     ),
+     latest_chargeback AS (
+       SELECT action, status
+       FROM latest_per_adjustment
+       WHERE action IN ('chargeback', 'chargeback_reverse')
+       ORDER BY occurred_at DESC, received_at DESC, event_id DESC
+       LIMIT 1
+     )
+     SELECT
+       EXISTS (
+         SELECT 1 FROM latest_per_adjustment
+         WHERE action = 'refund' AND adjustment_type = 'full' AND status = 'approved'
+       ) AS full_refund_active,
+       COALESCE((
+         SELECT action = 'chargeback' AND status <> 'reversed'
+         FROM latest_chargeback
+       ), FALSE) AS chargeback_active`,
+    [transactionId]
+  );
+  const hasAdverseAdjustment = adjustmentState.rows[0]?.full_refund_active === true ||
+    adjustmentState.rows[0]?.chargeback_active === true;
+  const isReversal = action === 'chargeback_reverse' ||
+    (action === 'chargeback' && status === 'reversed') ||
+    (action === 'refund' && ['rejected', 'reversed'].includes(status));
+
+  let nextStatus = entitlement.status;
+  let revokeReason = entitlement.revoke_reason;
+  if (hasAdverseAdjustment) {
+    nextStatus = 'revoked';
+    revokeReason = adjustmentState.rows[0]?.full_refund_active
+      ? 'paddle_full_refund' : 'paddle_chargeback';
+  } else if (isReversal && entitlement.status === 'revoked' &&
+             ['paddle_full_refund', 'paddle_chargeback'].includes(entitlement.revoke_reason)) {
+    nextStatus = 'active';
+    revokeReason = null;
+  }
+
+  if (nextStatus !== entitlement.status || revokeReason !== entitlement.revoke_reason) {
+    await client.query(
+      `UPDATE paddle_lifetime_entitlements
+       SET status = $3, revoke_reason = $4, updated_at = statement_timestamp()
+       WHERE transaction_id = $1 AND user_id = $2`,
+      [transactionId, userId, nextStatus, revokeReason]
+    );
+    // Recompute from all verified lifetime purchases so one refunded purchase
+    // cannot revoke a separate still-valid lifetime purchase for the same user.
+    await client.query(
+      `UPDATE users
+       SET premium_lifetime = EXISTS (
+         SELECT 1 FROM paddle_lifetime_entitlements
+         WHERE user_id = $1 AND status = 'active'
+       ), updated_at = statement_timestamp()
+       WHERE id = $1 AND status = 'active'`,
+      [userId]
+    );
+  }
+
+  return {
+    handled: true,
+    adjustmentRecorded: true,
+    entitlementChanged: nextStatus !== entitlement.status,
+    premiumRevoked: nextStatus === 'revoked'
+  };
+}
+
 export async function processPaddleEvent(pool, rawEvent) {
   const event = normalizePaddleEvent(rawEvent);
   if (!event) throw new Error('invalid_paddle_event');
@@ -289,6 +441,10 @@ export async function processPaddleEvent(pool, rawEvent) {
             checkoutAttemptId, subscriptionTransactionId]
         );
       }
+    } else if (eventType === 'adjustment.created' || eventType === 'adjustment.updated') {
+      const adjustmentResult = await processPaddleAdjustment(client, { eventId, occurredAt, data });
+      await client.query('COMMIT');
+      return { duplicate: false, ...adjustmentResult };
     } else if (eventType === 'transaction.completed') {
       // Provider payloads are external input even after signature verification.
       // Reject malformed identifiers before they reach database CHECK constraints,
@@ -371,6 +527,30 @@ export async function processPaddleEvent(pool, rawEvent) {
           [customUserId, customerId, lifetimePriceId]
         );
         entitlementLinked = lifetimeUpdate.rowCount > 0;
+        if (entitlementLinked) {
+          await client.query(
+            `INSERT INTO paddle_lifetime_entitlements (transaction_id, user_id, status)
+             VALUES ($1, $2, 'active')
+             ON CONFLICT (transaction_id) DO NOTHING`,
+            [data.id, customUserId]
+          );
+          const lifetimeSource = await client.query(
+            'SELECT user_id, status FROM paddle_lifetime_entitlements WHERE transaction_id = $1',
+            [data.id]
+          );
+          if (lifetimeSource.rowCount !== 1 || lifetimeSource.rows[0].user_id !== customUserId ||
+              lifetimeSource.rows[0].status !== 'active') {
+            entitlementLinked = false;
+            await client.query(
+              `UPDATE users SET premium_lifetime = EXISTS (
+                 SELECT 1 FROM paddle_lifetime_entitlements
+                 WHERE user_id = $1 AND status = 'active'
+               ), updated_at = NOW()
+               WHERE id = $1 AND status = 'active'`,
+              [customUserId]
+            );
+          }
+        }
       } else if (ownsCheckoutAttempt && includesRecurringPrice) {
         // Recurring subscriptions are provisioned only by verified subscription
         // lifecycle events, never by the checkout redirect or transaction alone.
@@ -447,7 +627,7 @@ export async function processPaddleEvent(pool, rawEvent) {
     }
 
     await client.query('COMMIT');
-    return { duplicate: false, handled: ['subscription.created', 'subscription.updated', 'subscription.canceled', 'transaction.completed', 'transaction.canceled', 'customer.created', 'customer.updated'].includes(eventType) };
+    return { duplicate: false, handled: ['subscription.created', 'subscription.updated', 'subscription.canceled', 'transaction.completed', 'transaction.canceled', 'adjustment.created', 'adjustment.updated', 'customer.created', 'customer.updated'].includes(eventType) };
   } catch (error) {
     if (error?.code === '23505') {
       // A unique identity collision is a security conflict, not a transient
