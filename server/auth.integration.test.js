@@ -662,7 +662,7 @@ test('auth API supports registration, session lookup, logout and login', {
          JOIN moderation_audit_log a
            ON a.target_type = 'user_report' AND a.target_id = r.id::text
          WHERE r.id = $1
-         ORDER BY a.created_at, a.id`,
+         ORDER BY CASE a.action WHEN 'review' THEN 0 ELSE 1 END, a.id`,
         [reportId]
       );
       assert.equal(reportEvidence.rows.length, 2);
