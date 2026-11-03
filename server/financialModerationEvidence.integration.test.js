@@ -124,6 +124,8 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
          WHERE user_id = $1 AND attempt_id = $2`,
         [lifetimeReasonUserId, lifetimeAttemptId]
       );
+      await client.query('SET CONSTRAINTS paddle_checkout_attempts_linked_transaction_evidence_guard IMMEDIATE');
+      await client.query('SET CONSTRAINTS paddle_checkout_attempts_linked_transaction_evidence_guard DEFERRED');
 
       const unlinkedEntitlementUserId = randomUUID();
       const unlinkedTransactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
@@ -500,6 +502,8 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
          WHERE user_id = $1 AND attempt_id = $2`,
         [linkedTransitionUserId, linkedTransitionAttemptId]
       );
+      await client.query('SET CONSTRAINTS paddle_checkout_attempts_linked_transaction_evidence_guard IMMEDIATE');
+      await client.query('SET CONSTRAINTS paddle_checkout_attempts_linked_transaction_evidence_guard DEFERRED');
       const linkedTransition = await client.query(
         'SELECT status, attempt_id, transaction_id, plan FROM paddle_checkout_attempts WHERE user_id = $1',
         [linkedTransitionUserId]
@@ -773,6 +777,8 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
          WHERE user_id = $1 AND attempt_id = $2`,
         [linkedUserId, linkedAttemptId]
       );
+      await client.query('SET CONSTRAINTS paddle_checkout_attempts_linked_transaction_evidence_guard IMMEDIATE');
+      await client.query('SET CONSTRAINTS paddle_checkout_attempts_linked_transaction_evidence_guard DEFERRED');
       await client.query(
         `UPDATE paddle_checkout_attempts
          SET attempt_id = $2, transaction_id = NULL, plan = '1month',
