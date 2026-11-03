@@ -10,8 +10,8 @@ const PRIVATE_ADDRESS_PATTERNS = [
   new RegExp('\\b' + STREET_WORD + '(?:\\s+' + STREET_WORD + '){0,5}\\s+' + STREET_SUFFIX + '\\s*,?\\s*' + HOUSE_NUMBER + '\\b', 'iu'),
   new RegExp('\\b' + STREET_PREFIX + '\\s+' + STREET_WORD + '(?:\\s+' + STREET_WORD + '){0,5}\\s*,?\\s*' + HOUSE_NUMBER + '\\b', 'iu'),
   new RegExp('\\b' + HOUSE_NUMBER + '\\s+' + STREET_WORD + '(?:\\s+' + STREET_WORD + '){0,5}\\s+' + STREET_SUFFIX + '\\b', 'iu'),
-  /\\b(?:apt\\.?|apartment|flat|unit|suite|дом|д\\.?|квартира|кв\\.?|building|bldg\\.?)\\s*(?:№|#)?\\s*\\d+\\b/iu,
-  /\\b-?\\d{1,2}\\.\\d{3,}\\s*,\\s*-?\\d{1,3}\\.\\d{3,}\\b/
+  /\b(?:apt\.?|apartment|flat|unit|suite|дом|д\.?|квартира|кв\.?|building|bldg\.?)\s*(?:№|#)?\s*\d+\b/iu,
+  /\b-?\d{1,2}\.\d{3,}\s*,\s*-?\d{1,3}\.\d{3,}\b/
 ];
 
 export function normalizeDatePlanInput(body) {
