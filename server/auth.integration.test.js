@@ -2224,6 +2224,24 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal((await cancelledDatePlanRead.json()).datePlan, null,
       'a cancelled plan must no longer be exposed as active');
 
+    const secondDatePlanProposal = await request(datePlanPath, {
+      method: 'POST', headers: { Cookie: secondCookie },
+      body: JSON.stringify({ ...datePlanInput, venueName: 'City Public Park' })
+    });
+    assert.equal(secondDatePlanProposal.status, 201);
+    const declinedDatePlan = await request(datePlanPath + '/decline', {
+      method: 'POST', headers: { Cookie: maleCookie }
+    });
+    assert.equal(declinedDatePlan.status, 200);
+    const declinedDatePlanRead = await request(datePlanPath, { headers: { Cookie: secondCookie } });
+    assert.equal((await declinedDatePlanRead.json()).datePlan, null,
+      'a declined plan must no longer be exposed as active');
+    const datePlanNotifications = await request('/api/notifications', { headers: { Cookie: secondCookie } });
+    assert.equal(datePlanNotifications.status, 200);
+    assert.ok((await datePlanNotifications.json()).notifications.some(notification =>
+      notification.type === 'date_plan_declined'
+    ), 'the proposer must receive a notification when the other participant declines');
+
     await identityGateDb.query("UPDATE identity_verifications SET status = 'verified', provider_environment = 'live' WHERE user_id = $1", [maleRegistered.user.id]);
 
     const sendMessage = await request(`/api/matches/${matchPayload.match.id}/messages`, {
