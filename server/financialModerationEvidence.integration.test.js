@@ -530,6 +530,14 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       );
       assert.equal(l3AccessTrigger.rowCount, 1,
         'L3 media access audit must have an installed UPDATE/DELETE trigger');
+      const l3SnapshotTrigger = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'identity_l3_media_access_events'::regclass
+           AND tgname = 'identity_l3_media_access_events_snapshot_refs'
+           AND NOT tgisinternal`
+      );
+      assert.equal(l3SnapshotTrigger.rowCount, 1,
+        'new L3 access events must automatically snapshot both provenance UUIDs');
 
       await client.query(`
         CREATE TEMP TABLE l3_access_append_only_test (
