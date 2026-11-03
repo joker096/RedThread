@@ -332,7 +332,8 @@ async function seedFixture(pool) {
     matchB: randomUUID(),
     catalogItem: randomUUID(),
     deliveryPartner: randomUUID(),
-    supplierKey: `test-supplier-${randomUUID().replaceAll('-', '')}`
+    supplierKey: `test-supplier-${randomUUID().replaceAll('-', '')}`,
+    cityKey: `giftcity-${randomUUID().slice(0, 8)}`
   };
   const userIds = [ids.sender, ids.recipientA, ids.recipientB, ids.moderator];
   const matchIds = [ids.matchA, ids.matchB];
@@ -355,8 +356,8 @@ async function seedFixture(pool) {
       await client.query(
         `INSERT INTO profiles
            (user_id, display_name, birth_date, gender, country, city, children_disclosure_confirmed_at)
-         VALUES ($1, $2, DATE '1990-01-01', $3, 'Georgia', 'Tbilisi', NOW())`,
-        [userId, displayName, gender]
+         VALUES ($1, $2, DATE '1990-01-01', $3, 'Georgia', $4, NOW())`,
+        [userId, displayName, gender, ids.cityKey]
       );
     }
 
@@ -419,8 +420,8 @@ async function seedFixture(pool) {
     await client.query(
       `INSERT INTO gift_delivery_partner_coverage
          (partner_id, country_code, city_key, active, verified_at, delivery_fee_minor_units, delivery_fee_currency)
-       VALUES ($1, 'GE', 'Tbilisi', TRUE, NOW(), 300, 'GEL')`,
-      [ids.deliveryPartner]
+       VALUES ($1, 'GE', $2, TRUE, NOW(), 300, 'GEL')`,
+      [ids.deliveryPartner, ids.cityKey]
     );
     await client.query(
       `INSERT INTO gift_catalog_items
@@ -495,8 +496,14 @@ test('gift catalog only returns reviewed items and omits recipient location meta
   try {
     fixture = await seedFixture(pool);
     // Region matching should tolerate harmless ASCII casing and repeated/outer spaces.
-    await pool.query("UPDATE profiles SET city = '  tBiLiSi   ' WHERE user_id = $1", [fixture.ids.recipientA]);
-    await pool.query("UPDATE gift_delivery_partner_coverage SET city_key = 'Tbilisi  ' WHERE partner_id = $1", [fixture.ids.deliveryPartner]);
+    await pool.query(
+      'UPDATE profiles SET city = $2 WHERE user_id = $1',
+      [fixture.ids.recipientA, `  ${fixture.ids.cityKey.toUpperCase()}   `]
+    );
+    await pool.query(
+      'UPDATE gift_delivery_partner_coverage SET city_key = $2 WHERE partner_id = $1',
+      [fixture.ids.deliveryPartner, `${fixture.ids.cityKey.toLowerCase()}  `]
+    );
     const client = await pool.connect();
     try {
       await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
@@ -962,15 +969,25 @@ test('idempotent replay fails closed when a stored BIGINT total is not safely re
       catalogItemId: ids.catalogItem,
       idempotencyKey: 'unsafe-total-replay-' + randomUUID()
     };
-    const first = await runRequest(pool, input);
-    assert.equal(first.status, 201);
+    const unsafeOrder = await pool.query(
+      `INSERT INTO gift_delivery_orders
+         (match_id, sender_id, recipient_id, catalog_item_id,
+          product_name_snapshot, product_category,
+          item_price_minor_units, delivery_fee_minor_units, delivery_fee_currency,
+          total_minor_units, currency, delivery_partner_id,
+          status, payment_status, idempotency_key)
+       VALUES ($1, $2, $3, $4, 'Test chocolate', 'chocolate',
+               9007199254740992::bigint, 0, 'GEL',
+               9007199254740992::bigint, 'GEL', $5,
+               'awaiting_recipient_consent', 'not_started', $6)
+       RETURNING id`,
+      [ids.matchA, ids.sender, ids.recipientA, ids.catalogItem, ids.deliveryPartner, input.idempotencyKey]
+    );
     await pool.query(
-      `UPDATE gift_delivery_orders
-       SET item_price_minor_units = 9007199254740992::bigint,
-           delivery_fee_minor_units = 0,
-           total_minor_units = 9007199254740992::bigint
-       WHERE public_reference = $1`,
-      [first.body.order.id]
+      `INSERT INTO gift_delivery_order_events
+         (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
+       VALUES ($1, $2, 'sender', 'request_created', NULL, 'awaiting_recipient_consent', '{}'::jsonb)`,
+      [unsafeOrder.rows[0].id, ids.sender]
     );
 
     const replay = await runRequest(pool, input);
