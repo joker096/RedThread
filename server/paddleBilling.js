@@ -91,7 +91,7 @@ async function getPaddleAdjustmentState(client, transactionId) {
          WHERE action = 'refund' AND adjustment_type = 'full' AND status = 'approved'
        ) AS full_refund_active,
        COALESCE((
-         SELECT action = 'chargeback' AND status <> 'reversed'
+         SELECT action = 'chargeback' AND status = 'approved'
          FROM latest_chargeback
        ), FALSE) AS chargeback_active`,
     [transactionId]
@@ -108,6 +108,13 @@ async function getPaddleAdjustmentState(client, transactionId) {
 }
 
 async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
+  // Serialize every event for this provider transaction. transaction.completed
+  // takes the same lock before it grants lifetime Premium, so an adjustment
+  // cannot be committed unseen while the purchase is being linked.
+  await client.query(
+    "SELECT pg_advisory_xact_lock(hashtext('paddle-transaction:' || $1::text))",
+    [data.transactionId || data.transaction_id]
+  );
   const adjustmentId = data.id;
   const transactionId = data.transactionId || data.transaction_id;
   const action = String(data.action || '').toLowerCase();
@@ -277,6 +284,16 @@ export async function processPaddleEvent(pool, rawEvent) {
       ? data.id
       : typeof data.subscriptionId === 'string' ? data.subscriptionId
         : typeof data.subscription_id === 'string' ? data.subscription_id : null;
+    const adjustmentWebhookEvent = eventType === 'adjustment.created' || eventType === 'adjustment.updated';
+    // The transaction lock is always acquired before any user lock. The
+    // adjustment handler follows the same order after resolving its owner.
+    if (eventType === 'transaction.completed' &&
+        typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtext('paddle-transaction:' || $1::text))",
+        [data.id]
+      );
+    }
     // Serialize provider identity/entitlement writes with account deletion and
     // safety actions. Deletion holds this same advisory key across external
     // Paddle cancellation, so a late subscription.created event cannot attach
@@ -289,7 +306,7 @@ export async function processPaddleEvent(pool, rawEvent) {
       );
       paddleIdentityUserId = existingOwner.rows[0]?.id || null;
     }
-    if (paddleIdentityUserId) {
+    if (paddleIdentityUserId && !adjustmentWebhookEvent) {
       await client.query(
         "SELECT pg_advisory_xact_lock(hashtext('gift-safety-user:' || $1::uuid::text))",
         [paddleIdentityUserId]
@@ -306,7 +323,6 @@ export async function processPaddleEvent(pool, rawEvent) {
     // Never persist a provider customer identifier that cannot be used by the
     // authenticated portal/cancellation flows. A signed but malformed event is
     // consumed without changing account identity, avoiding endless webhook retries.
-    const adjustmentWebhookEvent = eventType === 'adjustment.created' || eventType === 'adjustment.updated';
     if ((eventType === 'subscription.created' && customerId === null) ||
         (customerId !== null && !/^ctm_[A-Za-z0-9]+$/.test(customerId) && !adjustmentWebhookEvent)) {
       const malformedEventTransactionId = eventType === 'transaction.completed'
