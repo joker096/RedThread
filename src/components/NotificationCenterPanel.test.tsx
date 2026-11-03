@@ -128,3 +128,18 @@ test('rejects notification timestamps made of tabs and line breaks', () => {
     ]), []);
   }
 });
+
+test('accepts date plan lifecycle notifications without exposing metadata', () => {
+  for (const type of ['date_plan_proposed', 'date_plan_confirmed', 'date_plan_cancelled']) {
+    const notification = {
+      id: 'date-plan-' + type,
+      type,
+      createdAt: '2026-11-03T12:00:00Z',
+      readAt: null,
+      metadata: { matchId: 'private-match-id', datePlanId: 'private-plan-id' }
+    };
+    assert.deepEqual(normalizeNotifications([notification]), [{
+      id: notification.id, type, createdAt: notification.createdAt, readAt: null
+    }]);
+  }
+});
