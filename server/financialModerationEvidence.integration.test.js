@@ -629,7 +629,7 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
           id uuid, public_reference text, match_id uuid, sender_id uuid, recipient_id uuid,
           product_name_snapshot text, product_category text, total_minor_units bigint,
           currency char(3), idempotency_key text, created_at timestamptz, expires_at timestamptz,
-          catalog_item_id uuid
+          catalog_item_id uuid, delivery_partner_ref uuid
         ) ON COMMIT DROP
       `);
       await client.query(`
@@ -640,7 +640,7 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       await client.query(
         `INSERT INTO gift_order_facts_guard_test
          VALUES ($1, 'gift_ref', $2, $3, $4, 'snapshot', 'chocolate', 1000,
-                 'USD', 'idempotency', statement_timestamp(), statement_timestamp(), NULL)`,
+                 'USD', 'idempotency', statement_timestamp(), statement_timestamp(), NULL, NULL)`,
         [randomUUID(), randomUUID(), randomUUID(), randomUUID()]
       );
       await client.query('SAVEPOINT gift_order_facts_immutable');
