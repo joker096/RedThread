@@ -709,7 +709,7 @@ test('server discovery filters stay collapsed until requested and close after se
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
   await expect(page.locator('input[name="filter-country"]')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Search' }).click();
+  await page.getByTestId('server-discovery-search').click();
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
   await expect(page.locator('#server-discovery-filters')).toHaveCount(0);
 });
