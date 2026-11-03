@@ -278,8 +278,7 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
   }
   const action = String(data.action || '').toLowerCase();
   const status = String(data.status || '').toLowerCase();
-  const validType = data.type === undefined || data.type === null ||
-    data.type === 'full' || data.type === 'partial';
+  const validType = data.type === null || data.type === 'full' || data.type === 'partial';
   const type = data.type === 'full' || data.type === 'partial' ? data.type : null;
   // Refunds require an explicit full/partial classification. Preserve a
   // malformed signed event in the ledger, but never infer a refund scope.
