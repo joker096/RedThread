@@ -149,6 +149,14 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
                  statement_timestamp() - interval '1 minute', statement_timestamp() - interval '30 seconds')`,
         [userId, firstAttemptId]
       );
+      await client.query('SAVEPOINT current_checkout_attempt_immutable');
+      let currentAttemptDeleteError;
+      try {
+        await client.query('DELETE FROM paddle_checkout_attempts WHERE user_id = $1', [userId]);
+      } catch (error) { currentAttemptDeleteError = error; }
+      assert.equal(currentAttemptDeleteError?.code, '55000');
+      await client.query('ROLLBACK TO SAVEPOINT current_checkout_attempt_immutable');
+      await client.query('RELEASE SAVEPOINT current_checkout_attempt_immutable');
       await client.query(
         `UPDATE paddle_checkout_attempts
          SET attempt_id = $2, transaction_id = NULL, plan = '3months',
