@@ -1736,3 +1736,39 @@ test('completed Paddle transactions recover account ownership from archived chec
     else process.env.PADDLE_PRICE_ID_1MONTH = originalMonthlyPriceId;
   }
 });
+
+test('transaction history does not substitute legacy top-level amount for Paddle details.totals.total', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      calls.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      if (statement.includes('SELECT DISTINCT user_id')) {
+        return { rowCount: 0, rows: [] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+
+  await processPaddleEvent({ async connect() { return client; } }, {
+    eventId: 'evt_transaction_legacy_amount_only',
+    eventType: 'transaction.completed',
+    occurredAt: '2026-11-03T10:00:00Z',
+    data: {
+      id: 'txn_transactionlegacyamount123',
+      amount: '16500',
+      currency_code: 'USD'
+    }
+  });
+
+  const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
+  assert.ok(ledger, 'the provider transaction event must still be retained');
+  assert.equal(ledger.params[5], null,
+    'top-level legacy amount must not be treated as an authoritative Paddle transaction total');
+  assert.equal(ledger.params[6], 'USD');
+});
