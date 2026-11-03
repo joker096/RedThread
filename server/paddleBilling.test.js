@@ -612,11 +612,11 @@ test('Paddle customer portal sessions return only a trusted authenticated portal
           return { data: {
             customer_id: 'ctm_0123456789abcdef01234567',
             urls: {
-              general: { overview: 'https://customer-portal.paddle.com/session?token=secret' },
+              general: { overview: 'https://sandbox-customer-portal.paddle.com/session?token=secret' },
               subscriptions: [{
                 id: 'sub_0123456789abcdef01234567',
-                cancel_subscription: 'https://customer-portal.paddle.com/session?token=secret&action=cancel',
-                view_subscription: 'https://customer-portal.paddle.com/session?token=secret&action=view'
+                cancel_subscription: 'https://sandbox-customer-portal.paddle.com/session?token=secret&action=cancel',
+                view_subscription: 'https://sandbox-customer-portal.paddle.com/session?token=secret&action=view'
               }]
             }
           } };
@@ -628,7 +628,7 @@ test('Paddle customer portal sessions return only a trusted authenticated portal
   assert.equal(request.options.method, 'POST');
   assert.equal(request.options.headers['Paddle-Version'], '1');
   assert.deepEqual(JSON.parse(request.options.body), { subscription_ids: ['sub_0123456789abcdef01234567'] });
-  assert.equal(result.url, 'https://customer-portal.paddle.com/session?token=secret&action=view');
+  assert.equal(result.url, 'https://sandbox-customer-portal.paddle.com/session?token=secret&action=view');
 });
 
 test('Paddle portal rejects mismatched customers and untrusted redirect URLs', async () => {
