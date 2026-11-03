@@ -173,6 +173,9 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
   const validStatuses = new Set(['pending_approval', 'approved', 'rejected', 'reversed']);
   if (!validAdjustmentId || !validTransactionId || !validActions.has(action) ||
       !validStatuses.has(status) || !occurredAt || !Number.isFinite(Date.parse(occurredAt))) {
+    await recordPaddleAdjustmentReconciliationCase(client, {
+      eventId, reasonCode: 'invalid_adjustment_payload'
+    });
     return { handled: true, reconciliationRequired: true };
   }
 
