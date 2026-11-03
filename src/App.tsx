@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale } from './i18n/LocaleProvider.tsx';
 import { isCurrentSessionRequest } from './utils/sessionRequest.ts';
 import { 
@@ -70,6 +70,7 @@ export default function App() {
   // Navigation tab
   const [activeTab, setActiveTab] = useState<'discovery' | 'tests' | 'chats' | 'safety' | 'monetization'>('discovery');
   const [requestedDatePlanMatchId, setRequestedDatePlanMatchId] = useState<string | null>(null);
+  const handleDatePlanMatchOpened = useCallback(() => setRequestedDatePlanMatchId(null), []);
 
   useEffect(() => {
     const openGiftRequests = () => setActiveTab('chats');
@@ -656,7 +657,7 @@ export default function App() {
       case 'chats':
         return (
           <>
-            <ServerMatchesPanel onOpenAccount={() => setActiveTab('tests')} openMatchId={requestedDatePlanMatchId} onMatchOpenHandled={() => setRequestedDatePlanMatchId(null)} />
+            <ServerMatchesPanel onOpenAccount={() => setActiveTab('tests')} openMatchId={requestedDatePlanMatchId} onMatchOpenHandled={handleDatePlanMatchOpened} />
             <NotificationCenterPanel />
             <GiftOrdersPanel />
             <GiftReceivingPreferencesPanel />
