@@ -28,6 +28,7 @@ test('rejects private-place attestations, missing fields and unsafe venue names'
 
 test('rejects ambiguous local datetimes without an explicit UTC offset', () => {
   assert.equal(normalizeDatePlanInput(validInput({ startsAt: '2026-11-10T18:30' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ startsAt: '2026-02-31T18:30:00Z' })), null);
 });
 
 test('rejects proposals that are too soon or more than 90 days away', () => {
