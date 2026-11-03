@@ -758,13 +758,17 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
         [randomUUID(), randomUUID(), randomUUID(), randomUUID(), catalogItemId, deliveryPartnerId]
       );
       const giftOrderSnapshots = await client.query(
-        'SELECT catalog_item_id, catalog_item_ref, delivery_partner_id, delivery_partner_ref FROM gift_order_facts_guard_test'
+        'SELECT catalog_item_id, catalog_item_ref, delivery_partner_id, delivery_partner_ref, item_price_minor_units, delivery_fee_minor_units, delivery_fee_currency, total_minor_units FROM gift_order_facts_guard_test'
       );
       assert.deepEqual(giftOrderSnapshots.rows[0], {
         catalog_item_id: catalogItemId,
         catalog_item_ref: catalogItemId,
         delivery_partner_id: deliveryPartnerId,
-        delivery_partner_ref: deliveryPartnerId
+        delivery_partner_ref: deliveryPartnerId,
+        item_price_minor_units: '700',
+        delivery_fee_minor_units: '300',
+        delivery_fee_currency: 'USD',
+        total_minor_units: '1000'
       }, 'new gift orders must snapshot catalog and delivery partner references');
       await client.query('SAVEPOINT gift_order_facts_immutable');
       let giftOrderFactError;
