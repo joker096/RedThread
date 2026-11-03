@@ -103,6 +103,31 @@ CREATE TABLE paddle_lifetime_entitlements (
 CREATE INDEX paddle_lifetime_entitlements_user_status_idx
   ON paddle_lifetime_entitlements(user_id, status);
 
+-- A provider transaction is globally unique. If legacy/current checkout rows
+-- disagree about its Vow owner, do not let ON CONFLICT choose an arbitrary
+-- account during the entitlement backfill; stop for explicit reconciliation.
+DO $lifetime_owner_preflight$
+BEGIN
+  IF EXISTS (
+    SELECT transaction_id
+    FROM (
+      SELECT transaction_id, user_id
+      FROM paddle_checkout_attempts
+      WHERE plan = 'lifetime' AND status = 'linked' AND transaction_id IS NOT NULL
+      UNION ALL
+      SELECT transaction_id, user_id
+      FROM paddle_checkout_attempt_history
+      WHERE plan = 'lifetime' AND status = 'linked' AND transaction_id IS NOT NULL
+    ) AS linked_lifetime_transactions
+    GROUP BY transaction_id
+    HAVING COUNT(DISTINCT user_id) > 1
+  ) THEN
+    RAISE EXCEPTION 'ambiguous lifetime Paddle transaction ownership; reconcile before migration'
+      USING ERRCODE = '23514';
+  END IF;
+END;
+$lifetime_owner_preflight$;
+
 INSERT INTO paddle_lifetime_entitlements (transaction_id, user_id, status)
 SELECT transaction_id, user_id, 'active'
 FROM (
