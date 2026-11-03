@@ -28,12 +28,12 @@ BEGIN
     SELECT user_id, plan
     FROM paddle_checkout_attempts
     WHERE transaction_id = NEW.transaction_id
-      AND status IN ('linked', 'completed')
+      AND status = 'linked'
     UNION ALL
     SELECT user_id, plan
     FROM paddle_checkout_attempt_history
     WHERE transaction_id = NEW.transaction_id
-      AND status IN ('linked', 'completed')
+      AND status = 'linked'
   ) AS linked;
 
   IF linked_owner_count <> 1 OR NOT matching_linked_owner THEN
@@ -46,9 +46,11 @@ BEGIN
   IF EXISTS (
     SELECT 1
     FROM paddle_transaction_events AS event
+    JOIN paddle_webhook_events AS webhook ON webhook.event_id = event.event_id
     WHERE event.transaction_id = NEW.transaction_id
       AND (
         event.status <> 'completed'
+        OR webhook.event_type <> 'transaction.completed'
         OR (event.user_id IS NOT NULL AND event.user_id <> current_user_id)
         OR (event.plan IS NOT NULL AND event.plan <> 'lifetime')
       )
