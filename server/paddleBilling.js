@@ -200,7 +200,7 @@ async function resolvePaddleAdjustmentReconciliationCases(client, transactionId,
      WHERE cases.event_id = source.event_id
        AND source.transaction_id = $1
        AND cases.status = 'open'
-       AND cases.reason_code IN ('transaction_owner_unlinked', 'transaction_owner_unlinked')
+       AND cases.reason_code = 'transaction_owner_unlinked'
        AND (
          SELECT COUNT(DISTINCT (user_id, plan))
          FROM (
