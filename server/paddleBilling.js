@@ -105,10 +105,10 @@ async function recordPaddleAdjustmentReconciliationCase(client, {
 }) {
   await client.query(
     `INSERT INTO paddle_adjustment_reconciliation_cases
-       (event_id, adjustment_id, transaction_id, reason_code)
-     VALUES ($1, $2, $3, $4)
+       (event_id, reason_code)
+     VALUES ($1, $2)
      ON CONFLICT (event_id) DO NOTHING`,
-    [eventId, adjustmentId, transactionId, reasonCode]
+    [eventId, reasonCode]
   );
 }
 
@@ -119,7 +119,10 @@ async function resolvePaddleAdjustmentReconciliationCases(client, transactionId,
          resolution_note = $2,
          resolved_at = statement_timestamp(),
          updated_at = statement_timestamp()
-     WHERE transaction_id = $1 AND status = 'open'`,
+     FROM paddle_adjustment_events AS source
+     WHERE paddle_adjustment_reconciliation_cases.event_id = source.event_id
+       AND source.transaction_id = $1
+       AND paddle_adjustment_reconciliation_cases.status = 'open'`,
     [transactionId, resolutionNote]
   );
 }
