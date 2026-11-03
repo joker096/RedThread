@@ -5,7 +5,7 @@ import { buildDatePlanShareText } from './datePlanShare.ts';
 test('builds a minimal date plan message without account, contact or location-tracking data', () => {
   const result = buildDatePlanShareText(
     { place: 'Cafe near the park', day: 'Tomorrow', time: '19:00' },
-    { prefix: 'My date is planned for:', reminder: 'I will message you after I get home.' }
+    { prefix: 'My date is planned for:', reminder: 'This is a plan only; Vow does not track my location or confirm my return.' }
   );
   assert.equal(result, 'My date is planned for:\nCafe near the park\nTomorrow, 19:00\nI will message you after I get home.');
   assert.equal(result?.includes('email'), false);
@@ -18,4 +18,12 @@ test('does not create a share message from incomplete or oversized plans', () =>
   assert.equal(buildDatePlanShareText({ place: 'Cafe', day: '', time: '19:00' }, labels), null);
   assert.equal(buildDatePlanShareText({ place: 'Cafe', day: 'Tomorrow', time: '' }, labels), null);
   assert.equal(buildDatePlanShareText({ place: 'x'.repeat(301), day: 'Tomorrow', time: '19:00' }, labels), null);
+});
+
+test('normalizes line breaks in user-provided place text', () => {
+  const result = buildDatePlanShareText(
+    { place: 'Cafe\\nInjected line', day: 'Tomorrow', time: '19:00' },
+    { prefix: 'Date plan:', reminder: 'Plan only.' }
+  );
+  assert.equal(result, 'Date plan:\\nCafe Injected line\\nTomorrow, 19:00\\nPlan only.');
 });
