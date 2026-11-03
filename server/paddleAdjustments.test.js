@@ -40,7 +40,7 @@ function makePool({ ledgerStatus = 'active', revokeReason = null, fullRefund = f
   };
 }
 
-async function sendAdjustment(pool, { eventId, action, status, type = 'partial', eventType = 'adjustment.created' } = {}) {
+async function sendAdjustment(pool, { eventId, action, status, type = 'partial', eventType = 'adjustment.created', amount = '500', currencyCode = 'USD' } = {}) {
   return processPaddleEvent(pool, {
     eventId: eventId || 'evt_' + String(++eventCounter).padStart(26, '0'),
     eventType,
@@ -50,7 +50,9 @@ async function sendAdjustment(pool, { eventId, action, status, type = 'partial',
       transactionId,
       action,
       type,
-      status
+      status,
+      amount,
+      currencyCode
     }
   });
 }
@@ -71,6 +73,9 @@ test('approved full refunds revoke the matching lifetime entitlement', async () 
     action: 'refund', status: 'approved', type: 'full', eventType: 'adjustment.updated'
   });
   assert.equal(result.premiumRevoked, true);
+  const adjustmentLedger = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_events'));
+  assert.equal(adjustmentLedger.params[6], '500');
+  assert.equal(adjustmentLedger.params[7], 'USD');
   const update = calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements'));
   assert.deepEqual(update.params, [transactionId, userId, 'revoked', 'paddle_full_refund']);
   assert.ok(calls.some(call => call.statement.includes('UPDATE users')));
@@ -188,7 +193,9 @@ test('transaction completion reconciles an approved refund delivered earlier', a
           plan: 'lifetime',
           checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
         },
-        items: [{ price: { id: 'pri_lifetime_test' } }]
+        items: [{ price: { id: 'pri_lifetime_test' } }],
+        details: { totals: { total: '1290' } },
+        currencyCode: 'USD'
       }
     });
     assert.equal(result.handled, true);
@@ -197,6 +204,7 @@ test('transaction completion reconciles an approved refund delivered earlier', a
     assert.deepEqual(transactionLedger.params.slice(0, 5), [
       'evt_transaction_after_refund', transactionId, userId, 'lifetime', 'completed'
     ]);
+    assert.deepEqual(transactionLedger.params.slice(5, 7), ['1290', 'USD']);
     const transactionLockIndex = calls.findIndex(call => call.statement.includes("paddle-transaction:"));
     const userLockIndex = calls.findIndex(call => call.statement.includes("gift-safety-user:"));
     assert.ok(transactionLockIndex >= 0 && userLockIndex > transactionLockIndex,
@@ -260,13 +268,14 @@ test('transaction.canceled events are retained even without a matched checkout r
       eventId: 'evt_canceledtransactionhistory',
       eventType: 'transaction.canceled',
       occurredAt: '2026-11-03T10:00:00Z',
-      data: { id: transactionId, items: [{ price: { id: 'pri_monthly_test' } }] }
+      data: { id: transactionId, items: [{ price: { id: 'pri_monthly_test' } }], details: { totals: { total: '990' } }, currency_code: 'GEL' }
     });
     const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
     assert.ok(ledger);
     assert.deepEqual(ledger.params.slice(0, 5), [
       'evt_canceledtransactionhistory', transactionId, null, '1month', 'canceled'
     ]);
+    assert.deepEqual(ledger.params.slice(5, 7), ['990', 'GEL']);
   } finally {
     if (originalMonthlyPrice === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
     else process.env.PADDLE_PRICE_ID_1MONTH = originalMonthlyPrice;
