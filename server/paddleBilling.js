@@ -88,7 +88,7 @@ function paddleTransactionAmount(data) {
 }
 
 function paddleCurrencyCode(data) {
-  const value = data?.currencyCode ?? data?.currency_code ?? data?.currency;
+  const value = data?.currencyCode ?? data?.currency_code;
   return typeof value === 'string' && /^[A-Za-z]{3}$/.test(value)
     ? value.toUpperCase() : null;
 }
