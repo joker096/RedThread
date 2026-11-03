@@ -47,16 +47,23 @@ test('account deletion scrubs profile personal data in the database', {
       [userId]
     );
 
-    const l3NoMediaSubmission = await client.query(
-      `INSERT INTO identity_l3_submissions (user_id, status)
-       VALUES ($1, 'draft') RETURNING id`,
-      [userId]
-    );
-
     await client.query(
       "INSERT INTO user_safety_screenings (user_id, scope, flags, severity, engine_version, review_status) VALUES ($1, 'profile', jsonb_build_array('profile_flag'), 'high', 'test-v1', 'pending')",
       [userId]
     );
+
+    // A separate account is needed because the L3 schema permits only one
+    // open submission per user. Its draft has no media object to retain.
+    const noMediaUser = await client.query(
+      "INSERT INTO users (email, password_hash, status) VALUES ($1, 'test-only-hash', 'active') RETURNING id",
+      [`deleted-l3-no-media-${randomUUID()}@example.invalid`]
+    );
+    const l3NoMediaSubmission = await client.query(
+      `INSERT INTO identity_l3_submissions (user_id, status)
+       VALUES ($1, 'draft') RETURNING id`,
+      [noMediaUser.rows[0].id]
+    );
+    await client.query("UPDATE users SET status = 'deleted' WHERE id = $1", [noMediaUser.rows[0].id]);
     await client.query('SAVEPOINT active_gender_guard');
     await assert.rejects(
       client.query('UPDATE profiles SET gender = NULL WHERE user_id = $1', [userId]),
