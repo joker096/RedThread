@@ -297,12 +297,7 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
 
   const amountMinorUnits = parsePaddleMinorAmount(data?.totals?.total);
   const currencyCode = paddleCurrencyCode(data);
-  if (amountMinorUnits === null || currencyCode === null) {
-    await recordPaddleAdjustmentReconciliationCase(client, {
-      eventId, reasonCode: 'invalid_adjustment_payload'
-    });
-    return { handled: true, reconciliationRequired: true };
-  }
+  const incompleteFinancialMetadata = amountMinorUnits === null || currencyCode === null;
 
   await client.query(
     `INSERT INTO paddle_adjustment_events
@@ -314,9 +309,10 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
       amountMinorUnits, currencyCode, occurredAt]
   );
 
-  if (invalidTypeMetadata) {
-    // Type does not affect chargeback/credit handling, so preserve the signed
-    // action semantics while keeping malformed metadata visible for review.
+  if (invalidTypeMetadata || incompleteFinancialMetadata) {
+    // Type metadata does not affect chargeback/credit handling, and amount/
+    // currency fields do not affect entitlement state. Preserve signed action
+    // semantics while keeping incomplete financial metadata visible for review.
     await recordPaddleAdjustmentReconciliationCase(client, {
       eventId, adjustmentId, transactionId,
       reasonCode: 'invalid_adjustment_payload'
