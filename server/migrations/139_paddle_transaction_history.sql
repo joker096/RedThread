@@ -9,10 +9,7 @@ CREATE TABLE paddle_transaction_events (
   plan TEXT CHECK (plan IS NULL OR plan IN ('1month', '3months', 'lifetime')),
   status TEXT NOT NULL CHECK (status IN ('completed', 'canceled')),
   amount_minor_units BIGINT CHECK (amount_minor_units IS NULL OR amount_minor_units >= 0),
-  currency_code CHAR(3) CHECK (
-    currency_code IS NULL OR (length(currency_code) = 3 AND currency_code = upper(currency_code)
-      AND currency_code ~ '^[A-Z][A-Z][A-Z]')
-  ),
+  currency_code CHAR(3) CHECK (currency_code IS NULL OR currency_code ~ '^[A-Z]{3}$'),
   subscription_id TEXT CHECK (subscription_id IS NULL OR subscription_id ~ '^sub_[A-Za-z0-9]+$'),
   customer_id TEXT CHECK (customer_id IS NULL OR customer_id ~ '^ctm_[A-Za-z0-9]+$'),
   occurred_at TIMESTAMPTZ,
