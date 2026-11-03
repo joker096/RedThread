@@ -45,6 +45,50 @@ async function preserveGiftOrderFixture(db, orderId) {
   }
 }
 
+async function resolveReportFixtureWithAudit(db, reportId) {
+  if (!reportId) return;
+  const client = await db.connect();
+  const moderatorId = randomUUID();
+  let createdModerator = false;
+  try {
+    await client.query('BEGIN');
+    const pending = await client.query(
+      "SELECT id FROM user_reports WHERE id = $1 AND status IN ('open', 'reviewing') FOR UPDATE",
+      [reportId]
+    );
+    if (pending.rowCount === 1) {
+      await client.query(
+        "INSERT INTO users (id, email, password_hash, role, status) VALUES ($1, $2, 'test-only-hash', 'moderator', 'active')",
+        [moderatorId, `report-cleanup-moderator-${moderatorId}@example.invalid`]
+      );
+      createdModerator = true;
+      const resolved = await client.query(
+        "UPDATE user_reports SET status = 'resolved' WHERE id = $1 AND status IN ('open', 'reviewing') RETURNING id",
+        [reportId]
+      );
+      if (resolved.rowCount === 1) {
+        await client.query(
+          `INSERT INTO moderation_audit_log
+             (moderator_id, action, target_type, target_id, reason, details)
+           VALUES ($1, 'resolve', 'user_report', $2, 'test fixture cleanup',
+                   jsonb_build_object('newStatus', 'resolved'))`,
+          [moderatorId, reportId]
+        );
+      }
+    }
+    await client.query('COMMIT');
+    if (createdModerator) {
+      // The append-only actor snapshot preserves the UUID after the live FK is nulled.
+      await client.query('DELETE FROM users WHERE id = $1', [moderatorId]);
+    }
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function findFreePort() {
   const listener = createServer();
   await new Promise((resolve, reject) => {
@@ -2768,10 +2812,7 @@ test('auth API supports registration, session lookup, logout and login', {
 
     } finally {
       if (reportId) {
-        await giftSafetyDb.query(
-          "UPDATE user_reports SET status = 'resolved' WHERE id = $1 AND status IN ('open', 'reviewing')",
-          [reportId]
-        );
+        await resolveReportFixtureWithAudit(giftSafetyDb, reportId);
       }
       for (const orderId of [blockSafetyOrderId, blockFailedDeliveryOrderId, authorizationPendingSafetyOrderId, reportSafetyOrderId, reportFailedDeliveryOrderId].filter(Boolean)) {
         await preserveGiftOrderFixture(giftSafetyDb, orderId);
@@ -2992,10 +3033,7 @@ test('auth API supports registration, session lookup, logout and login', {
       // Reports are immutable evidence. Retain them and close only cases that
       // are still actionable; the deleted-target fixture remains a tombstone.
       for (const retainedReportId of [deletedTargetReportId, moderationSafetyReportId].filter(Boolean)) {
-        await moderationSafetyDb.query(
-          "UPDATE user_reports SET status = 'resolved' WHERE id = $1 AND status IN ('open', 'reviewing')",
-          [retainedReportId]
-        );
+        await resolveReportFixtureWithAudit(moderationSafetyDb, retainedReportId);
       }
       if (moderationSafetyOrderId) {
         await preserveGiftOrderFixture(moderationSafetyDb, moderationSafetyOrderId);
@@ -3091,10 +3129,7 @@ test('auth API supports registration, session lookup, logout and login', {
           'a safety report after dispatch must enqueue reconciliation for the captured payment');
       } finally {
         if (dispatchedReportId) {
-          await deletionSafetyDb.query(
-            "UPDATE user_reports SET status = 'resolved' WHERE id = $1 AND status IN ('open', 'reviewing')",
-            [dispatchedReportId]
-          );
+          await resolveReportFixtureWithAudit(deletionSafetyDb, dispatchedReportId);
         }
         await preserveGiftOrderFixture(deletionSafetyDb, dispatchedReportSafetyOrderId);
       }
