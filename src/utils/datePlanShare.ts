@@ -13,11 +13,14 @@ export function buildDatePlanShareText(
   plan: DatePlanShareDetails,
   labels: DatePlanShareLabels
 ): string | null {
-  const place = typeof plan.place === 'string' ? plan.place.trim() : '';
-  const day = typeof plan.day === 'string' ? plan.day.trim() : '';
-  const time = typeof plan.time === 'string' ? plan.time.trim() : '';
-  const prefix = typeof labels.prefix === 'string' ? labels.prefix.trim() : '';
-  const reminder = typeof labels.reminder === 'string' ? labels.reminder.trim() : '';
+  const normalizeLine = (value: unknown) => typeof value === 'string'
+    ? value.replace(/[\\r\\n\\t]+/g, ' ').replace(/\\s{2,}/g, ' ').trim()
+    : '';
+  const place = normalizeLine(plan.place);
+  const day = normalizeLine(plan.day);
+  const time = normalizeLine(plan.time);
+  const prefix = normalizeLine(labels.prefix);
+  const reminder = normalizeLine(labels.reminder);
   if (!place || !day || !time || !prefix || !reminder) return null;
   if (place.length > 300 || day.length > 100 || time.length > 40) return null;
   return [prefix, place, `${day}, ${time}`, reminder].join('\n');
