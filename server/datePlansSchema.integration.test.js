@@ -40,10 +40,25 @@ test('date plan schema enforces mutual confirmation and cancels plans on safety 
     const triggers = await client.query(
       `SELECT c.relname AS table_name, t.tgname
        FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
-       WHERE NOT t.tgisinternal AND t.tgname IN ('matches_cancel_date_plans_on_close', 'user_blocks_cancel_date_plans')`
+       WHERE NOT t.tgisinternal AND t.tgname IN (
+         'matches_cancel_date_plans_on_close',
+         'user_blocks_cancel_date_plans',
+         'users_cancel_date_plans_on_deactivation',
+         'identity_verifications_cancel_date_plans_on_gate_loss',
+         'identity_l3_submissions_cancel_date_plans_on_gate_loss',
+         'identity_l3_consents_cancel_date_plans_on_withdrawal'
+       )`
     );
-    assert.ok(triggers.rows.some(row => row.tgname === 'matches_cancel_date_plans_on_close'));
-    assert.ok(triggers.rows.some(row => row.tgname === 'user_blocks_cancel_date_plans'));
+    for (const trigger of [
+      'matches_cancel_date_plans_on_close',
+      'user_blocks_cancel_date_plans',
+      'users_cancel_date_plans_on_deactivation',
+      'identity_verifications_cancel_date_plans_on_gate_loss',
+      'identity_l3_submissions_cancel_date_plans_on_gate_loss',
+      'identity_l3_consents_cancel_date_plans_on_withdrawal'
+    ]) {
+      assert.ok(triggers.rows.some(row => row.tgname === trigger), 'missing safety trigger ' + trigger);
+    }
 
     await client.query('BEGIN');
     const users = await client.query(
