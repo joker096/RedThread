@@ -3036,7 +3036,7 @@ const messageLimiter = rateLimit({
   message: { error: 'too_many_messages' }
 });
 
-app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin, requireSession, async (req, res) => {
+app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
   if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
   const body = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
   if (!body || body.length > 4000) return res.status(400).json({ error: 'message_must_be_1_to_4000_characters' });
