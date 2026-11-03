@@ -108,6 +108,19 @@ test('date plan schema enforces mutual confirmation and cancels plans on safety 
     assert.equal(confirmed.rows[0].status, 'confirmed');
     assert.ok(confirmed.rows[0].confirmed_by_a_at && confirmed.rows[0].confirmed_by_b_at);
 
+    // L2/L3 are male-only interaction gates. Identity metadata on a female
+    // participant must not cancel an otherwise valid mutually confirmed plan.
+    await client.query(
+      'INSERT INTO identity_l3_consents (user_id, consent_version, granted_at) VALUES ($1, 2, NOW())',
+      [a]
+    );
+    const femaleIdentityMetadata = await client.query(
+      'SELECT status FROM date_plans WHERE id = $1',
+      [planId]
+    );
+    assert.equal(femaleIdentityMetadata.rows[0].status, 'confirmed',
+      'female identity metadata must not trigger male-only L3 plan cancellation');
+
     await client.query("INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2)", [a, b]);
     const cancelled = await client.query('SELECT status, confirmed_by_a_at, confirmed_by_b_at FROM date_plans WHERE id = $1', [planId]);
     assert.equal(cancelled.rows[0].status, 'cancelled');
