@@ -471,28 +471,10 @@ async function runRequest(pool, input) {
 
 async function cleanupFixture(pool, fixture) {
   const { ids, userIds, matchIds } = fixture;
-  await pool.query(
-    `DELETE FROM gift_payment_reconciliation_tasks
-     WHERE order_id IN (
-       SELECT id FROM gift_delivery_orders
-       WHERE sender_id = ANY($1::uuid[]) OR recipient_id = ANY($1::uuid[])
-     )`,
-    [userIds]
-  );
-  await pool.query(
-    `DELETE FROM gift_delivery_order_events
-     WHERE order_id IN (
-       SELECT id FROM gift_delivery_orders
-       WHERE sender_id = ANY($1::uuid[]) OR recipient_id = ANY($1::uuid[])
-     )`,
-    [userIds]
-  );
-  await pool.query(
-    'DELETE FROM gift_delivery_orders WHERE sender_id = ANY($1::uuid[]) OR recipient_id = ANY($1::uuid[])',
-    [userIds]
-  );
+  // Gift orders, their event history and reconciliation tasks are retained as
+  // financial/safety evidence. Keep their match/account tombstones too; all
+  // fixture IDs are random and all business queries are scoped to those IDs.
   await pool.query('DELETE FROM messages WHERE match_id = ANY($1::uuid[])', [matchIds]);
-  await pool.query('DELETE FROM matches WHERE id = ANY($1::uuid[])', [matchIds]);
   await pool.query('DELETE FROM gift_receiving_preferences WHERE user_id = ANY($1::uuid[])', [userIds]);
   await pool.query(
     'DELETE FROM user_identity_verifications WHERE user_id = ANY($1::uuid[]) OR reviewed_by = ANY($1::uuid[])',
@@ -503,7 +485,7 @@ async function cleanupFixture(pool, fixture) {
   await pool.query('DELETE FROM gift_delivery_partners WHERE id = $1', [ids.deliveryPartner]);
   await pool.query('DELETE FROM gift_suppliers WHERE supplier_key = $1', [ids.supplierKey]);
   await pool.query('DELETE FROM profiles WHERE user_id = ANY($1::uuid[])', [userIds]);
-  await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [userIds]);
+  await pool.query("UPDATE users SET status = 'deleted' WHERE id = ANY($1::uuid[])", [userIds]);
 }
 
 test('gift catalog only returns reviewed items and omits recipient location metadata', {
