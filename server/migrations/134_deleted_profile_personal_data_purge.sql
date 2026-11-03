@@ -86,3 +86,24 @@ CREATE TRIGGER users_scrub_deleted_account_data
 
 COMMENT ON FUNCTION scrub_deleted_account_data() IS
   'Erases profile-derived personal data and transient safety-screening results on account deletion while retaining a non-discoverable relational tombstone.';
+
+-- A deleted account is a terminal tombstone. Reactivation would expose an
+-- intentionally scrubbed profile whose required identity fields no longer exist.
+CREATE OR REPLACE FUNCTION prevent_deleted_account_reactivation()
+RETURNS trigger LANGUAGE plpgsql AS $deleted_terminal$
+BEGIN
+  IF OLD.status = 'deleted' AND NEW.status <> 'deleted' THEN
+    RAISE EXCEPTION 'deleted accounts cannot be reactivated'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$deleted_terminal$;
+
+DROP TRIGGER IF EXISTS users_deleted_account_terminal ON users;
+CREATE TRIGGER users_deleted_account_terminal
+  BEFORE UPDATE OF status ON users
+  FOR EACH ROW EXECUTE FUNCTION prevent_deleted_account_reactivation();
+
+COMMENT ON FUNCTION prevent_deleted_account_reactivation() IS
+  'Deleted account tombstones are terminal; users must register a new account rather than reactivate a scrubbed identity.';
