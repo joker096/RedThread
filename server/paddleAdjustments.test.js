@@ -129,9 +129,14 @@ test('chargebacks still revoke lifetime access when unrelated type metadata is m
     status: 'approved',
     type: 'unexpected-provider-value'
   });
-  assert.equal(result.reconciliationRequired, false);
+  assert.notEqual(result.reconciliationRequired, true,
+    'malformed type metadata must not block processing of a signed chargeback');
   assert.ok(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')),
     'the signed chargeback event must be retained');
+  assert.ok(calls.some(call =>
+    call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases') &&
+    call.params[1] === 'invalid_adjustment_payload'
+  ), 'malformed type metadata must remain visible for manual review');
   const entitlementUpdate = calls.find(call =>
     call.statement.includes('UPDATE paddle_lifetime_entitlements') &&
     call.params[2] === 'revoked'
