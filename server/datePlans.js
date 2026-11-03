@@ -141,7 +141,7 @@ export function registerDatePlanRoutes(app, deps) {
           await client.query(
             `INSERT INTO date_plan_events (date_plan_id, actor_id, event_type, details)
              VALUES ($1, $2, 'cancelled', $3::jsonb)`,
-            [plan.id, ineligibleUserId, JSON.stringify({ reason: 'participant_safety_eligibility_lost' })]
+            [plan.id, null, JSON.stringify({ reason: 'participant_safety_eligibility_lost' })]
           );
           const activeRecipient = await client.query(
             "SELECT 1 FROM users WHERE id = $1 AND status = 'active'",
