@@ -2167,6 +2167,7 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(femaleMessageToUnverifiedMale.status, 404,
       'women must not message male accounts without live L2 verification');
+    await identityGateDb.query("UPDATE identity_verifications SET status = 'verified', provider_environment = 'live' WHERE user_id = $1", [maleRegistered.user.id]);
     const datePlanPath = '/api/matches/' + matchPayload.match.id + '/date-plan';
     const datePlanInput = {
       venueName: 'Central Public Cafe',
