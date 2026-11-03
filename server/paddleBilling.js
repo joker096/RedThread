@@ -170,6 +170,9 @@ async function getPaddleAdjustmentState(client, transactionId) {
          adjustment_id, action, adjustment_type, status, occurred_at, received_at, event_id
        FROM paddle_adjustment_events
        WHERE transaction_id = $1
+         -- A refund with no recognized scope is retained for review but must
+         -- not supersede a previously verified full/partial adjustment state.
+         AND NOT (action = 'refund' AND adjustment_type IS NULL)
        ORDER BY adjustment_id, occurred_at DESC,
          CASE status
            WHEN 'pending_approval' THEN 0
@@ -410,7 +413,7 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
   const hasAdverseAdjustment = adjustmentState.hasAdverseAdjustment;
   const isReversal = (action === 'chargeback_reverse' && status === 'approved') ||
     (action === 'chargeback' && status === 'reversed') ||
-    (action === 'refund' && ['rejected', 'reversed'].includes(status));
+    (action === 'refund' && type !== null && ['rejected', 'reversed'].includes(status));
 
   let nextStatus = entitlement.status;
   let revokeReason = entitlement.revoke_reason;
