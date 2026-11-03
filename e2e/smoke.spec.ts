@@ -2084,11 +2084,31 @@ test('date plan requires both participants and resets confirmations after a chan
     for (const width of [320, 360, 390]) {
       await participantA.page.setViewportSize({ width, height: 800 });
       await expect(participantA.page.getByTestId('date-plan-panel')).toBeVisible();
-      const dimensions = await participantA.page.evaluate(() => ({
-        viewport: document.documentElement.clientWidth,
-        document: document.documentElement.scrollWidth,
-        panel: document.querySelector('[data-testid="date-plan-panel"]')?.getBoundingClientRect().width ?? 0
-      }));
+      const dimensions = await participantA.page.evaluate(() => {
+        const viewport = document.documentElement.clientWidth;
+        const offenders = Array.from(document.body.querySelectorAll<HTMLElement>('*'))
+          .map(element => {
+            const rect = element.getBoundingClientRect();
+            return {
+              tag: element.tagName.toLowerCase(),
+              testId: element.dataset.testid || '',
+              className: typeof element.className === 'string' ? element.className.slice(0, 100) : '',
+              text: (element.innerText || '').trim().slice(0, 60),
+              left: Math.round(rect.left),
+              right: Math.round(rect.right),
+              width: Math.round(rect.width)
+            };
+          })
+          .filter(element => element.width > 0 && (element.left < -1 || element.right > viewport + 1))
+          .sort((a, b) => b.right - a.right)
+          .slice(0, 12);
+        return {
+          viewport,
+          document: document.documentElement.scrollWidth,
+          panel: document.querySelector('[data-testid="date-plan-panel"]')?.getBoundingClientRect().width ?? 0,
+          offenders
+        };
+      });
       expect(dimensions.document, `date-plan panel overflows at ${width}px: ${JSON.stringify(dimensions)}`).toBeLessThanOrEqual(dimensions.viewport + 1);
       expect(dimensions.panel).toBeLessThanOrEqual(width + 1);
       const proposeButton = participantA.page.getByRole('button', { name: /propose date plan|предложить план встречи/i });
