@@ -521,18 +521,17 @@ export async function processPaddleEvent(pool, rawEvent) {
         );
         entitlementLinked = lifetimeUpdate.rowCount > 0;
         if (entitlementLinked) {
-          await client.query(
+          const lifetimeSource = await client.query(
             `INSERT INTO paddle_lifetime_entitlements (transaction_id, user_id, status)
              VALUES ($1, $2, 'active')
-             ON CONFLICT (transaction_id) DO NOTHING`,
+             ON CONFLICT (transaction_id) DO UPDATE
+             SET updated_at = paddle_lifetime_entitlements.updated_at
+             WHERE paddle_lifetime_entitlements.user_id = EXCLUDED.user_id
+               AND paddle_lifetime_entitlements.status = 'active'
+             RETURNING transaction_id`,
             [data.id, customUserId]
           );
-          const lifetimeSource = await client.query(
-            'SELECT user_id, status FROM paddle_lifetime_entitlements WHERE transaction_id = $1',
-            [data.id]
-          );
-          if (lifetimeSource.rowCount !== 1 || lifetimeSource.rows[0].user_id !== customUserId ||
-              lifetimeSource.rows[0].status !== 'active') {
+          if (lifetimeSource.rowCount !== 1) {
             entitlementLinked = false;
             await client.query(
               `UPDATE users SET premium_lifetime = EXISTS (
