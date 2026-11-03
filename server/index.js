@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { queuePrivatePhotoPurges } from './photoPurge.js';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -1393,8 +1394,7 @@ async function suspendGiftOrdersForUser(client, userId, { actorUserId = null, ac
 }
 
 app.delete('/api/account', validateRequestOrigin, requireSession, async (req, res) => {
-  let privatePhotoPaths = [];
-  const password = req.body?.password;
+    const password = req.body?.password;
   if (typeof password !== 'string' || password.length < 1 || password.length > 128) {
     return res.status(400).json({ error: 'password_confirmation_required' });
   }
@@ -1587,7 +1587,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     await client.query('DELETE FROM identity_l3_submissions WHERE user_id = $1', [req.authUser.id]);
     await suspendGiftOrdersForUser(client, req.authUser.id, { reason: 'account_deleted' });
     const photoFiles = await client.query('SELECT storage_path FROM photo_assets WHERE user_id = $1', [req.authUser.id]);
-    privatePhotoPaths = photoFiles.rows.map(row => row.storage_path);
+    await queuePrivatePhotoPurges(client, photoFiles.rows.map(row => row.storage_path));
     await client.query('DELETE FROM photo_assets WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM sessions WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
@@ -1637,7 +1637,6 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
       [req.authUser.id]
     );
     await client.query('COMMIT');
-    await Promise.all(privatePhotoPaths.map(filePath => unlink(filePath).catch(() => {})));
     clearSessionCookie(res);
     return res.status(204).end();
   } catch (error) {
@@ -2363,11 +2362,11 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
         [req.authUser.id, body.photoUrls.filter(url => url.startsWith('/api/photos/'))]
       );
       removedAssets = removed.rows;
+      await queuePrivatePhotoPurges(client, removedAssets.map(asset => asset.storagePath));
     }
     const screening = await screenProfilePrivate(result.rows[0]);
     await persistScreening(req.authUser.id, 'profile', screening, client);
     await client.query('COMMIT');
-    await Promise.all(removedAssets.map(asset => unlink(asset.storagePath).catch(() => {})));
     return res.json({ profile: result.rows[0], screening: { engine: screening.engine, externalProcessing: false, flags: screening.flags, requiresReview: screening.requiresReview } });
   } catch (error) {
     if (client && !await rollbackPooledTransaction(client)) client = null;
