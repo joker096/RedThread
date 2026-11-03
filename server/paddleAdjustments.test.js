@@ -224,7 +224,9 @@ test('adjustment evidence is processed even when unrelated customer metadata is 
       customerId: 'not-a-paddle-customer',
       action: 'refund',
       type: 'full',
-      status: 'approved'
+      status: 'approved',
+      currency_code: 'USD',
+      totals: { total: '500', currency_code: 'USD' }
     }
   });
   assert.equal(result.premiumRevoked, true);
