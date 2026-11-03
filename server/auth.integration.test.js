@@ -2176,7 +2176,12 @@ test('auth API supports registration, session lookup, logout and login', {
       isPublicVenue: true
     };
     // Date-plan consent and cancellation are safety functions, not paid features.
-    // Expire the female trial before exercising the full lifecycle below.
+    // Preserve and restore billing state so later integration checks remain isolated.
+    const femaleBillingBeforeDatePlan = await identityGateDb.query(
+      'SELECT female_trial_ends_at, premium_until, premium_lifetime FROM users WHERE id = $1',
+      [registered.user.id]
+    );
+    assert.equal(femaleBillingBeforeDatePlan.rowCount, 1);
     await identityGateDb.query(
       "UPDATE users SET female_trial_ends_at = NOW() - INTERVAL '1 day', premium_until = NULL, premium_lifetime = FALSE WHERE id = $1",
       [registered.user.id]
@@ -2314,6 +2319,15 @@ test('auth API supports registration, session lookup, logout and login', {
     await identityGateDb.query(
       'UPDATE identity_l3_consents SET withdrawn_at = NULL WHERE user_id = $1',
       [maleRegistered.user.id]
+    );
+
+    const previousFemaleBilling = femaleBillingBeforeDatePlan.rows[0];
+    await identityGateDb.query(
+      `UPDATE users
+          SET female_trial_ends_at = $2, premium_until = $3, premium_lifetime = $4
+        WHERE id = $1`,
+      [registered.user.id, previousFemaleBilling.female_trial_ends_at,
+        previousFemaleBilling.premium_until, previousFemaleBilling.premium_lifetime]
     );
 
     await identityGateDb.query("UPDATE identity_verifications SET status = 'verified', provider_environment = 'live' WHERE user_id = $1", [maleRegistered.user.id]);
