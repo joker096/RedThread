@@ -86,6 +86,9 @@ test('approved full refunds revoke the matching lifetime entitlement', async () 
     action: 'refund', status: 'approved', type: 'full', eventType: 'adjustment.updated'
   });
   assert.equal(result.premiumRevoked, true);
+  const adjustmentStateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
+  assert.match(adjustmentStateQuery.statement, /WHEN 'pending_approval' THEN 0[\\s\\S]*WHEN 'reversed' THEN 3/,
+    'final approval/rejection/reversal states must outrank a same-time pending webhook');
   const adjustmentLedger = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_events'));
   assert.equal(adjustmentLedger.params[6], '500');
   assert.equal(adjustmentLedger.params[7], 'USD');
