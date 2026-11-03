@@ -189,6 +189,35 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       await client.query('ROLLBACK TO SAVEPOINT history_immutable');
       await client.query('RELEASE SAVEPOINT history_immutable');
 
+      const thirdAttemptId = randomUUID();
+      await client.query(
+        `UPDATE paddle_checkout_attempts
+         SET transaction_id = 'txn_historycompleted123', status = 'completed',
+             updated_at = statement_timestamp()
+         WHERE user_id = $1 AND attempt_id = $2`,
+        [userId, secondAttemptId]
+      );
+      await client.query(
+        `UPDATE paddle_checkout_attempts
+         SET attempt_id = $2, transaction_id = NULL, plan = '1month',
+             status = 'creating', created_at = statement_timestamp(), updated_at = statement_timestamp()
+         WHERE user_id = $1`,
+        [userId, thirdAttemptId]
+      );
+      const completedHistory = await client.query(
+        `SELECT user_id, attempt_id, transaction_id, plan, status
+         FROM paddle_checkout_attempt_history
+         WHERE user_id = $1 AND transaction_id = 'txn_historycompleted123'`,
+        [userId]
+      );
+      assert.deepEqual(completedHistory.rows, [{
+        user_id: userId,
+        attempt_id: secondAttemptId,
+        transaction_id: 'txn_historycompleted123',
+        plan: '3months',
+        status: 'completed'
+      }], 'completed recurring transactions must also be archived before checkout pointer reuse');
+
       const checkoutFk = await client.query(
         `SELECT pg_get_constraintdef(oid) AS definition
          FROM pg_constraint
