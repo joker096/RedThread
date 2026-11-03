@@ -24,6 +24,31 @@ ALTER TABLE identity_l3_media_access_events
   ADD CONSTRAINT identity_l3_media_access_events_moderator_user_id_fkey
     FOREIGN KEY (moderator_user_id) REFERENCES users(id) ON DELETE SET NULL;
 
+CREATE OR REPLACE FUNCTION snapshot_identity_l3_media_access_event_refs()
+RETURNS trigger LANGUAGE plpgsql AS $l3_media_access_snapshot$
+BEGIN
+  IF NEW.submission_id IS NOT NULL
+     AND NEW.submission_ref IS NOT NULL
+     AND NEW.submission_ref IS DISTINCT FROM NEW.submission_id THEN
+    RAISE EXCEPTION 'L3 media access submission snapshot must match its live reference'
+      USING ERRCODE = '23514';
+  END IF;
+  IF NEW.moderator_user_id IS NOT NULL
+     AND NEW.moderator_ref IS NOT NULL
+     AND NEW.moderator_ref IS DISTINCT FROM NEW.moderator_user_id THEN
+    RAISE EXCEPTION 'L3 media access moderator snapshot must match its live reference'
+      USING ERRCODE = '23514';
+  END IF;
+  NEW.submission_ref := COALESCE(NEW.submission_ref, NEW.submission_id);
+  NEW.moderator_ref := COALESCE(NEW.moderator_ref, NEW.moderator_user_id);
+  RETURN NEW;
+END;
+$l3_media_access_snapshot$;
+
+CREATE TRIGGER identity_l3_media_access_events_snapshot_refs
+  BEFORE INSERT ON identity_l3_media_access_events
+  FOR EACH ROW EXECUTE FUNCTION snapshot_identity_l3_media_access_event_refs();
+
 CREATE INDEX identity_l3_media_access_submission_ref_idx
   ON identity_l3_media_access_events(submission_ref, accessed_at DESC, id);
 CREATE INDEX identity_l3_media_access_moderator_ref_idx
