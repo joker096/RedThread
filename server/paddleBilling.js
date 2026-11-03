@@ -277,6 +277,7 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
   const status = String(data.status || '').toLowerCase();
   const validType = data.type === undefined || data.type === null ||
     data.type === 'full' || data.type === 'partial';
+  const invalidRefundType = action === 'refund' && !validType;
   const type = data.type === 'full' || data.type === 'partial' ? data.type : null;
   const validAdjustmentId = typeof adjustmentId === 'string' && /^adj_[A-Za-z0-9]+$/.test(adjustmentId);
   const validTransactionId = typeof transactionId === 'string' && /^txn_[A-Za-z0-9]+$/.test(transactionId);
@@ -286,7 +287,7 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
   ]);
   const validStatuses = new Set(['pending_approval', 'approved', 'rejected', 'reversed']);
   if (!validAdjustmentId || !validTransactionId || !validActions.has(action) || !validStatuses.has(status) ||
-      !validType || !occurredAt || !Number.isFinite(Date.parse(occurredAt))) {
+      invalidRefundType || !occurredAt || !Number.isFinite(Date.parse(occurredAt))) {
     await recordPaddleAdjustmentReconciliationCase(client, {
       eventId, reasonCode: 'invalid_adjustment_payload'
     });
