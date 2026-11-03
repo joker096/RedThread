@@ -69,13 +69,6 @@ async function markPaddleCheckoutAttemptForReconciliation(client, userId, plan, 
 }
 
 
-export function isPaddleAdjustmentRevokingLifetime({ action, type, status } = {}) {
-  const normalizedAction = String(action || '').toLowerCase();
-  const normalizedStatus = String(status || '').toLowerCase();
-  return (normalizedAction === 'chargeback' && normalizedStatus !== 'reversed') ||
-    (normalizedAction === 'refund' && type === 'full' && normalizedStatus === 'approved');
-}
-
 async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
   const adjustmentId = data.id;
   const transactionId = data.transactionId || data.transaction_id;
