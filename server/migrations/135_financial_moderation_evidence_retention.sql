@@ -193,6 +193,9 @@ ALTER TABLE paddle_checkout_attempts
   ADD CONSTRAINT paddle_checkout_attempts_user_id_fkey
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT;
 
+COMMENT ON COLUMN moderation_audit_log.moderator_ref IS
+  'Immutable opaque UUID snapshot of the moderator actor; moderator_id may be nulled by its FK after account deletion.';
+
 COMMENT ON TABLE paddle_checkout_attempt_history IS
   'Append-only minimal history of terminal Paddle checkout attempts archived before the per-user current-attempt row is reused. Contains provider transaction IDs, not payment credentials or full provider payloads.';
 COMMENT ON TABLE paddle_webhook_events IS
