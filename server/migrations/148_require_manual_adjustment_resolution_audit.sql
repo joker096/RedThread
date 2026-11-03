@@ -6,7 +6,14 @@ CREATE OR REPLACE FUNCTION require_manual_paddle_adjustment_resolution_audit()
 RETURNS trigger LANGUAGE plpgsql AS $manual_adjustment_audit$
 BEGIN
   IF NEW.status = 'resolved' AND NEW.resolution_source = 'manual_operator'
-     AND NOT EXISTS (
+     AND (
+       NOT EXISTS (
+         SELECT 1 FROM users AS moderator
+         WHERE moderator.id = NEW.resolved_by_ref
+           AND moderator.status = 'active'
+           AND moderator.role IN ('admin', 'moderator')
+       )
+       OR NOT EXISTS (
        SELECT 1
        FROM moderation_audit_log AS audit
        WHERE audit.action = 'paddle_adjustment_reconciliation_resolved'
@@ -17,6 +24,7 @@ BEGIN
          AND audit.details->>'eventId' = NEW.event_id
          AND audit.details->>'reasonCode' = NEW.reason_code
          AND audit.details->>'resolutionSource' = 'manual_operator'
+       )
      ) THEN
     RAISE EXCEPTION 'manual Paddle adjustment resolution requires matching moderation audit evidence'
       USING ERRCODE = '23514';
