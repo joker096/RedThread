@@ -21,21 +21,19 @@ BEGIN
     RETURN NULL;
   END IF;
 
-  SELECT COUNT(DISTINCT linked.user_id),
-         COALESCE(bool_or(linked.user_id = current_user_id), FALSE)
+  SELECT COUNT(DISTINCT (linked.user_id, linked.plan)),
+         COALESCE(bool_or(linked.user_id = current_user_id AND linked.plan = 'lifetime'), FALSE)
   INTO linked_owner_count, matching_linked_owner
   FROM (
-    SELECT user_id
+    SELECT user_id, plan
     FROM paddle_checkout_attempts
     WHERE transaction_id = NEW.transaction_id
-      AND plan = 'lifetime'
-      AND status = 'linked'
+      AND status IN ('linked', 'completed')
     UNION ALL
-    SELECT user_id
+    SELECT user_id, plan
     FROM paddle_checkout_attempt_history
     WHERE transaction_id = NEW.transaction_id
-      AND plan = 'lifetime'
-      AND status = 'linked'
+      AND status IN ('linked', 'completed')
   ) AS linked;
 
   IF linked_owner_count <> 1 OR NOT matching_linked_owner THEN
