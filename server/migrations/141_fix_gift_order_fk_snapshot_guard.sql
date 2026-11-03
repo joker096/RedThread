@@ -14,6 +14,7 @@ BEGIN
      OR NEW.currency IS DISTINCT FROM OLD.currency
      OR NEW.idempotency_key IS DISTINCT FROM OLD.idempotency_key
      OR NEW.created_at IS DISTINCT FROM OLD.created_at
+     OR NEW.catalog_item_ref IS DISTINCT FROM OLD.catalog_item_ref
      OR NEW.delivery_partner_ref IS DISTINCT FROM OLD.delivery_partner_ref THEN
     RAISE EXCEPTION 'gift delivery order purchase facts are immutable'
       USING ERRCODE = '55000';
