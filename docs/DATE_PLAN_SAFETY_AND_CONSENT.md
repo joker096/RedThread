@@ -9,7 +9,7 @@ Vow date plans are available only inside an active server match. They are not a 
 - Both participants must independently confirm the same saved proposal. The proposer is not treated as having consented merely by proposing.
 - A proposal update replaces the venue/time and clears both confirmation timestamps. Both people must confirm the revised proposal again.
 - A plan becomes confirmed only when both confirmation timestamps are present in the same PostgreSQL row.
-- Either participant may decline a pending proposal. Proposals expire when their scheduled time passes.
+- Either participant may decline a pending proposal. On the next authenticated date-plan access after the scheduled instant, the server expires the plan transactionally and records a system event with no participant falsely attributed as the actor.
 - Blocking either participant or closing the match automatically cancels an open or confirmed plan. The blocked participant receives a generic cancellation alert (not an explanation of who blocked them); when a match closes, both active participants receive a generic alert. If an L3 approval expires without a provider event, the next date-plan access detects the lost eligibility and cancels the plan. A later re-verification never revives old confirmations; both people must propose and confirm again.
 - L2 verification rows are locked while date-plan eligibility is checked, so a concurrent Didit revocation cannot race a new proposal or confirmation. Database triggers cancel plans in the same transaction as explicit account/identity gate changes.
 
