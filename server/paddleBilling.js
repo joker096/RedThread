@@ -277,9 +277,10 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
   const status = String(data.status || '').toLowerCase();
   const validType = data.type === undefined || data.type === null ||
     data.type === 'full' || data.type === 'partial';
-  const invalidTypeMetadata = !validType;
-  const invalidRefundType = action === 'refund' && invalidTypeMetadata;
   const type = data.type === 'full' || data.type === 'partial' ? data.type : null;
+  // Refunds require an explicit full/partial classification. Preserve a
+  // malformed signed event in the ledger, but never infer a refund scope.
+  const invalidTypeMetadata = !validType || (action === 'refund' && type === null);
   const validAdjustmentId = typeof adjustmentId === 'string' && /^adj_[A-Za-z0-9]+$/.test(adjustmentId);
   const validTransactionId = typeof transactionId === 'string' && /^txn_[A-Za-z0-9]+$/.test(transactionId);
   const validActions = new Set([
@@ -288,7 +289,7 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
   ]);
   const validStatuses = new Set(['pending_approval', 'approved', 'rejected', 'reversed']);
   if (!validAdjustmentId || !validTransactionId || !validActions.has(action) || !validStatuses.has(status) ||
-      invalidRefundType || !occurredAt || !Number.isFinite(Date.parse(occurredAt))) {
+      !occurredAt || !Number.isFinite(Date.parse(occurredAt))) {
     await recordPaddleAdjustmentReconciliationCase(client, {
       eventId, reasonCode: 'invalid_adjustment_payload'
     });
