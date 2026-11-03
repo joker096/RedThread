@@ -1100,14 +1100,17 @@ export async function cancelPaddleSubscription({
     throw new Error('paddle_subscription_ownership_unconfirmed');
   }
   const providerStatus = String(lookupData.status || '').toLowerCase();
-  if (['canceled', 'completed'].includes(providerStatus)) {
+  if (providerStatus === 'canceled') {
     return {
       subscriptionId,
-      status: providerStatus,
+      status: 'canceled',
       customerId,
       updatedAt: typeof lookupData.updated_at === 'string' && Number.isFinite(Date.parse(lookupData.updated_at))
         ? lookupData.updated_at : null
     };
+  }
+  if (!['active', 'trialing', 'past_due', 'paused'].includes(providerStatus)) {
+    throw new Error('paddle_subscription_status_unrecognized');
   }
 
   const response = await fetchImpl(
