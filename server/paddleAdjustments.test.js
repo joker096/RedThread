@@ -256,7 +256,7 @@ test('transaction completion reconciles an approved refund delivered earlier', a
     assert.ok(caseResolution, 'a previously unmatched adjustment case must be considered after transaction linkage');
     assert.equal(caseResolution.params[1], userId);
     assert.equal(caseResolution.params[2], 'transaction_completed_linked_to_vow_checkout');
-    assert.match(caseResolution.statement, /reason_code = 'lifetime_transaction_unlinked'/);
+    assert.match(caseResolution.statement, /reason_code IN ('transaction_owner_unlinked', 'transaction_owner_unlinked')/);
     assert.match(caseResolution.statement, /COUNT\(\*\)[\s\S]*?\) = 1/);
     assert.match(caseResolution.statement, /linked_attempt\.user_id = \$2/);
 
@@ -272,7 +272,7 @@ test('unmatched valid adjustments create a durable reconciliation case', async (
   assert.equal(result.reconciliationRequired, true);
   const task = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
   assert.ok(task, 'an unmatched adjustment must remain in a durable manual queue');
-  assert.equal(task.params[1], 'lifetime_transaction_unlinked');
+  assert.equal(task.params[1], 'transaction_owner_unlinked');
 });
 
 test('adjustments for recurring Vow purchases do not touch lifetime entitlement', async () => {
