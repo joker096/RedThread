@@ -335,7 +335,15 @@ test('L3 purge worker deletes encrypted media under the account lock and clears 
   const completeIndex = client.calls.findIndex(call =>
     call.sql.includes("SET status = 'completed'") && call.sql.includes('identity_l3_media_purge_jobs')
   );
+  const deletedAccountMetadataCleanupIndex = client.calls.findIndex(call =>
+    call.sql.includes('DELETE FROM identity_l3_submissions AS s') &&
+    call.sql.includes("u.status = 'deleted'")
+  );
   assert.ok(clearIndex >= 0 && completeIndex > clearIndex);
+  assert.ok(
+    deletedAccountMetadataCleanupIndex > completeIndex,
+    'deleted-account L3 metadata cleanup must run only after the purge job is marked completed'
+  );
   assert.ok(client.calls.some(call => call.sql.includes('pg_advisory_lock')));
   assert.ok(client.calls.some(call => call.sql.includes('pg_advisory_unlock')));
   assert.equal(client.released, true);
