@@ -201,10 +201,16 @@ test('transaction completion reconciles an approved refund delivered earlier', a
     assert.ok(calls.some(call =>
       call.statement.includes('UPDATE users') && call.statement.includes('premium_lifetime = EXISTS')
     ), 'the prior approved refund must be applied before the new lifetime entitlement is exposed');
-    assert.ok(calls.some(call =>
-      call.statement.includes('UPDATE paddle_adjustment_reconciliation_cases') &&
-      call.params[1] === 'transaction_completed_linked_to_vow_checkout'
-    ), 'a previously unmatched adjustment case must close after transaction linkage and entitlement reconciliation');
+    const caseResolution = calls.find(call =>
+      call.statement.includes('UPDATE paddle_adjustment_reconciliation_cases')
+    );
+    assert.ok(caseResolution, 'a previously unmatched adjustment case must be considered after transaction linkage');
+    assert.equal(caseResolution.params[1], userId);
+    assert.equal(caseResolution.params[2], 'transaction_completed_linked_to_vow_checkout');
+    assert.match(caseResolution.statement, /reason_code = 'lifetime_transaction_unlinked'/);
+    assert.match(caseResolution.statement, /COUNT\(\*\)[\s\S]*?\) = 1/);
+    assert.match(caseResolution.statement, /linked_attempt\.user_id = \$2/);
+
   } finally {
     if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
     else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
