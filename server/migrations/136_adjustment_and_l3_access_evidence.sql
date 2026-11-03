@@ -103,12 +103,15 @@ CREATE TABLE paddle_adjustment_events (
   adjustment_type TEXT CHECK (adjustment_type IS NULL OR adjustment_type IN ('full', 'partial')),
   status TEXT NOT NULL CHECK (status IN ('pending_approval', 'approved', 'rejected', 'reversed')),
   amount_minor_units BIGINT CHECK (amount_minor_units IS NULL OR amount_minor_units >= 0),
-  currency_code CHAR(3) CHECK (currency_code IS NULL OR currency_code ~ '^[A-Z]{3}
+  currency_code CHAR(3) CHECK (currency_code IS NULL OR currency_code ~ '^[A-Z]{3}$'),
+  occurred_at TIMESTAMPTZ NOT NULL,
   received_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp()
 );
 
 CREATE INDEX paddle_adjustment_events_transaction_time_idx
   ON paddle_adjustment_events(transaction_id, occurred_at DESC, received_at DESC);
+CREATE INDEX paddle_adjustment_events_transaction_adjustment_time_idx
+  ON paddle_adjustment_events(transaction_id, adjustment_id, occurred_at DESC, received_at DESC, event_id DESC);
 
 CREATE OR REPLACE FUNCTION prevent_paddle_adjustment_event_mutation()
 RETURNS trigger LANGUAGE plpgsql AS $paddle_adjustment_event$
@@ -126,34 +129,6 @@ COMMENT ON TABLE paddle_lifetime_entitlements IS
   'Current entitlement projection for verified Vow lifetime transactions. Transaction IDs are retained for refund/chargeback reconciliation; no payment credentials or full provider payloads are stored.';
 COMMENT ON TABLE paddle_adjustment_events IS
   'Append-only minimal Paddle adjustment event ledger. Retains provider event/adjustment/transaction IDs, action, type, status, amount in minor units, currency and provider event time; never stores full payloads or payment credentials.';
-COMMENT ON COLUMN identity_l3_media_access_events.submission_ref IS
-  'Immutable opaque UUID snapshot preserving which L3 submission was viewed after its media and workflow row are purged.';
-COMMENT ON COLUMN identity_l3_media_access_events.moderator_ref IS
-  'Immutable opaque UUID snapshot preserving which moderator viewed L3 media after the moderator account row is removed.';
-),
-  occurred_at TIMESTAMPTZ NOT NULL,
-  received_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp()
-);
-
-CREATE INDEX paddle_adjustment_events_transaction_time_idx
-  ON paddle_adjustment_events(transaction_id, occurred_at DESC, received_at DESC);
-
-CREATE OR REPLACE FUNCTION prevent_paddle_adjustment_event_mutation()
-RETURNS trigger LANGUAGE plpgsql AS $paddle_adjustment_event$
-BEGIN
-  RAISE EXCEPTION 'Paddle adjustment evidence is append-only'
-    USING ERRCODE = '55000';
-END;
-$paddle_adjustment_event$;
-
-CREATE TRIGGER paddle_adjustment_events_append_only
-  BEFORE UPDATE OR DELETE ON paddle_adjustment_events
-  FOR EACH ROW EXECUTE FUNCTION prevent_paddle_adjustment_event_mutation();
-
-COMMENT ON TABLE paddle_lifetime_entitlements IS
-  'Current entitlement projection for verified Vow lifetime transactions. Transaction IDs are retained for refund/chargeback reconciliation; no payment credentials or full provider payloads are stored.';
-COMMENT ON TABLE paddle_adjustment_events IS
-  'Append-only minimal Paddle adjustment event ledger. Retains event/adjustment/transaction IDs, action, type, status and provider event time only.';
 COMMENT ON COLUMN identity_l3_media_access_events.submission_ref IS
   'Immutable opaque UUID snapshot preserving which L3 submission was viewed after its media and workflow row are purged.';
 COMMENT ON COLUMN identity_l3_media_access_events.moderator_ref IS
