@@ -128,14 +128,20 @@ BEGIN
   ) THEN
     IF TG_OP = 'DELETE' THEN
       should_cancel := NOT identity_l3_has_active_approval(affected_user_id);
-    ELSIF TG_TABLE_NAME = 'identity_l3_submissions' AND NEW.status = 'approved' THEN
-      -- A fresh approval is a safety boundary: any plan under the previous
-      -- approval must be proposed and mutually confirmed again.
-      should_cancel := TRUE;
-    ELSIF TG_TABLE_NAME = 'identity_l3_consents' AND NEW.withdrawn_at IS NOT NULL THEN
-      should_cancel := TRUE;
-    ELSE
-      should_cancel := NOT identity_l3_has_active_approval(affected_user_id);
+    ELSIF TG_TABLE_NAME = 'identity_l3_submissions' THEN
+      IF NEW.status = 'approved' THEN
+        -- A fresh approval is a safety boundary: any plan under the previous
+        -- approval must be proposed and mutually confirmed again.
+        should_cancel := TRUE;
+      ELSE
+        should_cancel := NOT identity_l3_has_active_approval(affected_user_id);
+      END IF;
+    ELSIF TG_TABLE_NAME = 'identity_l3_consents' THEN
+      IF NEW.withdrawn_at IS NOT NULL THEN
+        should_cancel := TRUE;
+      ELSE
+        should_cancel := NOT identity_l3_has_active_approval(affected_user_id);
+      END IF;
     END IF;
   END IF;
 
