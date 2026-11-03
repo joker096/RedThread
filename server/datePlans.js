@@ -168,7 +168,7 @@ export function registerDatePlanRoutes(app, deps) {
         [row.id, req.authUser.id]);
       if (plan.status === 'confirmed') {
         const recipientId = isA ? pair.userBId : pair.userAId;
-        await createNotification(recipientId, 'date_plan_confirmed', { matchId: req.params.matchId, datePlanId: row.id }, `date-plan:${row.id}:confirmed`, client);
+        await createNotification(recipientId, 'date_plan_confirmed', { matchId: req.params.matchId, datePlanId: row.id }, null, client);
       }
       await client.query('COMMIT');
       return res.json({ datePlan: plan });
@@ -176,6 +176,36 @@ export function registerDatePlanRoutes(app, deps) {
       if (client && !await rollbackPooledTransaction(client)) client = null;
       console.error('Date plan confirmation failed:', error?.message || 'unknown error');
       return res.status(500).json({ error: 'date_plan_confirmation_failed' });
+    } finally { client?.release(); }
+  });
+
+  app.post('/api/matches/:matchId/date-plan/cancel', limiter, validateRequestOrigin, requireSession, async (req, res) => {
+    if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
+    let client;
+    try {
+      client = await pool.connect();
+      await client.query('BEGIN');
+      const pair = await lockMatch(client, req.params.matchId, req.authUser.id);
+      if (!pair) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'match_not_found' }); }
+      const current = await client.query(
+        "SELECT id FROM date_plans WHERE match_id = $1 AND status IN ('proposed', 'confirmed') FOR UPDATE",
+        [req.params.matchId]);
+      if (!current.rowCount) { await client.query('ROLLBACK'); return res.status(409).json({ error: 'date_plan_not_available' }); }
+      const planId = current.rows[0].id;
+      await client.query(
+        "UPDATE date_plans SET status = 'cancelled', confirmed_by_a_at = NULL, confirmed_by_b_at = NULL, updated_at = NOW() WHERE id = $1",
+        [planId]);
+      await client.query(
+        "INSERT INTO date_plan_events (date_plan_id, actor_id, event_type) VALUES ($1, $2, 'cancelled')",
+        [planId, req.authUser.id]);
+      const recipientId = pair.userAId === req.authUser.id ? pair.userBId : pair.userAId;
+      await createNotification(recipientId, 'date_plan_cancelled', { matchId: req.params.matchId, datePlanId: planId }, null, client);
+      await client.query('COMMIT');
+      return res.json({ cancelled: true });
+    } catch (error) {
+      if (client && !await rollbackPooledTransaction(client)) client = null;
+      console.error('Date plan cancellation failed:', error?.message || 'unknown error');
+      return res.status(500).json({ error: 'date_plan_cancellation_failed' });
     } finally { client?.release(); }
   });
 
