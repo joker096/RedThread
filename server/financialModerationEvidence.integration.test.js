@@ -284,6 +284,26 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       await client.query('ROLLBACK TO SAVEPOINT webhook_no_delete');
       await client.query('RELEASE SAVEPOINT webhook_no_delete');
 
+      const forgedAttemptUserId = randomUUID();
+      await client.query(
+        "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
+        [forgedAttemptUserId, `forged-attempt-${forgedAttemptUserId}@example.invalid`]
+      );
+      await client.query('SAVEPOINT checkout_attempt_initial_state_guard');
+      let forgedInitialCheckoutStateError;
+      try {
+        await client.query(
+          `INSERT INTO paddle_checkout_attempts
+           (user_id, attempt_id, transaction_id, plan, status, created_at, updated_at)
+           VALUES ($1, $2, $3, 'lifetime', 'linked', statement_timestamp(), statement_timestamp())`,
+          [forgedAttemptUserId, randomUUID(), `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`]
+        );
+      } catch (error) { forgedInitialCheckoutStateError = error; }
+      assert.equal(forgedInitialCheckoutStateError?.code, '23514',
+        'a caller cannot insert a checkout attempt directly into a provider-linked terminal state');
+      await client.query('ROLLBACK TO SAVEPOINT checkout_attempt_initial_state_guard');
+      await client.query('RELEASE SAVEPOINT checkout_attempt_initial_state_guard');
+
       const userId = randomUUID();
       await client.query(
         "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
