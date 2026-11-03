@@ -114,7 +114,16 @@ app.post('/api/paddle/webhook', express.raw({ type: 'application/json', limit: '
 
   try {
     const { processPaddleEvent } = await import('./paddleBilling.js');
-    await processPaddleEvent(pool, event);
+    const result = await processPaddleEvent(pool, event);
+    const eventType = event.eventType || event.event_type;
+    if (result?.reconciliationRequired &&
+        ['adjustment.created', 'adjustment.updated'].includes(eventType)) {
+      // The immutable webhook/adjustment and reconciliation case are already
+      // committed. Log only the provider event ID; never log the raw payload.
+      console.warn('Paddle adjustment queued for manual reconciliation:', {
+        eventId: event.eventId || event.event_id
+      });
+    }
     return res.status(200).json({ received: true });
   } catch (error) {
     console.error('Paddle webhook processing failed:', error?.message || 'unknown error');
