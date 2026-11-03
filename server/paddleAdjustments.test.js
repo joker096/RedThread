@@ -121,6 +121,26 @@ test('invalid Paddle adjustment types are quarantined instead of silently treate
   ));
 });
 
+test('chargebacks still revoke lifetime access when unrelated type metadata is malformed', async () => {
+  const { pool, calls } = makePool({ chargeback: true });
+  const result = await sendAdjustment(pool, {
+    eventId: 'evt_chargeback_invalid_type',
+    action: 'chargeback',
+    status: 'approved',
+    type: 'unexpected-provider-value'
+  });
+  assert.equal(result.reconciliationRequired, false);
+  assert.ok(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')),
+    'the signed chargeback event must be retained');
+  const entitlementUpdate = calls.find(call =>
+    call.statement.includes('UPDATE paddle_lifetime_entitlements') &&
+    call.statement.includes("status = 'revoked'")
+  );
+  assert.ok(entitlementUpdate,
+    'chargeback action/status must revoke lifetime access regardless of adjustment type metadata');
+  assert.equal(entitlementUpdate.params[1], 'paddle_chargeback');
+});
+
 test('adjustments for recurring transactions use the transaction ledger and never enter lifetime reconciliation', async () => {
   const { pool, calls } = makePool({ linkedPlan: '1month', linkedStatus: 'linked' });
   const result = await sendAdjustment(pool, {
