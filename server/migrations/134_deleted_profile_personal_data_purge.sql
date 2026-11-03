@@ -102,14 +102,17 @@ WHERE u.id = p.user_id AND u.status = 'deleted';
 CREATE OR REPLACE FUNCTION prevent_deleted_profile_repopulation()
 RETURNS trigger LANGUAGE plpgsql AS $profile_tombstone$
 BEGIN
-  IF pg_trigger_depth() = 1 AND (
-    EXISTS (SELECT 1 FROM users WHERE id = NEW.user_id AND status = 'deleted')
-    OR (TG_OP = 'UPDATE' AND EXISTS (
+  IF pg_trigger_depth() = 1 THEN
+    IF EXISTS (SELECT 1 FROM users WHERE id = NEW.user_id AND status = 'deleted') THEN
+      RAISE EXCEPTION 'deleted account profile is immutable'
+        USING ERRCODE = '23514';
+    END IF;
+    IF TG_OP = 'UPDATE' AND EXISTS (
       SELECT 1 FROM users WHERE id = OLD.user_id AND status = 'deleted'
-    ))
-  ) THEN
-    RAISE EXCEPTION 'deleted account profile is immutable'
-      USING ERRCODE = '23514';
+    ) THEN
+      RAISE EXCEPTION 'deleted account profile is immutable'
+        USING ERRCODE = '23514';
+    END IF;
   END IF;
   RETURN NEW;
 END;
