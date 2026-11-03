@@ -650,6 +650,7 @@ test('Paddle portal rejects mismatched customers and untrusted redirect URLs', a
   for (const overview of [
     'https://attacker.example/steal-token',
     'https://sandbox-customer-portal.paddle.com.attacker.example/session',
+    'https://customer-portal.paddle.com/session',
     'https://user@customer-portal.paddle.com/session',
     'https://customer-portal.paddle.com:444/session'
   ]) {
