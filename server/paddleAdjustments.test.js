@@ -264,6 +264,8 @@ test('transaction completion reconciles an approved refund delivered earlier', a
     assert.match(caseResolution.statement, /reason_code = 'transaction_owner_unlinked'/);
     assert.match(caseResolution.statement, /COUNT\(DISTINCT \(user_id, plan\)\)[\s\S]*?\) = 1/);
     assert.match(caseResolution.statement, /linked_attempt\.user_id = \$2/);
+    assert.match(caseResolution.statement, /linked_transaction\.plan IN \('1month', '3months'\)/,
+      'unverified lifetime transactions must not auto-resolve reconciliation without a linked checkout attempt');
 
   } finally {
     if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
