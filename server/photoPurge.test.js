@@ -48,3 +48,58 @@ test('queueing deduplicates paths and safely handles an empty list', async () =>
   assert.equal(await queuePrivatePhotoPurges(client, [validPath, validPath, null]), 2);
   assert.deepEqual(calls[0][1], [[validPath]]);
 });
+
+test('purge worker deletes a file and its queue row transactionally', async () => {
+  const statements = [];
+  const task = { id: 'task-1', storage_path: validPath, attempts: 0 };
+  const client = {
+    query: async (sql, params) => {
+      statements.push({ sql: sql.replace(/\s+/g, ' ').trim(), params });
+      if (sql.includes('SELECT id, storage_path, attempts')) return { rows: [task], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    },
+    release: () => {}
+  };
+  const pool = {
+    query: async () => ({ rows: [{ id: task.id }] }),
+    connect: async () => client
+  };
+  const removed = [];
+  const { processPrivatePhotoPurgeBatch } = await import('./photoPurge.js');
+  const summary = await processPrivatePhotoPurgeBatch(pool, {
+    storageRoot: root,
+    unlinkFile: async file => removed.push(file)
+  });
+  assert.deepEqual(summary, { scanned: 1, deleted: 1, retried: 0, failures: 0 });
+  assert.deepEqual(removed, [validPath]);
+  assert.ok(statements.some(item => item.sql.startsWith('DELETE FROM private_photo_purge_queue')));
+  assert.equal(statements.at(-1).sql, 'COMMIT');
+});
+
+test('purge worker retains failed tasks and schedules a retry', async () => {
+  const statements = [];
+  const task = { id: 'task-2', storage_path: validPath, attempts: 2 };
+  const client = {
+    query: async (sql, params) => {
+      statements.push({ sql: sql.replace(/\s+/g, ' ').trim(), params });
+      if (sql.includes('SELECT id, storage_path, attempts')) return { rows: [task], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    },
+    release: () => {}
+  };
+  const pool = {
+    query: async () => ({ rows: [{ id: task.id }] }),
+    connect: async () => client
+  };
+  const { processPrivatePhotoPurgeBatch } = await import('./photoPurge.js');
+  const summary = await processPrivatePhotoPurgeBatch(pool, {
+    storageRoot: root,
+    unlinkFile: async () => { const error = new Error('permission denied'); error.code = 'EACCES'; throw error; }
+  });
+  assert.deepEqual(summary, { scanned: 1, deleted: 0, retried: 1, failures: 1 });
+  const retry = statements.find(item => item.sql.startsWith('UPDATE private_photo_purge_queue'));
+  assert.ok(retry);
+  assert.equal(retry.params[1], 3);
+  assert.equal(retry.params[3], 'EACCES');
+  assert.equal(statements.at(-1).sql, 'COMMIT');
+});
