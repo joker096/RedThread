@@ -14,7 +14,7 @@ export function buildDatePlanShareText(
   labels: DatePlanShareLabels
 ): string | null {
   const normalizeLine = (value: unknown) => typeof value === 'string'
-    ? value.replace(/[\\r\\n\\t]+/g, ' ').replace(/\\s{2,}/g, ' ').trim()
+    ? value.replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim()
     : '';
   const place = normalizeLine(plan.place);
   const day = normalizeLine(plan.day);
