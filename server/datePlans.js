@@ -33,7 +33,7 @@ export function registerDatePlanRoutes(app, deps) {
     const { user_a_id: userAId, user_b_id: userBId } = preview.rows[0];
     await acquireGiftSafetyUserLocks(client, userAId, userBId);
     const access = await client.query(
-      \`SELECT m.user_a_id, m.user_b_id FROM matches m
+      `SELECT m.user_a_id, m.user_b_id FROM matches m
        JOIN users ua ON ua.id = m.user_a_id AND ua.status = 'active'
        JOIN users ub ON ub.id = m.user_b_id AND ub.status = 'active'
        JOIN profiles pa ON pa.user_id = m.user_a_id
@@ -51,7 +51,7 @@ export function registerDatePlanRoutes(app, deps) {
            EXISTS (SELECT 1 FROM identity_verifications iv WHERE iv.user_id = pb.user_id
              AND iv.provider = 'didit' AND iv.status = 'verified' AND iv.provider_environment = 'live')
            AND identity_l3_has_active_approval(pb.user_id)))
-       FOR UPDATE OF m, ua, ub\`,
+       FOR UPDATE OF m, ua, ub`,
       [matchId, userAId, userBId]
     );
     if (!access.rowCount) return null;
@@ -71,12 +71,12 @@ export function registerDatePlanRoutes(app, deps) {
       const pair = await lockMatch(client, req.params.matchId, req.authUser.id);
       if (!pair) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'match_not_found' }); }
       const result = await client.query(
-        \`SELECT id, match_id AS "matchId", proposed_by AS "proposedBy", venue_name AS "venueName",
+        `SELECT id, match_id AS "matchId", proposed_by AS "proposedBy", venue_name AS "venueName",
           starts_at AS "startsAt", time_zone AS "timeZone", status,
           confirmed_by_a_at AS "confirmedByAAt", confirmed_by_b_at AS "confirmedByBAt",
           created_at AS "createdAt", updated_at AS "updatedAt"
          FROM date_plans WHERE match_id = $1 AND status IN ('proposed', 'confirmed')
-         ORDER BY created_at DESC LIMIT 1\`,
+         ORDER BY created_at DESC LIMIT 1`,
         [req.params.matchId]
       );
       await client.query('COMMIT');
@@ -104,29 +104,29 @@ export function registerDatePlanRoutes(app, deps) {
       );
       const saved = existing.rowCount
         ? await client.query(
-          \`UPDATE date_plans SET proposed_by = $2, venue_name = $3, is_public_venue = TRUE,
+          `UPDATE date_plans SET proposed_by = $2, venue_name = $3, is_public_venue = TRUE,
              starts_at = $4, time_zone = $5, status = 'proposed',
              confirmed_by_a_at = NULL, confirmed_by_b_at = NULL, updated_at = NOW()
            WHERE id = $1
            RETURNING id, match_id AS "matchId", proposed_by AS "proposedBy", venue_name AS "venueName",
              starts_at AS "startsAt", time_zone AS "timeZone", status,
              confirmed_by_a_at AS "confirmedByAAt", confirmed_by_b_at AS "confirmedByBAt",
-             created_at AS "createdAt", updated_at AS "updatedAt"\`,
+             created_at AS "createdAt", updated_at AS "updatedAt"`,
           [existing.rows[0].id, req.authUser.id, input.venueName, input.startsAt, input.timeZone])
         : await client.query(
-          \`INSERT INTO date_plans (match_id, proposed_by, venue_name, is_public_venue, starts_at, time_zone)
+          `INSERT INTO date_plans (match_id, proposed_by, venue_name, is_public_venue, starts_at, time_zone)
            VALUES ($1, $2, $3, TRUE, $4, $5)
            RETURNING id, match_id AS "matchId", proposed_by AS "proposedBy", venue_name AS "venueName",
              starts_at AS "startsAt", time_zone AS "timeZone", status,
              confirmed_by_a_at AS "confirmedByAAt", confirmed_by_b_at AS "confirmedByBAt",
-             created_at AS "createdAt", updated_at AS "updatedAt"\`,
+             created_at AS "createdAt", updated_at AS "updatedAt"`,
           [req.params.matchId, req.authUser.id, input.venueName, input.startsAt, input.timeZone]);
       const plan = saved.rows[0];
       await client.query(
         'INSERT INTO date_plan_events (date_plan_id, actor_id, event_type) VALUES ($1, $2, $3)',
         [plan.id, req.authUser.id, existing.rowCount ? 'updated' : 'proposed']);
       const recipientId = pair.userAId === req.authUser.id ? pair.userBId : pair.userAId;
-      await createNotification(recipientId, 'date_plan_proposed', { matchId: req.params.matchId, datePlanId: plan.id }, \`date-plan:\${plan.id}:proposed\`, client);
+      await createNotification(recipientId, 'date_plan_proposed', { matchId: req.params.matchId, datePlanId: plan.id }, null, client);
       await client.query('COMMIT');
       return res.status(201).json({ datePlan: plan });
     } catch (error) {
@@ -154,13 +154,13 @@ export function registerDatePlanRoutes(app, deps) {
       const both = Boolean(row.confirmed_by_a_at || (isA && row.confirmed_by_a_at)) &&
         Boolean(row.confirmed_by_b_at || (!isA && row.confirmed_by_b_at));
       const updated = await client.query(
-        \`UPDATE date_plans SET \${column} = COALESCE(\${column}, NOW()),
+        `UPDATE date_plans SET ${column} = COALESCE(${column}, NOW()),
            status = CASE WHEN $2 THEN 'confirmed' ELSE 'proposed' END, updated_at = NOW()
          WHERE id = $1
          RETURNING id, match_id AS "matchId", proposed_by AS "proposedBy", venue_name AS "venueName",
            starts_at AS "startsAt", time_zone AS "timeZone", status,
            confirmed_by_a_at AS "confirmedByAAt", confirmed_by_b_at AS "confirmedByBAt",
-           created_at AS "createdAt", updated_at AS "updatedAt"\`,
+           created_at AS "createdAt", updated_at AS "updatedAt"`,
         [row.id, both || Boolean(isA ? row.confirmed_by_b_at : row.confirmed_by_a_at)]);
       const plan = updated.rows[0];
       await client.query(
@@ -168,7 +168,7 @@ export function registerDatePlanRoutes(app, deps) {
         [row.id, req.authUser.id]);
       if (plan.status === 'confirmed') {
         const recipientId = isA ? pair.userBId : pair.userAId;
-        await createNotification(recipientId, 'date_plan_confirmed', { matchId: req.params.matchId, datePlanId: row.id }, \`date-plan:\${row.id}:confirmed\`, client);
+        await createNotification(recipientId, 'date_plan_confirmed', { matchId: req.params.matchId, datePlanId: row.id }, `date-plan:${row.id}:confirmed`, client);
       }
       await client.query('COMMIT');
       return res.json({ datePlan: plan });
