@@ -45,8 +45,10 @@ The sandbox notification destination must deliver both adjustment events. The ha
 
 - Webhook signature verification uses the Paddle Node SDK and the notification signing secret against the raw request body.
 - Event IDs are stored in `paddle_webhook_events` in the same transaction as entitlement updates, so retries are idempotent.
-- Recurring Premium is granted only by a verified active/trialing subscription event with a future billing-period end. The one-time lifetime plan is the explicit exception: a verified `transaction.completed` event grants it only when server-generated `custom_data.plan` is `lifetime` and the transaction contains the configured lifetime Price ID.
+- Recurring Premium is granted only by a verified active/trialing subscription event with a future billing-period end. The one-time lifetime plan is the explicit exception: a verified `transaction.completed` event grants it only when server-generated `custom_data.plan` is `lifetime`, the transaction contains the configured lifetime Price ID, and a durable server-side checkout attempt uniquely matches the signed-in user, attempt ID, plan, and provider transaction. `custom_data` by itself is never sufficient to grant access.
 - The checkout transaction is created server-side and includes the authenticated internal user ID in server-generated custom data; the client cannot choose a price ID or user ID.
+
+- Unmatched or malformed adjustment events remain in the durable reconciliation queue. Active moderators can inspect it through `GET /api/admin/paddle-adjustment-reconciliation` and resolve a case through `POST /api/admin/paddle-adjustment-reconciliation/:eventId/resolve` with a bounded evidence note. Resolution is audited and does not itself grant, revoke, or restore Premium; only verified adjustment state changes entitlement.
 - The code intentionally rejects live environment configuration. Do not switch to live until sandbox tests pass and the Paddle account/domain verification is complete.
 
 ## Not yet verified
