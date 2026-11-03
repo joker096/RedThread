@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { unlink } from 'node:fs/promises';
+import { stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import pg from 'pg';
@@ -21,8 +21,11 @@ export async function runPrivatePhotoPurge({
     ssl: process.env.PGSSL === 'true' ? { rejectUnauthorized: true } : undefined
   });
   try {
+    const resolvedStorageRoot = path.resolve(storageRoot);
+    const rootInfo = await stat(resolvedStorageRoot);
+    if (!rootInfo.isDirectory()) throw new Error('private photo storage root is not a directory');
     return await processPrivatePhotoPurgeBatch(pool, {
-      storageRoot: path.resolve(storageRoot),
+      storageRoot: resolvedStorageRoot,
       batchSize,
       unlinkFile: unlink
     });
