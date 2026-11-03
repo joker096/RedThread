@@ -3113,6 +3113,7 @@ test('auth API supports registration, session lookup, logout and login', {
         // Earlier profile/photo cases share the integration test's client IP;
         // reset that independent limiter so this race reaches the account lock.
         await deletionSafetyDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'profile:%'");
+        await deletionSafetyDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'message:%'");
         staleLoginPromise = request('/api/auth/login', {
           method: 'POST',
           body: JSON.stringify({ email, password: activePassword })
