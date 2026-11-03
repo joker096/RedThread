@@ -97,13 +97,15 @@ function paddleCurrencyCode(data) {
 function inferPaddleTransactionPlan(data) {
   const items = Array.isArray(data?.items) ? data.items : [];
   const priceIds = items.map(item => item?.priceId || item?.price_id || item?.price?.id).filter(Boolean);
-  if (process.env.PADDLE_PRICE_ID_LIFETIME &&
-      priceIds.includes(process.env.PADDLE_PRICE_ID_LIFETIME)) return 'lifetime';
-  if (process.env.PADDLE_PRICE_ID_1MONTH &&
-      priceIds.includes(process.env.PADDLE_PRICE_ID_1MONTH)) return '1month';
-  if (process.env.PADDLE_PRICE_ID_3MONTHS &&
-      priceIds.includes(process.env.PADDLE_PRICE_ID_3MONTHS)) return '3months';
-  return null;
+  const configuredPlans = [
+    [process.env.PADDLE_PRICE_ID_LIFETIME, 'lifetime'],
+    [process.env.PADDLE_PRICE_ID_1MONTH, '1month'],
+    [process.env.PADDLE_PRICE_ID_3MONTHS, '3months']
+  ];
+  const matches = configuredPlans
+    .filter(([priceId]) => typeof priceId === 'string' && priceIds.includes(priceId))
+    .map(([, plan]) => plan);
+  return matches.length === 1 ? matches[0] : null;
 }
 
 async function findPaddleTransactionOwner(client, { attemptUserId = null, subscriptionId = null, customerId = null } = {}) {
