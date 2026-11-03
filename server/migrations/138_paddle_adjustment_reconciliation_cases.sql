@@ -4,8 +4,9 @@
 -- visible until an explicit or automatic reconciliation resolves it.
 CREATE TABLE paddle_adjustment_reconciliation_cases (
   event_id TEXT PRIMARY KEY
-    REFERENCES paddle_adjustment_events(event_id) ON DELETE RESTRICT,
+    REFERENCES paddle_webhook_events(event_id) ON DELETE RESTRICT,
   reason_code TEXT NOT NULL CHECK (reason_code IN (
+    'invalid_adjustment_payload',
     'lifetime_transaction_unlinked',
     'lifetime_transaction_ambiguous',
     'lifetime_account_inactive',
@@ -78,6 +79,6 @@ CREATE TRIGGER paddle_adjustment_reconciliation_cases_no_truncate
   FOR EACH STATEMENT EXECUTE FUNCTION prevent_evidence_truncate();
 
 COMMENT ON TABLE paddle_adjustment_reconciliation_cases IS
-  'Durable manual reconciliation queue keyed to the immutable source Paddle event. Join event_id to paddle_adjustment_events for adjustment and transaction identifiers.';
+  'Durable manual reconciliation queue keyed to the immutable Paddle webhook event. Valid adjustments can be joined to paddle_adjustment_events; malformed events retain their provider event ID and bounded reason code for manual lookup.';
 COMMENT ON COLUMN paddle_adjustment_reconciliation_cases.reason_code IS
   'Bounded operational reason; never contains provider payloads, customer data, payment credentials, or free-form user content.';
