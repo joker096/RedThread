@@ -1677,3 +1677,55 @@ test('Paddle checkout reconciles a provider transaction when the account becomes
   assert.match(route, /SET transaction_id = COALESCE\(transaction_id, \$3\)/);
   assert.match(route, /providerTransactionId\]/);
 });
+
+test('completed Paddle transactions recover account ownership from archived checkout attempts', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalMonthlyPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_vowmonthly';
+  const userId = '00000000-0000-4000-8000-000000000001';
+  const transactionId = 'txn_archivedattempt123456789';
+  const queries = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      queries.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      if (statement.includes('SELECT DISTINCT user_id') && statement.includes('paddle_checkout_attempt_history')) {
+        return { rowCount: 1, rows: [{ user_id: userId }] };
+      }
+      if (statement.includes('UPDATE paddle_checkout_attempts') && statement.includes('SET transaction_id = $1')) {
+        return { rowCount: 0, rows: [] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    const result = await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_archivedattemptowner123456',
+      eventType: 'transaction.completed',
+      occurredAt: '2026-11-03T10:00:00Z',
+      data: {
+        id: transactionId,
+        items: [{ price: { id: 'pri_vowmonthly' } }],
+        customData: {
+          userId,
+          plan: '1month',
+          checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+        }
+      }
+    });
+    assert.equal(result.handled, true);
+    const ledger = queries.find(query => query.statement.includes('INSERT INTO paddle_transaction_events'));
+    assert.ok(ledger);
+    assert.equal(ledger.params[2], userId,
+      'archived checkout history must preserve the account owner for recurring renewal evidence');
+    assert.ok(queries.some(query => query.statement.includes('UPDATE paddle_adjustment_reconciliation_cases')),
+      'an early adjustment case can be reconciled once the recurring transaction owner is known');
+  } finally {
+    if (originalMonthlyPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalMonthlyPriceId;
+  }
+});
