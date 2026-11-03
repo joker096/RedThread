@@ -643,6 +643,14 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
         `SELECT pg_get_functiondef('guard_paddle_lifetime_entitlement_identity()'::regprocedure) AS definition`
       );
       assert.match(lifetimeIdentityGuard.rows[0].definition, /transaction ownership is immutable/);
+      const giftOrderSnapshotTrigger = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'gift_delivery_orders'::regclass
+           AND tgname = 'gift_delivery_orders_snapshot_references'
+           AND NOT tgisinternal`
+      );
+      assert.equal(giftOrderSnapshotTrigger.rowCount, 1,
+        'new gift orders must snapshot catalog and delivery-partner UUIDs');
       const giftPartnerSnapshot = await client.query(
         `SELECT column_name FROM information_schema.columns
          WHERE table_schema = current_schema()
@@ -712,20 +720,36 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
           id uuid, public_reference text, match_id uuid, sender_id uuid, recipient_id uuid,
           product_name_snapshot text, product_category text, total_minor_units bigint,
           currency char(3), idempotency_key text, created_at timestamptz, expires_at timestamptz,
-          catalog_item_id uuid, delivery_partner_id uuid, delivery_partner_ref uuid
+          catalog_item_id uuid, catalog_item_ref uuid, delivery_partner_id uuid, delivery_partner_ref uuid
         ) ON COMMIT DROP
+      `);
+      await client.query(`
+        CREATE TRIGGER gift_order_reference_snapshot_test
+        BEFORE INSERT ON gift_order_facts_guard_test
+        FOR EACH ROW EXECUTE FUNCTION snapshot_gift_delivery_order_references()
       `);
       await client.query(`
         CREATE TRIGGER gift_order_facts_guard_test
         BEFORE UPDATE ON gift_order_facts_guard_test
         FOR EACH ROW EXECUTE FUNCTION guard_gift_delivery_order_immutable_facts()
       `);
+      const catalogItemId = randomUUID();
+      const deliveryPartnerId = randomUUID();
       await client.query(
         `INSERT INTO gift_order_facts_guard_test
          VALUES ($1, 'gift_ref', $2, $3, $4, 'snapshot', 'chocolate', 1000,
-                 'USD', 'idempotency', statement_timestamp(), statement_timestamp(), NULL, NULL, NULL)`,
-        [randomUUID(), randomUUID(), randomUUID(), randomUUID()]
+                 'USD', 'idempotency', statement_timestamp(), statement_timestamp(), $5, NULL, $6, NULL)`,
+        [randomUUID(), randomUUID(), randomUUID(), randomUUID(), catalogItemId, deliveryPartnerId]
       );
+      const giftOrderSnapshots = await client.query(
+        'SELECT catalog_item_id, catalog_item_ref, delivery_partner_id, delivery_partner_ref FROM gift_order_facts_guard_test'
+      );
+      assert.deepEqual(giftOrderSnapshots.rows[0], {
+        catalog_item_id: catalogItemId,
+        catalog_item_ref: catalogItemId,
+        delivery_partner_id: deliveryPartnerId,
+        delivery_partner_ref: deliveryPartnerId
+      }, 'new gift orders must snapshot catalog and delivery partner references');
       await client.query('SAVEPOINT gift_order_facts_immutable');
       let giftOrderFactError;
       try {
