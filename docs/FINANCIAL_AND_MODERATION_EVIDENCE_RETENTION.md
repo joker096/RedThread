@@ -10,6 +10,20 @@ This policy describes the data boundaries implemented in the repository. It does
 - Current and historical checkout records restrict hard deletion of the referenced user row. The supported account-erasure path is a tombstone, which preserves the minimum financial identity needed for reconciliation. It does not retain card data or full provider payloads.
 - Do not purge attempts in `creating`, `pending`, `completed` or `reconciliation_required` states until the provider state and any refund/cancellation obligation have been reconciled. An outbox task is not proof that a provider action completed.
 
+## Paddle adjustments and lifetime access
+
+- Every `adjustment.created` and `adjustment.updated` event is retained as a minimal append-only record in `paddle_adjustment_events`, including event ID, adjustment ID, transaction ID, action, full/partial type, status and provider event time.
+- A refund in `pending_approval` does not revoke Premium. A rejected refund also does not revoke it. Only an approved full refund revokes the lifetime entitlement tied to that exact transaction; partial refunds and credits do not automatically revoke the lifetime plan.
+- A chargeback revokes the entitlement tied to its transaction. A chargeback reversal can restore it only when no other approved full refund or active chargeback remains for that transaction. Chargeback warnings are retained but do not by themselves revoke access.
+- Lifetime entitlement provenance is stored by transaction ID in `paddle_lifetime_entitlements`. Reconciliation is scoped to the verified lifetime checkout attempt; unknown or ambiguous transactions are retained for manual reconciliation and never guessed.
+- Reversal processing recomputes access from all verified lifetime purchases for the account, so an adjustment against one transaction does not revoke another independently valid lifetime purchase.
+
+## L3 media access audit
+
+- `identity_l3_media_access_events` retains opaque `submission_ref` and `moderator_ref` snapshots after the video and workflow submission are physically deleted.
+- Live foreign keys are nullable and use `ON DELETE SET NULL`; only the nested FK action may clear them. Direct `UPDATE` and `DELETE` remain prohibited.
+- The audit record contains no video bytes, storage path, IP address, or contact data. Its retention period must be set by the same jurisdiction-specific schedule and legal-hold process as other moderation evidence.
+
 ## User reports and moderation
 
 - A report's reporter, target, category, submitted details and creation time are immutable. Moderation can move status from `open` to `reviewing`, `resolved` or `dismissed`, and from `reviewing` to a terminal status.
