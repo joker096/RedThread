@@ -1775,3 +1775,67 @@ test('transaction history does not substitute legacy top-level amount for Paddle
   assert.equal(ledger.params[6], null,
     'a noncanonical currency property must not substitute for Paddle currency_code');
 });
+
+test('ambiguous cross-account Paddle transaction ownership is retained without assigning an owner', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_ambiguous_owner';
+  const userId = '00000000-0000-4000-8000-000000000071';
+  const attemptId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa71';
+  const transactionId = 'txn_ambiguouscrossaccountowner123';
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      calls.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      if (statement.includes('UPDATE paddle_checkout_attempts') && statement.includes('SET transaction_id = $1')) {
+        return { rowCount: 0, rows: [] };
+      }
+      if (statement.includes('SELECT DISTINCT user_id') && statement.includes('paddle_checkout_attempt_history')) {
+        return {
+          rowCount: 2,
+          rows: [
+            { user_id: userId },
+            { user_id: '00000000-0000-4000-8000-000000000072' }
+          ]
+        };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+
+  try {
+    const result = await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_ambiguous_cross_account_owner',
+      eventType: 'transaction.completed',
+      occurredAt: '2026-11-04T00:00:00Z',
+      data: {
+        id: transactionId,
+        customData: { userId, plan: '1month', checkoutAttemptId: attemptId },
+        items: [{ price: { id: 'pri_month_ambiguous_owner' } }],
+        details: { totals: { total: '990' } },
+        currency_code: 'GEL'
+      }
+    });
+
+    assert.equal(result.handled, true);
+    const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
+    assert.ok(ledger, 'the provider transaction must remain in the append-only ledger');
+    assert.equal(ledger.params[2], null,
+      'a transaction claimed by more than one account must not be assigned to either account');
+    assert.equal(ledger.params[3], '1month');
+    assert.equal(ledger.params[5], '990');
+    assert.equal(ledger.params[6], 'GEL');
+    assert.ok(calls.some(call => call.statement.includes("SET status = 'reconciliation_required'")),
+      'the exact checkout attempt must remain visible for reconciliation');
+    assert.equal(calls.some(call => call.statement.includes('UPDATE users SET')), false,
+      'ambiguous ownership must never grant or mutate an account entitlement');
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
+  }
+});
