@@ -630,7 +630,7 @@ test('auth API supports registration, session lookup, logout and login', {
 
       const startReview = await request(`/api/admin/reports/${reportId}/action`, {
         method: 'POST',
-        headers: { Cookie: firstCookie },
+        headers: { Cookie: secondCookie },
         body: JSON.stringify({ action: 'review', reason: 'Moderator started review' })
       });
       assert.equal(startReview.status, 200, apiLogs);
@@ -640,7 +640,7 @@ test('auth API supports registration, session lookup, logout and login', {
 
       const duplicateReview = await request(`/api/admin/reports/${reportId}/action`, {
         method: 'POST',
-        headers: { Cookie: firstCookie },
+        headers: { Cookie: secondCookie },
         body: JSON.stringify({ action: 'review', reason: 'Duplicate review must not rewrite state' })
       });
       assert.equal(duplicateReview.status, 409,
@@ -648,7 +648,7 @@ test('auth API supports registration, session lookup, logout and login', {
 
       const finishReview = await request(`/api/admin/reports/${reportId}/action`, {
         method: 'POST',
-        headers: { Cookie: firstCookie },
+        headers: { Cookie: secondCookie },
         body: JSON.stringify({ action: 'resolve', reason: 'Moderator completed review' })
       });
       assert.equal(finishReview.status, 200, apiLogs);
