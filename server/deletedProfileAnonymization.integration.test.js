@@ -81,6 +81,16 @@ test('account deletion scrubs profile personal data in the database', {
       family_values: []
     });
 
+    await client.query('SAVEPOINT deleted_account_terminal_guard');
+    await assert.rejects(
+      client.query("UPDATE users SET status = 'active' WHERE id = $1", [userId]),
+      error => error.code === '23514'
+    );
+    await client.query('ROLLBACK TO SAVEPOINT deleted_account_terminal_guard');
+    const deletedStatus = await client.query('SELECT status FROM users WHERE id = $1', [userId]);
+    assert.equal(deletedStatus.rows[0]?.status, 'deleted',
+      'a scrubbed deleted-account tombstone must not be reactivated');
+
     const nullable = await client.query(
       `SELECT is_nullable FROM information_schema.columns
        WHERE table_schema = current_schema() AND table_name = 'profiles' AND column_name = 'gender'`
