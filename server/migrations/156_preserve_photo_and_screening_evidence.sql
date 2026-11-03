@@ -19,17 +19,16 @@ CREATE INDEX user_safety_screenings_user_ref_idx
 CREATE OR REPLACE FUNCTION snapshot_user_safety_screening_owner()
 RETURNS trigger LANGUAGE plpgsql AS $screening_owner_snapshot$
 BEGIN
-  IF NEW.user_id IS NOT NULL
-     AND NEW.user_ref IS NOT NULL
+  IF NEW.user_id IS NULL THEN
+    RAISE EXCEPTION 'new safety screenings require a live account reference'
+      USING ERRCODE = '23502';
+  END IF;
+  IF NEW.user_ref IS NOT NULL
      AND NEW.user_ref IS DISTINCT FROM NEW.user_id THEN
     RAISE EXCEPTION 'safety screening owner snapshot must match its live reference'
       USING ERRCODE = '23514';
   END IF;
-  NEW.user_ref := COALESCE(NEW.user_ref, NEW.user_id);
-  IF NEW.user_ref IS NULL THEN
-    RAISE EXCEPTION 'safety screening requires an opaque owner provenance reference'
-      USING ERRCODE = '23502';
-  END IF;
+  NEW.user_ref := NEW.user_id;
   RETURN NEW;
 END;
 $screening_owner_snapshot$;
