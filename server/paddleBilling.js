@@ -810,7 +810,7 @@ export async function processPaddleEvent(pool, rawEvent) {
            )
              AND (transaction_id IS NULL OR transaction_id = $1)
              AND status IN ('creating', 'pending', 'reconciliation_required')
-           RETURNING user_id`,
+           RETURNING user_id, plan`,
           [data.id, reconciliationContext?.userId || null,
             reconciliationContext?.attemptId || null, reconciliationContext?.plan || null]
         );
