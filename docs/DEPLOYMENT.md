@@ -36,6 +36,7 @@ Before public launch:
 - Configure a verified sender domain and test email verification, resend and password reset end-to-end.
 - When the deferred payment task resumes, configure Paddle Sandbox products/prices and webhook secret; test checkout, subscription lifecycle, duplicate/out-of-order events, cancellation and refunds before considering production billing.
 - Set a persistent private photo volume or private object storage; test photo review, access control, restore and deletion.
+- Keep the `private-photo-purge` Compose worker enabled with read/write access only to the private photo volume and the internal database network. Photo removals are recorded transactionally in `private_photo_purge_queue`; the worker retries filesystem failures, and queue backlog/failures must be monitored before treating deletion as complete.
 - Schedule encrypted off-host database and photo backups; test restore. See [backup runbook](./OPERATIONS_BACKUPS.md).
 - Decide abuse-response staffing, moderator access, incident response, data retention, account export/deletion, age/identity checks, privacy notice and jurisdiction-specific terms.
 - Run dependency, container and secret scans; perform external security review and native-speaker review of safety/legal/payment copy.
