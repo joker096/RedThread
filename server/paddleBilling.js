@@ -765,12 +765,15 @@ export async function processPaddleEvent(pool, rawEvent) {
       const includesRecurringPrice = Boolean(expectedRecurringPriceId) && transactionItems.some(item =>
         (item?.priceId || item?.price_id || item?.price?.id) === expectedRecurringPriceId
       );
+      const transactionPlan = inferPaddleTransactionPlan(data);
       // A valid Paddle signature and matching price are not enough to grant an
       // entitlement: bind the provider transaction to this account's durable,
       // server-created checkout attempt first. Also accept a webhook that races
       // the checkout HTTP response while the attempt is still in "creating".
       const transactionPlanMatches =
-        (customData.plan === 'lifetime' && includesLifetimePrice) || includesRecurringPrice;
+        (customData.plan === 'lifetime' && includesLifetimePrice && transactionPlan === 'lifetime') ||
+        (customData.plan === '1month' && includesRecurringPrice && transactionPlan === '1month') ||
+        (customData.plan === '3months' && includesRecurringPrice && transactionPlan === '3months');
       const attemptClaim = transactionPlanMatches && customUserId && data.id
         ? await client.query(
           `UPDATE paddle_checkout_attempts
@@ -797,7 +800,7 @@ export async function processPaddleEvent(pool, rawEvent) {
         eventId,
         transactionId: data.id,
         userId: transactionOwnerUserId,
-        plan: inferPaddleTransactionPlan(data),
+        plan: transactionPlan,
         status: 'completed',
         subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
         customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null,
@@ -805,7 +808,6 @@ export async function processPaddleEvent(pool, rawEvent) {
         ...paddleTransactionFinancialTotals(data),
         currencyCode: paddleCurrencyCode(data)
       });
-      const transactionPlan = inferPaddleTransactionPlan(data);
       if (transactionOwnerUserId && ['1month', '3months'].includes(transactionPlan)) {
         // A recurring renewal can arrive after an adjustment webhook but does
         // not have a checkout-attempt row. The immutable transaction ledger is
