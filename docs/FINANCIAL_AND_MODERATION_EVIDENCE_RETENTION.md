@@ -49,7 +49,7 @@ A manual resolution must set `status = 'resolved'`, a concise `resolution_note`,
 ## Gift and delivery evidence
 
 - Gift purchase identity, product/price/currency snapshots and idempotency facts are immutable; order/payment lifecycle fields remain mutable through guarded transitions. Gift orders cannot be deleted or truncated.
-- `gift_delivery_order_events` is append-only. Its `actor_ref` snapshot preserves the original actor UUID when the live `actor_user_id` FK is nulled after account deletion. Direct update/delete and truncation are blocked.
+- `gift_delivery_order_events` is append-only. Its `actor_ref` snapshot is populated on insert and preserves the original actor UUID when the live `actor_user_id` FK is nulled after account deletion. New gift orders also snapshot `catalog_item_id` and `delivery_partner_id` into immutable `catalog_item_ref` and `delivery_partner_ref` fields before either live FK can be nulled. Direct update/delete and truncation are blocked.
 - Gift payment reconciliation tasks may advance through worker states but cannot be deleted or truncated. They remain until a separately approved retention process exists.
 - The order tables must contain only opaque address-vault references, never street address, phone, email, coordinates or delivery instructions. Account deletion/safety actions remove pre-dispatch address pointers and enqueue payment reconciliation without pretending a refund or void occurred.
 
