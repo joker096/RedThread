@@ -7,6 +7,24 @@ UPDATE gift_delivery_order_events
 SET actor_ref = actor_user_id
 WHERE actor_user_id IS NOT NULL;
 
+CREATE OR REPLACE FUNCTION snapshot_gift_delivery_order_event_actor()
+RETURNS trigger LANGUAGE plpgsql AS $gift_actor_snapshot$
+BEGIN
+  IF NEW.actor_user_id IS NOT NULL
+     AND NEW.actor_ref IS NOT NULL
+     AND NEW.actor_ref IS DISTINCT FROM NEW.actor_user_id THEN
+    RAISE EXCEPTION 'gift event actor snapshot must match its live reference'
+      USING ERRCODE = '23514';
+  END IF;
+  NEW.actor_ref := COALESCE(NEW.actor_ref, NEW.actor_user_id);
+  RETURN NEW;
+END;
+$gift_actor_snapshot$;
+
+CREATE TRIGGER gift_delivery_order_events_snapshot_actor
+  BEFORE INSERT ON gift_delivery_order_events
+  FOR EACH ROW EXECUTE FUNCTION snapshot_gift_delivery_order_event_actor();
+
 CREATE INDEX gift_delivery_order_events_actor_ref_idx
   ON gift_delivery_order_events(actor_ref, created_at DESC)
   WHERE actor_ref IS NOT NULL;
