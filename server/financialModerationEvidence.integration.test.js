@@ -93,11 +93,80 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       await client.query('ROLLBACK TO SAVEPOINT revoked_lifetime_reason_allowlist');
       await client.query('RELEASE SAVEPOINT revoked_lifetime_reason_allowlist');
 
+      const lifetimeTransactionId = 'txn_validrefundreason123';
+      const lifetimeAttemptId = randomUUID();
+      await client.query(
+        `INSERT INTO paddle_checkout_attempts
+         (user_id, attempt_id, transaction_id, plan, status, created_at, updated_at)
+         VALUES ($1, $2, $3, 'lifetime', 'linked', statement_timestamp(), statement_timestamp())`,
+        [lifetimeReasonUserId, lifetimeAttemptId, lifetimeTransactionId]
+      );
+
+      const unlinkedEntitlementUserId = randomUUID();
+      await client.query(
+        "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
+        [unlinkedEntitlementUserId, `unlinked-entitlement-${unlinkedEntitlementUserId}@example.invalid`]
+      );
+      await client.query('SAVEPOINT lifetime_entitlement_requires_link');
+      await client.query(
+        `INSERT INTO paddle_lifetime_entitlements (transaction_id, user_id, status)
+         VALUES ('txn_without_linked_lifetime_attempt123', $1, 'active')`,
+        [unlinkedEntitlementUserId]
+      );
+      let missingLifetimeOwnerError;
+      try {
+        await client.query('SET CONSTRAINTS paddle_lifetime_entitlements_owner_evidence_guard IMMEDIATE');
+      } catch (error) { missingLifetimeOwnerError = error; }
+      assert.equal(missingLifetimeOwnerError?.code, '23514',
+        'a lifetime entitlement must not be created without one linked lifetime checkout owner');
+      await client.query('ROLLBACK TO SAVEPOINT lifetime_entitlement_requires_link');
+      await client.query('RELEASE SAVEPOINT lifetime_entitlement_requires_link');
+      await client.query('SET CONSTRAINTS paddle_lifetime_entitlements_owner_evidence_guard DEFERRED');
+
       await client.query(
         `INSERT INTO paddle_lifetime_entitlements (transaction_id, user_id, status, revoke_reason)
-         VALUES ('txn_validrefundreason123', $1, 'revoked', 'paddle_full_refund')`,
-        [lifetimeReasonUserId]
+         VALUES ($1, $2, 'revoked', 'paddle_full_refund')`,
+        [lifetimeTransactionId, lifetimeReasonUserId]
       );
+      await client.query('SET CONSTRAINTS paddle_lifetime_entitlements_owner_evidence_guard IMMEDIATE');
+
+      const otherLifetimeUserId = randomUUID();
+      await client.query(
+        "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
+        [otherLifetimeUserId, `other-lifetime-${otherLifetimeUserId}@example.invalid`]
+      );
+      await client.query('SAVEPOINT lifetime_entitlement_identity_immutable');
+      let lifetimeOwnerMutationError;
+      try {
+        await client.query(
+          'UPDATE paddle_lifetime_entitlements SET user_id = $2 WHERE transaction_id = $1',
+          [lifetimeTransactionId, otherLifetimeUserId]
+        );
+      } catch (error) { lifetimeOwnerMutationError = error; }
+      assert.equal(lifetimeOwnerMutationError?.code, '55000',
+        'a lifetime transaction cannot be reassigned to another Vow account');
+      await client.query('ROLLBACK TO SAVEPOINT lifetime_entitlement_identity_immutable');
+      await client.query('RELEASE SAVEPOINT lifetime_entitlement_identity_immutable');
+
+      await client.query('SAVEPOINT lifetime_entitlement_delete_blocked');
+      let lifetimeEntitlementDeleteError;
+      try {
+        await client.query('DELETE FROM paddle_lifetime_entitlements WHERE transaction_id = $1',
+          [lifetimeTransactionId]);
+      } catch (error) { lifetimeEntitlementDeleteError = error; }
+      assert.equal(lifetimeEntitlementDeleteError?.code, '55000',
+        'lifetime transaction provenance must not be deleted');
+      await client.query('ROLLBACK TO SAVEPOINT lifetime_entitlement_delete_blocked');
+      await client.query('RELEASE SAVEPOINT lifetime_entitlement_delete_blocked');
+
+      await client.query('SAVEPOINT lifetime_entitlement_truncate_blocked');
+      let lifetimeEntitlementTruncateError;
+      try { await client.query('TRUNCATE paddle_lifetime_entitlements'); }
+      catch (error) { lifetimeEntitlementTruncateError = error; }
+      assert.equal(lifetimeEntitlementTruncateError?.code, '55000',
+        'lifetime transaction provenance must not be truncated');
+      await client.query('ROLLBACK TO SAVEPOINT lifetime_entitlement_truncate_blocked');
+      await client.query('RELEASE SAVEPOINT lifetime_entitlement_truncate_blocked');
 
       await client.query(`
         CREATE TEMP TABLE report_evidence_guard_test (
