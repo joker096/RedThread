@@ -211,8 +211,14 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       const thirdAttemptId = randomUUID();
       await client.query(
         `UPDATE paddle_checkout_attempts
-         SET transaction_id = 'txn_historycompleted123', status = 'completed',
+         SET transaction_id = 'txn_historycompleted123', status = 'pending',
              updated_at = statement_timestamp()
+         WHERE user_id = $1 AND attempt_id = $2`,
+        [userId, secondAttemptId]
+      );
+      await client.query(
+        `UPDATE paddle_checkout_attempts
+         SET status = 'completed', updated_at = statement_timestamp()
          WHERE user_id = $1 AND attempt_id = $2`,
         [userId, secondAttemptId]
       );
