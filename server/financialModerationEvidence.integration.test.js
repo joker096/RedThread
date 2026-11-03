@@ -732,8 +732,10 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       await client.query(`
         CREATE TEMP TABLE gift_order_facts_guard_test (
           id uuid, public_reference text, match_id uuid, sender_id uuid, recipient_id uuid,
-          product_name_snapshot text, product_category text, total_minor_units bigint,
-          currency char(3), idempotency_key text, created_at timestamptz, expires_at timestamptz,
+          product_name_snapshot text, product_category text,
+          item_price_minor_units bigint, delivery_fee_minor_units bigint, delivery_fee_currency char(3),
+          total_minor_units bigint, currency char(3), idempotency_key text,
+          created_at timestamptz, expires_at timestamptz,
           catalog_item_id uuid, catalog_item_ref uuid, delivery_partner_id uuid, delivery_partner_ref uuid
         ) ON COMMIT DROP
       `);
@@ -751,7 +753,7 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       const deliveryPartnerId = randomUUID();
       await client.query(
         `INSERT INTO gift_order_facts_guard_test
-         VALUES ($1, 'gift_ref', $2, $3, $4, 'snapshot', 'chocolate', 1000,
+         VALUES ($1, 'gift_ref', $2, $3, $4, 'snapshot', 'chocolate', 700, 300, 'USD', 1000,
                  'USD', 'idempotency', statement_timestamp(), statement_timestamp(), $5, NULL, $6, NULL)`,
         [randomUUID(), randomUUID(), randomUUID(), randomUUID(), catalogItemId, deliveryPartnerId]
       );
@@ -772,6 +774,22 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       assert.equal(giftOrderFactError?.code, '55000');
       await client.query('ROLLBACK TO SAVEPOINT gift_order_facts_immutable');
       await client.query('RELEASE SAVEPOINT gift_order_facts_immutable');
+
+      for (const [column, value] of [
+        ['item_price_minor_units', 701],
+        ['delivery_fee_minor_units', 301],
+        ['delivery_fee_currency', 'GEL']
+      ]) {
+        await client.query('SAVEPOINT gift_price_component_immutable');
+        let priceComponentError;
+        try {
+          await client.query(`UPDATE gift_order_facts_guard_test SET ${column} = $1`, [value]);
+        } catch (error) { priceComponentError = error; }
+        assert.equal(priceComponentError?.code, '55000',
+          `gift purchase component ${column} must be immutable`);
+        await client.query('ROLLBACK TO SAVEPOINT gift_price_component_immutable');
+        await client.query('RELEASE SAVEPOINT gift_price_component_immutable');
+      }
 
       await client.query(`
         CREATE TEMP TABLE evidence_truncate_guard_test (id integer) ON COMMIT DROP
