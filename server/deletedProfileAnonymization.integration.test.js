@@ -33,7 +33,7 @@ test('account deletion scrubs profile personal data in the database', {
       [userId]
     );
 
-    const photoStoragePath = '/tmp/vow-deleted-profile-' + randomUUID() + '.jpg';
+    const photoStoragePath = (process.env.PHOTO_STORAGE_DIR || '/srv/vow/private-photos') + '/' + randomUUID() + '.jpg';
     await client.query(
       `INSERT INTO photo_assets (user_id, storage_path, mime_type, byte_size, width, height, review_status)
        VALUES ($1, $2, 'image/jpeg', 128, 1, 1, 'approved')`,
