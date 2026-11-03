@@ -142,6 +142,17 @@ test('chargebacks revoke lifetime Premium and chargeback reversals restore it', 
   assert.deepEqual(update.params, [transactionId, userId, 'active', null]);
 });
 
+test('one approved chargeback reversal cannot clear another active chargeback', async () => {
+  const { pool, calls } = makePool({
+    ledgerStatus: 'revoked',
+    revokeReason: 'paddle_chargeback',
+    chargeback: true
+  });
+  const result = await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'approved' });
+  assert.equal(result.entitlementChanged, false);
+  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
+});
+
 test('a rejected chargeback reversal cannot restore lifetime Premium', async () => {
   const { pool, calls } = makePool({
     ledgerStatus: 'revoked',
