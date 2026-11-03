@@ -33,7 +33,10 @@ This policy describes the data boundaries implemented in the repository. It does
 
 ## Gift and delivery evidence
 
-Gift orders, order events, and payment reconciliation tasks are retained while a delivery, payment, refund, dispute or safety investigation is unresolved. The order tables must contain only opaque address-vault references, never street address, phone, email, coordinates or delivery instructions. Account deletion/safety actions remove pre-dispatch address pointers and enqueue payment reconciliation without pretending a refund or void occurred.
+- Gift purchase identity, product/price/currency snapshots and idempotency facts are immutable; order/payment lifecycle fields remain mutable through guarded transitions. Gift orders cannot be deleted or truncated.
+- `gift_delivery_order_events` is append-only. Its `actor_ref` snapshot preserves the original actor UUID when the live `actor_user_id` FK is nulled after account deletion. Direct update/delete and truncation are blocked.
+- Gift payment reconciliation tasks may advance through worker states but cannot be deleted or truncated. They remain until a separately approved retention process exists.
+- The order tables must contain only opaque address-vault references, never street address, phone, email, coordinates or delivery instructions. Account deletion/safety actions remove pre-dispatch address pointers and enqueue payment reconciliation without pretending a refund or void occurred.
 
 ## Operational requirements before production
 
