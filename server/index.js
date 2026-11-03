@@ -3571,7 +3571,8 @@ app.get('/api/admin/paddle-adjustment-reconciliation', requireSession, async (re
     const read = await withActiveModeratorRead(req.authUser.id, async client => {
       const result = await client.query(
         `SELECT c.event_id AS "eventId", c.reason_code AS "reasonCode",
-                c.created_at AS "createdAt", e.adjustment_id AS "adjustmentId",
+                to_char(c.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "createdAt",
+                e.adjustment_id AS "adjustmentId",
                 e.transaction_id AS "transactionId", e.action,
                 e.status AS "adjustmentStatus", e.amount_minor_units AS "amountMinorUnits",
                 e.currency_code AS "currencyCode", e.occurred_at AS "occurredAt"
