@@ -367,6 +367,22 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     );
     assert.equal(finalApproval.rows[0].active, false,
       'the latest rejected decision must supersede an earlier approval');
+
+    // Physical removal of a purged submission must not erase who viewed its
+    // encrypted video. The immutable UUID snapshots survive FK SET NULL.
+    await pool.query('DELETE FROM identity_l3_submissions WHERE id = $1', [first.submissionId]);
+    const retainedAccessAudit = await pool.query(
+      `SELECT submission_id, moderator_user_id, submission_ref, moderator_ref, access_type
+       FROM identity_l3_media_access_events WHERE submission_ref = $1`,
+      [first.submissionId]
+    );
+    assert.deepEqual(retainedAccessAudit.rows, [{
+      submission_id: null,
+      moderator_user_id: moderatorId,
+      submission_ref: first.submissionId,
+      moderator_ref: moderatorId,
+      access_type: 'viewed'
+    }], 'L3 access history must outlive the purged submission and video');
   } finally {
     if (child && child.exitCode === null) {
       child.kill('SIGTERM');
