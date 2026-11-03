@@ -434,7 +434,7 @@ test('auth API supports registration, session lookup, logout and login', {
     let giftMatchId;
     let giftMatchCreated = false;
     try {
-      const [userA, userB] = [registered.user.id, maleRegistered.user.id].sort();
+      const [userA, userB] = [registered.user.id, secondMaleRegistered.user.id].sort();
       const match = await giftTestDb.query(
         `INSERT INTO matches (user_a_id, user_b_id, status)
          VALUES ($1, $2, 'active')
@@ -459,14 +459,14 @@ test('auth API supports registration, session lookup, logout and login', {
                  'address_verified', 'not_started', NOW(), 1, 'test-only-vault-reference',
                  NOW(), $4)
          RETURNING id, public_reference`,
-        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+        [giftMatchId, secondMaleRegistered.user.id, registered.user.id, randomUUID()]
       );
       giftOrderId = giftOrder.rows[0].id;
       const giftReference = giftOrder.rows[0].public_reference;
 
       const crossAccountWithdrawal = await request(
         `/api/gifts/orders/${giftReference}/withdraw-consent`,
-        { method: 'POST', headers: { Cookie: maleCookie } }
+        { method: 'POST', headers: { Cookie: secondMaleCookie } }
       );
       assert.equal(crossAccountWithdrawal.status, 404,
         'a sender or unrelated account must not withdraw the recipient\'s consent');
@@ -522,7 +522,7 @@ test('auth API supports registration, session lookup, logout and login', {
                  'address_verified', 'not_started', NOW(), 1, 'test-only-concurrent-vault-reference',
                  NOW(), $4)
          RETURNING id, public_reference`,
-        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+        [giftMatchId, secondMaleRegistered.user.id, registered.user.id, randomUUID()]
       );
       const concurrentGiftOrderId = concurrentOrderResult.rows[0].id;
       const concurrentGiftReference = concurrentOrderResult.rows[0].public_reference;
@@ -569,7 +569,7 @@ test('auth API supports registration, session lookup, logout and login', {
          VALUES ($1, $2, $3, 'Pending preference test gift', 'chocolate', 1000, 'USD',
                  'awaiting_recipient_consent', 'not_started', $4)
          RETURNING id, public_reference`,
-        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+        [giftMatchId, secondMaleRegistered.user.id, registered.user.id, randomUUID()]
       );
       const pendingPreferenceOrderId = pendingPreferenceOrder.rows[0].id;
       try {
@@ -604,7 +604,7 @@ test('auth API supports registration, session lookup, logout and login', {
           `SELECT type, metadata, dedupe_key
            FROM user_notifications
            WHERE user_id = $1 AND dedupe_key = $2`,
-          [maleRegistered.user.id, `gift_request_update:${pendingPreferenceOrder.rows[0].public_reference}:recipient_opted_out`]
+          [secondMaleRegistered.user.id, `gift_request_update:${pendingPreferenceOrder.rows[0].public_reference}:recipient_opted_out`]
         );
         assert.equal(senderNotification.rowCount, 1,
           'the sender must be notified when recipient opt-out invalidates the request');
@@ -632,7 +632,7 @@ test('auth API supports registration, session lookup, logout and login', {
          VALUES ($1, $2, $3, 'Expired acceptance race test', 'chocolate', 1000, 'USD',
                  'awaiting_recipient_consent', 'not_started', $4)
          RETURNING id, public_reference`,
-        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+        [giftMatchId, secondMaleRegistered.user.id, registered.user.id, randomUUID()]
       );
       const expiredAcceptanceOrderId = expiredAcceptanceResult.rows[0].id;
       const expiredAcceptanceReference = expiredAcceptanceResult.rows[0].public_reference;
@@ -685,7 +685,7 @@ test('auth API supports registration, session lookup, logout and login', {
          VALUES ($1, $2, $3, 'Active payment guard test gift', 'chocolate', 1000, 'USD',
                  'awaiting_recipient_consent', 'authorized', $4)
          RETURNING id, public_reference`,
-        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+        [giftMatchId, secondMaleRegistered.user.id, registered.user.id, randomUUID()]
       );
       const activePaymentOrderId = activePaymentOrder.rows[0].id;
       const activePaymentReference = activePaymentOrder.rows[0].public_reference;
@@ -915,7 +915,7 @@ test('auth API supports registration, session lookup, logout and login', {
         const activeSenderNotification = await giftTestDb.query(
           `SELECT type, metadata FROM user_notifications
            WHERE user_id = $1 AND dedupe_key = $2`,
-          [maleRegistered.user.id, `gift_request_update:${activePaymentReference}:recipient_opted_out`]
+          [secondMaleRegistered.user.id, `gift_request_update:${activePaymentReference}:recipient_opted_out`]
         );
         assert.equal(activeSenderNotification.rowCount, 1,
           'sender must also be notified when the request awaits payment reconciliation');
@@ -941,7 +941,7 @@ test('auth API supports registration, session lookup, logout and login', {
          VALUES ($1, $2, $3, 'Inactive sibling test gift', 'chocolate', 1000, 'USD',
                  'awaiting_recipient_consent', 'not_started', $4)
          RETURNING id`,
-        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+        [giftMatchId, secondMaleRegistered.user.id, registered.user.id, randomUUID()]
       );
       const inactiveSiblingOrderId = inactiveSiblingOrder.rows[0].id;
       try {
@@ -992,7 +992,7 @@ test('auth API supports registration, session lookup, logout and login', {
          VALUES ($1, $2, $3, 'Opt-out race test gift', 'chocolate', 1000, 'USD',
                  'awaiting_recipient_consent', 'not_started', $4)
          RETURNING id, public_reference`,
-        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+        [giftMatchId, secondMaleRegistered.user.id, registered.user.id, randomUUID()]
       );
       const raceOrderId = raceOrderResult.rows[0].id;
       const raceReference = raceOrderResult.rows[0].public_reference;
@@ -1049,7 +1049,7 @@ test('auth API supports registration, session lookup, logout and login', {
          VALUES ($1, $2, $3, 'Accepted consent preservation test', 'chocolate', 1000, 'USD',
                  'recipient_accepted', 'not_started', NOW(), 1, $4)
          RETURNING id`,
-        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+        [giftMatchId, secondMaleRegistered.user.id, registered.user.id, randomUUID()]
       );
       const acceptedOrderId = acceptedOrderResult.rows[0].id;
       await giftTestDb.query(
@@ -1095,7 +1095,7 @@ test('auth API supports registration, session lookup, logout and login', {
            VALUES ($1, $2, $3, 'Safety race test gift', 'chocolate', 1000, 'USD',
                    'awaiting_recipient_consent', 'not_started', $4)
            RETURNING id, public_reference`,
-          [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+          [giftMatchId, secondMaleRegistered.user.id, registered.user.id, randomUUID()]
         );
         const safetyRaceOrderId = safetyRaceOrder.rows[0].id;
         const safetyRaceReference = safetyRaceOrder.rows[0].public_reference;
@@ -1108,7 +1108,7 @@ test('auth API supports registration, session lookup, logout and login', {
             }),
             request(`/api/blocks/${registered.user.id}`, {
               method: 'POST',
-              headers: { Cookie: maleCookie }
+              headers: { Cookie: secondMaleCookie }
             })
           ]);
           assert.ok([200, 409].includes(safetyRaceDecision.status),
@@ -1149,7 +1149,7 @@ test('auth API supports registration, session lookup, logout and login', {
           await preserveGiftOrderFixture(giftTestDb, safetyRaceOrderId);
           await giftTestDb.query(
             'DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2',
-            [maleRegistered.user.id, registered.user.id]
+            [secondMaleRegistered.user.id, registered.user.id]
           ).catch(() => {});
         }
       }
