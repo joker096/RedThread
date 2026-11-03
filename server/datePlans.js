@@ -235,6 +235,8 @@ export function registerDatePlanRoutes(app, deps) {
       await client.query(
         "INSERT INTO date_plan_events (date_plan_id, actor_id, event_type) VALUES ($1, $2, 'declined')",
         [current.rows[0].id, req.authUser.id]);
+      const recipientId = pair.userAId === req.authUser.id ? pair.userBId : pair.userAId;
+      await createNotification(recipientId, 'date_plan_declined', { matchId: req.params.matchId, datePlanId: current.rows[0].id }, null, client);
       await client.query('COMMIT');
       return res.json({ declined: true });
     } catch (error) {
