@@ -1043,7 +1043,7 @@ function trustedPaddlePortalUrl(value) {
   try {
     const parsed = new URL(value);
     if (parsed.protocol !== 'https:' ||
-        !['customer-portal.paddle.com', 'sandbox-customer-portal.paddle.com'].includes(parsed.hostname) ||
+        parsed.hostname !== 'sandbox-customer-portal.paddle.com' ||
         parsed.username || parsed.password || parsed.port) return null;
     return parsed.toString();
   } catch {
