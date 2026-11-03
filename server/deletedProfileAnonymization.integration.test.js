@@ -33,7 +33,17 @@ test('account deletion scrubs profile personal data in the database', {
       [userId]
     );
 
+    await client.query(
+      "INSERT INTO user_safety_screenings (user_id, scope, flags, severity, engine_version, review_status) VALUES ($1, 'profile', '[\\"profile_flag\\"]'::jsonb, 'high', 'test-v1', 'pending')",
+      [userId]
+    );
     await client.query("UPDATE users SET status = 'deleted' WHERE id = $1", [userId]);
+    const screenings = await client.query(
+      'SELECT COUNT(*)::int AS count FROM user_safety_screenings WHERE user_id = $1',
+      [userId]
+    );
+    assert.equal(screenings.rows[0].count, 0,
+      'account deletion must purge transient profile screening results');
     const profile = await client.query(
       `SELECT display_name, birth_date, gender, country, city, bio, relationship_intent,
               is_visible, photo_urls, occupation, education, languages, family_format,
