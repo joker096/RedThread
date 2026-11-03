@@ -1928,7 +1928,7 @@ app.post('/api/photos', validateRequestOrigin, requireSession, profileActionLimi
     try {
       await pool.query(
         'INSERT INTO moderation_audit_log (action,target_type,target_id,reason,details) VALUES ($1,$2,$3,$4,$5::jsonb)',
-        ['photo_ai_rejected', 'photo_upload', id, moderation.reason, JSON.stringify({ engine: moderation.engine, confidence: moderation.confidence, flags: moderation.flags })]
+        ['photo_ai_rejected', 'photo_upload', id, moderation.reason, JSON.stringify({ userId: req.authUser.id, engine: moderation.engine, confidence: moderation.confidence, flags: moderation.flags })]
       );
     } catch (error) {
       console.error('Photo moderation audit failed:', error?.message || 'unknown error');
@@ -1954,7 +1954,7 @@ app.post('/api/photos', validateRequestOrigin, requireSession, profileActionLimi
     await mkdir(photoStorageDir,{recursive:true,mode:0o700});
     await writeFile(filePath,clean.buffer,{flag:'wx',mode:0o600}); fileWritten=true;
     await client.query('INSERT INTO photo_assets (id,user_id,storage_path,mime_type,byte_size,width,height,review_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',[id,req.authUser.id,filePath,clean.mimeType,clean.buffer.length,clean.width,clean.height,moderation.status]);
-    if (moderation.status === 'approved') await client.query('INSERT INTO moderation_audit_log (action,target_type,target_id,reason,details) VALUES ($1,$2,$3,$4,$5::jsonb)', ['photo_ai_approved', 'photo', id, moderation.reason, JSON.stringify({ engine: moderation.engine, confidence: moderation.confidence, flags: moderation.flags })]);
+    if (moderation.status === 'approved') await client.query('INSERT INTO moderation_audit_log (action,target_type,target_id,reason,details) VALUES ($1,$2,$3,$4,$5::jsonb)', ['photo_ai_approved', 'photo', id, moderation.reason, JSON.stringify({ userId: req.authUser.id, engine: moderation.engine, confidence: moderation.confidence, flags: moderation.flags })]);
     await client.query("UPDATE profiles SET photo_urls=COALESCE(photo_urls,'{}') || ARRAY[$2]::text[],updated_at=statement_timestamp() WHERE user_id=$1",[req.authUser.id,photoUrl]);
     await client.query('COMMIT');
     return res.status(201).json({photoUrl,mimeType:clean.mimeType,width:clean.width,height:clean.height,reviewStatus:moderation.status,moderationEngine:moderation.engine});
@@ -3727,7 +3727,7 @@ app.post('/api/admin/screenings/:screeningId/resolve', validateRequestOrigin, re
       "SELECT user_id FROM user_safety_screenings WHERE id = $1 AND review_status = 'pending'",
       [req.params.screeningId]
     );
-    if (!preview.rows[0]) {
+    if (!preview.rows[0]?.user_id) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'pending_screening_not_found' });
     }
