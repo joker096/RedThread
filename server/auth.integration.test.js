@@ -645,7 +645,7 @@ test('auth API supports registration, session lookup, logout and login', {
         await giftTestDb.query(
           'DELETE FROM user_notifications WHERE dedupe_key = $1',
           [`gift_request_update:${pendingPreferenceOrder.rows[0].public_reference}:recipient_opted_out`]
-        ).catch(() => {});
+        );
         await preserveGiftOrderFixture(giftTestDb, pendingPreferenceOrderId);
       }
 
@@ -956,7 +956,7 @@ test('auth API supports registration, session lookup, logout and login', {
         await giftTestDb.query(
           'DELETE FROM user_notifications WHERE dedupe_key = $1',
           [`gift_request_update:${activePaymentReference}:recipient_opted_out`]
-        ).catch(() => {});
+        );
         await preserveGiftOrderFixture(giftTestDb, activePaymentOrderId);
       }
 
@@ -1179,25 +1179,21 @@ test('auth API supports registration, session lookup, logout and login', {
           await giftTestDb.query(
             'DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2',
             [giftSender.user.id, giftRecipient.user.id]
-          ).catch(() => {});
+          );
         }
       }
     } finally {
       if (giftOrderId) {
         await preserveGiftOrderFixture(giftTestDb, giftOrderId);
       }
-      if (giftMatchId && giftMatchCreated) {
-        await giftTestDb.query('DELETE FROM matches WHERE id = $1', [giftMatchId]).catch(() => {});
-      }
+      // Gift orders and their match remain as immutable evidence. Tombstone the
+      // disposable fixture accounts so account erasure scrubs profiles while
+      // preserving order/event provenance.
       const giftFixtureUserIds = [giftSender.user.id, giftRecipient.user.id];
-      await giftTestDb.query(
-        'DELETE FROM profiles WHERE user_id = ANY($1::uuid[])',
-        [giftFixtureUserIds]
-      ).catch(() => {});
       await giftTestDb.query(
         "UPDATE users SET status = 'deleted' WHERE id = ANY($1::uuid[])",
         [giftFixtureUserIds]
-      ).catch(() => {});
+      );
       await giftTestDb.end();
     }
 
@@ -2624,15 +2620,20 @@ test('auth API supports registration, session lookup, logout and login', {
         await giftSafetyDb.query(
           'DELETE FROM user_blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1)',
           [registered.user.id, maleRegistered.user.id]
-        ).catch(() => {});
+        );
         await giftSafetyDb.query(
           "UPDATE matches SET status = 'active' WHERE id = $1",
           [matchPayload.match.id]
-        ).catch(() => {});
+        );
       }
 
     } finally {
-      if (reportId) await giftSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [reportId]).catch(() => {});
+      if (reportId) {
+        await giftSafetyDb.query(
+          "UPDATE user_reports SET status = 'resolved' WHERE id = $1 AND status IN ('open', 'reviewing')",
+          [reportId]
+        );
+      }
       for (const orderId of [blockSafetyOrderId, blockFailedDeliveryOrderId, authorizationPendingSafetyOrderId, reportSafetyOrderId, reportFailedDeliveryOrderId].filter(Boolean)) {
         await preserveGiftOrderFixture(giftSafetyDb, orderId);
       }
@@ -2717,10 +2718,11 @@ test('auth API supports registration, session lookup, logout and login', {
     // identity video while the private-media purge has not been confirmed.
     const l3DeletionGuardDb = new Pool({ connectionString: process.env.DATABASE_URL });
     const l3DeletionGuardSubmissionId = randomUUID();
+    const l3DeletionGuardUser = await registerGiftFixtureUser('male', 'L3 deletion guard fixture');
     try {
       await l3DeletionGuardDb.query(
         'INSERT INTO identity_l3_submissions (id, user_id, status) VALUES ($1, $2, \'draft\')',
-        [l3DeletionGuardSubmissionId, registered.user.id]
+        [l3DeletionGuardSubmissionId, l3DeletionGuardUser.user.id]
       );
       await l3DeletionGuardDb.query(
         "UPDATE identity_l3_submissions SET status = 'upload_authorized' WHERE id = $1",
@@ -2737,8 +2739,8 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       const blockedL3AccountDeletion = await request('/api/account', {
         method: 'DELETE',
-        headers: { Cookie: secondCookie },
-        body: JSON.stringify({ password: activePassword })
+        headers: { Cookie: l3DeletionGuardUser.cookie },
+        body: JSON.stringify({ password: 'Gift Fixture Password 2026!' })
       });
       assert.equal(blockedL3AccountDeletion.status, 409);
       assert.deepEqual(await blockedL3AccountDeletion.json(),
@@ -2750,10 +2752,8 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.equal(retainedL3Reference.rowCount, 1,
         'account deletion must retain the object key until physical media purge is confirmed');
     } finally {
-      await l3DeletionGuardDb.query(
-        'DELETE FROM identity_l3_submissions WHERE id = $1',
-        [l3DeletionGuardSubmissionId]
-      ).catch(() => {});
+      // Retain the uploaded L3 submission and object reference as evidence.
+      // Its dedicated fixture account prevents contamination of shared auth users.
       await l3DeletionGuardDb.end();
     }
 
@@ -2821,14 +2821,15 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.deepEqual(moderationReconciliation.rows, [{ reason: 'safety_hold', status: 'pending' }],
         'moderation suspension must enqueue provider reconciliation without claiming the captured payment was refunded');
 
+      const deletedTargetFixture = await registerGiftFixtureUser('male', 'Deleted target fixture');
       const deletedTargetReport = await moderationSafetyDb.query(
         'INSERT INTO user_reports (reporter_id, reported_user_id, category, details) VALUES ($1, $2, $3, $4) RETURNING id',
-        [registered.user.id, maleRegistered.user.id, 'safety', 'Integration test: do not overwrite deleted account status']
+        [registered.user.id, deletedTargetFixture.user.id, 'safety', 'Integration test: do not overwrite deleted account status']
       );
       deletedTargetReportId = deletedTargetReport.rows[0].id;
       await moderationSafetyDb.query(
         "UPDATE users SET status = 'deleted', email = $2 WHERE id = $1",
-        [maleRegistered.user.id, 'deleted+' + maleRegistered.user.id + '@deleted.invalid']
+        [deletedTargetFixture.user.id, 'deleted+' + deletedTargetFixture.user.id + '@deleted.invalid']
       );
       const deletedTargetAction = await request('/api/admin/reports/' + deletedTargetReportId + '/action', {
         method: 'POST',
@@ -2839,7 +2840,7 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.equal((await deletedTargetAction.json()).accountSuspended, false);
       const deletedTargetStatus = await moderationSafetyDb.query(
         'SELECT status FROM users WHERE id = $1',
-        [maleRegistered.user.id]
+        [deletedTargetFixture.user.id]
       );
       assert.equal(deletedTargetStatus.rows[0].status, 'deleted',
         'a moderation action must not overwrite the terminal deleted account state');
@@ -2849,13 +2850,14 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       assert.equal(resolvedDeletedTargetReport.rows[0].status, 'resolved');
     } finally {
-      // Restore this shared integration fixture even if an assertion fails.
-      await moderationSafetyDb.query(
-        "UPDATE users SET status = 'active', email = $2 WHERE id = $1",
-        [maleRegistered.user.id, maleEmail]
-      ).catch(() => {});
-      if (deletedTargetReportId) await moderationSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [deletedTargetReportId]).catch(() => {});
-      if (moderationSafetyReportId) await moderationSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [moderationSafetyReportId]).catch(() => {});
+      // Reports are immutable evidence. Retain them and close only cases that
+      // are still actionable; the deleted-target fixture remains a tombstone.
+      for (const retainedReportId of [deletedTargetReportId, moderationSafetyReportId].filter(Boolean)) {
+        await moderationSafetyDb.query(
+          "UPDATE user_reports SET status = 'resolved' WHERE id = $1 AND status IN ('open', 'reviewing')",
+          [retainedReportId]
+        );
+      }
       if (moderationSafetyOrderId) {
         await preserveGiftOrderFixture(moderationSafetyDb, moderationSafetyOrderId);
       }
@@ -2949,7 +2951,12 @@ test('auth API supports registration, session lookup, logout and login', {
         assert.deepEqual(dispatchedReportReconciliation.rows, [{ reason: 'safety_hold', status: 'pending' }],
           'a safety report after dispatch must enqueue reconciliation for the captured payment');
       } finally {
-        if (dispatchedReportId) await deletionSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [dispatchedReportId]).catch(() => {});
+        if (dispatchedReportId) {
+          await deletionSafetyDb.query(
+            "UPDATE user_reports SET status = 'resolved' WHERE id = $1 AND status IN ('open', 'reviewing')",
+            [dispatchedReportId]
+          );
+        }
         await preserveGiftOrderFixture(deletionSafetyDb, dispatchedReportSafetyOrderId);
       }
 
