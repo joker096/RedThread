@@ -2264,6 +2264,52 @@ test('auth API supports registration, session lookup, logout and login', {
       notification.type === 'date_plan_declined'
     ), 'the proposer must receive a notification when the other participant declines');
 
+    // A loss of L2 eligibility must cancel an existing plan in the same database transaction.
+    const l2SafetyProposal = await request(datePlanPath, {
+      method: 'POST', headers: { Cookie: secondCookie },
+      body: JSON.stringify({ ...datePlanInput, venueName: 'L2 Safety Test Cafe' })
+    });
+    assert.equal(l2SafetyProposal.status, 201);
+    const l2SafetyPlanId = (await l2SafetyProposal.json()).datePlan.id;
+    await identityGateDb.query(
+      "UPDATE identity_verifications SET status = 'pending' WHERE user_id = $1 AND provider = 'didit'",
+      [maleRegistered.user.id]
+    );
+    const l2SafetyCancelled = await identityGateDb.query(
+      'SELECT status, confirmed_by_a_at, confirmed_by_b_at FROM date_plans WHERE id = $1',
+      [l2SafetyPlanId]
+    );
+    assert.equal(l2SafetyCancelled.rows[0].status, 'cancelled',
+      'L2 loss must cancel a pending date plan rather than leave it to reappear after re-verification');
+    assert.equal(l2SafetyCancelled.rows[0].confirmed_by_a_at, null);
+    assert.equal(l2SafetyCancelled.rows[0].confirmed_by_b_at, null);
+    await identityGateDb.query(
+      "UPDATE identity_verifications SET status = 'verified', provider_environment = 'live' WHERE user_id = $1 AND provider = 'didit'",
+      [maleRegistered.user.id]
+    );
+
+    // Withdrawing the current L3 consent must cancel a plan even if the account stays active.
+    const l3SafetyProposal = await request(datePlanPath, {
+      method: 'POST', headers: { Cookie: secondCookie },
+      body: JSON.stringify({ ...datePlanInput, venueName: 'L3 Safety Test Cafe' })
+    });
+    assert.equal(l3SafetyProposal.status, 201);
+    const l3SafetyPlanId = (await l3SafetyProposal.json()).datePlan.id;
+    await identityGateDb.query(
+      'UPDATE identity_l3_consents SET withdrawn_at = statement_timestamp() WHERE user_id = $1 AND withdrawn_at IS NULL',
+      [maleRegistered.user.id]
+    );
+    const l3SafetyCancelled = await identityGateDb.query(
+      'SELECT status FROM date_plans WHERE id = $1',
+      [l3SafetyPlanId]
+    );
+    assert.equal(l3SafetyCancelled.rows[0].status, 'cancelled',
+      'L3 consent withdrawal must revoke prior date-plan confirmations');
+    await identityGateDb.query(
+      'UPDATE identity_l3_consents SET withdrawn_at = NULL WHERE user_id = $1',
+      [maleRegistered.user.id]
+    );
+
     await identityGateDb.query("UPDATE identity_verifications SET status = 'verified', provider_environment = 'live' WHERE user_id = $1", [maleRegistered.user.id]);
 
     const sendMessage = await request(`/api/matches/${matchPayload.match.id}/messages`, {
