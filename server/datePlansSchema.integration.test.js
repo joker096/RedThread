@@ -25,6 +25,18 @@ test('date plan schema enforces mutual confirmation and cancels plans on safety 
       assert.ok(names.has(name), 'date_plans must persist ' + name);
     }
 
+    const notificationConstraint = await client.query(
+      `SELECT pg_get_constraintdef(oid) AS definition
+       FROM pg_constraint
+       WHERE conrelid = 'user_notifications'::regclass
+         AND conname = 'user_notifications_type_check'`
+    );
+    assert.equal(notificationConstraint.rowCount, 1);
+    for (const type of ['date_plan_proposed', 'date_plan_confirmed', 'date_plan_cancelled', 'date_plan_declined']) {
+      assert.ok(notificationConstraint.rows[0].definition.includes(type),
+        'notification constraint must permit ' + type);
+    }
+
     const triggers = await client.query(
       `SELECT c.relname AS table_name, t.tgname
        FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
