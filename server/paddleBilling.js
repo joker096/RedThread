@@ -100,6 +100,30 @@ async function getPaddleAdjustmentState(client, transactionId) {
   };
 }
 
+async function recordPaddleAdjustmentReconciliationCase(client, {
+  eventId, adjustmentId, transactionId, reasonCode
+}) {
+  await client.query(
+    `INSERT INTO paddle_adjustment_reconciliation_cases
+       (event_id, adjustment_id, transaction_id, reason_code)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (event_id) DO NOTHING`,
+    [eventId, adjustmentId, transactionId, reasonCode]
+  );
+}
+
+async function resolvePaddleAdjustmentReconciliationCases(client, transactionId, resolutionNote) {
+  await client.query(
+    `UPDATE paddle_adjustment_reconciliation_cases
+     SET status = 'resolved',
+         resolution_note = $2,
+         resolved_at = statement_timestamp(),
+         updated_at = statement_timestamp()
+     WHERE transaction_id = $1 AND status = 'open'`,
+    [transactionId, resolutionNote]
+  );
+}
+
 async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
   const adjustmentId = data.id;
   const transactionId = data.transactionId || data.transaction_id;
@@ -136,17 +160,41 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
   );
 
   const linked = await client.query(
-    `SELECT user_id FROM (
+    `SELECT user_id, plan, status FROM (
        SELECT user_id, transaction_id, plan, status FROM paddle_checkout_attempts
        UNION ALL
        SELECT user_id, transaction_id, plan, status FROM paddle_checkout_attempt_history
      ) AS attempts
-     WHERE transaction_id = $1 AND plan = 'lifetime' AND status = 'linked'
+     WHERE transaction_id = $1 AND status IN ('linked', 'completed')
      LIMIT 2`,
     [transactionId]
   );
   if (linked.rowCount !== 1) {
-    return { handled: true, reconciliationRequired: true };
+    await recordPaddleAdjustmentReconciliationCase(client, {
+      eventId, adjustmentId, transactionId,
+      reasonCode: linked.rowCount > 1
+        ? 'lifetime_transaction_ambiguous'
+        : 'lifetime_transaction_unlinked'
+    });
+    return { handled: true, adjustmentRecorded: true, reconciliationRequired: true };
+  }
+
+  // Recurring Vow purchases are recorded for financial history, but lifetime
+  // entitlement logic must never be applied to them.
+  if (linked.rows[0].plan !== 'lifetime') {
+    return {
+      handled: true,
+      adjustmentRecorded: true,
+      entitlementChanged: false,
+      premiumRevoked: false
+    };
+  }
+  if (linked.rows[0].status !== 'linked') {
+    await recordPaddleAdjustmentReconciliationCase(client, {
+      eventId, adjustmentId, transactionId,
+      reasonCode: 'lifetime_transaction_unlinked'
+    });
+    return { handled: true, adjustmentRecorded: true, reconciliationRequired: true };
   }
 
   const userId = linked.rows[0].user_id;
@@ -160,7 +208,11 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
   );
   const user = userResult.rows[0];
   if (!user || user.status !== 'active') {
-    return { handled: true, reconciliationRequired: true };
+    await recordPaddleAdjustmentReconciliationCase(client, {
+      eventId, adjustmentId, transactionId,
+      reasonCode: 'lifetime_account_inactive'
+    });
+    return { handled: true, adjustmentRecorded: true, reconciliationRequired: true };
   }
 
   // Backfill is deliberately limited to accounts that still have the lifetime
@@ -178,7 +230,11 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
   );
   const entitlement = entitlementResult.rows[0];
   if (!entitlement) {
-    return { handled: true, reconciliationRequired: true };
+    await recordPaddleAdjustmentReconciliationCase(client, {
+      eventId, adjustmentId, transactionId,
+      reasonCode: 'lifetime_entitlement_missing'
+    });
+    return { handled: true, adjustmentRecorded: true, reconciliationRequired: true };
   }
 
   const adjustmentState = await getPaddleAdjustmentState(client, transactionId);
@@ -622,6 +678,11 @@ export async function processPaddleEvent(pool, rawEvent) {
              AND status = 'completed'`,
           [data.id, nextCheckoutStatus, customUserId, checkoutAttemptId]
         );
+        if (['linked', 'completed'].includes(nextCheckoutStatus)) {
+          await resolvePaddleAdjustmentReconciliationCases(
+            client, data.id, 'transaction_completed_linked_to_vow_checkout'
+          );
+        }
       }
     } else if (eventType === 'transaction.canceled') {
       if (typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
