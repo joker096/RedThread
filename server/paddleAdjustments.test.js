@@ -256,7 +256,7 @@ test('transaction completion reconciles an approved refund delivered earlier', a
     assert.ok(caseResolution, 'a previously unmatched adjustment case must be considered after transaction linkage');
     assert.equal(caseResolution.params[1], userId);
     assert.equal(caseResolution.params[2], 'transaction_completed_linked_to_vow_checkout');
-    assert.match(caseResolution.statement, /reason_code IN ('transaction_owner_unlinked', 'transaction_owner_unlinked')/);
+    assert.match(caseResolution.statement, /reason_code = 'transaction_owner_unlinked'/);
     assert.match(caseResolution.statement, /COUNT\(\*\)[\s\S]*?\) = 1/);
     assert.match(caseResolution.statement, /linked_attempt\.user_id = \$2/);
 
