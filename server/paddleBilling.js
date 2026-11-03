@@ -77,23 +77,16 @@ async function getPaddleAdjustmentState(client, transactionId) {
        FROM paddle_adjustment_events
        WHERE transaction_id = $1
        ORDER BY adjustment_id, occurred_at DESC, received_at DESC, event_id DESC
-     ),
-     latest_chargeback AS (
-       SELECT action, status, occurred_at, received_at, event_id
-       FROM latest_per_adjustment
-       WHERE action IN ('chargeback', 'chargeback_reverse')
-       ORDER BY occurred_at DESC, received_at DESC, event_id DESC
-       LIMIT 1
      )
      SELECT
        EXISTS (
          SELECT 1 FROM latest_per_adjustment
          WHERE action = 'refund' AND adjustment_type = 'full' AND status = 'approved'
        ) AS full_refund_active,
-       COALESCE((
-         SELECT action = 'chargeback' AND status = 'approved'
-         FROM latest_chargeback
-       ), FALSE) AS chargeback_active`,
+       EXISTS (
+         SELECT 1 FROM latest_per_adjustment
+         WHERE action = 'chargeback' AND status = 'approved'
+       ) AS chargeback_active`,
     [transactionId]
   );
   const fullRefundActive = result.rows[0]?.full_refund_active === true;
