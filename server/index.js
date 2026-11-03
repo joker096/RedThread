@@ -419,27 +419,26 @@ app.post('/api/auth/google', validateRequestOrigin, authLimiter, requireDatabase
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'account_unavailable' });
     }
-    const conflictingEmail = await client.query('SELECT 1 FROM users WHERE email = $1 AND id <> $2 LIMIT 1', [identity.email, user.id]);
-    if (conflictingEmail.rowCount) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'google_account_exists' });
-    }
-    await client.query(
-      'UPDATE users SET email = $1, email_verified_at = COALESCE(email_verified_at, NOW()), updated_at = NOW() WHERE id = $2',
-      [identity.email, user.id]
-    );
-    user.email = identity.email;
+    // The Google subject is the stable login identifier. A changed Google email
+    // must never silently rename an existing Vow account during sign-in.
     const token = await createSession(client, user.id);
     await client.query('COMMIT');
     writeSessionCookie(res, token);
     return res.json({ user: publicUser(user) });
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
+    if (client) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackError) {
+        error.rollbackError = rollbackError;
+        error.discardClient = true;
+      }
+    }
     if (error?.code === '23505') return res.status(409).json({ error: 'google_account_exists' });
     console.error('Google sign-in failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'google_sign_in_failed' });
   } finally {
-    client?.release();
+    client?.release(error?.discardClient ? error : undefined);
   }
 });
 
