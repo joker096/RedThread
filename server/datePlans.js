@@ -2,12 +2,24 @@ import rateLimit from 'express-rate-limit';
 import { PostgresRateLimitStore } from './postgresRateLimitStore.js';
 import { rollbackPooledTransaction } from './withPooledTransaction.js';
 
+const STREET_SUFFIX = '(?:street|st\\.?|avenue|ave\\.?|road|rd\\.?|lane|ln\\.?|drive|dr\\.?|boulevard|blvd\\.?|way|улица|ул\\.?|проспект|пр-т|переулок|пер\\.?|набережная|шоссе|ქუჩა|გამზირი)';
+const STREET_PREFIX = '(?:улица|ул\\.?|проспект|пр-т|переулок|пер\\.?|набережная|шоссе|ქუჩა|გამზირი)';
+const STREET_WORD = '[\\p{L}\\p{M}][\\p{L}\\p{M}\\u2019’\\x27.-]*';
+const HOUSE_NUMBER = '(?:№|#)?\\s*\\d+[a-zа-я]?(?:[-/]\\d+[a-zа-я]?)?';
+const PRIVATE_ADDRESS_PATTERNS = [
+  new RegExp('\\b' + STREET_WORD + '(?:\\s+' + STREET_WORD + '){0,5}\\s+' + STREET_SUFFIX + '\\s*,?\\s*' + HOUSE_NUMBER + '\\b', 'iu'),
+  new RegExp('\\b' + STREET_PREFIX + '\\s+' + STREET_WORD + '(?:\\s+' + STREET_WORD + '){0,5}\\s*,?\\s*' + HOUSE_NUMBER + '\\b', 'iu'),
+  new RegExp('\\b' + HOUSE_NUMBER + '\\s+' + STREET_WORD + '(?:\\s+' + STREET_WORD + '){0,5}\\s+' + STREET_SUFFIX + '\\b', 'iu'),
+  /\\b(?:apt\\.?|apartment|flat|unit|suite|дом|д\\.?|квартира|кв\\.?|building|bldg\\.?)\\s*(?:№|#)?\\s*\\d+\\b/iu,
+  /\\b-?\\d{1,2}\\.\\d{3,}\\s*,\\s*-?\\d{1,3}\\.\\d{3,}\\b/
+];
+
 export function normalizeDatePlanInput(body) {
   const venueName = typeof body?.venueName === 'string' ? body.venueName.trim() : '';
   const startsAt = typeof body?.startsAt === 'string' ? body.startsAt : '';
   const timeZone = typeof body?.timeZone === 'string' ? body.timeZone.trim() : '';
   if (venueName.length < 2 || venueName.length > 120 || /[\u0000-\u001f\u007f]/.test(venueName) || body?.isPublicVenue !== true) return null;
-  if (/(?:https?:\/\/|www\.|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\+?\d[\d\s().-]{7,}\d)/i.test(venueName) || /^\d{1,6}\s+\S+/.test(venueName)) return null;
+  if (/(?:https?:\/\/|www\.|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\+?\d[\d\s().-]{7,}\d)/i.test(venueName) || /^\d{1,6}\s+\S+/.test(venueName) || PRIVATE_ADDRESS_PATTERNS.some(pattern => pattern.test(venueName))) return null;
   const dateParts = startsAt.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/);
   if (!dateParts) return null;
   const [, year, month, day, hour, minute, second = '0'] = dateParts;
