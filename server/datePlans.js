@@ -74,11 +74,15 @@ export function registerDatePlanRoutes(app, deps) {
            (b.blocker_id = m.user_b_id AND b.blocked_id = m.user_a_id))
          AND (pa.gender <> 'male' OR (
            EXISTS (SELECT 1 FROM identity_verifications iv WHERE iv.user_id = pa.user_id
-             AND iv.provider = 'didit' AND iv.status = 'verified' AND iv.provider_environment = 'live')
+             AND iv.provider = 'didit' AND iv.status = 'verified'
+             AND iv.provider_environment = 'live' AND iv.provider_status = 'Approved'
+             AND iv.provider_session_id IS NOT NULL)
            AND identity_l3_has_active_approval(pa.user_id)))
          AND (pb.gender <> 'male' OR (
            EXISTS (SELECT 1 FROM identity_verifications iv WHERE iv.user_id = pb.user_id
-             AND iv.provider = 'didit' AND iv.status = 'verified' AND iv.provider_environment = 'live')
+             AND iv.provider = 'didit' AND iv.status = 'verified'
+             AND iv.provider_environment = 'live' AND iv.provider_status = 'Approved'
+             AND iv.provider_session_id IS NOT NULL)
            AND identity_l3_has_active_approval(pb.user_id)))
        FOR UPDATE OF m, ua, ub`,
       [matchId, userAId, userBId]
