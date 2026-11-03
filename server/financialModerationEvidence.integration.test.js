@@ -812,6 +812,104 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       await client.query('ROLLBACK TO SAVEPOINT evidence_truncate_blocked');
       await client.query('RELEASE SAVEPOINT evidence_truncate_blocked');
 
+      const l3GuardDefinition = await client.query(
+        `SELECT pg_get_functiondef('prevent_identity_l3_media_access_event_mutation()'::regprocedure) AS definition`
+      );
+      assert.match(l3GuardDefinition.rows[0].definition, /pg_trigger_depth\(\) > 1/,
+        'L3 provenance FK clearing must be limited to nested ON DELETE actions');
+      const giftEventGuardDefinition = await client.query(
+        `SELECT pg_get_functiondef('prevent_gift_delivery_order_event_mutation()'::regprocedure) AS definition`
+      );
+      assert.match(giftEventGuardDefinition.rows[0].definition, /pg_trigger_depth\(\) > 1/,
+        'gift actor FK clearing must be limited to nested ON DELETE actions');
+
+      await client.query(`
+        CREATE TEMP TABLE l3_submission_fk_parent_test (id uuid PRIMARY KEY) ON COMMIT DROP
+      `);
+      await client.query(`
+        CREATE TEMP TABLE l3_moderator_fk_parent_test (id uuid PRIMARY KEY) ON COMMIT DROP
+      `);
+      await client.query(`
+        CREATE TEMP TABLE l3_fk_snapshot_guard_test (
+          submission_id uuid REFERENCES l3_submission_fk_parent_test(id) ON DELETE SET NULL,
+          moderator_user_id uuid REFERENCES l3_moderator_fk_parent_test(id) ON DELETE SET NULL,
+          submission_ref uuid NOT NULL, moderator_ref uuid NOT NULL,
+          access_type text NOT NULL, accessed_at timestamptz NOT NULL
+        ) ON COMMIT DROP
+      `);
+      await client.query(`
+        CREATE TRIGGER l3_fk_snapshot_guard_test
+        BEFORE UPDATE OR DELETE ON l3_fk_snapshot_guard_test
+        FOR EACH ROW EXECUTE FUNCTION prevent_identity_l3_media_access_event_mutation()
+      `);
+      const l3FkSubmissionId = randomUUID();
+      const l3FkModeratorId = randomUUID();
+      await client.query('INSERT INTO l3_submission_fk_parent_test VALUES ($1)', [l3FkSubmissionId]);
+      await client.query('INSERT INTO l3_moderator_fk_parent_test VALUES ($1)', [l3FkModeratorId]);
+      await client.query(
+        `INSERT INTO l3_fk_snapshot_guard_test
+         VALUES ($1, $2, $1, $2, 'viewed', statement_timestamp())`,
+        [l3FkSubmissionId, l3FkModeratorId]
+      );
+      await client.query('SAVEPOINT l3_direct_fk_null_blocked');
+      let l3DirectFkNullError;
+      try {
+        await client.query('UPDATE l3_fk_snapshot_guard_test SET submission_id = NULL');
+      } catch (error) { l3DirectFkNullError = error; }
+      assert.equal(l3DirectFkNullError?.code, '55000',
+        'directly nulling an L3 live FK must not bypass append-only evidence protection');
+      await client.query('ROLLBACK TO SAVEPOINT l3_direct_fk_null_blocked');
+      await client.query('RELEASE SAVEPOINT l3_direct_fk_null_blocked');
+      await client.query('DELETE FROM l3_submission_fk_parent_test WHERE id = $1', [l3FkSubmissionId]);
+      await client.query('DELETE FROM l3_moderator_fk_parent_test WHERE id = $1', [l3FkModeratorId]);
+      const l3FkAfterParentDelete = await client.query(
+        'SELECT submission_id, moderator_user_id, submission_ref, moderator_ref FROM l3_fk_snapshot_guard_test'
+      );
+      assert.deepEqual(l3FkAfterParentDelete.rows, [{
+        submission_id: null,
+        moderator_user_id: null,
+        submission_ref: l3FkSubmissionId,
+        moderator_ref: l3FkModeratorId
+      }], 'real FK cleanup must preserve both immutable L3 provenance snapshots');
+
+      await client.query(`
+        CREATE TEMP TABLE gift_actor_fk_parent_test (id uuid PRIMARY KEY) ON COMMIT DROP
+      `);
+      await client.query(`
+        CREATE TEMP TABLE gift_event_fk_snapshot_guard_test (
+          actor_user_id uuid REFERENCES gift_actor_fk_parent_test(id) ON DELETE SET NULL,
+          actor_ref uuid NOT NULL, event_type text NOT NULL
+        ) ON COMMIT DROP
+      `);
+      await client.query(`
+        CREATE TRIGGER gift_event_fk_snapshot_guard_test
+        BEFORE UPDATE OR DELETE ON gift_event_fk_snapshot_guard_test
+        FOR EACH ROW EXECUTE FUNCTION prevent_gift_delivery_order_event_mutation()
+      `);
+      const giftFkActorId = randomUUID();
+      await client.query('INSERT INTO gift_actor_fk_parent_test VALUES ($1)', [giftFkActorId]);
+      await client.query(
+        'INSERT INTO gift_event_fk_snapshot_guard_test VALUES ($1, $1, $2)',
+        [giftFkActorId, 'request_created']
+      );
+      await client.query('SAVEPOINT gift_direct_actor_null_blocked');
+      let giftDirectActorNullError;
+      try {
+        await client.query('UPDATE gift_event_fk_snapshot_guard_test SET actor_user_id = NULL');
+      } catch (error) { giftDirectActorNullError = error; }
+      assert.equal(giftDirectActorNullError?.code, '55000',
+        'directly nulling a gift event actor FK must not bypass append-only protection');
+      await client.query('ROLLBACK TO SAVEPOINT gift_direct_actor_null_blocked');
+      await client.query('RELEASE SAVEPOINT gift_direct_actor_null_blocked');
+      await client.query('DELETE FROM gift_actor_fk_parent_test WHERE id = $1', [giftFkActorId]);
+      const giftFkAfterParentDelete = await client.query(
+        'SELECT actor_user_id, actor_ref FROM gift_event_fk_snapshot_guard_test'
+      );
+      assert.deepEqual(giftFkAfterParentDelete.rows, [{
+        actor_user_id: null,
+        actor_ref: giftFkActorId
+      }], 'real FK cleanup must preserve the immutable gift actor snapshot');
+
       await client.query('ROLLBACK');
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
