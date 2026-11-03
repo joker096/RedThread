@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, "audit/**", "feat/contextual-advertising-policy"]
+    branches: [main, "audit/**", "fix/**", "feat/contextual-advertising-policy"]
   pull_request:
     branches: [main]
 
