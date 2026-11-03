@@ -69,6 +69,44 @@ async function markPaddleCheckoutAttemptForReconciliation(client, userId, plan, 
 }
 
 
+async function getPaddleAdjustmentState(client, transactionId) {
+  const result = await client.query(
+    `WITH latest_per_adjustment AS (
+       SELECT DISTINCT ON (adjustment_id)
+         adjustment_id, action, adjustment_type, status, occurred_at, received_at, event_id
+       FROM paddle_adjustment_events
+       WHERE transaction_id = $1
+       ORDER BY adjustment_id, occurred_at DESC, received_at DESC, event_id DESC
+     ),
+     latest_chargeback AS (
+       SELECT action, status, occurred_at, received_at, event_id
+       FROM latest_per_adjustment
+       WHERE action IN ('chargeback', 'chargeback_reverse')
+       ORDER BY occurred_at DESC, received_at DESC, event_id DESC
+       LIMIT 1
+     )
+     SELECT
+       EXISTS (
+         SELECT 1 FROM latest_per_adjustment
+         WHERE action = 'refund' AND adjustment_type = 'full' AND status = 'approved'
+       ) AS full_refund_active,
+       COALESCE((
+         SELECT action = 'chargeback' AND status <> 'reversed'
+         FROM latest_chargeback
+       ), FALSE) AS chargeback_active`,
+    [transactionId]
+  );
+  const fullRefundActive = result.rows[0]?.full_refund_active === true;
+  const chargebackActive = result.rows[0]?.chargeback_active === true;
+  return {
+    fullRefundActive,
+    chargebackActive,
+    hasAdverseAdjustment: fullRefundActive || chargebackActive,
+    revokeReason: fullRefundActive ? 'paddle_full_refund'
+      : chargebackActive ? 'paddle_chargeback' : null
+  };
+}
+
 async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
   const adjustmentId = data.id;
   const transactionId = data.transactionId || data.transaction_id;
@@ -141,34 +179,8 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
     return { handled: true, reconciliationRequired: true };
   }
 
-  const adjustmentState = await client.query(
-    `WITH latest_per_adjustment AS (
-       SELECT DISTINCT ON (adjustment_id)
-         adjustment_id, action, adjustment_type, status, occurred_at, received_at, event_id
-       FROM paddle_adjustment_events
-       WHERE transaction_id = $1
-       ORDER BY adjustment_id, occurred_at DESC, received_at DESC, event_id DESC
-     ),
-     latest_chargeback AS (
-       SELECT action, status
-       FROM latest_per_adjustment
-       WHERE action IN ('chargeback', 'chargeback_reverse')
-       ORDER BY occurred_at DESC, received_at DESC, event_id DESC
-       LIMIT 1
-     )
-     SELECT
-       EXISTS (
-         SELECT 1 FROM latest_per_adjustment
-         WHERE action = 'refund' AND adjustment_type = 'full' AND status = 'approved'
-       ) AS full_refund_active,
-       COALESCE((
-         SELECT action = 'chargeback' AND status <> 'reversed'
-         FROM latest_chargeback
-       ), FALSE) AS chargeback_active`,
-    [transactionId]
-  );
-  const hasAdverseAdjustment = adjustmentState.rows[0]?.full_refund_active === true ||
-    adjustmentState.rows[0]?.chargeback_active === true;
+  const adjustmentState = await getPaddleAdjustmentState(client, transactionId);
+  const hasAdverseAdjustment = adjustmentState.hasAdverseAdjustment;
   const isReversal = action === 'chargeback_reverse' ||
     (action === 'chargeback' && status === 'reversed') ||
     (action === 'refund' && ['rejected', 'reversed'].includes(status));
@@ -177,8 +189,7 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
   let revokeReason = entitlement.revoke_reason;
   if (hasAdverseAdjustment) {
     nextStatus = 'revoked';
-    revokeReason = adjustmentState.rows[0]?.full_refund_active
-      ? 'paddle_full_refund' : 'paddle_chargeback';
+    revokeReason = adjustmentState.revokeReason;
   } else if (isReversal && entitlement.status === 'revoked' &&
              ['paddle_full_refund', 'paddle_chargeback'].includes(entitlement.revoke_reason)) {
     nextStatus = 'active';
@@ -542,6 +553,27 @@ export async function processPaddleEvent(pool, rawEvent) {
                WHERE id = $1 AND status = 'active'`,
               [customUserId]
             );
+          } else {
+            // An adjustment can arrive before transaction.completed. Reconcile
+            // the append-only event ledger before exposing the newly linked plan.
+            const priorAdjustmentState = await getPaddleAdjustmentState(client, data.id);
+            if (priorAdjustmentState.hasAdverseAdjustment) {
+              await client.query(
+                `UPDATE paddle_lifetime_entitlements
+                 SET status = 'revoked', revoke_reason = $2, updated_at = statement_timestamp()
+                 WHERE transaction_id = $1 AND user_id = $3 AND status = 'active'`,
+                [data.id, priorAdjustmentState.revokeReason, customUserId]
+              );
+              await client.query(
+                `UPDATE users
+                 SET premium_lifetime = EXISTS (
+                   SELECT 1 FROM paddle_lifetime_entitlements
+                   WHERE user_id = $1 AND status = 'active'
+                 ), updated_at = statement_timestamp()
+                 WHERE id = $1 AND status = 'active'`,
+                [customUserId]
+              );
+            }
           }
         }
       } else if (ownsCheckoutAttempt && includesRecurringPrice) {
