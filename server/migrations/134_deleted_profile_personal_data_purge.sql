@@ -80,7 +80,6 @@ BEGIN
     UPDATE identity_l3_submissions
     SET status = CASE WHEN status = 'approved' THEN 'revoked' ELSE 'withdrawn' END,
         revoked_at = CASE WHEN status = 'approved' THEN statement_timestamp() ELSE revoked_at END,
-        decision_reason_code = CASE WHEN status = 'approved' THEN 'account_deleted' ELSE decision_reason_code END,
         processing_lease_token = NULL,
         processing_lease_expires_at = NULL
     WHERE user_id = NEW.id
