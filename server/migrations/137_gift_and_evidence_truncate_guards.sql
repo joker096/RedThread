@@ -1,0 +1,109 @@
+-- Gift order events are financial/safety evidence, not disposable UI history.
+-- Preserve actor provenance when the live user row is physically removed.
+ALTER TABLE gift_delivery_order_events
+  ADD COLUMN actor_ref UUID;
+
+UPDATE gift_delivery_order_events
+SET actor_ref = actor_user_id
+WHERE actor_user_id IS NOT NULL;
+
+CREATE INDEX gift_delivery_order_events_actor_ref_idx
+  ON gift_delivery_order_events(actor_ref, created_at DESC)
+  WHERE actor_ref IS NOT NULL;
+
+CREATE OR REPLACE FUNCTION prevent_gift_delivery_order_event_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $gift_order_event_audit$
+BEGIN
+  -- PostgreSQL's nested ON DELETE SET NULL action may clear only the live actor FK.
+  -- actor_ref is the immutable opaque snapshot of the original actor identity.
+  IF TG_OP = 'UPDATE'
+     AND pg_trigger_depth() > 1
+     AND OLD.actor_user_id IS NOT NULL
+     AND NEW.actor_user_id IS NULL
+     AND (to_jsonb(NEW) - 'actor_user_id') = (to_jsonb(OLD) - 'actor_user_id') THEN
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION 'gift delivery order events are append-only'
+    USING ERRCODE = '55000';
+END;
+$gift_order_event_audit$;
+
+CREATE TRIGGER gift_delivery_order_events_append_only
+  BEFORE UPDATE OR DELETE ON gift_delivery_order_events
+  FOR EACH ROW EXECUTE FUNCTION prevent_gift_delivery_order_event_mutation();
+
+CREATE OR REPLACE FUNCTION prevent_gift_delivery_order_delete()
+RETURNS trigger LANGUAGE plpgsql AS $gift_order_delete$
+BEGIN
+  RAISE EXCEPTION 'gift delivery orders are retained as financial and safety evidence'
+    USING ERRCODE = '55000';
+END;
+$gift_order_delete$;
+
+CREATE TRIGGER gift_delivery_orders_no_delete
+  BEFORE DELETE ON gift_delivery_orders
+  FOR EACH ROW EXECUTE FUNCTION prevent_gift_delivery_order_delete();
+
+CREATE OR REPLACE FUNCTION prevent_gift_payment_reconciliation_task_delete()
+RETURNS trigger LANGUAGE plpgsql AS $gift_payment_task_delete$
+BEGIN
+  RAISE EXCEPTION 'gift payment reconciliation evidence cannot be deleted'
+    USING ERRCODE = '55000';
+END;
+$gift_payment_task_delete$;
+
+CREATE TRIGGER gift_payment_reconciliation_tasks_no_delete
+  BEFORE DELETE ON gift_payment_reconciliation_tasks
+  FOR EACH ROW EXECUTE FUNCTION prevent_gift_payment_reconciliation_task_delete();
+
+-- Row-level UPDATE/DELETE triggers do not fire for TRUNCATE. Protect evidence
+-- tables from accidental bulk clearing through direct SQL as well.
+CREATE OR REPLACE FUNCTION prevent_evidence_truncate()
+RETURNS trigger LANGUAGE plpgsql AS $evidence_truncate$
+BEGIN
+  RAISE EXCEPTION 'evidence tables cannot be truncated'
+    USING ERRCODE = '55000';
+END;
+$evidence_truncate$;
+
+CREATE TRIGGER user_reports_no_truncate
+  BEFORE TRUNCATE ON user_reports
+  FOR EACH STATEMENT EXECUTE FUNCTION prevent_evidence_truncate();
+CREATE TRIGGER moderation_audit_log_no_truncate
+  BEFORE TRUNCATE ON moderation_audit_log
+  FOR EACH STATEMENT EXECUTE FUNCTION prevent_evidence_truncate();
+CREATE TRIGGER paddle_webhook_events_no_truncate
+  BEFORE TRUNCATE ON paddle_webhook_events
+  FOR EACH STATEMENT EXECUTE FUNCTION prevent_evidence_truncate();
+CREATE TRIGGER paddle_checkout_attempts_no_truncate
+  BEFORE TRUNCATE ON paddle_checkout_attempts
+  FOR EACH STATEMENT EXECUTE FUNCTION prevent_evidence_truncate();
+CREATE TRIGGER paddle_checkout_attempt_history_no_truncate
+  BEFORE TRUNCATE ON paddle_checkout_attempt_history
+  FOR EACH STATEMENT EXECUTE FUNCTION prevent_evidence_truncate();
+CREATE TRIGGER paddle_lifetime_entitlements_no_truncate
+  BEFORE TRUNCATE ON paddle_lifetime_entitlements
+  FOR EACH STATEMENT EXECUTE FUNCTION prevent_evidence_truncate();
+CREATE TRIGGER paddle_adjustment_events_no_truncate
+  BEFORE TRUNCATE ON paddle_adjustment_events
+  FOR EACH STATEMENT EXECUTE FUNCTION prevent_evidence_truncate();
+CREATE TRIGGER identity_l3_media_access_events_no_truncate
+  BEFORE TRUNCATE ON identity_l3_media_access_events
+  FOR EACH STATEMENT EXECUTE FUNCTION prevent_evidence_truncate();
+CREATE TRIGGER gift_delivery_orders_no_truncate
+  BEFORE TRUNCATE ON gift_delivery_orders
+  FOR EACH STATEMENT EXECUTE FUNCTION prevent_evidence_truncate();
+CREATE TRIGGER gift_delivery_order_events_no_truncate
+  BEFORE TRUNCATE ON gift_delivery_order_events
+  FOR EACH STATEMENT EXECUTE FUNCTION prevent_evidence_truncate();
+CREATE TRIGGER gift_payment_reconciliation_tasks_no_truncate
+  BEFORE TRUNCATE ON gift_payment_reconciliation_tasks
+  FOR EACH STATEMENT EXECUTE FUNCTION prevent_evidence_truncate();
+
+COMMENT ON TABLE gift_delivery_order_events IS
+  'Append-only gift-order financial/safety audit trail. actor_ref preserves opaque actor provenance after account deletion; metadata excludes recipient secrets.';
+COMMENT ON COLUMN gift_delivery_order_events.actor_ref IS
+  'Immutable opaque UUID snapshot of the original event actor; actor_user_id may be nulled by its FK after account deletion.';
+COMMENT ON FUNCTION prevent_evidence_truncate() IS
+  'Blocks TRUNCATE on financial, moderation, gift, and identity audit evidence tables because row-level mutation triggers do not cover TRUNCATE.';
