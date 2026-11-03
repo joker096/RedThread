@@ -37,6 +37,43 @@ DELETE FROM user_safety_screenings AS s
 USING users AS u
 WHERE u.id = s.user_id AND u.status = 'deleted';
 
+-- Backfill credentials/contact data for tombstones created before this migration.
+UPDATE users
+SET email = 'deleted+' || id::text || '@deleted.invalid',
+    password_hash = NULL,
+    phone_e164 = NULL,
+    phone_verified_at = NULL,
+    female_trial_ends_at = NULL,
+    premium_until = NULL,
+    premium_lifetime = FALSE,
+    updated_at = statement_timestamp()
+WHERE status = 'deleted';
+
+-- Backfill private-photo deletion for previously deleted accounts.
+INSERT INTO private_photo_purge_queue (storage_path)
+SELECT a.storage_path
+FROM photo_assets AS a
+JOIN users AS u ON u.id = a.user_id
+WHERE u.status = 'deleted'
+ON CONFLICT (storage_path) DO NOTHING;
+DELETE FROM photo_assets AS a
+USING users AS u
+WHERE u.id = a.user_id AND u.status = 'deleted';
+
+-- Backfill active L3 submissions belonging to existing tombstones. The L3
+-- status trigger creates durable purge jobs without discarding object keys.
+SELECT set_config('app.identity_l3_actor_user_id', '', FALSE);
+SELECT set_config('app.identity_l3_reason_code', 'account_deleted', FALSE);
+UPDATE identity_l3_submissions AS s
+SET status = CASE WHEN s.status = 'approved' THEN 'revoked' ELSE 'withdrawn' END,
+    revoked_at = CASE WHEN s.status = 'approved' THEN statement_timestamp() ELSE s.revoked_at END,
+    processing_lease_token = NULL,
+    processing_lease_expires_at = NULL
+FROM users AS u
+WHERE u.id = s.user_id AND u.status = 'deleted'
+  AND s.storage_object_key IS NOT NULL
+  AND s.status IN ('draft', 'upload_authorized', 'uploaded', 'processing', 'pending_review', 'approved');
+
 UPDATE profiles AS p
 SET display_name = 'Удалённый пользователь',
     birth_date = NULL,
@@ -135,7 +172,7 @@ CREATE TRIGGER users_scrub_deleted_account_data
   EXECUTE FUNCTION scrub_deleted_account_data();
 
 COMMENT ON FUNCTION scrub_deleted_account_data() IS
-  'Erases profile-derived personal data and transient safety-screening results on account deletion while retaining a non-discoverable relational tombstone.';
+  'Scrubs credentials, contact and profile data, removes photo metadata, queues private photo/L3 media purge, and removes transient safety screenings when an account is deleted.';
 
 -- A deleted account is a terminal tombstone. Reactivation would expose an
 -- intentionally scrubbed profile whose required identity fields no longer exist.
