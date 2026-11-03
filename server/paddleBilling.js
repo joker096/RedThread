@@ -277,7 +277,9 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
   );
 
   const linked = await client.query(
-    `SELECT DISTINCT user_id, plan, status FROM (
+    `SELECT user_id, plan,
+       CASE WHEN bool_or(status = 'linked') THEN 'linked' ELSE 'completed' END AS status
+     FROM (
        SELECT user_id, transaction_id, plan, status FROM paddle_checkout_attempts
        UNION ALL
        SELECT user_id, transaction_id, plan, status FROM paddle_checkout_attempt_history
@@ -288,6 +290,7 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
          AND user_id IS NOT NULL AND plan IS NOT NULL
      ) AS attempts
      WHERE transaction_id = $1 AND status IN ('linked', 'completed')
+     GROUP BY user_id, plan
      LIMIT 2`,
     [transactionId]
   );
