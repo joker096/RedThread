@@ -1270,3 +1270,150 @@ test('user report status changes require an immutable audit row from an active m
     await pool.end();
   }
 });
+
+
+test('photo and safety screening review states require matching moderator or automated audit evidence', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const client = await pool.connect();
+  const ownerId = randomUUID();
+  const moderatorId = randomUUID();
+  const autoPhotoId = randomUUID();
+  const manualPhotoId = randomUUID();
+  const screeningId = randomUUID();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
+      [ownerId, `review-owner-${ownerId}@example.invalid`]
+    );
+    await client.query(
+      "INSERT INTO users (id, email, password_hash, role, status) VALUES ($1, $2, 'test-only-hash', 'moderator', 'active')",
+      [moderatorId, `review-moderator-${moderatorId}@example.invalid`]
+    );
+
+    await client.query('SAVEPOINT auto_photo_without_audit');
+    await client.query(
+      `INSERT INTO photo_assets
+         (id, user_id, storage_path, mime_type, byte_size, width, height, review_status)
+       VALUES ($1, $2, $3, 'image/jpeg', 100, 10, 10, 'approved')`,
+      [autoPhotoId, ownerId, `/tmp/${autoPhotoId}.jpg`]
+    );
+    let missingAutoPhotoAudit;
+    try {
+      await client.query('SET CONSTRAINTS photo_assets_review_audit_guard IMMEDIATE');
+    } catch (error) { missingAutoPhotoAudit = error; }
+    assert.equal(missingAutoPhotoAudit?.code, '23514',
+      'an automatically approved photo insert must carry its AI decision evidence');
+    await client.query('ROLLBACK TO SAVEPOINT auto_photo_without_audit');
+    await client.query('RELEASE SAVEPOINT auto_photo_without_audit');
+    await client.query('SET CONSTRAINTS photo_assets_review_audit_guard DEFERRED');
+
+    await client.query('SAVEPOINT auto_photo_with_audit');
+    await client.query(
+      `INSERT INTO photo_assets
+         (id, user_id, storage_path, mime_type, byte_size, width, height, review_status)
+       VALUES ($1, $2, $3, 'image/jpeg', 100, 10, 10, 'approved')`,
+      [autoPhotoId, ownerId, `/tmp/${autoPhotoId}.jpg`]
+    );
+    await client.query(
+      `INSERT INTO moderation_audit_log (action, target_type, target_id, reason, details)
+       VALUES ('photo_ai_approved', 'photo', $1, 'automated review passed',
+               jsonb_build_object('engine', 'test-engine'))`,
+      [autoPhotoId]
+    );
+    await client.query('SET CONSTRAINTS photo_assets_review_audit_guard IMMEDIATE');
+    await client.query('ROLLBACK TO SAVEPOINT auto_photo_with_audit');
+    await client.query('RELEASE SAVEPOINT auto_photo_with_audit');
+    await client.query('SET CONSTRAINTS photo_assets_review_audit_guard DEFERRED');
+
+    await client.query(
+      `INSERT INTO photo_assets
+         (id, user_id, storage_path, mime_type, byte_size, width, height, review_status)
+       VALUES ($1, $2, $3, 'image/jpeg', 100, 10, 10, 'pending')`,
+      [manualPhotoId, ownerId, `/tmp/${manualPhotoId}.jpg`]
+    );
+    await client.query('SAVEPOINT manual_photo_without_audit');
+    await client.query(
+      "UPDATE photo_assets SET review_status = 'approved' WHERE id = $1",
+      [manualPhotoId]
+    );
+    let missingManualPhotoAudit;
+    try {
+      await client.query('SET CONSTRAINTS photo_assets_review_audit_guard IMMEDIATE');
+    } catch (error) { missingManualPhotoAudit = error; }
+    assert.equal(missingManualPhotoAudit?.code, '23514',
+      'manual photo approval must fail without an active moderator audit row');
+    await client.query('ROLLBACK TO SAVEPOINT manual_photo_without_audit');
+    await client.query('RELEASE SAVEPOINT manual_photo_without_audit');
+    await client.query('SET CONSTRAINTS photo_assets_review_audit_guard DEFERRED');
+
+    await client.query('SAVEPOINT manual_photo_with_audit');
+    await client.query(
+      "UPDATE photo_assets SET review_status = 'approved' WHERE id = $1",
+      [manualPhotoId]
+    );
+    await client.query(
+      `INSERT INTO moderation_audit_log
+         (moderator_id, action, target_type, target_id, details)
+       VALUES ($1, 'photo_approved', 'photo_asset', $2,
+               jsonb_build_object('userId', $3::text))`,
+      [moderatorId, manualPhotoId, ownerId]
+    );
+    await client.query('SET CONSTRAINTS photo_assets_review_audit_guard IMMEDIATE');
+    await client.query('ROLLBACK TO SAVEPOINT manual_photo_with_audit');
+    await client.query('RELEASE SAVEPOINT manual_photo_with_audit');
+    await client.query('SET CONSTRAINTS photo_assets_review_audit_guard DEFERRED');
+
+    await client.query(
+      `INSERT INTO user_safety_screenings
+         (id, user_id, scope, flags, severity, review_status)
+       VALUES ($1, $2, 'profile', '[]'::jsonb, 'low', 'pending')`,
+      [screeningId, ownerId]
+    );
+    await client.query('SAVEPOINT screening_without_audit');
+    await client.query(
+      "UPDATE user_safety_screenings SET review_status = 'cleared', reviewed_at = statement_timestamp(), reviewed_by = $2 WHERE id = $1",
+      [screeningId, moderatorId]
+    );
+    let missingScreeningAudit;
+    try {
+      await client.query('SET CONSTRAINTS user_safety_screenings_review_audit_guard IMMEDIATE');
+    } catch (error) { missingScreeningAudit = error; }
+    assert.equal(missingScreeningAudit?.code, '23514',
+      'screening clearance must fail without matching active moderator evidence');
+    await client.query('ROLLBACK TO SAVEPOINT screening_without_audit');
+    await client.query('RELEASE SAVEPOINT screening_without_audit');
+    await client.query('SET CONSTRAINTS user_safety_screenings_review_audit_guard DEFERRED');
+
+    await client.query('SAVEPOINT screening_with_audit');
+    await client.query(
+      "UPDATE user_safety_screenings SET review_status = 'cleared', reviewed_at = statement_timestamp(), reviewed_by = $2 WHERE id = $1",
+      [screeningId, moderatorId]
+    );
+    await client.query(
+      `INSERT INTO moderation_audit_log
+         (moderator_id, action, target_type, target_id, details)
+       VALUES ($1, 'screening_cleared', 'safety_screening', $2,
+               jsonb_build_object('userId', $3::text, 'newStatus', 'cleared'))`,
+      [moderatorId, screeningId, ownerId]
+    );
+    await client.query('SET CONSTRAINTS user_safety_screenings_review_audit_guard IMMEDIATE');
+    const screening = await client.query(
+      'SELECT review_status, reviewed_by FROM user_safety_screenings WHERE id = $1',
+      [screeningId]
+    );
+    assert.deepEqual(screening.rows, [{ review_status: 'cleared', reviewed_by: moderatorId }]);
+    await client.query('ROLLBACK TO SAVEPOINT screening_with_audit');
+    await client.query('RELEASE SAVEPOINT screening_with_audit');
+    await client.query('ROLLBACK');
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw error;
+  } finally {
+    client.release();
+    await pool.end();
+  }
+});
