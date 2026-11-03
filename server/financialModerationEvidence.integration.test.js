@@ -996,7 +996,7 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       await client.query('ROLLBACK TO SAVEPOINT adjustment_event_immutable');
       await client.query('RELEASE SAVEPOINT adjustment_event_immutable');
 
-      const transactionEventId = `evt_transaction_history_${randomUUID().replace(/-/g, '')}`;
+      const transactionEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
       await client.query(
         'INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, $2)',
         [transactionEventId, 'transaction.completed']
@@ -1987,7 +1987,7 @@ test('Paddle transaction evidence stores signed gross and net totals after credi
     }]);
 
     await client.query('SAVEPOINT unsafe_transaction_amount');
-    const unsafeEventId = `evt_unsafe_amount_${randomUUID().replace(/-/g, '')}`;
+    const unsafeEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
     await client.query(
       "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'transaction.completed')",
       [unsafeEventId]
