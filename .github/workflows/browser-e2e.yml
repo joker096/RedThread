@@ -5,6 +5,7 @@ on:
     branches: [main]
   push:
     branches: [main, "fix/**", "feat/contextual-advertising-policy"]
+  # Browser coverage is required for implementation/fix branches before review.
 
 permissions:
   contents: read
