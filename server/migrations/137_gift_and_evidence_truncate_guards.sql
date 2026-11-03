@@ -47,19 +47,15 @@ BEGIN
      OR NEW.currency IS DISTINCT FROM OLD.currency
      OR NEW.idempotency_key IS DISTINCT FROM OLD.idempotency_key
      OR NEW.created_at IS DISTINCT FROM OLD.created_at
- THEN
+     OR NEW.delivery_partner_ref IS DISTINCT FROM OLD.delivery_partner_ref THEN
     RAISE EXCEPTION 'gift delivery order purchase facts are immutable'
       USING ERRCODE = '55000';
   END IF;
 
-  -- Catalog cleanup may clear only its nullable FK through the nested FK action;
-  -- the product name/category/price snapshots above remain permanently intact.
+  -- Catalog cleanup may clear the nullable live catalog pointer. The order's
+  -- immutable product name/category/price snapshots preserve purchase evidence.
   IF NEW.catalog_item_id IS DISTINCT FROM OLD.catalog_item_id
-     AND NOT (
-       pg_trigger_depth() > 1
-       AND OLD.catalog_item_id IS NOT NULL
-       AND NEW.catalog_item_id IS NULL
-     ) THEN
+     AND NOT (OLD.catalog_item_id IS NOT NULL AND NEW.catalog_item_id IS NULL) THEN
     RAISE EXCEPTION 'gift delivery order catalog reference is immutable'
       USING ERRCODE = '55000';
   END IF;
