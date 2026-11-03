@@ -399,6 +399,7 @@ app.post('/api/auth/google', validateRequestOrigin, authLimiter, requireDatabase
   }
 
   let client;
+  let discardClientError = null;
   try {
     client = await pool.connect();
     await client.query('BEGIN');
@@ -431,14 +432,14 @@ app.post('/api/auth/google', validateRequestOrigin, authLimiter, requireDatabase
         await client.query('ROLLBACK');
       } catch (rollbackError) {
         error.rollbackError = rollbackError;
-        error.discardClient = true;
+        discardClientError = error;
       }
     }
     if (error?.code === '23505') return res.status(409).json({ error: 'google_account_exists' });
     console.error('Google sign-in failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'google_sign_in_failed' });
   } finally {
-    client?.release(error?.discardClient ? error : undefined);
+    client?.release(discardClientError || undefined);
   }
 });
 
