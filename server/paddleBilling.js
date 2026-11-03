@@ -260,7 +260,7 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)
      ON CONFLICT (event_id) DO NOTHING`,
     [eventId, adjustmentId, transactionId, action, type, status,
-      parsePaddleMinorAmount(data.amount), paddleCurrencyCode(data), occurredAt]
+      parsePaddleMinorAmount(data?.totals?.total ?? data.amount), paddleCurrencyCode(data), occurredAt]
   );
 
   const linked = await client.query(
