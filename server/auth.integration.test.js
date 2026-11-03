@@ -2719,6 +2719,7 @@ test('auth API supports registration, session lookup, logout and login', {
     let moderationSafetyOrderId;
     let moderationSafetyReportId;
     let deletedTargetReportId;
+    let deletedTargetUserId;
     try {
       await moderationSafetyDb.query("UPDATE users SET role = 'moderator' WHERE id = $1", [registered.user.id]);
       const safetyReport = await moderationSafetyDb.query(
@@ -2776,7 +2777,7 @@ test('auth API supports registration, session lookup, logout and login', {
         "INSERT INTO users (email, password_hash, status) VALUES ($1, 'test-only-hash', 'active') RETURNING id",
         ['deleted-target-' + randomUUID() + '@example.invalid']
       );
-      const deletedTargetUserId = deletedTargetAccount.rows[0].id;
+      deletedTargetUserId = deletedTargetAccount.rows[0].id;
       const deletedTargetReport = await moderationSafetyDb.query(
         'INSERT INTO user_reports (reporter_id, reported_user_id, category, details) VALUES ($1, $2, $3, $4) RETURNING id',
         [registered.user.id, deletedTargetUserId, 'safety', 'Integration test: do not overwrite deleted account status']
@@ -2807,6 +2808,7 @@ test('auth API supports registration, session lookup, logout and login', {
     } finally {
       // Restore this shared integration fixture even if an assertion fails.
       if (deletedTargetReportId) await moderationSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [deletedTargetReportId]).catch(() => {});
+      if (deletedTargetUserId) await moderationSafetyDb.query('DELETE FROM users WHERE id = $1', [deletedTargetUserId]).catch(() => {});
       if (moderationSafetyReportId) await moderationSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [moderationSafetyReportId]).catch(() => {});
       if (moderationSafetyOrderId) {
         await moderationSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [moderationSafetyOrderId]).catch(() => {});
