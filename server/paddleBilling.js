@@ -343,7 +343,7 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
 
   const adjustmentState = await getPaddleAdjustmentState(client, transactionId);
   const hasAdverseAdjustment = adjustmentState.hasAdverseAdjustment;
-  const isReversal = action === 'chargeback_reverse' ||
+  const isReversal = (action === 'chargeback_reverse' && status === 'approved') ||
     (action === 'chargeback' && status === 'reversed') ||
     (action === 'refund' && ['rejected', 'reversed'].includes(status));
 
