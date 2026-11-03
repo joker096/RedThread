@@ -235,6 +235,20 @@ test('adjustments for recurring Vow purchases do not touch lifetime entitlement'
   assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')), false);
 });
 
+test('malformed adjustment payloads create a durable webhook reconciliation case', async () => {
+  const { pool, calls } = makePool();
+  const result = await processPaddleEvent(pool, {
+    eventId: 'evt_invalidadjustmentpayload',
+    eventType: 'adjustment.created',
+    occurredAt: '2026-11-03T10:00:00Z',
+    data: { id: 'not-an-adjustment', transaction_id: transactionId, action: 'refund', type: 'full', status: 'approved' }
+  });
+  assert.equal(result.reconciliationRequired, true);
+  const task = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
+  assert.ok(task, 'invalid adjustment evidence must not disappear after the webhook is acknowledged');
+  assert.equal(task.params[1], 'invalid_adjustment_payload');
+});
+
 test('malformed adjustment identifiers are acknowledged without changing entitlement', async () => {
   const { pool, calls } = makePool();
   const result = await processPaddleEvent(pool, {
