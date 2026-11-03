@@ -89,8 +89,11 @@ test('does not treat legacy data.amount as a substitute for Paddle totals.total'
       currency_code: 'USD'
     }
   });
-  assert.equal(result.reconciliationRequired, true);
-  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')), false);
+  assert.notEqual(result.reconciliationRequired, true);
+  const insert = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_events'));
+  assert.ok(insert, 'the signed adjustment action must still be retained');
+  assert.equal(insert.params[6], null, 'legacy data.amount must not substitute for totals.total');
+  assert.equal(insert.params[7], 'USD');
   assert.ok(calls.some(call =>
     call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases') &&
     call.params[1] === 'invalid_adjustment_payload'
@@ -144,6 +147,57 @@ test('chargebacks still revoke lifetime access when unrelated type metadata is m
   assert.ok(entitlementUpdate,
     'chargeback action/status must revoke lifetime access regardless of adjustment type metadata');
   assert.equal(entitlementUpdate.params[3], 'paddle_chargeback');
+});
+
+test('approved full refunds revoke lifetime access even when amount metadata is incomplete', async () => {
+  const { pool, calls } = makePool({ fullRefund: true });
+  const result = await processPaddleEvent(pool, {
+    eventId: 'evt_full_refund_missing_totals',
+    eventType: 'adjustment.created',
+    occurredAt: '2026-11-03T10:00:00Z',
+    data: {
+      id: 'adj_0123456789abcdef01234567',
+      transaction_id: transactionId,
+      action: 'refund',
+      type: 'full',
+      status: 'approved',
+      currency_code: 'USD'
+    }
+  });
+  assert.equal(result.premiumRevoked, true);
+  const insert = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_events'));
+  assert.ok(insert);
+  assert.equal(insert.params[6], null);
+  assert.equal(insert.params[7], 'USD');
+  assert.ok(calls.some(call =>
+    call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases') &&
+    call.params[1] === 'invalid_adjustment_payload'
+  ));
+});
+
+test('approved chargebacks revoke lifetime access even when totals are missing', async () => {
+  const { pool, calls } = makePool({ chargeback: true });
+  const result = await processPaddleEvent(pool, {
+    eventId: 'evt_chargeback_missing_totals',
+    eventType: 'adjustment.created',
+    occurredAt: '2026-11-03T10:00:00Z',
+    data: {
+      id: 'adj_0123456789abcdef01234567',
+      transaction_id: transactionId,
+      action: 'chargeback',
+      type: 'partial',
+      status: 'approved'
+    }
+  });
+  assert.equal(result.premiumRevoked, true);
+  const insert = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_events'));
+  assert.ok(insert);
+  assert.equal(insert.params[6], null);
+  assert.equal(insert.params[7], null);
+  assert.ok(calls.some(call =>
+    call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases') &&
+    call.params[1] === 'invalid_adjustment_payload'
+  ));
 });
 
 test('adjustments for recurring transactions use the transaction ledger and never enter lifetime reconciliation', async () => {
