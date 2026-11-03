@@ -2015,8 +2015,8 @@ test('date-plan notification opens only its matching active chat', async ({ page
 test('switching chats cannot render a stale date plan from the previous match', async ({ page }) => {
   const oldMatchId = 'e2e-stale-date-plan-old-match';
   const newMatchId = 'e2e-stale-date-plan-new-match';
-  let releaseOldPlan: (() => void) | null = null;
-  let markOldRequestStarted: (() => void) | null = null;
+  let releaseOldPlan!: () => void;
+  let markOldRequestStarted!: () => void;
   const oldPlanGate = new Promise<void>(resolve => { releaseOldPlan = resolve; });
   const oldRequestStarted = new Promise<void>(resolve => { markOldRequestStarted = resolve; });
 
@@ -2041,7 +2041,7 @@ test('switching chats cannot render a stale date plan from the previous match', 
   await page.route('**/api/matches/*/date-plan', async route => {
     const pathname = new URL(route.request().url()).pathname;
     if (pathname.endsWith('/' + oldMatchId + '/date-plan')) {
-      markOldRequestStarted?.();
+      markOldRequestStarted();
       await oldPlanGate;
       await route.fulfill({
         status: 200, contentType: 'application/json',
@@ -2080,7 +2080,7 @@ test('switching chats cannot render a stale date plan from the previous match', 
   await page.getByRole('button', { name: /New Match/ }).click();
   await expect(page.getByTestId('date-plan-panel')).toContainText('Current Public Cafe');
 
-  releaseOldPlan?.();
+  releaseOldPlan();
   await expect(page.getByTestId('date-plan-panel')).toContainText('Current Public Cafe');
   await expect(page.getByTestId('date-plan-panel')).not.toContainText('Stale Old Venue');
 });
