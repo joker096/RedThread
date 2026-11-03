@@ -64,6 +64,20 @@ async function releaseAccountLock(client, userId) {
   ]);
 }
 
+export async function purgeDeletedAccountL3SubmissionMetadata(client, submissionId, userId) {
+  const result = await client.query(
+    `DELETE FROM identity_l3_submissions AS s
+     USING users AS u
+     WHERE s.id = $1 AND s.user_id = $2
+       AND u.id = s.user_id AND u.status = 'deleted'
+       AND s.storage_object_key IS NULL
+       AND s.media_purged_at IS NOT NULL
+     RETURNING s.id`,
+    [submissionId, userId]
+  );
+  return result.rowCount || 0;
+}
+
 async function beginWorkerTransaction(client) {
   try {
     await client.query('BEGIN');
@@ -489,6 +503,10 @@ export async function runIdentityL3PurgeOnce(pool, {
         [job.id, leaseToken]
       );
       if (!completed.rowCount) throw Object.assign(new Error('identity_l3_purge_lease_lost'), { code: 'identity_l3_purge_lease_lost' });
+      // A deleted account retains L3 metadata only until its encrypted object
+      // has been physically removed and the purge job is durably completed.
+      // Active accounts keep their decision history after ordinary media expiry.
+      await purgeDeletedAccountL3SubmissionMetadata(client, job.submission_id, job.user_id);
       await client.query('COMMIT');
       transactionOpen = false;
       return { processed: true, purgeJobId: job.id, status: 'completed' };
