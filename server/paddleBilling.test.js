@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { normalizePaddleEvent, isPaddleSubscriptionEntitled, isPremiumEntitlementActive, isPremiumCheckoutBlocked } from './paddleBilling.js';
+import './paddleAdjustments.test.js';
+import './financialModerationEvidence.integration.test.js';
 
 test('normalizes Paddle webhook snake_case and SDK camelCase envelopes', () => {
   assert.deepEqual(normalizePaddleEvent({ event_id: 'evt_1', event_type: 'subscription.updated', data: {} }), {
