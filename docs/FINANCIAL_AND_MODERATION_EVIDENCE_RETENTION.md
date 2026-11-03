@@ -33,6 +33,62 @@ ORDER BY c.created_at ASC;
 
 A manual resolution must set `status = 'resolved'`, a concise `resolution_note`, `resolution_source = 'manual_operator'`, and the operator's opaque UUID in `resolved_by_ref`. Automatic closure is reserved for a verified Vow checkout link and is marked `automatic_provider_transaction_link`.
 
+Manual operator runbook (execute through the audited production database role; do not run from application code):
+
+1. Inspect the open case and its immutable source event. Verify the transaction, adjustment status, customer, currency, amount, and Vow account against Paddle's authenticated dashboard/API and the checkout/entitlement ledgers. Do not resolve an ambiguous owner by email or display name alone. If ownership or provider state cannot be proven, leave the case open.
+2. Resolve and write the moderation audit entry atomically. Substitute psql variables only after completing the provider-side verification. The note must state the provider evidence checked and the operational outcome; it must not contain payment credentials or full provider payloads.
+
+```sql
+BEGIN;
+
+SELECT c.event_id, c.reason_code, e.adjustment_id, e.transaction_id,
+       e.action, e.status AS adjustment_status,
+       e.amount_minor_units, e.currency_code, c.created_at
+FROM paddle_adjustment_reconciliation_cases AS c
+LEFT JOIN paddle_adjustment_events AS e USING (event_id)
+WHERE c.event_id = :'event_id' AND c.status = 'open'
+FOR UPDATE OF c;
+
+WITH resolved_case AS (
+  UPDATE paddle_adjustment_reconciliation_cases AS c
+  SET status = 'resolved',
+      resolution_note = btrim(:'resolution_note'),
+      resolution_source = 'manual_operator',
+      resolved_by_ref = :'moderator_id'::uuid,
+      resolved_at = statement_timestamp(),
+      updated_at = statement_timestamp()
+  WHERE c.event_id = :'event_id'
+    AND c.status = 'open'
+    AND length(btrim(:'resolution_note')) BETWEEN 1 AND 1000
+    AND EXISTS (
+      SELECT 1 FROM users AS u
+      WHERE u.id = :'moderator_id'::uuid
+        AND u.status = 'active'
+        AND u.role IN ('admin', 'moderator')
+    )
+  RETURNING c.event_id, c.reason_code
+)
+INSERT INTO moderation_audit_log
+  (moderator_id, action, target_type, target_id, reason, details)
+SELECT :'moderator_id'::uuid,
+       'paddle_adjustment_reconciliation_resolved',
+       'paddle_adjustment_case',
+       NULL,
+       btrim(:'resolution_note'),
+       jsonb_build_object(
+         'eventId', event_id,
+         'reasonCode', reason_code,
+         'resolutionSource', 'manual_operator'
+       )
+FROM resolved_case
+RETURNING id;
+
+-- Require exactly one returned audit row. Otherwise ROLLBACK and investigate.
+COMMIT;
+```
+
+This runbook closes only the operational case; it does not itself grant, revoke, or restore Premium. Any entitlement correction must be separately justified by the verified transaction and the immutable lifetime-entitlement ledger. Never use a manual case closure as a substitute for a provider-side refund/chargeback action.
+
 ## L3 media access audit
 
 - `identity_l3_media_access_events` retains opaque `submission_ref` and `moderator_ref` snapshots after the video and workflow submission are physically deleted.
