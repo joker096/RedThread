@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
+import { purgeDeletedAccountL3SubmissionMetadata } from './process-identity-l3-queue.js';
 
 const { Pool } = pg;
 
@@ -43,6 +44,12 @@ test('account deletion scrubs profile personal data in the database', {
     const l3Submission = await client.query(
       `INSERT INTO identity_l3_submissions (user_id, status, storage_object_key)
        VALUES ($1, 'draft', 'identity-l3/deleted-account-test') RETURNING id`,
+      [userId]
+    );
+
+    const l3NoMediaSubmission = await client.query(
+      `INSERT INTO identity_l3_submissions (user_id, status)
+       VALUES ($1, 'draft') RETURNING id`,
       [userId]
     );
 
@@ -90,6 +97,68 @@ test('account deletion scrubs profile personal data in the database', {
     );
     assert.equal(l3Purge.rows[0].count, 1,
       'deleted-account transitions must enqueue L3 media purge');
+
+    const noMediaSubmission = await client.query(
+      'SELECT id FROM identity_l3_submissions WHERE id = $1',
+      [l3NoMediaSubmission.rows[0].id]
+    );
+    assert.equal(noMediaSubmission.rowCount, 0,
+      'L3 workflow metadata without media must be deleted immediately for a tombstoned account');
+    const noMediaEvents = await client.query(
+      'SELECT id FROM identity_l3_decision_events WHERE submission_id = $1',
+      [l3NoMediaSubmission.rows[0].id]
+    );
+    assert.equal(noMediaEvents.rowCount, 0,
+      'decision events for a no-media L3 workflow must cascade with its deleted submission');
+
+    // Simulate the purge worker's successful finalization: only after the
+    // object key is cleared and the durable job is completed may tombstone
+    // metadata and its cascaded decision events be removed.
+    const purgeLeaseToken = randomUUID();
+    await client.query(
+      `UPDATE identity_l3_media_purge_jobs
+       SET status = 'processing', attempts = 1, lease_token = $2,
+           lease_expires_at = statement_timestamp() + INTERVAL '1 minute'
+       WHERE submission_id = $1`,
+      [l3Submission.rows[0].id, purgeLeaseToken]
+    );
+    await client.query(
+      "SELECT set_config('app.identity_l3_actor_user_id', '', TRUE), set_config('app.identity_l3_reason_code', 'media_purged', TRUE)"
+    );
+    await client.query(
+      `UPDATE identity_l3_submissions
+       SET storage_object_key = NULL, media_purged_at = statement_timestamp()
+       WHERE id = $1`,
+      [l3Submission.rows[0].id]
+    );
+    await client.query(
+      `UPDATE identity_l3_media_purge_jobs
+       SET status = 'completed', lease_token = NULL, lease_expires_at = NULL,
+           completed_at = statement_timestamp(), updated_at = statement_timestamp()
+       WHERE submission_id = $1 AND lease_token = $2`,
+      [l3Submission.rows[0].id, purgeLeaseToken]
+    );
+    assert.equal(
+      await purgeDeletedAccountL3SubmissionMetadata(client, l3Submission.rows[0].id, userId),
+      1,
+      'the worker must remove L3 metadata after confirmed physical media purge for a deleted account'
+    );
+    const purgedSubmission = await client.query(
+      'SELECT id FROM identity_l3_submissions WHERE id = $1',
+      [l3Submission.rows[0].id]
+    );
+    assert.equal(purgedSubmission.rowCount, 0);
+    const purgedJob = await client.query(
+      'SELECT id FROM identity_l3_media_purge_jobs WHERE submission_id = $1',
+      [l3Submission.rows[0].id]
+    );
+    assert.equal(purgedJob.rowCount, 0);
+    const purgedEvents = await client.query(
+      'SELECT id FROM identity_l3_decision_events WHERE submission_id = $1',
+      [l3Submission.rows[0].id]
+    );
+    assert.equal(purgedEvents.rowCount, 0,
+      'L3 decision history for a deleted account must be removed only after media purge is confirmed');
 
     const profile = await client.query(
       `SELECT display_name, birth_date, gender, country, city, bio, relationship_intent,
