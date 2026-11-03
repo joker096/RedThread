@@ -43,7 +43,7 @@ A manual resolution must set `status = 'resolved'`, a concise `resolution_note`,
 
 - A report's reporter, target, category, submitted details and creation time are immutable. Moderation can move status from `open` to `reviewing`, `resolved` or `dismissed`, and from `reviewing` to a terminal status.
 - Hard deletion of either account is restricted while a report references it. The normal account deletion workflow uses a deleted-account tombstone and therefore does not erase report evidence.
-- `moderation_audit_log` is append-only. If a moderator account is physically removed through a separately approved retention operation, its FK reference may be nulled by PostgreSQL; the action record itself remains.
+- `moderation_audit_log` is append-only. New rows automatically snapshot the moderator UUID in `moderator_ref`; if a moderator account is physically removed through a separately approved retention operation, the live FK may be nulled by PostgreSQL while the immutable actor reference and action record remain.
 - Report details are user-supplied free text. The UI and moderator workflow must treat it as potentially sensitive and must not copy it into unrelated analytics, ad targeting, or general-purpose logs. The audit log should contain bounded reason codes and references, not the full report text.
 
 ## Gift and delivery evidence
