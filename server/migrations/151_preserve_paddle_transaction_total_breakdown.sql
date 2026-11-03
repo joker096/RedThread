@@ -2,6 +2,9 @@
 -- and the remaining balance after payments. Paddle defines these as separate
 -- values; collapsing them into one amount loses important financial evidence.
 ALTER TABLE paddle_transaction_events
+  DROP CONSTRAINT IF EXISTS paddle_transaction_events_amount_minor_units_check;
+
+ALTER TABLE paddle_transaction_events
   ADD COLUMN grand_total_minor_units BIGINT,
   ADD COLUMN credit_minor_units BIGINT,
   ADD COLUMN balance_minor_units BIGINT;
@@ -18,7 +21,7 @@ ALTER TABLE paddle_transaction_events
            balance_minor_units BETWEEN -9007199254740991 AND 9007199254740991);
 
 COMMENT ON COLUMN paddle_transaction_events.amount_minor_units IS
-  'Paddle details.totals.total: total after discount and tax, before credits.';
+  'Paddle details.totals.total: total after discount and tax, before credits; may be negative for subscription updates that result in credit.';
 COMMENT ON COLUMN paddle_transaction_events.grand_total_minor_units IS
   'Paddle details.totals.grand_total: total due after credits but before payments.';
 COMMENT ON COLUMN paddle_transaction_events.credit_minor_units IS
