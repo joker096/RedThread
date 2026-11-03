@@ -1966,6 +1966,7 @@ test('date plan requires both participants and resets confirmations after a chan
     status: 'proposed' | 'confirmed'; confirmedByAAt: string | null; confirmedByBAt: string | null;
   } = null;
   let nextPlanId = 0;
+  const currentPlan = (): NonNullable<typeof plan> | null => plan;
   const createParticipant = async (userId: string) => {
     const context = await browser.newContext();
     await context.addCookies([{ name: 'vow-date-plan-e2e-user', value: userId, url: 'http://127.0.0.1:4173' }]);
@@ -2037,20 +2038,20 @@ test('date plan requires both participants and resets confirmations after a chan
     await expect(participantB.page.getByText('Central Public Cafe')).toBeVisible();
     await participantB.page.getByRole('button', { name: /confirm|подтвердить/i }).click();
     await expect(participantB.page.getByText(/both people must confirm|one person has confirmed|waiting for both|ожидаем подтверждения обоих|один участник/i)).toBeVisible();
-    expect(plan?.status).toBe('proposed');
-    expect(plan?.confirmedByAAt).toBeNull();
-    expect(plan?.confirmedByBAt).not.toBeNull();
+    expect(currentPlan()?.status).toBe('proposed');
+    expect(currentPlan()?.confirmedByAAt).toBeNull();
+    expect(currentPlan()?.confirmedByBAt).not.toBeNull();
 
     await participantA.page.getByRole('button', { name: /confirm|подтвердить/i }).click();
     await expect(participantA.page.getByText(/confirmed by both|подтверждён обоими участниками|подтвержден обоими участниками/i)).toBeVisible();
-    expect(plan?.status).toBe('confirmed');
+    expect(currentPlan()?.status).toBe('confirmed');
 
     await participantA.page.getByLabel(/venue|место встречи/i).fill('Riverside Public Cafe');
     await participantA.page.getByRole('button', { name: /update proposal|изменить предложение/i }).click();
     await expect(participantA.page.getByText(/both people must confirm|waiting for both|оба участника должны подтвердить|ожидаем подтверждения обоих/i)).toBeVisible();
-    expect(plan?.status).toBe('proposed');
-    expect(plan?.confirmedByAAt).toBeNull();
-    expect(plan?.confirmedByBAt).toBeNull();
+    expect(currentPlan()?.status).toBe('proposed');
+    expect(currentPlan()?.confirmedByAAt).toBeNull();
+    expect(currentPlan()?.confirmedByBAt).toBeNull();
   } finally {
     await participantA.context.close();
     await participantB.context.close();
