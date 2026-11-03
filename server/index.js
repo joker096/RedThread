@@ -22,6 +22,7 @@ import { DIDIT_FREE_MONTHLY_SESSION_LIMIT } from './diditQuota.js';
 import express from 'express';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import { withPooledTransaction, rollbackPooledTransaction } from './withPooledTransaction.js';
+import { registerDatePlanRoutes } from './datePlans.js';
 import rateLimit from 'express-rate-limit';
 import { PostgresRateLimitStore } from './postgresRateLimitStore.js';
 import pg from 'pg';
@@ -2882,6 +2883,11 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
   } finally {
     client?.release();
   }
+});
+
+registerDatePlanRoutes(app, {
+  pool, requireSession, requirePaidFeatures, validateRequestOrigin,
+  createNotification, acquireGiftSafetyUserLocks, isUuid
 });
 
 app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) => {
