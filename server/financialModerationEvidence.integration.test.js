@@ -384,8 +384,9 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       );
       await client.query(
         `INSERT INTO paddle_adjustment_events
-         (event_id, adjustment_id, transaction_id, action, adjustment_type, status, occurred_at)
-         VALUES ($1, $2, $3, 'refund', 'full', 'pending_approval', statement_timestamp())`,
+         (event_id, adjustment_id, transaction_id, action, adjustment_type, status,
+          amount_minor_units, currency_code, occurred_at)
+         VALUES ($1, $2, $3, 'refund', 'full', 'pending_approval', 500, 'USD', statement_timestamp())`,
         [adjustmentEventId, `adj_${randomUUID().replace(/-/g, '')}`, `txn_${randomUUID().replace(/-/g, '')}`]
       );
       const adjustmentCase = await client.query(
@@ -462,8 +463,8 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       );
       await client.query(
         `INSERT INTO paddle_transaction_events
-         (event_id, transaction_id, user_id, plan, status, occurred_at)
-         VALUES ($1, $2, NULL, 'lifetime', 'completed', statement_timestamp())`,
+         (event_id, transaction_id, user_id, plan, status, amount_minor_units, currency_code, occurred_at)
+         VALUES ($1, $2, NULL, 'lifetime', 'completed', 1290, 'USD', statement_timestamp())`,
         [transactionEventId, `txn_${randomUUID().replace(/-/g, '')}`]
       );
       const transactionLedgerGuard = await client.query(
