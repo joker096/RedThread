@@ -1015,7 +1015,8 @@ function trustedPaddlePortalUrl(value) {
   if (typeof value !== 'string') return null;
   try {
     const parsed = new URL(value);
-    if (parsed.protocol !== 'https:' || parsed.hostname !== 'customer-portal.paddle.com' ||
+    if (parsed.protocol !== 'https:' ||
+        !['customer-portal.paddle.com', 'sandbox-customer-portal.paddle.com'].includes(parsed.hostname) ||
         parsed.username || parsed.password || parsed.port) return null;
     return parsed.toString();
   } catch {
