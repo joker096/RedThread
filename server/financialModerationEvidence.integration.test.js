@@ -1447,3 +1447,48 @@ test('photo and safety screening review states require matching moderator or aut
     await pool.end();
   }
 });
+
+
+test('Paddle transaction evidence stores signed gross and net totals after credits', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const client = await pool.connect();
+  const eventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  const transactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'transaction.completed')",
+      [eventId]
+    );
+    await client.query(
+      `INSERT INTO paddle_transaction_events
+         (event_id, transaction_id, status, amount_minor_units,
+          grand_total_minor_units, credit_minor_units, balance_minor_units, currency_code)
+       VALUES ($1, $2, 'completed', -500, -500, 0, 0, 'GEL')`,
+      [eventId, transactionId]
+    );
+    const result = await client.query(
+      `SELECT amount_minor_units, grand_total_minor_units,
+              credit_minor_units, balance_minor_units, currency_code
+       FROM paddle_transaction_events WHERE event_id = $1`,
+      [eventId]
+    );
+    assert.deepEqual(result.rows, [{
+      amount_minor_units: '-500',
+      grand_total_minor_units: '-500',
+      credit_minor_units: '0',
+      balance_minor_units: '0',
+      currency_code: 'GEL'
+    }]);
+    await client.query('ROLLBACK');
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw error;
+  } finally {
+    client.release();
+    await pool.end();
+  }
+});
