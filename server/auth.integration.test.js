@@ -208,6 +208,9 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.equal(firstQueuePage.cases.length, 1);
       assert.ok(firstQueuePage.nextCursor?.eventId,
         'a full page must expose a stable continuation cursor');
+      assert.match(firstQueuePage.nextCursor.createdAt,
+        /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$/,
+        'queue cursor timestamps must preserve PostgreSQL microsecond precision');
       const nextQueuePageQuery = new URLSearchParams({
         limit: '1',
         afterCreatedAt: firstQueuePage.nextCursor.createdAt,
