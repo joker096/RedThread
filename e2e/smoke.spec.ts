@@ -2030,7 +2030,7 @@ test('date plan requires both participants and resets confirmations after a chan
     await participantA.page.getByLabel(/date and time|дата и время/i).fill(dateValue);
     await participantA.page.getByLabel(/public place|общественное место/i).check();
     await participantA.page.getByRole('button', { name: /propose date plan|предложить план встречи/i }).click();
-    await expect(participantA.page.getByText(/both people must confirm|waiting for both|ожидаем подтверждения обоих/i)).toBeVisible();
+    await expect(participantA.page.getByText(/both people must confirm|waiting for both|оба участника должны подтвердить|ожидаем подтверждения обоих/i)).toBeVisible();
     await expect(participantA.page.getByRole('button', { name: /confirm|подтвердить/i })).toBeVisible();
 
     await participantB.page.getByTestId('date-plan-refresh').click();
@@ -2042,12 +2042,12 @@ test('date plan requires both participants and resets confirmations after a chan
     expect(plan?.confirmedByBAt).not.toBeNull();
 
     await participantA.page.getByRole('button', { name: /confirm|подтвердить/i }).click();
-    await expect(participantA.page.getByText(/confirmed by both|оба участника подтвердили/i)).toBeVisible();
+    await expect(participantA.page.getByText(/confirmed by both|подтверждён обоими участниками|подтвержден обоими участниками/i)).toBeVisible();
     expect(plan?.status).toBe('confirmed');
 
     await participantA.page.getByLabel(/venue|место встречи/i).fill('Riverside Public Cafe');
     await participantA.page.getByRole('button', { name: /update proposal|изменить предложение/i }).click();
-    await expect(participantA.page.getByText(/both people must confirm|waiting for both|ожидаем подтверждения обоих/i)).toBeVisible();
+    await expect(participantA.page.getByText(/both people must confirm|waiting for both|оба участника должны подтвердить|ожидаем подтверждения обоих/i)).toBeVisible();
     expect(plan?.status).toBe('proposed');
     expect(plan?.confirmedByAAt).toBeNull();
     expect(plan?.confirmedByBAt).toBeNull();
