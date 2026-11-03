@@ -258,6 +258,7 @@ async function resolvePaddleAdjustmentReconciliationCases(client, transactionId,
          WHERE linked_transaction.transaction_id = $1
            AND linked_transaction.user_id = $2
            AND linked_transaction.status = 'completed'
+           AND linked_transaction.plan IN ('1month', '3months')
        )`,
     [transactionId, userId, resolutionNote]
   );
