@@ -132,6 +132,21 @@ CREATE TRIGGER paddle_checkout_attempts_archive_before_rollover
   BEFORE UPDATE OF attempt_id, transaction_id, plan, status ON paddle_checkout_attempts
   FOR EACH ROW EXECUTE FUNCTION archive_paddle_checkout_attempt_before_rollover();
 
+-- Keep the per-user current attempt as a durable reconciliation record too.
+-- It may be replaced only through the terminal rollover above, which archives it.
+CREATE OR REPLACE FUNCTION prevent_paddle_checkout_attempt_delete()
+RETURNS trigger LANGUAGE plpgsql AS $checkout_current_guard$
+BEGIN
+  RAISE EXCEPTION 'Paddle checkout attempt evidence cannot be deleted directly'
+    USING ERRCODE = '55000';
+END;
+$checkout_current_guard$;
+
+DROP TRIGGER IF EXISTS paddle_checkout_attempts_delete_immutable ON paddle_checkout_attempts;
+CREATE TRIGGER paddle_checkout_attempts_delete_immutable
+  BEFORE DELETE ON paddle_checkout_attempts
+  FOR EACH ROW EXECUTE FUNCTION prevent_paddle_checkout_attempt_delete();
+
 CREATE OR REPLACE FUNCTION prevent_paddle_checkout_history_mutation()
 RETURNS trigger LANGUAGE plpgsql AS $checkout_history_guard$
 BEGIN
