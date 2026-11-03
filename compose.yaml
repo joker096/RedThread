@@ -172,6 +172,33 @@ services:
         condition: service_completed_successfully
     networks: [backend]
 
+  private-photo-purge:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
+      PGSSL: "${PGSSL:-false}"
+      PHOTO_STORAGE_DIR: /app/uploads/private-photos
+      PRIVATE_PHOTO_PURGE_BATCH_SIZE: ${PRIVATE_PHOTO_PURGE_BATCH_SIZE:-100}
+    command:
+      - sh
+      - -c
+      - |
+        while :; do
+          node server/process-private-photo-purge.js || echo "Private photo purge failed; retrying on the next minute."
+          sleep 60
+        done
+    volumes:
+      - private_photos:/app/uploads/private-photos
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [backend]
+
   api:
     build:
       context: .
