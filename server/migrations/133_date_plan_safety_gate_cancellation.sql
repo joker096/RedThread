@@ -129,9 +129,12 @@ BEGIN
     IF TG_OP = 'DELETE' THEN
       should_cancel := NOT identity_l3_has_active_approval(affected_user_id);
     ELSIF TG_TABLE_NAME = 'identity_l3_submissions' THEN
-      IF NEW.status = 'approved' THEN
-        -- A fresh approval is a safety boundary: any plan under the previous
-        -- approval must be proposed and mutually confirmed again.
+      IF TG_OP = 'UPDATE'
+         AND NEW.status = 'approved'
+         AND OLD.status IS DISTINCT FROM 'approved' THEN
+        -- Only a transition into a fresh approval is a safety boundary.
+        -- Non-decision updates (for example, retention metadata) must not
+        -- invalidate a still-current approval or an already confirmed plan.
         should_cancel := TRUE;
       ELSE
         should_cancel := NOT identity_l3_has_active_approval(affected_user_id);
