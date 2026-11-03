@@ -1374,12 +1374,12 @@ test('photo and safety screening review states require matching moderator or aut
       [screeningId, ownerId]
     );
     await client.query('SAVEPOINT screening_metadata_without_transition');
-    await client.query(
-      "UPDATE user_safety_screenings SET reviewed_at = statement_timestamp(), reviewed_by = $2 WHERE id = $1",
-      [screeningId, moderatorId]
-    );
     let reviewerMetadataError;
     try {
+      await client.query(
+        "UPDATE user_safety_screenings SET reviewed_at = statement_timestamp(), reviewed_by = $2 WHERE id = $1",
+        [screeningId, moderatorId]
+      );
       await client.query('SET CONSTRAINTS user_safety_screenings_review_audit_guard IMMEDIATE');
     } catch (error) { reviewerMetadataError = error; }
     assert.equal(reviewerMetadataError?.code, '23514',
