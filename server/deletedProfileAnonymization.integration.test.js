@@ -16,7 +16,7 @@ test('account deletion scrubs profile personal data in the database', {
   try {
     await client.query('BEGIN');
     const user = await client.query(
-      "INSERT INTO users (email, password_hash, status) VALUES ($1, 'test-only-hash', 'active') RETURNING id",
+      "INSERT INTO users (email, password_hash, phone_e164, phone_verified_at, status) VALUES ($1, 'test-only-hash', '+995555123456', statement_timestamp(), 'active') RETURNING id",
       [email]
     );
     userId = user.rows[0].id;
@@ -126,6 +126,20 @@ test('account deletion scrubs profile personal data in the database', {
       error => error.code === '23514'
     );
     await client.query('ROLLBACK TO SAVEPOINT deleted_account_terminal_guard');
+    const deletedAccount = await client.query(
+      'SELECT email, password_hash, phone_e164, phone_verified_at, female_trial_ends_at, premium_until, premium_lifetime FROM users WHERE id = $1',
+      [userId]
+    );
+    assert.deepEqual(deletedAccount.rows[0], {
+      email: 'deleted+' + userId + '@deleted.invalid',
+      password_hash: null,
+      phone_e164: null,
+      phone_verified_at: null,
+      female_trial_ends_at: null,
+      premium_until: null,
+      premium_lifetime: false
+    }, 'DB-level deletion must scrub credentials, contact details and trial entitlements');
+
     const deletedStatus = await client.query('SELECT status FROM users WHERE id = $1', [userId]);
     assert.equal(deletedStatus.rows[0]?.status, 'deleted',
       'a scrubbed deleted-account tombstone must not be reactivated');
