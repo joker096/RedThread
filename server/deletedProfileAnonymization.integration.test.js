@@ -33,6 +33,18 @@ test('account deletion scrubs profile personal data in the database', {
       [userId]
     );
 
+    const photoStoragePath = '/tmp/vow-deleted-profile-' + randomUUID() + '.jpg';
+    await client.query(
+      `INSERT INTO photo_assets (user_id, storage_path, mime_type, byte_size, width, height, review_status)
+       VALUES ($1, $2, 'image/jpeg', 128, 1, 1, 'approved')`,
+      [userId, photoStoragePath]
+    );
+    const l3Submission = await client.query(
+      `INSERT INTO identity_l3_submissions (user_id, status, storage_object_key)
+       VALUES ($1, 'draft', 'identity-l3/deleted-account-test') RETURNING id`,
+      [userId]
+    );
+
     await client.query(
       "INSERT INTO user_safety_screenings (user_id, scope, flags, severity, engine_version, review_status) VALUES ($1, 'profile', jsonb_build_array('profile_flag'), 'high', 'test-v1', 'pending')",
       [userId]
@@ -51,6 +63,33 @@ test('account deletion scrubs profile personal data in the database', {
     );
     assert.equal(screenings.rows[0].count, 0,
       'account deletion must purge transient profile screening results');
+    const photoAssets = await client.query(
+      'SELECT COUNT(*)::int AS count FROM photo_assets WHERE user_id = $1',
+      [userId]
+    );
+    assert.equal(photoAssets.rows[0].count, 0,
+      'deleted-account transitions must remove photo metadata immediately');
+    const photoPurge = await client.query(
+      'SELECT COUNT(*)::int AS count FROM private_photo_purge_queue WHERE storage_path = $1',
+      [photoStoragePath]
+    );
+    assert.equal(photoPurge.rows[0].count, 1,
+      'deleted-account transitions must durably queue private photo bytes for unlink');
+    const l3 = await client.query(
+      'SELECT status, storage_object_key FROM identity_l3_submissions WHERE id = $1',
+      [l3Submission.rows[0].id]
+    );
+    assert.equal(l3.rows[0]?.status, 'withdrawn',
+      'a deleted account must retire any in-flight L3 submission');
+    assert.equal(l3.rows[0]?.storage_object_key, 'identity-l3/deleted-account-test',
+      'the encrypted object key must remain until the purge worker confirms deletion');
+    const l3Purge = await client.query(
+      'SELECT COUNT(*)::int AS count FROM identity_l3_media_purge_jobs WHERE submission_id = $1',
+      [l3Submission.rows[0].id]
+    );
+    assert.equal(l3Purge.rows[0].count, 1,
+      'deleted-account transitions must enqueue L3 media purge');
+
     const profile = await client.query(
       `SELECT display_name, birth_date, gender, country, city, bio, relationship_intent,
               is_visible, photo_urls, occupation, education, languages, family_format,
