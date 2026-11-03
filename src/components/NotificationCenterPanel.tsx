@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
-type NotificationItem={id:string;type:'new_match'|'new_message'|'gift_request'|'gift_request_update';createdAt:string;readAt:string|null};
+type NotificationItem={id:string;type:'new_match'|'new_message'|'gift_request'|'gift_request_update'|'date_plan_proposed'|'date_plan_confirmed'|'date_plan_cancelled';createdAt:string;readAt:string|null};
 
 export const normalizeNotifications = (value: unknown): NotificationItem[] => {
  if (!Array.isArray(value)) return [];
@@ -9,7 +9,7 @@ export const normalizeNotifications = (value: unknown): NotificationItem[] => {
   if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
   const notification = item as Partial<NotificationItem>;
   return typeof notification.id === 'string' && notification.id.trim().length > 0 && notification.id.trim().length <= 256 &&
-   (notification.type === 'new_match' || notification.type === 'new_message' || notification.type === 'gift_request' || notification.type === 'gift_request_update') &&
+   (notification.type === 'new_match' || notification.type === 'new_message' || notification.type === 'gift_request' || notification.type === 'gift_request_update' || notification.type === 'date_plan_proposed' || notification.type === 'date_plan_confirmed' || notification.type === 'date_plan_cancelled') &&
    typeof notification.createdAt === 'string' && notification.createdAt.trim().length > 0 && notification.createdAt.length <= 100 && Number.isFinite(Date.parse(notification.createdAt)) &&
    (notification.readAt === null || (typeof notification.readAt === 'string' && notification.readAt.trim().length > 0 && notification.readAt.length <= 100 && Number.isFinite(Date.parse(notification.readAt))));
  }).filter((notification: NotificationItem) => {
@@ -33,7 +33,7 @@ export const normalizeUnreadCount = (value: unknown, fallback: number): number =
 };
 export const NotificationCenterPanel:React.FC=()=>{
  const {t,formatDate}=useLocale();
- const notificationTitle=(type:NotificationItem['type'])=>type==='new_match'?t('notificationNewMatch'):type==='new_message'?t('notificationNewMessage'):type==='gift_request'?t('notificationNewGiftRequest'):t('notificationGiftRequestUpdated');
+ const notificationTitle=(type:NotificationItem['type'])=>type==='new_match'?t('notificationNewMatch'):type==='new_message'?t('notificationNewMessage'):type==='gift_request'?t('notificationNewGiftRequest'):type==='gift_request_update'?t('notificationGiftRequestUpdated'):type==='date_plan_proposed'?t('notificationDatePlanProposed'):type==='date_plan_confirmed'?t('notificationDatePlanConfirmed'):t('notificationDatePlanCancelled');
  const [items,setItems]=useState<NotificationItem[]>([]);
  const [unread,setUnread]=useState(0);
  const [ready,setReady]=useState(false);
