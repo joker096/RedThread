@@ -3556,6 +3556,119 @@ app.post('/api/admin/photos/:photoId/review', validateRequestOrigin, requireSess
   }
 });
 
+app.get('/api/admin/paddle-adjustment-reconciliation', requireSession, async (req, res) => {
+  const limit = Number.parseInt(String(req.query.limit ?? '50'), 10);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return res.status(400).json({ error: 'invalid_pagination' });
+  }
+  try {
+    const read = await withActiveModeratorRead(req.authUser.id, async client => {
+      const result = await client.query(
+        `SELECT c.event_id AS "eventId", c.reason_code AS "reasonCode",
+                c.created_at AS "createdAt", e.adjustment_id AS "adjustmentId",
+                e.transaction_id AS "transactionId", e.action,
+                e.status AS "adjustmentStatus", e.amount_minor_units AS "amountMinorUnits",
+                e.currency_code AS "currencyCode", e.occurred_at AS "occurredAt"
+         FROM paddle_adjustment_reconciliation_cases AS c
+         LEFT JOIN paddle_adjustment_events AS e USING (event_id)
+         WHERE c.status = 'open'
+         ORDER BY c.created_at ASC
+         LIMIT $1`,
+        [limit]
+      );
+      return result.rows;
+    });
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    if (read.value.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    return res.json({ cases: read.value });
+  } catch (error) {
+    console.error('Paddle adjustment reconciliation queue failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'paddle_adjustment_reconciliation_queue_failed' });
+  }
+});
+
+app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
+  validateRequestOrigin, requireSession, async (req, res) => {
+    const eventId = req.params.eventId;
+    const resolutionNote = typeof req.body?.resolutionNote === 'string'
+      ? req.body.resolutionNote.trim() : '';
+    if (!/^evt_[a-z0-9]{26}$/i.test(eventId) ||
+        resolutionNote.length < 1 || resolutionNote.length > 500) {
+      return res.status(400).json({ error: 'invalid_adjustment_reconciliation_resolution' });
+    }
+
+    let client;
+    try {
+      client = await pool.connect();
+      await client.query('BEGIN');
+      await acquireGiftSafetyUserLocks(client, req.authUser.id);
+      const moderator = await client.query(
+        "SELECT id, role FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+        [req.authUser.id]
+      );
+      if (!moderator.rows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(401).json({ error: 'account_not_active' });
+      }
+      if (!['admin', 'moderator'].includes(moderator.rows[0].role)) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'moderator_access_required' });
+      }
+
+      const pending = await client.query(
+        `SELECT c.event_id, c.reason_code, e.adjustment_id, e.transaction_id
+         FROM paddle_adjustment_reconciliation_cases AS c
+         LEFT JOIN paddle_adjustment_events AS e USING (event_id)
+         WHERE c.event_id = $1 AND c.status = 'open'
+         FOR UPDATE OF c`,
+        [eventId]
+      );
+      if (!pending.rows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'open_adjustment_reconciliation_case_not_found' });
+      }
+
+      const resolved = await client.query(
+        `UPDATE paddle_adjustment_reconciliation_cases
+         SET status = 'resolved',
+             resolution_note = $2,
+             resolution_source = 'manual_operator',
+             resolved_by_ref = $3,
+             resolved_at = statement_timestamp(),
+             updated_at = statement_timestamp()
+         WHERE event_id = $1 AND status = 'open'
+         RETURNING event_id`,
+        [eventId, resolutionNote, moderator.rows[0].id]
+      );
+      if (resolved.rowCount !== 1) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'adjustment_reconciliation_case_changed' });
+      }
+
+      await client.query(
+        `INSERT INTO moderation_audit_log
+           (moderator_id, action, target_type, target_id, reason, details)
+         VALUES ($1, 'paddle_adjustment_reconciliation_resolved',
+                 'paddle_adjustment_case', $2, $3, $4::jsonb)`,
+        [moderator.rows[0].id, eventId, resolutionNote, JSON.stringify({
+          eventId,
+          reasonCode: pending.rows[0].reason_code,
+          adjustmentId: pending.rows[0].adjustment_id,
+          transactionId: pending.rows[0].transaction_id,
+          resolutionSource: 'manual_operator'
+        })]
+      );
+      await client.query('COMMIT');
+      return res.json({ eventId, status: 'resolved', resolutionSource: 'manual_operator' });
+    } catch (error) {
+      if (client && !await rollbackPooledTransaction(client)) client = null;
+      console.error('Paddle adjustment reconciliation resolution failed:', error?.message || 'unknown error');
+      return res.status(500).json({ error: 'paddle_adjustment_reconciliation_resolution_failed' });
+    } finally {
+      client?.release();
+    }
+  });
+
 app.get('/api/admin/audit-log', requireSession, async (req, res) => {
   if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   const limit = Number.parseInt(String(req.query.limit ?? '50'), 10);
