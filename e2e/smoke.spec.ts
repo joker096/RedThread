@@ -2012,6 +2012,79 @@ test('date-plan notification opens only its matching active chat', async ({ page
   expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport + 1);
 });
 
+test('switching chats cannot render a stale date plan from the previous match', async ({ page }) => {
+  const oldMatchId = 'e2e-stale-date-plan-old-match';
+  const newMatchId = 'e2e-stale-date-plan-new-match';
+  let releaseOldPlan: (() => void) | null = null;
+  let markOldRequestStarted: (() => void) | null = null;
+  const oldPlanGate = new Promise<void>(resolve => { releaseOldPlan = resolve; });
+  const oldRequestStarted = new Promise<void>(resolve => { markOldRequestStarted = resolve; });
+
+  await page.route('**/api/auth/me', route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ user: { id: 'e2e-stale-date-plan-user' } })
+  }));
+  await page.route('**/api/notifications**', route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ notifications: [], unreadCount: 0 })
+  }));
+  await page.route('**/api/matches', route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ matches: [
+      { id: oldMatchId, partnerId: 'old-partner', displayName: 'Old Match', age: 30, country: 'Georgia', city: 'Tbilisi', lastMessage: null, lastMessageAt: null },
+      { id: newMatchId, partnerId: 'new-partner', displayName: 'New Match', age: 31, country: 'Georgia', city: 'Tbilisi', lastMessage: null, lastMessageAt: null }
+    ] })
+  }));
+  await page.route('**/api/matches/*/messages', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ messages: [] })
+  }));
+  await page.route('**/api/matches/*/date-plan', async route => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname.endsWith('/' + oldMatchId + '/date-plan')) {
+      markOldRequestStarted?.();
+      await oldPlanGate;
+      await route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({
+          datePlan: {
+            id: 'old-plan', proposedBy: 'e2e-stale-date-plan-user',
+            venueName: 'Stale Old Venue', startsAt: '2026-11-05T14:00:00.000Z',
+            timeZone: 'Asia/Tbilisi', status: 'proposed',
+            confirmedByAAt: null, confirmedByBAt: null
+          },
+          userAId: 'e2e-stale-date-plan-user', userBId: 'old-partner'
+        })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({
+        datePlan: {
+          id: 'new-plan', proposedBy: 'e2e-stale-date-plan-user',
+          venueName: 'Current Public Cafe', startsAt: '2026-11-06T14:00:00.000Z',
+          timeZone: 'Asia/Tbilisi', status: 'proposed',
+          confirmedByAAt: null, confirmedByBAt: null
+        },
+        userAId: 'e2e-stale-date-plan-user', userBId: 'new-partner'
+      })
+    });
+  });
+
+  await page.goto('/');
+  const chatsButton = page.locator('[data-testid="nav-chats"]:visible, [data-testid="mobile-nav-chats"]:visible').first();
+  await expect(chatsButton).toBeVisible();
+  await chatsButton.click();
+  await page.getByRole('button', { name: /Old Match/ }).click();
+  await oldRequestStarted;
+  await page.getByRole('button', { name: /New Match/ }).click();
+  await expect(page.getByTestId('date-plan-panel')).toContainText('Current Public Cafe');
+
+  releaseOldPlan?.();
+  await expect(page.getByTestId('date-plan-panel')).toContainText('Current Public Cafe');
+  await expect(page.getByTestId('date-plan-panel')).not.toContainText('Stale Old Venue');
+});
+
 test('date plan requires both participants and resets confirmations after a change', async ({ browser }) => {
   const matchId = 'e2e-date-plan-match';
   const userAId = 'e2e-date-plan-user-a';
