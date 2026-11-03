@@ -1764,7 +1764,7 @@ test('transaction history does not substitute legacy top-level amount for Paddle
       total: '16500',
       amount: '16500',
       details: { totals: { grand_total: '16500' } },
-      currency_code: 'USD'
+      currency: 'USD'
     }
   });
 
@@ -1772,5 +1772,6 @@ test('transaction history does not substitute legacy top-level amount for Paddle
   assert.ok(ledger, 'the provider transaction event must still be retained');
   assert.equal(ledger.params[5], null,
     'top-level legacy amount must not be treated as an authoritative Paddle transaction total');
-  assert.equal(ledger.params[6], 'USD');
+  assert.equal(ledger.params[6], null,
+    'a noncanonical currency property must not substitute for Paddle currency_code');
 });
