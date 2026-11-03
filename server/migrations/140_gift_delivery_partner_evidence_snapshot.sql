@@ -10,6 +10,10 @@ SET catalog_item_ref = catalog_item_id,
 WHERE catalog_item_id IS NOT NULL OR delivery_partner_id IS NOT NULL;
 
 ALTER TABLE gift_delivery_orders
+  ALTER COLUMN catalog_item_id DROP NOT NULL,
+  ALTER COLUMN delivery_partner_id DROP NOT NULL;
+
+ALTER TABLE gift_delivery_orders
   DROP CONSTRAINT IF EXISTS gift_delivery_orders_delivery_partner_id_fkey;
 
 ALTER TABLE gift_delivery_orders
