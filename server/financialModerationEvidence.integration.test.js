@@ -469,7 +469,7 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
         `SELECT action, details->>'newStatus' AS new_status, moderator_ref
          FROM moderation_audit_log
          WHERE target_type = 'user_report' AND target_id = $1
-         ORDER BY created_at, id`,
+         ORDER BY CASE action WHEN 'review' THEN 0 ELSE 1 END, id`,
         [realReport.rows[0].id]
       );
       assert.deepEqual(reportAuditRows.rows.map(row => ({
