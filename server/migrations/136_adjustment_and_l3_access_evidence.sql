@@ -52,6 +52,12 @@ BEGIN
 END;
 $l3_media_access_audit$;
 
+DROP TRIGGER IF EXISTS identity_l3_media_access_events_append_only
+  ON identity_l3_media_access_events;
+CREATE TRIGGER identity_l3_media_access_events_append_only
+  BEFORE UPDATE OR DELETE ON identity_l3_media_access_events
+  FOR EACH ROW EXECUTE FUNCTION prevent_identity_l3_media_access_event_mutation();
+
 -- Preserve the provenance of existing lifetime entitlements before new
 -- adjustment events can revoke or reinstate them.
 CREATE TABLE paddle_lifetime_entitlements (
