@@ -62,7 +62,7 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
 
       const lifetimeReasonUserId = randomUUID();
       await client.query(
-        "INSERT INTO users (id, email, password_hash, role, status) VALUES ($1, $2, 'test-only-hash', 'moderator', 'active')",
+        "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
         [lifetimeReasonUserId, `lifetime-reason-${lifetimeReasonUserId}@example.invalid`]
       );
       await client.query('SAVEPOINT revoked_lifetime_requires_reason');
@@ -1052,7 +1052,7 @@ test('manual Paddle reconciliation resolution requires an immutable moderator au
   try {
     await client.query('BEGIN');
     await client.query(
-      "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
+      "INSERT INTO users (id, email, password_hash, role, status) VALUES ($1, $2, 'test-only-hash', 'moderator', 'active')",
       [moderatorId, `manual-adjustment-audit-${moderatorId}@example.invalid`]
     );
     await client.query(
