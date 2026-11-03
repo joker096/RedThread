@@ -53,6 +53,32 @@ ALTER TABLE user_reports
   ADD CONSTRAINT user_reports_reported_user_id_fkey
   FOREIGN KEY (reported_user_id) REFERENCES users(id) ON DELETE RESTRICT;
 
+-- Preserve moderator provenance when the live account FK is nulled.
+ALTER TABLE moderation_audit_log
+  ADD COLUMN moderator_ref UUID;
+
+UPDATE moderation_audit_log
+SET moderator_ref = moderator_id
+WHERE moderator_id IS NOT NULL;
+
+CREATE OR REPLACE FUNCTION snapshot_moderation_audit_moderator()
+RETURNS trigger LANGUAGE plpgsql AS $moderation_actor_snapshot$
+BEGIN
+  IF NEW.moderator_id IS NOT NULL
+     AND NEW.moderator_ref IS NOT NULL
+     AND NEW.moderator_ref IS DISTINCT FROM NEW.moderator_id THEN
+    RAISE EXCEPTION 'moderation audit moderator snapshot must match its live reference'
+      USING ERRCODE = '23514';
+  END IF;
+  NEW.moderator_ref := COALESCE(NEW.moderator_ref, NEW.moderator_id);
+  RETURN NEW;
+END;
+$moderation_actor_snapshot$;
+
+CREATE TRIGGER moderation_audit_log_snapshot_moderator
+  BEFORE INSERT ON moderation_audit_log
+  FOR EACH ROW EXECUTE FUNCTION snapshot_moderation_audit_moderator();
+
 -- The audit table's comment promises append-only behavior; enforce it.
 -- Permit only the nested FK ON DELETE SET NULL for moderator_id.
 CREATE OR REPLACE FUNCTION prevent_moderation_audit_mutation()
