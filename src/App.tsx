@@ -69,11 +69,22 @@ export default function App() {
 
   // Navigation tab
   const [activeTab, setActiveTab] = useState<'discovery' | 'tests' | 'chats' | 'safety' | 'monetization'>('discovery');
+  const [requestedDatePlanMatchId, setRequestedDatePlanMatchId] = useState<string | null>(null);
 
   useEffect(() => {
     const openGiftRequests = () => setActiveTab('chats');
+    const openDatePlan = (event: Event) => {
+      const matchId = (event as CustomEvent<{ matchId?: unknown }>).detail?.matchId;
+      if (typeof matchId !== 'string' || !matchId.trim() || matchId.trim().length > 256) return;
+      setRequestedDatePlanMatchId(matchId.trim());
+      setActiveTab('chats');
+    };
     window.addEventListener('vow:open-gifts', openGiftRequests);
-    return () => window.removeEventListener('vow:open-gifts', openGiftRequests);
+    window.addEventListener('vow:open-date-plan', openDatePlan);
+    return () => {
+      window.removeEventListener('vow:open-gifts', openGiftRequests);
+      window.removeEventListener('vow:open-date-plan', openDatePlan);
+    };
   }, []);
 
   // Candidate profiles
@@ -645,7 +656,7 @@ export default function App() {
       case 'chats':
         return (
           <>
-            <ServerMatchesPanel onOpenAccount={() => setActiveTab('tests')} />
+            <ServerMatchesPanel onOpenAccount={() => setActiveTab('tests')} openMatchId={requestedDatePlanMatchId} onMatchOpenHandled={() => setRequestedDatePlanMatchId(null)} />
             <NotificationCenterPanel />
             <GiftOrdersPanel />
             <GiftReceivingPreferencesPanel />
