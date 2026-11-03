@@ -657,6 +657,14 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
            AND table_name = 'gift_delivery_orders' AND column_name = 'delivery_partner_ref'`
       );
       assert.equal(giftPartnerSnapshot.rowCount, 1);
+      const giftCatalogDeleteRule = await client.query(
+        `SELECT confdeltype FROM pg_constraint
+         WHERE conrelid = 'gift_delivery_orders'::regclass
+           AND contype = 'f'
+           AND pg_get_constraintdef(oid) LIKE '%catalog_item_id%'`
+      );
+      assert.equal(giftCatalogDeleteRule.rows[0]?.confdeltype, 'n',
+        'deleting a catalog item must null only the live FK while catalog_item_ref preserves provenance');
       const giftPartnerDeleteRule = await client.query(
         `SELECT confdeltype FROM pg_constraint
          WHERE conrelid = 'gift_delivery_orders'::regclass
