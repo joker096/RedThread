@@ -115,9 +115,6 @@ CREATE TRIGGER paddle_adjustment_events_append_only
   BEFORE UPDATE OR DELETE ON paddle_adjustment_events
   FOR EACH ROW EXECUTE FUNCTION prevent_paddle_adjustment_event_mutation();
 
-ALTER TABLE paddle_lifetime_entitlements
-  ADD CONSTRAINT paddle_lifetime_entitlements_transaction_unique UNIQUE (transaction_id);
-
 COMMENT ON TABLE paddle_lifetime_entitlements IS
   'Current entitlement projection for verified Vow lifetime transactions. Transaction IDs are retained for refund/chargeback reconciliation; no payment credentials or full provider payloads are stored.';
 COMMENT ON TABLE paddle_adjustment_events IS
