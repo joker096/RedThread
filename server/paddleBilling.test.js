@@ -413,6 +413,59 @@ test('does not grant lifetime Premium when the transaction price does not match 
 });
 
 
+test('ambiguous configured price IDs cannot link a lifetime checkout', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalLifetimePriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
+  const originalMonthlyPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_ambiguous';
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_ambiguous';
+  const queries = [];
+  const client = {
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: 'evt_ambiguous_plan' }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+
+  try {
+    const result = await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_ambiguous_plan',
+      eventType: 'transaction.completed',
+      data: {
+        id: 'txn_ambiguous_plan',
+        customData: {
+          userId: '00000000-0000-4000-8000-000000000001',
+          plan: 'lifetime',
+          checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+        },
+        items: [{ price: { id: 'pri_ambiguous' } }]
+      }
+    });
+
+    assert.equal(result.handled, true);
+    assert.equal(queries.some(query => query.sql.includes("SET transaction_id = $1, status = 'completed'")), false,
+      'a price ID configured for multiple plans must not claim a checkout attempt');
+    assert.equal(queries.some(query => query.sql.includes('premium_lifetime = TRUE')), false,
+      'ambiguous price configuration must never grant lifetime Premium');
+    assert.equal(queries.some(query => query.sql.includes('INSERT INTO paddle_lifetime_entitlements')), false);
+    const transactionEvidence = queries.find(query => query.sql.includes('INSERT INTO paddle_transaction_events'));
+    assert.ok(transactionEvidence, 'retain the signed provider transaction for reconciliation');
+    assert.equal(transactionEvidence.params[3], null,
+      'an ambiguous provider price must not be assigned a guessed plan');
+    const reconciliation = queries.find(query => query.sql.includes("SET status = 'reconciliation_required'"));
+    assert.ok(reconciliation, 'the exact checkout attempt must remain available for manual reconciliation');
+  } finally {
+    if (originalLifetimePriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
+    else process.env.PADDLE_PRICE_ID_LIFETIME = originalLifetimePriceId;
+    if (originalMonthlyPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalMonthlyPriceId;
+  }
+});
+
 test('malformed completed transaction IDs are acknowledged without database constraint retries', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
