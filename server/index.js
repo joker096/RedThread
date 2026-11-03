@@ -547,7 +547,10 @@ app.post('/api/paddle/checkout/cancel', validateRequestOrigin, requireSession, a
       expectedAttemptId: attempt.attempt_id
     });
     if (providerTransaction.status !== 'canceled') {
-      const status = ['completed', 'paid'].includes(providerTransaction.status)
+      // A merely paid transaction is not yet provider-completed. Keep it in
+      // reconciliation so a delayed transaction.completed webhook can bind
+      // the exact attempt; never promote a paid response to completed locally.
+      const status = providerTransaction.status === 'completed'
         ? 'completed'
         : 'reconciliation_required';
       await client.query(
@@ -557,7 +560,9 @@ app.post('/api/paddle/checkout/cancel', validateRequestOrigin, requireSession, a
       );
       await client.query('COMMIT');
       return res.status(409).json({
-        error: status === 'completed' ? 'paddle_checkout_processing' : 'paddle_checkout_reconciliation_required'
+        error: ['completed', 'paid'].includes(providerTransaction.status)
+          ? 'paddle_checkout_processing'
+          : 'paddle_checkout_reconciliation_required'
       });
     }
     await client.query(
@@ -1499,11 +1504,20 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
                AND transaction_id = $2 AND status = 'pending'`,
             [req.authUser.id, checkoutAttempt.transaction_id, checkoutAttempt.attempt_id]
           );
-        } else if (['completed', 'paid'].includes(providerTransaction.status)) {
+        } else if (providerTransaction.status === 'paid') {
+          // Paid is not the same as completed. Wait for the authoritative
+          // transaction.completed webhook before allowing destructive deletion.
           await client.query(
-            `UPDATE paddle_checkout_attempts SET status = $2, updated_at = statement_timestamp()
-             WHERE user_id = $1 AND attempt_id IS NOT DISTINCT FROM $3::uuid AND status = 'pending'`,
-            [req.authUser.id, 'completed', checkoutAttempt.attempt_id]
+            `UPDATE paddle_checkout_attempts SET status = 'reconciliation_required', updated_at = statement_timestamp()
+             WHERE user_id = $1 AND attempt_id IS NOT DISTINCT FROM $2::uuid AND status = 'pending'`,
+            [req.authUser.id, checkoutAttempt.attempt_id]
+          );
+          return res.status(409).json({ error: 'paddle_checkout_processing' });
+        } else if (providerTransaction.status === 'completed') {
+          await client.query(
+            `UPDATE paddle_checkout_attempts SET status = 'completed', updated_at = statement_timestamp()
+             WHERE user_id = $1 AND attempt_id IS NOT DISTINCT FROM $2::uuid AND status = 'pending'`,
+            [req.authUser.id, checkoutAttempt.attempt_id]
           );
           // A completed recurring transaction is not safe to delete around until
           // subscription.created has linked its exact provider subscription ID.
