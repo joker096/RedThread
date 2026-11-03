@@ -150,7 +150,14 @@ async function getPaddleAdjustmentState(client, transactionId) {
          adjustment_id, action, adjustment_type, status, occurred_at, received_at, event_id
        FROM paddle_adjustment_events
        WHERE transaction_id = $1
-       ORDER BY adjustment_id, occurred_at DESC, received_at DESC, event_id DESC
+       ORDER BY adjustment_id, occurred_at DESC,
+         CASE status
+           WHEN 'pending_approval' THEN 0
+           WHEN 'approved' THEN 1
+           WHEN 'rejected' THEN 2
+           WHEN 'reversed' THEN 3
+         END DESC,
+         received_at DESC, event_id DESC
      )
      SELECT
        EXISTS (
