@@ -69,6 +69,50 @@ async function markPaddleCheckoutAttemptForReconciliation(client, userId, plan, 
 }
 
 
+function inferPaddleTransactionPlan(data) {
+  const items = Array.isArray(data?.items) ? data.items : [];
+  const priceIds = items.map(item => item?.priceId || item?.price_id || item?.price?.id).filter(Boolean);
+  if (process.env.PADDLE_PRICE_ID_LIFETIME &&
+      priceIds.includes(process.env.PADDLE_PRICE_ID_LIFETIME)) return 'lifetime';
+  if (process.env.PADDLE_PRICE_ID_1MONTH &&
+      priceIds.includes(process.env.PADDLE_PRICE_ID_1MONTH)) return '1month';
+  if (process.env.PADDLE_PRICE_ID_3MONTHS &&
+      priceIds.includes(process.env.PADDLE_PRICE_ID_3MONTHS)) return '3months';
+  return null;
+}
+
+async function findPaddleTransactionOwner(client, { attemptUserId = null, subscriptionId = null, customerId = null } = {}) {
+  if (typeof attemptUserId === 'string' &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(attemptUserId)) {
+    return attemptUserId;
+  }
+  if (!subscriptionId && !customerId) return null;
+  const result = await client.query(
+    `SELECT id FROM users
+     WHERE ($1::text IS NOT NULL AND paddle_subscription_id = $1)
+        OR ($2::text IS NOT NULL AND paddle_customer_id = $2)
+     ORDER BY id
+     LIMIT 2`,
+    [subscriptionId, customerId]
+  );
+  return result.rowCount === 1 ? result.rows[0].id : null;
+}
+
+async function recordPaddleTransactionEvent(client, {
+  eventId, transactionId, userId = null, plan = null, status,
+  subscriptionId = null, customerId = null, occurredAt = null
+}) {
+  const providerTime = typeof occurredAt === 'string' && Number.isFinite(Date.parse(occurredAt))
+    ? occurredAt : null;
+  await client.query(
+    `INSERT INTO paddle_transaction_events
+       (event_id, transaction_id, user_id, plan, status, subscription_id, customer_id, occurred_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz)
+     ON CONFLICT (event_id) DO NOTHING`,
+    [eventId, transactionId, userId, plan, status, subscriptionId, customerId, providerTime]
+  );
+}
+
 async function getPaddleAdjustmentState(client, transactionId) {
   const result = await client.query(
     `WITH latest_per_adjustment AS (
@@ -404,6 +448,17 @@ export async function processPaddleEvent(pool, rawEvent) {
     // consumed without changing account identity, avoiding endless webhook retries.
     if ((eventType === 'subscription.created' && customerId === null) ||
         (customerId !== null && !/^ctm_[A-Za-z0-9]+$/.test(customerId) && !adjustmentWebhookEvent)) {
+      if (['transaction.completed', 'transaction.canceled'].includes(eventType) &&
+          typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
+        await recordPaddleTransactionEvent(client, {
+          eventId, transactionId: data.id, userId: null,
+          plan: inferPaddleTransactionPlan(data),
+          status: eventType === 'transaction.completed' ? 'completed' : 'canceled',
+          subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
+          customerId: null,
+          occurredAt
+        });
+      }
       const malformedEventTransactionId = eventType === 'transaction.completed'
         ? data.id
         : eventType === 'subscription.created'
@@ -551,6 +606,15 @@ export async function processPaddleEvent(pool, rawEvent) {
       // otherwise one bad event can retry forever and poison webhook delivery.
       if (typeof data.id !== 'string' || !/^txn_[A-Za-z0-9]+$/.test(data.id) ||
           (subscriptionId !== null && !/^sub_[A-Za-z0-9]+$/.test(subscriptionId))) {
+        if (typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
+          await recordPaddleTransactionEvent(client, {
+            eventId, transactionId: data.id, userId: null,
+            plan: inferPaddleTransactionPlan(data), status: 'completed',
+            subscriptionId: null,
+            customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null,
+            occurredAt
+          });
+        }
         await markPaddleCheckoutAttemptForReconciliation(
           client, reconciliationContext.userId, reconciliationContext.plan,
           typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id) ? data.id : null,
@@ -594,6 +658,21 @@ export async function processPaddleEvent(pool, rawEvent) {
         )
         : { rowCount: 0, rows: [] };
       const ownsCheckoutAttempt = attemptClaim.rowCount === 1;
+      const transactionOwnerUserId = await findPaddleTransactionOwner(client, {
+        attemptUserId: ownsCheckoutAttempt ? customUserId : null,
+        subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
+        customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null
+      });
+      await recordPaddleTransactionEvent(client, {
+        eventId,
+        transactionId: data.id,
+        userId: transactionOwnerUserId,
+        plan: inferPaddleTransactionPlan(data),
+        status: 'completed',
+        subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
+        customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null,
+        occurredAt
+      });
       if (!ownsCheckoutAttempt && typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
         // A completed transaction that cannot be tied to the exact server
         // attempt (including a plan/price mismatch) must remain visible for
@@ -720,7 +799,7 @@ export async function processPaddleEvent(pool, rawEvent) {
         // that race; otherwise the webhook would be consumed while the row is
         // still "creating", and the HTTP response could later resurrect it
         // as pending using its stale draft/ready response.
-        await client.query(
+        const canceledAttempt = await client.query(
           `UPDATE paddle_checkout_attempts
            SET transaction_id = COALESCE(transaction_id, $1),
                status = 'canceled', updated_at = NOW()
@@ -730,10 +809,26 @@ export async function processPaddleEvent(pool, rawEvent) {
              OR ($3::uuid IS NULL AND transaction_id = $1)
            )
              AND (transaction_id IS NULL OR transaction_id = $1)
-             AND status IN ('creating', 'pending', 'reconciliation_required')`,
+             AND status IN ('creating', 'pending', 'reconciliation_required')
+           RETURNING user_id`,
           [data.id, reconciliationContext?.userId || null,
             reconciliationContext?.attemptId || null, reconciliationContext?.plan || null]
         );
+        const transactionOwnerUserId = await findPaddleTransactionOwner(client, {
+          attemptUserId: canceledAttempt.rowCount === 1 ? canceledAttempt.rows[0].user_id : null,
+          subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
+          customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null
+        });
+        await recordPaddleTransactionEvent(client, {
+          eventId,
+          transactionId: data.id,
+          userId: transactionOwnerUserId,
+          plan: canceledAttempt.rows[0]?.plan || inferPaddleTransactionPlan(data),
+          status: 'canceled',
+          subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
+          customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null,
+          occurredAt
+        });
       }
     } else if (eventType === 'customer.created' || eventType === 'customer.updated') {
       const customerEmail = data.email;
