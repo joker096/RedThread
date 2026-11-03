@@ -120,7 +120,7 @@ This runbook closes only the operational case; it does not itself grant, revoke,
 
 ## Migration ordering dependency
 
-Deploy migrations 135–146 from PR #424 before merging and deploying PR #423's migration 134. Migration 145 closes a direct-update loophole in the live foreign-key snapshot exceptions for L3 media access and gift-order actor evidence; only nested PostgreSQL `ON DELETE SET NULL` actions may clear those live references. Confirm `schema_migrations` contains `136_adjustment_and_l3_access_evidence.sql` before migration 134 is introduced to a deployment. The migration runner applies newly discovered files in filename order; if migrations 134 and 136 are both pending in the same deployment, 134 would run first and could cascade-delete historical L3 access events before their retention foreign keys are changed. Do not merge both PRs into one undeployed release.
+Deploy migrations 135–147 from PR #424 before merging and deploying PR #423's migration 134. Migration 145 closes a direct-update loophole in the live foreign-key snapshot exceptions for L3 media access and gift-order actor evidence; only nested PostgreSQL `ON DELETE SET NULL` actions may clear those live references. Confirm `schema_migrations` contains `136_adjustment_and_l3_access_evidence.sql` before migration 134 is introduced to a deployment. The migration runner applies newly discovered files in filename order; if migrations 134 and 136 are both pending in the same deployment, 134 would run first and could cascade-delete historical L3 access events before their retention foreign keys are changed. Do not merge both PRs into one undeployed release.
 
 ## Operational requirements before production
 
