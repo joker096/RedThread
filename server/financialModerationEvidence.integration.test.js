@@ -379,6 +379,10 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       assert.match(adjustmentGuard.rows[0].definition, /Paddle adjustment evidence is append-only/);
       const adjustmentEventId = `evt_retention_${randomUUID().replace(/-/g, '')}`;
       await client.query(
+        'INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, $2)',
+        [adjustmentEventId, 'adjustment.created']
+      );
+      await client.query(
         `INSERT INTO paddle_adjustment_events
          (event_id, adjustment_id, transaction_id, action, adjustment_type, status, occurred_at)
          VALUES ($1, $2, $3, 'refund', 'full', 'pending_approval', statement_timestamp())`,
