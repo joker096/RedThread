@@ -2200,7 +2200,7 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(datePlanProposal.status, 201,
       'a participant may propose a future public meeting plan: ' + JSON.stringify(datePlanEligibility.rows[0]) +
       '; API response: ' + JSON.stringify(datePlanProposalPayload));
-    const proposedDatePlan = (await datePlanProposal.json()).datePlan;
+    const proposedDatePlan = datePlanProposalPayload.datePlan;
     assert.equal(proposedDatePlan.status, 'proposed');
     assert.equal(proposedDatePlan.confirmedByAAt, null);
     assert.equal(proposedDatePlan.confirmedByBAt, null,
