@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 
 type DatePlan = {
@@ -23,12 +23,16 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const refreshRequestId = useRef(0);
   const refresh = useCallback(async () => {
+    const requestId = ++refreshRequestId.current;
     setLoading(true);
     setError('');
     try {
       const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/date-plan`, { credentials: 'include' });
+      if (requestId !== refreshRequestId.current) return;
       const data = await response.json().catch(() => null);
+      if (requestId !== refreshRequestId.current) return;
       if (!response.ok) throw new Error(t('datePlanLoadError'));
       const next = data?.datePlan;
       setPlan(next && typeof next.id === 'string' ? next : null);
@@ -40,10 +44,17 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
         setIsPublicVenue(true);
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('datePlanLoadError'));
-    } finally { setLoading(false); }
+      if (requestId === refreshRequestId.current) {
+        setError(cause instanceof Error ? cause.message : t('datePlanLoadError'));
+      }
+    } finally {
+      if (requestId === refreshRequestId.current) setLoading(false);
+    }
   }, [matchId, t]);
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    void refresh();
+    return () => { refreshRequestId.current += 1; };
+  }, [refresh]);
 
   const submit = async (path: string, body?: unknown) => {
     if (saving) return;
