@@ -50,6 +50,55 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
 
     await client.query('BEGIN');
     try {
+      const lifetimeReasonConstraint = await client.query(
+        `SELECT pg_get_constraintdef(oid) AS definition
+         FROM pg_constraint
+         WHERE conname = 'paddle_lifetime_entitlements_status_reason_check'
+           AND conrelid = 'paddle_lifetime_entitlements'::regclass`
+      );
+      assert.equal(lifetimeReasonConstraint.rowCount, 1);
+      assert.match(lifetimeReasonConstraint.rows[0].definition, /paddle_full_refund/);
+      assert.match(lifetimeReasonConstraint.rows[0].definition, /paddle_chargeback/);
+
+      const lifetimeReasonUserId = randomUUID();
+      await client.query(
+        "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
+        [lifetimeReasonUserId, `lifetime-reason-${lifetimeReasonUserId}@example.invalid`]
+      );
+      await client.query('SAVEPOINT revoked_lifetime_requires_reason');
+      let missingLifetimeReasonError;
+      try {
+        await client.query(
+          `INSERT INTO paddle_lifetime_entitlements (transaction_id, user_id, status, revoke_reason)
+           VALUES ('txn_missingreason123', $1, 'revoked', NULL)`,
+          [lifetimeReasonUserId]
+        );
+      } catch (error) { missingLifetimeReasonError = error; }
+      assert.equal(missingLifetimeReasonError?.code, '23514',
+        'a revoked lifetime entitlement must never be stored without its provider-backed reason');
+      await client.query('ROLLBACK TO SAVEPOINT revoked_lifetime_requires_reason');
+      await client.query('RELEASE SAVEPOINT revoked_lifetime_requires_reason');
+
+      await client.query('SAVEPOINT revoked_lifetime_reason_allowlist');
+      let invalidLifetimeReasonError;
+      try {
+        await client.query(
+          `INSERT INTO paddle_lifetime_entitlements (transaction_id, user_id, status, revoke_reason)
+           VALUES ('txn_invalidreason123', $1, 'revoked', 'manual_override')`,
+          [lifetimeReasonUserId]
+        );
+      } catch (error) { invalidLifetimeReasonError = error; }
+      assert.equal(invalidLifetimeReasonError?.code, '23514',
+        'only verified Paddle refund and chargeback reasons may revoke lifetime provenance');
+      await client.query('ROLLBACK TO SAVEPOINT revoked_lifetime_reason_allowlist');
+      await client.query('RELEASE SAVEPOINT revoked_lifetime_reason_allowlist');
+
+      await client.query(
+        `INSERT INTO paddle_lifetime_entitlements (transaction_id, user_id, status, revoke_reason)
+         VALUES ('txn_validrefundreason123', $1, 'revoked', 'paddle_full_refund')`,
+        [lifetimeReasonUserId]
+      );
+
       await client.query(`
         CREATE TEMP TABLE report_evidence_guard_test (
           id uuid PRIMARY KEY,
