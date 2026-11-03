@@ -90,7 +90,7 @@ test('approved full refunds revoke the matching lifetime entitlement', async () 
   assert.match(transactionLookup.statement, /plan IN \('1month', '3months'\)/,
     'the transaction ledger may resolve recurring renewals but must not bypass verified lifetime checkout attempts');
   const adjustmentStateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
-  assert.match(adjustmentStateQuery.statement, /WHEN 'pending_approval' THEN 0[\\s\\S]*WHEN 'reversed' THEN 3/,
+  assert.ok(adjustmentStateQuery.statement.indexOf("WHEN 'pending_approval' THEN 0") < adjustmentStateQuery.statement.indexOf("WHEN 'reversed' THEN 3"),
     'final approval/rejection/reversal states must outrank a same-time pending webhook');
   const adjustmentLedger = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_events'));
   assert.equal(adjustmentLedger.params[6], '500');
