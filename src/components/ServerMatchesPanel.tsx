@@ -13,7 +13,7 @@ type ServerMatch = {
   lastMessageAt: string | null;
 };
 type ServerMessage = { id: string; senderId: string; text: string; createdAt: string };
-type Props = { onOpenAccount: () => void };
+type Props = { onOpenAccount: () => void; openMatchId?: string | null; onMatchOpenHandled?: () => void };
 
 export const normalizeServerMatch = (value: unknown): ServerMatch | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -75,7 +75,7 @@ export const deduplicateById = <T extends { id: string }>(items: T[]): T[] => {
   });
 };
 
-export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
+export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount, openMatchId = null, onMatchOpenHandled }) => {
   const { t, formatDate } = useLocale();
   const [matches, setMatches] = useState<ServerMatch[]>([]);
   const [selected, setSelected] = useState<string>('');
@@ -270,6 +270,22 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   }, [loadMatches]);
 
   useEffect(() => { if (selected) void loadMessages(selected); }, [selected, loadMessages]);
+
+  // Notification navigation is only a request to open an existing server match.
+  // Never trust the notification alone: require the current authenticated match list.
+  useEffect(() => {
+    if (!openMatchId || matchesLoading) return;
+    const target = matches.find(match => match.id === openMatchId);
+    if (target) {
+      messageRequestId.current += 1;
+      setMessages([]);
+      setNotice('');
+      setSelected(target.id);
+    } else if (authenticated && !matchesFailed) {
+      setNotice(t('datePlanUnavailable'));
+    }
+    onMatchOpenHandled?.();
+  }, [openMatchId, matchesLoading, matches, authenticated, matchesFailed, onMatchOpenHandled, t]);
 
   // Start each conversation at the latest message. Within a conversation,
   // preserve the reader's position when they have scrolled up through history.
