@@ -111,6 +111,8 @@ This runbook closes only the operational case; it does not itself grant, revoke,
 - Hard deletion of either account is restricted while a report references it. The normal account deletion workflow uses a deleted-account tombstone and therefore does not erase report evidence.
 - `moderation_audit_log` is append-only. New rows automatically snapshot the moderator UUID in `moderator_ref`; if a moderator account is physically removed through a separately approved retention operation, the live FK may be nulled by PostgreSQL while the immutable actor reference and action record remain.
 - Report details are user-supplied free text. The UI and moderator workflow must treat it as potentially sensitive and must not copy it into unrelated analytics, ad targeting, or general-purpose logs. The audit log should contain bounded reason codes and references, not the full report text.
+- Photo review-state changes require a matching immutable audit entry from an active moderator. Automated photo approval is a separate path and must carry its own `photo_ai_approved` evidence; a direct SQL insert cannot create an already-rejected photo or an unaudited approved photo.
+- Safety-screening rows are created only as `pending` or `not_required`. Any later review-state change requires a matching immutable audit entry from the same active moderator recorded in `reviewed_by`; clearance cannot be manufactured by direct SQL.
 
 ## Gift and delivery evidence
 
@@ -121,7 +123,7 @@ This runbook closes only the operational case; it does not itself grant, revoke,
 
 ## Migration ordering dependency
 
-Deploy migrations 135–149 from PR #424 before merging and deploying PR #423's migration 134. Migration 145 closes a direct-update loophole in the live foreign-key snapshot exceptions for L3 media access and gift-order actor evidence; only nested PostgreSQL `ON DELETE SET NULL` actions may clear those live references. Confirm `schema_migrations` contains `136_adjustment_and_l3_access_evidence.sql`, `148_require_manual_adjustment_resolution_audit.sql`, and `149_require_user_report_status_audit.sql` before migration 134 is introduced to a deployment. The migration runner applies newly discovered files in filename order; if migrations 134 and 136 are both pending in the same deployment, 134 would run first and could cascade-delete historical L3 access events before their retention foreign keys are changed. Do not merge both PRs into one undeployed release.
+Deploy migrations 135–150 from PR #424 before merging and deploying PR #423's migration 134. Migration 145 closes a direct-update loophole in the live foreign-key snapshot exceptions for L3 media access and gift-order actor evidence; only nested PostgreSQL `ON DELETE SET NULL` actions may clear those live references. Confirm `schema_migrations` contains `136_adjustment_and_l3_access_evidence.sql`, `148_require_manual_adjustment_resolution_audit.sql`, `149_require_user_report_status_audit.sql`, and `150_require_photo_and_screening_review_audit.sql` before migration 134 is introduced to a deployment. The migration runner applies newly discovered files in filename order; if migrations 134 and 136 are both pending in the same deployment, 134 would run first and could cascade-delete historical L3 access events before their retention foreign keys are changed. Do not merge both PRs into one undeployed release.
 
 ## Operational requirements before production
 
