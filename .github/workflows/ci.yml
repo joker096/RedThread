@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main, "audit/**", "fix/**", "feat/contextual-advertising-policy"]
+  # Keep implementation/fix branches under the same verification gate.
   pull_request:
     branches: [main]
 
