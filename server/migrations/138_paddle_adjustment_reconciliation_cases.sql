@@ -13,13 +13,19 @@ CREATE TABLE paddle_adjustment_reconciliation_cases (
   )),
   status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
   resolution_note TEXT,
+  resolution_source TEXT CHECK (resolution_source IS NULL OR resolution_source IN ('automatic_checkout_link', 'manual_operator')),
+  resolved_by_ref UUID,
   created_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
   resolved_at TIMESTAMPTZ,
   CHECK (
-    (status = 'open' AND resolution_note IS NULL AND resolved_at IS NULL)
+    (status = 'open' AND resolution_note IS NULL AND resolution_source IS NULL
+      AND resolved_by_ref IS NULL AND resolved_at IS NULL)
     OR
-    (status = 'resolved' AND resolution_note IS NOT NULL AND resolved_at IS NOT NULL)
+    (status = 'resolved' AND resolution_note IS NOT NULL AND resolved_at IS NOT NULL
+      AND resolution_source IS NOT NULL
+      AND ((resolution_source = 'manual_operator' AND resolved_by_ref IS NOT NULL)
+        OR (resolution_source = 'automatic_checkout_link' AND resolved_by_ref IS NULL)))
   )
 );
 
@@ -52,6 +58,9 @@ BEGIN
   IF NEW.status = 'resolved' AND (
     NEW.resolution_note IS NULL OR length(btrim(NEW.resolution_note)) = 0
     OR length(NEW.resolution_note) > 1000 OR NEW.resolved_at IS NULL
+    OR NEW.resolution_source IS NULL
+    OR (NEW.resolution_source = 'manual_operator' AND NEW.resolved_by_ref IS NULL)
+    OR (NEW.resolution_source = 'automatic_checkout_link' AND NEW.resolved_by_ref IS NOT NULL)
   ) THEN
     RAISE EXCEPTION 'resolved Paddle adjustment cases require a bounded resolution note and timestamp'
       USING ERRCODE = '23514';
