@@ -462,7 +462,7 @@ test('transaction completion reconciles an approved refund delivered earlier', a
           checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
         },
         items: [{ price: { id: 'pri_lifetime_test' } }],
-        details: { totals: { total: '1290' } },
+        details: { totals: { total: '1290', grand_total: '1190', credit: '100', balance: '0' } },
         currencyCode: 'USD'
       }
     });
@@ -472,7 +472,7 @@ test('transaction completion reconciles an approved refund delivered earlier', a
     assert.deepEqual(transactionLedger.params.slice(0, 5), [
       'evt_transaction_after_refund', transactionId, userId, 'lifetime', 'completed'
     ]);
-    assert.deepEqual(transactionLedger.params.slice(5, 7), ['1290', 'USD']);
+    assert.deepEqual(transactionLedger.params.slice(5, 10), ['1290', '1190', '100', '0', 'USD']);
     const transactionLockIndex = calls.findIndex(call => call.statement.includes("paddle-transaction:"));
     const userLockIndex = calls.findIndex(call => call.statement.includes("gift-safety-user:"));
     assert.ok(transactionLockIndex >= 0 && userLockIndex > transactionLockIndex,
@@ -538,14 +538,14 @@ test('transaction.canceled events are retained even without a matched checkout r
       eventId: 'evt_canceledtransactionhistory',
       eventType: 'transaction.canceled',
       occurredAt: '2026-11-03T10:00:00Z',
-      data: { id: transactionId, items: [{ price: { id: 'pri_monthly_test' } }], details: { totals: { total: '990' } }, currency_code: 'GEL' }
+      data: { id: transactionId, items: [{ price: { id: 'pri_monthly_test' } }], details: { totals: { total: '990', grand_total: '990', credit: '0', balance: '0' } }, currency_code: 'GEL' }
     });
     const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
     assert.ok(ledger);
     assert.deepEqual(ledger.params.slice(0, 5), [
       'evt_canceledtransactionhistory', transactionId, null, '1month', 'canceled'
     ]);
-    assert.deepEqual(ledger.params.slice(5, 7), ['990', 'GEL']);
+    assert.deepEqual(ledger.params.slice(5, 10), ['990', '990', '0', '0', 'GEL']);
   } finally {
     if (originalMonthlyPrice === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
     else process.env.PADDLE_PRICE_ID_1MONTH = originalMonthlyPrice;
