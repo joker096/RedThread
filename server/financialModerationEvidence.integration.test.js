@@ -600,6 +600,14 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
            AND table_name = 'gift_delivery_order_events' AND column_name = 'actor_ref'`
       );
       assert.equal(giftActorSnapshot.rowCount, 1);
+      const giftActorSnapshotTrigger = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'gift_delivery_order_events'::regclass
+           AND tgname = 'gift_delivery_order_events_snapshot_actor'
+           AND NOT tgisinternal`
+      );
+      assert.equal(giftActorSnapshotTrigger.rowCount, 1,
+        'gift events must snapshot the actor UUID at insertion time');
 
       await client.query(`
         CREATE TEMP TABLE gift_order_event_guard_test (
