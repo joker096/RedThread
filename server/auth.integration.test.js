@@ -53,7 +53,7 @@ async function resolveReportFixtureWithAudit(db, reportId) {
   try {
     await client.query('BEGIN');
     const pending = await client.query(
-      "SELECT id FROM user_reports WHERE id = $1 AND status IN ('open', 'reviewing') FOR UPDATE",
+      "SELECT id, reported_user_id, category FROM user_reports WHERE id = $1 AND status IN ('open', 'reviewing') FOR UPDATE",
       [reportId]
     );
     if (pending.rowCount === 1) {
@@ -71,8 +71,8 @@ async function resolveReportFixtureWithAudit(db, reportId) {
           `INSERT INTO moderation_audit_log
              (moderator_id, action, target_type, target_id, reason, details)
            VALUES ($1, 'resolve', 'user_report', $2, 'test fixture cleanup',
-                   jsonb_build_object('newStatus', 'resolved'))`,
-          [moderatorId, reportId]
+                   jsonb_build_object('newStatus', 'resolved', 'targetUserId', $3::text, 'category', $4::text))`,
+          [moderatorId, reportId, pending.rows[0].reported_user_id, pending.rows[0].category]
         );
       }
     }
