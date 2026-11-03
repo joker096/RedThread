@@ -52,7 +52,8 @@ async function sendAdjustment(pool, { eventId, action, status, type = 'partial',
       type,
       status,
       amount,
-      currencyCode
+      currency_code: currencyCode,
+      totals: { total: amount, currency_code: currencyCode }
     }
   });
 }
