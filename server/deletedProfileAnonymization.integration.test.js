@@ -12,12 +12,13 @@ test('account deletion scrubs profile personal data in the database', {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   const client = await pool.connect();
   const email = `deleted-profile-${randomUUID()}@example.invalid`;
+  const phoneE164 = '+1' + BigInt('0x' + randomUUID().replace(/-/g, '')).toString().slice(0, 10);
   let userId;
   try {
     await client.query('BEGIN');
     const user = await client.query(
-      "INSERT INTO users (email, password_hash, phone_e164, phone_verified_at, status) VALUES ($1, 'test-only-hash', '+995555123456', statement_timestamp(), 'active') RETURNING id",
-      [email]
+      "INSERT INTO users (email, password_hash, phone_e164, phone_verified_at, status) VALUES ($1, 'test-only-hash', $2, statement_timestamp(), 'active') RETURNING id",
+      [email, phoneE164]
     );
     userId = user.rows[0].id;
     await client.query(
