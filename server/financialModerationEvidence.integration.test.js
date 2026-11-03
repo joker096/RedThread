@@ -1240,6 +1240,27 @@ test('user report status changes require an immutable audit row from an active m
     assert.equal(resolved.rows[0].status, 'resolved');
     await client.query('ROLLBACK TO SAVEPOINT report_status_with_audit');
     await client.query('RELEASE SAVEPOINT report_status_with_audit');
+
+    await client.query('SAVEPOINT report_status_member_audit');
+    await client.query(
+      "UPDATE user_reports SET status = 'resolved' WHERE id = $1",
+      [reportId]
+    );
+    await client.query(
+      `INSERT INTO moderation_audit_log
+         (moderator_id, action, target_type, target_id, reason, details)
+       VALUES ($1, 'resolve', 'user_report', $2, 'member attempt',
+               jsonb_build_object('newStatus', 'resolved'))`,
+      [reporterId, reportId]
+    );
+    let memberReportAuditError;
+    try {
+      await client.query('SET CONSTRAINTS user_reports_status_audit_guard IMMEDIATE');
+    } catch (error) { memberReportAuditError = error; }
+    assert.equal(memberReportAuditError?.code, '23514',
+      'a matching audit row written by an active member must not authorize a moderation transition');
+    await client.query('ROLLBACK TO SAVEPOINT report_status_member_audit');
+    await client.query('RELEASE SAVEPOINT report_status_member_audit');
     await client.query('ROLLBACK');
   } catch (error) {
     try { await client.query('ROLLBACK'); } catch {}
