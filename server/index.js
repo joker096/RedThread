@@ -1607,7 +1607,8 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     );
     await client.query(
       `UPDATE profiles SET
-         display_name = 'Удалённый пользователь', country = '—', city = '—', bio = '',
+         display_name = 'Удалённый пользователь', birth_date = NULL,
+         country = '—', city = '—', bio = '',
          photo_urls = '{}', occupation = '', education = '', languages = '{}',
          is_visible = FALSE, has_children = NULL, children_disclosure_confirmed_at = NULL,
          family_format = 'open_to_both', wants_children = 'discuss',
