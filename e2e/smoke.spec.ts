@@ -2113,7 +2113,19 @@ test('date plan requires both participants and resets confirmations after a chan
       expect(dimensions.panel).toBeLessThanOrEqual(width + 1);
       const proposeButton = participantA.page.getByRole('button', { name: /propose date plan|предложить план встречи/i });
       await expect(proposeButton).toBeVisible();
-      expect((await proposeButton.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+      const touchTarget = await proposeButton.evaluate(element => {
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return {
+          rectHeight: rect.height,
+          offsetHeight: (element as HTMLElement).offsetHeight,
+          minHeight: style.minHeight,
+          height: style.height,
+          transform: style.transform,
+          parentTransform: element.parentElement ? getComputedStyle(element.parentElement).transform : 'none'
+        };
+      });
+      expect(touchTarget.rectHeight, `date-plan action must expose a 44px touch target: ${JSON.stringify(touchTarget)}`).toBeGreaterThanOrEqual(44);
     }
     await participantA.page.setViewportSize({ width: 390, height: 844 });
     await participantA.page.getByLabel(/venue|место встречи/i).fill('Central Public Cafe');
