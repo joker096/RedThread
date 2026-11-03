@@ -2033,6 +2033,7 @@ test('date plan requires both participants and resets confirmations after a chan
     await expect(participantA.page.getByText(/both people must confirm|waiting for both|ожидаем подтверждения обоих/i)).toBeVisible();
     await expect(participantA.page.getByRole('button', { name: /confirm|подтвердить/i })).toBeVisible();
 
+    await participantB.page.getByTestId('date-plan-refresh').click();
     await expect(participantB.page.getByText('Central Public Cafe')).toBeVisible();
     await participantB.page.getByRole('button', { name: /confirm|подтвердить/i }).click();
     await expect(participantB.page.getByText(/both people must confirm|one person has confirmed|waiting for both|ожидаем подтверждения обоих|один участник/i)).toBeVisible();
