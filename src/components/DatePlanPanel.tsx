@@ -50,7 +50,7 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
     setSaving(true); setError(''); setNotice('');
     try {
       const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/date-plan${path}`, {
-        method: path ? 'POST' : 'GET', credentials: 'include',
+        method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined
       });
       const data = await response.json().catch(() => null);
