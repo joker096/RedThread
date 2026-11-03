@@ -22,7 +22,16 @@ export const normalizeNotifications = (value: unknown): NotificationItem[] => {
   type: notification.type,
   createdAt: notification.createdAt,
   readAt: notification.readAt,
-  ...(typeof (notification as Partial<NotificationItem>).matchId === 'string' && (notification as Partial<NotificationItem>).matchId!.trim().length > 0 && (notification as Partial<NotificationItem>).matchId!.trim().length <= 256 && ['date_plan_proposed', 'date_plan_confirmed', 'date_plan_cancelled', 'date_plan_declined'].includes(notification.type) ? { matchId: (notification as Partial<NotificationItem>).matchId!.trim() } : {})
+  ...(() => {
+    const metadata = (notification as unknown as { metadata?: unknown }).metadata;
+    const matchId = metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+      ? (metadata as { matchId?: unknown }).matchId
+      : undefined;
+    return typeof matchId === 'string' && matchId.trim().length > 0 && matchId.trim().length <= 256 &&
+      ['date_plan_proposed', 'date_plan_confirmed', 'date_plan_cancelled', 'date_plan_declined'].includes(notification.type)
+      ? { matchId: matchId.trim() }
+      : {};
+  })()
  }));
 };
 
