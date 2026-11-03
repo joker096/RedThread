@@ -1899,7 +1899,7 @@ test('Paddle paid transactions remain in reconciliation until transaction.comple
   const cancelRoute = source.slice(cancelStart, cancelEnd);
   assert.match(cancelRoute, /providerTransaction\.status === 'completed'/);
   assert.ok(cancelRoute.includes("['completed', 'paid'].includes(providerTransaction.status)"));
-  assert.match(cancelRoute, /status = 'reconciliation_required'/);
+  assert.ok(cancelRoute.includes("const status = providerTransaction.status === 'completed'\n        ? 'completed'\n        : 'reconciliation_required';"));
   assert.doesNotMatch(cancelRoute, /\['completed', 'paid'\]\.includes\(providerTransaction\.status\)\s*\?\s*'completed'/);
 
   const deleteStart = source.indexOf("app.delete('/api/account'");
