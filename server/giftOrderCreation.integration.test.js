@@ -481,9 +481,7 @@ async function cleanupFixture(pool, fixture) {
     [userIds]
   );
   await pool.query('DELETE FROM gift_catalog_items WHERE id = $1', [ids.catalogItem]);
-  await pool.query('DELETE FROM gift_delivery_partner_coverage WHERE partner_id = $1', [ids.deliveryPartner]);
-  // Retain the partner row while immutable gift orders may still reference it.
-  await pool.query('DELETE FROM gift_suppliers WHERE supplier_key = $1', [ids.supplierKey]);
+  // Retain partner, coverage and supplier rows while immutable gift orders may reference them.
   await pool.query('DELETE FROM profiles WHERE user_id = ANY($1::uuid[])', [userIds]);
   await pool.query("UPDATE users SET status = 'deleted' WHERE id = ANY($1::uuid[])", [userIds]);
 }
