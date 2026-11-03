@@ -354,10 +354,21 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       );
       assert.equal(historyFk.rowCount, 1);
       assert.match(historyFk.rows[0].definition, /ON DELETE RESTRICT/);
-      await client.query('DELETE FROM paddle_checkout_attempts WHERE user_id = $1', [linkedUserId]);
+      const historyOnlyUserId = randomUUID();
+      const historyOnlyAttemptId = randomUUID();
+      await client.query(
+        "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
+        [historyOnlyUserId, `history-only-${historyOnlyUserId}@example.invalid`]
+      );
+      await client.query(
+        `INSERT INTO paddle_checkout_attempt_history
+         (user_id, attempt_id, transaction_id, plan, status, created_at, updated_at)
+         VALUES ($1, $2, $3, '1month', 'canceled', statement_timestamp(), statement_timestamp())`,
+        [historyOnlyUserId, historyOnlyAttemptId, `txn_${randomUUID().replace(/-/g, '')}`]
+      );
       await client.query('SAVEPOINT history_user_restrict');
       let historyUserDeleteError;
-      try { await client.query('DELETE FROM users WHERE id = $1', [linkedUserId]); }
+      try { await client.query('DELETE FROM users WHERE id = $1', [historyOnlyUserId]); }
       catch (error) { historyUserDeleteError = error; }
       assert.equal(historyUserDeleteError?.code, '23503');
       await client.query('ROLLBACK TO SAVEPOINT history_user_restrict');
