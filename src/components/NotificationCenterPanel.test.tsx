@@ -130,7 +130,7 @@ test('rejects notification timestamps made of tabs and line breaks', () => {
 });
 
 test('accepts date plan lifecycle notifications without exposing metadata', () => {
-  for (const type of ['date_plan_proposed', 'date_plan_confirmed', 'date_plan_cancelled']) {
+  for (const type of ['date_plan_proposed', 'date_plan_confirmed', 'date_plan_cancelled', 'date_plan_declined']) {
     const notification = {
       id: 'date-plan-' + type,
       type,
