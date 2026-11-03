@@ -38,7 +38,7 @@ The normal operator workflow is available through the moderator API:
 
 - `GET /api/admin/paddle-adjustment-reconciliation` lists open cases (maximum 100 per request) and returns a stable `nextCursor`; pass both `afterCreatedAt` and `afterEventId` from that cursor to retrieve the next page without offset-pagination skips.
 - `POST /api/admin/paddle-adjustment-reconciliation/:eventId/resolve` accepts `{ "resolutionNote": "..." }`. It requires an active admin/moderator session and a same-origin request; the note is trimmed and limited to 500 characters.
-- The resolver locks the open case, rechecks the moderator role against the database, and writes the case resolution plus `moderation_audit_log` entry in one transaction. Repeated resolution attempts fail because resolved cases are immutable.
+- The resolver locks the open case, rechecks the moderator role against the database, and writes the case resolution plus `moderation_audit_log` entry in one transaction. A deferred database constraint trigger also rejects any manual resolution that reaches commit without a matching immutable audit row for the same event, moderator, reason, and resolution source. Repeated resolution attempts fail because resolved cases are immutable.
 - This endpoint only closes the operational case. It never grants, revokes, or restores Premium. Entitlement changes remain exclusively tied to verified Paddle adjustment and lifetime-entitlement evidence.
 
 The SQL procedure below is a break-glass fallback for a controlled database operator when the moderator API is unavailable; it must not be used as the routine workflow.
@@ -121,7 +121,7 @@ This runbook closes only the operational case; it does not itself grant, revoke,
 
 ## Migration ordering dependency
 
-Deploy migrations 135–147 from PR #424 before merging and deploying PR #423's migration 134. Migration 145 closes a direct-update loophole in the live foreign-key snapshot exceptions for L3 media access and gift-order actor evidence; only nested PostgreSQL `ON DELETE SET NULL` actions may clear those live references. Confirm `schema_migrations` contains `136_adjustment_and_l3_access_evidence.sql` before migration 134 is introduced to a deployment. The migration runner applies newly discovered files in filename order; if migrations 134 and 136 are both pending in the same deployment, 134 would run first and could cascade-delete historical L3 access events before their retention foreign keys are changed. Do not merge both PRs into one undeployed release.
+Deploy migrations 135–148 from PR #424 before merging and deploying PR #423's migration 134. Migration 145 closes a direct-update loophole in the live foreign-key snapshot exceptions for L3 media access and gift-order actor evidence; only nested PostgreSQL `ON DELETE SET NULL` actions may clear those live references. Confirm `schema_migrations` contains `136_adjustment_and_l3_access_evidence.sql` and `148_require_manual_adjustment_resolution_audit.sql` before migration 134 is introduced to a deployment. The migration runner applies newly discovered files in filename order; if migrations 134 and 136 are both pending in the same deployment, 134 would run first and could cascade-delete historical L3 access events before their retention foreign keys are changed. Do not merge both PRs into one undeployed release.
 
 ## Operational requirements before production
 
