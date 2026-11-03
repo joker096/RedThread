@@ -689,6 +689,31 @@ test('mobile drags starting on profile controls do not trigger card swipes', asy
   await expect(card.locator('h2').first()).toHaveText(profileName ?? '');
 });
 
+test('server discovery filters stay collapsed until requested and close after search', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/profiles/search**', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ profiles: [] })
+    });
+  });
+
+  await page.goto('/');
+  const toggle = page.locator('button[aria-controls="server-discovery-filters"]');
+  await expect(toggle).toBeVisible();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('#server-discovery-filters')).toHaveCount(0);
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('input[name="filter-country"]')).toBeVisible();
+
+  await page.getByTestId('server-discovery-search').click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('#server-discovery-filters')).toHaveCount(0);
+});
+
 test('server discovery swipe mode collapses and restores profile photos vertically', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/profiles/search**', async route => {
