@@ -35,7 +35,7 @@ test('private photo path accepts only generated files directly under storage roo
 test('private photo purge retries use capped exponential backoff', () => {
   assert.equal(privatePhotoPurgeRetryDelayMs(0), 60_000);
   assert.equal(privatePhotoPurgeRetryDelayMs(1), 120_000);
-  assert.equal(privatePhotoPurgeRetryDelayMs(8), 6 * 60 * 60 * 1000);
+  assert.equal(privatePhotoPurgeRetryDelayMs(9), 6 * 60 * 60 * 1000);
   assert.equal(privatePhotoPurgeRetryDelayMs(20), 6 * 60 * 60 * 1000);
   assert.throws(() => privatePhotoPurgeRetryDelayMs(-1), RangeError);
 });
