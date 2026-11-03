@@ -35,6 +35,14 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       `SELECT pg_get_functiondef('prevent_moderation_audit_mutation()'::regprocedure) AS definition`
     );
     assert.match(auditFunction.rows[0].definition, /moderator_id/);
+    const moderationActorSnapshotTrigger = await client.query(
+      `SELECT tgname FROM pg_trigger
+       WHERE tgrelid = 'moderation_audit_log'::regclass
+         AND tgname = 'moderation_audit_log_snapshot_moderator'
+         AND NOT tgisinternal`
+    );
+    assert.equal(moderationActorSnapshotTrigger.rowCount, 1);
+
     const webhookFunction = await client.query(
       `SELECT pg_get_functiondef('prevent_paddle_webhook_event_mutation()'::regprocedure) AS definition`
     );
@@ -94,9 +102,14 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
 
       await client.query(`
         CREATE TEMP TABLE audit_append_only_test (
-          moderator_id uuid, action text, target_type text, target_id text,
+          moderator_id uuid, moderator_ref uuid, action text, target_type text, target_id text,
           reason text, details jsonb, created_at timestamptz
         ) ON COMMIT DROP
+      `);
+      await client.query(`
+        CREATE TRIGGER audit_actor_snapshot_test
+        BEFORE INSERT ON audit_append_only_test
+        FOR EACH ROW EXECUTE FUNCTION snapshot_moderation_audit_moderator()
       `);
       await client.query(`
         CREATE TRIGGER audit_append_only_test
@@ -104,8 +117,14 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
         FOR EACH ROW EXECUTE FUNCTION prevent_moderation_audit_mutation()
       `);
       await client.query(
-        "INSERT INTO audit_append_only_test VALUES (NULL, 'review', 'user_report', 'report-1', NULL, '{}'::jsonb, statement_timestamp())"
+        "INSERT INTO audit_append_only_test VALUES ($1, NULL, 'review', 'user_report', 'report-1', NULL, '{}'::jsonb, statement_timestamp())",
+        [randomUUID()]
       );
+      const auditActorSnapshot = await client.query(
+        'SELECT moderator_id, moderator_ref FROM audit_append_only_test'
+      );
+      assert.equal(auditActorSnapshot.rows[0].moderator_ref, auditActorSnapshot.rows[0].moderator_id,
+        'new moderation audit rows must snapshot the moderator UUID');
       await client.query('SAVEPOINT audit_no_update');
       let auditUpdateError;
       try { await client.query("UPDATE audit_append_only_test SET reason = 'rewritten'"); }
