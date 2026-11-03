@@ -3013,6 +3013,10 @@ test('auth API supports registration, session lookup, logout and login', {
         'SELECT COUNT(*)::int AS count FROM messages WHERE match_id = $1 AND sender_id = $2',
         [matchPayload.match.id, registered.user.id]
       );
+      await deletionSafetyDb.query(
+        "UPDATE profiles SET birth_date = DATE '1990-01-01' WHERE user_id = $1",
+        [registered.user.id]
+      );
       const deletionPhotoPath = '/tmp/vow-private-photo-purge-' + randomUUID() + '.jpg';
       await deletionSafetyDb.query(
         `INSERT INTO photo_assets (user_id, storage_path, mime_type, byte_size, width, height, review_status)
