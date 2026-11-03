@@ -2174,10 +2174,29 @@ test('auth API supports registration, session lookup, logout and login', {
       timeZone: 'Asia/Tbilisi',
       isPublicVenue: true
     };
+    const datePlanEligibility = await identityGateDb.query(
+      `SELECT m.status AS match_status, ua.status AS user_a_status, ub.status AS user_b_status,
+        pa.gender AS user_a_gender, pb.gender AS user_b_gender,
+        EXISTS (SELECT 1 FROM identity_verifications iv WHERE iv.user_id = male.id
+          AND iv.provider = 'didit' AND iv.status = 'verified' AND iv.provider_environment = 'live') AS male_l2,
+        identity_l3_has_active_approval(male.id) AS male_l3
+       FROM matches m
+       JOIN users ua ON ua.id = m.user_a_id
+       JOIN users ub ON ub.id = m.user_b_id
+       JOIN profiles pa ON pa.user_id = m.user_a_id
+       JOIN profiles pb ON pb.user_id = m.user_b_id
+       JOIN users male ON male.id = $2
+       WHERE m.id = $1 AND (m.user_a_id = $2 OR m.user_b_id = $2)`,
+      [matchPayload.match.id, maleRegistered.user.id]
+    );
+    assert.equal(datePlanEligibility.rowCount, 1, 'date plan fixture match must exist');
     const datePlanProposal = await request(datePlanPath, {
       method: 'POST', headers: { Cookie: secondCookie }, body: JSON.stringify(datePlanInput)
     });
-    assert.equal(datePlanProposal.status, 201, 'a participant may propose a future public meeting plan');
+    const datePlanProposalPayload = await datePlanProposal.json();
+    assert.equal(datePlanProposal.status, 201,
+      'a participant may propose a future public meeting plan: ' + JSON.stringify(datePlanEligibility.rows[0]) +
+      '; API response: ' + JSON.stringify(datePlanProposalPayload));
     const proposedDatePlan = (await datePlanProposal.json()).datePlan;
     assert.equal(proposedDatePlan.status, 'proposed');
     assert.equal(proposedDatePlan.confirmedByAAt, null);
