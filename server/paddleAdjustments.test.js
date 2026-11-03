@@ -18,7 +18,7 @@ function makePool({ ledgerStatus = 'active', revokeReason = null, fullRefund = f
       if (statement.includes('INSERT INTO paddle_adjustment_events')) {
         return { rowCount: 1, rows: [{ event_id: params[0] }] };
       }
-      if (statement.includes('SELECT user_id, plan, status FROM (')) {
+      if (statement.includes('SELECT DISTINCT user_id, plan, status FROM (')) {
         return { rowCount: linkedRowCount, rows: linkedRowCount ? [{ user_id: userId, plan: linkedPlan, status: linkedStatus }] : [] };
       }
       if (statement.includes('SELECT id, status, premium_lifetime FROM users')) {
@@ -57,6 +57,19 @@ async function sendAdjustment(pool, { eventId, action, status, type = 'partial',
     }
   });
 }
+
+test('adjustments for recurring transactions use the transaction ledger and never enter lifetime reconciliation', async () => {
+  const { pool, calls } = makePool({ linkedPlan: '1month', linkedStatus: 'linked' });
+  const result = await sendAdjustment(pool, {
+    action: 'refund', status: 'approved', type: 'full'
+  });
+  assert.equal(result.handled, true);
+  assert.equal(result.adjustmentRecorded, true);
+  assert.equal(result.entitlementChanged, false);
+  assert.equal(result.reconciliationRequired, undefined);
+  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')), false);
+  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
+});
 
 test('pending and rejected full refunds never revoke lifetime Premium', async () => {
   for (const status of ['pending_approval', 'rejected']) {
