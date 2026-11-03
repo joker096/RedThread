@@ -216,7 +216,7 @@ test('unmatched valid adjustments create a durable reconciliation case', async (
   assert.equal(result.reconciliationRequired, true);
   const task = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
   assert.ok(task, 'an unmatched adjustment must remain in a durable manual queue');
-  assert.equal(task.params[3], 'lifetime_transaction_unlinked');
+  assert.equal(task.params[1], 'lifetime_transaction_unlinked');
 });
 
 test('adjustments for recurring Vow purchases do not touch lifetime entitlement', async () => {
