@@ -66,6 +66,20 @@ BEGIN
   IF NEW.status = 'deleted' AND OLD.status IS DISTINCT FROM 'deleted' THEN
     DELETE FROM user_safety_screenings WHERE user_id = NEW.id;
 
+    -- A direct status transition must scrub account credentials/contact data
+    -- just like the HTTP deletion route. Keep only the non-reversible tombstone
+    -- email needed by the users.email NOT NULL/UNIQUE invariant.
+    UPDATE users
+    SET email = 'deleted+' || NEW.id::text || '@deleted.invalid',
+        password_hash = NULL,
+        phone_e164 = NULL,
+        phone_verified_at = NULL,
+        female_trial_ends_at = NULL,
+        premium_until = NULL,
+        premium_lifetime = FALSE,
+        updated_at = statement_timestamp()
+    WHERE id = NEW.id;
+
     -- Queue photo bytes before removing their metadata. Filesystem operations
     -- cannot run inside PostgreSQL, so the durable worker performs the unlink.
     INSERT INTO private_photo_purge_queue (storage_path)
