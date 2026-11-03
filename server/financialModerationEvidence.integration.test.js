@@ -1529,6 +1529,23 @@ test('photo and safety screening review states require matching moderator or aut
       [manualPhotoId, ownerId, `/tmp/${manualPhotoId}.jpg`]
     );
 
+    // Keep the AI decision's owner UUID in the append-only audit even when
+    // account deletion later removes the private photo row and file.
+    await client.query(
+      `INSERT INTO photo_assets
+         (id, user_id, storage_path, mime_type, byte_size, width, height, review_status)
+       VALUES ($1, $2, $3, 'image/jpeg', 100, 10, 10, 'approved')`,
+      [autoPhotoId, ownerId, `/tmp/${autoPhotoId}.jpg`]
+    );
+    await client.query(
+      `INSERT INTO moderation_audit_log (action, target_type, target_id, reason, details)
+       VALUES ('photo_ai_approved', 'photo', $1, 'automated review passed',
+               jsonb_build_object('engine', 'test-engine', 'userId', $2::text))`,
+      [autoPhotoId, ownerId]
+    );
+    await client.query('SET CONSTRAINTS photo_assets_review_audit_guard IMMEDIATE');
+    await client.query('SET CONSTRAINTS photo_assets_review_audit_guard DEFERRED');
+
     await client.query('SAVEPOINT photo_asset_metadata_immutable');
     let photoMetadataMutationError;
     try {
@@ -1588,6 +1605,21 @@ test('photo and safety screening review states require matching moderator or aut
        VALUES ($1, $2, 'profile', '[]'::jsonb, 'low', 'pending')`,
       [screeningId, ownerId]
     );
+
+    await client.query('SAVEPOINT screening_without_live_owner');
+    let missingScreeningOwnerError;
+    try {
+      await client.query(
+        `INSERT INTO user_safety_screenings
+           (id, user_id, scope, flags, severity, review_status)
+         VALUES ($1, NULL, 'profile', '[]'::jsonb, 'low', 'pending')`,
+        [randomUUID()]
+      );
+    } catch (error) { missingScreeningOwnerError = error; }
+    assert.equal(missingScreeningOwnerError?.code, '23502',
+      'new screenings must snapshot a live account rather than inventing an owner UUID');
+    await client.query('ROLLBACK TO SAVEPOINT screening_without_live_owner');
+    await client.query('RELEASE SAVEPOINT screening_without_live_owner');
 
     await client.query('SAVEPOINT screening_classification_immutable');
     let screeningClassificationMutationError;
@@ -1723,6 +1755,15 @@ test('photo and safety screening review states require matching moderator or aut
     assert.deepEqual(retainedOwnerSnapshot.rows, [{
       user_id: null, user_ref: ownerId, severity: 'low', flags: [], scope: 'profile'
     }]);
+
+    const retainedPhotoDecision = await client.query(
+      `SELECT details->>'userId' AS user_id
+       FROM moderation_audit_log
+       WHERE action = 'photo_ai_approved' AND target_type = 'photo' AND target_id = $1`,
+      [autoPhotoId]
+    );
+    assert.deepEqual(retainedPhotoDecision.rows, [{ user_id: ownerId }],
+      'AI photo decision evidence must retain the uploader UUID after privacy deletion removes the photo row');
     await client.query('ROLLBACK TO SAVEPOINT screening_with_audit');
     await client.query('RELEASE SAVEPOINT screening_with_audit');
     await client.query('ROLLBACK');
