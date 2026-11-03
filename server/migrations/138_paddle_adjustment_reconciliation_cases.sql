@@ -9,8 +9,6 @@ CREATE TABLE paddle_adjustment_reconciliation_cases (
     'invalid_adjustment_payload',
     'transaction_owner_unlinked',
     'transaction_owner_ambiguous',
-    'lifetime_transaction_unlinked',
-    'lifetime_transaction_ambiguous',
     'lifetime_account_inactive',
     'lifetime_entitlement_missing'
   )),
