@@ -100,9 +100,7 @@ async function getPaddleAdjustmentState(client, transactionId) {
   };
 }
 
-async function recordPaddleAdjustmentReconciliationCase(client, {
-  eventId, adjustmentId, transactionId, reasonCode
-}) {
+async function recordPaddleAdjustmentReconciliationCase(client, { eventId, reasonCode }) {
   await client.query(
     `INSERT INTO paddle_adjustment_reconciliation_cases
        (event_id, reason_code)
