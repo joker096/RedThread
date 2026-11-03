@@ -134,11 +134,11 @@ test('chargebacks still revoke lifetime access when unrelated type metadata is m
     'the signed chargeback event must be retained');
   const entitlementUpdate = calls.find(call =>
     call.statement.includes('UPDATE paddle_lifetime_entitlements') &&
-    call.statement.includes("status = 'revoked'")
+    call.params[2] === 'revoked'
   );
   assert.ok(entitlementUpdate,
     'chargeback action/status must revoke lifetime access regardless of adjustment type metadata');
-  assert.equal(entitlementUpdate.params[1], 'paddle_chargeback');
+  assert.equal(entitlementUpdate.params[3], 'paddle_chargeback');
 });
 
 test('adjustments for recurring transactions use the transaction ledger and never enter lifetime reconciliation', async () => {
