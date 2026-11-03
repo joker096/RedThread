@@ -28,6 +28,12 @@ BEGIN
        WHERE audit.target_type = 'user_report'
          AND audit.target_id = NEW.id::text
          AND audit.details->>'newStatus' = NEW.status
+         AND audit.details->>'targetUserId' = NEW.reported_user_id::text
+         AND audit.details->>'category' = NEW.category
+         AND (
+           (audit.action = 'dismiss' AND NEW.status = 'dismissed')
+           OR (audit.action IN ('resolve', 'suspend_user') AND NEW.status = 'resolved')
+         )
          AND moderator.status = 'active'
          AND moderator.role IN ('admin', 'moderator')
      ) THEN
