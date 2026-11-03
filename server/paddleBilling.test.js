@@ -1722,8 +1722,15 @@ test('completed Paddle transactions recover account ownership from archived chec
     assert.ok(ledger);
     assert.equal(ledger.params[2], userId,
       'archived checkout history must preserve the account owner for recurring renewal evidence');
-    assert.ok(queries.some(query => query.statement.includes('UPDATE paddle_adjustment_reconciliation_cases')),
+    const reconciliation = queries.find(query =>
+      query.statement.includes('UPDATE paddle_adjustment_reconciliation_cases')
+    );
+    assert.ok(reconciliation,
       'an early adjustment case can be reconciled once the recurring transaction owner is known');
+    assert.ok(reconciliation.statement.includes("cases.reason_code = 'transaction_owner_unlinked'"),
+      'ambiguous, inactive-account, malformed, and missing-entitlement cases must remain open for manual review');
+    assert.ok(reconciliation.statement.includes('COUNT(DISTINCT (user_id, plan))'),
+      'automatic resolution must require one unique transaction owner and plan');
   } finally {
     if (originalMonthlyPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
     else process.env.PADDLE_PRICE_ID_1MONTH = originalMonthlyPriceId;
