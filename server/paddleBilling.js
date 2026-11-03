@@ -726,6 +726,16 @@ export async function processPaddleEvent(pool, rawEvent) {
         amountMinorUnits: parsePaddleMinorAmount(paddleTransactionAmount(data)),
         currencyCode: paddleCurrencyCode(data)
       });
+      const transactionPlan = inferPaddleTransactionPlan(data);
+      if (transactionOwnerUserId && ['1month', '3months'].includes(transactionPlan)) {
+        // A recurring renewal can arrive after an adjustment webhook but does
+        // not have a checkout-attempt row. The immutable transaction ledger is
+        // sufficient to resolve that non-lifetime reconciliation case.
+        await resolvePaddleAdjustmentReconciliationCases(
+          client, data.id, transactionOwnerUserId,
+          'recurring_transaction_linked_to_vow_subscription'
+        );
+      }
       if (!ownsCheckoutAttempt && typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
         // A completed transaction that cannot be tied to the exact server
         // attempt (including a plan/price mismatch) must remain visible for
