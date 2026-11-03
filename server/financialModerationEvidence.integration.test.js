@@ -229,6 +229,32 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
         [realReport.rows[0].id]
       );
       assert.equal(preservedReport.rowCount, 1);
+      await client.query('SAVEPOINT real_report_content_immutable');
+      let realReportMutationError;
+      try {
+        await client.query('UPDATE user_reports SET details = $2 WHERE id = $1',
+          [realReport.rows[0].id, 'rewritten evidence']);
+      } catch (error) { realReportMutationError = error; }
+      assert.equal(realReportMutationError?.code, '55000');
+      await client.query('ROLLBACK TO SAVEPOINT real_report_content_immutable');
+      await client.query('RELEASE SAVEPOINT real_report_content_immutable');
+      await client.query(
+        "UPDATE user_reports SET status = 'reviewing' WHERE id = $1",
+        [realReport.rows[0].id]
+      );
+      await client.query(
+        "UPDATE user_reports SET status = 'resolved' WHERE id = $1",
+        [realReport.rows[0].id]
+      );
+      await client.query('SAVEPOINT real_report_terminal');
+      let realReportReopenError;
+      try {
+        await client.query("UPDATE user_reports SET status = 'open' WHERE id = $1",
+          [realReport.rows[0].id]);
+      } catch (error) { realReportReopenError = error; }
+      assert.equal(realReportReopenError?.code, '23514');
+      await client.query('ROLLBACK TO SAVEPOINT real_report_terminal');
+      await client.query('RELEASE SAVEPOINT real_report_terminal');
 
       // The audit append-only guard must permit only the nested FK action that
       // nulls moderator_id when the moderator account is physically removed.
@@ -247,6 +273,15 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
         [auditEntry.rows[0].id]
       );
       assert.deepEqual(preservedAudit.rows[0], { moderator_id: null, action: 'test_action' });
+      await client.query('SAVEPOINT real_audit_immutable');
+      let realAuditMutationError;
+      try {
+        await client.query("UPDATE moderation_audit_log SET reason = 'rewritten' WHERE id = $1",
+          [auditEntry.rows[0].id]);
+      } catch (error) { realAuditMutationError = error; }
+      assert.equal(realAuditMutationError?.code, '55000');
+      await client.query('ROLLBACK TO SAVEPOINT real_audit_immutable');
+      await client.query('RELEASE SAVEPOINT real_audit_immutable');
 
       // Verify the installed webhook trigger itself, not only its function body.
       const webhookEventId = `evt_retention_${randomUUID().replace(/-/g, '')}`;
@@ -261,6 +296,15 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       assert.equal(realWebhookDeleteError?.code, '55000');
       await client.query('ROLLBACK TO SAVEPOINT webhook_real_table_immutable');
       await client.query('RELEASE SAVEPOINT webhook_real_table_immutable');
+      await client.query('SAVEPOINT webhook_real_update_immutable');
+      let realWebhookUpdateError;
+      try {
+        await client.query('UPDATE paddle_webhook_events SET event_type = $2 WHERE event_id = $1',
+          [webhookEventId, 'transaction.canceled']);
+      } catch (error) { realWebhookUpdateError = error; }
+      assert.equal(realWebhookUpdateError?.code, '55000');
+      await client.query('ROLLBACK TO SAVEPOINT webhook_real_update_immutable');
+      await client.query('RELEASE SAVEPOINT webhook_real_update_immutable');
 
       // Both terminal statuses are eligible for rollover and must be archived.
       const linkedUserId = randomUUID();
