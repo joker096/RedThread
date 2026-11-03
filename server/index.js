@@ -3789,7 +3789,7 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
   const reportId = req.params.reportId;
   const action = req.body?.action;
   const confirmed = req.body?.confirmed === true;
-  if (!isUuid(reportId) || !['resolve', 'dismiss', 'suspend_user'].includes(action)) {
+  if (!isUuid(reportId) || !['review', 'resolve', 'dismiss', 'suspend_user'].includes(action)) {
     return res.status(400).json({ error: 'invalid_moderation_action' });
   }
   if (action === 'suspend_user' && !confirmed) {
@@ -3832,6 +3832,10 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'open_report_not_found' });
     }
+    if (action === 'review' && report.status !== 'open') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'report_not_open_for_review' });
+    }
     let accountSuspended = false;
     if (action === 'suspend_user') {
       if (!['children_misrepresentation', 'duplicate_profile', 'fake_profile', 'safety'].includes(report.category)) {
@@ -3858,7 +3862,7 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
         accountSuspended = true;
       }
     }
-    const status = action === 'dismiss' ? 'dismissed' : 'resolved';
+    const status = action === 'review' ? 'reviewing' : action === 'dismiss' ? 'dismissed' : 'resolved';
     await client.query('UPDATE user_reports SET status = $2 WHERE id = $1', [reportId, status]);
     const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 500) : '';
     await client.query(
