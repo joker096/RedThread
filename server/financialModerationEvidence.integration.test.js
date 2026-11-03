@@ -437,6 +437,57 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       assert.equal(giftActorSnapshot.rowCount, 1);
 
       await client.query(`
+        CREATE TEMP TABLE gift_order_event_guard_test (
+          actor_user_id uuid, actor_ref uuid, event_type text
+        ) ON COMMIT DROP
+      `);
+      await client.query(`
+        CREATE TRIGGER gift_order_event_guard_test
+        BEFORE UPDATE OR DELETE ON gift_order_event_guard_test
+        FOR EACH ROW EXECUTE FUNCTION prevent_gift_delivery_order_event_mutation()
+      `);
+      await client.query(
+        'INSERT INTO gift_order_event_guard_test VALUES ($1, $1, $2)',
+        [randomUUID(), 'request_created']
+      );
+      await client.query('SAVEPOINT gift_event_append_only');
+      let giftEventUpdateError;
+      try {
+        await client.query("UPDATE gift_order_event_guard_test SET event_type = 'rewritten'");
+      } catch (error) { giftEventUpdateError = error; }
+      assert.equal(giftEventUpdateError?.code, '55000');
+      await client.query('ROLLBACK TO SAVEPOINT gift_event_append_only');
+      await client.query('RELEASE SAVEPOINT gift_event_append_only');
+
+      await client.query(`
+        CREATE TEMP TABLE gift_order_facts_guard_test (
+          id uuid, public_reference text, match_id uuid, sender_id uuid, recipient_id uuid,
+          product_name_snapshot text, product_category text, total_minor_units bigint,
+          currency char(3), idempotency_key text, created_at timestamptz, expires_at timestamptz,
+          catalog_item_id uuid
+        ) ON COMMIT DROP
+      `);
+      await client.query(`
+        CREATE TRIGGER gift_order_facts_guard_test
+        BEFORE UPDATE ON gift_order_facts_guard_test
+        FOR EACH ROW EXECUTE FUNCTION guard_gift_delivery_order_immutable_facts()
+      `);
+      await client.query(
+        `INSERT INTO gift_order_facts_guard_test
+         VALUES ($1, 'gift_ref', $2, $3, $4, 'snapshot', 'chocolate', 1000,
+                 'USD', 'idempotency', statement_timestamp(), statement_timestamp(), NULL)`,
+        [randomUUID(), randomUUID(), randomUUID(), randomUUID()]
+      );
+      await client.query('SAVEPOINT gift_order_facts_immutable');
+      let giftOrderFactError;
+      try {
+        await client.query('UPDATE gift_order_facts_guard_test SET total_minor_units = 1');
+      } catch (error) { giftOrderFactError = error; }
+      assert.equal(giftOrderFactError?.code, '55000');
+      await client.query('ROLLBACK TO SAVEPOINT gift_order_facts_immutable');
+      await client.query('RELEASE SAVEPOINT gift_order_facts_immutable');
+
+      await client.query(`
         CREATE TEMP TABLE evidence_truncate_guard_test (id integer) ON COMMIT DROP
       `);
       await client.query(`
