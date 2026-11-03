@@ -108,15 +108,17 @@ async function getPaddleAdjustmentState(client, transactionId) {
 }
 
 async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
-  // Serialize every event for this provider transaction. transaction.completed
-  // takes the same lock before it grants lifetime Premium, so an adjustment
-  // cannot be committed unseen while the purchase is being linked.
-  await client.query(
-    "SELECT pg_advisory_xact_lock(hashtext('paddle-transaction:' || $1::text))",
-    [data.transactionId || data.transaction_id]
-  );
   const adjustmentId = data.id;
   const transactionId = data.transactionId || data.transaction_id;
+  // Serialize valid events for this provider transaction. transaction.completed
+  // takes the same lock before it grants lifetime Premium, so an adjustment
+  // cannot be committed unseen while the purchase is being linked.
+  if (typeof transactionId === 'string' && /^txn_[A-Za-z0-9]+$/.test(transactionId)) {
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext('paddle-transaction:' || $1::text))",
+      [transactionId]
+    );
+  }
   const action = String(data.action || '').toLowerCase();
   const status = String(data.status || '').toLowerCase();
   const type = data.type === 'full' || data.type === 'partial' ? data.type : null;
