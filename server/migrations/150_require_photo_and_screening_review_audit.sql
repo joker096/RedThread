@@ -75,6 +75,22 @@ CREATE TRIGGER user_safety_screenings_initial_review_state_guard
 CREATE OR REPLACE FUNCTION require_safety_screening_review_audit()
 RETURNS trigger LANGUAGE plpgsql AS $screening_review_audit$
 BEGIN
+  IF NEW.review_status IS NOT DISTINCT FROM OLD.review_status
+     AND (NEW.reviewed_at IS DISTINCT FROM OLD.reviewed_at
+          OR NEW.reviewed_by IS DISTINCT FROM OLD.reviewed_by) THEN
+    -- Preserve the opaque reviewer snapshot while allowing only the nested
+    -- ON DELETE SET NULL FK action to clear the live reviewer FK.
+    IF pg_trigger_depth() > 1
+       AND OLD.reviewed_by IS NOT NULL
+       AND NEW.reviewed_by IS NULL
+       AND NEW.reviewed_at IS NOT DISTINCT FROM OLD.reviewed_at
+       AND (to_jsonb(NEW) - 'reviewed_by') = (to_jsonb(OLD) - 'reviewed_by') THEN
+      RETURN NULL;
+    END IF;
+    RAISE EXCEPTION 'safety screening reviewer metadata cannot change without a review-state transition'
+      USING ERRCODE = '23514';
+  END IF;
+
   IF NEW.review_status IS DISTINCT FROM OLD.review_status
      AND NOT EXISTS (
        SELECT 1
@@ -86,6 +102,7 @@ BEGIN
          AND audit.details->>'userId' = NEW.user_id::text
          AND audit.details->>'newStatus' = NEW.review_status
          AND NEW.reviewed_by = audit.moderator_ref
+         AND NEW.reviewed_at IS NOT NULL
          AND moderator.status = 'active'
          AND moderator.role IN ('admin', 'moderator')
      ) THEN
