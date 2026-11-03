@@ -157,9 +157,12 @@ async function getPaddleAdjustmentState(client, transactionId) {
          SELECT 1 FROM latest_per_adjustment
          WHERE action = 'refund' AND adjustment_type = 'full' AND status = 'approved'
        ) AS full_refund_active,
-       EXISTS (
-         SELECT 1 FROM latest_per_adjustment
+       (
+         SELECT COUNT(*) FROM latest_per_adjustment
          WHERE action = 'chargeback' AND status = 'approved'
+       ) > (
+         SELECT COUNT(*) FROM latest_per_adjustment
+         WHERE action = 'chargeback_reverse' AND status = 'approved'
        ) AS chargeback_active`,
     [transactionId]
   );
