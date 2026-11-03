@@ -4,6 +4,7 @@ import { processPaddleEvent } from './paddleBilling.js';
 
 const userId = '00000000-0000-4000-8000-000000000001';
 const transactionId = 'txn_0123456789abcdef01234567';
+let eventCounter = 0;
 
 function makePool({ ledgerStatus = 'active', revokeReason = null, fullRefund = false, chargeback = false } = {}) {
   const calls = [];
@@ -41,7 +42,7 @@ function makePool({ ledgerStatus = 'active', revokeReason = null, fullRefund = f
 
 async function sendAdjustment(pool, { eventId, action, status, type = 'partial', eventType = 'adjustment.created' } = {}) {
   return processPaddleEvent(pool, {
-    eventId: eventId || 'evt_' + Math.random().toString(36).slice(2, 18).padEnd(26, 'a').slice(0, 26),
+    eventId: eventId || 'evt_' + String(++eventCounter).padStart(26, '0'),
     eventType,
     occurredAt: '2026-11-03T10:00:00Z',
     data: {
