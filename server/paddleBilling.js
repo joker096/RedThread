@@ -82,10 +82,11 @@ function parsePaddleMinorAmount(value) {
 }
 
 function paddleTransactionAmount(data) {
+  // Paddle transaction amounts come from the transaction details totals.
+  // Do not accept legacy/untrusted top-level `total` or `amount` substitutes.
   return data?.details?.totals?.total ??
     data?.details?.totals?.grandTotal ??
-    data?.details?.totals?.grand_total ??
-    data?.total ?? data?.amount ?? null;
+    data?.details?.totals?.grand_total ?? null;
 }
 
 function paddleCurrencyCode(data) {
