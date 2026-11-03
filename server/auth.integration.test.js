@@ -73,8 +73,11 @@ test('auth API supports registration, session lookup, logout and login', {
       NODE_ENV: 'test',
       PG_STATEMENT_TIMEOUT_MS: '8000'
     },
-    stdio: 'ignore'
+    stdio: ['ignore', 'pipe', 'pipe']
   });
+  let apiLogs = '';
+  child.stdout.on('data', chunk => { apiLogs += chunk.toString(); });
+  child.stderr.on('data', chunk => { apiLogs += chunk.toString(); });
 
   async function request(path, options = {}) {
     return fetch(`${api}${path}`, {
@@ -209,7 +212,7 @@ test('auth API supports registration, session lookup, logout and login', {
           body: JSON.stringify({ resolutionNote })
         }
       );
-      assert.equal(resolutionResponse.status, 200);
+      assert.equal(resolutionResponse.status, 200, apiLogs);
       assert.deepEqual(await resolutionResponse.json(), {
         eventId: reconciliationEventId,
         status: 'resolved',
