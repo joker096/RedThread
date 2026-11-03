@@ -18,6 +18,8 @@ async function preserveGiftOrderFixture(db, orderId) {
        WHEN payment_status IN ('not_started', 'failed', 'voided') THEN 'cancelled'
        ELSE 'blocked'
      END,
+     address_vault_ref = NULL,
+     address_verified_at = NULL,
      updated_at = NOW()
      WHERE id = $1 AND status = 'awaiting_recipient_consent'
      RETURNING status, payment_status`,
