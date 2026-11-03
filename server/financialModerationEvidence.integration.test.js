@@ -413,6 +413,42 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       );
       assert.deepEqual(accessSnapshots.rows.map(row => row.column_name).sort(), ['moderator_ref', 'submission_ref']);
 
+      const giftEventGuard = await client.query(
+        `SELECT pg_get_functiondef('prevent_gift_delivery_order_event_mutation()'::regprocedure) AS definition`
+      );
+      assert.match(giftEventGuard.rows[0].definition, /gift delivery order events are append-only/);
+      const giftOrderDeleteGuard = await client.query(
+        `SELECT pg_get_functiondef('prevent_gift_delivery_order_delete()'::regprocedure) AS definition`
+      );
+      assert.match(giftOrderDeleteGuard.rows[0].definition, /retained as financial and safety evidence/);
+      const giftTaskDeleteGuard = await client.query(
+        `SELECT pg_get_functiondef('prevent_gift_payment_reconciliation_task_delete()'::regprocedure) AS definition`
+      );
+      assert.match(giftTaskDeleteGuard.rows[0].definition, /reconciliation evidence cannot be deleted/);
+      const giftActorSnapshot = await client.query(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_schema = current_schema()
+           AND table_name = 'gift_delivery_order_events' AND column_name = 'actor_ref'`
+      );
+      assert.equal(giftActorSnapshot.rowCount, 1);
+
+      await client.query(`
+        CREATE TEMP TABLE evidence_truncate_guard_test (id integer) ON COMMIT DROP
+      `);
+      await client.query(`
+        CREATE TRIGGER evidence_truncate_guard_test
+        BEFORE TRUNCATE ON evidence_truncate_guard_test
+        FOR EACH STATEMENT EXECUTE FUNCTION prevent_evidence_truncate()
+      `);
+      await client.query('INSERT INTO evidence_truncate_guard_test VALUES (1)');
+      await client.query('SAVEPOINT evidence_truncate_blocked');
+      let truncateError;
+      try { await client.query('TRUNCATE evidence_truncate_guard_test'); }
+      catch (error) { truncateError = error; }
+      assert.equal(truncateError?.code, '55000');
+      await client.query('ROLLBACK TO SAVEPOINT evidence_truncate_blocked');
+      await client.query('RELEASE SAVEPOINT evidence_truncate_blocked');
+
       await client.query('ROLLBACK');
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
