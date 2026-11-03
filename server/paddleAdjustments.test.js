@@ -57,6 +57,22 @@ async function sendAdjustment(pool, { eventId, action, status, type = 'partial',
   });
 }
 
+test('stores adjustment amount from Paddle totals.total in minor units and top-level currency_code', async () => {
+  const { pool, calls } = makePool();
+  await sendAdjustment(pool, {
+    eventId: 'evt_adjustment_totals_payload',
+    action: 'refund',
+    status: 'pending_approval',
+    type: 'full',
+    amount: '16500',
+    currencyCode: 'USD'
+  });
+  const insert = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_events'));
+  assert.ok(insert, 'the provider adjustment must be retained');
+  assert.equal(insert.params[6], '16500');
+  assert.equal(insert.params[7], 'USD');
+});
+
 test('adjustments for recurring transactions use the transaction ledger and never enter lifetime reconciliation', async () => {
   const { pool, calls } = makePool({ linkedPlan: '1month', linkedStatus: 'linked' });
   const result = await sendAdjustment(pool, {
