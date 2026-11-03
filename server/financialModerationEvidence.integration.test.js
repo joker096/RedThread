@@ -637,7 +637,7 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
           id uuid, public_reference text, match_id uuid, sender_id uuid, recipient_id uuid,
           product_name_snapshot text, product_category text, total_minor_units bigint,
           currency char(3), idempotency_key text, created_at timestamptz, expires_at timestamptz,
-          catalog_item_id uuid, delivery_partner_ref uuid
+          catalog_item_id uuid, delivery_partner_id uuid, delivery_partner_ref uuid
         ) ON COMMIT DROP
       `);
       await client.query(`
