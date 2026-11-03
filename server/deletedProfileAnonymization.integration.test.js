@@ -34,7 +34,7 @@ test('account deletion scrubs profile personal data in the database', {
     );
 
     await client.query(
-      "INSERT INTO user_safety_screenings (user_id, scope, flags, severity, engine_version, review_status) VALUES ($1, 'profile', '[\\"profile_flag\\"]'::jsonb, 'high', 'test-v1', 'pending')",
+      "INSERT INTO user_safety_screenings (user_id, scope, flags, severity, engine_version, review_status) VALUES ($1, 'profile', jsonb_build_array('profile_flag'), 'high', 'test-v1', 'pending')",
       [userId]
     );
     await client.query("UPDATE users SET status = 'deleted' WHERE id = $1", [userId]);
