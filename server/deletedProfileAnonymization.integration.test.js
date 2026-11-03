@@ -37,6 +37,13 @@ test('account deletion scrubs profile personal data in the database', {
       "INSERT INTO user_safety_screenings (user_id, scope, flags, severity, engine_version, review_status) VALUES ($1, 'profile', jsonb_build_array('profile_flag'), 'high', 'test-v1', 'pending')",
       [userId]
     );
+    await client.query('SAVEPOINT active_gender_guard');
+    await assert.rejects(
+      client.query('UPDATE profiles SET gender = NULL WHERE user_id = $1', [userId]),
+      error => error.code === '23514'
+    );
+    await client.query('ROLLBACK TO SAVEPOINT active_gender_guard');
+
     await client.query("UPDATE users SET status = 'deleted' WHERE id = $1", [userId]);
     const screenings = await client.query(
       'SELECT COUNT(*)::int AS count FROM user_safety_screenings WHERE user_id = $1',
