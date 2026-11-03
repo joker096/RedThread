@@ -74,7 +74,11 @@ LANGUAGE plpgsql AS $date_plan_l2$
 DECLARE
   affected_user_id UUID;
 BEGIN
-  affected_user_id := CASE WHEN TG_OP = 'DELETE' THEN OLD.user_id ELSE NEW.user_id END;
+  IF TG_OP = 'DELETE' THEN
+    affected_user_id := OLD.user_id;
+  ELSE
+    affected_user_id := NEW.user_id;
+  END IF;
 
   IF NOT EXISTS (
     SELECT 1
@@ -104,13 +108,25 @@ RETURNS TRIGGER
 LANGUAGE plpgsql AS $date_plan_l3$
 DECLARE
   affected_user_id UUID;
+  should_cancel BOOLEAN := FALSE;
 BEGIN
-  affected_user_id := CASE WHEN TG_OP = 'DELETE' THEN OLD.user_id ELSE NEW.user_id END;
+  IF TG_OP = 'DELETE' THEN
+    affected_user_id := OLD.user_id;
+    should_cancel := NOT identity_l3_has_active_approval(affected_user_id);
+  ELSE
+    affected_user_id := NEW.user_id;
+    IF TG_TABLE_NAME = 'identity_l3_submissions' AND NEW.status = 'approved' THEN
+      -- A fresh approval is a safety boundary: any plan under the previous
+      -- approval must be proposed and mutually confirmed again.
+      should_cancel := TRUE;
+    ELSIF TG_TABLE_NAME = 'identity_l3_consents' AND NEW.withdrawn_at IS NOT NULL THEN
+      should_cancel := TRUE;
+    ELSE
+      should_cancel := NOT identity_l3_has_active_approval(affected_user_id);
+    END IF;
+  END IF;
 
-  -- A fresh approval is also a safety boundary: any plan created under the
-  -- previous approval must be proposed and mutually confirmed again.
-  IF (TG_OP <> 'DELETE' AND NEW.status = 'approved')
-     OR NOT identity_l3_has_active_approval(affected_user_id) THEN
+  IF should_cancel THEN
     PERFORM cancel_date_plans_for_safety_change(affected_user_id);
   END IF;
 
@@ -127,9 +143,7 @@ FOR EACH ROW EXECUTE FUNCTION cancel_date_plans_after_l3_change();
 DROP TRIGGER IF EXISTS identity_l3_consents_cancel_date_plans_on_withdrawal ON identity_l3_consents;
 CREATE TRIGGER identity_l3_consents_cancel_date_plans_on_withdrawal
 AFTER INSERT OR UPDATE OR DELETE ON identity_l3_consents
-FOR EACH ROW
-WHEN (TG_OP = 'DELETE' OR NEW.withdrawn_at IS NOT NULL)
-EXECUTE FUNCTION cancel_date_plans_after_l3_change();
+FOR EACH ROW EXECUTE FUNCTION cancel_date_plans_after_l3_change();
 
 COMMENT ON FUNCTION cancel_date_plans_for_safety_change(UUID) IS
   'Cancels active mutual date plans and sends a generic notification when a participant loses account or identity eligibility; old confirmations never revive after re-verification.';
