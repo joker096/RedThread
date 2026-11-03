@@ -1421,6 +1421,21 @@ test('photo and safety screening review states require matching moderator or aut
       [screeningId]
     );
     assert.deepEqual(screening.rows, [{ review_status: 'cleared', reviewed_by: moderatorId }]);
+    await client.query('DELETE FROM users WHERE id = $1', [moderatorId]);
+    const retainedScreening = await client.query(
+      'SELECT review_status, reviewed_at, reviewed_by FROM user_safety_screenings WHERE id = $1',
+      [screeningId]
+    );
+    assert.equal(retainedScreening.rows[0].review_status, 'cleared');
+    assert.ok(retainedScreening.rows[0].reviewed_at instanceof Date);
+    assert.equal(retainedScreening.rows[0].reviewed_by, null,
+      'the nested FK nullification may clear the live moderator FK without erasing the review decision');
+    const retainedAudit = await client.query(
+      "SELECT moderator_id, moderator_ref FROM moderation_audit_log WHERE target_type = 'safety_screening' AND target_id = $1",
+      [screeningId]
+    );
+    assert.deepEqual(retainedAudit.rows, [{ moderator_id: null, moderator_ref: moderatorId }],
+      'the append-only audit snapshot must preserve the reviewer UUID after account deletion');
     await client.query('ROLLBACK TO SAVEPOINT screening_with_audit');
     await client.query('RELEASE SAVEPOINT screening_with_audit');
     await client.query('ROLLBACK');
