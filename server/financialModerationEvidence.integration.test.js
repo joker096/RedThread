@@ -98,8 +98,19 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       await client.query(
         `INSERT INTO paddle_checkout_attempts
          (user_id, attempt_id, transaction_id, plan, status, created_at, updated_at)
-         VALUES ($1, $2, $3, 'lifetime', 'linked', statement_timestamp(), statement_timestamp())`,
-        [lifetimeReasonUserId, lifetimeAttemptId, lifetimeTransactionId]
+         VALUES ($1, $2, NULL, 'lifetime', 'creating', statement_timestamp(), statement_timestamp())`,
+        [lifetimeReasonUserId, lifetimeAttemptId]
+      );
+      await client.query(
+        `UPDATE paddle_checkout_attempts
+         SET transaction_id = $2, status = 'completed', updated_at = statement_timestamp()
+         WHERE user_id = $1 AND attempt_id = $3`,
+        [lifetimeReasonUserId, lifetimeTransactionId, lifetimeAttemptId]
+      );
+      await client.query(
+        `UPDATE paddle_checkout_attempts SET status = 'linked', updated_at = statement_timestamp()
+         WHERE user_id = $1 AND attempt_id = $2`,
+        [lifetimeReasonUserId, lifetimeAttemptId]
       );
 
       const unlinkedEntitlementUserId = randomUUID();
@@ -283,8 +294,15 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       await client.query(
         `INSERT INTO paddle_checkout_attempts
          (user_id, attempt_id, transaction_id, plan, status, created_at, updated_at)
-         VALUES ($1, $2, 'txn_historyold123', '1month', 'canceled',
+         VALUES ($1, $2, NULL, '1month', 'creating',
                  statement_timestamp() - interval '1 minute', statement_timestamp() - interval '30 seconds')`,
+        [userId, firstAttemptId]
+      );
+      await client.query(
+        `UPDATE paddle_checkout_attempts
+         SET transaction_id = 'txn_historyold123', status = 'canceled',
+             updated_at = statement_timestamp()
+         WHERE user_id = $1 AND attempt_id = $2`,
         [userId, firstAttemptId]
       );
       await client.query('SAVEPOINT current_checkout_attempt_immutable');
@@ -371,8 +389,15 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       await client.query(
         `INSERT INTO paddle_checkout_attempts
          (user_id, attempt_id, transaction_id, plan, status, created_at, updated_at)
-         VALUES ($1, $2, 'txn_completedlink123', 'lifetime', 'completed',
+         VALUES ($1, $2, NULL, 'lifetime', 'creating',
                  statement_timestamp(), statement_timestamp())`,
+        [linkedTransitionUserId, linkedTransitionAttemptId]
+      );
+      await client.query(
+        `UPDATE paddle_checkout_attempts
+         SET transaction_id = 'txn_completedlink123', status = 'completed',
+             updated_at = statement_timestamp()
+         WHERE user_id = $1 AND attempt_id = $2`,
         [linkedTransitionUserId, linkedTransitionAttemptId]
       );
       await client.query(
@@ -413,8 +438,15 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       await client.query(
         `INSERT INTO paddle_checkout_attempts
          (user_id, attempt_id, transaction_id, plan, status, created_at, updated_at)
-         VALUES ($1, $2, 'txn_completedreconcile123', 'lifetime', 'completed',
+         VALUES ($1, $2, NULL, 'lifetime', 'creating',
                  statement_timestamp(), statement_timestamp())`,
+        [reconciliationTransitionUserId, reconciliationTransitionAttemptId]
+      );
+      await client.query(
+        `UPDATE paddle_checkout_attempts
+         SET transaction_id = 'txn_completedreconcile123', status = 'completed',
+             updated_at = statement_timestamp()
+         WHERE user_id = $1 AND attempt_id = $2`,
         [reconciliationTransitionUserId, reconciliationTransitionAttemptId]
       );
       await client.query(
@@ -616,12 +648,23 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       );
       const linkedAttemptId = randomUUID();
       const replacementAttemptId = randomUUID();
-      const linkedTransactionId = `txn_${randomUUID().replace(/-/g, '')}`;
+      const linkedTransactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
       await client.query(
         `INSERT INTO paddle_checkout_attempts
          (user_id, attempt_id, transaction_id, plan, status, created_at, updated_at)
-         VALUES ($1, $2, $3, '3months', 'linked', statement_timestamp(), statement_timestamp())`,
-        [linkedUserId, linkedAttemptId, linkedTransactionId]
+         VALUES ($1, $2, NULL, '3months', 'creating', statement_timestamp(), statement_timestamp())`,
+        [linkedUserId, linkedAttemptId]
+      );
+      await client.query(
+        `UPDATE paddle_checkout_attempts
+         SET transaction_id = $2, status = 'completed', updated_at = statement_timestamp()
+         WHERE user_id = $1 AND attempt_id = $3`,
+        [linkedUserId, linkedTransactionId, linkedAttemptId]
+      );
+      await client.query(
+        `UPDATE paddle_checkout_attempts SET status = 'linked', updated_at = statement_timestamp()
+         WHERE user_id = $1 AND attempt_id = $2`,
+        [linkedUserId, linkedAttemptId]
       );
       await client.query(
         `UPDATE paddle_checkout_attempts
