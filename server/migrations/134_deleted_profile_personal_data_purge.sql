@@ -75,6 +75,15 @@ WHERE u.id = s.user_id AND u.status = 'deleted'
   AND s.storage_object_key IS NOT NULL
   AND s.status IN ('draft', 'upload_authorized', 'uploaded', 'processing', 'pending_review', 'approved');
 
+-- Deleted accounts do not retain L3 workflow/decision metadata once no media
+-- object remains. Rows with an object key stay until the purge worker confirms
+-- physical deletion.
+DELETE FROM identity_l3_submissions AS s
+USING users AS u
+WHERE u.id = s.user_id
+  AND u.status = 'deleted'
+  AND s.storage_object_key IS NULL;
+
 UPDATE profiles AS p
 SET display_name = 'Удалённый пользователь',
     birth_date = NULL,
@@ -202,6 +211,11 @@ BEGIN
     WHERE user_id = NEW.id
       AND storage_object_key IS NOT NULL
       AND status IN ('draft', 'upload_authorized', 'uploaded', 'processing', 'pending_review', 'approved');
+
+    -- Draft/authorization rows without media have no external deletion work.
+    -- Remove their metadata and cascaded decision/access events immediately.
+    DELETE FROM identity_l3_submissions
+    WHERE user_id = NEW.id AND storage_object_key IS NULL;
 
     UPDATE profiles
     SET display_name = 'Удалённый пользователь',
