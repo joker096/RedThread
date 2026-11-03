@@ -1,4 +1,19 @@
 -- Remove profile-derived personal data whenever an account becomes a tombstone.
+-- The same durable queue is also created by the private-photo purge PR.
+-- Keep account erasure safe even when a future admin/background path marks a user deleted.
+CREATE TABLE IF NOT EXISTS private_photo_purge_queue (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  storage_path TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
+  attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+  next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
+  last_error_code TEXT,
+  CHECK (length(storage_path) BETWEEN 1 AND 2048)
+);
+
+CREATE INDEX IF NOT EXISTS private_photo_purge_queue_due_idx
+  ON private_photo_purge_queue (next_attempt_at, created_at);
+
 ALTER TABLE profiles ALTER COLUMN gender DROP NOT NULL;
 
 CREATE OR REPLACE FUNCTION require_gender_for_non_deleted_profile()
@@ -50,6 +65,28 @@ RETURNS trigger LANGUAGE plpgsql AS $profile_scrub$
 BEGIN
   IF NEW.status = 'deleted' AND OLD.status IS DISTINCT FROM 'deleted' THEN
     DELETE FROM user_safety_screenings WHERE user_id = NEW.id;
+
+    -- Queue photo bytes before removing their metadata. Filesystem operations
+    -- cannot run inside PostgreSQL, so the durable worker performs the unlink.
+    INSERT INTO private_photo_purge_queue (storage_path)
+    SELECT storage_path FROM photo_assets WHERE user_id = NEW.id
+    ON CONFLICT (storage_path) DO NOTHING;
+    DELETE FROM photo_assets WHERE user_id = NEW.id;
+
+    -- Route-level account deletion preflights L3 media, but direct admin or
+    -- background status transitions must also retire media and enqueue purge.
+    PERFORM set_config('app.identity_l3_actor_user_id', '', TRUE);
+    PERFORM set_config('app.identity_l3_reason_code', 'account_deleted', TRUE);
+    UPDATE identity_l3_submissions
+    SET status = CASE WHEN status = 'approved' THEN 'revoked' ELSE 'withdrawn' END,
+        revoked_at = CASE WHEN status = 'approved' THEN statement_timestamp() ELSE revoked_at END,
+        decision_reason_code = CASE WHEN status = 'approved' THEN 'account_deleted' ELSE decision_reason_code END,
+        processing_lease_token = NULL,
+        processing_lease_expires_at = NULL
+    WHERE user_id = NEW.id
+      AND storage_object_key IS NOT NULL
+      AND status IN ('draft', 'upload_authorized', 'uploaded', 'processing', 'pending_review', 'approved');
+
     UPDATE profiles
     SET display_name = 'Удалённый пользователь',
         birth_date = NULL,
