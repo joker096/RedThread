@@ -2306,6 +2306,21 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(l3SafetyProposal.status, 201);
     const l3SafetyPlanId = (await l3SafetyProposal.json()).datePlan.id;
+    const currentApprovedSubmission = await identityGateDb.query(
+      "SELECT id FROM identity_l3_submissions WHERE user_id = $1 AND status = 'approved' ORDER BY approved_at DESC LIMIT 1",
+      [maleRegistered.user.id]
+    );
+    assert.equal(currentApprovedSubmission.rowCount, 1, 'the male test participant must have a current L3 approval');
+    await identityGateDb.query(
+      'UPDATE identity_l3_submissions SET updated_at = statement_timestamp() WHERE id = $1',
+      [currentApprovedSubmission.rows[0].id]
+    );
+    const planAfterNonDecisionUpdate = await identityGateDb.query(
+      'SELECT status FROM date_plans WHERE id = $1',
+      [l3SafetyPlanId]
+    );
+    assert.equal(planAfterNonDecisionUpdate.rows[0].status, 'proposed',
+      'non-decision metadata updates to an approved L3 submission must not cancel a valid date plan');
     await identityGateDb.query(
       'UPDATE identity_l3_consents SET withdrawn_at = statement_timestamp() WHERE user_id = $1 AND withdrawn_at IS NULL',
       [maleRegistered.user.id]
