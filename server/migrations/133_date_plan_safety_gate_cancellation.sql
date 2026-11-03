@@ -80,16 +80,20 @@ BEGIN
     affected_user_id := NEW.user_id;
   END IF;
 
-  IF NOT EXISTS (
-    SELECT 1
-      FROM identity_verifications iv
-     WHERE iv.user_id = affected_user_id
-       AND iv.provider = 'didit'
-       AND iv.status = 'verified'
-       AND iv.provider_environment = 'live'
-       AND iv.provider_status = 'Approved'
-       AND iv.provider_session_id IS NOT NULL
-  ) THEN
+  IF EXISTS (
+       SELECT 1 FROM profiles p
+        WHERE p.user_id = affected_user_id AND p.gender = 'male'
+     )
+     AND NOT EXISTS (
+       SELECT 1
+         FROM identity_verifications iv
+        WHERE iv.user_id = affected_user_id
+          AND iv.provider = 'didit'
+          AND iv.status = 'verified'
+          AND iv.provider_environment = 'live'
+          AND iv.provider_status = 'Approved'
+          AND iv.provider_session_id IS NOT NULL
+     ) THEN
     PERFORM cancel_date_plans_for_safety_change(affected_user_id);
   END IF;
 
@@ -112,10 +116,19 @@ DECLARE
 BEGIN
   IF TG_OP = 'DELETE' THEN
     affected_user_id := OLD.user_id;
-    should_cancel := NOT identity_l3_has_active_approval(affected_user_id);
   ELSE
     affected_user_id := NEW.user_id;
-    IF TG_TABLE_NAME = 'identity_l3_submissions' AND NEW.status = 'approved' THEN
+  END IF;
+
+  -- L3 is a mandatory gate only for male participants. Do not let unrelated
+  -- identity metadata on female accounts cancel an otherwise valid date plan.
+  IF EXISTS (
+    SELECT 1 FROM profiles p
+     WHERE p.user_id = affected_user_id AND p.gender = 'male'
+  ) THEN
+    IF TG_OP = 'DELETE' THEN
+      should_cancel := NOT identity_l3_has_active_approval(affected_user_id);
+    ELSIF TG_TABLE_NAME = 'identity_l3_submissions' AND NEW.status = 'approved' THEN
       -- A fresh approval is a safety boundary: any plan under the previous
       -- approval must be proposed and mutually confirmed again.
       should_cancel := TRUE;
