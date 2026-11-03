@@ -3013,6 +3013,12 @@ test('auth API supports registration, session lookup, logout and login', {
         'SELECT COUNT(*)::int AS count FROM messages WHERE match_id = $1 AND sender_id = $2',
         [matchPayload.match.id, registered.user.id]
       );
+      const deletionPhotoPath = '/tmp/vow-private-photo-purge-' + randomUUID() + '.jpg';
+      await deletionSafetyDb.query(
+        `INSERT INTO photo_assets (user_id, storage_path, mime_type, byte_size, width, height, review_status)
+         VALUES ($1, $2, 'image/jpeg', 128, 1, 1, 'approved')`,
+        [registered.user.id, deletionPhotoPath]
+      );
       // Hold the same per-user safety lock so deletion is first in the
       // PostgreSQL advisory-lock queue, followed by already-authenticated
       // profile-update, photo-upload, message, assessment and login requests.
@@ -3272,10 +3278,12 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.equal(staleLoginSessions.rows[0].count, 0,
         'a login racing with account deletion must not recreate a session');
       const deletedProfileAfterRace = await deletionSafetyDb.query(
-        'SELECT display_name, is_visible, photo_urls FROM profiles WHERE user_id = $1',
+        'SELECT display_name, birth_date, is_visible, photo_urls FROM profiles WHERE user_id = $1',
         [registered.user.id]
       );
       assert.equal(deletedProfileAfterRace.rows[0].display_name, 'Удалённый пользователь');
+      assert.equal(deletedProfileAfterRace.rows[0].birth_date, null,
+        'account deletion must purge the retained birth date from the anonymized profile');
       assert.equal(deletedProfileAfterRace.rows[0].is_visible, false);
       assert.deepEqual(deletedProfileAfterRace.rows[0].photo_urls, []);
       const orphanedPhotoAssets = await deletionSafetyDb.query(
@@ -3284,6 +3292,16 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       assert.equal(orphanedPhotoAssets.rows[0].count, 0,
         'queued uploads must not recreate photo rows after account deletion');
+      const queuedPhotoPurge = await deletionSafetyDb.query(
+        'SELECT COUNT(*)::int AS count FROM private_photo_purge_queue WHERE storage_path = $1',
+        [deletionPhotoPath]
+      );
+      assert.equal(queuedPhotoPurge.rows[0].count, 1,
+        'account deletion must durably enqueue every removed private photo file');
+      await deletionSafetyDb.query(
+        'DELETE FROM private_photo_purge_queue WHERE storage_path = $1',
+        [deletionPhotoPath]
+      );
       const deletedGiftPreferences = await deletionSafetyDb.query(
         'SELECT COUNT(*)::int AS count FROM gift_receiving_preferences WHERE user_id = $1',
         [registered.user.id]
