@@ -5,8 +5,6 @@
 CREATE TABLE paddle_adjustment_reconciliation_cases (
   event_id TEXT PRIMARY KEY
     REFERENCES paddle_adjustment_events(event_id) ON DELETE RESTRICT,
-  adjustment_id TEXT NOT NULL,
-  transaction_id TEXT NOT NULL,
   reason_code TEXT NOT NULL CHECK (reason_code IN (
     'lifetime_transaction_unlinked',
     'lifetime_transaction_ambiguous',
@@ -26,7 +24,7 @@ CREATE TABLE paddle_adjustment_reconciliation_cases (
 );
 
 CREATE INDEX paddle_adjustment_reconciliation_open_idx
-  ON paddle_adjustment_reconciliation_cases(created_at, transaction_id)
+  ON paddle_adjustment_reconciliation_cases(created_at)
   WHERE status = 'open';
 
 CREATE OR REPLACE FUNCTION guard_paddle_adjustment_reconciliation_case()
@@ -37,8 +35,6 @@ BEGIN
       USING ERRCODE = '55000';
   END IF;
   IF NEW.event_id IS DISTINCT FROM OLD.event_id
-     OR NEW.adjustment_id IS DISTINCT FROM OLD.adjustment_id
-     OR NEW.transaction_id IS DISTINCT FROM OLD.transaction_id
      OR NEW.reason_code IS DISTINCT FROM OLD.reason_code
      OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
     RAISE EXCEPTION 'Paddle adjustment reconciliation evidence is immutable'
@@ -73,6 +69,6 @@ CREATE TRIGGER paddle_adjustment_reconciliation_cases_no_truncate
   FOR EACH STATEMENT EXECUTE FUNCTION prevent_evidence_truncate();
 
 COMMENT ON TABLE paddle_adjustment_reconciliation_cases IS
-  'Durable manual reconciliation queue for Paddle adjustment events that cannot safely be matched to a Vow checkout or lifetime entitlement. Source adjustment evidence remains in paddle_adjustment_events.';
+  'Durable manual reconciliation queue keyed to the immutable source Paddle event. Join event_id to paddle_adjustment_events for adjustment and transaction identifiers.';
 COMMENT ON COLUMN paddle_adjustment_reconciliation_cases.reason_code IS
   'Bounded operational reason; never contains provider payloads, customer data, payment credentials, or free-form user content.';
