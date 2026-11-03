@@ -1767,7 +1767,11 @@ test('transaction history does not substitute legacy top-level amount for Paddle
   assert.ok(ledger, 'the provider transaction event must still be retained');
   assert.equal(ledger.params[5], null,
     'top-level legacy amount must not be treated as an authoritative Paddle transaction total');
-  assert.equal(ledger.params[6], null,
+  assert.equal(ledger.params[6], '16500',
+    'the documented grand total remains distinct even when gross total is missing');
+  assert.equal(ledger.params[7], null);
+  assert.equal(ledger.params[8], null);
+  assert.equal(ledger.params[9], null,
     'a noncanonical currency property must not substitute for Paddle currency_code');
 });
 
@@ -1812,7 +1816,7 @@ test('ambiguous cross-account Paddle transaction ownership is retained without a
         id: transactionId,
         customData: { userId, plan: '1month', checkoutAttemptId: attemptId },
         items: [{ price: { id: 'pri_month_ambiguous_owner' } }],
-        details: { totals: { total: '990' } },
+        details: { totals: { total: '990', grand_total: '900', credit: '90', balance: '0' } },
         currency_code: 'GEL'
       }
     });
@@ -1824,7 +1828,10 @@ test('ambiguous cross-account Paddle transaction ownership is retained without a
       'a transaction claimed by more than one account must not be assigned to either account');
     assert.equal(ledger.params[3], '1month');
     assert.equal(ledger.params[5], '990');
-    assert.equal(ledger.params[6], 'GEL');
+    assert.equal(ledger.params[6], '900');
+    assert.equal(ledger.params[7], '90');
+    assert.equal(ledger.params[8], '0');
+    assert.equal(ledger.params[9], 'GEL');
     assert.ok(calls.some(call => call.statement.includes("SET status = 'reconciliation_required'")),
       'the exact checkout attempt must remain visible for reconciliation');
     assert.equal(calls.some(call => call.statement.includes('UPDATE users SET')), false,
