@@ -5,12 +5,14 @@ import { rollbackPooledTransaction } from './withPooledTransaction.js';
 const STREET_SUFFIX = '(?:street|st\\.?|avenue|ave\\.?|road|rd\\.?|lane|ln\\.?|drive|dr\\.?|boulevard|blvd\\.?|way|улица|ул\\.?|проспект|пр-т|переулок|пер\\.?|набережная|шоссе|ქუჩა|გამზირი)';
 const STREET_PREFIX = '(?:улица|ул\\.?|проспект|пр-т|переулок|пер\\.?|набережная|шоссе|ქუჩა|გამზირი)';
 const STREET_WORD = '[\\p{L}\\p{M}][\\p{L}\\p{M}\\u2019’\\x27.-]*';
-const HOUSE_NUMBER = '(?:№|#)?\\s*\\d+[a-zа-я]?(?:[-/]\\d+[a-zа-я]?)?';
+const HOUSE_NUMBER = '(?:№|#)?\s*\d+[a-zа-я]?(?:[-/]\d+[a-zа-я]?)?';
+const LEFT_ADDRESS_BOUNDARY = '(?:^|[^\p{L}\p{M}\p{N}])';
+const RIGHT_ADDRESS_BOUNDARY = '(?=$|[^\p{L}\p{M}\p{N}])';
 const PRIVATE_ADDRESS_PATTERNS = [
-  new RegExp('\\b' + STREET_WORD + '(?:\\s+' + STREET_WORD + '){0,5}\\s+' + STREET_SUFFIX + '\\s*,?\\s*' + HOUSE_NUMBER + '\\b', 'iu'),
-  new RegExp('\\b' + STREET_PREFIX + '\\s+' + STREET_WORD + '(?:\\s+' + STREET_WORD + '){0,5}\\s*,?\\s*' + HOUSE_NUMBER + '\\b', 'iu'),
-  new RegExp('\\b' + HOUSE_NUMBER + '\\s+' + STREET_WORD + '(?:\\s+' + STREET_WORD + '){0,5}\\s+' + STREET_SUFFIX + '\\b', 'iu'),
-  /\b(?:apt\.?|apartment|flat|unit|suite|дом|д\.?|квартира|кв\.?|building|bldg\.?)\s*(?:№|#)?\s*\d+\b/iu,
+  new RegExp(LEFT_ADDRESS_BOUNDARY + STREET_WORD + '(?:\s+' + STREET_WORD + '){0,5}\s+' + STREET_SUFFIX + '\s*,?\s*' + HOUSE_NUMBER + RIGHT_ADDRESS_BOUNDARY, 'iu'),
+  new RegExp(LEFT_ADDRESS_BOUNDARY + STREET_PREFIX + '\s+' + STREET_WORD + '(?:\s+' + STREET_WORD + '){0,5}\s*,?\s*' + HOUSE_NUMBER + RIGHT_ADDRESS_BOUNDARY, 'iu'),
+  new RegExp(LEFT_ADDRESS_BOUNDARY + HOUSE_NUMBER + '\s+' + STREET_WORD + '(?:\s+' + STREET_WORD + '){0,5}\s+' + STREET_SUFFIX + RIGHT_ADDRESS_BOUNDARY, 'iu'),
+  new RegExp(LEFT_ADDRESS_BOUNDARY + '(?:apt\.?|apartment|flat|unit|suite|дом|д\.?|квартира|кв\.?|building|bldg\.?)\s*(?:№|#)?\s*\d+' + RIGHT_ADDRESS_BOUNDARY, 'iu'),
   /\b-?\d{1,2}\.\d{3,}\s*,\s*-?\d{1,3}\.\d{3,}\b/
 ];
 
