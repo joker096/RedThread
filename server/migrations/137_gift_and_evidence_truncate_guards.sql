@@ -177,7 +177,7 @@ COMMENT ON FUNCTION guard_paddle_lifetime_entitlement_identity() IS
   'Prevents deletion or reassignment of the user/transaction provenance behind a lifetime Premium entitlement while allowing the status projection to change after verified Paddle adjustments.';
 COMMENT ON FUNCTION guard_gift_delivery_order_immutable_facts() IS
   'Prevents edits to gift purchase identity, product, price, currency, idempotency and creation facts while leaving explicit order/payment lifecycle fields mutable.';
-COMMENT ON FUNCTION populate_gift_delivery_order_event_actor_ref() IS
+COMMENT ON FUNCTION snapshot_gift_delivery_order_event_actor() IS
   'Copies the live actor_user_id into an immutable opaque actor_ref snapshot on every gift event insert.';
 COMMENT ON TABLE gift_delivery_order_events IS
   'Append-only gift-order financial/safety audit trail. actor_ref preserves opaque actor provenance after account deletion; metadata excludes recipient secrets.';
