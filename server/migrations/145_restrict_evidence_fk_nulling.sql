@@ -7,11 +7,16 @@ BEGIN
   IF TG_OP = 'UPDATE'
      AND pg_trigger_depth() > 1
      AND (
-       (OLD.submission_id IS NOT NULL AND NEW.submission_id IS NULL
-         AND NEW.moderator_user_id IS NOT DISTINCT FROM OLD.moderator_user_id)
-       OR
-       (OLD.moderator_user_id IS NOT NULL AND NEW.moderator_user_id IS NULL
-         AND NEW.submission_id IS NOT DISTINCT FROM OLD.submission_id)
+       NEW.submission_id IS NOT DISTINCT FROM OLD.submission_id
+       OR (OLD.submission_id IS NOT NULL AND NEW.submission_id IS NULL)
+     )
+     AND (
+       NEW.moderator_user_id IS NOT DISTINCT FROM OLD.moderator_user_id
+       OR (OLD.moderator_user_id IS NOT NULL AND NEW.moderator_user_id IS NULL)
+     )
+     AND (
+       NEW.submission_id IS DISTINCT FROM OLD.submission_id
+       OR NEW.moderator_user_id IS DISTINCT FROM OLD.moderator_user_id
      )
      AND (to_jsonb(NEW) - 'submission_id' - 'moderator_user_id')
          = (to_jsonb(OLD) - 'submission_id' - 'moderator_user_id') THEN
