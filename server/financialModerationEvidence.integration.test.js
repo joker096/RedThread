@@ -464,6 +464,41 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       );
       assert.deepEqual(accessSnapshots.rows.map(row => row.column_name).sort(), ['moderator_ref', 'submission_ref']);
 
+      const l3AccessTrigger = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'identity_l3_media_access_events'::regclass
+           AND tgname = 'identity_l3_media_access_events_append_only'
+           AND NOT tgisinternal`
+      );
+      assert.equal(l3AccessTrigger.rowCount, 1,
+        'L3 media access audit must have an installed UPDATE/DELETE trigger');
+
+      await client.query(`
+        CREATE TEMP TABLE l3_access_append_only_test (
+          submission_id uuid, moderator_user_id uuid,
+          submission_ref uuid, moderator_ref uuid,
+          access_type text, accessed_at timestamptz
+        ) ON COMMIT DROP
+      `);
+      await client.query(`
+        CREATE TRIGGER l3_access_append_only_test
+        BEFORE UPDATE OR DELETE ON l3_access_append_only_test
+        FOR EACH ROW EXECUTE FUNCTION prevent_identity_l3_media_access_event_mutation()
+      `);
+      await client.query(
+        `INSERT INTO l3_access_append_only_test
+         VALUES ($1, $2, $1, $2, 'viewed', statement_timestamp())`,
+        [randomUUID(), randomUUID()]
+      );
+      await client.query('SAVEPOINT l3_access_no_rewrite');
+      let l3AccessUpdateError;
+      try {
+        await client.query("UPDATE l3_access_append_only_test SET access_type = 'downloaded'");
+      } catch (error) { l3AccessUpdateError = error; }
+      assert.equal(l3AccessUpdateError?.code, '55000');
+      await client.query('ROLLBACK TO SAVEPOINT l3_access_no_rewrite');
+      await client.query('RELEASE SAVEPOINT l3_access_no_rewrite');
+
       const giftEventGuard = await client.query(
         `SELECT pg_get_functiondef('prevent_gift_delivery_order_event_mutation()'::regprocedure) AS definition`
       );
