@@ -65,13 +65,14 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
         "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
         [lifetimeReasonUserId, `lifetime-reason-${lifetimeReasonUserId}@example.invalid`]
       );
+      const missingReasonTransactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
       await client.query('SAVEPOINT revoked_lifetime_requires_reason');
       let missingLifetimeReasonError;
       try {
         await client.query(
           `INSERT INTO paddle_lifetime_entitlements (transaction_id, user_id, status, revoke_reason)
-           VALUES ('txn_missingreason123', $1, 'revoked', NULL)`,
-          [lifetimeReasonUserId]
+           VALUES ($1, $2, 'revoked', NULL)`,
+          [missingReasonTransactionId, lifetimeReasonUserId]
         );
       } catch (error) { missingLifetimeReasonError = error; }
       assert.equal(missingLifetimeReasonError?.code, '23514',
@@ -79,13 +80,14 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       await client.query('ROLLBACK TO SAVEPOINT revoked_lifetime_requires_reason');
       await client.query('RELEASE SAVEPOINT revoked_lifetime_requires_reason');
 
+      const invalidReasonTransactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
       await client.query('SAVEPOINT revoked_lifetime_reason_allowlist');
       let invalidLifetimeReasonError;
       try {
         await client.query(
           `INSERT INTO paddle_lifetime_entitlements (transaction_id, user_id, status, revoke_reason)
-           VALUES ('txn_invalidreason123', $1, 'revoked', 'manual_override')`,
-          [lifetimeReasonUserId]
+           VALUES ($1, $2, 'revoked', 'manual_override')`,
+          [invalidReasonTransactionId, lifetimeReasonUserId]
         );
       } catch (error) { invalidLifetimeReasonError = error; }
       assert.equal(invalidLifetimeReasonError?.code, '23514',
