@@ -1165,3 +1165,87 @@ test('manual Paddle reconciliation resolution requires an immutable moderator au
     await pool.end();
   }
 });
+
+
+test('user report status changes require an immutable audit row from an active moderator', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const client = await pool.connect();
+  const reporterId = randomUUID();
+  const targetId = randomUUID();
+  const moderatorId = randomUUID();
+  const reportId = randomUUID();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active'), ($3, $4, 'test-only-hash', 'active')",
+      [reporterId, `reporter-audit-${reporterId}@example.invalid`, targetId, `target-audit-${targetId}@example.invalid`]
+    );
+    await client.query(
+      "INSERT INTO users (id, email, password_hash, role, status) VALUES ($1, $2, 'test-only-hash', 'moderator', 'active')",
+      [moderatorId, `report-moderator-audit-${moderatorId}@example.invalid`]
+    );
+
+    await client.query('SAVEPOINT report_insert_nonopen');
+    let nonOpenInsertError;
+    try {
+      await client.query(
+        `INSERT INTO user_reports (id, reporter_id, reported_user_id, category, details, status)
+         VALUES ($1, $2, $3, 'spam', 'test evidence', 'resolved')`,
+        [randomUUID(), reporterId, targetId]
+      );
+    } catch (error) { nonOpenInsertError = error; }
+    assert.equal(nonOpenInsertError?.code, '23514',
+      'a user report must not be inserted in an already-resolved state');
+    await client.query('ROLLBACK TO SAVEPOINT report_insert_nonopen');
+    await client.query('RELEASE SAVEPOINT report_insert_nonopen');
+
+    await client.query(
+      `INSERT INTO user_reports (id, reporter_id, reported_user_id, category, details)
+       VALUES ($1, $2, $3, 'spam', 'test evidence')`,
+      [reportId, reporterId, targetId]
+    );
+
+    await client.query('SAVEPOINT report_status_without_audit');
+    await client.query(
+      "UPDATE user_reports SET status = 'resolved' WHERE id = $1",
+      [reportId]
+    );
+    let missingReportAuditError;
+    try {
+      await client.query('SET CONSTRAINTS user_reports_status_audit_guard IMMEDIATE');
+    } catch (error) { missingReportAuditError = error; }
+    assert.equal(missingReportAuditError?.code, '23514',
+      'a report status transition must fail if its moderator audit row is missing');
+    await client.query('ROLLBACK TO SAVEPOINT report_status_without_audit');
+    await client.query('RELEASE SAVEPOINT report_status_without_audit');
+    await client.query('SET CONSTRAINTS user_reports_status_audit_guard DEFERRED');
+
+    await client.query('SAVEPOINT report_status_with_audit');
+    await client.query(
+      "UPDATE user_reports SET status = 'resolved' WHERE id = $1",
+      [reportId]
+    );
+    await client.query(
+      `INSERT INTO moderation_audit_log
+         (moderator_id, action, target_type, target_id, reason, details)
+       VALUES ($1, 'resolve', 'user_report', $2, 'reviewed',
+               jsonb_build_object('newStatus', 'resolved'))`,
+      [moderatorId, reportId]
+    );
+    await client.query('SET CONSTRAINTS user_reports_status_audit_guard IMMEDIATE');
+    const resolved = await client.query('SELECT status FROM user_reports WHERE id = $1', [reportId]);
+    assert.equal(resolved.rows[0].status, 'resolved');
+    await client.query('ROLLBACK TO SAVEPOINT report_status_with_audit');
+    await client.query('RELEASE SAVEPOINT report_status_with_audit');
+    await client.query('ROLLBACK');
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw error;
+  } finally {
+    client.release();
+    await pool.end();
+  }
+});
