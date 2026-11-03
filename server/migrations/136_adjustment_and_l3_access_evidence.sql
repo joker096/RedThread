@@ -54,7 +54,6 @@ CREATE OR REPLACE FUNCTION prevent_identity_l3_media_access_event_mutation()
 RETURNS trigger LANGUAGE plpgsql AS $l3_media_access_audit$
 BEGIN
   IF TG_OP = 'UPDATE'
-     AND pg_trigger_depth() > 1
      AND (NEW.submission_id IS NULL OR NEW.submission_id IS NOT DISTINCT FROM OLD.submission_id)
      AND (NEW.moderator_user_id IS NULL OR NEW.moderator_user_id IS NOT DISTINCT FROM OLD.moderator_user_id)
      AND (
