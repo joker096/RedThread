@@ -1898,7 +1898,7 @@ test('Paddle paid transactions remain in reconciliation until transaction.comple
   assert.ok(cancelStart >= 0 && cancelEnd > cancelStart, 'expected the bounded checkout cancellation route');
   const cancelRoute = source.slice(cancelStart, cancelEnd);
   assert.match(cancelRoute, /providerTransaction\.status === 'completed'/);
-  assert.match(cancelRoute, /providerTransaction\.status === 'paid'/);
+  assert.match(cancelRoute, /\\['completed', 'paid'\\]\\.includes\\(providerTransaction\\.status\\)/);
   assert.match(cancelRoute, /status = 'reconciliation_required'/);
   assert.doesNotMatch(cancelRoute, /\['completed', 'paid'\]\.includes\(providerTransaction\.status\)\s*\?\s*'completed'/);
 
