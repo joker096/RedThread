@@ -386,9 +386,8 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       );
       const adjustmentCase = await client.query(
         `INSERT INTO paddle_adjustment_reconciliation_cases
-         (event_id, adjustment_id, transaction_id, reason_code)
-         SELECT event_id, adjustment_id, transaction_id, 'lifetime_transaction_unlinked'
-         FROM paddle_adjustment_events WHERE event_id = $1
+         (event_id, reason_code)
+         VALUES ($1, 'lifetime_transaction_unlinked')
          RETURNING status`,
         [adjustmentEventId]
       );
@@ -440,10 +439,10 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
         `SELECT column_name FROM information_schema.columns
          WHERE table_schema = current_schema()
            AND table_name = 'paddle_adjustment_reconciliation_cases'
-           AND column_name IN ('event_id', 'adjustment_id', 'transaction_id', 'reason_code', 'status')`
+           AND column_name IN ('event_id', 'reason_code', 'status')`
       );
       assert.deepEqual(adjustmentCaseColumns.rows.map(row => row.column_name).sort(),
-        ['adjustment_id', 'event_id', 'reason_code', 'status', 'transaction_id']);
+        ['event_id', 'reason_code', 'status']);
 
       const accessFks = await client.query(
         `SELECT conname, pg_get_constraintdef(oid) AS definition
