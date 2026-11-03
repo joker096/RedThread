@@ -204,6 +204,11 @@ async function resolvePaddleAdjustmentReconciliationCases(client, transactionId,
            SELECT user_id, transaction_id, status FROM paddle_checkout_attempts
            UNION ALL
            SELECT user_id, transaction_id, status FROM paddle_checkout_attempt_history
+           UNION ALL
+           SELECT user_id, transaction_id, 'linked'::text AS status
+           FROM paddle_transaction_events
+           WHERE transaction_id = $1 AND status = 'completed'
+             AND user_id IS NOT NULL AND plan IS NOT NULL
          ) AS attempts
          WHERE attempts.transaction_id = $1
            AND attempts.status IN ('linked', 'completed')
@@ -218,6 +223,11 @@ async function resolvePaddleAdjustmentReconciliationCases(client, transactionId,
          WHERE linked_history.transaction_id = $1
            AND linked_history.user_id = $2
            AND linked_history.status IN ('linked', 'completed')
+         UNION ALL
+         SELECT 1 FROM paddle_transaction_events AS linked_transaction
+         WHERE linked_transaction.transaction_id = $1
+           AND linked_transaction.user_id = $2
+           AND linked_transaction.status = 'completed'
        )`,
     [transactionId, userId, resolutionNote]
   );
@@ -264,10 +274,15 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
   );
 
   const linked = await client.query(
-    `SELECT user_id, plan, status FROM (
+    `SELECT DISTINCT user_id, plan, status FROM (
        SELECT user_id, transaction_id, plan, status FROM paddle_checkout_attempts
        UNION ALL
        SELECT user_id, transaction_id, plan, status FROM paddle_checkout_attempt_history
+       UNION ALL
+       SELECT user_id, transaction_id, plan, 'linked'::text AS status
+       FROM paddle_transaction_events
+       WHERE transaction_id = $1 AND status = 'completed'
+         AND user_id IS NOT NULL AND plan IS NOT NULL
      ) AS attempts
      WHERE transaction_id = $1 AND status IN ('linked', 'completed')
      LIMIT 2`,
