@@ -603,7 +603,6 @@ test('Paddle customer portal sessions return only a trusted authenticated portal
     apiKey: 'sandbox_api_key',
     customerId: 'ctm_0123456789abcdef01234567',
     subscriptionId: 'sub_0123456789abcdef01234567',
-    customerId: 'ctm_0123456789abcdef01234567',
     fetchImpl: async (url, options) => {
       request = { url, options };
       return {
@@ -650,6 +649,7 @@ test('Paddle portal rejects mismatched customers and untrusted redirect URLs', a
   );
   for (const overview of [
     'https://attacker.example/steal-token',
+    'https://sandbox-customer-portal.paddle.com.attacker.example/session',
     'https://user@customer-portal.paddle.com/session',
     'https://customer-portal.paddle.com:444/session'
   ]) {
