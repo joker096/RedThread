@@ -59,7 +59,79 @@ export function registerDatePlanRoutes(app, deps) {
        FOR UPDATE OF m, ua, ub`,
       [matchId, userAId, userBId]
     );
-    if (!access.rowCount) return null;
+    if (!access.rowCount) {
+      // Identity approvals can expire by timestamp without a provider webhook.
+      // If either participant is no longer eligible, cancel the saved plan now
+      // so a later re-verification cannot silently revive stale consent.
+      const safetyState = await client.query(
+        `SELECT m.user_a_id AS "userAId", m.user_b_id AS "userBId",
+           CASE
+             WHEN ua.status <> 'active' OR (pa.gender = 'male' AND (
+               NOT EXISTS (SELECT 1 FROM identity_verifications iv WHERE iv.user_id = pa.user_id
+                 AND iv.provider = 'didit' AND iv.status = 'verified'
+                 AND iv.provider_environment = 'live' AND iv.provider_status = 'Approved'
+                 AND iv.provider_session_id IS NOT NULL)
+               OR NOT identity_l3_has_active_approval(pa.user_id)
+             )) THEN m.user_a_id
+             WHEN ub.status <> 'active' OR (pb.gender = 'male' AND (
+               NOT EXISTS (SELECT 1 FROM identity_verifications iv WHERE iv.user_id = pb.user_id
+                 AND iv.provider = 'didit' AND iv.status = 'verified'
+                 AND iv.provider_environment = 'live' AND iv.provider_status = 'Approved'
+                 AND iv.provider_session_id IS NOT NULL)
+               OR NOT identity_l3_has_active_approval(pb.user_id)
+             )) THEN m.user_b_id
+             ELSE NULL
+           END AS "ineligibleUserId"
+         FROM matches m
+         JOIN users ua ON ua.id = m.user_a_id
+         JOIN users ub ON ub.id = m.user_b_id
+         JOIN profiles pa ON pa.user_id = m.user_a_id
+         JOIN profiles pb ON pb.user_id = m.user_b_id
+        WHERE m.id = $1 AND m.status = 'active'
+          AND NOT EXISTS (SELECT 1 FROM user_blocks b WHERE
+            (b.blocker_id = m.user_a_id AND b.blocked_id = m.user_b_id) OR
+            (b.blocker_id = m.user_b_id AND b.blocked_id = m.user_a_id))
+        FOR UPDATE OF m, ua, ub`,
+        [matchId]
+      );
+      const ineligibleUserId = safetyState.rows[0]?.ineligibleUserId;
+      if (ineligibleUserId) {
+        const otherUserId = safetyState.rows[0].userAId === ineligibleUserId
+          ? safetyState.rows[0].userBId
+          : safetyState.rows[0].userAId;
+        const cancelled = await client.query(
+          `UPDATE date_plans
+              SET status = 'cancelled',
+                  confirmed_by_a_at = NULL,
+                  confirmed_by_b_at = NULL,
+                  updated_at = statement_timestamp()
+            WHERE match_id = $1 AND status IN ('proposed', 'confirmed')
+            RETURNING id`,
+          [matchId]
+        );
+        for (const plan of cancelled.rows) {
+          await client.query(
+            `INSERT INTO date_plan_events (date_plan_id, actor_id, event_type, details)
+             VALUES ($1, $2, 'cancelled', $3::jsonb)`,
+            [plan.id, ineligibleUserId, JSON.stringify({ reason: 'participant_safety_eligibility_lost' })]
+          );
+          const activeRecipient = await client.query(
+            "SELECT 1 FROM users WHERE id = $1 AND status = 'active'",
+            [otherUserId]
+          );
+          if (activeRecipient.rowCount) {
+            await createNotification(
+              otherUserId,
+              'date_plan_cancelled',
+              { matchId, datePlanId: plan.id },
+              'date-plan-safety-' + plan.id,
+              client
+            );
+          }
+        }
+      }
+      return null;
+    }
     await client.query(
       "UPDATE date_plans SET status = 'expired', confirmed_by_a_at = NULL, confirmed_by_b_at = NULL, updated_at = NOW() WHERE match_id = $1 AND status IN ('proposed', 'confirmed') AND starts_at <= NOW()",
       [matchId]
