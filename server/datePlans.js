@@ -7,7 +7,12 @@ export function normalizeDatePlanInput(body) {
   const startsAt = typeof body?.startsAt === 'string' ? body.startsAt : '';
   const timeZone = typeof body?.timeZone === 'string' ? body.timeZone.trim() : '';
   if (venueName.length < 2 || venueName.length > 120 || /[\u0000-\u001f\u007f]/.test(venueName) || body?.isPublicVenue !== true) return null;
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(startsAt)) return null;
+  if (/(?:https?:\/\/|www\.|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\+?\d[\d\s().-]{7,}\d)/i.test(venueName) || /^\d{1,6}\s+\S+/.test(venueName)) return null;
+  const dateParts = startsAt.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/);
+  if (!dateParts) return null;
+  const [, year, month, day, hour, minute, second = '0'] = dateParts;
+  const maxDay = new Date(Date.UTC(Number(year), Number(month), 0)).getUTCDate();
+  if (Number(month) < 1 || Number(month) > 12 || Number(day) < 1 || Number(day) > maxDay || Number(hour) > 23 || Number(minute) > 59 || Number(second) > 59) return null;
   const instant = new Date(startsAt);
   const now = Date.now();
   if (!Number.isFinite(instant.getTime()) || instant.getTime() < now + 30 * 60_000 || instant.getTime() > now + 90 * 86_400_000) return null;
