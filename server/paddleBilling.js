@@ -122,7 +122,7 @@ async function findPaddleTransactionOwner(client, { attemptUserId = null, subscr
      LIMIT 2`,
     [subscriptionId, customerId]
   );
-  return result.rowCount === 1 ? result.rows[0].id : null;
+  return result.rowCount === 1 ? (result.rows?.[0]?.id ?? null) : null;
 }
 
 async function recordPaddleTransactionEvent(client, {
@@ -852,8 +852,9 @@ export async function processPaddleEvent(pool, rawEvent) {
           [data.id, reconciliationContext?.userId || null,
             reconciliationContext?.attemptId || null, reconciliationContext?.plan || null]
         );
+        const canceledAttemptRow = canceledAttempt.rows?.[0] ?? null;
         const transactionOwnerUserId = await findPaddleTransactionOwner(client, {
-          attemptUserId: canceledAttempt.rowCount === 1 ? canceledAttempt.rows[0].user_id : null,
+          attemptUserId: canceledAttemptRow?.user_id ?? null,
           subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
           customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null
         });
@@ -861,7 +862,7 @@ export async function processPaddleEvent(pool, rawEvent) {
           eventId,
           transactionId: data.id,
           userId: transactionOwnerUserId,
-          plan: canceledAttempt.rows[0]?.plan || inferPaddleTransactionPlan(data),
+          plan: canceledAttemptRow?.plan || inferPaddleTransactionPlan(data),
           status: 'canceled',
           subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
           customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null,
