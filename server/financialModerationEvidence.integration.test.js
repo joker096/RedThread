@@ -1483,6 +1483,26 @@ test('Paddle transaction evidence stores signed gross and net totals after credi
       balance_minor_units: '0',
       currency_code: 'GEL'
     }]);
+
+    await client.query('SAVEPOINT unsafe_transaction_amount');
+    const unsafeEventId = `evt_unsafe_amount_${randomUUID().replace(/-/g, '')}`;
+    await client.query(
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'transaction.completed')",
+      [unsafeEventId]
+    );
+    let unsafeAmountError;
+    try {
+      await client.query(
+        `INSERT INTO paddle_transaction_events
+           (event_id, transaction_id, status, amount_minor_units, currency_code)
+         VALUES ($1, $2, 'completed', 9007199254740992, 'GEL')`,
+        [unsafeEventId, `txn_${randomUUID().replace(/-/g, '')}`]
+      );
+    } catch (error) { unsafeAmountError = error; }
+    assert.equal(unsafeAmountError?.code, '23514',
+      'signed transaction amounts must remain within the exact JavaScript integer range');
+    await client.query('ROLLBACK TO SAVEPOINT unsafe_transaction_amount');
+    await client.query('RELEASE SAVEPOINT unsafe_transaction_amount');
     await client.query('ROLLBACK');
   } catch (error) {
     try { await client.query('ROLLBACK'); } catch {}
