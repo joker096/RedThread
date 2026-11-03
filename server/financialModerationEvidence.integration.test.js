@@ -373,6 +373,46 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       assert.equal(historyUserDeleteError?.code, '23503');
       await client.query('ROLLBACK TO SAVEPOINT history_user_restrict');
       await client.query('RELEASE SAVEPOINT history_user_restrict');
+      const adjustmentGuard = await client.query(
+        `SELECT pg_get_functiondef('prevent_paddle_adjustment_event_mutation()'::regprocedure) AS definition`
+      );
+      assert.match(adjustmentGuard.rows[0].definition, /Paddle adjustment evidence is append-only/);
+      const adjustmentEventId = `evt_retention_${randomUUID().replace(/-/g, '')}`;
+      await client.query(
+        `INSERT INTO paddle_adjustment_events
+         (event_id, adjustment_id, transaction_id, action, adjustment_type, status, occurred_at)
+         VALUES ($1, $2, $3, 'refund', 'full', 'pending_approval', statement_timestamp())`,
+        [adjustmentEventId, `adj_${randomUUID().replace(/-/g, '')}`, `txn_${randomUUID().replace(/-/g, '')}`]
+      );
+      await client.query('SAVEPOINT adjustment_event_immutable');
+      let adjustmentMutationError;
+      try {
+        await client.query("UPDATE paddle_adjustment_events SET status = 'approved' WHERE event_id = $1",
+          [adjustmentEventId]);
+      } catch (error) { adjustmentMutationError = error; }
+      assert.equal(adjustmentMutationError?.code, '55000');
+      await client.query('ROLLBACK TO SAVEPOINT adjustment_event_immutable');
+      await client.query('RELEASE SAVEPOINT adjustment_event_immutable');
+
+      const accessFks = await client.query(
+        `SELECT conname, pg_get_constraintdef(oid) AS definition
+         FROM pg_constraint
+         WHERE conrelid = 'identity_l3_media_access_events'::regclass
+           AND conname IN (
+             'identity_l3_media_access_events_submission_id_fkey',
+             'identity_l3_media_access_events_moderator_user_id_fkey'
+           )`
+      );
+      assert.equal(accessFks.rowCount, 2);
+      assert.ok(accessFks.rows.every(row => /ON DELETE SET NULL/.test(row.definition)));
+      const accessSnapshots = await client.query(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_schema = current_schema()
+           AND table_name = 'identity_l3_media_access_events'
+           AND column_name IN ('submission_ref', 'moderator_ref')`
+      );
+      assert.deepEqual(accessSnapshots.rows.map(row => row.column_name).sort(), ['moderator_ref', 'submission_ref']);
+
       await client.query('ROLLBACK');
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
