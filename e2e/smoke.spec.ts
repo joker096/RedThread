@@ -1955,3 +1955,103 @@ test('gift request notification opens the chats request list without exposing re
   await page.getByRole('button', { name: 'Review gift' }).click();
   await expect.poll(async () => (await ordersPanel.boundingBox())?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(250);
 });
+
+
+test('date plan requires both participants and resets confirmations after a change', async ({ browser }) => {
+  const matchId = 'e2e-date-plan-match';
+  const userAId = 'e2e-date-plan-user-a';
+  const userBId = 'e2e-date-plan-user-b';
+  let plan: null | {
+    id: string; proposedBy: string; venueName: string; startsAt: string; timeZone: string;
+    status: 'proposed' | 'confirmed'; confirmedByAAt: string | null; confirmedByBAt: string | null;
+  } = null;
+  let nextPlanId = 0;
+  const createParticipant = async (userId: string) => {
+    const context = await browser.newContext();
+    await context.addCookies([{ name: 'vow-date-plan-e2e-user', value: userId, url: 'http://127.0.0.1:4173' }]);
+    const page = await context.newPage();
+    await page.route('**/api/**', async route => {
+      const url = new URL(route.request().url());
+      const method = route.request().method();
+      const participant = route.request().headers()['cookie']?.includes(userAId) ? userAId : userBId;
+      if (url.pathname === '/api/auth/me') {
+        await route.fulfill({ json: { user: { id: participant } } }); return;
+      }
+      if (url.pathname === '/api/matches') {
+        await route.fulfill({ json: { matches: [{
+          id: matchId, partnerId: participant === userAId ? userBId : userAId,
+          displayName: 'Date Plan Test', age: 30, country: 'Georgia', city: 'Tbilisi',
+          lastMessage: null, lastMessageAt: null
+        }] } }); return;
+      }
+      if (url.pathname === '/api/matches/' + matchId + '/messages') {
+        await route.fulfill({ json: { messages: [] } }); return;
+      }
+      if (url.pathname === '/api/matches/' + matchId + '/date-plan' && method === 'GET') {
+        await route.fulfill({ json: { datePlan: plan, userAId, userBId, currentUserId: participant } }); return;
+      }
+      if (url.pathname === '/api/matches/' + matchId + '/date-plan' && method === 'POST') {
+        const body = route.request().postDataJSON();
+        nextPlanId += 1;
+        plan = {
+          id: 'e2e-plan-' + nextPlanId, proposedBy: participant,
+          venueName: body.venueName, startsAt: body.startsAt, timeZone: body.timeZone,
+          status: 'proposed', confirmedByAAt: null, confirmedByBAt: null
+        };
+        await route.fulfill({ status: 201, json: { datePlan: plan } }); return;
+      }
+      if (url.pathname === '/api/matches/' + matchId + '/date-plan/confirm' && method === 'POST') {
+        if (!plan || plan.status !== 'proposed') {
+          await route.fulfill({ status: 409, json: { error: 'date_plan_not_proposed' } }); return;
+        }
+        const stamp = new Date().toISOString();
+        if (participant === userAId) plan.confirmedByAAt ||= stamp;
+        else plan.confirmedByBAt ||= stamp;
+        if (plan.confirmedByAAt && plan.confirmedByBAt) plan.status = 'confirmed';
+        await route.fulfill({ json: { datePlan: plan } }); return;
+      }
+      await route.fulfill({ status: 404, json: { error: 'e2e_unhandled_api_route' } });
+    });
+    await page.goto('/');
+    const chatsButton = page.locator('[data-testid="nav-chats"]:visible, [data-testid="mobile-nav-chats"]:visible').first();
+    await expect(chatsButton).toBeVisible();
+    await chatsButton.click();
+    await page.getByTestId('server-match-item').click();
+    await expect(page.getByTestId('date-plan-panel')).toBeVisible();
+    return { context, page };
+  };
+
+  const participantA = await createParticipant(userAId);
+  const participantB = await createParticipant(userBId);
+  try {
+    await participantA.page.getByLabel(/venue|место встречи/i).fill('Central Public Cafe');
+    const tomorrow = new Date(Date.now() + 48 * 60 * 60 * 1000);
+    const dateValue = \`\${tomorrow.getFullYear()}-\${String(tomorrow.getMonth() + 1).padStart(2, '0')}-\${String(tomorrow.getDate()).padStart(2, '0')}T18:30\`;
+    await participantA.page.getByLabel(/date and time|дата и время/i).fill(dateValue);
+    await participantA.page.getByLabel(/public venue|общественное место/i).check();
+    await participantA.page.getByRole('button', { name: /propose date plan|предложить план встречи/i }).click();
+    await expect(participantA.page.getByText(/waiting for both|ожидаем подтверждения обоих/i)).toBeVisible();
+    await expect(participantA.page.getByRole('button', { name: /confirm|подтвердить/i })).toBeVisible();
+
+    await expect(participantB.page.getByText('Central Public Cafe')).toBeVisible();
+    await participantB.page.getByRole('button', { name: /confirm|подтвердить/i }).click();
+    await expect(participantB.page.getByText(/waiting for both|one participant|ожидаем подтверждения обоих|один участник/i)).toBeVisible();
+    expect(plan?.status).toBe('proposed');
+    expect(plan?.confirmedByAAt).toBeNull();
+    expect(plan?.confirmedByBAt).not.toBeNull();
+
+    await participantA.page.getByRole('button', { name: /confirm|подтвердить/i }).click();
+    await expect(participantA.page.getByText(/confirmed by both|оба участника подтвердили/i)).toBeVisible();
+    expect(plan?.status).toBe('confirmed');
+
+    await participantA.page.getByLabel(/venue|место встречи/i).fill('Riverside Public Cafe');
+    await participantA.page.getByRole('button', { name: /update plan|обновить план/i }).click();
+    await expect(participantA.page.getByText(/waiting for both|ожидаем подтверждения обоих/i)).toBeVisible();
+    expect(plan?.status).toBe('proposed');
+    expect(plan?.confirmedByAAt).toBeNull();
+    expect(plan?.confirmedByBAt).toBeNull();
+  } finally {
+    await participantA.context.close();
+    await participantB.context.close();
+  }
+});
