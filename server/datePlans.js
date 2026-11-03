@@ -37,6 +37,16 @@ export function registerDatePlanRoutes(app, deps) {
     if (!preview.rowCount) return null;
     const { user_a_id: userAId, user_b_id: userBId } = preview.rows[0];
     await acquireGiftSafetyUserLocks(client, userAId, userBId);
+    // Didit webhooks update the L2 row under a row lock. Lock the same row
+    // before checking eligibility so a concurrent verification revocation
+    // either waits for this plan transaction or is observed before it proceeds.
+    await client.query(
+      `SELECT user_id FROM identity_verifications
+       WHERE user_id = ANY($1::uuid[]) AND provider = 'didit'
+       ORDER BY user_id
+       FOR SHARE`,
+      [[userAId, userBId]]
+    );
     const access = await client.query(
       `SELECT m.user_a_id, m.user_b_id FROM matches m
        JOIN users ua ON ua.id = m.user_a_id AND ua.status = 'active'
