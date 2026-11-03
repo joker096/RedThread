@@ -605,6 +605,82 @@ test('auth API supports registration, session lookup, logout and login', {
     const secondMaleCookie = secondMaleRegistration.headers.get('set-cookie')?.split(';')[0];
     assert.ok(secondMaleCookie?.startsWith('nit_session='));
 
+    // Report review is a real audited state transition, not a status that can
+    // be reached only by direct SQL. Use two accounts that remain active for
+    // the rest of this integration test; the moderator actor is tombstoned
+    // later, exercising the retained moderator_ref snapshot.
+    const reportWorkflowDb = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      connectionTimeoutMillis: 5_000,
+      statement_timeout: 8_000,
+      query_timeout: 10_000
+    });
+    try {
+      const reportFixture = await reportWorkflowDb.query(
+        `INSERT INTO user_reports (reporter_id, reported_user_id, category, details)
+         VALUES ($1, $2, 'safety', 'integration report review workflow')
+         RETURNING id`,
+        [maleRegistered.user.id, secondMaleRegistered.user.id]
+      );
+      const reportId = reportFixture.rows[0].id;
+      await reportWorkflowDb.query(
+        "UPDATE users SET role = 'moderator' WHERE id = $1",
+        [registered.user.id]
+      );
+
+      const startReview = await request(`/api/admin/reports/${reportId}/action`, {
+        method: 'POST',
+        headers: { Cookie: firstCookie },
+        body: JSON.stringify({ action: 'review', reason: 'Moderator started review' })
+      });
+      assert.equal(startReview.status, 200, apiLogs);
+      assert.deepEqual(await startReview.json(), {
+        ok: true, action: 'review', accountSuspended: false
+      });
+
+      const duplicateReview = await request(`/api/admin/reports/${reportId}/action`, {
+        method: 'POST',
+        headers: { Cookie: firstCookie },
+        body: JSON.stringify({ action: 'review', reason: 'Duplicate review must not rewrite state' })
+      });
+      assert.equal(duplicateReview.status, 409,
+        'a report already in reviewing state must not be started a second time');
+
+      const finishReview = await request(`/api/admin/reports/${reportId}/action`, {
+        method: 'POST',
+        headers: { Cookie: firstCookie },
+        body: JSON.stringify({ action: 'resolve', reason: 'Moderator completed review' })
+      });
+      assert.equal(finishReview.status, 200, apiLogs);
+      assert.deepEqual(await finishReview.json(), {
+        ok: true, action: 'resolve', accountSuspended: false
+      });
+
+      const reportEvidence = await reportWorkflowDb.query(
+        `SELECT r.status, a.action, a.moderator_ref, a.details->>'newStatus' AS new_status
+         FROM user_reports r
+         JOIN moderation_audit_log a
+           ON a.target_type = 'user_report' AND a.target_id = r.id::text
+         WHERE r.id = $1
+         ORDER BY a.created_at, a.id`,
+        [reportId]
+      );
+      assert.equal(reportEvidence.rows.length, 2);
+      assert.deepEqual(reportEvidence.rows.map(row => ({
+        action: row.action, newStatus: row.new_status, moderatorRef: row.moderator_ref
+      })), [
+        { action: 'review', newStatus: 'reviewing', moderatorRef: registered.user.id },
+        { action: 'resolve', newStatus: 'resolved', moderatorRef: registered.user.id }
+      ]);
+      assert.ok(reportEvidence.rows.every(row => row.status === 'resolved'));
+    } finally {
+      await reportWorkflowDb.query(
+        "UPDATE users SET role = 'member' WHERE id = $1",
+        [registered.user.id]
+      );
+      await reportWorkflowDb.end();
+    }
+
     // Exercise withdrawal against real PostgreSQL rows, not only the pure policy helper.
     // This integration case is skipped with the enclosing auth test when DATABASE_URL is absent.
     const giftTestDb = new Pool({
