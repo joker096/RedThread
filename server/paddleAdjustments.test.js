@@ -85,6 +85,25 @@ test('partial refunds and chargeback warnings do not revoke lifetime Premium', a
   }
 });
 
+test('chargeback entitlement predicate requires an approved, non-warning dispute', async () => {
+  const { pool, calls } = makePool({ ledgerStatus: 'active', chargeback: false });
+  await sendAdjustment(pool, { action: 'chargeback', status: 'rejected' });
+  const stateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
+  assert.ok(stateQuery, 'adjustment processing must recompute the authoritative ledger state');
+  assert.match(stateQuery.statement, /action = 'chargeback' AND status = 'approved'/);
+  assert.doesNotMatch(stateQuery.statement, /status <> 'reversed'/,
+    'rejected chargebacks must not be treated as an active dispute');
+});
+
+test('adjustment webhook takes the transaction lock before writing adjustment evidence', async () => {
+  const { pool, calls } = makePool();
+  await sendAdjustment(pool, { action: 'refund', status: 'pending_approval', type: 'full' });
+  const lockIndex = calls.findIndex(call => call.statement.includes("paddle-transaction:"));
+  const insertIndex = calls.findIndex(call => call.statement.includes('INSERT INTO paddle_adjustment_events'));
+  assert.ok(lockIndex >= 0 && insertIndex > lockIndex,
+    'adjustment evidence must be serialized by transaction before it is applied');
+});
+
 test('chargebacks revoke lifetime Premium and chargeback reversals restore it', async () => {
   const chargeback = makePool({ ledgerStatus: 'active', chargeback: true });
   const revoked = await sendAdjustment(chargeback.pool, { action: 'chargeback', status: 'approved' });
@@ -172,6 +191,10 @@ test('transaction completion reconciles an approved refund delivered earlier', a
       }
     });
     assert.equal(result.handled, true);
+    const transactionLockIndex = calls.findIndex(call => call.statement.includes("paddle-transaction:"));
+    const userLockIndex = calls.findIndex(call => call.statement.includes("gift-safety-user:"));
+    assert.ok(transactionLockIndex >= 0 && userLockIndex > transactionLockIndex,
+      'transaction.completed must acquire the same transaction lock before the user lock');
     const revoke = calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements'));
     assert.deepEqual(revoke.params, [transactionId, 'paddle_full_refund', userId]);
     assert.ok(calls.some(call =>
