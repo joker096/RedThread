@@ -155,6 +155,27 @@ test('refunds missing an explicit full/partial type are retained for manual reco
     'a refund with no scope must not revoke lifetime access');
 });
 
+test('unclassified refund reversals cannot restore a previously revoked entitlement', async () => {
+  const { pool, calls } = makePool({
+    ledgerStatus: 'revoked',
+    revokeReason: 'paddle_chargeback',
+    fullRefund: false,
+    chargeback: false
+  });
+  const result = await sendAdjustment(pool, {
+    eventId: 'evt_refund_unclassified_reversal',
+    action: 'refund',
+    status: 'reversed',
+    type: 'unexpected-provider-value'
+  });
+  assert.equal(result.premiumRevoked, true);
+  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false,
+    'an unclassified refund event cannot act as reversal evidence');
+  const stateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
+  assert.match(stateQuery.statement, /AND NOT \(action = 'refund' AND adjustment_type IS NULL\)/,
+    'an unclassified refund must not supersede a previously verified adjustment state');
+});
+
 test('chargebacks still revoke lifetime access when unrelated type metadata is malformed', async () => {
   const { pool, calls } = makePool({ chargeback: true });
   const result = await sendAdjustment(pool, {
