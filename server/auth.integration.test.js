@@ -10,6 +10,39 @@ import { hashSessionToken } from './security.js';
 
 const { Pool } = pg;
 
+async function preserveGiftOrderFixture(db, orderId) {
+  if (!orderId) return;
+  const closed = await db.query(
+    `UPDATE gift_delivery_orders
+     SET status = CASE
+       WHEN payment_status IN ('not_started', 'failed', 'voided') THEN 'cancelled'
+       ELSE 'blocked'
+     END,
+     updated_at = NOW()
+     WHERE id = $1 AND status = 'awaiting_recipient_consent'
+     RETURNING status, payment_status`,
+    [orderId]
+  );
+  if (closed.rowCount !== 1) return;
+
+  const toStatus = closed.rows[0].status;
+  const eventType = toStatus === 'cancelled' ? 'cancelled' : 'safety_hold';
+  await db.query(
+    `INSERT INTO gift_delivery_order_events
+       (order_id, actor_type, event_type, from_status, to_status, metadata)
+     VALUES ($1, 'system', $2, 'awaiting_recipient_consent', $3, $4::jsonb)`,
+    [orderId, eventType, toStatus, JSON.stringify({ reason: 'test_fixture_cleanup' })]
+  );
+  if (toStatus === 'blocked') {
+    await db.query(
+      `INSERT INTO gift_payment_reconciliation_tasks (order_id, reason)
+       VALUES ($1, 'safety_hold')
+       ON CONFLICT (order_id, reason) DO NOTHING`,
+      [orderId]
+    );
+  }
+}
+
 async function findFreePort() {
   const listener = createServer();
   await new Promise((resolve, reject) => {
@@ -522,9 +555,7 @@ test('auth API supports registration, session lookup, logout and login', {
         assert.equal(concurrentAudit.rows[0].count, 1,
           'concurrent requests must not duplicate the audit event');
       } finally {
-        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [concurrentGiftOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [concurrentGiftOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [concurrentGiftOrderId]).catch(() => {});
+        await preserveGiftOrderFixture(giftTestDb, concurrentGiftOrderId);
       }
 
       // Turning off gift requests must atomically close all pending requests
@@ -584,9 +615,7 @@ test('auth API supports registration, session lookup, logout and login', {
           'DELETE FROM user_notifications WHERE dedupe_key = $1',
           [`gift_request_update:${pendingPreferenceOrder.rows[0].public_reference}:recipient_opted_out`]
         ).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [pendingPreferenceOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [pendingPreferenceOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [pendingPreferenceOrderId]).catch(() => {});
+        await preserveGiftOrderFixture(giftTestDb, pendingPreferenceOrderId);
       }
 
       // Race opt-out against recipient acceptance. The order lock serializes the
@@ -641,9 +670,7 @@ test('auth API supports registration, session lookup, logout and login', {
           to_status: 'expired'
         }], 'an expired request must record expiry, never an acceptance event');
       } finally {
-        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [expiredAcceptanceOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [expiredAcceptanceOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [expiredAcceptanceOrderId]).catch(() => {});
+        await preserveGiftOrderFixture(giftTestDb, expiredAcceptanceOrderId);
       }
 
       // Active payment states must not be silently declined or cancelled.
@@ -899,9 +926,7 @@ test('auth API supports registration, session lookup, logout and login', {
           'DELETE FROM user_notifications WHERE dedupe_key = $1',
           [`gift_request_update:${activePaymentReference}:recipient_opted_out`]
         ).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [activePaymentOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [activePaymentOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [activePaymentOrderId]).catch(() => {});
+        await preserveGiftOrderFixture(giftTestDb, activePaymentOrderId);
       }
 
       // The schema intentionally permits only one pending gift per unordered
@@ -948,9 +973,7 @@ test('auth API supports registration, session lookup, logout and login', {
         assert.deepEqual(inactiveSiblingReconciliation.rows, [],
           'an order whose payment never started must not create provider reconciliation work');
       } finally {
-        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [inactiveSiblingOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [inactiveSiblingOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [inactiveSiblingOrderId]).catch(() => {});
+        await preserveGiftOrderFixture(giftTestDb, inactiveSiblingOrderId);
       }
 
       const reenableAfterActivePayment = await request('/api/gifts/preferences', {
@@ -1011,9 +1034,7 @@ test('auth API supports registration, session lookup, logout and login', {
           (raceState.rows[0].status === 'recipient_accepted' && raceAudit.rows[0].event_type === 'accepted')
         );
       } finally {
-        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [raceOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [raceOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [raceOrderId]).catch(() => {});
+        await preserveGiftOrderFixture(giftTestDb, raceOrderId);
       }
 
       // Disabling future requests must not silently withdraw consent already
@@ -1059,9 +1080,7 @@ test('auth API supports registration, session lookup, logout and login', {
           to_status: 'recipient_accepted'
         }], 'opting out of future requests must preserve the existing consent audit event without adding cancellation');
       } finally {
-        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [acceptedOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [acceptedOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [acceptedOrderId]).catch(() => {});
+        await preserveGiftOrderFixture(giftTestDb, acceptedOrderId);
       }
 
       // Race recipient acceptance against a safety block using the same pair lock.
@@ -1125,9 +1144,7 @@ test('auth API supports registration, session lookup, logout and login', {
             'audit events must describe the actual committed state transitions'
           );
         } finally {
-          await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [safetyRaceOrderId]).catch(() => {});
-          await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [safetyRaceOrderId]).catch(() => {});
-          await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [safetyRaceOrderId]).catch(() => {});
+          await preserveGiftOrderFixture(giftTestDb, safetyRaceOrderId);
           await giftTestDb.query(
             'DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2',
             [maleRegistered.user.id, registered.user.id]
@@ -1136,9 +1153,7 @@ test('auth API supports registration, session lookup, logout and login', {
       }
     } finally {
       if (giftOrderId) {
-        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [giftOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [giftOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [giftOrderId]).catch(() => {});
+        await preserveGiftOrderFixture(giftTestDb, giftOrderId);
       }
       if (giftMatchId && giftMatchCreated) {
         await giftTestDb.query('DELETE FROM matches WHERE id = $1', [giftMatchId]).catch(() => {});
@@ -2510,9 +2525,7 @@ test('auth API supports registration, session lookup, logout and login', {
         }
       } finally {
         for (const order of neutralTerminalOrders) {
-          await giftSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [order.id]).catch(() => {});
-          await giftSafetyDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [order.id]).catch(() => {});
-          await giftSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [order.id]).catch(() => {});
+          await preserveGiftOrderFixture(giftSafetyDb, order.id);
         }
       }
 
@@ -2565,9 +2578,7 @@ test('auth API supports registration, session lookup, logout and login', {
           }
         ]);
       } finally {
-        await giftSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [dispatchedBlockSafetyOrderId]).catch(() => {});
-        await giftSafetyDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [dispatchedBlockSafetyOrderId]).catch(() => {});
-        await giftSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [dispatchedBlockSafetyOrderId]).catch(() => {});
+        await preserveGiftOrderFixture(giftSafetyDb, dispatchedBlockSafetyOrderId);
         // Isolate this block test from later account-deletion assertions that
         // intentionally exercise a separate safety action on the same fixture.
         await giftSafetyDb.query(
@@ -2583,9 +2594,7 @@ test('auth API supports registration, session lookup, logout and login', {
     } finally {
       if (reportId) await giftSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [reportId]).catch(() => {});
       for (const orderId of [blockSafetyOrderId, blockFailedDeliveryOrderId, authorizationPendingSafetyOrderId, reportSafetyOrderId, reportFailedDeliveryOrderId].filter(Boolean)) {
-        await giftSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [orderId]).catch(() => {});
-        await giftSafetyDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [orderId]).catch(() => {});
-        await giftSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [orderId]).catch(() => {});
+        await preserveGiftOrderFixture(giftSafetyDb, orderId);
       }
       await giftSafetyDb.end();
     }
@@ -2808,9 +2817,7 @@ test('auth API supports registration, session lookup, logout and login', {
       if (deletedTargetReportId) await moderationSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [deletedTargetReportId]).catch(() => {});
       if (moderationSafetyReportId) await moderationSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [moderationSafetyReportId]).catch(() => {});
       if (moderationSafetyOrderId) {
-        await moderationSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [moderationSafetyOrderId]).catch(() => {});
-        await moderationSafetyDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [moderationSafetyOrderId]).catch(() => {});
-        await moderationSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [moderationSafetyOrderId]).catch(() => {});
+        await preserveGiftOrderFixture(moderationSafetyDb, moderationSafetyOrderId);
       }
       await moderationSafetyDb.end();
     }
@@ -2903,9 +2910,7 @@ test('auth API supports registration, session lookup, logout and login', {
           'a safety report after dispatch must enqueue reconciliation for the captured payment');
       } finally {
         if (dispatchedReportId) await deletionSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [dispatchedReportId]).catch(() => {});
-        await deletionSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [dispatchedReportSafetyOrderId]).catch(() => {});
-        await deletionSafetyDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [dispatchedReportSafetyOrderId]).catch(() => {});
-        await deletionSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [dispatchedReportSafetyOrderId]).catch(() => {});
+        await preserveGiftOrderFixture(deletionSafetyDb, dispatchedReportSafetyOrderId);
       }
 
       const deletionSafetyOrder = await deletionSafetyDb.query(
@@ -3398,9 +3403,7 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.equal(dispatchedGift.rows[0].address_verified_at, null);
     } finally {
       for (const orderId of [deletionSafetyOrderId, pendingDeletionDecisionOrderId, dispatchedDeletionSafetyOrderId].filter(Boolean)) {
-        await deletionSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [orderId]).catch(() => {});
-        await deletionSafetyDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [orderId]).catch(() => {});
-        await deletionSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [orderId]).catch(() => {});
+        await preserveGiftOrderFixture(deletionSafetyDb, orderId);
       }
       await deletionSafetyDb.end();
     }
