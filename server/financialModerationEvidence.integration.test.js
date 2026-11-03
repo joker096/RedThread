@@ -1098,7 +1098,7 @@ test('manual Paddle reconciliation resolution requires an immutable moderator au
        VALUES ($1, 'paddle_adjustment_reconciliation_resolved',
                'paddle_adjustment_case', $2, 'provider checked',
                jsonb_build_object(
-                 'eventId', $2,
+                 'eventId', $2::text,
                  'reasonCode', 'transaction_owner_unlinked',
                  'resolutionSource', 'manual_operator'
                ))`,
@@ -1142,7 +1142,7 @@ test('manual Paddle reconciliation resolution requires an immutable moderator au
        VALUES ($1, 'paddle_adjustment_reconciliation_resolved',
                'paddle_adjustment_case', $2, 'member attempted resolution',
                jsonb_build_object(
-                 'eventId', $2,
+                 'eventId', $2::text,
                  'reasonCode', 'transaction_owner_unlinked',
                  'resolutionSource', 'manual_operator'
                ))`,
