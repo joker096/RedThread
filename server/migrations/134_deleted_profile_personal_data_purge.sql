@@ -1,6 +1,23 @@
 -- Remove profile-derived personal data whenever an account becomes a tombstone.
 ALTER TABLE profiles ALTER COLUMN gender DROP NOT NULL;
 
+CREATE OR REPLACE FUNCTION require_gender_for_non_deleted_profile()
+RETURNS trigger LANGUAGE plpgsql AS $
+BEGIN
+  IF NEW.gender IS NULL AND EXISTS (
+    SELECT 1 FROM users WHERE id = NEW.user_id AND status <> 'deleted'
+  ) THEN
+    RAISE EXCEPTION 'non-deleted profiles require gender' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$;
+
+DROP TRIGGER IF EXISTS profiles_require_gender_unless_deleted ON profiles;
+CREATE TRIGGER profiles_require_gender_unless_deleted
+  BEFORE INSERT OR UPDATE OF gender, user_id ON profiles
+  FOR EACH ROW EXECUTE FUNCTION require_gender_for_non_deleted_profile();
+
 DELETE FROM user_safety_screenings AS s
 USING users AS u
 WHERE u.id = s.user_id AND u.status = 'deleted';
