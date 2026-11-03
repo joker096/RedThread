@@ -93,7 +93,7 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       await client.query('ROLLBACK TO SAVEPOINT revoked_lifetime_reason_allowlist');
       await client.query('RELEASE SAVEPOINT revoked_lifetime_reason_allowlist');
 
-      const lifetimeTransactionId = 'txn_validrefundreason123';
+      const lifetimeTransactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
       const lifetimeAttemptId = randomUUID();
       await client.query(
         `INSERT INTO paddle_checkout_attempts
@@ -103,6 +103,7 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       );
 
       const unlinkedEntitlementUserId = randomUUID();
+      const unlinkedTransactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
       await client.query(
         "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
         [unlinkedEntitlementUserId, `unlinked-entitlement-${unlinkedEntitlementUserId}@example.invalid`]
@@ -110,8 +111,8 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       await client.query('SAVEPOINT lifetime_entitlement_requires_link');
       await client.query(
         `INSERT INTO paddle_lifetime_entitlements (transaction_id, user_id, status)
-         VALUES ('txn_without_linked_lifetime_attempt123', $1, 'active')`,
-        [unlinkedEntitlementUserId]
+         VALUES ($1, $2, 'active')`,
+        [unlinkedTransactionId, unlinkedEntitlementUserId]
       );
       let missingLifetimeOwnerError;
       try {
@@ -680,7 +681,7 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
          (event_id, adjustment_id, transaction_id, action, adjustment_type, status,
           amount_minor_units, currency_code, occurred_at)
          VALUES ($1, $2, $3, 'refund', 'full', 'pending_approval', 500, 'USD', statement_timestamp())`,
-        [adjustmentEventId, `adj_${randomUUID().replace(/-/g, '')}`, `txn_${randomUUID().replace(/-/g, '')}`]
+        [adjustmentEventId, `adj_${randomUUID().replace(/-/g, '').slice(0, 26)}`, `txn_${randomUUID().replace(/-/g, '')}`]
       );
       const adjustmentCase = await client.query(
         `INSERT INTO paddle_adjustment_reconciliation_cases
@@ -745,9 +746,9 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       // it must be backed by exactly one provider transaction owner. First try
       // closing an unlinked case and force its deferred constraint to execute.
       const autoLinkUserId = randomUUID();
-      const autoLinkTransactionId = `txn_${randomUUID().replace(/-/g, '')}`;
-      const autoLinkAdjustmentEventId = `evt_auto_adjustment_${randomUUID().replace(/-/g, '')}`;
-      const autoLinkTransactionEventId = `evt_auto_transaction_${randomUUID().replace(/-/g, '')}`;
+      const autoLinkTransactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+      const autoLinkAdjustmentEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+      const autoLinkTransactionEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
       await client.query(
         "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
         [autoLinkUserId, `auto-link-${autoLinkUserId}@example.invalid`]
