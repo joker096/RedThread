@@ -1866,7 +1866,7 @@ test('Paddle transaction history preserves negative totals from credit subscript
     eventType: 'transaction.completed',
     occurredAt: '2026-11-04T00:30:00Z',
     data: {
-      id: 'txn_negative_subscription_credit123',
+      id: 'txn_negativeSubscriptionCredit123',
       details: {
         totals: {
           total: '-500',
