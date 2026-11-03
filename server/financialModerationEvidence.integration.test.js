@@ -455,6 +455,40 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       await client.query('ROLLBACK TO SAVEPOINT adjustment_event_immutable');
       await client.query('RELEASE SAVEPOINT adjustment_event_immutable');
 
+      const transactionEventId = `evt_transaction_history_${randomUUID().replace(/-/g, '')}`;
+      await client.query(
+        'INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, $2)',
+        [transactionEventId, 'transaction.completed']
+      );
+      await client.query(
+        `INSERT INTO paddle_transaction_events
+         (event_id, transaction_id, user_id, plan, status, occurred_at)
+         VALUES ($1, $2, NULL, 'lifetime', 'completed', statement_timestamp())`,
+        [transactionEventId, `txn_${randomUUID().replace(/-/g, '')}`]
+      );
+      const transactionLedgerGuard = await client.query(
+        `SELECT pg_get_functiondef('prevent_paddle_transaction_event_mutation()'::regprocedure) AS definition`
+      );
+      assert.match(transactionLedgerGuard.rows[0].definition, /Paddle transaction history is append-only/);
+      const transactionLedgerTriggers = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'paddle_transaction_events'::regclass
+           AND tgname IN ('paddle_transaction_events_append_only', 'paddle_transaction_events_no_truncate')
+           AND NOT tgisinternal`
+      );
+      assert.equal(transactionLedgerTriggers.rowCount, 2);
+      await client.query('SAVEPOINT transaction_event_immutable');
+      let transactionEventMutationError;
+      try {
+        await client.query(
+          `UPDATE paddle_transaction_events SET status = 'canceled' WHERE event_id = $1`,
+          [transactionEventId]
+        );
+      } catch (error) { transactionEventMutationError = error; }
+      assert.equal(transactionEventMutationError?.code, '55000');
+      await client.query('ROLLBACK TO SAVEPOINT transaction_event_immutable');
+      await client.query('RELEASE SAVEPOINT transaction_event_immutable');
+
       const adjustmentCaseGuard = await client.query(
         `SELECT pg_get_functiondef('guard_paddle_adjustment_reconciliation_case()'::regprocedure) AS definition`
       );
