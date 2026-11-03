@@ -108,10 +108,28 @@ function inferPaddleTransactionPlan(data) {
   return matches.length === 1 ? matches[0] : null;
 }
 
-async function findPaddleTransactionOwner(client, { attemptUserId = null, subscriptionId = null, customerId = null } = {}) {
+async function findPaddleTransactionOwner(client, {
+  attemptUserId = null, transactionId = null, subscriptionId = null, customerId = null
+} = {}) {
   if (typeof attemptUserId === 'string' &&
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(attemptUserId)) {
     return attemptUserId;
+  }
+  if (typeof transactionId === 'string' && /^txn_[A-Za-z0-9]+$/.test(transactionId)) {
+    const attemptOwner = await client.query(
+      `SELECT DISTINCT user_id
+       FROM (
+         SELECT user_id, transaction_id FROM paddle_checkout_attempts
+         UNION ALL
+         SELECT user_id, transaction_id FROM paddle_checkout_attempt_history
+       ) AS attempts
+       WHERE transaction_id = $1
+       ORDER BY user_id
+       LIMIT 2`,
+      [transactionId]
+    );
+    if (attemptOwner.rowCount === 1) return attemptOwner.rows[0].user_id;
+    if (attemptOwner.rowCount > 1) return null;
   }
   if (!subscriptionId && !customerId) return null;
   const result = await client.query(
@@ -724,6 +742,7 @@ export async function processPaddleEvent(pool, rawEvent) {
       const ownsCheckoutAttempt = attemptClaim.rowCount === 1;
       const transactionOwnerUserId = await findPaddleTransactionOwner(client, {
         attemptUserId: ownsCheckoutAttempt ? customUserId : null,
+        transactionId: data.id,
         subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
         customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null
       });
@@ -893,6 +912,7 @@ export async function processPaddleEvent(pool, rawEvent) {
         const canceledAttemptRow = canceledAttempt.rows?.[0] ?? null;
         const transactionOwnerUserId = await findPaddleTransactionOwner(client, {
           attemptUserId: canceledAttemptRow?.user_id ?? null,
+          transactionId: data.id,
           subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
           customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null
         });
