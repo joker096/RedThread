@@ -29,7 +29,6 @@ BEGIN
   -- PostgreSQL's nested ON DELETE SET NULL action may clear only the live actor FK.
   -- actor_ref is the immutable opaque snapshot of the original actor identity.
   IF TG_OP = 'UPDATE'
-     AND pg_trigger_depth() > 1
      AND OLD.actor_user_id IS NOT NULL
      AND NEW.actor_user_id IS NULL
      AND (to_jsonb(NEW) - 'actor_user_id') = (to_jsonb(OLD) - 'actor_user_id') THEN
