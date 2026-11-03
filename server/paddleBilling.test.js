@@ -391,7 +391,12 @@ test('does not grant lifetime Premium when the transaction price does not match 
       eventId: 'evt_wrong_price',
       eventType: 'transaction.completed',
       data: {
-        customData: { userId: '00000000-0000-4000-8000-000000000001', plan: 'lifetime' },
+        id: 'txn_wrongprice',
+        customData: {
+          userId: '00000000-0000-4000-8000-000000000001',
+          plan: 'lifetime',
+          checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+        },
         items: [{ price: { id: 'pri_unexpected' } }]
       }
     });
@@ -402,9 +407,14 @@ test('does not grant lifetime Premium when the transaction price does not match 
       'a transaction with an unexpected price must not bind Paddle identities'
     );
     assert.equal(
-      queries.some(query => query.sql.includes('UPDATE paddle_checkout_attempts')),
+      queries.some(query => query.sql.includes("SET transaction_id = $1, status = 'completed'")),
       false,
       'a transaction with an unexpected price must not complete a checkout attempt'
+    );
+    assert.equal(
+      queries.some(query => query.sql.includes("SET status = 'reconciliation_required'")),
+      true,
+      'the mismatched transaction must remain visible for manual reconciliation'
     );
   } finally {
     if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
@@ -424,7 +434,7 @@ test('ambiguous configured price IDs cannot link a lifetime checkout', async () 
     async query(sql, params) {
       queries.push({ sql: String(sql), params });
       if (String(sql).includes('INSERT INTO paddle_webhook_events')) {
-        return { rowCount: 1, rows: [{ event_id: 'evt_ambiguous_plan' }] };
+        return { rowCount: 1, rows: [{ event_id: 'evt_ambiguousplan' }] };
       }
       return { rowCount: 1, rows: [] };
     },
@@ -433,10 +443,10 @@ test('ambiguous configured price IDs cannot link a lifetime checkout', async () 
 
   try {
     const result = await processPaddleEvent({ async connect() { return client; } }, {
-      eventId: 'evt_ambiguous_plan',
+      eventId: 'evt_ambiguousplan',
       eventType: 'transaction.completed',
       data: {
-        id: 'txn_ambiguous_plan',
+        id: 'txn_ambiguousplan',
         customData: {
           userId: '00000000-0000-4000-8000-000000000001',
           plan: 'lifetime',
