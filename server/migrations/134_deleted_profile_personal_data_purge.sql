@@ -61,7 +61,7 @@ $$;
 
 DROP TRIGGER IF EXISTS users_scrub_deleted_account_profile ON users;
 DROP TRIGGER IF EXISTS users_scrub_deleted_account_data ON users;
-CREATE TRIGGER users_scrub_deleted_account_profile
+CREATE TRIGGER users_scrub_deleted_account_data
   AFTER UPDATE OF status ON users
   FOR EACH ROW
   WHEN (NEW.status = 'deleted' AND OLD.status IS DISTINCT FROM 'deleted')
