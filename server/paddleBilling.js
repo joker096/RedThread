@@ -295,8 +295,9 @@ export async function processPaddleEvent(pool, rawEvent) {
     // Never persist a provider customer identifier that cannot be used by the
     // authenticated portal/cancellation flows. A signed but malformed event is
     // consumed without changing account identity, avoiding endless webhook retries.
+    const adjustmentWebhookEvent = eventType === 'adjustment.created' || eventType === 'adjustment.updated';
     if ((eventType === 'subscription.created' && customerId === null) ||
-        (customerId !== null && !/^ctm_[A-Za-z0-9]+$/.test(customerId))) {
+        (customerId !== null && !/^ctm_[A-Za-z0-9]+$/.test(customerId) && !adjustmentWebhookEvent)) {
       const malformedEventTransactionId = eventType === 'transaction.completed'
         ? data.id
         : eventType === 'subscription.created'
