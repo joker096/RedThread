@@ -338,6 +338,22 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
         plan: '3months',
         status: 'linked'
       }]);
+      const historyFk = await client.query(
+        `SELECT pg_get_constraintdef(oid) AS definition
+         FROM pg_constraint
+         WHERE conname = 'paddle_checkout_attempt_history_user_id_fkey'
+           AND conrelid = 'paddle_checkout_attempt_history'::regclass`
+      );
+      assert.equal(historyFk.rowCount, 1);
+      assert.match(historyFk.rows[0].definition, /ON DELETE RESTRICT/);
+      await client.query('DELETE FROM paddle_checkout_attempts WHERE user_id = $1', [linkedUserId]);
+      await client.query('SAVEPOINT history_user_restrict');
+      let historyUserDeleteError;
+      try { await client.query('DELETE FROM users WHERE id = $1', [linkedUserId]); }
+      catch (error) { historyUserDeleteError = error; }
+      assert.equal(historyUserDeleteError?.code, '23503');
+      await client.query('ROLLBACK TO SAVEPOINT history_user_restrict');
+      await client.query('RELEASE SAVEPOINT history_user_restrict');
       await client.query('ROLLBACK');
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
