@@ -581,6 +581,19 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
         `SELECT pg_get_functiondef('guard_paddle_lifetime_entitlement_identity()'::regprocedure) AS definition`
       );
       assert.match(lifetimeIdentityGuard.rows[0].definition, /transaction ownership is immutable/);
+      const giftPartnerSnapshot = await client.query(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_schema = current_schema()
+           AND table_name = 'gift_delivery_orders' AND column_name = 'delivery_partner_ref'`
+      );
+      assert.equal(giftPartnerSnapshot.rowCount, 1);
+      const giftPartnerDeleteRule = await client.query(
+        `SELECT confdeltype FROM pg_constraint
+         WHERE conrelid = 'gift_delivery_orders'::regclass
+           AND conname = 'gift_delivery_orders_delivery_partner_id_fkey'`
+      );
+      assert.equal(giftPartnerDeleteRule.rows[0]?.confdeltype, 'n',
+        'deleting a delivery partner must null the live FK while retaining delivery_partner_ref');
       const giftActorSnapshot = await client.query(
         `SELECT column_name FROM information_schema.columns
          WHERE table_schema = current_schema()
