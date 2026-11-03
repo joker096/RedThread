@@ -2167,6 +2167,63 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(femaleMessageToUnverifiedMale.status, 404,
       'women must not message male accounts without live L2 verification');
+    const datePlanPath = '/api/matches/' + matchPayload.match.id + '/date-plan';
+    const datePlanInput = {
+      venueName: 'Central Public Cafe',
+      startsAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      timeZone: 'Asia/Tbilisi',
+      isPublicVenue: true
+    };
+    const datePlanProposal = await request(datePlanPath, {
+      method: 'POST', headers: { Cookie: secondCookie }, body: JSON.stringify(datePlanInput)
+    });
+    assert.equal(datePlanProposal.status, 201, 'a participant may propose a future public meeting plan');
+    const proposedDatePlan = (await datePlanProposal.json()).datePlan;
+    assert.equal(proposedDatePlan.status, 'proposed');
+    assert.equal(proposedDatePlan.confirmedByAAt, null);
+    assert.equal(proposedDatePlan.confirmedByBAt, null,
+      'the proposer must explicitly confirm rather than being treated as having consented');
+
+    const outsiderDatePlanRead = await request(datePlanPath, { headers: { Cookie: outsiderCookie } });
+    assert.equal(outsiderDatePlanRead.status, 404, 'a non-participant must not read a date plan');
+    const privateAddressProposal = await request(datePlanPath, {
+      method: 'POST', headers: { Cookie: secondCookie },
+      body: JSON.stringify({ ...datePlanInput, venueName: '123 Main Street' })
+    });
+    assert.equal(privateAddressProposal.status, 400, 'private street addresses must not be accepted as venue labels');
+
+    const simultaneousConfirmations = await Promise.all([
+      request(datePlanPath + '/confirm', { method: 'POST', headers: { Cookie: secondCookie } }),
+      request(datePlanPath + '/confirm', { method: 'POST', headers: { Cookie: maleCookie } })
+    ]);
+    assert.deepEqual(simultaneousConfirmations.map(response => response.status), [200, 200],
+      'both participants may confirm concurrently without losing either confirmation');
+    const confirmedDatePlanResponse = await request(datePlanPath, { headers: { Cookie: secondCookie } });
+    assert.equal(confirmedDatePlanResponse.status, 200);
+    const confirmedDatePlan = (await confirmedDatePlanResponse.json()).datePlan;
+    assert.equal(confirmedDatePlan.status, 'confirmed');
+    assert.ok(confirmedDatePlan.confirmedByAAt && confirmedDatePlan.confirmedByBAt,
+      'the plan becomes confirmed only after both independent confirmations');
+
+    const changedDatePlan = await request(datePlanPath, {
+      method: 'POST', headers: { Cookie: secondCookie },
+      body: JSON.stringify({ ...datePlanInput, venueName: 'Riverside Public Cafe' })
+    });
+    assert.equal(changedDatePlan.status, 201);
+    const resetDatePlan = (await changedDatePlan.json()).datePlan;
+    assert.equal(resetDatePlan.status, 'proposed');
+    assert.equal(resetDatePlan.confirmedByAAt, null);
+    assert.equal(resetDatePlan.confirmedByBAt, null,
+      'changing a confirmed proposal must revoke both previous confirmations');
+
+    const cancelDatePlan = await request(datePlanPath + '/cancel', {
+      method: 'POST', headers: { Cookie: maleCookie }
+    });
+    assert.equal(cancelDatePlan.status, 200);
+    const cancelledDatePlanRead = await request(datePlanPath, { headers: { Cookie: secondCookie } });
+    assert.equal((await cancelledDatePlanRead.json()).datePlan, null,
+      'a cancelled plan must no longer be exposed as active');
+
     await identityGateDb.query("UPDATE identity_verifications SET status = 'verified', provider_environment = 'live' WHERE user_id = $1", [maleRegistered.user.id]);
 
     const sendMessage = await request(`/api/matches/${matchPayload.match.id}/messages`, {
