@@ -139,7 +139,7 @@ test('accepts date plan lifecycle notifications without exposing metadata', () =
       metadata: { matchId: 'private-match-id', datePlanId: 'private-plan-id' }
     };
     assert.deepEqual(normalizeNotifications([notification]), [{
-      id: notification.id, type, createdAt: notification.createdAt, readAt: null, matchId: 'match-123'
+      id: notification.id, type, createdAt: notification.createdAt, readAt: null, matchId: 'private-match-id'
     }]);
   }
 });
