@@ -12,7 +12,10 @@ CREATE TABLE IF NOT EXISTS date_plans (
   confirmed_by_b_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CHECK ((status = 'confirmed') = (confirmed_by_a_at IS NOT NULL AND confirmed_by_b_at IS NOT NULL))
+  CHECK (
+    (status = 'confirmed' AND confirmed_by_a_at IS NOT NULL AND confirmed_by_b_at IS NOT NULL)
+    OR (status <> 'confirmed' AND confirmed_by_a_at IS NULL AND confirmed_by_b_at IS NULL)
+  )
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS date_plans_one_open_per_match_idx
