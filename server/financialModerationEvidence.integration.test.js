@@ -425,6 +425,10 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
         `SELECT pg_get_functiondef('prevent_gift_payment_reconciliation_task_delete()'::regprocedure) AS definition`
       );
       assert.match(giftTaskDeleteGuard.rows[0].definition, /reconciliation evidence cannot be deleted/);
+      const lifetimeIdentityGuard = await client.query(
+        `SELECT pg_get_functiondef('guard_paddle_lifetime_entitlement_identity()'::regprocedure) AS definition`
+      );
+      assert.match(lifetimeIdentityGuard.rows[0].definition, /transaction ownership is immutable/);
       const giftActorSnapshot = await client.query(
         `SELECT column_name FROM information_schema.columns
          WHERE table_schema = current_schema()
