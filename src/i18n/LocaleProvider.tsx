@@ -158,6 +158,9 @@ const messages = {
     datePlanPrivacy: 'Do not enter home addresses, phone numbers, or private contact details. Changing any detail resets both confirmations.',
     datePlanUpdate: 'Update proposal (both must confirm again)',
     datePlanPropose: 'Propose date plan',
+    datePlanCancel: 'Cancel confirmed plan',
+    datePlanCancelConfirm: 'Cancel this confirmed date plan for both people?',
+    datePlanCancelled: 'The date plan was cancelled.',
     
     voiceIntroLabel: 'Voice intro ({seconds} sec)', profileQuestionCount: 'Profile question ({current}/{total})', profileResonance: 'Resonance',
     compatibility: 'Compatibility', compatibilityMatrixDescription: 'Estimated alignment across five relationship topics', compatibilityHighAlignment: 'Strong alignment on answers', compatibilitySomeAlignment: 'Some shared preferences', compatibilityInsufficientData: 'Not enough answers yet', compatibilityScoreDisclaimer: 'An estimate based on profile answers and preferences — not a scientific prediction or a guarantee of relationship success.', partialTranslationHelp: 'Some interface text may appear in English until translation is complete',
@@ -542,6 +545,9 @@ const messages = {
     datePlanPrivacy: 'Не указывайте домашние адреса, телефоны и личные контакты. Изменение любого параметра сбрасывает оба подтверждения.',
     datePlanUpdate: 'Изменить предложение (нужно подтвердить заново)',
     datePlanPropose: 'Предложить план встречи',
+    datePlanCancel: 'Отменить подтверждённый план',
+    datePlanCancelConfirm: 'Отменить этот подтверждённый план встречи для обоих участников?',
+    datePlanCancelled: 'План встречи отменён.',
     
     voiceIntroLabel: 'Голосовое приветствие ({seconds} с)', profileQuestionCount: 'Вопрос профиля ({current}/{total})', profileResonance: 'Резонанс',
     compatibility: 'Совместимость', compatibilityMatrixDescription: 'Предварительная оценка совпадения по пяти темам отношений', compatibilityHighAlignment: 'Много совпадений в ответах', compatibilitySomeAlignment: 'Есть общие предпочтения', compatibilityInsufficientData: 'Пока недостаточно ответов', compatibilityScoreDisclaimer: 'Оценка основана на ответах и предпочтениях анкеты. Это не научный прогноз и не гарантия успешных отношений.', partialTranslationHelp: 'Пока перевод не завершён, часть интерфейса может отображаться на английском языке',
