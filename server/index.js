@@ -3757,7 +3757,7 @@ app.post('/api/admin/screenings/:screeningId/resolve', validateRequestOrigin, re
     }
     await client.query(
       "INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, details) VALUES ($1, 'screening_cleared', 'safety_screening', $2, $3::jsonb)",
-      [req.authUser.id, req.params.screeningId, JSON.stringify({ userId: result.rows[0].userId })]
+      [req.authUser.id, req.params.screeningId, JSON.stringify({ userId: result.rows[0].userId, newStatus: result.rows[0].reviewStatus })]
     );
     await client.query('COMMIT');
     return res.json({ screening: result.rows[0] });
