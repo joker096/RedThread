@@ -3558,7 +3558,13 @@ app.post('/api/admin/photos/:photoId/review', validateRequestOrigin, requireSess
 
 app.get('/api/admin/paddle-adjustment-reconciliation', requireSession, async (req, res) => {
   const limit = Number.parseInt(String(req.query.limit ?? '50'), 10);
-  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+  const afterCreatedAt = req.query.afterCreatedAt === undefined ? null : String(req.query.afterCreatedAt);
+  const afterEventId = req.query.afterEventId === undefined ? null : String(req.query.afterEventId);
+  const hasCursor = afterCreatedAt !== null || afterEventId !== null;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100 ||
+      (hasCursor && (!afterCreatedAt || !afterEventId ||
+        !Number.isFinite(Date.parse(afterCreatedAt)) ||
+        !/^evt_[a-z0-9]{26}$/i.test(afterEventId)))) {
     return res.status(400).json({ error: 'invalid_pagination' });
   }
   try {
@@ -3572,15 +3578,20 @@ app.get('/api/admin/paddle-adjustment-reconciliation', requireSession, async (re
          FROM paddle_adjustment_reconciliation_cases AS c
          LEFT JOIN paddle_adjustment_events AS e USING (event_id)
          WHERE c.status = 'open'
-         ORDER BY c.created_at ASC
+           AND ($2::timestamptz IS NULL OR (c.created_at, c.event_id) > ($2::timestamptz, $3::text))
+         ORDER BY c.created_at ASC, c.event_id ASC
          LIMIT $1`,
-        [limit]
+        [limit, afterCreatedAt, afterEventId]
       );
       return result.rows;
     });
     if (!read.active) return res.status(401).json({ error: 'account_not_active' });
     if (read.value.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
-    return res.json({ cases: read.value });
+    const lastCase = read.value.at(-1);
+    const nextCursor = read.value.length === limit && lastCase
+      ? { createdAt: lastCase.createdAt, eventId: lastCase.eventId }
+      : null;
+    return res.json({ cases: read.value, nextCursor });
   } catch (error) {
     console.error('Paddle adjustment reconciliation queue failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'paddle_adjustment_reconciliation_queue_failed' });
