@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: browser-e2e-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  group: browser-e2e-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
