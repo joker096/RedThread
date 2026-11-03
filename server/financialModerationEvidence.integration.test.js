@@ -412,7 +412,7 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       assert.deepEqual(history.rows, [{
         user_id: userId,
         attempt_id: firstAttemptId,
-        transaction_id: 'txn_historyold123',
+        transaction_id: canceledTransactionId,
         plan: '1month',
         status: 'canceled'
       }], 'the terminal attempt must be archived atomically before current-row reuse');
@@ -430,12 +430,12 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       await client.query('RELEASE SAVEPOINT history_immutable');
 
       const thirdAttemptId = randomUUID();
+      const completedHistoryTransactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
       await client.query(
         `UPDATE paddle_checkout_attempts
-         SET transaction_id = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`, status = 'pending',
-             updated_at = statement_timestamp()
+         SET transaction_id = $3, status = 'pending', updated_at = statement_timestamp()
          WHERE user_id = $1 AND attempt_id = $2`,
-        [userId, secondAttemptId]
+        [userId, secondAttemptId, completedHistoryTransactionId]
       );
       await client.query(
         `UPDATE paddle_checkout_attempts
@@ -453,13 +453,13 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       const completedHistory = await client.query(
         `SELECT user_id, attempt_id, transaction_id, plan, status
          FROM paddle_checkout_attempt_history
-         WHERE user_id = $1 AND transaction_id = 'txn_historycompleted123'`,
-        [userId]
+         WHERE user_id = $1 AND transaction_id = $2`,
+        [userId, completedHistoryTransactionId]
       );
       assert.deepEqual(completedHistory.rows, [{
         user_id: userId,
         attempt_id: secondAttemptId,
-        transaction_id: 'txn_historycompleted123',
+        transaction_id: completedHistoryTransactionId,
         plan: '3months',
         status: 'completed'
       }], 'completed recurring transactions must also be archived before checkout pointer reuse');
@@ -507,7 +507,7 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       assert.deepEqual(linkedTransition.rows, [{
         status: 'linked',
         attempt_id: linkedTransitionAttemptId,
-        transaction_id: 'txn_completedlink123',
+        transaction_id: linkedTransitionTransactionId,
         plan: 'lifetime'
       }], 'a provider-completed lifetime attempt must be allowed to finalize as linked without changing identity');
 
@@ -557,7 +557,7 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       assert.deepEqual(reconciliationTransition.rows, [{
         status: 'reconciliation_required',
         attempt_id: reconciliationTransitionAttemptId,
-        transaction_id: 'txn_completedreconcile123'
+        transaction_id: reconciliationTransactionId
       }], 'a provider-completed attempt must be able to enter reconciliation without rewriting provider identity');
 
       const checkoutFk = await client.query(
@@ -800,15 +800,30 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       assert.match(historyFk.rows[0].definition, /ON DELETE RESTRICT/);
       const historyOnlyUserId = randomUUID();
       const historyOnlyAttemptId = randomUUID();
+      const historyOnlyReplacementAttemptId = randomUUID();
+      const historyOnlyTransactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
       await client.query(
         "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
         [historyOnlyUserId, `history-only-${historyOnlyUserId}@example.invalid`]
       );
       await client.query(
-        `INSERT INTO paddle_checkout_attempt_history
+        `INSERT INTO paddle_checkout_attempts
          (user_id, attempt_id, transaction_id, plan, status, created_at, updated_at)
-         VALUES ($1, $2, $3, '1month', 'canceled', statement_timestamp(), statement_timestamp())`,
-        [historyOnlyUserId, historyOnlyAttemptId, `txn_${randomUUID().replace(/-/g, '')}`]
+         VALUES ($1, $2, NULL, '1month', 'creating', statement_timestamp(), statement_timestamp())`,
+        [historyOnlyUserId, historyOnlyAttemptId]
+      );
+      await client.query(
+        `UPDATE paddle_checkout_attempts
+         SET transaction_id = $3, status = 'canceled', updated_at = statement_timestamp()
+         WHERE user_id = $1 AND attempt_id = $2`,
+        [historyOnlyUserId, historyOnlyAttemptId, historyOnlyTransactionId]
+      );
+      await client.query(
+        `UPDATE paddle_checkout_attempts
+         SET attempt_id = $2, transaction_id = NULL, status = 'creating',
+             created_at = statement_timestamp(), updated_at = statement_timestamp()
+         WHERE user_id = $1`,
+        [historyOnlyUserId, historyOnlyReplacementAttemptId]
       );
       await client.query('SAVEPOINT history_user_restrict');
       let historyUserDeleteError;
@@ -821,7 +836,7 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
         `SELECT pg_get_functiondef('prevent_paddle_adjustment_event_mutation()'::regprocedure) AS definition`
       );
       assert.match(adjustmentGuard.rows[0].definition, /Paddle adjustment evidence is append-only/);
-      const adjustmentEventId = `evt_retention_${randomUUID().replace(/-/g, '')}`;
+      const adjustmentEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
       await client.query(
         'INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, $2)',
         [adjustmentEventId, 'adjustment.created']
@@ -831,7 +846,7 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
          (event_id, adjustment_id, transaction_id, action, adjustment_type, status,
           amount_minor_units, currency_code, occurred_at)
          VALUES ($1, $2, $3, 'refund', 'full', 'pending_approval', 500, 'USD', statement_timestamp())`,
-        [adjustmentEventId, `adj_${randomUUID().replace(/-/g, '').slice(0, 26)}`, `txn_${randomUUID().replace(/-/g, '')}`]
+        [adjustmentEventId, `adj_${randomUUID().replace(/-/g, '').slice(0, 26)}`, `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`]
       );
       const adjustmentCase = await client.query(
         `INSERT INTO paddle_adjustment_reconciliation_cases
