@@ -17,6 +17,7 @@ Vow date plans are available only inside an active server match. They are not a 
 
 - Store only a short venue name, scheduled instant, and time-zone identifier. Do not collect home addresses, phone numbers, private contact details, or recipient delivery coordinates.
 - The venue field is a user-supplied label plus a public-place attestation; Vow does not claim to independently verify that a venue is public or safe. Users should choose a staffed, public location and arrange their own transport.
+- The API also rejects obvious contact details, coordinates, and common street/house-number patterns in Latin, Cyrillic, and Georgian text. This is a heuristic defense-in-depth filter, not a guarantee that a user cannot enter a private address.
 - Date-plan reads and writes re-check match membership, both active accounts, identity interaction eligibility, and either-direction blocks after acquiring the shared account-safety locks.
 - Writes are serialized by the match row lock and a partial unique index permits at most one proposed/confirmed plan per match.
 - Confirmation and proposal events are stored in an audit history table. Notifications are created in the same transaction as the corresponding state change.
