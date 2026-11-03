@@ -109,7 +109,7 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
               {t('datePlanPublicVenue')}
             </label>
             <p className="text-[11px] leading-relaxed text-stone-500">{t('datePlanPrivacy')}</p>
-            <button type="submit" disabled={saving || !venueName.trim() || !isPublicVenue || !startsAt} className="min-h-11 w-full rounded-lg border border-rose-400/30 bg-rose-600/15 px-3 py-2 text-xs font-bold text-rose-100 disabled:opacity-40">{saving ? t('saving') : plan ? t('datePlanUpdate') : t('datePlanPropose')}</button>
+            <button type="submit" disabled={saving || !venueName.trim() || !isPublicVenue || !startsAt} className="min-h-11 w-full rounded-lg border border-rose-400/30 bg-rose-600/15 px-3 py-2 text-xs font-bold text-rose-100 disabled:opacity-40">{saving ? t('giftOrdersWorking') : plan ? t('datePlanUpdate') : t('datePlanPropose')}</button>
           </form>
         </>
       )}
