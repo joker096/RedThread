@@ -1421,6 +1421,25 @@ test('photo and safety screening review states require matching moderator or aut
       [screeningId]
     );
     assert.deepEqual(screening.rows, [{ review_status: 'cleared', reviewed_by: moderatorId }]);
+
+    // A direct SQL UPDATE must not imitate the ON DELETE SET NULL FK action.
+    // The BEFORE trigger may allow the nested referential action, but a normal
+    // caller has trigger depth 1 and must not erase the live reviewer link.
+    await client.query('SAVEPOINT direct_screening_reviewer_nullification');
+    let directReviewerNullificationError;
+    try {
+      await client.query(
+        'UPDATE user_safety_screenings SET reviewed_by = NULL WHERE id = $1',
+        [screeningId]
+      );
+    } catch (error) { directReviewerNullificationError = error; }
+    assert.equal(directReviewerNullificationError?.code, '23514',
+      'direct SQL must not bypass reviewer metadata immutability by clearing reviewed_by');
+    await client.query('ROLLBACK TO SAVEPOINT direct_screening_reviewer_nullification');
+    await client.query('RELEASE SAVEPOINT direct_screening_reviewer_nullification');
+
+    // The actual nested FK action remains permitted and preserves the opaque
+    // reviewer snapshot in the append-only moderation audit.
     await client.query('DELETE FROM users WHERE id = $1', [moderatorId]);
     const retainedScreening = await client.query(
       'SELECT review_status, reviewed_at, reviewed_by FROM user_safety_screenings WHERE id = $1',
