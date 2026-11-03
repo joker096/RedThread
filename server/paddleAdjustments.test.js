@@ -6,7 +6,7 @@ const userId = '00000000-0000-4000-8000-000000000001';
 const transactionId = 'txn_0123456789abcdef01234567';
 let eventCounter = 0;
 
-function makePool({ ledgerStatus = 'active', revokeReason = null, fullRefund = false, chargeback = false } = {}) {
+function makePool({ ledgerStatus = 'active', revokeReason = null, fullRefund = false, chargeback = false, linkedRowCount = 1, linkedPlan = 'lifetime', linkedStatus = 'linked', userStatus = 'active' } = {}) {
   const calls = [];
   const client = {
     async query(sql, params = []) {
@@ -18,11 +18,11 @@ function makePool({ ledgerStatus = 'active', revokeReason = null, fullRefund = f
       if (statement.includes('INSERT INTO paddle_adjustment_events')) {
         return { rowCount: 1, rows: [{ event_id: params[0] }] };
       }
-      if (statement.includes('SELECT user_id FROM (')) {
-        return { rowCount: 1, rows: [{ user_id: userId }] };
+      if (statement.includes('SELECT user_id, plan, status FROM (')) {
+        return { rowCount: linkedRowCount, rows: linkedRowCount ? [{ user_id: userId, plan: linkedPlan, status: linkedStatus }] : [] };
       }
       if (statement.includes('SELECT id, status, premium_lifetime FROM users')) {
-        return { rowCount: 1, rows: [{ id: userId, status: 'active', premium_lifetime: true }] };
+        return { rowCount: 1, rows: [{ id: userId, status: userStatus, premium_lifetime: true }] };
       }
       if (statement.includes('SELECT status, revoke_reason FROM paddle_lifetime_entitlements')) {
         return { rowCount: 1, rows: [{ status: ledgerStatus, revoke_reason: revokeReason }] };
@@ -200,10 +200,32 @@ test('transaction completion reconciles an approved refund delivered earlier', a
     assert.ok(calls.some(call =>
       call.statement.includes('UPDATE users') && call.statement.includes('premium_lifetime = EXISTS')
     ), 'the prior approved refund must be applied before the new lifetime entitlement is exposed');
+    assert.ok(calls.some(call =>
+      call.statement.includes('UPDATE paddle_adjustment_reconciliation_cases') &&
+      call.params[1] === 'transaction_completed_linked_to_vow_checkout'
+    ), 'a previously unmatched adjustment case must close after transaction linkage and entitlement reconciliation');
   } finally {
     if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
     else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
   }
+});
+
+test('unmatched valid adjustments create a durable reconciliation case', async () => {
+  const { pool, calls } = makePool({ linkedRowCount: 0 });
+  const result = await sendAdjustment(pool, { action: 'refund', status: 'approved', type: 'full' });
+  assert.equal(result.reconciliationRequired, true);
+  const task = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
+  assert.ok(task, 'an unmatched adjustment must remain in a durable manual queue');
+  assert.equal(task.params[3], 'lifetime_transaction_unlinked');
+});
+
+test('adjustments for recurring Vow purchases do not touch lifetime entitlement', async () => {
+  const { pool, calls } = makePool({ linkedPlan: '3months', linkedStatus: 'completed' });
+  const result = await sendAdjustment(pool, { action: 'refund', status: 'approved', type: 'full' });
+  assert.equal(result.adjustmentRecorded, true);
+  assert.equal(result.entitlementChanged, false);
+  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
+  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')), false);
 });
 
 test('malformed adjustment identifiers are acknowledged without changing entitlement', async () => {
