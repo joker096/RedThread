@@ -199,7 +199,7 @@ async function resolvePaddleAdjustmentReconciliationCases(client, transactionId,
        AND cases.status = 'open'
        AND cases.reason_code = 'lifetime_transaction_unlinked'
        AND (
-         SELECT COUNT(*)
+         SELECT COUNT(DISTINCT user_id)
          FROM (
            SELECT user_id, transaction_id, status FROM paddle_checkout_attempts
            UNION ALL
