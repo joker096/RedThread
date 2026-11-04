@@ -4075,7 +4075,9 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
     if (!validation.value.requestsEnabled) {
       await client.query(
         `SELECT id FROM gift_delivery_orders
-         WHERE recipient_id = $1 AND status = 'awaiting_recipient_consent'
+         WHERE recipient_id = $1
+           AND status = 'awaiting_recipient_consent'
+           AND recipient_requests_disabled_at IS NULL
          ORDER BY id
          FOR UPDATE`,
         [req.authUser.id]
@@ -4089,6 +4091,7 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
              updated_at = statement_timestamp()
          WHERE recipient_id = $1
            AND status = 'awaiting_recipient_consent'
+           AND recipient_requests_disabled_at IS NULL
          RETURNING id, sender_id, public_reference, payment_status`,
         [req.authUser.id]
       );
