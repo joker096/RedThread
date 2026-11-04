@@ -2761,8 +2761,14 @@ test('Paddle chargeback reversals are paired one-to-one and must be strictly lat
         `INSERT INTO paddle_adjustment_events
          (event_id, adjustment_id, transaction_id, action, adjustment_type, status,
           amount_minor_units, currency_code, occurred_at)
-         VALUES ($1, $2, $3, $4, 'full', $5, 500, 'USD', $6::timestamptz)`,
-        [eventId, adjustment.adjustmentId || makeId('adj'), transactionId, adjustment.action, adjustment.status || 'approved', adjustment.occurredAt]
+         VALUES ($1, $2, $3, $4, 'full', $5, $6, $7, $8::timestamptz)`,
+        [
+          eventId, adjustment.adjustmentId || makeId('adj'), transactionId,
+          adjustment.action, adjustment.status || 'approved',
+          Object.hasOwn(adjustment, 'amountMinorUnits') ? adjustment.amountMinorUnits : 500,
+          Object.hasOwn(adjustment, 'currencyCode') ? adjustment.currencyCode : 'USD',
+          adjustment.occurredAt
+        ]
       );
     }
     return getPaddleAdjustmentState(client, transactionId);
@@ -2807,6 +2813,30 @@ test('Paddle chargeback reversals are paired one-to-one and must be strictly lat
     ]);
     assert.equal(missingReversal.chargebackActive, true);
     assert.equal(missingReversal.chargebackReversed, false);
+
+    const partialReversal = await stateFor([
+      { action: 'chargeback', occurredAt: '2026-11-01T10:00:00Z', amountMinorUnits: 500 },
+      { action: 'chargeback_reverse', occurredAt: '2026-11-01T11:00:00Z', amountMinorUnits: 400 }
+    ]);
+    assert.equal(partialReversal.chargebackActive, true,
+      'a partial chargeback reversal must not restore the full lifetime entitlement');
+    assert.equal(partialReversal.chargebackReversed, false);
+
+    const mismatchedCurrencyReversal = await stateFor([
+      { action: 'chargeback', occurredAt: '2026-11-01T10:00:00Z', amountMinorUnits: 500, currencyCode: 'USD' },
+      { action: 'chargeback_reverse', occurredAt: '2026-11-01T11:00:00Z', amountMinorUnits: 500, currencyCode: 'EUR' }
+    ]);
+    assert.equal(mismatchedCurrencyReversal.chargebackActive, true,
+      'a reversal in a different currency cannot offset the original chargeback');
+    assert.equal(mismatchedCurrencyReversal.chargebackReversed, false);
+
+    const missingReversalAmount = await stateFor([
+      { action: 'chargeback', occurredAt: '2026-11-01T10:00:00Z', amountMinorUnits: 500 },
+      { action: 'chargeback_reverse', occurredAt: '2026-11-01T11:00:00Z', amountMinorUnits: null }
+    ]);
+    assert.equal(missingReversalAmount.chargebackActive, true,
+      'a reversal without a verifiable amount must fail closed');
+    assert.equal(missingReversalAmount.chargebackReversed, false);
 
     const originalMarkedReversedWithoutSeparateEvidence = await stateFor([
       { action: 'chargeback', status: 'reversed', occurredAt: '2026-11-01T10:00:00Z' }
