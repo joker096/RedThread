@@ -1189,15 +1189,15 @@ test('only a verified new subscription event links a completed recurring checkou
     );
     assert.ok(transactionEvidence,
       'a verified subscription.created event must retain provider transaction linkage evidence');
-    assert.deepEqual(transactionEvidence.params.slice(0, 7), [
+    assert.deepEqual(transactionEvidence.params.slice(0, 5), [
       'evt_monthsubscription',
       'txn_0123456789abcdef01234567',
       '00000000-0000-4000-8000-000000000001',
       '1month',
-      'completed',
-      'sub_0123456789abcdef01234567',
-      'ctm_0123456789abcdef01234567'
+      'completed'
     ]);
+    assert.equal(transactionEvidence.params[10], 'sub_0123456789abcdef01234567');
+    assert.equal(transactionEvidence.params[11], 'ctm_0123456789abcdef01234567');
     const finalAttemptUpdate = queries.find(query =>
       query.sql.includes('SET status = $3') && query.sql.includes('transaction_id = $5')
     );
