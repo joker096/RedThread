@@ -33,6 +33,8 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       assert.ok(consentColumnNames.has('consent_version'));
       assert.ok(consentColumnNames.has('granted_at'));
       assert.ok(consentColumnNames.has('withdrawn_at'));
+      assert.ok(consentColumnNames.has('granted_txid'));
+      assert.ok(consentColumnNames.has('withdrawn_txid'));
       const consentEventColumns = await client.query(
         `SELECT column_name, data_type, column_default
          FROM information_schema.columns
@@ -99,21 +101,57 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       );
       await client.query('COMMIT');
 
+      // A standalone event cannot be appended later just because the current
+      // consent row happens to have the same owner/version.
       await client.query('BEGIN');
-      const forgedFutureAuditEvent = await client.query(
+      await assert.rejects(
+        client.query(
+          `INSERT INTO identity_l3_consent_events
+             (user_id, actor_user_id, event_type, consent_version, occurred_at)
+           SELECT user_id, user_id, 'granted', consent_version, statement_timestamp()
+           FROM identity_l3_consents WHERE user_id = $1`,
+          [consentProbeUserId]
+        ),
+        error => error.code === '23514'
+      );
+      await client.query('ROLLBACK');
+
+      // A real new grant transition and its event share one transaction. The
+      // database overwrites a caller-supplied event transaction ID.
+      await client.query('BEGIN');
+      await client.query(
+        'UPDATE identity_l3_consents SET granted_at = statement_timestamp() WHERE user_id = $1',
+        [consentProbeUserId]
+      );
+      const forgedTxidGrantEvent = await client.query(
         `INSERT INTO identity_l3_consent_events
            (user_id, actor_user_id, event_type, consent_version, occurred_at, recorded_txid)
-         SELECT user_id, user_id, 'withdrawn', consent_version,
-                statement_timestamp() + INTERVAL '1 day', 1::bigint
+         SELECT user_id, user_id, 'granted', consent_version, statement_timestamp(), 1::bigint
          FROM identity_l3_consents WHERE user_id = $1
          RETURNING recorded_txid, txid_current() AS current_txid`,
         [consentProbeUserId]
       );
-      assert.equal(forgedFutureAuditEvent.rows[0].recorded_txid,
-        forgedFutureAuditEvent.rows[0].current_txid,
+      assert.equal(forgedTxidGrantEvent.rows[0].recorded_txid,
+        forgedTxidGrantEvent.rows[0].current_txid,
         'the database must overwrite a caller-supplied transaction ID');
       await client.query('COMMIT');
 
+      // A future-dated standalone withdrawal event must not be appendable.
+      await client.query('BEGIN');
+      await assert.rejects(
+        client.query(
+          `INSERT INTO identity_l3_consent_events
+             (user_id, actor_user_id, event_type, consent_version, occurred_at)
+           SELECT user_id, user_id, 'withdrawn', consent_version,
+                  statement_timestamp() + INTERVAL '1 day'
+           FROM identity_l3_consents WHERE user_id = $1`,
+          [consentProbeUserId]
+        ),
+        error => error.code === '23514'
+      );
+      await client.query('ROLLBACK');
+
+      // A state transition without its matching event must fail at commit.
       await client.query('BEGIN');
       await client.query(
         'UPDATE identity_l3_consents SET withdrawn_at = statement_timestamp() WHERE user_id = $1',
@@ -125,25 +163,27 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       );
       await client.query('ROLLBACK');
 
-      // Even an event inserted in the same transaction cannot claim a future
-      // occurrence time to authorize a present consent-state transition.
+      // Even in the transition transaction, a future occurrence timestamp is
+      // rejected before it can be retained as consent audit evidence.
       await client.query('BEGIN');
-      await client.query(
-        `INSERT INTO identity_l3_consent_events
-           (user_id, actor_user_id, event_type, consent_version, occurred_at)
-         SELECT user_id, user_id, 'withdrawn', consent_version,
-                statement_timestamp() + INTERVAL '1 day'
-         FROM identity_l3_consents WHERE user_id = $1`,
-        [consentProbeUserId]
-      );
       await client.query(
         'UPDATE identity_l3_consents SET withdrawn_at = statement_timestamp() WHERE user_id = $1',
         [consentProbeUserId]
       );
+      await client.query('SAVEPOINT reject_future_withdrawal_event');
       await assert.rejects(
-        client.query('COMMIT'),
+        client.query(
+          `INSERT INTO identity_l3_consent_events
+             (user_id, actor_user_id, event_type, consent_version, occurred_at)
+           SELECT user_id, user_id, 'withdrawn', consent_version,
+                  statement_timestamp() + INTERVAL '1 day'
+           FROM identity_l3_consents WHERE user_id = $1`,
+          [consentProbeUserId]
+        ),
         error => error.code === '23514'
       );
+      await client.query('ROLLBACK TO SAVEPOINT reject_future_withdrawal_event');
+      await client.query('RELEASE SAVEPOINT reject_future_withdrawal_event');
       await client.query('ROLLBACK');
       await client.query("UPDATE users SET status = 'deleted' WHERE id = $1", [consentProbeUserId]);
       await client.query('DELETE FROM users WHERE id = $1', [consentProbeUserId]);
@@ -152,6 +192,9 @@ test('L3 schema persists metadata only and protects workflow decisions', {
          WHERE tgrelid = 'identity_l3_consent_events'::regclass AND NOT tgisinternal`
       );
       assert.ok(consentAuditTrigger.rows.some(row => row.tgname === 'identity_l3_consent_events_append_only'));
+      assert.ok(consentAuditTrigger.rows.some(row =>
+        row.tgname === 'identity_l3_consent_events_source_guard'
+      ), 'consent events must be emitted only by a matching current-state transition');
       const consentStateTriggers = await client.query(
         `SELECT tgname FROM pg_trigger
          WHERE tgrelid = 'identity_l3_consents'::regclass AND NOT tgisinternal`
@@ -171,6 +214,9 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       assert.ok(consentStateTriggers.rows.some(row =>
         row.tgname === 'identity_l3_consents_insert_guard'
       ), 'a new consent row must begin as a grant, never as an unlogged withdrawal');
+      assert.ok(consentStateTriggers.rows.some(row =>
+        row.tgname === 'identity_l3_consents_transition_txid'
+      ), 'grant and withdrawal provenance must be stamped by the database transaction');
       assert.ok(consentStateTriggers.rows.some(row =>
         row.tgname === 'identity_l3_consents_require_audit_event'
       ), 'every grant, notice update and withdrawal must have a matching immutable event');
