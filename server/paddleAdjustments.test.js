@@ -64,7 +64,7 @@ test('adjustment webhook uses the same 64-bit transaction lock key as the databa
   assert.ok(lock, 'adjustment processing must serialize by Paddle transaction ID');
   assert.match(lock.statement, /pg_advisory_xact_lock\(hashtextextended\('paddle-transaction:'/,
     'application and database trigger must use the same 64-bit advisory-lock namespace');
-  assert.doesNotMatch(lock.statement, /hashtext\\(/,
+  assert.doesNotMatch(lock.statement, /hashtext\(/,
     'the 32-bit hashtext lock is a different PostgreSQL advisory key and does not serialize with hashtextextended');
 });
 
