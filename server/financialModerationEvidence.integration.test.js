@@ -2729,6 +2729,16 @@ test('Paddle chargeback reversals are paired one-to-one and must be strictly lat
     assert.equal(originalMarkedReversedWithoutSeparateEvidence.chargebackActive, true,
       'the original adjustment status alone must not replace the separately retained chargeback_reverse event');
     assert.equal(originalMarkedReversedWithoutSeparateEvidence.chargebackReversed, false);
+
+    const rejectedAfterApprovedRefund = await stateFor([
+      { action: 'refund', status: 'approved', occurredAt: '2026-11-01T10:00:00Z' },
+      { action: 'refund', status: 'rejected', occurredAt: '2026-11-01T11:00:00Z' }
+    ]);
+    assert.equal(rejectedAfterApprovedRefund.fullRefundActive, true,
+      'a contradictory later rejection must not erase a previously approved full refund');
+    assert.equal(rejectedAfterApprovedRefund.fullRefundReversed, false,
+      'only an explicit provider reversed status can reverse the approved refund');
+
   } finally {
     try { await client.query('ROLLBACK'); } catch {}
     client.release();
