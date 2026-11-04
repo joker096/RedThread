@@ -77,6 +77,26 @@ test('L3 schema persists metadata only and protects workflow decisions', {
         "SELECT to_regclass('public.identity_l3_media_purge_jobs') AS purge_jobs"
       );
       assert.equal(purgeQueueTable.rows[0].purge_jobs, 'identity_l3_media_purge_jobs');
+      const purgeQueueTriggerNames = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'identity_l3_media_purge_jobs'::regclass AND NOT tgisinternal`
+      );
+      assert.ok(purgeQueueTriggerNames.rows.some(row =>
+        row.tgname === 'identity_l3_media_purge_jobs_no_delete'
+      ), 'pending and failed media purge work must not be deleted');
+      assert.ok(purgeQueueTriggerNames.rows.some(row =>
+        row.tgname === 'identity_l3_media_purge_jobs_no_truncate'
+      ), 'media purge queue must not be truncated');
+      const submissionDeleteTriggers = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'identity_l3_submissions'::regclass AND NOT tgisinternal`
+      );
+      assert.ok(submissionDeleteTriggers.rows.some(row =>
+        row.tgname === 'identity_l3_submissions_retain_live_media'
+      ), 'a submission with a live encrypted object must not be deleted');
+      assert.ok(submissionDeleteTriggers.rows.some(row =>
+        row.tgname === 'identity_l3_submissions_no_truncate'
+      ), 'L3 submission rows must not be truncated around the purge workflow');
       const purgeEnqueueTrigger = await client.query(
         `SELECT tgname FROM pg_trigger
          WHERE tgrelid = 'identity_l3_submissions'::regclass AND NOT tgisinternal`
