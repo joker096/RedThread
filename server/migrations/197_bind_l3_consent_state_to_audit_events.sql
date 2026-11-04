@@ -10,7 +10,7 @@ WHERE NOT EXISTS (
   WHERE event.user_id = consent.user_id
     AND event.event_type = 'granted'
     AND event.consent_version = consent.consent_version
-    AND event.occurred_at = consent.granted_at
+    AND event.occurred_at >= consent.granted_at
 );
 
 INSERT INTO identity_l3_consent_events
@@ -24,7 +24,7 @@ WHERE consent.withdrawn_at IS NOT NULL
     WHERE event.user_id = consent.user_id
       AND event.event_type = 'withdrawn'
       AND event.consent_version = consent.consent_version
-      AND event.occurred_at = consent.withdrawn_at
+      AND event.occurred_at >= consent.withdrawn_at
   );
 
 CREATE OR REPLACE FUNCTION guard_identity_l3_consent_state()
