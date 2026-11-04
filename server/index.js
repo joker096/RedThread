@@ -3590,7 +3590,7 @@ app.get('/api/admin/paddle-adjustment-reconciliation', requireSession, async (re
         `SELECT c.event_id AS "eventId", c.reason_code AS "reasonCode",
                 to_char(c.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "createdAt",
                 webhook.event_type AS "eventType",
-                e.adjustment_id AS "adjustmentId",
+                COALESCE(e.adjustment_id, c.provider_adjustment_id) AS "adjustmentId",
                 COALESCE(e.transaction_id, c.provider_transaction_id) AS "transactionId",
                 c.provider_user_ref AS "providerUserRef", c.provider_plan AS "providerPlan",
                 e.action, e.status AS "adjustmentStatus",
@@ -3649,7 +3649,8 @@ app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
       }
 
       const pending = await client.query(
-        `SELECT c.event_id, c.reason_code, e.adjustment_id,
+        `SELECT c.event_id, c.reason_code,
+                COALESCE(e.adjustment_id, c.provider_adjustment_id) AS adjustment_id,
                 COALESCE(e.transaction_id, c.provider_transaction_id) AS transaction_id,
                 c.provider_user_ref, c.provider_plan
          FROM paddle_adjustment_reconciliation_cases AS c
