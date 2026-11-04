@@ -49,6 +49,17 @@ test('L3 schema persists metadata only and protects workflow decisions', {
         `SELECT to_regclass('public.identity_l3_media_access_events') AS access_events`
       );
       assert.equal(mediaAccessAudit.rows[0].access_events, 'identity_l3_media_access_events');
+      await assert.rejects(
+        client.query(
+          `INSERT INTO identity_l3_media_access_events
+             (submission_ref, moderator_ref, access_type)
+           VALUES (
+             'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+             'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+             'viewed'
+           )`,
+        error => error.code === '23502'
+      );
       const mediaAccessTrigger = await client.query(
         `SELECT tgname FROM pg_trigger
          WHERE tgrelid = 'identity_l3_media_access_events'::regclass AND NOT tgisinternal`
