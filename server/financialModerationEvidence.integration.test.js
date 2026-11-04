@@ -2099,6 +2099,37 @@ test('Paddle transaction IDs remain globally unique across current and archived 
        VALUES ($1, $2, $3, '1month', 'completed')`,
       [firstLedgerEventId, ledgerTransactionId, firstUserId]
     );
+
+    const paidTransactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+    const subscriptionCreatedEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+    await client.query(
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'subscription.created')",
+      [subscriptionCreatedEventId]
+    );
+    await client.query(
+      `INSERT INTO paddle_transaction_events
+       (event_id, transaction_id, user_id, plan, status, subscription_id, customer_id)
+       VALUES ($1, $2, $3, '1month', 'paid', 'sub_0123456789abcdef01234567', 'ctm_0123456789abcdef01234567')`,
+      [subscriptionCreatedEventId, paidTransactionId, thirdUserId]
+    );
+    const completedAfterPaidEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+    await client.query(
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'transaction.completed')",
+      [completedAfterPaidEventId]
+    );
+    await client.query(
+      `INSERT INTO paddle_transaction_events
+       (event_id, transaction_id, user_id, plan, status, subscription_id, customer_id)
+       VALUES ($1, $2, $3, '1month', 'completed', 'sub_0123456789abcdef01234567', 'ctm_0123456789abcdef01234567')`,
+      [completedAfterPaidEventId, paidTransactionId, thirdUserId]
+    );
+    const lifecycleProgression = await client.query(
+      'SELECT status FROM paddle_transaction_events WHERE transaction_id = $1 ORDER BY received_at, event_id',
+      [paidTransactionId]
+    );
+    assert.deepEqual(lifecycleProgression.rows.map(row => row.status), ['paid', 'completed'],
+      'Paddle captured payment may progress to completed without being mislabeled or treated as a contradiction');
+
     const secondLedgerEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
     await client.query(
       "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'transaction.completed')",
