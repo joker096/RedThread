@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, chown, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -146,6 +146,29 @@ test('L3 storage rejects replaceable writable parents but permits sticky shared 
     assert.equal(await assertIdentityL3StorageReady({
       root: stickyEncryptedRoot, tempRoot: stickyScratchRoot, key
     }), true, 'sticky shared parents protect child ownership from rename attacks');
+  });
+});
+
+test('L3 storage rejects owner-writable ancestors owned by another principal', async t => {
+  if (typeof process.getuid !== 'function' || process.getuid() !== 0) {
+    t.skip('requires root to create a foreign-owned writable ancestor');
+    return;
+  }
+  await withStorage(async root => {
+    const foreignParent = path.join(root, 'foreign-owner-parent');
+    const encryptedRoot = path.join(foreignParent, 'encrypted');
+    const scratchRoot = path.join(root, 'foreign-owner-scratch');
+    await mkdir(foreignParent, { mode: 0o700 });
+    await chown(foreignParent, 65534, 65534);
+    await chmod(foreignParent, 0o755);
+    await mkdir(encryptedRoot, { mode: 0o700 });
+    await mkdir(scratchRoot, { mode: 0o700 });
+
+    await assert.rejects(
+      assertIdentityL3StorageReady({ root: encryptedRoot, tempRoot: scratchRoot, key }),
+      error => error instanceof IdentityL3StorageError &&
+        error.code === 'l3_storage_root_unsafe'
+    );
   });
 });
 
