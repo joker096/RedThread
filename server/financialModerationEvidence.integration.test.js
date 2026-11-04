@@ -2571,6 +2571,19 @@ test('Paddle transaction IDs remain globally unique across current and archived 
     await client.query('ROLLBACK TO SAVEPOINT conflicting_provider_customer_history');
     await client.query('RELEASE SAVEPOINT conflicting_provider_customer_history');
 
+    await client.query('SAVEPOINT reused_provider_customer_identity');
+    let reusedProviderCustomerIdentityError;
+    try {
+      await client.query(
+        'UPDATE users SET paddle_customer_id = $2 WHERE id = $1',
+        [secondUserId, firstUnboundCustomerId]
+      );
+    } catch (error) { reusedProviderCustomerIdentityError = error; }
+    assert.equal(reusedProviderCustomerIdentityError?.code, '23505',
+      'a Paddle customer ID retained in another account transaction history cannot be reassigned after the old account clears its live identity');
+    await client.query('ROLLBACK TO SAVEPOINT reused_provider_customer_identity');
+    await client.query('RELEASE SAVEPOINT reused_provider_customer_identity');
+
     const guardFunction = await client.query(
       "SELECT pg_get_functiondef('guard_paddle_checkout_transaction_global_uniqueness()'::regprocedure) AS definition"
     );
@@ -2583,6 +2596,21 @@ test('Paddle transaction IDs remain globally unique across current and archived 
     assert.match(guardFunction.rows[0].definition, /USING ERRCODE = '23505'/,
       'owner/plan/lifecycle collisions must be classified as identity conflicts for webhook reconciliation');
     assert.match(guardFunction.rows[0].definition, /completed\/canceled state/);
+    assert.match(guardFunction.rows[0].definition, /paddle-customer:/);
+    assert.match(guardFunction.rows[0].definition, /paddle-subscription:/);
+    const userIdentityGuard = await client.query(
+      "SELECT pg_get_functiondef('guard_paddle_user_provider_identity()'::regprocedure) AS definition"
+    );
+    assert.match(userIdentityGuard.rows[0].definition, /paddle-customer:/);
+    assert.match(userIdentityGuard.rows[0].definition, /paddle-subscription:/);
+    const userIdentityTrigger = await client.query(
+      `SELECT tgname FROM pg_trigger
+       WHERE tgrelid = 'users'::regclass
+         AND tgname = 'users_paddle_provider_identity_guard'
+         AND NOT tgisinternal`
+    );
+    assert.equal(userIdentityTrigger.rowCount, 1,
+      'Paddle provider identity assignments must be guarded at the users table as well as the event ledger');
     const currentGuard = await client.query(
       "SELECT pg_get_triggerdef(oid) AS definition FROM pg_trigger WHERE tgname = 'paddle_checkout_attempts_global_transaction_identity' AND NOT tgisinternal"
     );
