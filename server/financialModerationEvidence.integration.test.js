@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
+import { getPaddleAdjustmentState } from './paddleBilling.js';
 
 const { Pool } = pg;
 
@@ -2654,3 +2655,77 @@ test('Paddle transaction IDs remain globally unique across current and archived 
     await pool.end();
   }
 });
+
+test('Paddle chargeback reversals are paired one-to-one and must be strictly later', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const client = await pool.connect();
+  const makeId = prefix => `${prefix}_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+
+  async function stateFor(adjustments) {
+    const transactionId = makeId('txn');
+    for (const adjustment of adjustments) {
+      const eventId = makeId('evt');
+      await client.query(
+        'INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, $2)',
+        [eventId, 'adjustment.created']
+      );
+      await client.query(
+        `INSERT INTO paddle_adjustment_events
+         (event_id, adjustment_id, transaction_id, action, adjustment_type, status,
+          amount_minor_units, currency_code, occurred_at)
+         VALUES ($1, $2, $3, $4, 'full', 'approved', 500, 'USD', $5::timestamptz)`,
+        [eventId, makeId('adj'), transactionId, adjustment.action, adjustment.occurredAt]
+      );
+    }
+    return getPaddleAdjustmentState(client, transactionId);
+  }
+
+  try {
+    await client.query('BEGIN');
+
+    const correctlyPaired = await stateFor([
+      { action: 'chargeback', occurredAt: '2026-11-01T10:00:00Z' },
+      { action: 'chargeback', occurredAt: '2026-11-01T12:00:00Z' },
+      { action: 'chargeback_reverse', occurredAt: '2026-11-01T11:00:00Z' },
+      { action: 'chargeback_reverse', occurredAt: '2026-11-01T13:00:00Z' }
+    ]);
+    assert.equal(correctlyPaired.chargebackActive, false);
+    assert.equal(correctlyPaired.chargebackReversed, true);
+
+    const oneReversalCouldMatchSeveral = await stateFor([
+      { action: 'chargeback', occurredAt: '2026-11-01T10:00:00Z' },
+      { action: 'chargeback', occurredAt: '2026-11-01T11:00:00Z' },
+      { action: 'chargeback', occurredAt: '2026-11-01T12:00:00Z' },
+      { action: 'chargeback_reverse', occurredAt: '2026-11-01T10:30:00Z' },
+      { action: 'chargeback_reverse', occurredAt: '2026-11-01T10:40:00Z' },
+      { action: 'chargeback_reverse', occurredAt: '2026-11-01T12:30:00Z' }
+    ]);
+    assert.equal(oneReversalCouldMatchSeveral.chargebackActive, true,
+      'an unpaired later chargeback remains adverse even when raw counts are equal');
+    assert.equal(oneReversalCouldMatchSeveral.chargebackReversed, false);
+
+    const equalTimestamp = await stateFor([
+      { action: 'chargeback', occurredAt: '2026-11-01T10:00:00Z' },
+      { action: 'chargeback_reverse', occurredAt: '2026-11-01T10:00:00Z' }
+    ]);
+    assert.equal(equalTimestamp.chargebackActive, true,
+      'equal provider timestamps are ambiguous and must fail closed');
+    assert.equal(equalTimestamp.chargebackReversed, false);
+
+    const missingReversal = await stateFor([
+      { action: 'chargeback', occurredAt: '2026-11-01T10:00:00Z' },
+      { action: 'chargeback', occurredAt: '2026-11-01T12:00:00Z' },
+      { action: 'chargeback_reverse', occurredAt: '2026-11-01T11:00:00Z' }
+    ]);
+    assert.equal(missingReversal.chargebackActive, true);
+    assert.equal(missingReversal.chargebackReversed, false);
+  } finally {
+    try { await client.query('ROLLBACK'); } catch {}
+    client.release();
+    await pool.end();
+  }
+});
+
