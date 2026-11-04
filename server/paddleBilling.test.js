@@ -1979,6 +1979,103 @@ test('ambiguous cross-account Paddle transaction ownership is retained without a
 });
 
 
+
+test('transaction.completed quarantines custom_data owner that contradicts the retained transaction owner', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_owner_conflict';
+  const ownerA = '00000000-0000-4000-8000-000000000081';
+  const ownerB = '00000000-0000-4000-8000-000000000082';
+  const transactionId = 'txn_owner_conflict_transaction123';
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      calls.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      if (statement.includes("SET transaction_id = $1, status = 'completed'")) {
+        return { rowCount: 0, rows: [] };
+      }
+      if (statement.includes('SELECT DISTINCT user_id') && statement.includes('paddle_checkout_attempt_history')) {
+        return { rowCount: 1, rows: [{ user_id: ownerA }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_owner_conflict_transaction',
+      eventType: 'transaction.completed',
+      occurredAt: '2026-11-04T12:00:00Z',
+      data: {
+        id: transactionId,
+        customData: {
+          userId: ownerB,
+          plan: '1month',
+          checkoutAttemptId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+        },
+        items: [{ price: { id: 'pri_month_owner_conflict' } }]
+      }
+    });
+    const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
+    assert.ok(ledger);
+    assert.equal(ledger.params[2], null,
+      'contradictory signed custom_data must not be attributed to the previously linked account');
+    const conflict = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
+    assert.ok(conflict, 'the provider identity contradiction must be retained in the reconciliation queue');
+    assert.equal(conflict.params[0], 'evt_owner_conflict_transaction');
+    assert.equal(conflict.params[1], transactionId);
+    assert.equal(conflict.params[2], ownerB);
+    assert.equal(conflict.params[3], '1month');
+    assert.equal(calls.some(call => call.statement.includes('UPDATE users SET')), false);
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
+  }
+});
+
+test('transaction.paid quarantines custom_data owner that contradicts the retained transaction owner', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const ownerA = '00000000-0000-4000-8000-000000000091';
+  const ownerB = '00000000-0000-4000-8000-000000000092';
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      calls.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      if (statement.includes('SELECT DISTINCT user_id') && statement.includes('paddle_checkout_attempt_history')) {
+        return { rowCount: 1, rows: [{ user_id: ownerA }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  await processPaddleEvent({ async connect() { return client; } }, {
+    eventId: 'evt_paid_owner_conflict_transaction',
+    eventType: 'transaction.paid',
+    occurredAt: '2026-11-04T12:05:00Z',
+    data: {
+      id: 'txn_paid_owner_conflict_transaction123',
+      customData: { userId: ownerB, plan: '3months' },
+      items: [{ price: { id: 'pri_unknown_paid_plan' } }]
+    }
+  });
+  const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
+  assert.ok(ledger);
+  assert.equal(ledger.params[2], null,
+    'captured payment metadata must not be attributed to a different retained account');
+  const conflict = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
+  assert.ok(conflict);
+  assert.equal(conflict.params[2], ownerB);
+});
+
+
 test('Paddle transaction history preserves negative totals from credit subscription updates', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const calls = [];
