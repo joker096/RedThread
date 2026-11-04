@@ -625,7 +625,7 @@ export async function processPaddleEvent(pool, rawEvent) {
     const adjustmentWebhookEvent = eventType === 'adjustment.created' || eventType === 'adjustment.updated';
     // The transaction lock is always acquired before any user lock. The
     // adjustment handler follows the same order after resolving its owner.
-    if (eventType === 'transaction.completed' &&
+    if (['transaction.paid', 'transaction.completed', 'transaction.canceled'].includes(eventType) &&
         typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
       await client.query(
         "SELECT pg_advisory_xact_lock(hashtext('paddle-transaction:' || $1::text))",
