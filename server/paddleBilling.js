@@ -455,6 +455,32 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
     });
   }
 
+  if (action === 'refund' && type !== null && ['approved', 'rejected'].includes(status)) {
+    const conflictingFinalState = await client.query(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM paddle_adjustment_events AS prior
+         WHERE prior.adjustment_id = $1
+           AND prior.transaction_id = $2
+           AND prior.action = 'refund'
+           AND prior.adjustment_type = $3
+           AND prior.status IN ('approved', 'rejected')
+           AND prior.status <> $4
+           AND prior.occurred_at <= $5::timestamptz
+       ) AS conflicting_final_state`,
+      [adjustmentId, transactionId, type, status, occurredAt]
+    );
+    if (conflictingFinalState.rows?.[0]?.conflicting_final_state === true) {
+      // Paddle describes approval/rejection as mutually exclusive final
+      // outcomes. Keep any earlier approval adverse and send contradictory
+      // final-state evidence to the moderator queue instead of restoring access.
+      await recordPaddleAdjustmentReconciliationCase(client, {
+        eventId, adjustmentId, transactionId,
+        reasonCode: 'provider_lifecycle_conflict'
+      });
+    }
+  }
+
   const linked = await client.query(
     `SELECT user_id, plan,
        CASE WHEN bool_or(status = 'linked') THEN 'linked' ELSE 'completed' END AS status
