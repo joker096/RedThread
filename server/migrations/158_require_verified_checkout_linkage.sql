@@ -81,6 +81,6 @@ CREATE TRIGGER paddle_checkout_attempt_history_archive_source_guard
   EXECUTE FUNCTION require_paddle_checkout_history_archive_source();
 
 COMMENT ON FUNCTION require_linked_paddle_checkout_transaction_event() IS
-  'Requires every checkout attempt transition to linked to have matching completed transaction evidence: either a transaction.completed event or, for recurring plans only, a subscription.created event tied to the same owner's stored subscription and customer IDs.';
+  'Requires every checkout attempt transition to linked to have matching completed transaction evidence: either a transaction.completed event or, for recurring plans only, a subscription.created event tied to the same owner''s stored subscription and customer IDs.';
 COMMENT ON FUNCTION require_paddle_checkout_history_archive_source() IS
   'Allows checkout history inserts only from the nested terminal-rollover trigger and only as an exact snapshot of the current terminal attempt.';
