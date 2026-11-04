@@ -988,6 +988,11 @@ export async function processPaddleEvent(pool, rawEvent) {
         subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
         customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null
       });
+      // Migration 183 locks users before paddle_transaction_events. A lifetime
+      // or recurring completion writes the transaction ledger and then updates
+      // users, so acquire the compatible users table lock first to preserve
+      // that same order during an online migration.
+      await client.query('LOCK TABLE users IN ROW EXCLUSIVE MODE');
       await recordPaddleTransactionEvent(client, {
         eventId,
         transactionId: data.id,
