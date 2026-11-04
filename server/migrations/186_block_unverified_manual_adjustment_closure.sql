@@ -1,6 +1,10 @@
 -- A manual note is not a substitute for repairing a missing or ambiguous
 -- account/entitlement link. Those cases must remain open until the provider
 -- transaction is uniquely linked or a dedicated remediation flow exists.
+-- Drain in-flight resolutions and prevent a stale trigger definition from
+-- committing an unverified closure while this guard is being replaced.
+LOCK TABLE paddle_adjustment_reconciliation_cases IN SHARE ROW EXCLUSIVE MODE;
+
 CREATE OR REPLACE FUNCTION require_manual_paddle_adjustment_resolution_audit()
 RETURNS trigger LANGUAGE plpgsql AS $manual_adjustment_audit$
 BEGIN
