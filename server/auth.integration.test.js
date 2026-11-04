@@ -1196,8 +1196,9 @@ test('auth API supports registration, session lookup, logout and login', {
         assert.deepEqual(activePaymentAudit.rows, [
           { event_type: 'payment_reconciliation_required', reason: 'recipient_declined_active_payment' },
           { event_type: 'payment_reconciliation_required', reason: 'expired_active_payment' },
+          { event_type: 'recipient_opted_out', reason: 'recipient_opted_out' },
           { event_type: 'payment_reconciliation_required', reason: 'recipient_opted_out' }
-        ], 'each trigger cause must be audited while all causes share one reconciliation task');
+        ], 'recipient opt-out and payment reconciliation must each have distinct durable audit evidence while sharing one reconciliation task');
         const reconciliationTask = await giftTestDb.query(
           `SELECT reason, status, attempt_count
            FROM gift_payment_reconciliation_tasks
