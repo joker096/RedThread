@@ -2014,3 +2014,87 @@ test('Paddle transaction evidence stores signed gross and net totals after credi
     await pool.end();
   }
 });
+
+
+test('Paddle transaction IDs remain globally unique across current and archived checkout attempts', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const client = await pool.connect();
+  const firstUserId = randomUUID();
+  const secondUserId = randomUUID();
+  const transactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active'), ($3, $4, 'test-only-hash', 'active')",
+      [firstUserId, `txn-history-a-${firstUserId}@example.invalid`,
+        secondUserId, `txn-history-b-${secondUserId}@example.invalid`]
+    );
+
+    const firstAttemptId = randomUUID();
+    await client.query(
+      `INSERT INTO paddle_checkout_attempts
+       (user_id, attempt_id, plan, status, created_at, updated_at)
+       VALUES ($1, $2, '1month', 'creating', statement_timestamp(), statement_timestamp())`,
+      [firstUserId, firstAttemptId]
+    );
+    await client.query(
+      `UPDATE paddle_checkout_attempts
+       SET transaction_id = $2, status = 'canceled', updated_at = statement_timestamp()
+       WHERE user_id = $1 AND attempt_id = $3`,
+      [firstUserId, transactionId, firstAttemptId]
+    );
+
+    const nextAttemptId = randomUUID();
+    await client.query(
+      `UPDATE paddle_checkout_attempts
+       SET attempt_id = $2, transaction_id = NULL, plan = '1month',
+           status = 'creating', created_at = statement_timestamp(), updated_at = statement_timestamp()
+       WHERE user_id = $1`,
+      [firstUserId, nextAttemptId]
+    );
+    const archived = await client.query(
+      'SELECT user_id, attempt_id, transaction_id FROM paddle_checkout_attempt_history WHERE transaction_id = $1',
+      [transactionId]
+    );
+    assert.deepEqual(archived.rows, [{
+      user_id: firstUserId, attempt_id: firstAttemptId, transaction_id: transactionId
+    }], 'terminal rollover must retain the original transaction owner');
+
+    const secondAttemptId = randomUUID();
+    await client.query(
+      `INSERT INTO paddle_checkout_attempts
+       (user_id, attempt_id, plan, status, created_at, updated_at)
+       VALUES ($1, $2, '1month', 'creating', statement_timestamp(), statement_timestamp())`,
+      [secondUserId, secondAttemptId]
+    );
+    await client.query('SAVEPOINT duplicate_archived_transaction');
+    let duplicateTransactionError;
+    try {
+      await client.query(
+        `UPDATE paddle_checkout_attempts
+         SET transaction_id = $2, status = 'completed', updated_at = statement_timestamp()
+         WHERE user_id = $1 AND attempt_id = $3`,
+        [secondUserId, transactionId, secondAttemptId]
+      );
+    } catch (error) { duplicateTransactionError = error; }
+    assert.equal(duplicateTransactionError?.code, '23505',
+      'a transaction archived for one account must never be claimed by another current attempt');
+    await client.query('ROLLBACK TO SAVEPOINT duplicate_archived_transaction');
+    await client.query('RELEASE SAVEPOINT duplicate_archived_transaction');
+
+    const guardFunction = await client.query(
+      "SELECT pg_get_functiondef('guard_paddle_checkout_transaction_global_uniqueness()'::regprocedure) AS definition"
+    );
+    assert.match(guardFunction.rows[0].definition, /paddle_checkout_attempt_history/);
+    await client.query('ROLLBACK');
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw error;
+  } finally {
+    client.release();
+    await pool.end();
+  }
+});
