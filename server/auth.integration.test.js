@@ -1343,12 +1343,26 @@ test('auth API supports registration, session lookup, logout and login', {
            FROM gift_delivery_order_events WHERE order_id = $1 ORDER BY created_at, id`,
           [raceOrderId]
         );
-        assert.equal(raceAudit.rowCount, 1,
-          'the winning state transition must produce exactly one audit event');
-        assert.ok(
-          (raceState.rows[0].status === 'cancelled' && raceAudit.rows[0].event_type === 'cancelled') ||
-          (raceState.rows[0].status === 'recipient_accepted' && raceAudit.rows[0].event_type === 'accepted')
-        );
+        if (raceState.rows[0].status === 'cancelled') {
+          assert.deepEqual(raceAudit.rows, [
+            {
+              event_type: 'recipient_opted_out',
+              from_status: 'awaiting_recipient_consent',
+              to_status: 'awaiting_recipient_consent'
+            },
+            {
+              event_type: 'cancelled',
+              from_status: 'awaiting_recipient_consent',
+              to_status: 'cancelled'
+            }
+          ], 'an opt-out that wins must retain both the opt-out fact and the cancellation transition');
+        } else {
+          assert.deepEqual(raceAudit.rows, [{
+            event_type: 'accepted',
+            from_status: 'awaiting_recipient_consent',
+            to_status: 'recipient_accepted'
+          }], 'an acceptance that wins must remain a single accepted transition');
+        }
       } finally {
         await preserveGiftOrderFixture(giftTestDb, raceOrderId);
       }
