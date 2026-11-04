@@ -2739,6 +2739,14 @@ test('Paddle chargeback reversals are paired one-to-one and must be strictly lat
     assert.equal(rejectedAfterApprovedRefund.fullRefundReversed, false,
       'only an explicit provider reversed status can reverse the approved refund');
 
+    const pendingAfterApprovedRefund = await stateFor([
+      { action: 'refund', status: 'approved', occurredAt: '2026-11-01T10:00:00Z' },
+      { action: 'refund', status: 'pending_approval', occurredAt: '2026-11-01T11:00:00Z' }
+    ]);
+    assert.equal(pendingAfterApprovedRefund.fullRefundActive, true,
+      'a later pending state cannot erase a prior final approval');
+    assert.equal(pendingAfterApprovedRefund.fullRefundReversed, false);
+
   } finally {
     try { await client.query('ROLLBACK'); } catch {}
     client.release();
