@@ -323,6 +323,31 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       assert.deepEqual(unlinkedState.rows, [{ status: 'open' }]);
 
+      const lifecycleConflictEventId = `evt_${randomUUID().replaceAll('-', '').slice(0, 26)}`;
+      await reconciliationDb.query(
+        "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'transaction.completed')",
+        [lifecycleConflictEventId]
+      );
+      await reconciliationDb.query(
+        "INSERT INTO paddle_adjustment_reconciliation_cases (event_id, reason_code) VALUES ($1, 'provider_lifecycle_conflict')",
+        [lifecycleConflictEventId]
+      );
+      const lifecycleConflictResolution = await request(
+        `/api/admin/paddle-adjustment-reconciliation/${lifecycleConflictEventId}/resolve`,
+        {
+          method: 'POST',
+          headers: { Cookie: firstCookie },
+          body: JSON.stringify({ resolutionNote: 'transaction state requires verified provider reconciliation' })
+        }
+      );
+      assert.equal(lifecycleConflictResolution.status, 409,
+        'a transaction lifecycle conflict must not be closed by a generic moderator note');
+      const lifecycleConflictState = await reconciliationDb.query(
+        'SELECT status FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1',
+        [lifecycleConflictEventId]
+      );
+      assert.deepEqual(lifecycleConflictState.rows, [{ status: 'open' }]);
+
       const duplicateResolution = await request(
         `/api/admin/paddle-adjustment-reconciliation/${reconciliationEventId}/resolve`,
         {
