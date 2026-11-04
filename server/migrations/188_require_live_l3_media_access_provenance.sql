@@ -1,5 +1,5 @@
 -- New media-access audit rows must be created from a real submission and
--- active moderator relationship. Opaque snapshots preserve provenance only
+-- moderator account relationship. Opaque snapshots preserve provenance only
 -- after those live foreign keys are later nulled by account/media erasure;
 -- they must never be a caller-supplied substitute for the live references.
 CREATE OR REPLACE FUNCTION snapshot_identity_l3_media_access_event_refs()
