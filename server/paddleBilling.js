@@ -233,24 +233,35 @@ export async function getPaddleAdjustmentState(client, transactionId) {
          ROW_NUMBER() OVER (ORDER BY occurred_at, adjustment_id) AS sequence_number
        FROM latest_per_adjustment
        WHERE action = 'chargeback_reverse' AND status = 'approved'
+     ),
+     chargeback_reconciliation AS (
+       SELECT
+         (SELECT COUNT(*) FROM chargebacks) AS chargeback_count,
+         (SELECT COUNT(*) FROM chargeback_reversals) AS reversal_count,
+         NOT EXISTS (
+           SELECT 1
+           FROM chargebacks AS chargeback
+           LEFT JOIN chargeback_reversals AS reversal
+             ON reversal.sequence_number = chargeback.sequence_number
+           WHERE reversal.adjustment_id IS NULL
+              OR reversal.occurred_at <= chargeback.occurred_at
+         ) AS all_chargebacks_paired
      )
      SELECT
        EXISTS (
          SELECT 1 FROM latest_per_adjustment
          WHERE action = 'refund' AND adjustment_type = 'full' AND status = 'approved'
        ) AS full_refund_active,
-       (SELECT COUNT(*) FROM chargebacks) >
-       (SELECT COUNT(*) FROM chargeback_reversals) AS chargeback_active,
-       (SELECT COUNT(*) FROM chargebacks) > 0
-       AND (SELECT COUNT(*) FROM chargebacks) =
-           (SELECT COUNT(*) FROM chargeback_reversals)
-       AND NOT EXISTS (
-         SELECT 1
-         FROM chargebacks AS chargeback
-         LEFT JOIN chargeback_reversals AS reversal
-           ON reversal.sequence_number = chargeback.sequence_number
-         WHERE reversal.adjustment_id IS NULL
-            OR reversal.occurred_at <= chargeback.occurred_at
+       (
+         SELECT chargeback_count > 0
+           AND NOT (chargeback_count = reversal_count AND all_chargebacks_paired)
+         FROM chargeback_reconciliation
+       ) AS chargeback_active,
+       (
+         SELECT chargeback_count > 0
+           AND chargeback_count = reversal_count
+           AND all_chargebacks_paired
+         FROM chargeback_reconciliation
        ) AS chargeback_reversed,
        EXISTS (
          SELECT 1
