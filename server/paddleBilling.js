@@ -950,9 +950,10 @@ export async function processPaddleEvent(pool, rawEvent) {
           customData.plan !== transactionPlan
         );
         if (providerOwnerConflict || providerPlanConflict) {
-          await recordPaddleProviderIdentityConflictCase(client, {
-            eventId, transactionId: data.id, userId: customUserId, plan: customData.plan
-          });
+          // transaction.paid is only a capture snapshot. Defer opening the
+          // durable ownership-conflict case until transaction.completed, whose
+          // final provider evidence can be reconciled without leaving a
+          // permanently unresolvable case for an intermediate event.
           transactionOwnerUserId = null;
         }
         await recordPaddleTransactionEvent(client, {
