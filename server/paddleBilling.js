@@ -267,6 +267,18 @@ export async function getPaddleAdjustmentState(client, transactionId) {
                    AND prior.occurred_at <= latest.occurred_at
                )
              )
+             OR (
+               latest.status = 'reversed'
+               AND NOT EXISTS (
+                 SELECT 1 FROM paddle_adjustment_events AS prior
+                 WHERE prior.adjustment_id = latest.adjustment_id
+                   AND prior.transaction_id = $1
+                   AND prior.action = 'refund'
+                   AND prior.adjustment_type = 'full'
+                   AND prior.status = 'approved'
+                   AND prior.occurred_at <= latest.occurred_at
+               )
+             )
            )
        ) AS full_refund_active,
        (
@@ -455,18 +467,37 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
     });
   }
 
-  if (action === 'refund' && type !== null && ['pending_approval', 'approved', 'rejected'].includes(status)) {
+  if (action === 'refund' && type !== null &&
+      ['pending_approval', 'approved', 'rejected', 'reversed'].includes(status)) {
     const conflictingFinalState = await client.query(
-      `SELECT EXISTS (
-         SELECT 1
-         FROM paddle_adjustment_events AS prior
-         WHERE prior.adjustment_id = $1
-           AND prior.transaction_id = $2
-           AND prior.action = 'refund'
-           AND prior.adjustment_type = $3
-           AND prior.status IN ('approved', 'rejected')
-           AND prior.status <> $4
-           AND prior.occurred_at <= $5::timestamptz
+      `SELECT (
+         (
+           $4::text = 'reversed'
+           AND NOT EXISTS (
+             SELECT 1
+             FROM paddle_adjustment_events AS prior
+             WHERE prior.adjustment_id = $1
+               AND prior.transaction_id = $2
+               AND prior.action = 'refund'
+               AND prior.adjustment_type = $3
+               AND prior.status = 'approved'
+               AND prior.occurred_at <= $5::timestamptz
+           )
+         )
+         OR (
+           $4::text IN ('pending_approval', 'approved', 'rejected')
+           AND EXISTS (
+             SELECT 1
+             FROM paddle_adjustment_events AS prior
+             WHERE prior.adjustment_id = $1
+               AND prior.transaction_id = $2
+               AND prior.action = 'refund'
+               AND prior.adjustment_type = $3
+               AND prior.status IN ('approved', 'rejected')
+               AND prior.status <> $4
+               AND prior.occurred_at <= $5::timestamptz
+           )
+         )
        ) AS conflicting_final_state`,
       [adjustmentId, transactionId, type, status, occurredAt]
     );
