@@ -2270,13 +2270,49 @@ test('auth API supports registration, session lookup, logout and login', {
     );
     assert.deepEqual(rejectedDecision.rows, [{ status: 'rejected', is_active: false }],
       'a newer rejected re-verification must also invalidate older approval history');
-    const purgedRejectedMedia = await identityGateDb.query(
-      `UPDATE identity_l3_submissions
-       SET storage_object_key = NULL, media_purged_at = NOW()
-       WHERE id = $1
-       RETURNING status, storage_object_key, media_purged_at`,
-      [rejectedReverificationId]
-    );
+    const rejectedPurgeClient = await identityGateDb.connect();
+    let purgedRejectedMedia;
+    try {
+      await rejectedPurgeClient.query('BEGIN');
+      const rejectedPurgeJob = await rejectedPurgeClient.query(
+        'SELECT id FROM identity_l3_media_purge_jobs WHERE submission_id = $1 FOR UPDATE',
+        [rejectedReverificationId]
+      );
+      assert.equal(rejectedPurgeJob.rowCount, 1,
+        'rejecting retained L3 media must create a durable purge job');
+      const rejectedPurgeLeaseToken = randomUUID();
+      await rejectedPurgeClient.query(
+        `UPDATE identity_l3_media_purge_jobs
+         SET status = 'processing',
+             attempts = attempts + 1,
+             lease_token = $2,
+             lease_expires_at = statement_timestamp() + INTERVAL '2 minutes'
+         WHERE id = $1`,
+        [rejectedPurgeJob.rows[0].id, rejectedPurgeLeaseToken]
+      );
+      purgedRejectedMedia = await rejectedPurgeClient.query(
+        `UPDATE identity_l3_submissions
+         SET storage_object_key = NULL, media_purged_at = statement_timestamp()
+         WHERE id = $1
+         RETURNING status, storage_object_key, media_purged_at`,
+        [rejectedReverificationId]
+      );
+      await rejectedPurgeClient.query(
+        `UPDATE identity_l3_media_purge_jobs
+         SET status = 'completed',
+             completed_at = statement_timestamp(),
+             lease_token = NULL,
+             lease_expires_at = NULL
+         WHERE id = $1 AND status = 'processing' AND lease_token = $2`,
+        [rejectedPurgeJob.rows[0].id, rejectedPurgeLeaseToken]
+      );
+      await rejectedPurgeClient.query('COMMIT');
+    } catch (error) {
+      await rejectedPurgeClient.query('ROLLBACK');
+      throw error;
+    } finally {
+      rejectedPurgeClient.release();
+    }
     assert.equal(purgedRejectedMedia.rows[0].status, 'rejected');
     assert.equal(purgedRejectedMedia.rows[0].storage_object_key, null);
     assert.ok(purgedRejectedMedia.rows[0].media_purged_at,
