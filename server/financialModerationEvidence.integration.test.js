@@ -2587,6 +2587,14 @@ test('Paddle transaction IDs remain globally unique across current and archived 
     await client.query('ROLLBACK TO SAVEPOINT conflicting_provider_customer_history');
     await client.query('RELEASE SAVEPOINT conflicting_provider_customer_history');
 
+    await client.query(
+      'UPDATE users SET paddle_customer_id = $2 WHERE id = $1',
+      [unboundUserId, firstUnboundCustomerId]
+    );
+    await client.query(
+      'UPDATE users SET paddle_customer_id = NULL WHERE id = $1',
+      [unboundUserId]
+    );
     await client.query('SAVEPOINT reused_provider_customer_identity');
     let reusedProviderCustomerIdentityError;
     try {
