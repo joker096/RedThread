@@ -228,7 +228,37 @@ async function getPaddleAdjustmentState(client, transactionId) {
        EXISTS (
          SELECT 1 FROM latest_per_adjustment
          WHERE action = 'chargeback' AND status = 'approved'
-       ) AS chargeback_active`,
+       ) AS chargeback_active,
+       EXISTS (
+         SELECT 1
+         FROM latest_per_adjustment AS latest
+         WHERE latest.action = 'chargeback'
+           AND latest.status = 'reversed'
+           AND EXISTS (
+             SELECT 1 FROM paddle_adjustment_events AS prior
+             WHERE prior.adjustment_id = latest.adjustment_id
+               AND prior.transaction_id = $1
+               AND prior.action = 'chargeback'
+               AND prior.status = 'approved'
+               AND prior.occurred_at <= latest.occurred_at
+           )
+       ) AS chargeback_reversed,
+       EXISTS (
+         SELECT 1
+         FROM latest_per_adjustment AS latest
+         WHERE latest.action = 'refund'
+           AND latest.adjustment_type = 'full'
+           AND latest.status IN ('rejected', 'reversed')
+           AND EXISTS (
+             SELECT 1 FROM paddle_adjustment_events AS prior
+             WHERE prior.adjustment_id = latest.adjustment_id
+               AND prior.transaction_id = $1
+               AND prior.action = 'refund'
+               AND prior.adjustment_type = 'full'
+               AND prior.status = 'approved'
+               AND prior.occurred_at <= latest.occurred_at
+           )
+       ) AS full_refund_reversed`,
     [transactionId]
   );
   const fullRefundActive = result.rows[0]?.full_refund_active === true;
@@ -236,6 +266,8 @@ async function getPaddleAdjustmentState(client, transactionId) {
   return {
     fullRefundActive,
     chargebackActive,
+    chargebackReversed: result.rows[0]?.chargeback_reversed === true,
+    fullRefundReversed: result.rows[0]?.full_refund_reversed === true,
     hasAdverseAdjustment: fullRefundActive || chargebackActive,
     revokeReason: fullRefundActive ? 'paddle_full_refund'
       : chargebackActive ? 'paddle_chargeback' : null
@@ -448,17 +480,23 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
 
   const adjustmentState = await getPaddleAdjustmentState(client, transactionId);
   const hasAdverseAdjustment = adjustmentState.hasAdverseAdjustment;
-  const isReversal = (action === 'chargeback_reverse' && status === 'approved') ||
-    (action === 'chargeback' && status === 'reversed') ||
-    (action === 'refund' && type !== null && ['rejected', 'reversed'].includes(status));
+  const reversalMatchesRevocation =
+    (entitlement.revoke_reason === 'paddle_chargeback' &&
+      ['chargeback_reverse', 'chargeback'].includes(action) &&
+      ((action === 'chargeback_reverse' && status === 'approved') ||
+       (action === 'chargeback' && status === 'reversed')) &&
+      adjustmentState.chargebackReversed) ||
+    (entitlement.revoke_reason === 'paddle_full_refund' &&
+      action === 'refund' && type === 'full' &&
+      ['rejected', 'reversed'].includes(status) &&
+      adjustmentState.fullRefundReversed);
 
   let nextStatus = entitlement.status;
   let revokeReason = entitlement.revoke_reason;
   if (hasAdverseAdjustment) {
     nextStatus = 'revoked';
     revokeReason = adjustmentState.revokeReason;
-  } else if (isReversal && entitlement.status === 'revoked' &&
-             ['paddle_full_refund', 'paddle_chargeback'].includes(entitlement.revoke_reason)) {
+  } else if (reversalMatchesRevocation && entitlement.status === 'revoked') {
     nextStatus = 'active';
     revokeReason = null;
   }
