@@ -2207,6 +2207,17 @@ test('Paddle adjustment conflict migration preserves provider adjustment identit
     /audit\.details->>'adjustmentId'[\s\S]*NEW\.provider_adjustment_id/);
 });
 
+test('Paddle manual resolution migration keeps unverified ownership cases open', async () => {
+  const migration = await readFile(
+    new URL('./migrations/186_block_unverified_manual_adjustment_closure.sql', import.meta.url),
+    'utf8'
+  );
+  assert.match(migration,
+    /NEW\.reason_code NOT IN \([\s\S]*'invalid_adjustment_payload'[\s\S]*'provider_identity_conflict'[\s\S]*'provider_lifecycle_conflict'/);
+  assert.match(migration,
+    /unresolved\/ambiguous owner links, inactive accounts and missing entitlements cannot be cleared by a note/);
+});
+
 test('Paddle identity migration acquires table locks in the application write order', async () => {
   const migration = await readFile(
     new URL('./migrations/183_guard_paddle_provider_identity_consistency.sql', import.meta.url),
