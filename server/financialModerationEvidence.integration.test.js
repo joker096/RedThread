@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
-import { getPaddleAdjustmentState } from './paddleBilling.js';
+import { getPaddleAdjustmentState, processPaddleEvent } from './paddleBilling.js';
 
 const { Pool } = pg;
 
@@ -2725,6 +2725,76 @@ test('Paddle chargeback reversals are paired one-to-one and must be strictly lat
   } finally {
     try { await client.query('ROLLBACK'); } catch {}
     client.release();
+    await pool.end();
+  }
+});
+
+test('conflicting Paddle adjustment identity is quarantined without entering the financial ledger', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const makeId = prefix => `${prefix}_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  const adjustmentId = makeId('adj');
+  const originalTransactionId = makeId('txn');
+  const conflictingTransactionId = makeId('txn');
+  const originalEventId = makeId('evt');
+  const conflictingEventId = makeId('evt');
+
+  try {
+    await pool.query(
+      'INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, $2)',
+      [originalEventId, 'adjustment.created']
+    );
+    await pool.query(
+      `INSERT INTO paddle_adjustment_events
+       (event_id, adjustment_id, transaction_id, action, adjustment_type, status,
+        amount_minor_units, currency_code, occurred_at)
+       VALUES ($1, $2, $3, 'chargeback', NULL, 'approved', NULL, NULL, $4::timestamptz)`,
+      [originalEventId, adjustmentId, originalTransactionId, '2026-11-01T10:00:00Z']
+    );
+
+    const result = await processPaddleEvent(pool, {
+      eventId: conflictingEventId,
+      eventType: 'adjustment.created',
+      occurredAt: '2026-11-01T11:00:00Z',
+      data: {
+        id: adjustmentId,
+        transactionId: conflictingTransactionId,
+        action: 'chargeback',
+        type: 'full',
+        status: 'approved',
+        currencyCode: 'USD',
+        totals: { total: '500', currencyCode: 'USD' }
+      }
+    });
+
+    assert.deepEqual(result, {
+      duplicate: false,
+      handled: true,
+      reconciliationRequired: true
+    });
+    const retained = await pool.query(
+      'SELECT reason_code, provider_transaction_id FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1',
+      [conflictingEventId]
+    );
+    assert.deepEqual(retained.rows, [{
+      reason_code: 'provider_identity_conflict',
+      provider_transaction_id: conflictingTransactionId
+    }]);
+    const rejectedLedgerInsert = await pool.query(
+      'SELECT COUNT(*)::int AS count FROM paddle_adjustment_events WHERE event_id = $1',
+      [conflictingEventId]
+    );
+    assert.equal(rejectedLedgerInsert.rows[0].count, 0,
+      'conflicting provider evidence must not enter the normalized adjustment ledger');
+    const dedupe = await pool.query(
+      'SELECT event_type FROM paddle_webhook_events WHERE event_id = $1',
+      [conflictingEventId]
+    );
+    assert.deepEqual(dedupe.rows, [{ event_type: 'adjustment.created' }],
+      'the signed provider event ID remains retained so retries cannot reapply the conflict');
+  } finally {
     await pool.end();
   }
 });
