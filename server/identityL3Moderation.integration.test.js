@@ -118,8 +118,15 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
       [applicantId, randomUUID(), randomUUID()]
     );
     await pool.query(
-      `INSERT INTO identity_l3_consents (user_id, consent_version, granted_at)
-       VALUES ($1, 2, statement_timestamp())`,
+      `WITH granted AS (
+         INSERT INTO identity_l3_consents (user_id, consent_version, granted_at)
+         VALUES ($1, 2, statement_timestamp())
+         RETURNING user_id, consent_version, granted_at
+       )
+       INSERT INTO identity_l3_consent_events
+         (user_id, actor_user_id, event_type, consent_version, occurred_at)
+       SELECT user_id, user_id, 'granted', consent_version, granted_at
+       FROM granted`,
       [applicantId]
     );
 
