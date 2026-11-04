@@ -2031,4 +2031,12 @@ test('transaction.paid is retained as captured payment without granting or final
     'transaction.paid alone must not grant recurring or lifetime access');
   assert.equal(queries.some(query => query.statement.includes('UPDATE paddle_checkout_attempts')), false,
     'transaction.paid alone must not finalize or link the checkout attempt');
+  const transactionLockIndex = queries.findIndex(query =>
+    query.statement.includes("pg_advisory_xact_lock(hashtext('paddle-transaction:'")
+  );
+  const ledgerIndex = queries.findIndex(query =>
+    query.statement.includes('INSERT INTO paddle_transaction_events')
+  );
+  assert.ok(transactionLockIndex >= 0 && ledgerIndex > transactionLockIndex,
+    'paid events must serialize with transaction completion and adjustment processing');
 });
