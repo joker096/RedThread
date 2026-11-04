@@ -2764,6 +2764,15 @@ test('Paddle chargeback reversals are paired one-to-one and must be strictly lat
     assert.equal(approvedThenReversedRefund.fullRefundActive, false);
     assert.equal(approvedThenReversedRefund.fullRefundReversed, true);
 
+    const sameTimeRefundAdjustmentId = makeId('adj');
+    const sameTimeRefundReversal = await stateFor([
+      { action: 'refund', adjustmentId: sameTimeRefundAdjustmentId, status: 'approved', occurredAt: '2026-11-01T10:00:00Z' },
+      { action: 'refund', adjustmentId: sameTimeRefundAdjustmentId, status: 'reversed', occurredAt: '2026-11-01T10:00:00Z' }
+    ]);
+    assert.equal(sameTimeRefundReversal.fullRefundActive, true,
+      'equal provider timestamps do not prove that the refund was approved before being reversed');
+    assert.equal(sameTimeRefundReversal.fullRefundReversed, false);
+
   } finally {
     try { await client.query('ROLLBACK'); } catch {}
     client.release();
