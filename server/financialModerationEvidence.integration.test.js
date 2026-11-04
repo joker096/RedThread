@@ -2085,6 +2085,38 @@ test('Paddle transaction IDs remain globally unique across current and archived 
     await client.query('ROLLBACK TO SAVEPOINT duplicate_archived_transaction');
     await client.query('RELEASE SAVEPOINT duplicate_archived_transaction');
 
+    const ledgerTransactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+    const firstLedgerEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+    await client.query(
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'transaction.completed')",
+      [firstLedgerEventId]
+    );
+    await client.query(
+      `INSERT INTO paddle_transaction_events
+       (event_id, transaction_id, user_id, plan, status)
+       VALUES ($1, $2, $3, '1month', 'completed')`,
+      [firstLedgerEventId, ledgerTransactionId, firstUserId]
+    );
+    const secondLedgerEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+    await client.query(
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'transaction.completed')",
+      [secondLedgerEventId]
+    );
+    await client.query('SAVEPOINT conflicting_transaction_ledger_owner');
+    let conflictingLedgerOwnerError;
+    try {
+      await client.query(
+        `INSERT INTO paddle_transaction_events
+         (event_id, transaction_id, user_id, plan, status)
+         VALUES ($1, $2, $3, '1month', 'completed')`,
+        [secondLedgerEventId, ledgerTransactionId, secondUserId]
+      );
+    } catch (error) { conflictingLedgerOwnerError = error; }
+    assert.equal(conflictingLedgerOwnerError?.code, '23514',
+      'separate provider event IDs must not assign one Paddle transaction to two Vow accounts');
+    await client.query('ROLLBACK TO SAVEPOINT conflicting_transaction_ledger_owner');
+    await client.query('RELEASE SAVEPOINT conflicting_transaction_ledger_owner');
+
     const guardFunction = await client.query(
       "SELECT pg_get_functiondef('guard_paddle_checkout_transaction_global_uniqueness()'::regprocedure) AS definition"
     );
