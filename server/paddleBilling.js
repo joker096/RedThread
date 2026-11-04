@@ -1245,6 +1245,9 @@ export async function processPaddleEvent(pool, rawEvent) {
           const providerTransactionId = typeof reconciliationTransactionId === 'string' &&
             /^txn_[A-Za-z0-9]+$/.test(reconciliationTransactionId)
             ? reconciliationTransactionId : null;
+          const providerAdjustmentId = eventType.startsWith('adjustment.') &&
+            typeof data.id === 'string' && /^adj_[A-Za-z0-9]+$/.test(data.id)
+            ? data.id : null;
           const providerUserRef = typeof reconciliationContext?.userId === 'string' &&
             /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reconciliationContext.userId)
             ? reconciliationContext.userId : null;
@@ -1252,10 +1255,11 @@ export async function processPaddleEvent(pool, rawEvent) {
             ? reconciliationContext.plan : null;
           await client.query(
             `INSERT INTO paddle_adjustment_reconciliation_cases
-               (event_id, reason_code, provider_transaction_id, provider_user_ref, provider_plan)
-             VALUES ($1, $2, $3, $4, $5)
+               (event_id, reason_code, provider_transaction_id, provider_adjustment_id,
+                provider_user_ref, provider_plan)
+             VALUES ($1, $2, $3, $4, $5, $6)
              ON CONFLICT (event_id) DO NOTHING`,
-            [eventId, reasonCode, providerTransactionId, providerUserRef, providerPlan]
+            [eventId, reasonCode, providerTransactionId, providerAdjustmentId, providerUserRef, providerPlan]
           );
         }
         await markPaddleCheckoutAttemptForReconciliation(
