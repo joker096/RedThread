@@ -62,7 +62,7 @@ test('adjustment webhook uses the same 64-bit transaction lock key as the databa
   await sendAdjustment(pool, { action: 'refund', status: 'pending_approval', type: 'full' });
   const lock = calls.find(call => call.statement.includes('paddle-transaction:'));
   assert.ok(lock, 'adjustment processing must serialize by Paddle transaction ID');
-  assert.match(lock.statement, /pg_advisory_xact_lock\\(hashtextextended\\('paddle-transaction:'/,
+  assert.match(lock.statement, /pg_advisory_xact_lock\(hashtextextended\('paddle-transaction:'/,
     'application and database trigger must use the same 64-bit advisory-lock namespace');
   assert.doesNotMatch(lock.statement, /hashtext\\(/,
     'the 32-bit hashtext lock is a different PostgreSQL advisory key and does not serialize with hashtextextended');
@@ -545,7 +545,7 @@ test('transaction completion reconciles an approved refund delivered earlier', a
     assert.ok(transactionLockIndex >= 0 && userLockIndex > transactionLockIndex,
       'transaction.completed must acquire the same transaction lock before the user lock');
     assert.match(calls[transactionLockIndex].statement,
-      /pg_advisory_xact_lock\\(hashtextextended\\('paddle-transaction:'/,
+      /pg_advisory_xact_lock\(hashtextextended\('paddle-transaction:'/,
       'transaction completion must share the database guard\'s 64-bit advisory-lock key');
     const revoke = calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements'));
     assert.deepEqual(revoke.params, [transactionId, 'paddle_full_refund', userId]);
