@@ -1084,6 +1084,18 @@ test('gift request opt-out permanently invalidates pending requests even after r
          )`,
       [ids.recipientA, ids.recipientA]
     );
+    await pool.query('SAVEPOINT optout_timestamp_immutable');
+    let optoutTimestampError;
+    try {
+      await pool.query(
+        'UPDATE gift_delivery_orders SET recipient_requests_disabled_at = NULL WHERE recipient_id = $1',
+        [ids.recipientA]
+      );
+    } catch (error) { optoutTimestampError = error; }
+    assert.equal(optoutTimestampError?.code, '55000',
+      'a recipient opt-out timestamp cannot be cleared to revive an old request');
+    await pool.query('ROLLBACK TO SAVEPOINT optout_timestamp_immutable');
+    await pool.query('RELEASE SAVEPOINT optout_timestamp_immutable');
     await pool.query(
       'UPDATE gift_receiving_preferences SET requests_enabled = FALSE WHERE user_id = $1',
       [ids.recipientA]
