@@ -947,7 +947,7 @@ export async function processPaddleEvent(pool, rawEvent) {
           customUserId !== transactionOwnerUserId);
         const providerPlanConflict = Boolean(
           ['1month', '3months', 'lifetime'].includes(customData.plan) &&
-          transactionPlan && customData.plan !== transactionPlan
+          customData.plan !== transactionPlan
         );
         if (providerOwnerConflict || providerPlanConflict) {
           await recordPaddleProviderIdentityConflictCase(client, {
@@ -1044,7 +1044,7 @@ export async function processPaddleEvent(pool, rawEvent) {
         customUserId !== transactionOwnerUserId);
       const providerPlanConflict = Boolean(
         ['1month', '3months', 'lifetime'].includes(customData.plan) &&
-        transactionPlan && customData.plan !== transactionPlan
+        customData.plan !== transactionPlan
       );
       if (providerOwnerConflict || providerPlanConflict) {
         await recordPaddleProviderIdentityConflictCase(client, {
