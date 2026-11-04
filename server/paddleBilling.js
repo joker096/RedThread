@@ -368,7 +368,7 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
   // cannot be committed unseen while the purchase is being linked.
   if (typeof transactionId === 'string' && /^txn_[A-Za-z0-9]+$/.test(transactionId)) {
     await client.query(
-      "SELECT pg_advisory_xact_lock(hashtext('paddle-transaction:' || $1::text))",
+      "SELECT pg_advisory_xact_lock(hashtextextended('paddle-transaction:' || $1::text, 0))",
       [transactionId]
     );
   }
@@ -628,7 +628,7 @@ export async function processPaddleEvent(pool, rawEvent) {
     if (['transaction.paid', 'transaction.completed', 'transaction.canceled'].includes(eventType) &&
         typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
       await client.query(
-        "SELECT pg_advisory_xact_lock(hashtext('paddle-transaction:' || $1::text))",
+        "SELECT pg_advisory_xact_lock(hashtextextended('paddle-transaction:' || $1::text, 0))",
         [data.id]
       );
     }
