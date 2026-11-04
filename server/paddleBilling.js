@@ -225,22 +225,34 @@ async function getPaddleAdjustmentState(client, transactionId) {
          SELECT 1 FROM latest_per_adjustment
          WHERE action = 'refund' AND adjustment_type = 'full' AND status = 'approved'
        ) AS full_refund_active,
-       EXISTS (
-         SELECT 1 FROM latest_per_adjustment
-         WHERE action = 'chargeback' AND status = 'approved'
+       (
+         SELECT COUNT(*) FROM latest_per_adjustment
+         WHERE action = 'chargeback' AND status IN ('approved', 'reversed')
+       ) > (
+         SELECT COUNT(*) FROM latest_per_adjustment
+         WHERE action = 'chargeback_reverse' AND status = 'approved'
        ) AS chargeback_active,
-       EXISTS (
+       (
+         SELECT COUNT(*) FROM latest_per_adjustment
+         WHERE action = 'chargeback' AND status IN ('approved', 'reversed')
+       ) > 0
+       AND (
+         SELECT COUNT(*) FROM latest_per_adjustment
+         WHERE action = 'chargeback_reverse' AND status = 'approved'
+       ) >= (
+         SELECT COUNT(*) FROM latest_per_adjustment
+         WHERE action = 'chargeback' AND status IN ('approved', 'reversed')
+       )
+       AND NOT EXISTS (
          SELECT 1
-         FROM latest_per_adjustment AS latest
-         WHERE latest.action = 'chargeback'
-           AND latest.status = 'reversed'
-           AND EXISTS (
-             SELECT 1 FROM paddle_adjustment_events AS prior
-             WHERE prior.adjustment_id = latest.adjustment_id
-               AND prior.transaction_id = $1
-               AND prior.action = 'chargeback'
-               AND prior.status = 'approved'
-               AND prior.occurred_at <= latest.occurred_at
+         FROM latest_per_adjustment AS chargeback
+         WHERE chargeback.action = 'chargeback'
+           AND chargeback.status IN ('approved', 'reversed')
+           AND NOT EXISTS (
+             SELECT 1 FROM latest_per_adjustment AS reversal
+             WHERE reversal.action = 'chargeback_reverse'
+               AND reversal.status = 'approved'
+               AND reversal.occurred_at >= chargeback.occurred_at
            )
        ) AS chargeback_reversed,
        EXISTS (
