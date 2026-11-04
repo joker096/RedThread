@@ -5120,8 +5120,8 @@ app.put('/api/identity/l3/consent', validateRequestOrigin, requireSession, ident
     );
     await client.query(
       `INSERT INTO identity_l3_consent_events
-         (user_id, actor_user_id, event_type, consent_version)
-       VALUES ($1, $1, 'granted', $2)`,
+         (user_id, actor_user_id, event_type, consent_version, occurred_at)
+       VALUES ($1, $1, 'granted', $2, statement_timestamp())`,
       [req.authUser.id, IDENTITY_L3_CONSENT_VERSION]
     );
     await client.query('COMMIT');
@@ -5165,8 +5165,8 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, id
       );
       await client.query(
         `INSERT INTO identity_l3_consent_events
-           (user_id, actor_user_id, event_type, consent_version)
-         VALUES ($1, $1, 'withdrawn', $2)`,
+           (user_id, actor_user_id, event_type, consent_version, occurred_at)
+         VALUES ($1, $1, 'withdrawn', $2, statement_timestamp())`,
         [req.authUser.id, consent.consent_version]
       );
     }
