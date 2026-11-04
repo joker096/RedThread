@@ -886,7 +886,7 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       const adjustmentCase = await client.query(
         `INSERT INTO paddle_adjustment_reconciliation_cases
          (event_id, reason_code)
-         VALUES ($1, 'transaction_owner_unlinked')
+         VALUES ($1, 'invalid_adjustment_payload')
          RETURNING status`,
         [adjustmentEventId]
       );
