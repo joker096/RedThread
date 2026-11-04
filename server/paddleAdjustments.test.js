@@ -114,6 +114,60 @@ test('does not treat legacy data.amount as a substitute for Paddle totals.total'
   ));
 });
 
+test('malformed adjustment events retain only validated provider identifiers in the review queue', async () => {
+  const { pool, calls } = makePool();
+  const adjustmentId = 'adj_0123456789abcdef01234567';
+  const result = await processPaddleEvent(pool, {
+    eventId: 'evt_invalid_adjustment_action',
+    eventType: 'adjustment.created',
+    occurredAt: '2026-11-03T10:00:00Z',
+    data: {
+      id: adjustmentId,
+      transaction_id: transactionId,
+      action: 'unknown_action',
+      type: 'partial',
+      status: 'approved',
+      currency_code: 'USD',
+      totals: { total: '500', currency_code: 'USD' }
+    }
+  });
+  assert.equal(result.reconciliationRequired, true);
+  const caseInsert = calls.find(call =>
+    call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')
+  );
+  assert.deepEqual(caseInsert.params, [
+    'evt_invalid_adjustment_action',
+    'invalid_adjustment_payload',
+    transactionId,
+    adjustmentId
+  ]);
+
+  const malformedId = makePool();
+  await processPaddleEvent(malformedId.pool, {
+    eventId: 'evt_invalid_adjustment_id',
+    eventType: 'adjustment.created',
+    occurredAt: '2026-11-03T10:00:00Z',
+    data: {
+      id: 'not-an-adjustment-id',
+      transaction_id: transactionId,
+      action: 'refund',
+      type: 'full',
+      status: 'approved',
+      currency_code: 'USD',
+      totals: { total: '500', currency_code: 'USD' }
+    }
+  });
+  const malformedCase = malformedId.calls.find(call =>
+    call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')
+  );
+  assert.deepEqual(malformedCase.params, [
+    'evt_invalid_adjustment_id',
+    'invalid_adjustment_payload',
+    transactionId,
+    null
+  ], 'an invalid adjustment ID must never be persisted even when the transaction ID is valid');
+});
+
 test('invalid Paddle refund type is retained without inferring a refund scope', async () => {
   const { pool, calls } = makePool();
   const result = await processPaddleEvent(pool, {
