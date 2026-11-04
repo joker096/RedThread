@@ -2717,6 +2717,8 @@ test('transaction.completed does not claim or entitle a checkout when owner alia
 
 test('transaction.canceled quarantines conflicting owner aliases without canceling or attributing an attempt', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_monthambiguouscancel';
   const ownerA = '00000000-0000-4000-8000-000000000103';
   const ownerB = '00000000-0000-4000-8000-000000000104';
   const calls = [];
@@ -2748,7 +2750,8 @@ test('transaction.canceled quarantines conflicting owner aliases without canceli
         user_id: ownerB,
         plan: '1month',
         checkoutAttemptId: 'ffffffff-ffff-4fff-8fff-ffffffffffff'
-      }
+      },
+      items: [{ price: { id: 'pri_monthambiguouscancel' } }]
     }
   });
   assert.equal(calls.some(call => call.statement.includes('SET transaction_id = COALESCE(transaction_id, $1)')), false,
@@ -2758,4 +2761,6 @@ test('transaction.canceled quarantines conflicting owner aliases without canceli
   assert.equal(ledger.params[2], null,
     'a retained owner must not override contradictory signed owner aliases');
   assert.ok(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')));
+  if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+  else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
 });
