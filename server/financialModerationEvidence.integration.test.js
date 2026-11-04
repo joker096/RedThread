@@ -580,10 +580,10 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
            AND conname IN ('user_reports_reporter_id_fkey', 'user_reports_reported_user_id_fkey')`
       );
       assert.equal(reportFks.rowCount, 2);
-      assert.ok(reportFks.rows.every(row => /ON DELETE RESTRICT/.test(row.definition)));
+      assert.ok(reportFks.rows.every(row => /ON DELETE SET NULL/.test(row.definition)));
 
-      // Exercise the actual report FKs: neither reporter nor target can be
-      // physically deleted while the submitted evidence still references them.
+      // Physical account erasure must null live FKs without cascading away the
+      // report or losing either opaque identity snapshot.
       const reporterId = randomUUID();
       const reportedId = randomUUID();
       await client.query(
@@ -594,26 +594,24 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
         "INSERT INTO user_reports (reporter_id, reported_user_id, category, details) VALUES ($1, $2, 'safety', 'immutable evidence') RETURNING id",
         [reporterId, reportedId]
       );
-      await client.query('SAVEPOINT report_reporter_restrict');
-      let reporterDeleteError;
-      try { await client.query('DELETE FROM users WHERE id = $1', [reporterId]); }
-      catch (error) { reporterDeleteError = error; }
-      assert.equal(reporterDeleteError?.code, '23503');
-      await client.query('ROLLBACK TO SAVEPOINT report_reporter_restrict');
-      await client.query('RELEASE SAVEPOINT report_reporter_restrict');
-
-      await client.query('SAVEPOINT report_target_restrict');
-      let targetDeleteError;
-      try { await client.query('DELETE FROM users WHERE id = $1', [reportedId]); }
-      catch (error) { targetDeleteError = error; }
-      assert.equal(targetDeleteError?.code, '23503');
-      await client.query('ROLLBACK TO SAVEPOINT report_target_restrict');
-      await client.query('RELEASE SAVEPOINT report_target_restrict');
+      await client.query('DELETE FROM users WHERE id = $1', [reporterId]);
+      const afterReporterErase = await client.query(
+        'SELECT reporter_id, reporter_ref, reported_user_id, reported_user_ref FROM user_reports WHERE id = $1',
+        [realReport.rows[0].id]
+      );
+      assert.equal(afterReporterErase.rows[0].reporter_id, null);
+      assert.equal(afterReporterErase.rows[0].reporter_ref, reporterId);
+      assert.equal(afterReporterErase.rows[0].reported_user_id, reportedId);
+      await client.query('DELETE FROM users WHERE id = $1', [reportedId]);
       const preservedReport = await client.query(
-        'SELECT id FROM user_reports WHERE id = $1',
+        'SELECT id, reporter_id, reporter_ref, reported_user_id, reported_user_ref FROM user_reports WHERE id = $1',
         [realReport.rows[0].id]
       );
       assert.equal(preservedReport.rowCount, 1);
+      assert.equal(preservedReport.rows[0].reporter_id, null);
+      assert.equal(preservedReport.rows[0].reported_user_id, null);
+      assert.equal(preservedReport.rows[0].reporter_ref, reporterId);
+      assert.equal(preservedReport.rows[0].reported_user_ref, reportedId);
       await client.query('SAVEPOINT real_report_content_immutable');
       let realReportMutationError;
       try {
