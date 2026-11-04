@@ -129,12 +129,10 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
       await consentGrantClient.query(
         `INSERT INTO identity_l3_consent_events
            (user_id, actor_user_id, event_type, consent_version, occurred_at)
-         VALUES ($1, $1, 'granted', $2, $3)`,
-        [
-          grantedConsent.rows[0].user_id,
-          grantedConsent.rows[0].consent_version,
-          grantedConsent.rows[0].granted_at
-        ]
+         SELECT user_id, user_id, 'granted', consent_version, granted_at
+         FROM identity_l3_consents
+         WHERE user_id = $1`,
+        [applicantId]
       );
       await consentGrantClient.query('COMMIT');
     } catch (error) {
@@ -309,12 +307,10 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
       await consentVersionClient.query(
         `INSERT INTO identity_l3_consent_events
            (user_id, actor_user_id, event_type, consent_version, occurred_at)
-         VALUES ($1, $1, 'granted', $2, $3)`,
-        [
-          changedConsent.rows[0].user_id,
-          changedConsent.rows[0].consent_version,
-          changedConsent.rows[0].granted_at
-        ]
+         SELECT user_id, user_id, 'granted', consent_version, granted_at
+         FROM identity_l3_consents
+         WHERE user_id = $1`,
+        [applicantId]
       );
       await consentVersionClient.query('COMMIT');
     } catch (error) {
