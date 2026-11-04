@@ -1267,14 +1267,21 @@ test('auth API supports registration, session lookup, logout and login', {
           payment_status: 'not_started'
         }, 'opt-out must cancel a pending order whose payment has not started');
         const inactiveSiblingAudit = await giftTestDb.query(
-          'SELECT event_type, from_status, to_status FROM gift_delivery_order_events WHERE order_id = $1',
+          'SELECT event_type, from_status, to_status FROM gift_delivery_order_events WHERE order_id = $1 ORDER BY id',
           [inactiveSiblingOrderId]
         );
-        assert.deepEqual(inactiveSiblingAudit.rows, [{
-          event_type: 'cancelled',
-          from_status: 'awaiting_recipient_consent',
-          to_status: 'cancelled'
-        }]);
+        assert.deepEqual(inactiveSiblingAudit.rows, [
+          {
+            event_type: 'recipient_opted_out',
+            from_status: 'awaiting_recipient_consent',
+            to_status: 'awaiting_recipient_consent'
+          },
+          {
+            event_type: 'cancelled',
+            from_status: 'awaiting_recipient_consent',
+            to_status: 'cancelled'
+          }
+        ], 'recipient opt-out and order cancellation must remain distinct append-only events');
         const inactiveSiblingReconciliation = await giftTestDb.query(
           'SELECT reason FROM gift_payment_reconciliation_tasks WHERE order_id = $1',
           [inactiveSiblingOrderId]
