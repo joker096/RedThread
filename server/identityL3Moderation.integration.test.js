@@ -126,6 +126,7 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
          RETURNING user_id, consent_version, granted_at`,
         [applicantId]
       );
+      assert.equal(grantedConsent.rowCount, 1, 'the applicant consent grant must be created');
       await consentGrantClient.query(
         `INSERT INTO identity_l3_consent_events
            (user_id, actor_user_id, event_type, consent_version, occurred_at)
@@ -304,6 +305,7 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
          RETURNING user_id, consent_version, granted_at`,
         [applicantId]
       );
+      assert.equal(changedConsent.rowCount, 1, 'the consent version transition must update one row');
       await consentVersionClient.query(
         `INSERT INTO identity_l3_consent_events
            (user_id, actor_user_id, event_type, consent_version, occurred_at)
