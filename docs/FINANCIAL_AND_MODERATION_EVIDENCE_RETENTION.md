@@ -70,6 +70,11 @@ WITH resolved_case AS (
       updated_at = statement_timestamp()
   WHERE c.event_id = :'event_id'
     AND c.status = 'open'
+    AND c.reason_code IN (
+      'invalid_adjustment_payload',
+      'provider_identity_conflict',
+      'provider_lifecycle_conflict'
+    )
     AND length(btrim(:'resolution_note')) BETWEEN 1 AND 1000
     AND EXISTS (
       SELECT 1 FROM users AS u
@@ -77,21 +82,27 @@ WITH resolved_case AS (
         AND u.status = 'active'
         AND u.role IN ('admin', 'moderator')
     )
-  RETURNING c.event_id, c.reason_code
+  RETURNING c.event_id, c.reason_code, c.provider_adjustment_id,
+            c.provider_transaction_id, c.provider_user_ref, c.provider_plan
 )
 INSERT INTO moderation_audit_log
   (moderator_id, action, target_type, target_id, reason, details)
 SELECT :'moderator_id'::uuid,
        'paddle_adjustment_reconciliation_resolved',
        'paddle_adjustment_case',
-       event_id,
+       resolved_case.event_id,
        btrim(:'resolution_note'),
        jsonb_build_object(
-         'eventId', event_id,
-         'reasonCode', reason_code,
+         'eventId', resolved_case.event_id,
+         'reasonCode', resolved_case.reason_code,
+         'adjustmentId', COALESCE(source.adjustment_id, resolved_case.provider_adjustment_id),
+         'transactionId', COALESCE(source.transaction_id, resolved_case.provider_transaction_id),
+         'providerUserRef', resolved_case.provider_user_ref,
+         'providerPlan', resolved_case.provider_plan,
          'resolutionSource', 'manual_operator'
        )
 FROM resolved_case
+LEFT JOIN paddle_adjustment_events AS source USING (event_id)
 RETURNING id;
 
 -- Require exactly one returned audit row. Otherwise ROLLBACK and investigate.
