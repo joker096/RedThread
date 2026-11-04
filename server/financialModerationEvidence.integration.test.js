@@ -1258,15 +1258,14 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       );
       await client.query('ROLLBACK TO SAVEPOINT forged_catalog_snapshot');
       await client.query('RELEASE SAVEPOINT forged_catalog_snapshot');
-      await client.query('SAVEPOINT missing_catalog_reference');
-      await assert.rejects(
-        client.query(
-          'INSERT INTO gift_order_reference_guard_test (catalog_item_id, catalog_item_ref) VALUES (NULL, NULL)'
-        ),
-        error => error.code === '23514'
+      await client.query(
+        'INSERT INTO gift_order_reference_guard_test (catalog_item_id, catalog_item_ref) VALUES (NULL, NULL)'
       );
-      await client.query('ROLLBACK TO SAVEPOINT missing_catalog_reference');
-      await client.query('RELEASE SAVEPOINT missing_catalog_reference');
+      const cataloglessGiftReference = await client.query(
+        'SELECT catalog_item_id, catalog_item_ref FROM gift_order_reference_guard_test'
+      );
+      assert.deepEqual(cataloglessGiftReference.rows, [{ catalog_item_id: null, catalog_item_ref: null }],
+        'catalog-less legacy/system gift orders remain valid when no detached catalog snapshot is supplied');
 
       const giftActorSnapshot = await client.query(
         `SELECT column_name FROM information_schema.columns
