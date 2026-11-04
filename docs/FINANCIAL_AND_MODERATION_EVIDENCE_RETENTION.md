@@ -38,7 +38,7 @@ A manual resolution must set `status = 'resolved'`, a concise `resolution_note`,
 The normal operator workflow is available through the moderator API:
 
 - `GET /api/admin/paddle-adjustment-reconciliation` lists open cases (maximum 100 per request) and returns a stable `nextCursor`; pass both `afterCreatedAt` and `afterEventId` from that cursor to retrieve the next page without offset-pagination skips.
-- `POST /api/admin/paddle-adjustment-reconciliation/:eventId/resolve` accepts `{ "resolutionNote": "..." }`. It requires an active admin/moderator session and a same-origin request; the note is trimmed and limited to 500 characters. Manual closure is restricted to reviewed malformed-payload and provider identity/lifecycle conflict cases where no unresolved entitlement-owner linkage is being waived. `transaction_owner_unlinked`, `transaction_owner_ambiguous`, `lifetime_account_inactive`, and `lifetime_entitlement_missing` remain open until a verified transaction/account or entitlement remediation exists; a moderator note cannot clear them.
+- `POST /api/admin/paddle-adjustment-reconciliation/:eventId/resolve` accepts `{ "resolutionNote": "..." }`. It requires an active admin/moderator session and a same-origin request; the note is trimmed and limited to 500 characters. Manual closure is restricted to reviewed malformed-payload and provider identity/lifecycle conflict cases from `adjustment.*` or `customer.*` webhooks where no unresolved entitlement-owner linkage is being waived; transaction/subscription lifecycle conflicts remain open for verified transaction reconciliation. `transaction_owner_unlinked`, `transaction_owner_ambiguous`, `lifetime_account_inactive`, and `lifetime_entitlement_missing` remain open until a verified transaction/account or entitlement remediation exists; a moderator note cannot clear them.
 - The resolver locks the open case, rechecks the moderator role against the database, and writes the case resolution plus `moderation_audit_log` entry in one transaction. A deferred database constraint trigger also rejects any manual resolution that reaches commit without a matching immutable audit row for the same event, active moderator, reason, and resolution source; the actor must still have an active `admin` or `moderator` role at commit. Repeated resolution attempts fail because resolved cases are immutable.
 - This endpoint only closes the operational case. It never grants, revokes, or restores Premium. Entitlement changes remain exclusively tied to verified Paddle adjustment and lifetime-entitlement evidence.
 
@@ -74,6 +74,14 @@ WITH resolved_case AS (
       'invalid_adjustment_payload',
       'provider_identity_conflict',
       'provider_lifecycle_conflict'
+    )
+    AND EXISTS (
+      SELECT 1 FROM paddle_webhook_events AS webhook
+      WHERE webhook.event_id = c.event_id
+        AND webhook.event_type IN (
+          'adjustment.created', 'adjustment.updated',
+          'customer.created', 'customer.updated'
+        )
     )
     AND length(btrim(:'resolution_note')) BETWEEN 1 AND 1000
     AND EXISTS (
