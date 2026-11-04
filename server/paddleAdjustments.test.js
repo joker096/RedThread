@@ -743,6 +743,12 @@ test('chargeback reversals are paired one-to-one in provider chronology', async 
     2
   );
   assert.match(stateQuery.statement, /ON reversal\.sequence_number = chargeback\.sequence_number/);
+  assert.match(stateQuery.statement, /chargeback\.amount_minor_units IS NOT NULL/);
+  assert.match(stateQuery.statement, /reversal\.amount_minor_units IS NOT NULL/);
+  assert.match(stateQuery.statement, /reversal\.amount_minor_units = chargeback\.amount_minor_units/,
+    'a partial reversal must not restore access to a fully disputed purchase');
+  assert.match(stateQuery.statement, /reversal\.currency_code = chargeback\.currency_code/,
+    'a reversal in a different currency must not offset a chargeback');
   assert.match(stateQuery.statement, /reversal\.occurred_at <= chargeback\.occurred_at/);
   assert.match(stateQuery.statement, /chargeback_count = reversal_count/);
   assert.match(stateQuery.statement,
