@@ -2121,6 +2121,14 @@ test('Paddle transaction IDs remain globally unique across current and archived 
       "SELECT pg_get_functiondef('guard_paddle_checkout_transaction_global_uniqueness()'::regprocedure) AS definition"
     );
     assert.match(guardFunction.rows[0].definition, /paddle_checkout_attempt_history/);
+    assert.match(guardFunction.rows[0].definition, /pg_advisory_xact_lock/,
+      'cross-table transaction ownership checks must serialize concurrent claims until commit');
+    const currentGuard = await client.query(
+      "SELECT pg_get_triggerdef(oid) AS definition FROM pg_trigger WHERE tgname = 'paddle_checkout_attempts_global_transaction_identity' AND NOT tgisinternal"
+    );
+    assert.equal(currentGuard.rowCount, 1);
+    assert.match(currentGuard.rows[0].definition, /UPDATE OF transaction_id, user_id, plan/,
+      'changing a transaction-bearing checkout owner or plan must re-run the global identity guard');
     await client.query('ROLLBACK');
   } catch (error) {
     try { await client.query('ROLLBACK'); } catch {}
