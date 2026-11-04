@@ -27,6 +27,13 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  -- The three tables have independent indexes, so a read-before-write check
+  -- alone races when two sessions claim the same provider ID concurrently.
+  -- Serialize every cross-table claim for this transaction until commit.
+  PERFORM pg_advisory_xact_lock(
+    hashtextextended('paddle-transaction:' || NEW.transaction_id, 0)
+  );
+
   IF TG_TABLE_NAME = 'paddle_checkout_attempts' THEN
     IF EXISTS (
       SELECT 1
@@ -53,6 +60,7 @@ BEGIN
         AND NOT (
           current_attempt.user_id = NEW.user_id
           AND current_attempt.attempt_id IS NOT DISTINCT FROM NEW.attempt_id
+          AND current_attempt.plan = NEW.plan
         )
     ) THEN
       RAISE EXCEPTION 'Paddle transaction ID already belongs to another current checkout attempt'
@@ -90,7 +98,7 @@ END;
 $paddle_transaction_global_identity$;
 
 CREATE TRIGGER paddle_checkout_attempts_global_transaction_identity
-  BEFORE INSERT OR UPDATE OF transaction_id ON paddle_checkout_attempts
+  BEFORE INSERT OR UPDATE OF transaction_id, user_id, plan ON paddle_checkout_attempts
   FOR EACH ROW
   EXECUTE FUNCTION guard_paddle_checkout_transaction_global_uniqueness();
 
@@ -105,4 +113,4 @@ CREATE TRIGGER paddle_transaction_events_owner_identity_guard
   EXECUTE FUNCTION guard_paddle_checkout_transaction_global_uniqueness();
 
 COMMENT ON FUNCTION guard_paddle_checkout_transaction_global_uniqueness() IS
-  'Enforces provider transaction ownership and plan consistency across current attempts, archived history, and the append-only transaction ledger; the rollover trigger may archive only its own source row.';
+  'Serializes provider transaction claims with a transaction-scoped advisory lock and enforces owner and plan consistency across current attempts, archived history, and the append-only transaction ledger; the rollover trigger may archive only its own source row.';
