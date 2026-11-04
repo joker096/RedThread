@@ -111,7 +111,7 @@ BEGIN
       AND event.actor_user_id = NEW.user_id
       AND event.event_type = expected_event_type
       AND event.consent_version = expected_version
-      AND event.occurred_at = expected_occurred_at
+      AND event.occurred_at >= expected_occurred_at
   ) THEN
     RAISE EXCEPTION 'identity L3 consent state transition requires a matching append-only audit event'
       USING ERRCODE = '23514';
