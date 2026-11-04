@@ -120,6 +120,35 @@ if (process.platform === 'linux') {
   });
 }
 
+test('L3 storage rejects replaceable writable parents but permits sticky shared parents', async () => {
+  await withStorage(async root => {
+    const unsafeParent = path.join(root, 'unsafe-parent');
+    const scratchRoot = path.join(root, 'scratch');
+    await mkdir(unsafeParent, { mode: 0o700 });
+    await chmod(unsafeParent, 0o770);
+    await mkdir(path.join(unsafeParent, 'encrypted'), { mode: 0o700 });
+    await mkdir(scratchRoot, { mode: 0o700 });
+    await assert.rejects(
+      assertIdentityL3StorageReady({
+        root: path.join(unsafeParent, 'encrypted'), tempRoot: scratchRoot, key
+      }),
+      error => error instanceof IdentityL3StorageError &&
+        error.code === 'l3_storage_root_unsafe'
+    );
+
+    const stickyParent = path.join(root, 'sticky-parent');
+    await mkdir(stickyParent, { mode: 0o700 });
+    await chmod(stickyParent, 0o1770);
+    const stickyEncryptedRoot = path.join(stickyParent, 'encrypted');
+    const stickyScratchRoot = path.join(root, 'sticky-scratch');
+    await mkdir(stickyEncryptedRoot, { mode: 0o700 });
+    await mkdir(stickyScratchRoot, { mode: 0o700 });
+    assert.equal(await assertIdentityL3StorageReady({
+      root: stickyEncryptedRoot, tempRoot: stickyScratchRoot, key
+    }), true, 'sticky shared parents protect child ownership from rename attacks');
+  });
+});
+
 test('L3 storage rejects a symlink in any parent component of the private root', async () => {
   await withStorage(async root => {
     const actualParent = path.join(root, 'actual-parent');
