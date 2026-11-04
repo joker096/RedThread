@@ -1428,46 +1428,49 @@ test('transaction.canceled webhook settles a creating attempt before checkout re
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
   process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_test';
-  const queries = [];
-  const client = {
-    async query(sql, params) {
-      queries.push({ sql: String(sql), params });
-      if (String(sql).includes('INSERT INTO paddle_webhook_events')) {
-        return { rowCount: 1, rows: [{ event_id: 'evt_transaction_canceled_during_create' }] };
+  try {
+    const queries = [];
+    const client = {
+      async query(sql, params) {
+        queries.push({ sql: String(sql), params });
+        if (String(sql).includes('INSERT INTO paddle_webhook_events')) {
+          return { rowCount: 1, rows: [{ event_id: 'evt_transaction_canceled_during_create' }] };
+        }
+        return { rowCount: 1, rows: [] };
+      },
+      release() {}
+    };
+    const result = await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_transaction_canceled_during_create',
+      eventType: 'transaction.canceled',
+      data: {
+        id: 'txn_0123456789abcdef01234567',
+        items: [{ price: { id: 'pri_month_test' } }],
+        custom_data: {
+          userId: '00000000-0000-4000-8000-000000000001',
+          plan: '1month',
+          checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+        }
       }
-      return { rowCount: 1, rows: [] };
-    },
-    release() {}
-  };
-  const result = await processPaddleEvent({ async connect() { return client; } }, {
-    eventId: 'evt_transaction_canceled_during_create',
-    eventType: 'transaction.canceled',
-    data: {
-      id: 'txn_0123456789abcdef01234567',
-      items: [{ price: { id: 'pri_month_test' } }],
-      custom_data: {
-        userId: '00000000-0000-4000-8000-000000000001',
-        plan: '1month',
-        checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
-      }
-    }
-  });
-  assert.equal(result.handled, true);
-  const attemptUpdate = queries.find(query => query.sql.includes('UPDATE paddle_checkout_attempts'));
-  assert.ok(attemptUpdate, 'expected the cancellation webhook to settle the creating attempt');
-  assert.deepEqual(attemptUpdate.params, [
-    'txn_0123456789abcdef01234567',
-    '00000000-0000-4000-8000-000000000001',
-    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-    '1month'
-  ]);
-  assert.match(attemptUpdate.sql, /attempt_id = \$3::uuid AND plan = \$4/);
-  assert.match(attemptUpdate.sql, /transaction_id = COALESCE\(transaction_id, \$1\)/);
-  assert.ok(attemptUpdate.sql.includes("status IN ('creating', 'pending', 'reconciliation_required')"));
-  assert.ok(!attemptUpdate.sql.includes("'completed'"),
-    'the webhook must never downgrade a completed payment');
-  if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
-  else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
+    });
+    assert.equal(result.handled, true);
+    const attemptUpdate = queries.find(query => query.sql.includes('UPDATE paddle_checkout_attempts'));
+    assert.ok(attemptUpdate, 'expected the cancellation webhook to settle the creating attempt');
+    assert.deepEqual(attemptUpdate.params, [
+      'txn_0123456789abcdef01234567',
+      '00000000-0000-4000-8000-000000000001',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      '1month'
+    ]);
+    assert.match(attemptUpdate.sql, /attempt_id = \\$3::uuid AND plan = \\$4/);
+    assert.match(attemptUpdate.sql, /transaction_id = COALESCE\\(transaction_id, \\$1\\)/);
+    assert.ok(attemptUpdate.sql.includes("status IN ('creating', 'pending', 'reconciliation_required')"));
+    assert.ok(!attemptUpdate.sql.includes("'completed'"),
+      'the webhook must never downgrade a completed payment');
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
+  }
 });
 
 
