@@ -249,8 +249,25 @@ export async function getPaddleAdjustmentState(client, transactionId) {
      )
      SELECT
        EXISTS (
-         SELECT 1 FROM latest_per_adjustment
-         WHERE action = 'refund' AND adjustment_type = 'full' AND status = 'approved'
+         SELECT 1
+         FROM latest_per_adjustment AS latest
+         WHERE latest.action = 'refund'
+           AND latest.adjustment_type = 'full'
+           AND (
+             latest.status = 'approved'
+             OR (
+               latest.status = 'rejected'
+               AND EXISTS (
+                 SELECT 1 FROM paddle_adjustment_events AS prior
+                 WHERE prior.adjustment_id = latest.adjustment_id
+                   AND prior.transaction_id = $1
+                   AND prior.action = 'refund'
+                   AND prior.adjustment_type = 'full'
+                   AND prior.status = 'approved'
+                   AND prior.occurred_at <= latest.occurred_at
+               )
+             )
+           )
        ) AS full_refund_active,
        (
          SELECT chargeback_count > 0
@@ -268,7 +285,7 @@ export async function getPaddleAdjustmentState(client, transactionId) {
          FROM latest_per_adjustment AS latest
          WHERE latest.action = 'refund'
            AND latest.adjustment_type = 'full'
-           AND latest.status IN ('rejected', 'reversed')
+           AND latest.status = 'reversed'
            AND EXISTS (
              SELECT 1 FROM paddle_adjustment_events AS prior
              WHERE prior.adjustment_id = latest.adjustment_id
@@ -548,7 +565,7 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
       adjustmentState.chargebackReversed) ||
     (entitlement.revoke_reason === 'paddle_full_refund' &&
       action === 'refund' && type === 'full' &&
-      ['rejected', 'reversed'].includes(status) &&
+      status === 'reversed' &&
       adjustmentState.fullRefundReversed);
 
   let nextStatus = entitlement.status;
