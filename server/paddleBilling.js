@@ -134,11 +134,12 @@ function inferPaddleTransactionPlan(data) {
 async function findPaddleTransactionOwner(client, {
   attemptUserId = null, transactionId = null, subscriptionId = null, customerId = null
 } = {}) {
-  if (typeof attemptUserId === 'string' &&
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(attemptUserId)) {
-    return attemptUserId;
-  }
+  const validAttemptUserId = typeof attemptUserId === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(attemptUserId);
   if (typeof transactionId === 'string' && /^txn_[A-Za-z0-9]+$/.test(transactionId)) {
+    // Transaction identity is globally unique across current and archived
+    // attempts. Never trust the just-claimed attempt owner without checking
+    // that an older archived attempt does not already claim this provider ID.
     const attemptOwner = await client.query(
       `SELECT DISTINCT user_id
        FROM (
@@ -151,10 +152,16 @@ async function findPaddleTransactionOwner(client, {
        LIMIT 2`,
       [transactionId]
     );
-    if (attemptOwner.rowCount === 1 && typeof attemptOwner.rows?.[0]?.user_id === 'string') {
-      return attemptOwner.rows[0].user_id;
-    }
     if (attemptOwner.rowCount > 1) return null;
+    if (attemptOwner.rowCount === 1) {
+      const ownerId = attemptOwner.rows?.[0]?.user_id ?? null;
+      return validAttemptUserId && ownerId !== attemptUserId ? null : ownerId;
+    }
+    // A claimed attempt must be visible in the durable ledger. If it is not,
+    // fail closed instead of trusting webhook custom_data alone.
+    if (validAttemptUserId) return null;
+  } else if (validAttemptUserId) {
+    return null;
   }
   if (!subscriptionId && !customerId) return null;
   const result = await client.query(
