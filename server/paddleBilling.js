@@ -296,13 +296,19 @@ export async function getPaddleAdjustmentState(client, transactionId) {
   };
 }
 
-async function recordPaddleAdjustmentReconciliationCase(client, { eventId, reasonCode }) {
+async function recordPaddleAdjustmentReconciliationCase(client, {
+  eventId, adjustmentId, transactionId, reasonCode
+}) {
+  const providerAdjustmentId = typeof adjustmentId === 'string' &&
+    /^adj_[A-Za-z0-9]+$/.test(adjustmentId) ? adjustmentId : null;
+  const providerTransactionId = typeof transactionId === 'string' &&
+    /^txn_[A-Za-z0-9]+$/.test(transactionId) ? transactionId : null;
   await client.query(
     `INSERT INTO paddle_adjustment_reconciliation_cases
-       (event_id, reason_code)
-     VALUES ($1, $2)
+       (event_id, reason_code, provider_transaction_id, provider_adjustment_id)
+     VALUES ($1, $2, $3, $4)
      ON CONFLICT (event_id) DO NOTHING`,
-    [eventId, reasonCode]
+    [eventId, reasonCode, providerTransactionId, providerAdjustmentId]
   );
 }
 
@@ -411,7 +417,8 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
   if (!validAdjustmentId || !validTransactionId || !validActions.has(action) || !validStatuses.has(status) ||
       !occurredAt || !Number.isFinite(Date.parse(occurredAt))) {
     await recordPaddleAdjustmentReconciliationCase(client, {
-      eventId, reasonCode: 'invalid_adjustment_payload'
+      eventId, adjustmentId, transactionId,
+      reasonCode: 'invalid_adjustment_payload'
     });
     return { handled: true, reconciliationRequired: true };
   }
