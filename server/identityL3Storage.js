@@ -143,6 +143,15 @@ function assertIdentityL3StorageRootsAreDisjoint(root, tempRoot) {
   }
 }
 
+export async function assertIdentityL3TemporaryStorageReady({ root, tempRoot }) {
+  // This guard is also required when L3 is disabled: startup still clears the
+  // scratch directory, so a bad path must never point at encrypted media.
+  assertIdentityL3StorageRootsAreDisjoint(root, tempRoot);
+  await ensurePrivateRoot(root);
+  await ensurePrivateRoot(tempRoot);
+  return true;
+}
+
 export async function assertIdentityL3StorageReady({
   root,
   tempRoot,
