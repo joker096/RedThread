@@ -94,15 +94,14 @@ test('L3 schema persists metadata only and protects workflow decisions', {
          RETURNING user_id, consent_version, granted_at`,
         [consentProbeUserId]
       );
+      assert.equal(initialConsentGrant.rowCount, 1, 'the consent probe grant must be created');
       await client.query(
         `INSERT INTO identity_l3_consent_events
            (user_id, actor_user_id, event_type, consent_version, occurred_at)
-         VALUES ($1, $1, 'granted', $2, $3)`,
-        [
-          initialConsentGrant.rows[0].user_id,
-          initialConsentGrant.rows[0].consent_version,
-          initialConsentGrant.rows[0].granted_at
-        ]
+         SELECT user_id, user_id, 'granted', consent_version, granted_at
+         FROM identity_l3_consents
+         WHERE user_id = $1`,
+        [consentProbeUserId]
       );
       await client.query('COMMIT');
 
