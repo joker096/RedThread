@@ -2638,6 +2638,29 @@ test('Paddle transaction IDs remain globally unique across current and archived 
     await client.query('ROLLBACK TO SAVEPOINT duplicate_live_provider_customer');
     await client.query('RELEASE SAVEPOINT duplicate_live_provider_customer');
 
+    const firstSubscriptionId = 'sub_2123456789abcdef01234567';
+    const secondSubscriptionId = 'sub_3123456789abcdef01234567';
+    await client.query(
+      'UPDATE users SET paddle_subscription_id = $2 WHERE id = $1',
+      [firstUserId, firstSubscriptionId]
+    );
+    await client.query(
+      'UPDATE users SET paddle_subscription_id = $2 WHERE id = $1',
+      [secondUserId, secondSubscriptionId]
+    );
+    await client.query('SAVEPOINT duplicate_live_provider_subscription');
+    let duplicateLiveProviderSubscriptionError;
+    try {
+      await client.query(
+        'UPDATE users SET paddle_subscription_id = $2 WHERE id = $1',
+        [secondUserId, firstSubscriptionId]
+      );
+    } catch (error) { duplicateLiveProviderSubscriptionError = error; }
+    assert.equal(duplicateLiveProviderSubscriptionError?.code, '23505',
+      'two live accounts must never claim the same Paddle subscription ID before any transaction event exists');
+    await client.query('ROLLBACK TO SAVEPOINT duplicate_live_provider_subscription');
+    await client.query('RELEASE SAVEPOINT duplicate_live_provider_subscription');
+
 
     const mismatchedCustomerTransactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
     const mismatchedCustomerEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
