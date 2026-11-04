@@ -728,7 +728,7 @@ test('malformed adjustment identifiers are acknowledged without changing entitle
   assert.equal(calls.some(call => call.statement.includes('UPDATE users')), false);
 });
 
-test('chargeback reversals are paired one-to-one in provider chronology', async () => {
+test('chargeback reversals are paired one-to-one by amount, currency, and provider chronology', async () => {
   const { pool, calls } = makePool({
     ledgerStatus: 'revoked',
     revokeReason: 'paddle_chargeback',
@@ -739,8 +739,9 @@ test('chargeback reversals are paired one-to-one in provider chronology', async 
   const stateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
   assert.ok(stateQuery);
   assert.equal(
-    (stateQuery.statement.match(/ROW_NUMBER\(\) OVER \(ORDER BY occurred_at, adjustment_id\)/g) || []).length,
-    2
+    (stateQuery.statement.match(/ROW_NUMBER\(\) OVER \(PARTITION BY amount_minor_units, currency_code ORDER BY occurred_at, adjustment_id\)/g) || []).length,
+    2,
+    'each amount/currency pair must have an independent chronological sequence'
   );
   assert.match(stateQuery.statement, /ON reversal\.sequence_number = chargeback\.sequence_number/);
   assert.match(stateQuery.statement, /chargeback\.amount_minor_units IS NOT NULL/);
