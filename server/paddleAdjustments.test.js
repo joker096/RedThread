@@ -510,7 +510,7 @@ test('a rejected refund cannot reverse a previously approved full refund', async
   assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
   const stateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
   assert.match(stateQuery.statement,
-    /latest\.status = 'rejected'[\s\S]*prior\.status = 'approved'/,
+    /latest\.status <> 'reversed'[\s\S]*prior\.status = 'approved'/,
     'a later contradictory rejection must keep a prior approved full refund adverse');
   assert.match(stateQuery.statement,
     /latest\.status = 'reversed'/,
