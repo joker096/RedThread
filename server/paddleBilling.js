@@ -254,9 +254,9 @@ export async function getPaddleAdjustmentState(client, transactionId) {
          WHERE latest.action = 'refund'
            AND latest.adjustment_type = 'full'
            AND (
-             latest.status = 'approved'
+             latest.status IN ('approved', 'reversed')
              OR (
-               latest.status <> 'reversed'
+               latest.status IN ('pending_approval', 'rejected')
                AND EXISTS (
                  SELECT 1 FROM paddle_adjustment_events AS prior
                  WHERE prior.adjustment_id = latest.adjustment_id
@@ -265,18 +265,6 @@ export async function getPaddleAdjustmentState(client, transactionId) {
                    AND prior.adjustment_type = 'full'
                    AND prior.status = 'approved'
                    AND prior.occurred_at <= latest.occurred_at
-               )
-             )
-             OR (
-               latest.status = 'reversed'
-               AND NOT EXISTS (
-                 SELECT 1 FROM paddle_adjustment_events AS prior
-                 WHERE prior.adjustment_id = latest.adjustment_id
-                   AND prior.transaction_id = $1
-                   AND prior.action = 'refund'
-                   AND prior.adjustment_type = 'full'
-                   AND prior.status = 'approved'
-                   AND prior.occurred_at < latest.occurred_at
                )
              )
            )
@@ -292,22 +280,7 @@ export async function getPaddleAdjustmentState(client, transactionId) {
            AND all_chargebacks_paired
          FROM chargeback_reconciliation
        ) AS chargeback_reversed,
-       EXISTS (
-         SELECT 1
-         FROM latest_per_adjustment AS latest
-         WHERE latest.action = 'refund'
-           AND latest.adjustment_type = 'full'
-           AND latest.status = 'reversed'
-           AND EXISTS (
-             SELECT 1 FROM paddle_adjustment_events AS prior
-             WHERE prior.adjustment_id = latest.adjustment_id
-               AND prior.transaction_id = $1
-               AND prior.action = 'refund'
-               AND prior.adjustment_type = 'full'
-               AND prior.status = 'approved'
-               AND prior.occurred_at < latest.occurred_at
-           )
-       ) AS full_refund_reversed`,
+       FALSE AS full_refund_reversed`,
     [transactionId]
   );
   const fullRefundActive = result.rows[0]?.full_refund_active === true;
@@ -473,16 +446,6 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
       `SELECT (
          (
            $4::text = 'reversed'
-           AND NOT EXISTS (
-             SELECT 1
-             FROM paddle_adjustment_events AS prior
-             WHERE prior.adjustment_id = $1
-               AND prior.transaction_id = $2
-               AND prior.action = 'refund'
-               AND prior.adjustment_type = $3
-               AND prior.status = 'approved'
-               AND prior.occurred_at < $5::timestamptz
-           )
          )
          OR (
            $4::text IN ('pending_approval', 'approved', 'rejected')
@@ -615,15 +578,11 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
   const adjustmentState = await getPaddleAdjustmentState(client, transactionId);
   const hasAdverseAdjustment = adjustmentState.hasAdverseAdjustment;
   const reversalMatchesRevocation =
-    (entitlement.revoke_reason === 'paddle_chargeback' &&
-      ['chargeback_reverse', 'chargeback'].includes(action) &&
-      ((action === 'chargeback_reverse' && status === 'approved') ||
-       (action === 'chargeback' && ['approved', 'reversed'].includes(status))) &&
-      adjustmentState.chargebackReversed) ||
-    (entitlement.revoke_reason === 'paddle_full_refund' &&
-      action === 'refund' && type === 'full' &&
-      status === 'reversed' &&
-      adjustmentState.fullRefundReversed);
+    entitlement.revoke_reason === 'paddle_chargeback' &&
+    ['chargeback_reverse', 'chargeback'].includes(action) &&
+    ((action === 'chargeback_reverse' && status === 'approved') ||
+     (action === 'chargeback' && ['approved', 'reversed'].includes(status))) &&
+    adjustmentState.chargebackReversed;
 
   let nextStatus = entitlement.status;
   let revokeReason = entitlement.revoke_reason;
