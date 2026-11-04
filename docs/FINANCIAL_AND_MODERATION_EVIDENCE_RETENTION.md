@@ -52,7 +52,7 @@ Manual operator runbook (execute through the audited production database role; d
 ```sql
 BEGIN;
 
-SELECT c.event_id, c.reason_code, e.adjustment_id, e.transaction_id,
+SELECT c.event_id, c.reason_code, COALESCE(e.adjustment_id, c.provider_adjustment_id) AS adjustment_id, COALESCE(e.transaction_id, c.provider_transaction_id) AS transaction_id,
        e.action, e.status AS adjustment_status,
        e.amount_minor_units, e.currency_code, c.created_at
 FROM paddle_adjustment_reconciliation_cases AS c
