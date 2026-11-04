@@ -2739,7 +2739,8 @@ test('transaction.canceled quarantines conflicting owner aliases without canceli
     },
     release() {}
   };
-  await processPaddleEvent({ async connect() { return client; } }, {
+  try {
+    await processPaddleEvent({ async connect() { return client; } }, {
     eventId: 'evt_ambiguous_cancel_owner',
     eventType: 'transaction.canceled',
     occurredAt: '2026-11-05T10:05:00Z',
@@ -2760,7 +2761,9 @@ test('transaction.canceled quarantines conflicting owner aliases without canceli
   assert.ok(ledger);
   assert.equal(ledger.params[2], null,
     'a retained owner must not override contradictory signed owner aliases');
-  assert.ok(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')));
-  if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
-  else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
+    assert.ok(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')));
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
+  }
 });
