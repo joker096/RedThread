@@ -388,6 +388,24 @@ test('chargeback_reverse is authoritative reversal evidence without requiring ad
     'reversals must be reconciled against the number of chargeback adjustments');
 });
 
+test('a delayed chargeback.created event observes an earlier recorded chargeback_reverse', async () => {
+  const { pool, calls } = makePool({
+    ledgerStatus: 'revoked',
+    revokeReason: 'paddle_chargeback',
+    chargeback: false,
+    chargebackReversed: true
+  });
+  const result = await sendAdjustment(pool, {
+    action: 'chargeback', status: 'approved', eventType: 'adjustment.created'
+  });
+  assert.equal(result.entitlementChanged, true);
+  assert.equal(result.premiumRevoked, false);
+  assert.deepEqual(
+    calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')).params,
+    [transactionId, userId, 'active', null]
+  );
+});
+
 test('one chargeback_reverse cannot restore access while another chargeback remains unmatched', async () => {
   const { pool, calls } = makePool({
     ledgerStatus: 'revoked',
