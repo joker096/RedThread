@@ -2658,3 +2658,104 @@ test('subscription.created locks its originating Paddle transaction before user 
     else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
   }
 });
+
+
+test('transaction.completed does not claim or entitle a checkout when owner aliases conflict', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_monthambiguousowner';
+  const ownerA = '00000000-0000-4000-8000-000000000101';
+  const ownerB = '00000000-0000-4000-8000-000000000102';
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      calls.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      if (statement.includes('SELECT DISTINCT user_id') && statement.includes('paddle_checkout_attempt_history')) {
+        return { rowCount: 1, rows: [{ user_id: ownerA }] };
+      }
+      if (statement.includes("SET transaction_id = $1, status = 'completed'")) {
+        return { rowCount: 1, rows: [{ user_id: ownerA }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_ambiguous_owner_must_not_claim',
+      eventType: 'transaction.completed',
+      occurredAt: '2026-11-05T10:00:00Z',
+      data: {
+        id: 'txn_ambiguousownerclaim123',
+        customData: {
+          userId: ownerA,
+          user_id: ownerB,
+          plan: '1month',
+          checkoutAttemptId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+        },
+        items: [{ price: { id: 'pri_monthambiguousowner' } }]
+      }
+    });
+    assert.equal(calls.some(call => call.statement.includes("SET transaction_id = $1, status = 'completed'")), false,
+      'ambiguous owner aliases must not claim even a matching checkout attempt');
+    const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
+    assert.ok(ledger);
+    assert.equal(ledger.params[2], null);
+    assert.ok(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')));
+    assert.equal(calls.some(call => call.statement.includes('UPDATE users SET')), false,
+      'ambiguous identity must never grant recurring or lifetime access');
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
+  }
+});
+
+
+test('transaction.canceled quarantines conflicting owner aliases without canceling or attributing an attempt', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const ownerA = '00000000-0000-4000-8000-000000000103';
+  const ownerB = '00000000-0000-4000-8000-000000000104';
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      calls.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      if (statement.includes('SELECT DISTINCT user_id') && statement.includes('paddle_checkout_attempt_history')) {
+        return { rowCount: 1, rows: [{ user_id: ownerA }] };
+      }
+      if (statement.includes('SET transaction_id = COALESCE(transaction_id, $1)')) {
+        return { rowCount: 1, rows: [{ user_id: ownerA, plan: '1month' }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  await processPaddleEvent({ async connect() { return client; } }, {
+    eventId: 'evt_ambiguous_cancel_owner',
+    eventType: 'transaction.canceled',
+    occurredAt: '2026-11-05T10:05:00Z',
+    data: {
+      id: 'txn_ambiguouscancelowner123',
+      customData: {
+        userId: ownerA,
+        user_id: ownerB,
+        plan: '1month',
+        checkoutAttemptId: 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+      }
+    }
+  });
+  assert.equal(calls.some(call => call.statement.includes('SET transaction_id = COALESCE(transaction_id, $1)')), false,
+    'ambiguous identity must not mutate a checkout attempt');
+  const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
+  assert.ok(ledger);
+  assert.equal(ledger.params[2], null,
+    'a retained owner must not override contradictory signed owner aliases');
+  assert.ok(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')));
+});
