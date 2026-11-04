@@ -1194,7 +1194,7 @@ test('only a verified new subscription event links a completed recurring checkou
       'txn_0123456789abcdef01234567',
       '00000000-0000-4000-8000-000000000001',
       '1month',
-      'completed'
+      'paid'
     ]);
     assert.equal(transactionEvidence.params[10], 'sub_0123456789abcdef01234567');
     assert.equal(transactionEvidence.params[11], 'ctm_0123456789abcdef01234567');
