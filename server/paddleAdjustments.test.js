@@ -321,7 +321,11 @@ test('chargeback entitlement predicate requires an approved, non-warning dispute
   const stateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
   assert.ok(stateQuery, 'adjustment processing must recompute the authoritative ledger state');
   assert.match(stateQuery.statement,
-    /EXISTS \([\s\S]*?WHERE action = 'chargeback' AND status = 'approved'/);
+    /WHERE action = 'chargeback' AND status IN \('approved', 'reversed'\)/,
+    'approved chargebacks and their later reversed status must both remain in the provider evidence count');
+  assert.match(stateQuery.statement,
+    /WHERE action = 'chargeback_reverse' AND status = 'approved'/,
+    'only an approved provider-created chargeback reversal can offset a chargeback');
   assert.doesNotMatch(stateQuery.statement, /status <> 'reversed'/,
     'rejected chargebacks must not be treated as an active dispute');
 });
