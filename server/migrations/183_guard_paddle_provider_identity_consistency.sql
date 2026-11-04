@@ -65,6 +65,18 @@ BEGIN
   PERFORM pg_advisory_xact_lock(
     hashtextextended('paddle-transaction:' || NEW.transaction_id, 0)
   );
+  IF TG_TABLE_NAME = 'paddle_transaction_events' THEN
+    IF NEW.customer_id IS NOT NULL THEN
+      PERFORM pg_advisory_xact_lock(
+        hashtextextended('paddle-customer:' || NEW.customer_id, 0)
+      );
+    END IF;
+    IF NEW.subscription_id IS NOT NULL THEN
+      PERFORM pg_advisory_xact_lock(
+        hashtextextended('paddle-subscription:' || NEW.subscription_id, 0)
+      );
+    END IF;
+  END IF;
 
   IF TG_TABLE_NAME = 'paddle_checkout_attempts' THEN
     IF EXISTS (
@@ -259,6 +271,53 @@ BEGIN
   RETURN NEW;
 END;
 $paddle_transaction_global_identity$;
+
+CREATE OR REPLACE FUNCTION guard_paddle_user_provider_identity()
+RETURNS trigger LANGUAGE plpgsql AS $paddle_user_provider_identity$
+BEGIN
+  IF NEW.paddle_customer_id IS NOT NULL THEN
+    PERFORM pg_advisory_xact_lock(
+      hashtextextended('paddle-customer:' || NEW.paddle_customer_id, 0)
+    );
+    IF EXISTS (
+      SELECT 1
+      FROM paddle_transaction_events AS event
+      WHERE event.customer_id = NEW.paddle_customer_id
+        AND event.user_id IS NOT NULL
+        AND event.user_id <> NEW.id
+    ) THEN
+      RAISE EXCEPTION 'Paddle customer identity is retained for a different Vow account'
+        USING ERRCODE = '23505';
+    END IF;
+  END IF;
+
+  IF NEW.paddle_subscription_id IS NOT NULL THEN
+    PERFORM pg_advisory_xact_lock(
+      hashtextextended('paddle-subscription:' || NEW.paddle_subscription_id, 0)
+    );
+    IF EXISTS (
+      SELECT 1
+      FROM paddle_transaction_events AS event
+      WHERE event.subscription_id = NEW.paddle_subscription_id
+        AND event.user_id IS NOT NULL
+        AND event.user_id <> NEW.id
+    ) THEN
+      RAISE EXCEPTION 'Paddle subscription identity is retained for a different Vow account'
+        USING ERRCODE = '23505';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$paddle_user_provider_identity$;
+
+DROP TRIGGER IF EXISTS users_paddle_provider_identity_guard ON users;
+CREATE TRIGGER users_paddle_provider_identity_guard
+  BEFORE INSERT OR UPDATE OF paddle_customer_id, paddle_subscription_id ON users
+  FOR EACH ROW EXECUTE FUNCTION guard_paddle_user_provider_identity();
+
+COMMENT ON FUNCTION guard_paddle_user_provider_identity() IS
+  'Serializes Paddle customer/subscription identity assignment with transaction-ledger inserts and prevents reuse of a provider identity retained for a different Vow account.';
 
 COMMENT ON FUNCTION guard_paddle_checkout_transaction_global_uniqueness() IS
   'Serializes provider transaction claims; verifies paid evidence provenance, cross-event customer/subscription identity consistency and account ownership; accepts transaction.paid ownership from a matching server-created checkout attempt and rejects owner, plan, provider identity and terminal lifecycle conflicts as SQLSTATE 23505 for reconciliation.';
