@@ -38,6 +38,13 @@ test('L3 schema persists metadata only and protects workflow decisions', {
          WHERE tgrelid = 'identity_l3_consent_events'::regclass AND NOT tgisinternal`
       );
       assert.ok(consentAuditTrigger.rows.some(row => row.tgname === 'identity_l3_consent_events_append_only'));
+      const consentTruncateGuard = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'identity_l3_consent_events'::regclass AND NOT tgisinternal`
+      );
+      assert.ok(consentTruncateGuard.rows.some(row =>
+        row.tgname === 'identity_l3_consent_events_no_truncate'
+      ), 'consent audit history must also be protected from TRUNCATE');
       const consentAuditGuard = await client.query(
         `SELECT pg_get_functiondef('prevent_identity_l3_consent_event_mutation()'::regprocedure) AS definition`
       );
@@ -179,6 +186,13 @@ test('L3 schema persists metadata only and protects workflow decisions', {
          WHERE tgrelid = 'identity_l3_decision_events'::regclass AND NOT tgisinternal`
       );
       assert.ok(eventTrigger.rows.some(row => row.tgname === 'identity_l3_decision_events_append_only'));
+      const decisionEventTruncateGuard = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'identity_l3_decision_events'::regclass AND NOT tgisinternal`
+      );
+      assert.ok(decisionEventTruncateGuard.rows.some(row =>
+        row.tgname === 'identity_l3_decision_events_no_truncate'
+      ), 'L3 decision history must also be protected from TRUNCATE');
       const decisionEventInsertGuard = await client.query(
         `SELECT tgname FROM pg_trigger
          WHERE tgrelid = 'identity_l3_decision_events'::regclass AND NOT tgisinternal`
