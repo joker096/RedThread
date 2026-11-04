@@ -1507,7 +1507,7 @@ test('manual Paddle reconciliation resolution requires an immutable moderator au
     await client.query('SAVEPOINT manual_resolution_with_audit');
     await client.query(
       `UPDATE paddle_adjustment_reconciliation_cases
-       SET status = 'resolved', resolution_note = 'provider checked',
+       SET status = 'resolved', resolution_note = 'provider checked; no entitlement change',
            resolution_source = 'manual_operator', resolved_by_ref = $2,
            resolved_at = statement_timestamp(), updated_at = statement_timestamp()
        WHERE event_id = $1`,
