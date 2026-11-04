@@ -652,6 +652,10 @@ test('unmatched valid adjustments create a durable reconciliation case', async (
   const task = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
   assert.ok(task, 'an unmatched adjustment must remain in a durable manual queue');
   assert.equal(task.params[1], 'transaction_owner_unlinked');
+  assert.equal(task.params[2], transactionId,
+    'the verified provider transaction ID must survive when no Vow checkout owner is linked');
+  assert.equal(task.params[3], 'adj_0123456789abcdef01234567',
+    'the verified provider adjustment ID must survive for exact moderator lookup');
 });
 
 test('adjustments for recurring Vow purchases do not touch lifetime entitlement', async () => {
