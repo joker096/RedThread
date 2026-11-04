@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
-import { mkdtemp, chmod, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, chmod, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import pg from 'pg';
