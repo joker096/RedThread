@@ -2113,3 +2113,69 @@ test('Paddle identity migration acquires table locks in the application write or
     'subscription.created updates users before inserting transaction evidence; migration locks must use the same order to avoid online-migration deadlocks'
   );
 });
+
+test('subscription.created locks its originating Paddle transaction before user and evidence writes', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_vowmonthly_lock_order';
+  const queries = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      queries.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      if (statement.includes('UPDATE paddle_checkout_attempts') &&
+          statement.includes('SET transaction_id = $3')) {
+        return { rowCount: 1, rows: [{ user_id: params[0] }] };
+      }
+      if (statement.includes('UPDATE users SET')) {
+        return { rowCount: 1, rows: [] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    const result = await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_subscription_created_lock_order',
+      eventType: 'subscription.created',
+      occurredAt: '2026-11-04T09:00:00Z',
+      data: {
+        id: 'sub_subscriptioncreatedlock123',
+        transactionId: 'txn_subscriptioncreatedlock123',
+        customerId: 'ctm_subscriptioncreatedlock123',
+        status: 'active',
+        currentBillingPeriod: { endsAt: '2027-01-04T09:00:00Z' },
+        items: [{ price: { id: 'pri_vowmonthly_lock_order' } }],
+        customData: {
+          userId: '00000000-0000-4000-8000-000000000001',
+          plan: '1month',
+          checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+        }
+      }
+    });
+    assert.equal(result.handled, true);
+    const transactionLockIndex = queries.findIndex(query =>
+      query.statement.includes("pg_advisory_xact_lock(hashtextextended('paddle-transaction:'")
+    );
+    const userLockIndex = queries.findIndex(query =>
+      query.statement.includes('SELECT id FROM users WHERE id = $1 FOR UPDATE')
+    );
+    const userUpdateIndex = queries.findIndex(query => query.statement.includes('UPDATE users SET'));
+    const ledgerIndex = queries.findIndex(query =>
+      query.statement.includes('INSERT INTO paddle_transaction_events')
+    );
+    assert.ok(transactionLockIndex >= 0, 'subscription.created must lock the originating transaction');
+    assert.ok(userLockIndex > transactionLockIndex,
+      'the transaction lock must precede the user row lock');
+    assert.ok(userUpdateIndex > transactionLockIndex,
+      'the transaction lock must precede provider identity writes');
+    assert.ok(ledgerIndex > userUpdateIndex,
+      'the regression case must exercise the user-then-ledger write path');
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
+  }
+});
