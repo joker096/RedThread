@@ -1,6 +1,57 @@
 -- Preserve customer and subscription identity consistency across every
 -- event for one Paddle transaction. An otherwise correctly owned checkout
 -- must not retain a provider identity belonging to another account.
+-- Freeze provider identity writes while checking retained evidence so no
+-- contradictory rows can slip between the preflight and trigger activation.
+LOCK TABLE paddle_transaction_events, users IN SHARE ROW EXCLUSIVE MODE;
+
+DO $
+BEGIN
+  IF EXISTS (
+    SELECT transaction_id
+    FROM paddle_transaction_events
+    GROUP BY transaction_id
+    HAVING COUNT(DISTINCT customer_id) FILTER (WHERE customer_id IS NOT NULL) > 1
+       OR COUNT(DISTINCT subscription_id) FILTER (WHERE subscription_id IS NOT NULL) > 1
+  ) THEN
+    RAISE EXCEPTION 'conflicting Paddle customer/subscription IDs already exist for one transaction; reconcile before migration 183'
+      USING ERRCODE = '23514';
+  END IF;
+
+  IF EXISTS (
+    SELECT customer_id
+    FROM paddle_transaction_events
+    WHERE customer_id IS NOT NULL AND user_id IS NOT NULL
+    GROUP BY customer_id
+    HAVING COUNT(DISTINCT user_id) > 1
+  ) OR EXISTS (
+    SELECT subscription_id
+    FROM paddle_transaction_events
+    WHERE subscription_id IS NOT NULL AND user_id IS NOT NULL
+    GROUP BY subscription_id
+    HAVING COUNT(DISTINCT user_id) > 1
+  ) THEN
+    RAISE EXCEPTION 'a retained Paddle customer/subscription ID is attributed to multiple Vow accounts; reconcile before migration 183'
+      USING ERRCODE = '23514';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM paddle_transaction_events AS event
+    JOIN users AS other_user
+      ON other_user.id <> event.user_id
+     AND (
+       (event.customer_id IS NOT NULL AND other_user.paddle_customer_id = event.customer_id)
+       OR (event.subscription_id IS NOT NULL AND other_user.paddle_subscription_id = event.subscription_id)
+     )
+    WHERE event.user_id IS NOT NULL
+  ) THEN
+    RAISE EXCEPTION 'retained Paddle provider identity is currently assigned to a different Vow account; reconcile before migration 183'
+      USING ERRCODE = '23514';
+  END IF;
+END;
+$;
+
 CREATE OR REPLACE FUNCTION guard_paddle_checkout_transaction_global_uniqueness()
 RETURNS trigger LANGUAGE plpgsql AS $paddle_transaction_global_identity$
 BEGIN
