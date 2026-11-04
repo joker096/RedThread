@@ -3663,6 +3663,16 @@ app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
         await client.query('ROLLBACK');
         return res.status(404).json({ error: 'open_adjustment_reconciliation_case_not_found' });
       }
+      if (![
+        'invalid_adjustment_payload',
+        'provider_identity_conflict',
+        'provider_lifecycle_conflict'
+      ].includes(pending.rows[0].reason_code)) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'adjustment_case_requires_verified_transaction_or_entitlement_reconciliation'
+        });
+      }
 
       const resolved = await client.query(
         `UPDATE paddle_adjustment_reconciliation_cases
