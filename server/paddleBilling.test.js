@@ -1559,7 +1559,13 @@ test('Paddle identity unique conflicts reconcile only the matching checkout atte
     query.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')
   );
   assert.ok(queuedConflict, 'provider identity conflicts must remain visible in the moderator reconciliation queue');
-  assert.deepEqual(queuedConflict.params, ['evt_identity_conflict', 'provider_identity_conflict']);
+  assert.deepEqual(queuedConflict.params, [
+    'evt_identity_conflict',
+    'provider_identity_conflict',
+    'txn_identityconflict',
+    '00000000-0000-4000-8000-000000000001',
+    '1month'
+  ]);
   const reconciliationUpdate = queries.find(query =>
     query.statement.includes("SET status = 'reconciliation_required'")
   );
