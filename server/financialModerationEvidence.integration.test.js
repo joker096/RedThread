@@ -2676,8 +2676,8 @@ test('Paddle chargeback reversals are paired one-to-one and must be strictly lat
         `INSERT INTO paddle_adjustment_events
          (event_id, adjustment_id, transaction_id, action, adjustment_type, status,
           amount_minor_units, currency_code, occurred_at)
-         VALUES ($1, $2, $3, $4, 'full', 'approved', 500, 'USD', $5::timestamptz)`,
-        [eventId, makeId('adj'), transactionId, adjustment.action, adjustment.occurredAt]
+         VALUES ($1, $2, $3, $4, 'full', $5, 500, 'USD', $6::timestamptz)`,
+        [eventId, makeId('adj'), transactionId, adjustment.action, adjustment.status || 'approved', adjustment.occurredAt]
       );
     }
     return getPaddleAdjustmentState(client, transactionId);
@@ -2722,6 +2722,13 @@ test('Paddle chargeback reversals are paired one-to-one and must be strictly lat
     ]);
     assert.equal(missingReversal.chargebackActive, true);
     assert.equal(missingReversal.chargebackReversed, false);
+
+    const originalMarkedReversedWithoutSeparateEvidence = await stateFor([
+      { action: 'chargeback', status: 'reversed', occurredAt: '2026-11-01T10:00:00Z' }
+    ]);
+    assert.equal(originalMarkedReversedWithoutSeparateEvidence.chargebackActive, true,
+      'the original adjustment status alone must not replace the separately retained chargeback_reverse event');
+    assert.equal(originalMarkedReversedWithoutSeparateEvidence.chargebackReversed, false);
   } finally {
     try { await client.query('ROLLBACK'); } catch {}
     client.release();
