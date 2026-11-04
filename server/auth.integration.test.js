@@ -282,7 +282,7 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.equal(invalidResolution.status, 400,
         'manual reconciliation requires a non-empty bounded resolution note');
 
-      const resolutionNote = 'Verified against Paddle Sandbox adjustment record; owner remains unresolved and requires follow-up.';
+      const resolutionNote = 'Reviewed malformed provider adjustment; no entitlement change was made.';
       const resolutionResponse = await request(
         `/api/admin/paddle-adjustment-reconciliation/${reconciliationEventId}/resolve`,
         {
@@ -297,6 +297,31 @@ test('auth API supports registration, session lookup, logout and login', {
         status: 'resolved',
         resolutionSource: 'manual_operator'
       });
+
+      const unlinkedEventId = `evt_${randomUUID().replaceAll('-', '').slice(0, 26)}`;
+      await reconciliationDb.query(
+        "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'adjustment.created')",
+        [unlinkedEventId]
+      );
+      await reconciliationDb.query(
+        "INSERT INTO paddle_adjustment_reconciliation_cases (event_id, reason_code) VALUES ($1, 'transaction_owner_unlinked')",
+        [unlinkedEventId]
+      );
+      const unlinkedResolution = await request(
+        `/api/admin/paddle-adjustment-reconciliation/${unlinkedEventId}/resolve`,
+        {
+          method: 'POST',
+          headers: { Cookie: firstCookie },
+          body: JSON.stringify({ resolutionNote: 'reviewed; owner still unknown' })
+        }
+      );
+      assert.equal(unlinkedResolution.status, 409,
+        'a moderator note must not close an adjustment whose transaction owner is unresolved');
+      const unlinkedState = await reconciliationDb.query(
+        'SELECT status FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1',
+        [unlinkedEventId]
+      );
+      assert.deepEqual(unlinkedState.rows, [{ status: 'open' }]);
 
       const duplicateResolution = await request(
         `/api/admin/paddle-adjustment-reconciliation/${reconciliationEventId}/resolve`,
