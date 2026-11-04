@@ -1202,6 +1202,40 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       );
       assert.equal(giftPartnerDeleteRule.rows[0]?.confdeltype, 'n',
         'deleting a delivery partner must null the live FK while retaining delivery_partner_ref');
+      await client.query(`
+        CREATE TEMP TABLE moderation_actor_snapshot_guard_test (
+          moderator_id uuid, moderator_ref uuid
+        ) ON COMMIT DROP
+      `);
+      await client.query(`
+        CREATE TRIGGER moderation_actor_snapshot_guard_test
+        BEFORE INSERT ON moderation_actor_snapshot_guard_test
+        FOR EACH ROW EXECUTE FUNCTION snapshot_moderation_audit_moderator()
+      `);
+      const forgedModeratorRef = randomUUID();
+      await client.query('SAVEPOINT forged_moderator_snapshot');
+      await assert.rejects(
+        client.query(
+          'INSERT INTO moderation_actor_snapshot_guard_test VALUES (NULL, $1)',
+          [forgedModeratorRef]
+        ),
+        error => error.code === '23514'
+      );
+      await client.query('ROLLBACK TO SAVEPOINT forged_moderator_snapshot');
+      await client.query('RELEASE SAVEPOINT forged_moderator_snapshot');
+      const moderatorActorId = randomUUID();
+      await client.query(
+        'INSERT INTO moderation_actor_snapshot_guard_test VALUES ($1, NULL)',
+        [moderatorActorId]
+      );
+      const moderatorSnapshot = await client.query(
+        'SELECT moderator_id, moderator_ref FROM moderation_actor_snapshot_guard_test'
+      );
+      assert.deepEqual(moderatorSnapshot.rows, [{
+        moderator_id: moderatorActorId,
+        moderator_ref: moderatorActorId
+      }], 'moderator audit snapshots must derive only from a live moderator FK');
+
       const giftActorSnapshot = await client.query(
         `SELECT column_name FROM information_schema.columns
          WHERE table_schema = current_schema()
