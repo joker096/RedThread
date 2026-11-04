@@ -250,7 +250,7 @@ async function getPaddleAdjustmentState(client, transactionId) {
          LEFT JOIN chargeback_reversals AS reversal
            ON reversal.sequence_number = chargeback.sequence_number
          WHERE reversal.adjustment_id IS NULL
-            OR reversal.occurred_at < chargeback.occurred_at
+            OR reversal.occurred_at <= chargeback.occurred_at
        ) AS chargeback_reversed,
        EXISTS (
          SELECT 1
