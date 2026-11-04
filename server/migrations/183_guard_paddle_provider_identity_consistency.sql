@@ -62,13 +62,13 @@ BEGIN
     -- Vow account than the provider identity already stored for that account.
     IF EXISTS (
       SELECT 1
-      FROM paddle_transaction_events AS prior
-      WHERE prior.transaction_id = NEW.transaction_id
+      FROM paddle_transaction_events AS prior_event
+      WHERE prior_event.transaction_id = NEW.transaction_id
         AND (
-          (NEW.customer_id IS NOT NULL AND prior.customer_id IS NOT NULL
-            AND prior.customer_id <> NEW.customer_id)
-          OR (NEW.subscription_id IS NOT NULL AND prior.subscription_id IS NOT NULL
-            AND prior.subscription_id <> NEW.subscription_id)
+          (NEW.customer_id IS NOT NULL AND prior_event.customer_id IS NOT NULL
+            AND prior_event.customer_id <> NEW.customer_id)
+          OR (NEW.subscription_id IS NOT NULL AND prior_event.subscription_id IS NOT NULL
+            AND prior_event.subscription_id <> NEW.subscription_id)
         )
     ) THEN
       RAISE EXCEPTION 'Paddle transaction conflicts with retained customer or subscription identity'
@@ -86,30 +86,30 @@ BEGIN
           )
       )
       OR EXISTS (
-        SELECT 1 FROM users AS other
-        WHERE other.id <> NEW.user_id
+        SELECT 1 FROM users AS other_user
+        WHERE other_user.id <> NEW.user_id
           AND (
-            (NEW.customer_id IS NOT NULL AND other.paddle_customer_id = NEW.customer_id)
-            OR (NEW.subscription_id IS NOT NULL AND other.paddle_subscription_id = NEW.subscription_id)
+            (NEW.customer_id IS NOT NULL AND other_user.paddle_customer_id = NEW.customer_id)
+            OR (NEW.subscription_id IS NOT NULL AND other_user.paddle_subscription_id = NEW.subscription_id)
           )
       )
       OR EXISTS (
         SELECT 1
-        FROM paddle_transaction_events AS prior
+        FROM paddle_transaction_events AS prior_event
         JOIN users AS prior_owner
-          ON (prior.customer_id IS NOT NULL AND prior_owner.paddle_customer_id = prior.customer_id)
-          OR (prior.subscription_id IS NOT NULL AND prior_owner.paddle_subscription_id = prior.subscription_id)
-        WHERE prior.transaction_id = NEW.transaction_id
+          ON (prior_event.customer_id IS NOT NULL AND prior_owner.paddle_customer_id = prior_event.customer_id)
+          OR (prior_event.subscription_id IS NOT NULL AND prior_owner.paddle_subscription_id = prior_event.subscription_id)
+        WHERE prior_event.transaction_id = NEW.transaction_id
           AND prior_owner.id <> NEW.user_id
       )
       OR EXISTS (
         SELECT 1
-        FROM paddle_transaction_events AS prior
-        WHERE prior.user_id IS NOT NULL
-          AND prior.user_id <> NEW.user_id
+        FROM paddle_transaction_events AS prior_event
+        WHERE prior_event.user_id IS NOT NULL
+          AND prior_event.user_id <> NEW.user_id
           AND (
-            (NEW.customer_id IS NOT NULL AND prior.customer_id = NEW.customer_id)
-            OR (NEW.subscription_id IS NOT NULL AND prior.subscription_id = NEW.subscription_id)
+            (NEW.customer_id IS NOT NULL AND prior_event.customer_id = NEW.customer_id)
+            OR (NEW.subscription_id IS NOT NULL AND prior_event.subscription_id = NEW.subscription_id)
           )
       )
     ) THEN
@@ -177,11 +177,11 @@ BEGIN
     -- Keep repeated same-state notifications, but reject contradictory lifecycle facts.
     IF EXISTS (
       SELECT 1
-      FROM paddle_transaction_events AS prior
-      WHERE prior.transaction_id = NEW.transaction_id
-        AND prior.status <> NEW.status
+      FROM paddle_transaction_events AS prior_event
+      WHERE prior_event.transaction_id = NEW.transaction_id
+        AND prior_event.status <> NEW.status
         AND NOT (
-          prior.status IN ('paid', 'completed')
+          prior_event.status IN ('paid', 'completed')
           AND NEW.status IN ('paid', 'completed')
         )
     ) THEN
