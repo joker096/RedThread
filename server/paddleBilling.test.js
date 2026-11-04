@@ -2091,7 +2091,7 @@ test('transaction.paid is retained as captured payment without granting or final
   assert.equal(queries.some(query => query.statement.includes('UPDATE paddle_checkout_attempts')), false,
     'transaction.paid alone must not finalize or link the checkout attempt');
   const transactionLockIndex = queries.findIndex(query =>
-    query.statement.includes("pg_advisory_xact_lock(hashtext('paddle-transaction:'")
+    query.statement.includes("pg_advisory_xact_lock(hashtextextended('paddle-transaction:'")
   );
   const ledgerIndex = queries.findIndex(query =>
     query.statement.includes('INSERT INTO paddle_transaction_events')
