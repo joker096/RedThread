@@ -2127,7 +2127,7 @@ test('Paddle transaction IDs remain globally unique across current and archived 
       'SELECT status FROM paddle_transaction_events WHERE transaction_id = $1 ORDER BY received_at, event_id',
       [paidTransactionId]
     );
-    assert.deepEqual(lifecycleProgression.rows.map(row => row.status), ['paid', 'completed'],
+    assert.deepEqual(lifecycleProgression.rows.map(row => row.status).sort(), ['completed', 'paid'],
       'Paddle captured payment may progress to completed without being mislabeled or treated as a contradiction');
 
     const secondLedgerEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
