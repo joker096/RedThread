@@ -968,29 +968,15 @@ test('auth API supports registration, session lookup, logout and login', {
           from_status: 'awaiting_recipient_consent',
           to_status: 'expired'
         }], 'an expired request must record expiry, never an acceptance event');
-        const expiredOptOutOrder = await giftTestDb.query(
-          `INSERT INTO gift_delivery_orders
-             (match_id, sender_id, recipient_id, product_name_snapshot, product_category,
-              total_minor_units, currency, status, payment_status, idempotency_key)
-           VALUES ($1, $2, $3, 'Expired opt-out guard test gift', 'chocolate', 1000, 'USD',
-                   'expired', 'not_started', $4)
-           RETURNING id`,
-          [giftMatchId, giftSender.user.id, giftRecipient.user.id, randomUUID()]
-        );
-        const expiredOptOutOrderId = expiredOptOutOrder.rows[0].id;
+        let invalidOptOutError;
         try {
-          let invalidOptOutError;
-          try {
-            await giftTestDb.query(
-              'UPDATE gift_delivery_orders SET recipient_requests_disabled_at = statement_timestamp() WHERE id = $1',
-              [expiredOptOutOrderId]
-            );
-          } catch (error) { invalidOptOutError = error; }
-          assert.equal(invalidOptOutError?.code, '23514',
-            'opt-out evidence must not be attached to an order that was already expired');
-        } finally {
-          await preserveGiftOrderFixture(giftTestDb, expiredOptOutOrderId);
-        }
+          await giftTestDb.query(
+            'UPDATE gift_delivery_orders SET recipient_requests_disabled_at = statement_timestamp() WHERE id = $1',
+            [expiredAcceptanceOrderId]
+          );
+        } catch (error) { invalidOptOutError = error; }
+        assert.equal(invalidOptOutError?.code, '23514',
+          'opt-out evidence must not be attached to an order that was already expired');
       } finally {
         await preserveGiftOrderFixture(giftTestDb, expiredAcceptanceOrderId);
       }
