@@ -396,6 +396,24 @@ async function resolvePaddleAdjustmentReconciliationCases(client, transactionId,
   );
 }
 
+async function recordPaddleProviderIdentityConflictCase(client, {
+  eventId, transactionId, userId, plan
+}) {
+  const providerTransactionId = typeof transactionId === 'string' &&
+    /^txn_[A-Za-z0-9]+$/.test(transactionId) ? transactionId : null;
+  const providerUserRef = typeof userId === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)
+    ? userId : null;
+  const providerPlan = ['1month', '3months', 'lifetime'].includes(plan) ? plan : null;
+  await client.query(
+    `INSERT INTO paddle_adjustment_reconciliation_cases
+       (event_id, reason_code, provider_transaction_id, provider_user_ref, provider_plan)
+     VALUES ($1, 'provider_identity_conflict', $2, $3, $4)
+     ON CONFLICT (event_id) DO NOTHING`,
+    [eventId, providerTransactionId, providerUserRef, providerPlan]
+  );
+}
+
 async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
   const adjustmentId = data.id;
   const transactionId = data.transactionId || data.transaction_id;
@@ -916,16 +934,32 @@ export async function processPaddleEvent(pool, rawEvent) {
       // transaction processing completes. Retain the captured state but never
       // grant access or finalize a checkout from this event alone.
       if (typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
-        const transactionOwnerUserId = await findPaddleTransactionOwner(client, {
+        const transactionPlan = inferPaddleTransactionPlan(data);
+        let transactionOwnerUserId = await findPaddleTransactionOwner(client, {
           transactionId: data.id,
           subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
           customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null
         });
+        // A retained transaction link must not override contradictory signed
+        // checkout metadata. Preserve the provider event without attributing it
+        // to the old account; the conflict remains visible for reconciliation.
+        const providerOwnerConflict = Boolean(customUserId && transactionOwnerUserId &&
+          customUserId !== transactionOwnerUserId);
+        const providerPlanConflict = Boolean(
+          ['1month', '3months', 'lifetime'].includes(customData.plan) &&
+          transactionPlan && customData.plan !== transactionPlan
+        );
+        if (providerOwnerConflict || providerPlanConflict) {
+          await recordPaddleProviderIdentityConflictCase(client, {
+            eventId, transactionId: data.id, userId: customUserId, plan: customData.plan
+          });
+          transactionOwnerUserId = null;
+        }
         await recordPaddleTransactionEvent(client, {
           eventId,
           transactionId: data.id,
           userId: transactionOwnerUserId,
-          plan: inferPaddleTransactionPlan(data),
+          plan: transactionPlan,
           status: 'paid',
           subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
           customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null,
@@ -997,12 +1031,27 @@ export async function processPaddleEvent(pool, rawEvent) {
         )
         : { rowCount: 0, rows: [] };
       const ownsCheckoutAttempt = attemptClaim.rowCount === 1;
-      const transactionOwnerUserId = await findPaddleTransactionOwner(client, {
+      let transactionOwnerUserId = await findPaddleTransactionOwner(client, {
         attemptUserId: ownsCheckoutAttempt ? customUserId : null,
         transactionId: data.id,
         subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
         customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null
       });
+      // Existing transaction evidence may identify an old account even when
+      // this webhook's signed checkout metadata names another account. Never
+      // let the old link win over contradictory provider context or plan.
+      const providerOwnerConflict = Boolean(customUserId && transactionOwnerUserId &&
+        customUserId !== transactionOwnerUserId);
+      const providerPlanConflict = Boolean(
+        ['1month', '3months', 'lifetime'].includes(customData.plan) &&
+        transactionPlan && customData.plan !== transactionPlan
+      );
+      if (providerOwnerConflict || providerPlanConflict) {
+        await recordPaddleProviderIdentityConflictCase(client, {
+          eventId, transactionId: data.id, userId: customUserId, plan: customData.plan
+        });
+        transactionOwnerUserId = null;
+      }
       // Migration 183 locks users before paddle_transaction_events. A lifetime
       // or recurring completion writes the transaction ledger and then updates
       // users, so acquire the compatible users table lock first to preserve
