@@ -59,6 +59,21 @@ test('L3 schema persists metadata only and protects workflow decisions', {
         [consentProbeUserId, `consent-audit-txid-${consentProbeUserId}@example.invalid`]
       );
       await client.query('BEGIN');
+      await client.query('SAVEPOINT reject_initially_withdrawn_consent');
+      await assert.rejects(
+        client.query(
+          `INSERT INTO identity_l3_consents
+             (user_id, consent_version, granted_at, withdrawn_at)
+           VALUES ($1, 2, statement_timestamp() - INTERVAL '1 minute', statement_timestamp())`,
+          [consentProbeUserId]
+        ),
+        error => error.code === '23514'
+      );
+      await client.query('ROLLBACK TO SAVEPOINT reject_initially_withdrawn_consent');
+      await client.query('RELEASE SAVEPOINT reject_initially_withdrawn_consent');
+      await client.query('COMMIT');
+
+      await client.query('BEGIN');
       await client.query(
         `WITH granted AS (
            INSERT INTO identity_l3_consents (user_id, consent_version, granted_at)
@@ -142,6 +157,9 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       assert.ok(consentStateTriggers.rows.some(row =>
         row.tgname === 'identity_l3_consents_state_guard'
       ), 'consent ownership and state transitions must be immutable outside grant/withdrawal');
+      assert.ok(consentStateTriggers.rows.some(row =>
+        row.tgname === 'identity_l3_consents_insert_guard'
+      ), 'a new consent row must begin as a grant, never as an unlogged withdrawal');
       assert.ok(consentStateTriggers.rows.some(row =>
         row.tgname === 'identity_l3_consents_require_audit_event'
       ), 'every grant, notice update and withdrawal must have a matching immutable event');
