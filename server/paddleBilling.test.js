@@ -145,6 +145,99 @@ test('subscription updates compare source timestamps and do not bypass ordering 
   assert.equal(update.params[7], '2026-10-24T20:00:00Z');
 });
 
+
+test('subscription.updated does not extend access when supplied custom_data owner is malformed', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_subscription_identity';
+  const existingOwner = '00000000-0000-4000-8000-000000000087';
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      calls.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      if (statement.includes('SELECT id FROM users WHERE paddle_subscription_id')) {
+        return { rowCount: 1, rows: [{ id: existingOwner }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_subscription_bad_owner',
+      eventType: 'subscription.updated',
+      occurredAt: '2026-11-04T12:30:00Z',
+      data: {
+        id: 'sub_subscriptionidentity123',
+        status: 'active',
+        customer_id: 'ctm_subscriptionidentity123',
+        current_billing_period: { ends_at: '2027-01-01T00:00:00Z' },
+        items: [{ price: { id: 'pri_month_subscription_identity' } }],
+        custom_data: { userId: 'not-a-vow-user-id', plan: '1month' }
+      }
+    });
+    assert.equal(calls.some(call => call.statement.includes('UPDATE users SET')), false,
+      'malformed custom_data must not fall back to the retained subscription owner for an access extension');
+    const conflict = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
+    assert.ok(conflict);
+    assert.equal(conflict.params[2], null);
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
+  }
+});
+
+test('subscription.updated can still revoke access on past_due when owner metadata conflicts', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_subscription_past_due';
+  const existingOwner = '00000000-0000-4000-8000-000000000088';
+  const conflictingOwner = '00000000-0000-4000-8000-000000000089';
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      calls.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      if (statement.includes('SELECT id FROM users WHERE paddle_subscription_id')) {
+        return { rowCount: 1, rows: [{ id: existingOwner }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_subscription_past_due_conflict',
+      eventType: 'subscription.updated',
+      occurredAt: '2026-11-04T12:35:00Z',
+      data: {
+        id: 'sub_subscriptionpastdue123',
+        status: 'past_due',
+        customer_id: 'ctm_subscriptionpastdue123',
+        current_billing_period: { ends_at: '2027-01-01T00:00:00Z' },
+        items: [{ price: { id: 'pri_month_subscription_past_due' } }],
+        custom_data: { userId: conflictingOwner, plan: '1month' }
+      }
+    });
+    const update = calls.find(call => call.statement.includes('UPDATE users SET'));
+    assert.ok(update, 'a non-entitling past_due event must still revoke the retained owner');
+    assert.equal(update.params[0], null,
+      'the update must resolve by the already-owned subscription ID, not the conflicting custom_data owner');
+    assert.ok(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')));
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
+  }
+});
+
+
 test('subscription.canceled wins an equal-timestamp lifecycle ordering tie', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const queries = [];
