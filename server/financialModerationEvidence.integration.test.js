@@ -2336,14 +2336,16 @@ test('Paddle transaction IDs remain globally unique across current and archived 
   const firstUserId = randomUUID();
   const secondUserId = randomUUID();
   const thirdUserId = randomUUID();
+  const unboundUserId = randomUUID();
   const transactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
   try {
     await client.query('BEGIN');
     await client.query(
-      "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active'), ($3, $4, 'test-only-hash', 'active'), ($5, $6, 'test-only-hash', 'active')",
+      "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active'), ($3, $4, 'test-only-hash', 'active'), ($5, $6, 'test-only-hash', 'active'), ($7, $8, 'test-only-hash', 'active')",
       [firstUserId, `txn-history-a-${firstUserId}@example.invalid`,
         secondUserId, `txn-history-b-${secondUserId}@example.invalid`,
-        thirdUserId, `txn-history-c-${thirdUserId}@example.invalid`]
+        thirdUserId, `txn-history-c-${thirdUserId}@example.invalid`,
+        unboundUserId, `txn-history-unbound-${unboundUserId}@example.invalid`]
     );
 
     const firstAttemptId = randomUUID();
@@ -2507,6 +2509,17 @@ test('Paddle transaction IDs remain globally unique across current and archived 
     await client.query('ROLLBACK TO SAVEPOINT conflicting_checkout_plan');
     await client.query('RELEASE SAVEPOINT conflicting_checkout_plan');
 
+    const firstCustomerId = 'ctm_2123456789abcdef01234567';
+    const secondCustomerId = 'ctm_3123456789abcdef01234567';
+    await client.query(
+      'UPDATE users SET paddle_customer_id = $2 WHERE id = $1',
+      [firstUserId, firstCustomerId]
+    );
+    await client.query(
+      'UPDATE users SET paddle_customer_id = $2 WHERE id = $1',
+      [secondUserId, secondCustomerId]
+    );
+
     const mismatchedCustomerTransactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
     const mismatchedCustomerEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
     await client.query(
@@ -2541,7 +2554,7 @@ test('Paddle transaction IDs remain globally unique across current and archived 
       `INSERT INTO paddle_transaction_events
        (event_id, transaction_id, user_id, plan, status, customer_id)
        VALUES ($1, $2, $3, 'lifetime', 'completed', $4)`,
-      [unboundCustomerFirstEventId, unboundCustomerTransactionId, firstUserId, firstUnboundCustomerId]
+      [unboundCustomerFirstEventId, unboundCustomerTransactionId, unboundUserId, firstUnboundCustomerId]
     );
     await client.query('SAVEPOINT conflicting_provider_customer_history');
     let conflictingProviderCustomerHistoryError;
@@ -2550,24 +2563,13 @@ test('Paddle transaction IDs remain globally unique across current and archived 
         `INSERT INTO paddle_transaction_events
          (event_id, transaction_id, user_id, plan, status, customer_id)
          VALUES ($1, $2, $3, 'lifetime', 'completed', $4)`,
-        [unboundCustomerSecondEventId, unboundCustomerTransactionId, firstUserId, secondUnboundCustomerId]
+        [unboundCustomerSecondEventId, unboundCustomerTransactionId, unboundUserId, secondUnboundCustomerId]
       );
     } catch (error) { conflictingProviderCustomerHistoryError = error; }
     assert.equal(conflictingProviderCustomerHistoryError?.code, '23505',
       'all events for one Paddle transaction must retain the same customer identity even before it is linked to a user');
     await client.query('ROLLBACK TO SAVEPOINT conflicting_provider_customer_history');
     await client.query('RELEASE SAVEPOINT conflicting_provider_customer_history');
-
-    const firstCustomerId = 'ctm_2123456789abcdef01234567';
-    const secondCustomerId = 'ctm_3123456789abcdef01234567';
-    await client.query(
-      'UPDATE users SET paddle_customer_id = $2 WHERE id = $1',
-      [firstUserId, firstCustomerId]
-    );
-    await client.query(
-      'UPDATE users SET paddle_customer_id = $2 WHERE id = $1',
-      [secondUserId, secondCustomerId]
-    );
 
     const guardFunction = await client.query(
       "SELECT pg_get_functiondef('guard_paddle_checkout_transaction_global_uniqueness()'::regprocedure) AS definition"
