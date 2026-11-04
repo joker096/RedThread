@@ -152,6 +152,8 @@ Deploy migrations 135–203 from PR #424 before merging and deploying PR #423's 
 2. Define the legal-hold and dispute workflow before enabling any automated purge. A legal hold must override ordinary expiry.
 3. Restrict database and audit-log access to authorized operational/moderation roles; protect backups and exports with encryption and access logging.
 4. Monitor reconciliation queues and unresolved payment attempts. Never delete unresolved financial evidence to reduce storage.
+5. Keep Paddle billing in Sandbox until production-environment SDK selection, live webhook signing, live price IDs, and full cancellation/refund/chargeback E2E checks are implemented and independently verified. The current webhook handler is intentionally Sandbox-only.
+6. Do not enable gift payments until a provider-specific adapter/worker and audited task-resolution workflow exist; migration 203 prevents false completion but does not execute a void or refund.
 5. If a retention schedule is later automated, use explicit per-record `retain_until` / legal-hold state, a dry-run report, bounded batches, and an immutable purge audit. Do not add a blanket cascade or age-only delete job.
 
 No automated financial/report evidence purge is enabled by this change. That is deliberate until the retention periods and legal-hold rules are approved.
