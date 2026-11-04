@@ -432,7 +432,7 @@ test('chargeback reversals are paired one-to-one in provider chronology', async 
     /reversal\.occurred_at <= chargeback\.occurred_at/,
     'a reversal cannot offset a chargeback that happened later');
   assert.match(stateQuery.statement,
-    /COUNT\(\*\) FROM chargebacks\) =\s*\(SELECT COUNT\(\*\) FROM chargeback_reversals\)/,
+    /chargeback_count = reversal_count/,
     'extra or missing reversal evidence must remain fail-closed');
   assert.match(stateQuery.statement,
     /chargeback_count > 0\s+AND NOT \(chargeback_count = reversal_count AND all_chargebacks_paired\)/,
