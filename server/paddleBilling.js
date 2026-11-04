@@ -735,14 +735,25 @@ export async function processPaddleEvent(pool, rawEvent) {
     // safety actions. Deletion holds this same advisory key across external
     // Paddle cancellation, so a late subscription.created event cannot attach
     // a renewing subscription after the account has been deleted.
-    let paddleIdentityUserId = customUserId;
-    if (!paddleIdentityUserId && subscriptionLifecycleEvent && subscriptionId) {
+    let existingSubscriptionOwnerUserId = null;
+    if (subscriptionLifecycleEvent && subscriptionId) {
       const existingOwner = await client.query(
         'SELECT id FROM users WHERE paddle_subscription_id = $1 LIMIT 1',
         [subscriptionId]
       );
-      paddleIdentityUserId = existingOwner.rows[0]?.id || null;
+      existingSubscriptionOwnerUserId = existingOwner.rows[0]?.id || null;
     }
+    const subscriptionOwnerMetadataConflict = subscriptionLifecycleEvent && (
+      customUserIdMetadataConflict ||
+      Boolean(customUserId && existingSubscriptionOwnerUserId &&
+        customUserId !== existingSubscriptionOwnerUserId)
+    );
+    // If provider metadata conflicts with a retained subscription owner, lock
+    // the retained owner only for safe adverse lifecycle updates. Never lock or
+    // mutate an arbitrary account selected from contradictory custom_data.
+    let paddleIdentityUserId = subscriptionOwnerMetadataConflict
+      ? existingSubscriptionOwnerUserId
+      : customUserId || existingSubscriptionOwnerUserId;
     if (paddleIdentityUserId && !adjustmentWebhookEvent) {
       await client.query(
         "SELECT pg_advisory_xact_lock(hashtext('gift-safety-user:' || $1::uuid::text))",
@@ -809,6 +820,9 @@ export async function processPaddleEvent(pool, rawEvent) {
         && isPaddleSubscriptionEntitled(status, periodEnd);
       const checkoutPlan = priceId === process.env.PADDLE_PRICE_ID_1MONTH ? '1month'
         : priceId === process.env.PADDLE_PRICE_ID_3MONTHS ? '3months' : null;
+      const providerPlanMetadataConflict =
+        Object.prototype.hasOwnProperty.call(customData, 'plan') && customData.plan !== checkoutPlan;
+      const subscriptionIdentityConflict = subscriptionOwnerMetadataConflict || providerPlanMetadataConflict;
       // A newly-created subscription is the event that grants recurring access.
       // Require a matching durable checkout attempt; custom_data and a known price
       // alone are not proof that this account initiated this Vow checkout.
@@ -822,6 +836,28 @@ export async function processPaddleEvent(pool, rawEvent) {
         : typeof data.transaction_id === 'string' ? data.transaction_id : null;
       const validSubscriptionTransactionId = typeof subscriptionTransactionId === 'string'
         && /^txn_[A-Za-z0-9]+$/.test(subscriptionTransactionId);
+      if (subscriptionIdentityConflict) {
+        await recordPaddleProviderIdentityConflictCase(client, {
+          eventId,
+          transactionId: validSubscriptionTransactionId ? subscriptionTransactionId : null,
+          userId: customUserIdMetadataConflict ? null : customUserId,
+          plan: customData.plan
+        });
+        // A subscription.created event can grant access, so any owner/plan
+        // contradiction blocks it completely. For existing subscriptions,
+        // still apply non-entitling states (past_due/paused/canceled) to the
+        // retained owner, but never extend access from contradictory metadata.
+        if (eventType === 'subscription.created' || active) {
+          if (eventType === 'subscription.created') {
+            await markPaddleCheckoutAttemptForReconciliation(
+              client, customUserId, customData.plan, subscriptionTransactionId, checkoutAttemptId
+            );
+          }
+          await client.query('COMMIT');
+          return { duplicate: false, handled: true };
+        }
+      }
+      const subscriptionUpdateUserId = subscriptionIdentityConflict ? null : customUserId;
       let subscriptionAttemptClaim = { rowCount: 0, rows: [] };
       if (eventType === 'subscription.created' && customUserId &&
           checkoutPlan && customData.plan === checkoutPlan && validSubscriptionTransactionId) {
@@ -900,7 +936,7 @@ export async function processPaddleEvent(pool, rawEvent) {
           -- The source timestamp guard above prevents a delayed old lifecycle event from winning.
           -- A delayed or newly delivered subscription event must not revoke or replace lifetime Premium.
           AND premium_lifetime IS NOT TRUE`,
-        [customUserId, customerId, subscriptionId, status, priceId, active, active ? periodEnd : null, occurredAt, eventType === 'subscription.created', eventType === 'subscription.canceled']
+        [subscriptionUpdateUserId, customerId, subscriptionId, status, priceId, active, active ? periodEnd : null, occurredAt, eventType === 'subscription.created', eventType === 'subscription.canceled']
       );
       if (eventType === 'subscription.created' && customUserId && checkoutPlan) {
         if (subscriptionUpdate.rowCount > 0 && validSubscriptionTransactionId) {
