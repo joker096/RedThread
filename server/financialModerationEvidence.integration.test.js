@@ -2841,12 +2841,13 @@ test('conflicting Paddle adjustment identity is quarantined without entering the
       reconciliationRequired: true
     });
     const retained = await pool.query(
-      'SELECT reason_code, provider_transaction_id FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1',
+      'SELECT reason_code, provider_transaction_id, provider_adjustment_id FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1',
       [conflictingEventId]
     );
     assert.deepEqual(retained.rows, [{
       reason_code: 'provider_identity_conflict',
-      provider_transaction_id: conflictingTransactionId
+      provider_transaction_id: conflictingTransactionId,
+      provider_adjustment_id: adjustmentId
     }]);
     const rejectedLedgerInsert = await pool.query(
       'SELECT COUNT(*)::int AS count FROM paddle_adjustment_events WHERE event_id = $1',
