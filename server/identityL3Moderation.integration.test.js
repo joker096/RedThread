@@ -207,6 +207,14 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     );
     assert.deepEqual(mediaAccessAudit.rows, [{ moderator_user_id: moderatorId, access_type: 'viewed' }]);
 
+    await assert.rejects(
+      pool.query(
+        'UPDATE identity_l3_consents SET withdrawn_at = statement_timestamp() WHERE user_id = $1',
+        [applicantId]
+      ),
+      error => error.code === '23514'
+    );
+
 
     const approved = await request('/api/moderation/identity-l3/submissions/' + first.submissionId + '/decision', {
       method: 'POST',
