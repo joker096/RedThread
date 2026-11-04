@@ -29,13 +29,38 @@ $migration187$;
 -- provider identities. Advisory locks below coordinate the historical-ledger
 -- checks; these indexes independently prevent two current accounts from
 -- claiming the same ID even under concurrent transactions.
-CREATE UNIQUE INDEX users_paddle_customer_id_unique
+CREATE UNIQUE INDEX IF NOT EXISTS users_paddle_customer_id_unique
   ON users(paddle_customer_id)
   WHERE paddle_customer_id IS NOT NULL;
 
-CREATE UNIQUE INDEX users_paddle_subscription_id_unique
+CREATE UNIQUE INDEX IF NOT EXISTS users_paddle_subscription_id_unique
   ON users(paddle_subscription_id)
   WHERE paddle_subscription_id IS NOT NULL;
+
+DO $migration187_indexes$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = current_schema()
+      AND tablename = 'users'
+      AND indexname = 'users_paddle_customer_id_unique'
+      AND indexdef ILIKE 'CREATE UNIQUE INDEX%'
+      AND indexdef ILIKE '%(paddle_customer_id)%'
+      AND indexdef ILIKE '%WHERE (paddle_customer_id IS NOT NULL)%'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = current_schema()
+      AND tablename = 'users'
+      AND indexname = 'users_paddle_subscription_id_unique'
+      AND indexdef ILIKE 'CREATE UNIQUE INDEX%'
+      AND indexdef ILIKE '%(paddle_subscription_id)%'
+      AND indexdef ILIKE '%WHERE (paddle_subscription_id IS NOT NULL)%'
+  ) THEN
+    RAISE EXCEPTION 'live Paddle customer/subscription identity indexes are missing or do not enforce the required partial uniqueness'
+      USING ERRCODE = '23514';
+  END IF;
+END;
+$migration187_indexes$;
 
 CREATE OR REPLACE FUNCTION guard_paddle_user_provider_identity()
 RETURNS trigger LANGUAGE plpgsql AS $paddle_user_provider_identity$
