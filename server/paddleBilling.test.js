@@ -230,6 +230,10 @@ test('subscription.updated can still revoke access on past_due when owner metada
     assert.ok(update, 'a non-entitling past_due event must still revoke the retained owner');
     assert.equal(update.params[0], null,
       'the update must resolve by the already-owned subscription ID, not the conflicting custom_data owner');
+    assert.equal(update.params[1], null,
+      'a conflicted customer ID must not be attached to the retained subscription owner');
+    assert.equal(update.params[4], null,
+      'a conflicted price ID must not overwrite the retained subscription price snapshot');
     assert.ok(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')));
   } finally {
     if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
