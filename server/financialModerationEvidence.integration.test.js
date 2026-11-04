@@ -1244,6 +1244,13 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
         actor_user_id: giftActorId,
         actor_ref: giftActorId
       }], 'new gift audit rows must snapshot the live actor UUID');
+      await assert.rejects(
+        client.query(
+          'INSERT INTO gift_order_event_guard_test VALUES (NULL, $1, $2)',
+          [randomUUID(), 'system']
+        ),
+        error => error.code === '23514'
+      );
       await client.query('SAVEPOINT gift_event_append_only');
       let giftEventUpdateError;
       try {
