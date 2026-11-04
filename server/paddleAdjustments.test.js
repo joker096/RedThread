@@ -364,6 +364,9 @@ test('chargeback reversal evidence alone does not restore access before the orig
   });
   assert.equal(pendingRestore.entitlementChanged, false);
   assert.equal(reversalFirst.calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
+  const stateQuery = reversalFirst.calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
+  assert.match(stateQuery.statement, /DISTINCT ON \\(adjustment_id, action\\)/,
+    'a chargeback_reverse event must not replace the original chargeback action in the latest-state projection');
 
   // Paddle separately updates the original chargeback adjustment to status=reversed.
   // Only then is the original adverse adjustment no longer active.
