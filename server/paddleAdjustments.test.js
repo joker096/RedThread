@@ -715,6 +715,10 @@ test('refund reversal without prior approval is quarantined and remains adverse'
   const stateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
   assert.match(stateQuery.statement,
     /latest\.status = 'reversed'[\s\S]*NOT EXISTS[\s\S]*prior\.status = 'approved'/);
+  assert.match(stateQuery.statement,
+    /prior\.occurred_at < latest\.occurred_at/,
+    'a refund reversal must be strictly later than its approval');
+
 });
 
 test('contradictory refund final states stay adverse and enter reconciliation', async () => {
