@@ -1057,7 +1057,10 @@ export async function processPaddleEvent(pool, rawEvent) {
         (customData.plan === 'lifetime' && includesLifetimePrice && transactionPlan === 'lifetime') ||
         (customData.plan === '1month' && includesRecurringPrice && transactionPlan === '1month') ||
         (customData.plan === '3months' && includesRecurringPrice && transactionPlan === '3months');
-      const attemptClaim = transactionPlanMatches && customUserId && data.id
+      // Contradictory owner aliases are ambiguous identity evidence. Do not
+      // claim even an otherwise matching checkout attempt: downstream entitlement
+      // writes are intentionally gated by this exact claim result.
+      const attemptClaim = !customUserIdMetadataConflict && transactionPlanMatches && customUserId && data.id
         ? await client.query(
           `UPDATE paddle_checkout_attempts
            SET transaction_id = $1, status = 'completed', updated_at = NOW()
@@ -1246,33 +1249,52 @@ export async function processPaddleEvent(pool, rawEvent) {
         // that race; otherwise the webhook would be consumed while the row is
         // still "creating", and the HTTP response could later resurrect it
         // as pending using its stale draft/ready response.
-        const canceledAttempt = await client.query(
-          `UPDATE paddle_checkout_attempts
-           SET transaction_id = COALESCE(transaction_id, $1),
-               status = 'canceled', updated_at = NOW()
-           WHERE (
-             ($2::uuid IS NOT NULL AND user_id = $2::uuid
-               AND attempt_id = $3::uuid AND plan = $4)
-             OR ($3::uuid IS NULL AND transaction_id = $1)
-           )
-             AND (transaction_id IS NULL OR transaction_id = $1)
-             AND status IN ('creating', 'pending', 'reconciliation_required')
-           RETURNING user_id, plan`,
-          [data.id, reconciliationContext?.userId || null,
-            reconciliationContext?.attemptId || null, reconciliationContext?.plan || null]
-        );
+        const canceledTransactionPlan = inferPaddleTransactionPlan(data);
+        const canceledPlanConflict = Object.prototype.hasOwnProperty.call(customData, 'plan') &&
+          customData.plan !== canceledTransactionPlan;
+        // Do not mutate an attempt from ambiguous owner aliases or contradictory
+        // plan metadata. A cancellation is adverse evidence, but it must not be
+        // assigned to an arbitrary account selected by field precedence.
+        const canceledAttempt = customUserIdMetadataConflict || canceledPlanConflict
+          ? { rows: [] }
+          : await client.query(
+            `UPDATE paddle_checkout_attempts
+             SET transaction_id = COALESCE(transaction_id, $1),
+                 status = 'canceled', updated_at = NOW()
+             WHERE (
+               ($2::uuid IS NOT NULL AND user_id = $2::uuid
+                 AND attempt_id = $3::uuid AND plan = $4)
+               OR ($3::uuid IS NULL AND transaction_id = $1)
+             )
+               AND (transaction_id IS NULL OR transaction_id = $1)
+               AND status IN ('creating', 'pending', 'reconciliation_required')
+             RETURNING user_id, plan`,
+            [data.id, reconciliationContext?.userId || null,
+              reconciliationContext?.attemptId || null, reconciliationContext?.plan || null]
+          );
         const canceledAttemptRow = canceledAttempt.rows?.[0] ?? null;
-        const transactionOwnerUserId = await findPaddleTransactionOwner(client, {
+        let transactionOwnerUserId = await findPaddleTransactionOwner(client, {
           attemptUserId: canceledAttemptRow?.user_id ?? null,
           transactionId: data.id,
           subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
           customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null
         });
+        const canceledOwnerConflict = customUserIdMetadataConflict || canceledPlanConflict ||
+          Boolean(customUserId && transactionOwnerUserId && customUserId !== transactionOwnerUserId);
+        if (canceledOwnerConflict) {
+          await recordPaddleProviderIdentityConflictCase(client, {
+            eventId,
+            transactionId: data.id,
+            userId: customUserIdMetadataConflict ? null : customUserId,
+            plan: customData.plan
+          });
+          transactionOwnerUserId = null;
+        }
         await recordPaddleTransactionEvent(client, {
           eventId,
           transactionId: data.id,
           userId: transactionOwnerUserId,
-          plan: canceledAttemptRow?.plan || inferPaddleTransactionPlan(data),
+          plan: canceledAttemptRow?.plan || canceledTransactionPlan,
           status: 'canceled',
           subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
           customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null,
