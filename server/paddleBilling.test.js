@@ -541,6 +541,51 @@ test('customer webhook cannot replace an account customer ID once established', 
 });
 
 
+test('conflicting customer webhook identity is retained for moderator reconciliation', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const userId = '00000000-0000-4000-8000-000000000001';
+  const attemptId = '00000000-0000-4000-8000-000000000002';
+  const queries = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      queries.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      if (statement.includes('UPDATE users SET paddle_customer_id')) {
+        return { rowCount: 0, rows: [] };
+      }
+      if (statement.includes('customer_owned_by_other')) {
+        return { rowCount: 1, rows: [{ customer_owned_by_other: true, account_customer_mismatch: false }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  const result = await processPaddleEvent({ async connect() { return client; } }, {
+    eventId: 'evt_customer_conflict',
+    eventType: 'customer.updated',
+    data: {
+      id: 'ctm_conflictingidentity',
+      email: 'person@example.com',
+      customData: { userId, plan: 'lifetime', checkoutAttemptId: attemptId }
+    }
+  });
+  assert.deepEqual(result, {
+    duplicate: false, handled: true, reconciliationRequired: true
+  });
+  const caseInsert = queries.find(query =>
+    query.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')
+  );
+  assert.ok(caseInsert, 'a failed provider customer identity claim must not be silently acknowledged');
+  assert.equal(caseInsert.params[1], 'provider_identity_conflict');
+  assert.equal(caseInsert.params[3], userId);
+  assert.equal(caseInsert.params[4], 'lifetime');
+  assert.ok(queries.some(query => query.statement.includes('ROLLBACK TO SAVEPOINT paddle_event_effects')),
+    'the conflicting customer assignment must be rolled back before the durable reconciliation case is inserted');
+});
+
 test('duplicate Paddle webhook IDs commit without replaying entitlement updates', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const queries = [];
