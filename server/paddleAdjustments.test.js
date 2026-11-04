@@ -436,7 +436,8 @@ test('a refund status of reversed cannot restore a full-refund-revoked entitleme
     ledgerStatus: 'revoked',
     revokeReason: 'paddle_full_refund',
     fullRefund: true,
-    fullRefundReversed: true
+    fullRefundReversed: true,
+    conflictingRefundLifecycle: true
   });
   const result = await sendAdjustment(pool, {
     action: 'refund', status: 'reversed', type: 'full', eventType: 'adjustment.updated'
@@ -738,7 +739,8 @@ test('contradictory refund final states stay adverse and enter reconciliation', 
   assert.ok(reconciliation);
   assert.equal(reconciliation.params[1], 'provider_lifecycle_conflict');
   const stateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
-  assert.match(stateQuery.statement, /latest\.status <> 'reversed'[\s\S]*prior\.status = 'approved'/);
-  assert.match(stateQuery.statement, /latest\.status = 'reversed'/);
-  assert.doesNotMatch(stateQuery.statement, /latest\.status IN \('rejected', 'reversed'\)/);
+  assert.match(stateQuery.statement, /latest\.status IN \('approved', 'reversed'\)/);
+  assert.match(stateQuery.statement,
+    /latest\.status IN \('pending_approval', 'rejected'\)[\s\S]*prior\.status = 'approved'/);
+  assert.match(stateQuery.statement, /FALSE AS full_refund_reversed/);
 });
