@@ -1190,14 +1190,15 @@ export async function processPaddleEvent(pool, rawEvent) {
         // unrelated or already-linked/canceled purchases for the same account.
         const reconciliationTransactionId = ['transaction.paid', 'transaction.completed', 'transaction.canceled'].includes(eventType)
           ? data.id
-          : eventType === 'subscription.created'
+          : ['subscription.created', 'adjustment.created', 'adjustment.updated'].includes(eventType)
             ? (typeof data.transactionId === 'string' ? data.transactionId
               : typeof data.transaction_id === 'string' ? data.transaction_id : null)
             : null;
         const providerIdentityConflict = [
           'transaction.paid', 'transaction.completed', 'transaction.canceled',
           'subscription.created', 'subscription.updated', 'subscription.canceled',
-          'customer.created', 'customer.updated'
+          'customer.created', 'customer.updated',
+          'adjustment.created', 'adjustment.updated'
         ].includes(eventType);
         if (providerIdentityConflict) {
           const reasonCode = String(error?.message || '').includes('completed/canceled state')
