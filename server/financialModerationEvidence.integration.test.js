@@ -2138,8 +2138,6 @@ test('Paddle transaction IDs remain globally unique across current and archived 
       'a checkout must not claim a provider transaction recorded under a different plan');
     await client.query('ROLLBACK TO SAVEPOINT conflicting_checkout_plan');
     await client.query('RELEASE SAVEPOINT conflicting_checkout_plan');
-    await client.query('ROLLBACK TO SAVEPOINT conflicting_transaction_ledger_owner');
-    await client.query('RELEASE SAVEPOINT conflicting_transaction_ledger_owner');
 
     const guardFunction = await client.query(
       "SELECT pg_get_functiondef('guard_paddle_checkout_transaction_global_uniqueness()'::regprocedure) AS definition"
