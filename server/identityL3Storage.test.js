@@ -6,6 +6,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import {
   assertIdentityL3StorageReady,
+  assertIdentityL3TemporaryStorageReady,
   clearIdentityL3TemporaryFiles,
   deleteIdentityL3Object,
   IdentityL3StorageError,
@@ -44,6 +45,36 @@ test('L3 storage readiness validates key and both private mount permissions', as
       assertIdentityL3StorageReady({ root: encryptedRoot, tempRoot: scratchRoot, key }),
       error => error instanceof IdentityL3StorageError && error.code === 'l3_storage_root_unsafe'
     );
+  });
+});
+
+test('L3-disabled startup cleanup guard rejects scratch aliases before deleting encrypted media', async () => {
+  await withStorage(async root => {
+    const encryptedRoot = path.join(root, 'encrypted');
+    const scratchRoot = path.join(root, 'scratch');
+    await mkdir(encryptedRoot, { mode: 0o700 });
+    await mkdir(scratchRoot, { mode: 0o700 });
+    const encryptedObject = path.join(encryptedRoot, 'retained-encrypted-object');
+    await writeFile(encryptedObject, 'encrypted-evidence');
+
+    for (const tempRoot of [encryptedRoot, path.join(encryptedRoot, 'nested'), root]) {
+      await assert.rejects(
+        assertIdentityL3TemporaryStorageReady({ root: encryptedRoot, tempRoot }),
+        error => error instanceof IdentityL3StorageError &&
+          error.code === 'l3_storage_roots_must_be_disjoint'
+      );
+    }
+
+    const symlinkAlias = path.join(root, 'scratch-alias');
+    await symlink(encryptedRoot, symlinkAlias);
+    await assert.rejects(
+      assertIdentityL3TemporaryStorageReady({ root: encryptedRoot, tempRoot: symlinkAlias }),
+      error => error instanceof IdentityL3StorageError &&
+        error.code === 'l3_storage_root_unsafe'
+    );
+
+    assert.equal(await readFile(encryptedObject, 'utf8'), 'encrypted-evidence',
+      'an invalid disabled-feature scratch path must not permit encrypted media deletion');
   });
 });
 
