@@ -39,7 +39,7 @@ Test the portal flow with a sandbox customer, verify that the cancellation link 
 
 ## Refunds, credits and chargebacks
 
-The sandbox notification destination must deliver both adjustment events. The handler stores each event as append-only financial evidence and ties it to the original verified lifetime checkout transaction. A refund with status `pending_approval` does not revoke Premium; an approved full refund or chargeback does. A rejected refund does not revoke access. A chargeback reversal can restore access only if no other adverse adjustment remains. Partial refunds, credits and chargeback warnings are recorded but do not automatically revoke the lifetime plan. Verify these transitions in the sandbox before enabling any live Paddle configuration.
+The sandbox notification destination must deliver both adjustment events. The handler stores each event as append-only financial evidence and ties it to the original verified lifetime checkout transaction. A refund with status `pending_approval` does not revoke Premium; an approved full refund or chargeback does. A rejected refund with no prior approval does not revoke access. If a later pending/rejected event conflicts with an earlier approval, the approved refund remains adverse and a provider-lifecycle reconciliation case is opened; only an explicit `reversed` status can restore that purchase. A chargeback reversal can restore access only after one-to-one chronological pairing with every chargeback and only if no other adverse adjustment remains. Partial refunds, credits and chargeback warnings are recorded but do not automatically revoke the lifetime plan. Verify these transitions in the sandbox before enabling any live Paddle configuration.
 
 ## Current safety boundaries
 
