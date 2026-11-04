@@ -2786,6 +2786,26 @@ test('Paddle chargeback reversals are paired one-to-one and must be strictly lat
     assert.equal(correctlyPaired.chargebackActive, false);
     assert.equal(correctlyPaired.chargebackReversed, true);
 
+    const reversalsArriveInDifferentAmountOrder = await stateFor([
+      { action: 'chargeback', occurredAt: '2026-11-01T10:00:00Z', amountMinorUnits: 500, currencyCode: 'USD' },
+      { action: 'chargeback', occurredAt: '2026-11-01T12:00:00Z', amountMinorUnits: 700, currencyCode: 'USD' },
+      { action: 'chargeback_reverse', occurredAt: '2026-11-01T13:00:00Z', amountMinorUnits: 700, currencyCode: 'USD' },
+      { action: 'chargeback_reverse', occurredAt: '2026-11-01T14:00:00Z', amountMinorUnits: 500, currencyCode: 'USD' }
+    ]);
+    assert.equal(reversalsArriveInDifferentAmountOrder.chargebackActive, false,
+      'reversals must pair with chargebacks by amount/currency, not global arrival rank');
+    assert.equal(reversalsArriveInDifferentAmountOrder.chargebackReversed, true);
+
+    const reversalsArriveInDifferentCurrencyOrder = await stateFor([
+      { action: 'chargeback', occurredAt: '2026-11-01T10:00:00Z', amountMinorUnits: 500, currencyCode: 'USD' },
+      { action: 'chargeback', occurredAt: '2026-11-01T12:00:00Z', amountMinorUnits: 500, currencyCode: 'EUR' },
+      { action: 'chargeback_reverse', occurredAt: '2026-11-01T13:00:00Z', amountMinorUnits: 500, currencyCode: 'EUR' },
+      { action: 'chargeback_reverse', occurredAt: '2026-11-01T14:00:00Z', amountMinorUnits: 500, currencyCode: 'USD' }
+    ]);
+    assert.equal(reversalsArriveInDifferentCurrencyOrder.chargebackActive, false,
+      'reversals must pair within the same currency even when provider chronology crosses currencies');
+    assert.equal(reversalsArriveInDifferentCurrencyOrder.chargebackReversed, true);
+
     const oneReversalCouldMatchSeveral = await stateFor([
       { action: 'chargeback', occurredAt: '2026-11-01T10:00:00Z' },
       { action: 'chargeback', occurredAt: '2026-11-01T11:00:00Z' },
