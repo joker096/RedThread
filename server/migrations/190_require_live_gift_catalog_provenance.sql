@@ -1,6 +1,6 @@
--- Every new gift purchase originates from a live catalog item. The nullable
--- catalog_item_id exists only so a later catalog deletion can clear its FK
--- while catalog_item_ref preserves the original purchase provenance.
+-- When a gift order references a catalog item, its immutable snapshot must
+-- originate from that live FK. Catalog-less legacy/system orders remain valid
+-- only when both catalog_item_id and catalog_item_ref are NULL.
 CREATE OR REPLACE FUNCTION snapshot_gift_delivery_order_references()
 RETURNS trigger LANGUAGE plpgsql AS $gift_order_reference_snapshot$
 DECLARE
