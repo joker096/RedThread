@@ -226,13 +226,13 @@ export async function getPaddleAdjustmentState(client, transactionId) {
      ),
      chargebacks AS (
        SELECT adjustment_id, amount_minor_units, currency_code, occurred_at,
-         ROW_NUMBER() OVER (ORDER BY occurred_at, adjustment_id) AS sequence_number
+         ROW_NUMBER() OVER (PARTITION BY amount_minor_units, currency_code ORDER BY occurred_at, adjustment_id) AS sequence_number
        FROM latest_per_adjustment
        WHERE action = 'chargeback' AND status IN ('approved', 'reversed')
      ),
      chargeback_reversals AS (
        SELECT adjustment_id, amount_minor_units, currency_code, occurred_at,
-         ROW_NUMBER() OVER (ORDER BY occurred_at, adjustment_id) AS sequence_number
+         ROW_NUMBER() OVER (PARTITION BY amount_minor_units, currency_code ORDER BY occurred_at, adjustment_id) AS sequence_number
        FROM latest_per_adjustment
        WHERE action = 'chargeback_reverse' AND status = 'approved'
      ),
