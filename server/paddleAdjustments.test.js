@@ -6,7 +6,7 @@ const userId = '00000000-0000-4000-8000-000000000001';
 const transactionId = 'txn_0123456789abcdef01234567';
 let eventCounter = 0;
 
-function makePool({ ledgerStatus = 'active', revokeReason = null, fullRefund = false, chargeback = false, linkedRowCount = 1, linkedPlan = 'lifetime', linkedStatus = 'linked', userStatus = 'active' } = {}) {
+function makePool({ ledgerStatus = 'active', revokeReason = null, fullRefund = false, chargeback = false, fullRefundReversed = false, chargebackReversed = false, linkedRowCount = 1, linkedPlan = 'lifetime', linkedStatus = 'linked', userStatus = 'active' } = {}) {
   const calls = [];
   const client = {
     async query(sql, params = []) {
@@ -28,7 +28,7 @@ function makePool({ ledgerStatus = 'active', revokeReason = null, fullRefund = f
         return { rowCount: 1, rows: [{ status: ledgerStatus, revoke_reason: revokeReason }] };
       }
       if (statement.includes('WITH latest_per_adjustment AS')) {
-        return { rowCount: 1, rows: [{ full_refund_active: fullRefund, chargeback_active: chargeback }] };
+        return { rowCount: 1, rows: [{ full_refund_active: fullRefund, chargeback_active: chargeback, full_refund_reversed: fullRefundReversed, chargeback_reversed: chargebackReversed }] };
       }
       return { rowCount: 1, rows: [] };
     },
@@ -333,7 +333,8 @@ test('chargebacks revoke lifetime Premium and chargeback reversals restore it', 
   const reversal = makePool({
     ledgerStatus: 'revoked',
     revokeReason: 'paddle_chargeback',
-    chargeback: false
+    chargeback: false,
+    chargebackReversed: true
   });
   const restored = await sendAdjustment(reversal.pool, { action: 'chargeback_reverse', status: 'approved' });
   assert.equal(restored.entitlementChanged, true);
@@ -373,7 +374,8 @@ test('chargeback reversal evidence alone does not restore access before the orig
   const originalReversed = makePool({
     ledgerStatus: 'revoked',
     revokeReason: 'paddle_chargeback',
-    chargeback: false
+    chargeback: false,
+    chargebackReversed: true
   });
   const restored = await sendAdjustment(originalReversed.pool, {
     action: 'chargeback', status: 'reversed', eventType: 'adjustment.updated'
