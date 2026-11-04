@@ -1481,14 +1481,14 @@ test('manual Paddle reconciliation resolution requires an immutable moderator au
       [eventId]
     );
     await client.query(
-      "INSERT INTO paddle_adjustment_reconciliation_cases (event_id, reason_code) VALUES ($1, 'transaction_owner_unlinked')",
+      "INSERT INTO paddle_adjustment_reconciliation_cases (event_id, reason_code) VALUES ($1, 'invalid_adjustment_payload')",
       [eventId]
     );
 
     await client.query('SAVEPOINT manual_resolution_without_audit');
     await client.query(
       `UPDATE paddle_adjustment_reconciliation_cases
-       SET status = 'resolved', resolution_note = 'provider checked',
+       SET status = 'resolved', resolution_note = 'provider checked; no entitlement change',
            resolution_source = 'manual_operator', resolved_by_ref = $2,
            resolved_at = statement_timestamp(), updated_at = statement_timestamp()
        WHERE event_id = $1`,
@@ -1517,10 +1517,10 @@ test('manual Paddle reconciliation resolution requires an immutable moderator au
       `INSERT INTO moderation_audit_log
          (moderator_id, action, target_type, target_id, reason, details)
        VALUES ($1, 'paddle_adjustment_reconciliation_resolved',
-               'paddle_adjustment_case', $2, 'provider checked',
+               'paddle_adjustment_case', $2, 'provider checked; no entitlement change',
                jsonb_build_object(
                  'eventId', $2::text,
-                 'reasonCode', 'transaction_owner_unlinked',
+                 'reasonCode', 'invalid_adjustment_payload',
                  'resolutionSource', 'manual_operator'
                ))`,
       [moderatorId, eventId]
@@ -1545,7 +1545,7 @@ test('manual Paddle reconciliation resolution requires an immutable moderator au
       [memberEventId]
     );
     await client.query(
-      "INSERT INTO paddle_adjustment_reconciliation_cases (event_id, reason_code) VALUES ($1, 'transaction_owner_unlinked')",
+      "INSERT INTO paddle_adjustment_reconciliation_cases (event_id, reason_code) VALUES ($1, 'invalid_adjustment_payload')",
       [memberEventId]
     );
     await client.query('SAVEPOINT member_resolution_with_audit');
@@ -1564,7 +1564,7 @@ test('manual Paddle reconciliation resolution requires an immutable moderator au
                'paddle_adjustment_case', $2, 'member attempted resolution',
                jsonb_build_object(
                  'eventId', $2::text,
-                 'reasonCode', 'transaction_owner_unlinked',
+                 'reasonCode', 'invalid_adjustment_payload',
                  'resolutionSource', 'manual_operator'
                ))`,
       [memberId, memberEventId]
