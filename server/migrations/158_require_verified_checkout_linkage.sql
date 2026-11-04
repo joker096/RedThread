@@ -12,11 +12,25 @@ BEGIN
          FROM paddle_transaction_events AS transaction
          JOIN paddle_webhook_events AS webhook
            ON webhook.event_id = transaction.event_id
-          AND webhook.event_type = 'transaction.completed'
          WHERE transaction.transaction_id = NEW.transaction_id
            AND transaction.user_id = NEW.user_id
            AND transaction.plan = NEW.plan
            AND transaction.status = 'completed'
+           AND (
+             webhook.event_type = 'transaction.completed'
+             OR (
+               webhook.event_type = 'subscription.created'
+               AND NEW.plan IN ('1month', '3months')
+               AND transaction.subscription_id IS NOT NULL
+               AND transaction.customer_id IS NOT NULL
+               AND EXISTS (
+                 SELECT 1 FROM users AS owner
+                 WHERE owner.id = NEW.user_id
+                   AND owner.paddle_subscription_id = transaction.subscription_id
+                   AND owner.paddle_customer_id = transaction.customer_id
+               )
+             )
+           )
        )
      ) THEN
     RAISE EXCEPTION 'linked Paddle checkout attempts require matching completed provider transaction evidence'
@@ -67,6 +81,6 @@ CREATE TRIGGER paddle_checkout_attempt_history_archive_source_guard
   EXECUTE FUNCTION require_paddle_checkout_history_archive_source();
 
 COMMENT ON FUNCTION require_linked_paddle_checkout_transaction_event() IS
-  'Requires every checkout attempt transition to linked to have a matching completed transaction event from the retained Paddle webhook ledger.';
+  'Requires every checkout attempt transition to linked to have matching completed transaction evidence: either a transaction.completed event or, for recurring plans only, a subscription.created event tied to the same owner's stored subscription and customer IDs.';
 COMMENT ON FUNCTION require_paddle_checkout_history_archive_source() IS
   'Allows checkout history inserts only from the nested terminal-rollover trigger and only as an exact snapshot of the current terminal attempt.';
