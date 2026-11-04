@@ -56,6 +56,9 @@ test('L3-disabled startup cleanup guard rejects scratch aliases before deleting 
     await mkdir(scratchRoot, { mode: 0o700 });
     const encryptedObject = path.join(encryptedRoot, 'retained-encrypted-object');
     await writeFile(encryptedObject, 'encrypted-evidence');
+    assert.equal(await assertIdentityL3TemporaryStorageReady({
+      root: encryptedRoot, tempRoot: scratchRoot
+    }), true, 'separate private roots remain safe to clean while L3 is disabled');
 
     for (const tempRoot of [encryptedRoot, path.join(encryptedRoot, 'nested'), root]) {
       await assert.rejects(
