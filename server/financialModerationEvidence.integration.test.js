@@ -2013,7 +2013,6 @@ test('Paddle transaction evidence stores signed gross and net totals after credi
   const client = await pool.connect();
   const eventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
   const transactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
-  const expectAdjustmentId = `adj_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
   try {
     await client.query('BEGIN');
     await client.query(
@@ -2198,6 +2197,7 @@ test('provider identity reconciliation retains immutable minimal context and aud
   const ownerId = randomUUID();
   const eventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
   const transactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  const expectAdjustmentId = `adj_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
   try {
     await client.query('BEGIN');
     await client.query(
