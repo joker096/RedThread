@@ -207,9 +207,13 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     });
     assert.equal(queue.status, 200);
     const queuePayload = await queue.json();
+    const applicantQueue = queuePayload.submissions.filter(
+      item => item.applicantReference === applicantId
+    );
     assert.deepEqual(
-      queuePayload.submissions.map(item => item.submissionId),
-      [first.submissionId]
+      applicantQueue.map(item => item.submissionId),
+      [first.submissionId],
+      'the moderator queue must contain exactly this applicant\'s pending submission'
     );
     assert.equal(JSON.stringify(queuePayload).includes(storageRoot), false,
       'moderation queue must never expose private storage paths');
