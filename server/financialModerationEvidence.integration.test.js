@@ -2622,6 +2622,23 @@ test('Paddle transaction IDs remain globally unique across current and archived 
       [secondUserId, secondCustomerId]
     );
 
+    // Provider IDs must be globally unique even before a transaction-ledger
+    // row exists. Exercise the users-table guard directly, not only the
+    // transaction-event ownership guard.
+    await client.query('SAVEPOINT duplicate_live_provider_customer');
+    let duplicateLiveProviderCustomerError;
+    try {
+      await client.query(
+        'UPDATE users SET paddle_customer_id = $2 WHERE id = $1',
+        [secondUserId, firstCustomerId]
+      );
+    } catch (error) { duplicateLiveProviderCustomerError = error; }
+    assert.equal(duplicateLiveProviderCustomerError?.code, '23505',
+      'two live accounts must never claim the same Paddle customer ID before any transaction event exists');
+    await client.query('ROLLBACK TO SAVEPOINT duplicate_live_provider_customer');
+    await client.query('RELEASE SAVEPOINT duplicate_live_provider_customer');
+
+
     const mismatchedCustomerTransactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
     const mismatchedCustomerEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
     await client.query(
