@@ -2273,7 +2273,7 @@ test('provider identity reconciliation retains immutable minimal context and aud
         ownerId, `provider-case-owner-${ownerId}@example.invalid`]
     );
     await client.query(
-      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'transaction.completed')",
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'adjustment.created')",
       [eventId]
     );
     await client.query(
