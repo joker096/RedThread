@@ -2024,13 +2024,15 @@ test('Paddle transaction IDs remain globally unique across current and archived 
   const client = await pool.connect();
   const firstUserId = randomUUID();
   const secondUserId = randomUUID();
+  const thirdUserId = randomUUID();
   const transactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
   try {
     await client.query('BEGIN');
     await client.query(
-      "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active'), ($3, $4, 'test-only-hash', 'active')",
+      "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active'), ($3, $4, 'test-only-hash', 'active'), ($5, $6, 'test-only-hash', 'active')",
       [firstUserId, `txn-history-a-${firstUserId}@example.invalid`,
-        secondUserId, `txn-history-b-${secondUserId}@example.invalid`]
+        secondUserId, `txn-history-b-${secondUserId}@example.invalid`,
+        thirdUserId, `txn-history-c-${thirdUserId}@example.invalid`]
     );
 
     const firstAttemptId = randomUUID();
@@ -2122,7 +2124,7 @@ test('Paddle transaction IDs remain globally unique across current and archived 
       `INSERT INTO paddle_checkout_attempts
        (user_id, attempt_id, plan, status, created_at, updated_at)
        VALUES ($1, $2, '3months', 'creating', statement_timestamp(), statement_timestamp())`,
-      [secondUserId, conflictingAttemptId]
+      [thirdUserId, conflictingAttemptId]
     );
     await client.query('SAVEPOINT conflicting_checkout_plan');
     let conflictingCheckoutPlanError;
@@ -2131,7 +2133,7 @@ test('Paddle transaction IDs remain globally unique across current and archived 
         `UPDATE paddle_checkout_attempts
          SET transaction_id = $2, status = 'completed', updated_at = statement_timestamp()
          WHERE user_id = $1 AND attempt_id = $3`,
-        [secondUserId, ledgerTransactionId, conflictingAttemptId]
+        [thirdUserId, ledgerTransactionId, conflictingAttemptId]
       );
     } catch (error) { conflictingCheckoutPlanError = error; }
     assert.equal(conflictingCheckoutPlanError?.code, '23505',
