@@ -2,6 +2,10 @@
 -- webhook status may be reported by more than one event. Prevent one provider
 -- adjustment from being rebound to another transaction/action or changing
 -- already-known financial identity metadata.
+-- Freeze writes across the preflight and trigger installation so a concurrent
+-- webhook cannot create a conflicting identity in the migration gap.
+LOCK TABLE paddle_adjustment_events IN SHARE ROW EXCLUSIVE MODE;
+
 DO $migration184$
 BEGIN
   IF EXISTS (
