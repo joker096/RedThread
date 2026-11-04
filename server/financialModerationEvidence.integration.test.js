@@ -2740,6 +2740,15 @@ test('Paddle chargeback reversals are paired one-to-one and must be strictly lat
     assert.equal(rejectedAfterApprovedRefund.fullRefundReversed, false,
       'only an explicit provider reversed status can reverse the approved refund');
 
+    const equalTimeRefundAdjustmentId = makeId('adj');
+    const equalTimeConflictingRefund = await stateFor([
+      { action: 'refund', adjustmentId: equalTimeRefundAdjustmentId, status: 'approved', occurredAt: '2026-11-01T10:00:00Z' },
+      { action: 'refund', adjustmentId: equalTimeRefundAdjustmentId, status: 'rejected', occurredAt: '2026-11-01T10:00:00Z' }
+    ]);
+    assert.equal(equalTimeConflictingRefund.fullRefundActive, true,
+      'equal-time approved/rejected outcomes are ambiguous and must keep the approved refund adverse');
+    assert.equal(equalTimeConflictingRefund.fullRefundReversed, false);
+
     const pendingRefundAdjustmentId = makeId('adj');
     const pendingAfterApprovedRefund = await stateFor([
       { action: 'refund', adjustmentId: pendingRefundAdjustmentId, status: 'approved', occurredAt: '2026-11-01T10:00:00Z' },
