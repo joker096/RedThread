@@ -5210,29 +5210,26 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, id
       }
 
       if (submission.storage_object_key) {
-        const queued = await client.query(
-          `INSERT INTO identity_l3_media_purge_jobs (submission_id, user_id)
-           VALUES ($1, $2)
-           ON CONFLICT (submission_id) DO UPDATE SET
-             status = CASE WHEN identity_l3_media_purge_jobs.status = 'failed' THEN 'queued'
-                           ELSE identity_l3_media_purge_jobs.status END,
-             attempts = CASE WHEN identity_l3_media_purge_jobs.status = 'failed' THEN 0
-                             ELSE identity_l3_media_purge_jobs.attempts END,
-             next_attempt_at = CASE WHEN identity_l3_media_purge_jobs.status = 'failed'
-                                    THEN statement_timestamp()
-                                    ELSE identity_l3_media_purge_jobs.next_attempt_at END,
-             lease_token = CASE WHEN identity_l3_media_purge_jobs.status = 'failed' THEN NULL
-                                ELSE identity_l3_media_purge_jobs.lease_token END,
-             lease_expires_at = CASE WHEN identity_l3_media_purge_jobs.status = 'failed' THEN NULL
-                                     ELSE identity_l3_media_purge_jobs.lease_expires_at END,
-             last_error_code = CASE WHEN identity_l3_media_purge_jobs.status = 'failed' THEN NULL
-                                    ELSE identity_l3_media_purge_jobs.last_error_code END,
-             updated_at = statement_timestamp()
-           WHERE identity_l3_media_purge_jobs.status = 'failed'
+        // The terminal submission transition above is the sole INSERT path:
+        // its database trigger creates a durable queued job. Requeue only an
+        // existing failed job here; a direct INSERT/UPSERT would bypass the
+        // migration's guarded enqueue-source invariant.
+        const requeued = await client.query(
+          `UPDATE identity_l3_media_purge_jobs
+           SET status = 'queued',
+               attempts = 0,
+               next_attempt_at = statement_timestamp(),
+               lease_token = NULL,
+               lease_expires_at = NULL,
+               last_error_code = NULL,
+               updated_at = statement_timestamp()
+           WHERE submission_id = $1
+             AND user_id = $2
+             AND status = 'failed'
            RETURNING id`,
           [submission.id, req.authUser.id]
         );
-        queuedPurgeJobs += queued.rowCount;
+        queuedPurgeJobs += requeued.rowCount;
       }
     }
 
