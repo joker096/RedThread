@@ -1291,7 +1291,7 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       await client.query(
         `INSERT INTO gift_order_facts_guard_test
          VALUES ($1, 'gift_ref', $2, $3, $4, 'snapshot', 'chocolate', 700, 300, 'USD', 1000,
-                 'USD', 'idempotency', statement_timestamp(), statement_timestamp(), $5, NULL, $6, NULL)`,
+                 'USD', 'idempotency', statement_timestamp(), statement_timestamp(), $5, NULL, $6, NULL, NULL, NULL)`,
         [randomUUID(), randomUUID(), randomUUID(), randomUUID(), catalogItemId, deliveryPartnerId]
       );
       const giftOrderSnapshots = await client.query(
