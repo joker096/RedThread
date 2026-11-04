@@ -42,6 +42,13 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       assert.equal(consentEventColumn?.data_type, 'bigint',
         'consent audit events must record the transaction that inserted them');
       assert.match(consentEventColumn?.column_default || '', /txid_current\(\)/);
+      const consentTxidTrigger = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'identity_l3_consent_events'::regclass AND NOT tgisinternal`
+      );
+      assert.ok(consentTxidTrigger.rows.some(row =>
+        row.tgname === 'identity_l3_consent_events_transaction_id'
+      ), 'callers must not be able to forge the transaction ID on a consent audit event');
 
       // A previously committed, future-dated audit row must not authorize a
       // later consent-state mutation. Matching audit evidence must be written
@@ -67,14 +74,18 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       await client.query('COMMIT');
 
       await client.query('BEGIN');
-      await client.query(
+      const forgedFutureAuditEvent = await client.query(
         `INSERT INTO identity_l3_consent_events
-           (user_id, actor_user_id, event_type, consent_version, occurred_at)
+           (user_id, actor_user_id, event_type, consent_version, occurred_at, recorded_txid)
          SELECT user_id, user_id, 'withdrawn', consent_version,
-                statement_timestamp() + INTERVAL '1 day'
-         FROM identity_l3_consents WHERE user_id = $1`,
+                statement_timestamp() + INTERVAL '1 day', 1::bigint
+         FROM identity_l3_consents WHERE user_id = $1
+         RETURNING recorded_txid, txid_current() AS current_txid`,
         [consentProbeUserId]
       );
+      assert.equal(forgedFutureAuditEvent.rows[0].recorded_txid,
+        forgedFutureAuditEvent.rows[0].current_txid,
+        'the database must overwrite a caller-supplied transaction ID');
       await client.query('COMMIT');
 
       await client.query('BEGIN');
