@@ -1305,7 +1305,16 @@ export async function processPaddleEvent(pool, rawEvent) {
       }
     } else if (eventType === 'customer.created' || eventType === 'customer.updated') {
       const customerEmail = data.email;
-      if (customUserId && customerId && typeof customerEmail === 'string') {
+      if (customUserIdMetadataConflict) {
+        // Customer lifecycle events can bind an account identity too. Do not
+        // choose one of two contradictory custom_data owner aliases.
+        await recordPaddleProviderIdentityConflictCase(client, {
+          eventId,
+          transactionId: null,
+          userId: null,
+          plan: customData.plan
+        });
+      } else if (customUserId && customerId && typeof customerEmail === 'string') {
         const customerIdentityUpdate = await client.query(
           `UPDATE users SET paddle_customer_id = COALESCE($2, paddle_customer_id), updated_at = NOW()
            WHERE id = $1::uuid AND users.status = 'active' AND lower(email) = lower($3)
