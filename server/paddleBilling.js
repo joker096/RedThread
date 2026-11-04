@@ -221,41 +221,36 @@ async function getPaddleAdjustmentState(client, transactionId) {
            WHEN 'reversed' THEN 3
          END DESC,
          received_at DESC, event_id DESC
+     ),
+     chargebacks AS (
+       SELECT adjustment_id, occurred_at,
+         ROW_NUMBER() OVER (ORDER BY occurred_at, adjustment_id) AS sequence_number
+       FROM latest_per_adjustment
+       WHERE action = 'chargeback' AND status IN ('approved', 'reversed')
+     ),
+     chargeback_reversals AS (
+       SELECT adjustment_id, occurred_at,
+         ROW_NUMBER() OVER (ORDER BY occurred_at, adjustment_id) AS sequence_number
+       FROM latest_per_adjustment
+       WHERE action = 'chargeback_reverse' AND status = 'approved'
      )
      SELECT
        EXISTS (
          SELECT 1 FROM latest_per_adjustment
          WHERE action = 'refund' AND adjustment_type = 'full' AND status = 'approved'
        ) AS full_refund_active,
-       (
-         SELECT COUNT(*) FROM latest_per_adjustment
-         WHERE action = 'chargeback' AND status IN ('approved', 'reversed')
-       ) > (
-         SELECT COUNT(*) FROM latest_per_adjustment
-         WHERE action = 'chargeback_reverse' AND status = 'approved'
-       ) AS chargeback_active,
-       (
-         SELECT COUNT(*) FROM latest_per_adjustment
-         WHERE action = 'chargeback' AND status IN ('approved', 'reversed')
-       ) > 0
-       AND (
-         SELECT COUNT(*) FROM latest_per_adjustment
-         WHERE action = 'chargeback_reverse' AND status = 'approved'
-       ) >= (
-         SELECT COUNT(*) FROM latest_per_adjustment
-         WHERE action = 'chargeback' AND status IN ('approved', 'reversed')
-       )
+       (SELECT COUNT(*) FROM chargebacks) >
+       (SELECT COUNT(*) FROM chargeback_reversals) AS chargeback_active,
+       (SELECT COUNT(*) FROM chargebacks) > 0
+       AND (SELECT COUNT(*) FROM chargebacks) =
+           (SELECT COUNT(*) FROM chargeback_reversals)
        AND NOT EXISTS (
          SELECT 1
-         FROM latest_per_adjustment AS chargeback
-         WHERE chargeback.action = 'chargeback'
-           AND chargeback.status IN ('approved', 'reversed')
-           AND NOT EXISTS (
-             SELECT 1 FROM latest_per_adjustment AS reversal
-             WHERE reversal.action = 'chargeback_reverse'
-               AND reversal.status = 'approved'
-               AND reversal.occurred_at >= chargeback.occurred_at
-           )
+         FROM chargebacks AS chargeback
+         LEFT JOIN chargeback_reversals AS reversal
+           ON reversal.sequence_number = chargeback.sequence_number
+         WHERE reversal.adjustment_id IS NULL
+            OR reversal.occurred_at < chargeback.occurred_at
        ) AS chargeback_reversed,
        EXISTS (
          SELECT 1
