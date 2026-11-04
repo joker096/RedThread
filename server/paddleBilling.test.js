@@ -1426,6 +1426,8 @@ test('transaction.canceled webhook clears a pending checkout attempt', async () 
 
 test('transaction.canceled webhook settles a creating attempt before checkout response attaches the transaction ID', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_test';
   const queries = [];
   const client = {
     async query(sql, params) {
@@ -1442,6 +1444,7 @@ test('transaction.canceled webhook settles a creating attempt before checkout re
     eventType: 'transaction.canceled',
     data: {
       id: 'txn_0123456789abcdef01234567',
+      items: [{ price: { id: 'pri_month_test' } }],
       custom_data: {
         userId: '00000000-0000-4000-8000-000000000001',
         plan: '1month',
@@ -1463,6 +1466,8 @@ test('transaction.canceled webhook settles a creating attempt before checkout re
   assert.ok(attemptUpdate.sql.includes("status IN ('creating', 'pending', 'reconciliation_required')"));
   assert.ok(!attemptUpdate.sql.includes("'completed'"),
     'the webhook must never downgrade a completed payment');
+  if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+  else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
 });
 
 
