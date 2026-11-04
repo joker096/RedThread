@@ -2118,6 +2118,78 @@ test('captured recurring subscription evidence is paid, owner-bound, and distinc
   }
 });
 
+test('captured recurring payment can automatically resolve only its uniquely linked adjustment case', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const client = await pool.connect();
+  const userId = randomUUID();
+  const transactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  const subscriptionId = 'sub_0123456789abcdef01234567';
+  const customerId = 'ctm_0123456789abcdef01234567';
+  const subscriptionEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  const adjustmentEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      "INSERT INTO users (id, email, password_hash, status, paddle_subscription_id, paddle_customer_id) VALUES ($1, $2, 'test-only-hash', 'active', $3, $4)",
+      [userId, `paid-adjustment-${userId}@example.invalid`, subscriptionId, customerId]
+    );
+    await client.query(
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'subscription.created')",
+      [subscriptionEventId]
+    );
+    await client.query(
+      `INSERT INTO paddle_transaction_events
+       (event_id, transaction_id, user_id, plan, status, subscription_id, customer_id)
+       VALUES ($1, $2, $3, '1month', 'paid', $4, $5)`,
+      [subscriptionEventId, transactionId, userId, subscriptionId, customerId]
+    );
+    await client.query(
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'adjustment.created')",
+      [adjustmentEventId]
+    );
+    await client.query(
+      `INSERT INTO paddle_adjustment_events
+       (event_id, adjustment_id, transaction_id, action, adjustment_type, status, occurred_at)
+       VALUES ($1, $2, $3, 'refund', 'partial', 'pending_approval', statement_timestamp())`,
+      [adjustmentEventId, `adj_${randomUUID().replace(/-/g, '').slice(0, 26)}`, transactionId]
+    );
+    await client.query(
+      `INSERT INTO paddle_adjustment_reconciliation_cases
+       (event_id, reason_code) VALUES ($1, 'transaction_owner_unlinked')`,
+      [adjustmentEventId]
+    );
+    await client.query(
+      `UPDATE paddle_adjustment_reconciliation_cases
+       SET status = 'resolved',
+           resolution_note = 'Verified recurring captured payment owner',
+           resolution_source = 'automatic_provider_transaction_link',
+           resolved_by_ref = NULL,
+           resolved_at = statement_timestamp(),
+           updated_at = statement_timestamp()
+       WHERE event_id = $1`,
+      [adjustmentEventId]
+    );
+    await client.query('SET CONSTRAINTS paddle_adjustment_reconciliation_automatic_link_guard IMMEDIATE');
+    const resolved = await client.query(
+      'SELECT status, resolution_source FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1',
+      [adjustmentEventId]
+    );
+    assert.deepEqual(resolved.rows, [{
+      status: 'resolved', resolution_source: 'automatic_provider_transaction_link'
+    }]);
+    await client.query('ROLLBACK');
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw error;
+  } finally {
+    client.release();
+    await pool.end();
+  }
+});
+
 test('Paddle transaction IDs remain globally unique across current and archived checkout attempts', {
   skip: !process.env.DATABASE_URL,
   timeout: 15_000
