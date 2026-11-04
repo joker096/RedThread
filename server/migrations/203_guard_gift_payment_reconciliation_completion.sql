@@ -14,6 +14,62 @@ ALTER TABLE gift_delivery_order_events
     'safety_hold', 'payment_reconciliation_required'
   ));
 
+DO $migration203_preflight$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM gift_payment_reconciliation_tasks AS task
+    JOIN gift_delivery_orders AS gift_order ON gift_order.id = task.order_id
+    WHERE task.status = 'completed'
+      AND NOT (
+        (
+          gift_order.payment_status = 'voided'
+          AND EXISTS (
+            SELECT 1 FROM gift_delivery_order_events AS event
+            WHERE event.order_id = task.order_id
+              AND event.event_type = 'payment_voided'
+              AND event.actor_type = 'payment_service'
+              AND event.metadata->>'reconciliationTaskId' = task.id::text
+              AND event.metadata->>'toPaymentStatus' = 'voided'
+              AND length(btrim(COALESCE(event.metadata->>'provider', ''))) BETWEEN 1 AND 80
+              AND length(btrim(COALESCE(event.metadata->>'providerReference', ''))) BETWEEN 1 AND 200
+          )
+        )
+        OR (
+          gift_order.payment_status = 'failed'
+          AND EXISTS (
+            SELECT 1 FROM gift_delivery_order_events AS event
+            WHERE event.order_id = task.order_id
+              AND event.event_type = 'payment_failed'
+              AND event.actor_type = 'payment_service'
+              AND event.metadata->>'reconciliationTaskId' = task.id::text
+              AND event.metadata->>'toPaymentStatus' = 'failed'
+              AND length(btrim(COALESCE(event.metadata->>'provider', ''))) BETWEEN 1 AND 80
+              AND length(btrim(COALESCE(event.metadata->>'providerReference', ''))) BETWEEN 1 AND 200
+          )
+        )
+        OR (
+          gift_order.payment_status = 'refunded'
+          AND gift_order.status = 'refunded'
+          AND EXISTS (
+            SELECT 1 FROM gift_delivery_order_events AS event
+            WHERE event.order_id = task.order_id
+              AND event.event_type = 'refunded'
+              AND event.actor_type = 'payment_service'
+              AND event.metadata->>'reconciliationTaskId' = task.id::text
+              AND event.metadata->>'toPaymentStatus' = 'refunded'
+              AND length(btrim(COALESCE(event.metadata->>'provider', ''))) BETWEEN 1 AND 80
+              AND length(btrim(COALESCE(event.metadata->>'providerReference', ''))) BETWEEN 1 AND 200
+          )
+        )
+      )
+  ) THEN
+    RAISE EXCEPTION 'completed gift payment reconciliation tasks need provider outcome evidence before migration 203'
+      USING ERRCODE = '23514';
+  END IF;
+END;
+$migration203_preflight$;
+
 CREATE OR REPLACE FUNCTION guard_gift_payment_reconciliation_task_update()
 RETURNS trigger LANGUAGE plpgsql AS $gift_payment_task_guard$
 BEGIN
