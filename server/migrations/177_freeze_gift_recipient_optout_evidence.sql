@@ -44,15 +44,15 @@ CREATE TRIGGER gift_orders_recipient_optout_event
 -- Backfill historical opt-outs that predate the database-generated event.
 INSERT INTO gift_delivery_order_events
   (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
-SELECT order.id, order.recipient_id, 'recipient', 'recipient_opted_out',
-       order.status, order.status,
+SELECT gift_order.id, gift_order.recipient_id, 'recipient', 'recipient_opted_out',
+       gift_order.status, gift_order.status,
        jsonb_build_object('reason', 'recipient_opted_out', 'backfilled', TRUE)
-FROM gift_delivery_orders AS order
-WHERE order.recipient_requests_disabled_at IS NOT NULL
+FROM gift_delivery_orders AS gift_order
+WHERE gift_order.recipient_requests_disabled_at IS NOT NULL
   AND NOT EXISTS (
     SELECT 1
     FROM gift_delivery_order_events AS event
-    WHERE event.order_id = order.id
+    WHERE event.order_id = gift_order.id
       AND event.event_type = 'recipient_opted_out'
       AND event.metadata->>'reason' = 'recipient_opted_out'
   );
