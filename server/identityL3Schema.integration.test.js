@@ -38,6 +38,16 @@ test('L3 schema persists metadata only and protects workflow decisions', {
          WHERE tgrelid = 'identity_l3_consent_events'::regclass AND NOT tgisinternal`
       );
       assert.ok(consentAuditTrigger.rows.some(row => row.tgname === 'identity_l3_consent_events_append_only'));
+      const consentStateTriggers = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'identity_l3_consents'::regclass AND NOT tgisinternal`
+      );
+      assert.ok(consentStateTriggers.rows.some(row =>
+        row.tgname === 'identity_l3_consents_active_delete_guard'
+      ), 'active consent state must be deleted only by account-erasure cleanup');
+      assert.ok(consentStateTriggers.rows.some(row =>
+        row.tgname === 'identity_l3_consents_no_truncate'
+      ), 'current L3 consent state must not be truncated');
       const consentTruncateGuard = await client.query(
         `SELECT tgname FROM pg_trigger
          WHERE tgrelid = 'identity_l3_consent_events'::regclass AND NOT tgisinternal`
