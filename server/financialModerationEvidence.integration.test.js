@@ -2513,6 +2513,9 @@ test('Paddle transaction IDs remain globally unique across current and archived 
     assert.match(guardFunction.rows[0].definition, /paddle_checkout_attempt_history/);
     assert.match(guardFunction.rows[0].definition, /pg_advisory_xact_lock/,
       'cross-table transaction ownership checks must serialize concurrent claims until commit');
+    assert.match(guardFunction.rows[0].definition,
+      /pg_advisory_xact_lock\\s*\\(\\s*hashtextextended\\s*\\(\\s*'paddle-transaction:'/,
+      'database ownership guard must use the same 64-bit transaction lock namespace as the webhook handlers');
     assert.match(guardFunction.rows[0].definition, /USING ERRCODE = '23505'/,
       'owner/plan/lifecycle collisions must be classified as identity conflicts for webhook reconciliation');
     assert.match(guardFunction.rows[0].definition, /completed\/canceled state/);
