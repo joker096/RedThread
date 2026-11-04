@@ -2092,6 +2092,7 @@ test('captured recurring subscription evidence is paid, owner-bound, and distinc
        VALUES ($1, $2, $3, '1month', 'paid', $4, $5)`,
       [mismatchedEventId, otherTransactionId, otherOwnerId, subscriptionId, customerId]
     );
+    await client.query('SET CONSTRAINTS paddle_checkout_attempts_linked_transaction_evidence_guard DEFERRED');
     await client.query('SAVEPOINT mismatched_subscription_identity');
     await client.query(
       `UPDATE paddle_checkout_attempts
