@@ -126,12 +126,32 @@ export async function assertIdentityL3StorageRootReady({
   return true;
 }
 
+function assertIdentityL3StorageRootsAreDisjoint(root, tempRoot) {
+  if (typeof root !== 'string' || !root.trim() ||
+      typeof tempRoot !== 'string' || !tempRoot.trim()) {
+    throw new IdentityL3StorageError('l3_storage_root_missing');
+  }
+  const encryptedPath = path.resolve(root);
+  const scratchPath = path.resolve(tempRoot);
+  const contains = (parent, child) => {
+    const relative = path.relative(parent, child);
+    return relative === '' ||
+      (relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative));
+  };
+  if (contains(encryptedPath, scratchPath) || contains(scratchPath, encryptedPath)) {
+    throw new IdentityL3StorageError('l3_storage_roots_must_be_disjoint');
+  }
+}
+
 export async function assertIdentityL3StorageReady({
   root,
   tempRoot,
   key,
   requireMount = process.env.IDENTITY_L3_REQUIRE_MOUNT === 'true'
 }) {
+  // Startup cleanup recursively removes entries in the scratch directory. It
+  // must never be able to target the encrypted-media root or one of its parents.
+  assertIdentityL3StorageRootsAreDisjoint(root, tempRoot);
   parseIdentityL3EncryptionKey(key);
   await assertIdentityL3StorageRootReady({ root, requireMount });
   const scratchDirectory = await ensurePrivateRoot(tempRoot);
