@@ -2229,6 +2229,19 @@ test('provider identity reconciliation retains immutable minimal context and aud
     await client.query('ROLLBACK TO SAVEPOINT immutable_provider_case_context');
     await client.query('RELEASE SAVEPOINT immutable_provider_case_context');
 
+    await client.query('SAVEPOINT immutable_provider_plan_context');
+    let immutablePlanError;
+    try {
+      await client.query(
+        'UPDATE paddle_adjustment_reconciliation_cases SET provider_plan = $2 WHERE event_id = $1',
+        [eventId, '3months']
+      );
+    } catch (error) { immutablePlanError = error; }
+    assert.equal(immutablePlanError?.code, '55000',
+      'provider plan context must remain immutable after queueing');
+    await client.query('ROLLBACK TO SAVEPOINT immutable_provider_plan_context');
+    await client.query('RELEASE SAVEPOINT immutable_provider_plan_context');
+
     await client.query(
       `UPDATE paddle_adjustment_reconciliation_cases
        SET status = 'resolved', resolution_note = 'Provider event and account ownership verified',
