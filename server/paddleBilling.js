@@ -207,7 +207,8 @@ export async function getPaddleAdjustmentState(client, transactionId) {
        -- chargeback. Reconcile reversals against chargebacks at transaction
        -- scope, and fail closed while any chargeback remains unmatched.
        SELECT DISTINCT ON (adjustment_id, action)
-         adjustment_id, action, adjustment_type, status, occurred_at, received_at, event_id
+         adjustment_id, action, adjustment_type, status, amount_minor_units,
+         currency_code, occurred_at, received_at, event_id
        FROM paddle_adjustment_events
        WHERE transaction_id = $1
          -- A refund with no recognized scope is retained for review but must
@@ -223,13 +224,13 @@ export async function getPaddleAdjustmentState(client, transactionId) {
          received_at DESC, event_id DESC
      ),
      chargebacks AS (
-       SELECT adjustment_id, occurred_at,
+       SELECT adjustment_id, amount_minor_units, currency_code, occurred_at,
          ROW_NUMBER() OVER (ORDER BY occurred_at, adjustment_id) AS sequence_number
        FROM latest_per_adjustment
        WHERE action = 'chargeback' AND status IN ('approved', 'reversed')
      ),
      chargeback_reversals AS (
-       SELECT adjustment_id, occurred_at,
+       SELECT adjustment_id, amount_minor_units, currency_code, occurred_at,
          ROW_NUMBER() OVER (ORDER BY occurred_at, adjustment_id) AS sequence_number
        FROM latest_per_adjustment
        WHERE action = 'chargeback_reverse' AND status = 'approved'
@@ -243,6 +244,12 @@ export async function getPaddleAdjustmentState(client, transactionId) {
            FROM chargebacks AS chargeback
            LEFT JOIN chargeback_reversals AS reversal
              ON reversal.sequence_number = chargeback.sequence_number
+            AND chargeback.amount_minor_units IS NOT NULL
+            AND reversal.amount_minor_units IS NOT NULL
+            AND reversal.amount_minor_units = chargeback.amount_minor_units
+            AND chargeback.currency_code IS NOT NULL
+            AND reversal.currency_code IS NOT NULL
+            AND reversal.currency_code = chargeback.currency_code
            WHERE reversal.adjustment_id IS NULL
               OR reversal.occurred_at <= chargeback.occurred_at
          ) AS all_chargebacks_paired
