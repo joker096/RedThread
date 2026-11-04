@@ -2767,3 +2767,40 @@ test('transaction.canceled quarantines conflicting owner aliases without canceli
     else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
   }
 });
+
+
+test('customer.updated quarantines conflicting owner aliases instead of binding the customer to either account', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const ownerA = '00000000-0000-4000-8000-000000000105';
+  const ownerB = '00000000-0000-4000-8000-000000000106';
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      calls.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  await processPaddleEvent({ async connect() { return client; } }, {
+    eventId: 'evt_customer_owner_alias_conflict',
+    eventType: 'customer.updated',
+    occurredAt: '2026-11-05T10:10:00Z',
+    data: {
+      id: 'ctm_ambiguouscustomerowner123',
+      email: 'member@example.test',
+      customData: { userId: ownerA, user_id: ownerB, plan: '1month' }
+    }
+  });
+  assert.equal(calls.some(call => call.statement.includes('UPDATE users SET')), false,
+    'a customer event with contradictory account aliases must not bind the provider customer to either account');
+  const conflict = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
+  assert.ok(conflict);
+  assert.equal(conflict.params[0], 'evt_customer_owner_alias_conflict');
+  assert.equal(conflict.params[1], null);
+  assert.equal(conflict.params[2], null,
+    'neither contradictory owner alias is authoritative reconciliation context');
+});
