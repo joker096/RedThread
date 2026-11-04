@@ -198,7 +198,7 @@ async function recordPaddleTransactionEvent(client, {
   );
 }
 
-async function getPaddleAdjustmentState(client, transactionId) {
+export async function getPaddleAdjustmentState(client, transactionId) {
   const result = await client.query(
     `WITH latest_per_adjustment AS (
        -- Keep each adjustment/action lifecycle independent. Paddle emits a
