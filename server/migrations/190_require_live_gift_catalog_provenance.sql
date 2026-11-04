@@ -7,13 +7,17 @@ DECLARE
   partner_record RECORD;
 BEGIN
   IF NEW.catalog_item_id IS NULL THEN
-    RAISE EXCEPTION 'new gift orders require a live catalog item reference'
-      USING ERRCODE = '23514';
-  END IF;
-  IF NEW.catalog_item_ref IS NOT NULL
-     AND NEW.catalog_item_ref IS DISTINCT FROM NEW.catalog_item_id THEN
-    RAISE EXCEPTION 'gift catalog item snapshot must match its live reference'
-      USING ERRCODE = '23514';
+    IF NEW.catalog_item_ref IS NOT NULL THEN
+      RAISE EXCEPTION 'gift catalog item snapshot requires a live catalog item reference'
+        USING ERRCODE = '23514';
+    END IF;
+  ELSE
+    IF NEW.catalog_item_ref IS NOT NULL
+       AND NEW.catalog_item_ref IS DISTINCT FROM NEW.catalog_item_id THEN
+      RAISE EXCEPTION 'gift catalog item snapshot must match its live reference'
+        USING ERRCODE = '23514';
+    END IF;
+    NEW.catalog_item_ref := NEW.catalog_item_id;
   END IF;
 
   IF NEW.delivery_partner_id IS NOT NULL THEN
@@ -50,10 +54,9 @@ BEGIN
       USING ERRCODE = '23514';
   END IF;
 
-  NEW.catalog_item_ref := NEW.catalog_item_id;
   RETURN NEW;
 END;
 $gift_order_reference_snapshot$;
 
 COMMENT ON FUNCTION snapshot_gift_delivery_order_references() IS
-  'Requires a live catalog item for every new gift order and derives its immutable UUID snapshot from that FK. Optional delivery-partner identity snapshots likewise require a live partner; later FK SET NULL actions preserve the original snapshots.';
+  'When a gift order references a catalog item, derives its immutable UUID snapshot from that live FK and rejects detached caller-supplied snapshots. Catalog-less orders remain valid with both catalog ID and snapshot NULL. Optional delivery-partner identity snapshots likewise require a live partner; later FK SET NULL actions preserve the original snapshots.';
