@@ -256,7 +256,7 @@ export async function getPaddleAdjustmentState(client, transactionId) {
            AND (
              latest.status = 'approved'
              OR (
-               latest.status = 'rejected'
+               latest.status <> 'reversed'
                AND EXISTS (
                  SELECT 1 FROM paddle_adjustment_events AS prior
                  WHERE prior.adjustment_id = latest.adjustment_id
@@ -455,7 +455,7 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
     });
   }
 
-  if (action === 'refund' && type !== null && ['approved', 'rejected'].includes(status)) {
+  if (action === 'refund' && type !== null && ['pending_approval', 'approved', 'rejected'].includes(status)) {
     const conflictingFinalState = await client.query(
       `SELECT EXISTS (
          SELECT 1
