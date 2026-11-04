@@ -1993,3 +1993,42 @@ test('Paddle paid transactions remain in reconciliation until transaction.comple
   assert.match(deleteRoute, /providerTransaction\.status === 'completed'/);
   assert.doesNotMatch(deleteRoute, /\['completed', 'paid'\]\.includes\(providerTransaction\.status\)/);
 });
+
+
+test('transaction.paid is retained as captured payment without granting or finalizing access', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const queries = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      queries.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: 'evt_transactionpaid' }] };
+      }
+      return { rowCount: 0, rows: [] };
+    },
+    release() {}
+  };
+  const result = await processPaddleEvent({ async connect() { return client; } }, {
+    eventId: 'evt_transactionpaid',
+    eventType: 'transaction.paid',
+    occurredAt: '2026-11-04T08:00:00Z',
+    data: {
+      id: 'txn_transactionpaid',
+      customerId: 'ctm_0123456789abcdef01234567',
+      items: [{ price: { id: 'pri_month_test' } }],
+      details: { totals: { total: '990', grand_total: '990', credit: '0', balance: '0' } },
+      currencyCode: 'GEL'
+    }
+  });
+  assert.deepEqual(result, { duplicate: false, handled: true });
+  const ledger = queries.find(query => query.statement.includes('INSERT INTO paddle_transaction_events'));
+  assert.ok(ledger, 'captured payment must be retained independently of later transaction completion');
+  assert.deepEqual(ledger.params.slice(0, 5), [
+    'evt_transactionpaid', 'txn_transactionpaid', null, '1month', 'paid'
+  ]);
+  assert.equal(queries.some(query => query.statement.includes('UPDATE users')), false,
+    'transaction.paid alone must not grant recurring or lifetime access');
+  assert.equal(queries.some(query => query.statement.includes('UPDATE paddle_checkout_attempts')), false,
+    'transaction.paid alone must not finalize or link the checkout attempt');
+});
