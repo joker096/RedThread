@@ -3649,7 +3649,7 @@ app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
       }
 
       const pending = await client.query(
-        `SELECT c.event_id, c.reason_code,
+        `SELECT c.event_id, c.reason_code, webhook.event_type,
                 COALESCE(e.adjustment_id, c.provider_adjustment_id) AS adjustment_id,
                 COALESCE(e.transaction_id, c.provider_transaction_id) AS transaction_id,
                 c.provider_user_ref, c.provider_plan
@@ -3667,7 +3667,11 @@ app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
         'invalid_adjustment_payload',
         'provider_identity_conflict',
         'provider_lifecycle_conflict'
-      ].includes(pending.rows[0].reason_code)) {
+      ].includes(pending.rows[0].reason_code) ||
+          ![
+            'adjustment.created', 'adjustment.updated',
+            'customer.created', 'customer.updated'
+          ].includes(pending.rows[0].event_type)) {
         await client.query('ROLLBACK');
         return res.status(409).json({
           error: 'adjustment_case_requires_verified_transaction_or_entitlement_reconciliation'
