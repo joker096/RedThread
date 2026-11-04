@@ -75,12 +75,18 @@ async function ensurePrivateRoot(root) {
     // A private final directory is still replaceable if an untrusted principal
     // can rename it through a writable ancestor. Permit sticky shared parents
     // such as /tmp, where the child owner is protected from other users.
-    if (currentPath !== absoluteRoot && (stat.mode & 0o022) !== 0) {
-      const stickyParent = (stat.mode & 0o1000) !== 0;
-      const trustedStickyOwner = stat.uid === 0 ||
-        (currentUid !== null && stat.uid === currentUid);
-      if (!stickyParent || !trustedStickyOwner) {
-        throw new IdentityL3StorageError('l3_storage_root_unsafe');
+    if (currentPath !== absoluteRoot) {
+      const writableByGroupOrOther = (stat.mode & 0o022) !== 0;
+      const writableByUntrustedOwner = stat.uid !== 0 &&
+        stat.uid !== currentUid &&
+        (stat.mode & 0o200) !== 0;
+      if (writableByGroupOrOther || writableByUntrustedOwner) {
+        const stickyParent = (stat.mode & 0o1000) !== 0;
+        const trustedStickyOwner = stat.uid === 0 ||
+          (currentUid !== null && stat.uid === currentUid);
+        if (!stickyParent || !trustedStickyOwner) {
+          throw new IdentityL3StorageError('l3_storage_root_unsafe');
+        }
       }
     }
   }
