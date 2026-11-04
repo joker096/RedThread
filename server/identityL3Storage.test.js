@@ -47,6 +47,28 @@ test('L3 storage readiness validates key and both private mount permissions', as
   });
 });
 
+test('L3 storage readiness rejects overlapping encrypted and scratch roots', async () => {
+  await withStorage(async root => {
+    const encryptedRoot = path.join(root, 'encrypted');
+    const scratchRoot = path.join(root, 'scratch');
+    await mkdir(encryptedRoot, { mode: 0o700 });
+    await mkdir(scratchRoot, { mode: 0o700 });
+    for (const tempRoot of [
+      encryptedRoot,
+      path.join(encryptedRoot, 'nested-scratch'),
+      path.dirname(encryptedRoot)
+    ]) {
+      await assert.rejects(
+        assertIdentityL3StorageReady({ root: encryptedRoot, tempRoot, key }),
+        error => error instanceof IdentityL3StorageError &&
+          error.code === 'l3_storage_roots_must_be_disjoint'
+      );
+    }
+    assert.deepEqual(await readdir(encryptedRoot), [],
+      'readiness must reject overlapping roots before cleanup can touch encrypted media');
+  });
+});
+
 if (process.platform === 'linux') {
   test('L3 production readiness rejects ordinary directories when mountpoints are required', async () => {
     await withStorage(async root => {
