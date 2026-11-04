@@ -2131,6 +2131,111 @@ test('transaction.paid quarantines custom_data owner that contradicts the retain
 });
 
 
+
+test('transaction.completed quarantines conflicting camelCase and snake_case owner metadata', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_alias_conflict';
+  const ownerA = '00000000-0000-4000-8000-000000000084';
+  const ownerB = '00000000-0000-4000-8000-000000000085';
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      calls.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      if (statement.includes("SET transaction_id = $1, status = 'completed'")) {
+        return { rowCount: 0, rows: [] };
+      }
+      if (statement.includes('SELECT DISTINCT user_id') && statement.includes('paddle_checkout_attempt_history')) {
+        return { rowCount: 1, rows: [{ user_id: ownerA }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_conflicting_owner_aliases',
+      eventType: 'transaction.completed',
+      occurredAt: '2026-11-04T12:20:00Z',
+      data: {
+        id: 'txn_owneraliasesconflict123',
+        customData: {
+          userId: ownerA,
+          user_id: ownerB,
+          plan: '1month',
+          checkoutAttemptId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+        },
+        items: [{ price: { id: 'pri_month_alias_conflict' } }]
+      }
+    });
+    const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
+    assert.ok(ledger);
+    assert.equal(ledger.params[2], null,
+      'conflicting provider owner aliases must not be resolved by field precedence');
+    const conflict = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
+    assert.ok(conflict);
+    assert.equal(conflict.params[2], null,
+      'a conflicting pair of owner aliases must not snapshot either value as authoritative');
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
+  }
+});
+
+test('transaction.completed quarantines a supplied but unrecognized custom_data plan', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_unknown_metadata_plan';
+  const ownerId = '00000000-0000-4000-8000-000000000086';
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      calls.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      if (statement.includes("SET transaction_id = $1, status = 'completed'")) {
+        return { rowCount: 0, rows: [] };
+      }
+      if (statement.includes('SELECT DISTINCT user_id') && statement.includes('paddle_checkout_attempt_history')) {
+        return { rowCount: 1, rows: [{ user_id: ownerId }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_unknown_custom_data_plan',
+      eventType: 'transaction.completed',
+      occurredAt: '2026-11-04T12:25:00Z',
+      data: {
+        id: 'txn_unknowncustomplan123',
+        customData: {
+          userId: ownerId,
+          plan: 'unknown_plan',
+          checkoutAttemptId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+        },
+        items: [{ price: { id: 'pri_month_unknown_metadata_plan' } }]
+      }
+    });
+    const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
+    assert.ok(ledger);
+    assert.equal(ledger.params[2], null,
+      'a provider transaction with malformed supplied plan metadata must remain unassigned');
+    assert.ok(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')));
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
+  }
+});
+
+
 test('Paddle transaction history preserves negative totals from credit subscription updates', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const calls = [];
