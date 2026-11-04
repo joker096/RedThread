@@ -264,7 +264,7 @@ export async function getPaddleAdjustmentState(client, transactionId) {
                    AND prior.action = 'refund'
                    AND prior.adjustment_type = 'full'
                    AND prior.status = 'approved'
-                   AND prior.occurred_at <= latest.occurred_at
+                   AND prior.occurred_at < latest.occurred_at
                )
              )
              OR (
@@ -276,7 +276,7 @@ export async function getPaddleAdjustmentState(client, transactionId) {
                    AND prior.action = 'refund'
                    AND prior.adjustment_type = 'full'
                    AND prior.status = 'approved'
-                   AND prior.occurred_at <= latest.occurred_at
+                   AND prior.occurred_at < latest.occurred_at
                )
              )
            )
@@ -305,7 +305,7 @@ export async function getPaddleAdjustmentState(client, transactionId) {
                AND prior.action = 'refund'
                AND prior.adjustment_type = 'full'
                AND prior.status = 'approved'
-               AND prior.occurred_at <= latest.occurred_at
+               AND prior.occurred_at < latest.occurred_at
            )
        ) AS full_refund_reversed`,
     [transactionId]
@@ -481,7 +481,7 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
                AND prior.action = 'refund'
                AND prior.adjustment_type = $3
                AND prior.status = 'approved'
-               AND prior.occurred_at <= $5::timestamptz
+               AND prior.occurred_at < $5::timestamptz
            )
          )
          OR (
