@@ -33,6 +33,62 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       assert.ok(consentColumnNames.has('consent_version'));
       assert.ok(consentColumnNames.has('granted_at'));
       assert.ok(consentColumnNames.has('withdrawn_at'));
+      const consentEventColumns = await client.query(
+        `SELECT column_name, data_type, column_default
+         FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'identity_l3_consent_events'`
+      );
+      const consentEventColumn = consentEventColumns.rows.find(row => row.column_name === 'recorded_txid');
+      assert.equal(consentEventColumn?.data_type, 'bigint',
+        'consent audit events must record the transaction that inserted them');
+      assert.match(consentEventColumn?.column_default || '', /txid_current\(\)/);
+
+      // A previously committed, future-dated audit row must not authorize a
+      // later consent-state mutation. Matching audit evidence must be written
+      // in the same database transaction as the state transition.
+      const consentProbeUserId = randomUUID();
+      await client.query(
+        "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
+        [consentProbeUserId, `consent-audit-txid-${consentProbeUserId}@example.invalid`]
+      );
+      await client.query('BEGIN');
+      await client.query(
+        `WITH granted AS (
+           INSERT INTO identity_l3_consents (user_id, consent_version, granted_at)
+           VALUES ($1, 2, statement_timestamp())
+           RETURNING user_id, consent_version, granted_at
+         )
+         INSERT INTO identity_l3_consent_events
+           (user_id, actor_user_id, event_type, consent_version, occurred_at)
+         SELECT user_id, user_id, 'granted', consent_version, granted_at
+         FROM granted`,
+        [consentProbeUserId]
+      );
+      await client.query('COMMIT');
+
+      await client.query('BEGIN');
+      await client.query(
+        `INSERT INTO identity_l3_consent_events
+           (user_id, actor_user_id, event_type, consent_version, occurred_at)
+         SELECT user_id, user_id, 'withdrawn', consent_version,
+                statement_timestamp() + INTERVAL '1 day'
+         FROM identity_l3_consents WHERE user_id = $1`,
+        [consentProbeUserId]
+      );
+      await client.query('COMMIT');
+
+      await client.query('BEGIN');
+      await client.query(
+        'UPDATE identity_l3_consents SET withdrawn_at = statement_timestamp() WHERE user_id = $1',
+        [consentProbeUserId]
+      );
+      await assert.rejects(
+        client.query('COMMIT'),
+        error => error.code === '23514'
+      );
+      await client.query('ROLLBACK');
+      await client.query("UPDATE users SET status = 'deleted' WHERE id = $1", [consentProbeUserId]);
+      await client.query('DELETE FROM users WHERE id = $1', [consentProbeUserId]);
       const consentAuditTrigger = await client.query(
         `SELECT tgname FROM pg_trigger
          WHERE tgrelid = 'identity_l3_consent_events'::regclass AND NOT tgisinternal`
