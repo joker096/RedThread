@@ -25,6 +25,18 @@ BEGIN
 END;
 $migration187$;
 
+-- A partial unique index is the final concurrency-safe boundary for live
+-- provider identities. Advisory locks below coordinate the historical-ledger
+-- checks; these indexes independently prevent two current accounts from
+-- claiming the same ID even under concurrent transactions.
+CREATE UNIQUE INDEX users_paddle_customer_id_unique
+  ON users(paddle_customer_id)
+  WHERE paddle_customer_id IS NOT NULL;
+
+CREATE UNIQUE INDEX users_paddle_subscription_id_unique
+  ON users(paddle_subscription_id)
+  WHERE paddle_subscription_id IS NOT NULL;
+
 CREATE OR REPLACE FUNCTION guard_paddle_user_provider_identity()
 RETURNS trigger LANGUAGE plpgsql AS $paddle_user_provider_identity$
 BEGIN
