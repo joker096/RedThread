@@ -2126,9 +2126,8 @@ test('transaction.paid quarantines custom_data owner that contradicts the retain
   assert.ok(ledger, calls.map(call => call.statement).join('\n---\n'));
   assert.equal(ledger.params[2], null,
     'captured payment metadata must not be attributed to a different retained account');
-  const conflict = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
-  assert.ok(conflict);
-  assert.equal(conflict.params[2], ownerB);
+  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')), false,
+    'transaction.paid is intermediate capture evidence; final transaction.completed owns durable conflict reconciliation');
 });
 
 
