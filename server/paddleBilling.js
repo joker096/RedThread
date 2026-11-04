@@ -1079,6 +1079,22 @@ export async function processPaddleEvent(pool, rawEvent) {
             ? (typeof data.transactionId === 'string' ? data.transactionId
               : typeof data.transaction_id === 'string' ? data.transaction_id : null)
             : null;
+        const providerIdentityConflict = [
+          'transaction.completed', 'transaction.canceled',
+          'subscription.created', 'subscription.updated', 'subscription.canceled',
+          'customer.created', 'customer.updated'
+        ].includes(eventType);
+        if (providerIdentityConflict) {
+          const reasonCode = String(error?.message || '').includes('completed/canceled state')
+            ? 'provider_lifecycle_conflict'
+            : 'provider_identity_conflict';
+          await client.query(
+            `INSERT INTO paddle_adjustment_reconciliation_cases (event_id, reason_code)
+             VALUES ($1, $2)
+             ON CONFLICT (event_id) DO NOTHING`,
+            [eventId, reasonCode]
+          );
+        }
         await markPaddleCheckoutAttemptForReconciliation(
           client, reconciliationContext?.userId, reconciliationContext?.plan, reconciliationTransactionId, reconciliationContext?.attemptId
         );
