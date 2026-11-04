@@ -1462,8 +1462,8 @@ test('transaction.canceled webhook settles a creating attempt before checkout re
       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       '1month'
     ]);
-    assert.match(attemptUpdate.sql, /attempt_id = \\$3::uuid AND plan = \\$4/);
-    assert.match(attemptUpdate.sql, /transaction_id = COALESCE\\(transaction_id, \\$1\\)/);
+    assert.ok(attemptUpdate.sql.includes('attempt_id = $3::uuid AND plan = $4'));
+    assert.ok(attemptUpdate.sql.includes('transaction_id = COALESCE(transaction_id, $1)'));
     assert.ok(attemptUpdate.sql.includes("status IN ('creating', 'pending', 'reconciliation_required')"));
     assert.ok(!attemptUpdate.sql.includes("'completed'"),
       'the webhook must never downgrade a completed payment');
