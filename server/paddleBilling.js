@@ -713,6 +713,23 @@ export async function processPaddleEvent(pool, rawEvent) {
         [customUserId, customerId, subscriptionId, status, priceId, active, active ? periodEnd : null, occurredAt, eventType === 'subscription.created', eventType === 'subscription.canceled']
       );
       if (eventType === 'subscription.created' && customUserId && checkoutPlan) {
+        if (subscriptionUpdate.rowCount > 0 && validSubscriptionTransactionId) {
+          // subscription.created is also authoritative provider evidence for a
+          // recurring checkout when it arrives before transaction.completed.
+          // Retain the exact originating transaction, owner, plan and subscription.
+          await recordPaddleTransactionEvent(client, {
+            eventId,
+            transactionId: subscriptionTransactionId,
+            userId: customUserId,
+            plan: checkoutPlan,
+            status: 'completed',
+            subscriptionId,
+            customerId,
+            occurredAt,
+            ...paddleTransactionFinancialTotals(data),
+            currencyCode: paddleCurrencyCode(data)
+          });
+        }
         await client.query(
           `UPDATE paddle_checkout_attempts
            SET status = $3, updated_at = NOW()
