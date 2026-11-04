@@ -621,6 +621,29 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       assert.equal(realReportMutationError?.code, '55000');
       await client.query('ROLLBACK TO SAVEPOINT real_report_content_immutable');
       await client.query('RELEASE SAVEPOINT real_report_content_immutable');
+      await client.query('SAVEPOINT real_report_identity_immutable');
+      let reportIdentityMutationError;
+      try {
+        await client.query('UPDATE user_reports SET reported_user_ref = $2 WHERE id = $1',
+          [realReport.rows[0].id, randomUUID()]);
+      } catch (error) { reportIdentityMutationError = error; }
+      assert.equal(reportIdentityMutationError?.code, '55000');
+      await client.query('ROLLBACK TO SAVEPOINT real_report_identity_immutable');
+      await client.query('RELEASE SAVEPOINT real_report_identity_immutable');
+      await client.query('SAVEPOINT real_report_delete_blocked');
+      let reportDeleteError;
+      try { await client.query('DELETE FROM user_reports WHERE id = $1', [realReport.rows[0].id]); }
+      catch (error) { reportDeleteError = error; }
+      assert.equal(reportDeleteError?.code, '55000');
+      await client.query('ROLLBACK TO SAVEPOINT real_report_delete_blocked');
+      await client.query('RELEASE SAVEPOINT real_report_delete_blocked');
+      await client.query('SAVEPOINT real_report_truncate_blocked');
+      let reportTruncateError;
+      try { await client.query('TRUNCATE TABLE user_reports'); }
+      catch (error) { reportTruncateError = error; }
+      assert.equal(reportTruncateError?.code, '55000');
+      await client.query('ROLLBACK TO SAVEPOINT real_report_truncate_blocked');
+      await client.query('RELEASE SAVEPOINT real_report_truncate_blocked');
       const reportModeratorId = randomUUID();
       await client.query(
         "INSERT INTO users (id, email, password_hash, role, status) VALUES ($1, $2, 'test-only-hash', 'moderator', 'active')",
