@@ -264,7 +264,7 @@ export async function getPaddleAdjustmentState(client, transactionId) {
                    AND prior.action = 'refund'
                    AND prior.adjustment_type = 'full'
                    AND prior.status = 'approved'
-                   AND prior.occurred_at < latest.occurred_at
+                   AND prior.occurred_at <= latest.occurred_at
                )
              )
              OR (
