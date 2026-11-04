@@ -388,6 +388,53 @@ test('chargeback reversal evidence alone does not restore access before the orig
   );
 });
 
+test('a chargeback reversal cannot restore a chargeback-revoked entitlement without the original reversed event', async () => {
+  const { pool, calls } = makePool({
+    ledgerStatus: 'revoked',
+    revokeReason: 'paddle_chargeback',
+    chargeback: false,
+    chargebackReversed: false
+  });
+  const result = await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'approved' });
+  assert.equal(result.entitlementChanged, false);
+  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false,
+    'a reversal action alone is insufficient when no original chargeback status=reversed is retained');
+});
+
+test('a refund reversal restores only a full-refund-revoked entitlement with matching prior approval', async () => {
+  const { pool, calls } = makePool({
+    ledgerStatus: 'revoked',
+    revokeReason: 'paddle_full_refund',
+    fullRefund: false,
+    fullRefundReversed: true
+  });
+  const result = await sendAdjustment(pool, {
+    action: 'refund', status: 'reversed', type: 'full', eventType: 'adjustment.updated'
+  });
+  assert.equal(result.entitlementChanged, true);
+  assert.deepEqual(
+    calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')).params,
+    [transactionId, userId, 'active', null]
+  );
+});
+
+test('a refund rejection cannot restore a chargeback-revoked entitlement', async () => {
+  const { pool, calls } = makePool({
+    ledgerStatus: 'revoked',
+    revokeReason: 'paddle_chargeback',
+    fullRefund: false,
+    fullRefundReversed: false,
+    chargeback: false,
+    chargebackReversed: false
+  });
+  const result = await sendAdjustment(pool, {
+    action: 'refund', status: 'rejected', type: 'full', eventType: 'adjustment.updated'
+  });
+  assert.equal(result.entitlementChanged, false);
+  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false,
+    'a refund rejection cannot stand in for reversal of the chargeback that revoked this purchase');
+});
+
 test('a rejected chargeback reversal cannot restore lifetime Premium', async () => {
   const { pool, calls } = makePool({
     ledgerStatus: 'revoked',
