@@ -11,7 +11,7 @@ BEGIN
          SELECT 1
          FROM paddle_transaction_events AS txn_event
          JOIN paddle_webhook_events AS webhook
-           ON webhook.event_id = transaction.event_id
+           ON webhook.event_id = txn_event.event_id
          WHERE txn_event.transaction_id = NEW.transaction_id
            AND txn_event.user_id = NEW.user_id
            AND txn_event.plan = NEW.plan
