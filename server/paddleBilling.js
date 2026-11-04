@@ -307,7 +307,7 @@ async function resolvePaddleAdjustmentReconciliationCases(client, transactionId,
            UNION ALL
            SELECT user_id, transaction_id, plan, 'linked'::text AS status
            FROM paddle_transaction_events
-           WHERE transaction_id = $1 AND status = 'completed'
+           WHERE transaction_id = $1 AND status IN ('paid', 'completed')
              AND user_id IS NOT NULL AND plan IS NOT NULL
          ) AS attempts
          WHERE attempts.transaction_id = $1
@@ -327,7 +327,7 @@ async function resolvePaddleAdjustmentReconciliationCases(client, transactionId,
          SELECT 1 FROM paddle_transaction_events AS linked_transaction
          WHERE linked_transaction.transaction_id = $1
            AND linked_transaction.user_id = $2
-           AND linked_transaction.status = 'completed'
+           AND linked_transaction.status IN ('paid', 'completed')
            AND linked_transaction.plan IN ('1month', '3months')
        )`,
     [transactionId, userId, resolutionNote]
@@ -402,7 +402,7 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
        UNION ALL
        SELECT user_id, transaction_id, plan, 'linked'::text AS status
        FROM paddle_transaction_events
-       WHERE transaction_id = $1 AND status = 'completed'
+       WHERE transaction_id = $1 AND status IN ('paid', 'completed')
          AND user_id IS NOT NULL AND plan IN ('1month', '3months')
      ) AS attempts
      WHERE transaction_id = $1 AND status IN ('linked', 'completed')
@@ -772,7 +772,7 @@ export async function processPaddleEvent(pool, rawEvent) {
             transactionId: subscriptionTransactionId,
             userId: customUserId,
             plan: checkoutPlan,
-            status: 'completed',
+            status: 'paid',
             subscriptionId,
             customerId,
             occurredAt,
