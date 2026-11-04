@@ -2677,7 +2677,7 @@ test('Paddle chargeback reversals are paired one-to-one and must be strictly lat
          (event_id, adjustment_id, transaction_id, action, adjustment_type, status,
           amount_minor_units, currency_code, occurred_at)
          VALUES ($1, $2, $3, $4, 'full', $5, 500, 'USD', $6::timestamptz)`,
-        [eventId, makeId('adj'), transactionId, adjustment.action, adjustment.status || 'approved', adjustment.occurredAt]
+        [eventId, adjustment.adjustmentId || makeId('adj'), transactionId, adjustment.action, adjustment.status || 'approved', adjustment.occurredAt]
       );
     }
     return getPaddleAdjustmentState(client, transactionId);
@@ -2730,18 +2730,20 @@ test('Paddle chargeback reversals are paired one-to-one and must be strictly lat
       'the original adjustment status alone must not replace the separately retained chargeback_reverse event');
     assert.equal(originalMarkedReversedWithoutSeparateEvidence.chargebackReversed, false);
 
+    const rejectedRefundAdjustmentId = makeId('adj');
     const rejectedAfterApprovedRefund = await stateFor([
-      { action: 'refund', status: 'approved', occurredAt: '2026-11-01T10:00:00Z' },
-      { action: 'refund', status: 'rejected', occurredAt: '2026-11-01T11:00:00Z' }
+      { action: 'refund', adjustmentId: rejectedRefundAdjustmentId, status: 'approved', occurredAt: '2026-11-01T10:00:00Z' },
+      { action: 'refund', adjustmentId: rejectedRefundAdjustmentId, status: 'rejected', occurredAt: '2026-11-01T11:00:00Z' }
     ]);
     assert.equal(rejectedAfterApprovedRefund.fullRefundActive, true,
       'a contradictory later rejection must not erase a previously approved full refund');
     assert.equal(rejectedAfterApprovedRefund.fullRefundReversed, false,
       'only an explicit provider reversed status can reverse the approved refund');
 
+    const pendingRefundAdjustmentId = makeId('adj');
     const pendingAfterApprovedRefund = await stateFor([
-      { action: 'refund', status: 'approved', occurredAt: '2026-11-01T10:00:00Z' },
-      { action: 'refund', status: 'pending_approval', occurredAt: '2026-11-01T11:00:00Z' }
+      { action: 'refund', adjustmentId: pendingRefundAdjustmentId, status: 'approved', occurredAt: '2026-11-01T10:00:00Z' },
+      { action: 'refund', adjustmentId: pendingRefundAdjustmentId, status: 'pending_approval', occurredAt: '2026-11-01T11:00:00Z' }
     ]);
     assert.equal(pendingAfterApprovedRefund.fullRefundActive, true,
       'a later pending state cannot erase a prior final approval');
