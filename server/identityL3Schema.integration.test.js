@@ -48,6 +48,9 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       assert.ok(consentStateTriggers.rows.some(row =>
         row.tgname === 'identity_l3_consents_no_truncate'
       ), 'current L3 consent state must not be truncated');
+      assert.ok(consentStateTriggers.rows.some(row =>
+        row.tgname === 'identity_l3_consent_withdrawal_requires_purge'
+      ), 'withdrawing consent must revoke active submissions and preserve purge obligations');
       const consentTruncateGuard = await client.query(
         `SELECT tgname FROM pg_trigger
          WHERE tgrelid = 'identity_l3_consent_events'::regclass AND NOT tgisinternal`
