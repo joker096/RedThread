@@ -365,51 +365,45 @@ test('one approved chargeback reversal cannot clear another active chargeback', 
   assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
 });
 
-test('chargeback reversal evidence alone does not restore access before the original chargeback is reversed', async () => {
-  const reversalFirst = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    chargeback: true
-  });
-  const pendingRestore = await sendAdjustment(reversalFirst.pool, {
-    action: 'chargeback_reverse', status: 'approved'
-  });
-  assert.equal(pendingRestore.entitlementChanged, false);
-  assert.equal(reversalFirst.calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
-  const stateQuery = reversalFirst.calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
-  assert.match(stateQuery.statement, /DISTINCT ON \(adjustment_id, action\)/,
-    'a chargeback_reverse event must not replace the original chargeback action in the latest-state projection');
-
-  // Paddle separately updates the original chargeback adjustment to status=reversed.
-  // Only then is the original adverse adjustment no longer active.
-  const originalReversed = makePool({
+test('chargeback_reverse is authoritative reversal evidence without requiring adjustment.updated for the original chargeback', async () => {
+  const reversal = makePool({
     ledgerStatus: 'revoked',
     revokeReason: 'paddle_chargeback',
     chargeback: false,
     chargebackReversed: true
   });
-  const restored = await sendAdjustment(originalReversed.pool, {
-    action: 'chargeback', status: 'reversed', eventType: 'adjustment.updated'
+  const restored = await sendAdjustment(reversal.pool, {
+    action: 'chargeback_reverse', status: 'approved'
   });
   assert.equal(restored.entitlementChanged, true);
   assert.equal(restored.premiumRevoked, false);
   assert.deepEqual(
-    originalReversed.calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')).params,
+    reversal.calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')).params,
     [transactionId, userId, 'active', null]
   );
+  const stateQuery = reversal.calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
+  assert.match(stateQuery.statement, /action = 'chargeback_reverse' AND status = 'approved'/,
+    'the provider-created reversal adjustment must be included in the transaction state');
+  assert.match(stateQuery.statement, /COUNT\(\*\)/,
+    'reversals must be reconciled against the number of chargeback adjustments');
 });
 
-test('a chargeback reversal cannot restore a chargeback-revoked entitlement without the original reversed event', async () => {
+test('one chargeback_reverse cannot restore access while another chargeback remains unmatched', async () => {
   const { pool, calls } = makePool({
     ledgerStatus: 'revoked',
     revokeReason: 'paddle_chargeback',
-    chargeback: false,
+    chargeback: true,
     chargebackReversed: false
   });
-  const result = await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'approved' });
+  const result = await sendAdjustment(pool, {
+    action: 'chargeback_reverse', status: 'approved'
+  });
   assert.equal(result.entitlementChanged, false);
   assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false,
-    'a reversal action alone is insufficient when no original chargeback status=reversed is retained');
+    'a reversal must not restore the purchase while any transaction chargeback remains outstanding');
+  const stateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
+  assert.match(stateQuery.statement, /COUNT\(\*\)[\s\S]*chargeback_reverse/,
+    'the effective state must compare chargeback and chargeback_reverse adjustments');
 });
 
 test('a refund reversal restores only a full-refund-revoked entitlement with matching prior approval', async () => {
