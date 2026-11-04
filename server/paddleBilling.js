@@ -305,10 +305,23 @@ async function resolvePaddleAdjustmentReconciliationCases(client, transactionId,
            UNION ALL
            SELECT user_id, transaction_id, plan, status FROM paddle_checkout_attempt_history
            UNION ALL
-           SELECT user_id, transaction_id, plan, 'linked'::text AS status
-           FROM paddle_transaction_events
-           WHERE transaction_id = $1 AND status IN ('paid', 'completed')
-             AND user_id IS NOT NULL AND plan IS NOT NULL
+           SELECT event.user_id, event.transaction_id, event.plan, 'linked'::text AS status
+           FROM paddle_transaction_events AS event
+           JOIN paddle_webhook_events AS webhook ON webhook.event_id = event.event_id
+           JOIN users AS owner ON owner.id = event.user_id
+           WHERE event.transaction_id = $1
+             AND (
+               (event.status = 'completed' AND webhook.event_type = 'transaction.completed')
+               OR (
+                 event.status = 'paid'
+                 AND webhook.event_type = 'subscription.created'
+                 AND event.subscription_id IS NOT NULL
+                 AND event.customer_id IS NOT NULL
+                 AND owner.paddle_subscription_id = event.subscription_id
+                 AND owner.paddle_customer_id = event.customer_id
+               )
+             )
+             AND event.user_id IS NOT NULL AND event.plan IS NOT NULL
          ) AS attempts
          WHERE attempts.transaction_id = $1
            AND attempts.status IN ('linked', 'completed')
@@ -324,11 +337,24 @@ async function resolvePaddleAdjustmentReconciliationCases(client, transactionId,
            AND linked_history.user_id = $2
            AND linked_history.status IN ('linked', 'completed')
          UNION ALL
-         SELECT 1 FROM paddle_transaction_events AS linked_transaction
+         SELECT 1
+         FROM paddle_transaction_events AS linked_transaction
+         JOIN paddle_webhook_events AS webhook ON webhook.event_id = linked_transaction.event_id
+         JOIN users AS owner ON owner.id = linked_transaction.user_id
          WHERE linked_transaction.transaction_id = $1
            AND linked_transaction.user_id = $2
-           AND linked_transaction.status IN ('paid', 'completed')
            AND linked_transaction.plan IN ('1month', '3months')
+           AND (
+             (linked_transaction.status = 'completed' AND webhook.event_type = 'transaction.completed')
+             OR (
+               linked_transaction.status = 'paid'
+               AND webhook.event_type = 'subscription.created'
+               AND linked_transaction.subscription_id IS NOT NULL
+               AND linked_transaction.customer_id IS NOT NULL
+               AND owner.paddle_subscription_id = linked_transaction.subscription_id
+               AND owner.paddle_customer_id = linked_transaction.customer_id
+             )
+           )
        )`,
     [transactionId, userId, resolutionNote]
   );
@@ -400,10 +426,24 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
        UNION ALL
        SELECT user_id, transaction_id, plan, status FROM paddle_checkout_attempt_history
        UNION ALL
-       SELECT user_id, transaction_id, plan, 'linked'::text AS status
-       FROM paddle_transaction_events
-       WHERE transaction_id = $1 AND status IN ('paid', 'completed')
-         AND user_id IS NOT NULL AND plan IN ('1month', '3months')
+       SELECT event.user_id, event.transaction_id, event.plan, 'linked'::text AS status
+       FROM paddle_transaction_events AS event
+       JOIN paddle_webhook_events AS webhook ON webhook.event_id = event.event_id
+       JOIN users AS owner ON owner.id = event.user_id
+       WHERE event.transaction_id = $1
+         AND event.plan IN ('1month', '3months')
+         AND (
+           (event.status = 'completed' AND webhook.event_type = 'transaction.completed')
+           OR (
+             event.status = 'paid'
+             AND webhook.event_type = 'subscription.created'
+             AND event.subscription_id IS NOT NULL
+             AND event.customer_id IS NOT NULL
+             AND owner.paddle_subscription_id = event.subscription_id
+             AND owner.paddle_customer_id = event.customer_id
+           )
+         )
+         AND event.user_id IS NOT NULL
      ) AS attempts
      WHERE transaction_id = $1 AND status IN ('linked', 'completed')
      GROUP BY user_id, plan
