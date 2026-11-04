@@ -2613,9 +2613,9 @@ test('Paddle transaction IDs remain globally unique across current and archived 
       'owner/plan/lifecycle collisions must be classified as identity conflicts for webhook reconciliation');
     assert.match(guardFunction.rows[0].definition, /completed\/canceled state/);
     const customerIdentityLockPattern =
-      /pg_advisory_xact_lock\\s*\\(\\s*hashtextextended\\s*\\(\\s*'paddle-customer:'/;
+      /pg_advisory_xact_lock\s*\(\s*hashtextextended\s*\(\s*'paddle-customer:'/;
     const subscriptionIdentityLockPattern =
-      /pg_advisory_xact_lock\\s*\\(\\s*hashtextextended\\s*\\(\\s*'paddle-subscription:'/;
+      /pg_advisory_xact_lock\s*\(\s*hashtextextended\s*\(\s*'paddle-subscription:'/;
     assert.match(guardFunction.rows[0].definition, customerIdentityLockPattern);
     assert.match(guardFunction.rows[0].definition, subscriptionIdentityLockPattern);
     const userIdentityGuard = await client.query(
