@@ -348,6 +348,16 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     );
     assert.deepEqual(queued.rows, [{ status: 'queued' }],
       'rejected media must be queued for physical deletion automatically');
+    await assert.rejects(
+      pool.query('DELETE FROM identity_l3_submissions WHERE id = $1', [second.submissionId]),
+      error => error.code === '55000'
+    );
+    const retainedPurgeJob = await pool.query(
+      'SELECT status FROM identity_l3_media_purge_jobs WHERE submission_id = $1',
+      [second.submissionId]
+    );
+    assert.deepEqual(retainedPurgeJob.rows, [{ status: 'queued' }],
+      'deleting a submission with encrypted media must not cascade-delete its pending purge job');
 
     const purged = await runIdentityL3PurgeOnce(pool, { storageRoot, submissionId: second.submissionId });
     assert.equal(purged.status, 'completed', 'rejected-media purge must complete: ' + JSON.stringify(purged));
