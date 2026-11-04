@@ -204,8 +204,9 @@ export async function getPaddleAdjustmentState(client, transactionId) {
        -- Keep each adjustment/action lifecycle independent. Paddle emits a
        -- separate chargeback_reverse adjustment when it successfully contests
        -- a dispute; it may not emit adjustment.updated for the original
-       -- chargeback. Reconcile reversals against chargebacks at transaction
-       -- scope, and fail closed while any chargeback remains unmatched.
+       -- chargeback. Reconcile reversals one-to-one in provider chronology
+       -- and require the recovered amount and currency to match; fail closed
+       -- while any chargeback remains unmatched or only partially reversed.
        SELECT DISTINCT ON (adjustment_id, action)
          adjustment_id, action, adjustment_type, status, amount_minor_units,
          currency_code, occurred_at, received_at, event_id
