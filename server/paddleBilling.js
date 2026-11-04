@@ -858,6 +858,8 @@ export async function processPaddleEvent(pool, rawEvent) {
         }
       }
       const subscriptionUpdateUserId = subscriptionIdentityConflict ? null : customUserId;
+      const subscriptionUpdateCustomerId = subscriptionIdentityConflict ? null : customerId;
+      const subscriptionUpdatePriceId = subscriptionIdentityConflict ? null : priceId;
       let subscriptionAttemptClaim = { rowCount: 0, rows: [] };
       if (eventType === 'subscription.created' && customUserId &&
           checkoutPlan && customData.plan === checkoutPlan && validSubscriptionTransactionId) {
@@ -936,7 +938,7 @@ export async function processPaddleEvent(pool, rawEvent) {
           -- The source timestamp guard above prevents a delayed old lifecycle event from winning.
           -- A delayed or newly delivered subscription event must not revoke or replace lifetime Premium.
           AND premium_lifetime IS NOT TRUE`,
-        [subscriptionUpdateUserId, customerId, subscriptionId, status, priceId, active, active ? periodEnd : null, occurredAt, eventType === 'subscription.created', eventType === 'subscription.canceled']
+        [subscriptionUpdateUserId, subscriptionUpdateCustomerId, subscriptionId, status, subscriptionUpdatePriceId, active, active ? periodEnd : null, occurredAt, eventType === 'subscription.created', eventType === 'subscription.canceled']
       );
       if (eventType === 'subscription.created' && customUserId && checkoutPlan) {
         if (subscriptionUpdate.rowCount > 0 && validSubscriptionTransactionId) {
