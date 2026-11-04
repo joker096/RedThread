@@ -579,8 +579,10 @@ test('conflicting customer webhook identity is retained for moderator reconcilia
   );
   assert.ok(caseInsert, 'a failed provider customer identity claim must not be silently acknowledged');
   assert.equal(caseInsert.params[1], 'provider_identity_conflict');
-  assert.equal(caseInsert.params[3], userId);
-  assert.equal(caseInsert.params[4], 'lifetime');
+  assert.equal(caseInsert.params[3], null,
+    'customer lifecycle conflicts do not fabricate a Paddle adjustment ID');
+  assert.equal(caseInsert.params[4], userId);
+  assert.equal(caseInsert.params[5], 'lifetime');
   assert.ok(queries.some(query => query.statement.includes('ROLLBACK TO SAVEPOINT paddle_event_effects')),
     'the conflicting customer assignment must be rolled back before the durable reconciliation case is inserted');
 });
@@ -1607,6 +1609,7 @@ test('Paddle identity unique conflicts reconcile only the matching checkout atte
     'evt_identity_conflict',
     'provider_identity_conflict',
     'txn_identityconflict',
+    null,
     '00000000-0000-4000-8000-000000000001',
     '1month'
   ]);
