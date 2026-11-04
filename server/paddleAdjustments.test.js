@@ -395,53 +395,6 @@ test('chargeback_reverse is authoritative reversal evidence without requiring ad
     'reversals must be reconciled against the number of chargeback adjustments');
 });
 
-test('chargeback reversal with an ambiguous equal provider timestamp does not count as later evidence', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    chargeback: false,
-    chargebackReversed: false
-  });
-  await sendAdjustment(pool, {
-    action: 'chargeback_reverse', status: 'approved'
-  });
-  const stateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
-  assert.match(stateQuery.statement,
-    /reversal\.occurred_at <= chargeback\.occurred_at/,
-    'equal provider timestamps are ambiguous and must not be accepted as proof that a reversal followed a chargeback');
-});
-
-test('chargeback reversals are paired one-to-one in provider chronology', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    chargeback: false,
-    chargebackReversed: true
-  });
-  await sendAdjustment(pool, {
-    action: 'chargeback_reverse', status: 'approved'
-  });
-  const stateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
-  assert.ok(stateQuery, 'adjustment processing must recalculate the transaction chargeback state');
-  assert.equal(
-    (stateQuery.statement.match(/ROW_NUMBER\(\) OVER \(ORDER BY occurred_at, adjustment_id\)/g) || []).length,
-    2,
-    'chargebacks and reversals must each receive a stable chronological sequence'
-  );
-  assert.match(stateQuery.statement,
-    /ON reversal\.sequence_number = chargeback\.sequence_number/,
-    'one reversal must offset only its corresponding chargeback sequence, never multiple chargebacks');
-  assert.match(stateQuery.statement,
-    /reversal\.occurred_at <= chargeback\.occurred_at/,
-    'a reversal cannot offset a chargeback that happened later');
-  assert.match(stateQuery.statement,
-    /chargeback_count = reversal_count/,
-    'extra or missing reversal evidence must remain fail-closed');
-  assert.match(stateQuery.statement,
-    /chargeback_count > 0\s+AND NOT \(chargeback_count = reversal_count AND all_chargebacks_paired\)/,
-    'any unmatched or ambiguously timed chargeback must remain active and block entitlement restoration');
-});
-
 test('a delayed chargeback.created event observes an earlier recorded chargeback_reverse', async () => {
   const { pool, calls } = makePool({
     ledgerStatus: 'revoked',
@@ -495,27 +448,252 @@ test('a refund reversal restores only a full-refund-revoked entitlement with mat
   );
 });
 
-test('a rejected refund cannot reverse a previously approved full refund', async () => {
+test('a refund rejection cannot restore a chargeback-revoked entitlement', async () => {
   const { pool, calls } = makePool({
     ledgerStatus: 'revoked',
-    revokeReason: 'paddle_full_refund',
-    fullRefund: true,
-    fullRefundReversed: true
+    revokeReason: 'paddle_chargeback',
+    fullRefund: false,
+    fullRefundReversed: false,
+    chargeback: false,
+    chargebackReversed: false
   });
   const result = await sendAdjustment(pool, {
     action: 'refund', status: 'rejected', type: 'full', eventType: 'adjustment.updated'
   });
-  assert.equal(result.entitlementChanged, false,
-    'a rejected status is not a provider reversal of an already-approved full refund');
+  assert.equal(result.entitlementChanged, false);
+  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false,
+    'a refund rejection cannot stand in for reversal of the chargeback that revoked this purchase');
+});
+
+test('a rejected chargeback reversal cannot restore lifetime Premium', async () => {
+  const { pool, calls } = makePool({
+    ledgerStatus: 'revoked',
+    revokeReason: 'paddle_chargeback',
+    chargeback: false
+  });
+  const result = await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'rejected' });
+  assert.equal(result.entitlementChanged, false);
   assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
+});
+
+test('a chargeback reversal cannot restore access while a full approved refund remains active', async () => {
+  const { pool, calls } = makePool({
+    ledgerStatus: 'revoked',
+    revokeReason: 'paddle_chargeback',
+    fullRefund: true,
+    chargeback: false
+  });
+  const result = await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'approved' });
+  assert.equal(result.premiumRevoked, true);
+  const update = calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements'));
+  assert.deepEqual(update.params, [transactionId, userId, 'revoked', 'paddle_full_refund']);
+});
+
+test('adjustment evidence is processed even when unrelated customer metadata is malformed', async () => {
+  const { pool, calls } = makePool({ ledgerStatus: 'active', fullRefund: true });
+  const result = await processPaddleEvent(pool, {
+    eventId: 'evt_malformed_customer_adjustment',
+    eventType: 'adjustment.updated',
+    occurredAt: '2026-11-03T10:00:00Z',
+    data: {
+      id: 'adj_0123456789abcdef01234567',
+      transactionId,
+      customerId: 'not-a-paddle-customer',
+      action: 'refund',
+      type: 'full',
+      status: 'approved',
+      currency_code: 'USD',
+      totals: { total: '500', currency_code: 'USD' }
+    }
+  });
+  assert.equal(result.premiumRevoked, true);
+  assert.ok(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')));
+});
+
+test('transaction completion reconciles an approved refund delivered earlier', async () => {
+  const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
+  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_lifetime_test';
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      calls.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      if (statement.includes("SET transaction_id = $1, status = 'completed'")) {
+        return { rowCount: 1, rows: [{ user_id: userId }] };
+      }
+      if (statement.includes('SELECT DISTINCT user_id') &&
+          statement.includes('paddle_checkout_attempt_history')) {
+        return { rowCount: 1, rows: [{ user_id: userId }] };
+      }
+      if (statement.includes('WITH latest_per_adjustment AS')) {
+        return { rowCount: 1, rows: [{ full_refund_active: true, chargeback_active: false }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    const result = await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_transaction_after_refund',
+      eventType: 'transaction.completed',
+      data: {
+        id: transactionId,
+        customerId: 'ctm_0123456789abcdef0123456789',
+        customData: {
+          userId,
+          plan: 'lifetime',
+          checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+        },
+        items: [{ price: { id: 'pri_lifetime_test' } }],
+        details: { totals: { total: '1290', grand_total: '1190', credit: '100', balance: '0' } },
+        currencyCode: 'USD'
+      }
+    });
+    assert.equal(result.handled, true);
+    const transactionLedger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
+    assert.ok(transactionLedger, 'every completed Paddle transaction must be retained independently of the checkout pointer');
+    assert.deepEqual(transactionLedger.params.slice(0, 5), [
+      'evt_transaction_after_refund', transactionId, userId, 'lifetime', 'completed'
+    ]);
+    assert.deepEqual(transactionLedger.params.slice(5, 10), ['1290', '1190', '100', '0', 'USD']);
+    const transactionLockIndex = calls.findIndex(call => call.statement.includes("paddle-transaction:"));
+    const userLockIndex = calls.findIndex(call => call.statement.includes("gift-safety-user:"));
+    assert.ok(transactionLockIndex >= 0 && userLockIndex > transactionLockIndex,
+      'transaction.completed must acquire the same transaction lock before the user lock');
+    assert.match(calls[transactionLockIndex].statement,
+      /pg_advisory_xact_lock\(hashtextextended\('paddle-transaction:'/,
+      'transaction completion must share the database guard\'s 64-bit advisory-lock key');
+    const revoke = calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements'));
+    assert.deepEqual(revoke.params, [transactionId, 'paddle_full_refund', userId]);
+    assert.ok(calls.some(call =>
+      call.statement.includes('UPDATE users') && call.statement.includes('premium_lifetime = EXISTS')
+    ), 'the prior approved refund must be applied before the new lifetime entitlement is exposed');
+    const caseResolution = calls.find(call =>
+      call.statement.includes('UPDATE paddle_adjustment_reconciliation_cases')
+    );
+    assert.ok(caseResolution, 'a previously unmatched adjustment case must be considered after transaction linkage');
+    assert.equal(caseResolution.params[1], userId);
+    assert.equal(caseResolution.params[2], 'transaction_completed_linked_to_vow_checkout');
+    assert.match(caseResolution.statement, /reason_code = 'transaction_owner_unlinked'/);
+    assert.match(caseResolution.statement, /COUNT\(DISTINCT \(user_id, plan\)\)[\s\S]*?\) = 1/);
+    assert.match(caseResolution.statement, /linked_attempt\.user_id = \$2/);
+    assert.match(caseResolution.statement, /linked_transaction\.plan IN \('1month', '3months'\)/,
+      'unverified lifetime transactions must not auto-resolve reconciliation without a linked checkout attempt');
+
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
+    else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
+  }
+});
+
+test('unmatched valid adjustments create a durable reconciliation case', async () => {
+  const { pool, calls } = makePool({ linkedRowCount: 0 });
+  const result = await sendAdjustment(pool, { action: 'refund', status: 'approved', type: 'full' });
+  assert.equal(result.reconciliationRequired, true);
+  const task = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
+  assert.ok(task, 'an unmatched adjustment must remain in a durable manual queue');
+  assert.equal(task.params[1], 'transaction_owner_unlinked');
+});
+
+test('adjustments for recurring Vow purchases do not touch lifetime entitlement', async () => {
+  const { pool, calls } = makePool({ linkedPlan: '3months', linkedStatus: 'completed' });
+  const result = await sendAdjustment(pool, { action: 'refund', status: 'approved', type: 'full' });
+  assert.equal(result.adjustmentRecorded, true);
+  assert.equal(result.entitlementChanged, false);
+  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
+  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')), false);
+});
+
+test('transaction.canceled events are retained even without a matched checkout row', async () => {
+  const originalMonthlyPrice = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_monthly_test';
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      calls.push({ statement, params });
+      if (statement.includes('UPDATE paddle_checkout_attempts') && statement.includes("status = 'canceled'")) {
+        return { rowCount: 0, rows: [] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_canceledtransactionhistory',
+      eventType: 'transaction.canceled',
+      occurredAt: '2026-11-03T10:00:00Z',
+      data: { id: transactionId, items: [{ price: { id: 'pri_monthly_test' } }], details: { totals: { total: '990', grand_total: '990', credit: '0', balance: '0' } }, currency_code: 'GEL' }
+    });
+    const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
+    assert.ok(ledger);
+    assert.deepEqual(ledger.params.slice(0, 5), [
+      'evt_canceledtransactionhistory', transactionId, null, '1month', 'canceled'
+    ]);
+    assert.deepEqual(ledger.params.slice(5, 10), ['990', '990', '0', '0', 'GEL']);
+  } finally {
+    if (originalMonthlyPrice === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalMonthlyPrice;
+  }
+});
+
+test('malformed adjustment payloads create a durable webhook reconciliation case', async () => {
+  const { pool, calls } = makePool();
+  const result = await processPaddleEvent(pool, {
+    eventId: 'evt_invalidadjustmentpayload',
+    eventType: 'adjustment.created',
+    occurredAt: '2026-11-03T10:00:00Z',
+    data: { id: 'not-an-adjustment', transaction_id: transactionId, action: 'refund', type: 'full', status: 'approved' }
+  });
+  assert.equal(result.reconciliationRequired, true);
+  const task = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
+  assert.ok(task, 'invalid adjustment evidence must not disappear after the webhook is acknowledged');
+  assert.equal(task.params[1], 'invalid_adjustment_payload');
+});
+
+test('malformed adjustment identifiers are acknowledged without changing entitlement', async () => {
+  const { pool, calls } = makePool();
+  const result = await processPaddleEvent(pool, {
+    eventId: 'evt_invalid_adjustment',
+    eventType: 'adjustment.created',
+    occurredAt: '2026-11-03T10:00:00Z',
+    data: { id: 'not-an-adjustment', transaction_id: transactionId, action: 'refund', type: 'full', status: 'approved' }
+  });
+  assert.equal(result.reconciliationRequired, true);
+  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')), false);
+  assert.equal(calls.some(call => call.statement.includes('UPDATE users')), false);
+});
+
+test('chargeback reversals are paired one-to-one in provider chronology', async () => {
+  const { pool, calls } = makePool({
+    ledgerStatus: 'revoked',
+    revokeReason: 'paddle_chargeback',
+    chargeback: true,
+    chargebackReversed: false
+  });
+  await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'approved' });
   const stateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
+  assert.ok(stateQuery);
+  assert.equal(
+    (stateQuery.statement.match(/ROW_NUMBER\(\) OVER \(ORDER BY occurred_at, adjustment_id\)/g) || []).length,
+    2
+  );
+  assert.match(stateQuery.statement, /ON reversal\.sequence_number = chargeback\.sequence_number/);
+  assert.match(stateQuery.statement, /reversal\.occurred_at <= chargeback\.occurred_at/);
+  assert.match(stateQuery.statement, /chargeback_count = reversal_count/);
   assert.match(stateQuery.statement,
-    /latest\.status <> 'reversed'[\s\S]*prior\.status = 'approved'/,
-    'a later contradictory rejection must keep a prior approved full refund adverse');
-  assert.match(stateQuery.statement,
-    /latest\.status = 'reversed'/,
-    'only the provider reversed status can clear a previously approved full refund');
-  assert.doesNotMatch(stateQuery.statement, /latest\.status IN \('rejected', 'reversed'\)/);
+    /chargeback_count > 0\s+AND NOT \(chargeback_count = reversal_count AND all_chargebacks_paired\)/);
+});
+
+test('ambiguous equal provider timestamps cannot reverse a chargeback', async () => {
+  const { pool, calls } = makePool();
+  await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'approved' });
+  const stateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
+  assert.match(stateQuery.statement, /reversal\.occurred_at <= chargeback\.occurred_at/);
 });
 
 test('contradictory refund final states stay adverse and enter reconciliation', async () => {
@@ -532,1975 +710,11 @@ test('contradictory refund final states stay adverse and enter reconciliation', 
   assert.equal(result.entitlementChanged, false);
   assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
   const reconciliation = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
-  assert.ok(reconciliation, 'contradictory final refund statuses must remain visible for moderator review');
+  assert.ok(reconciliation);
   assert.equal(reconciliation.params[1], 'provider_lifecycle_conflict');
-});
-
-test('a refund rejection cannot restore a chargeback-revoked entitlement', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    fullRefund: false,
-    fullRefundReversed: false,
-    chargeback: false,
-    chargebackReversed: false
-  });
-  const result = await sendAdjustment(pool, {
-    action: 'refund', status: 'rejected', type: 'full', eventType: 'adjustment.updated'
-  });
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false,
-    'a refund rejection cannot stand in for reversal of the chargeback that revoked this purchase');
-});
-
-test('a rejected chargeback reversal cannot restore lifetime Premium', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    chargeback: false
-  });
-  const result = await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'rejected' });
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
-});
-
-test('a chargeback reversal cannot restore access while a full approved refund remains active', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    fullRefund: true,
-    chargeback: false
-  });
-  const result = await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'approved' });
-  assert.equal(result.premiumRevoked, true);
-  const update = calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements'));
-  assert.deepEqual(update.params, [transactionId, userId, 'revoked', 'paddle_full_refund']);
-});
-
-test('adjustment evidence is processed even when unrelated customer metadata is malformed', async () => {
-  const { pool, calls } = makePool({ ledgerStatus: 'active', fullRefund: true });
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_malformed_customer_adjustment',
-    eventType: 'adjustment.updated',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: {
-      id: 'adj_0123456789abcdef01234567',
-      transactionId,
-      customerId: 'not-a-paddle-customer',
-      action: 'refund',
-      type: 'full',
-      status: 'approved',
-      currency_code: 'USD',
-      totals: { total: '500', currency_code: 'USD' }
-    }
-  });
-  assert.equal(result.premiumRevoked, true);
-  assert.ok(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')));
-});
-
-test('transaction completion reconciles an approved refund delivered earlier', async () => {
-  const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
-  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_lifetime_test';
-  const calls = [];
-  const client = {
-    async query(sql, params = []) {
-      const statement = String(sql);
-      calls.push({ statement, params });
-      if (statement.includes('INSERT INTO paddle_webhook_events')) {
-        return { rowCount: 1, rows: [{ event_id: params[0] }] };
-      }
-      if (statement.includes("SET transaction_id = $1, status = 'completed'")) {
-        return { rowCount: 1, rows: [{ user_id: userId }] };
-      }
-      if (statement.includes('SELECT DISTINCT user_id') &&
-          statement.includes('paddle_checkout_attempt_history')) {
-        return { rowCount: 1, rows: [{ user_id: userId }] };
-      }
-      if (statement.includes('WITH latest_per_adjustment AS')) {
-        return { rowCount: 1, rows: [{ full_refund_active: true, chargeback_active: false }] };
-      }
-      return { rowCount: 1, rows: [] };
-    },
-    release() {}
-  };
-  try {
-    const result = await processPaddleEvent({ async connect() { return client; } }, {
-      eventId: 'evt_transaction_after_refund',
-      eventType: 'transaction.completed',
-      data: {
-        id: transactionId,
-        customerId: 'ctm_0123456789abcdef0123456789',
-        customData: {
-          userId,
-          plan: 'lifetime',
-          checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
-        },
-        items: [{ price: { id: 'pri_lifetime_test' } }],
-        details: { totals: { total: '1290', grand_total: '1190', credit: '100', balance: '0' } },
-        currencyCode: 'USD'
-      }
-    });
-    assert.equal(result.handled, true);
-    const transactionLedger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
-    assert.ok(transactionLedger, 'every completed Paddle transaction must be retained independently of the checkout pointer');
-    assert.deepEqual(transactionLedger.params.slice(0, 5), [
-      'evt_transaction_after_refund', transactionId, userId, 'lifetime', 'completed'
-    ]);
-    assert.deepEqual(transactionLedger.params.slice(5, 10), ['1290', '1190', '100', '0', 'USD']);
-    const transactionLockIndex = calls.findIndex(call => call.statement.includes("paddle-transaction:"));
-    const userLockIndex = calls.findIndex(call => call.statement.includes("gift-safety-user:"));
-    assert.ok(transactionLockIndex >= 0 && userLockIndex > transactionLockIndex,
-      'transaction.completed must acquire the same transaction lock before the user lock');
-    assert.match(calls[transactionLockIndex].statement,
-      /pg_advisory_xact_lock\(hashtextextended\('paddle-transaction:'/,
-      'transaction completion must share the database guard\'s 64-bit advisory-lock key');
-    const revoke = calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements'));
-    assert.deepEqual(revoke.params, [transactionId, 'paddle_full_refund', userId]);
-    assert.ok(calls.some(call =>
-      call.statement.includes('UPDATE users') && call.statement.includes('premium_lifetime = EXISTS')
-    ), 'the prior approved refund must be applied before the new lifetime entitlement is exposed');
-    const caseResolution = calls.find(call =>
-      call.statement.includes('UPDATE paddle_adjustment_reconciliation_cases')
-    );
-    assert.ok(caseResolution, 'a previously unmatched adjustment case must be considered after transaction linkage');
-    assert.equal(caseResolution.params[1], userId);
-    assert.equal(caseResolution.params[2], 'transaction_completed_linked_to_vow_checkout');
-    assert.match(caseResolution.statement, /reason_code = 'transaction_owner_unlinked'/);
-    assert.match(caseResolution.statement, /COUNT\(DISTINCT \(user_id, plan\)\)[\s\S]*?\) = 1/);
-    assert.match(caseResolution.statement, /linked_attempt\.user_id = \$2/);
-    assert.match(caseResolution.statement, /linked_transaction\.plan IN \('1month', '3months'\)/,
-      'unverified lifetime transactions must not auto-resolve reconciliation without a linked checkout attempt');
-
-  } finally {
-    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
-    else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
-  }
-});
-
-test('unmatched valid adjustments create a durable reconciliation case', async () => {
-  const { pool, calls } = makePool({ linkedRowCount: 0 });
-  const result = await sendAdjustment(pool, { action: 'refund', status: 'approved', type: 'full' });
-  assert.equal(result.reconciliationRequired, true);
-  const task = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
-  assert.ok(task, 'an unmatched adjustment must remain in a durable manual queue');
-  assert.equal(task.params[1], 'transaction_owner_unlinked');
-});
-
-test('adjustments for recurring Vow purchases do not touch lifetime entitlement', async () => {
-  const { pool, calls } = makePool({ linkedPlan: '3months', linkedStatus: 'completed' });
-  const result = await sendAdjustment(pool, { action: 'refund', status: 'approved', type: 'full' });
-  assert.equal(result.adjustmentRecorded, true);
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
-  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')), false);
-});
-
-test('transaction.canceled events are retained even without a matched checkout row', async () => {
-  const originalMonthlyPrice = process.env.PADDLE_PRICE_ID_1MONTH;
-  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_monthly_test';
-  const calls = [];
-  const client = {
-    async query(sql, params = []) {
-      const statement = String(sql);
-      calls.push({ statement, params });
-      if (statement.includes('UPDATE paddle_checkout_attempts') && statement.includes("status = 'canceled'")) {
-        return { rowCount: 0, rows: [] };
-      }
-      return { rowCount: 1, rows: [] };
-    },
-    release() {}
-  };
-  try {
-    await processPaddleEvent({ async connect() { return client; } }, {
-      eventId: 'evt_canceledtransactionhistory',
-      eventType: 'transaction.canceled',
-      occurredAt: '2026-11-03T10:00:00Z',
-      data: { id: transactionId, items: [{ price: { id: 'pri_monthly_test' } }], details: { totals: { total: '990', grand_total: '990', credit: '0', balance: '0' } }, currency_code: 'GEL' }
-    });
-    const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
-    assert.ok(ledger);
-    assert.deepEqual(ledger.params.slice(0, 5), [
-      'evt_canceledtransactionhistory', transactionId, null, '1month', 'canceled'
-    ]);
-    assert.deepEqual(ledger.params.slice(5, 10), ['990', '990', '0', '0', 'GEL']);
-  } finally {
-    if (originalMonthlyPrice === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
-    else process.env.PADDLE_PRICE_ID_1MONTH = originalMonthlyPrice;
-  }
-});
-
-test('malformed adjustment payloads create a durable webhook reconciliation case', async () => {
-  const { pool, calls } = makePool();
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_invalidadjustmentpayload',
-    eventType: 'adjustment.created',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: { id: 'not-an-adjustment', transaction_id: transactionId, action: 'refund', type: 'full', status: 'approved' }
-  });
-  assert.equal(result.reconciliationRequired, true);
-  const task = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
-  assert.ok(task, 'invalid adjustment evidence must not disappear after the webhook is acknowledged');
-  assert.equal(task.params[1], 'invalid_adjustment_payload');
-});
-
-test('malformed adjustment identifiers are acknowledged without changing entitlement', async () => {
-  const { pool, calls } = makePool();
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_invalid_adjustment',
-    eventType: 'adjustment.created',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: { id: 'not-an-adjustment', transaction_id: transactionId, action: 'refund', type: 'full', status: 'approved' }
-  });
-  assert.equal(result.reconciliationRequired, true);
-  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')), false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE users')), false);
-});
-
-test('a delayed chargeback.created event observes an earlier recorded chargeback_reverse', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    chargeback: false,
-    chargebackReversed: true
-  });
-  const result = await sendAdjustment(pool, {
-    action: 'chargeback', status: 'approved', eventType: 'adjustment.created'
-  });
-  assert.equal(result.entitlementChanged, true);
-  assert.equal(result.premiumRevoked, false);
-  assert.deepEqual(
-    calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')).params,
-    [transactionId, userId, 'active', null]
-  );
-});
-
-test('one chargeback_reverse cannot restore access while another chargeback remains unmatched', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    chargeback: true,
-    chargebackReversed: false
-  });
-  const result = await sendAdjustment(pool, {
-    action: 'chargeback_reverse', status: 'approved'
-  });
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false,
-    'a reversal must not restore the purchase while any transaction chargeback remains outstanding');
   const stateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
-  assert.match(stateQuery.statement, /COUNT\(\*\)[\s\S]*chargeback_reverse/,
-    'the effective state must compare chargeback and chargeback_reverse adjustments');
+  assert.match(stateQuery.statement, /latest\.status <> 'reversed'[\s\S]*prior\.status = 'approved'/);
+  assert.match(stateQuery.statement, /latest\.status = 'reversed'/);
+  assert.doesNotMatch(stateQuery.statement, /latest\.status IN \('rejected', 'reversed'\)/);
 });
 
-test('a refund reversal restores only a full-refund-revoked entitlement with matching prior approval', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_full_refund',
-    fullRefund: false,
-    fullRefundReversed: true
-  });
-  const result = await sendAdjustment(pool, {
-    action: 'refund', status: 'reversed', type: 'full', eventType: 'adjustment.updated'
-  });
-  assert.equal(result.entitlementChanged, true);
-  assert.deepEqual(
-    calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')).params,
-    [transactionId, userId, 'active', null]
-  );
-});
-
-test('a refund rejection cannot restore a chargeback-revoked entitlement', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    fullRefund: false,
-    fullRefundReversed: false,
-    chargeback: false,
-    chargebackReversed: false
-  });
-  const result = await sendAdjustment(pool, {
-    action: 'refund', status: 'rejected', type: 'full', eventType: 'adjustment.updated'
-  });
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false,
-    'a refund rejection cannot stand in for reversal of the chargeback that revoked this purchase');
-});
-
-test('a rejected chargeback reversal cannot restore lifetime Premium', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    chargeback: false
-  });
-  const result = await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'rejected' });
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
-});
-
-test('a chargeback reversal cannot restore access while a full approved refund remains active', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    fullRefund: true,
-    chargeback: false
-  });
-  const result = await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'approved' });
-  assert.equal(result.premiumRevoked, true);
-  const update = calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements'));
-  assert.deepEqual(update.params, [transactionId, userId, 'revoked', 'paddle_full_refund']);
-});
-
-test('adjustment evidence is processed even when unrelated customer metadata is malformed', async () => {
-  const { pool, calls } = makePool({ ledgerStatus: 'active', fullRefund: true });
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_malformed_customer_adjustment',
-    eventType: 'adjustment.updated',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: {
-      id: 'adj_0123456789abcdef01234567',
-      transactionId,
-      customerId: 'not-a-paddle-customer',
-      action: 'refund',
-      type: 'full',
-      status: 'approved',
-      currency_code: 'USD',
-      totals: { total: '500', currency_code: 'USD' }
-    }
-  });
-  assert.equal(result.premiumRevoked, true);
-  assert.ok(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')));
-});
-
-test('transaction completion reconciles an approved refund delivered earlier', async () => {
-  const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
-  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_lifetime_test';
-  const calls = [];
-  const client = {
-    async query(sql, params = []) {
-      const statement = String(sql);
-      calls.push({ statement, params });
-      if (statement.includes('INSERT INTO paddle_webhook_events')) {
-        return { rowCount: 1, rows: [{ event_id: params[0] }] };
-      }
-      if (statement.includes("SET transaction_id = $1, status = 'completed'")) {
-        return { rowCount: 1, rows: [{ user_id: userId }] };
-      }
-      if (statement.includes('SELECT DISTINCT user_id') &&
-          statement.includes('paddle_checkout_attempt_history')) {
-        return { rowCount: 1, rows: [{ user_id: userId }] };
-      }
-      if (statement.includes('WITH latest_per_adjustment AS')) {
-        return { rowCount: 1, rows: [{ full_refund_active: true, chargeback_active: false }] };
-      }
-      return { rowCount: 1, rows: [] };
-    },
-    release() {}
-  };
-  try {
-    const result = await processPaddleEvent({ async connect() { return client; } }, {
-      eventId: 'evt_transaction_after_refund',
-      eventType: 'transaction.completed',
-      data: {
-        id: transactionId,
-        customerId: 'ctm_0123456789abcdef0123456789',
-        customData: {
-          userId,
-          plan: 'lifetime',
-          checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
-        },
-        items: [{ price: { id: 'pri_lifetime_test' } }],
-        details: { totals: { total: '1290', grand_total: '1190', credit: '100', balance: '0' } },
-        currencyCode: 'USD'
-      }
-    });
-    assert.equal(result.handled, true);
-    const transactionLedger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
-    assert.ok(transactionLedger, 'every completed Paddle transaction must be retained independently of the checkout pointer');
-    assert.deepEqual(transactionLedger.params.slice(0, 5), [
-      'evt_transaction_after_refund', transactionId, userId, 'lifetime', 'completed'
-    ]);
-    assert.deepEqual(transactionLedger.params.slice(5, 10), ['1290', '1190', '100', '0', 'USD']);
-    const transactionLockIndex = calls.findIndex(call => call.statement.includes("paddle-transaction:"));
-    const userLockIndex = calls.findIndex(call => call.statement.includes("gift-safety-user:"));
-    assert.ok(transactionLockIndex >= 0 && userLockIndex > transactionLockIndex,
-      'transaction.completed must acquire the same transaction lock before the user lock');
-    assert.match(calls[transactionLockIndex].statement,
-      /pg_advisory_xact_lock\(hashtextextended\('paddle-transaction:'/,
-      'transaction completion must share the database guard\'s 64-bit advisory-lock key');
-    const revoke = calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements'));
-    assert.deepEqual(revoke.params, [transactionId, 'paddle_full_refund', userId]);
-    assert.ok(calls.some(call =>
-      call.statement.includes('UPDATE users') && call.statement.includes('premium_lifetime = EXISTS')
-    ), 'the prior approved refund must be applied before the new lifetime entitlement is exposed');
-    const caseResolution = calls.find(call =>
-      call.statement.includes('UPDATE paddle_adjustment_reconciliation_cases')
-    );
-    assert.ok(caseResolution, 'a previously unmatched adjustment case must be considered after transaction linkage');
-    assert.equal(caseResolution.params[1], userId);
-    assert.equal(caseResolution.params[2], 'transaction_completed_linked_to_vow_checkout');
-    assert.match(caseResolution.statement, /reason_code = 'transaction_owner_unlinked'/);
-    assert.match(caseResolution.statement, /COUNT\(DISTINCT \(user_id, plan\)\)[\s\S]*?\) = 1/);
-    assert.match(caseResolution.statement, /linked_attempt\.user_id = \$2/);
-    assert.match(caseResolution.statement, /linked_transaction\.plan IN \('1month', '3months'\)/,
-      'unverified lifetime transactions must not auto-resolve reconciliation without a linked checkout attempt');
-
-  } finally {
-    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
-    else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
-  }
-});
-
-test('unmatched valid adjustments create a durable reconciliation case', async () => {
-  const { pool, calls } = makePool({ linkedRowCount: 0 });
-  const result = await sendAdjustment(pool, { action: 'refund', status: 'approved', type: 'full' });
-  assert.equal(result.reconciliationRequired, true);
-  const task = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
-  assert.ok(task, 'an unmatched adjustment must remain in a durable manual queue');
-  assert.equal(task.params[1], 'transaction_owner_unlinked');
-});
-
-test('adjustments for recurring Vow purchases do not touch lifetime entitlement', async () => {
-  const { pool, calls } = makePool({ linkedPlan: '3months', linkedStatus: 'completed' });
-  const result = await sendAdjustment(pool, { action: 'refund', status: 'approved', type: 'full' });
-  assert.equal(result.adjustmentRecorded, true);
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
-  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')), false);
-});
-
-test('transaction.canceled events are retained even without a matched checkout row', async () => {
-  const originalMonthlyPrice = process.env.PADDLE_PRICE_ID_1MONTH;
-  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_monthly_test';
-  const calls = [];
-  const client = {
-    async query(sql, params = []) {
-      const statement = String(sql);
-      calls.push({ statement, params });
-      if (statement.includes('UPDATE paddle_checkout_attempts') && statement.includes("status = 'canceled'")) {
-        return { rowCount: 0, rows: [] };
-      }
-      return { rowCount: 1, rows: [] };
-    },
-    release() {}
-  };
-  try {
-    await processPaddleEvent({ async connect() { return client; } }, {
-      eventId: 'evt_canceledtransactionhistory',
-      eventType: 'transaction.canceled',
-      occurredAt: '2026-11-03T10:00:00Z',
-      data: { id: transactionId, items: [{ price: { id: 'pri_monthly_test' } }], details: { totals: { total: '990', grand_total: '990', credit: '0', balance: '0' } }, currency_code: 'GEL' }
-    });
-    const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
-    assert.ok(ledger);
-    assert.deepEqual(ledger.params.slice(0, 5), [
-      'evt_canceledtransactionhistory', transactionId, null, '1month', 'canceled'
-    ]);
-    assert.deepEqual(ledger.params.slice(5, 10), ['990', '990', '0', '0', 'GEL']);
-  } finally {
-    if (originalMonthlyPrice === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
-    else process.env.PADDLE_PRICE_ID_1MONTH = originalMonthlyPrice;
-  }
-});
-
-test('malformed adjustment payloads create a durable webhook reconciliation case', async () => {
-  const { pool, calls } = makePool();
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_invalidadjustmentpayload',
-    eventType: 'adjustment.created',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: { id: 'not-an-adjustment', transaction_id: transactionId, action: 'refund', type: 'full', status: 'approved' }
-  });
-  assert.equal(result.reconciliationRequired, true);
-  const task = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
-  assert.ok(task, 'invalid adjustment evidence must not disappear after the webhook is acknowledged');
-  assert.equal(task.params[1], 'invalid_adjustment_payload');
-});
-
-test('malformed adjustment identifiers are acknowledged without changing entitlement', async () => {
-  const { pool, calls } = makePool();
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_invalid_adjustment',
-    eventType: 'adjustment.created',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: { id: 'not-an-adjustment', transaction_id: transactionId, action: 'refund', type: 'full', status: 'approved' }
-  });
-  assert.equal(result.reconciliationRequired, true);
-  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')), false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE users')), false);
-});
-
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    fullRefund: false,
-    fullRefundReversed: false,
-    chargeback: false,
-    chargebackReversed: false
-  });
-  const result = await sendAdjustment(pool, {
-    action: 'refund', status: 'rejected', type: 'full', eventType: 'adjustment.updated'
-  });
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false,
-    'a refund rejection cannot stand in for reversal of the chargeback that revoked this purchase');
-});
-
-test('a rejected chargeback reversal cannot restore lifetime Premium', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    chargeback: false
-  });
-  const result = await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'rejected' });
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
-});
-
-test('a chargeback reversal cannot restore access while a full approved refund remains active', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    fullRefund: true,
-    chargeback: false
-  });
-  const result = await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'approved' });
-  assert.equal(result.premiumRevoked, true);
-  const update = calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements'));
-  assert.deepEqual(update.params, [transactionId, userId, 'revoked', 'paddle_full_refund']);
-});
-
-test('adjustment evidence is processed even when unrelated customer metadata is malformed', async () => {
-  const { pool, calls } = makePool({ ledgerStatus: 'active', fullRefund: true });
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_malformed_customer_adjustment',
-    eventType: 'adjustment.updated',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: {
-      id: 'adj_0123456789abcdef01234567',
-      transactionId,
-      customerId: 'not-a-paddle-customer',
-      action: 'refund',
-      type: 'full',
-      status: 'approved',
-      currency_code: 'USD',
-      totals: { total: '500', currency_code: 'USD' }
-    }
-  });
-  assert.equal(result.premiumRevoked, true);
-  assert.ok(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')));
-});
-
-test('transaction completion reconciles an approved refund delivered earlier', async () => {
-  const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
-  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_lifetime_test';
-  const calls = [];
-  const client = {
-    async query(sql, params = []) {
-      const statement = String(sql);
-      calls.push({ statement, params });
-      if (statement.includes('INSERT INTO paddle_webhook_events')) {
-        return { rowCount: 1, rows: [{ event_id: params[0] }] };
-      }
-      if (statement.includes("SET transaction_id = $1, status = 'completed'")) {
-        return { rowCount: 1, rows: [{ user_id: userId }] };
-      }
-      if (statement.includes('SELECT DISTINCT user_id') &&
-          statement.includes('paddle_checkout_attempt_history')) {
-        return { rowCount: 1, rows: [{ user_id: userId }] };
-      }
-      if (statement.includes('WITH latest_per_adjustment AS')) {
-        return { rowCount: 1, rows: [{ full_refund_active: true, chargeback_active: false }] };
-      }
-      return { rowCount: 1, rows: [] };
-    },
-    release() {}
-  };
-  try {
-    const result = await processPaddleEvent({ async connect() { return client; } }, {
-      eventId: 'evt_transaction_after_refund',
-      eventType: 'transaction.completed',
-      data: {
-        id: transactionId,
-        customerId: 'ctm_0123456789abcdef0123456789',
-        customData: {
-          userId,
-          plan: 'lifetime',
-          checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
-        },
-        items: [{ price: { id: 'pri_lifetime_test' } }],
-        details: { totals: { total: '1290', grand_total: '1190', credit: '100', balance: '0' } },
-        currencyCode: 'USD'
-      }
-    });
-    assert.equal(result.handled, true);
-    const transactionLedger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
-    assert.ok(transactionLedger, 'every completed Paddle transaction must be retained independently of the checkout pointer');
-    assert.deepEqual(transactionLedger.params.slice(0, 5), [
-      'evt_transaction_after_refund', transactionId, userId, 'lifetime', 'completed'
-    ]);
-    assert.deepEqual(transactionLedger.params.slice(5, 10), ['1290', '1190', '100', '0', 'USD']);
-    const transactionLockIndex = calls.findIndex(call => call.statement.includes("paddle-transaction:"));
-    const userLockIndex = calls.findIndex(call => call.statement.includes("gift-safety-user:"));
-    assert.ok(transactionLockIndex >= 0 && userLockIndex > transactionLockIndex,
-      'transaction.completed must acquire the same transaction lock before the user lock');
-    assert.match(calls[transactionLockIndex].statement,
-      /pg_advisory_xact_lock\(hashtextextended\('paddle-transaction:'/,
-      'transaction completion must share the database guard\'s 64-bit advisory-lock key');
-    const revoke = calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements'));
-    assert.deepEqual(revoke.params, [transactionId, 'paddle_full_refund', userId]);
-    assert.ok(calls.some(call =>
-      call.statement.includes('UPDATE users') && call.statement.includes('premium_lifetime = EXISTS')
-    ), 'the prior approved refund must be applied before the new lifetime entitlement is exposed');
-    const caseResolution = calls.find(call =>
-      call.statement.includes('UPDATE paddle_adjustment_reconciliation_cases')
-    );
-    assert.ok(caseResolution, 'a previously unmatched adjustment case must be considered after transaction linkage');
-    assert.equal(caseResolution.params[1], userId);
-    assert.equal(caseResolution.params[2], 'transaction_completed_linked_to_vow_checkout');
-    assert.match(caseResolution.statement, /reason_code = 'transaction_owner_unlinked'/);
-    assert.match(caseResolution.statement, /COUNT\(DISTINCT \(user_id, plan\)\)[\s\S]*?\) = 1/);
-    assert.match(caseResolution.statement, /linked_attempt\.user_id = \$2/);
-    assert.match(caseResolution.statement, /linked_transaction\.plan IN \('1month', '3months'\)/,
-      'unverified lifetime transactions must not auto-resolve reconciliation without a linked checkout attempt');
-
-  } finally {
-    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
-    else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
-  }
-});
-
-test('unmatched valid adjustments create a durable reconciliation case', async () => {
-  const { pool, calls } = makePool({ linkedRowCount: 0 });
-  const result = await sendAdjustment(pool, { action: 'refund', status: 'approved', type: 'full' });
-  assert.equal(result.reconciliationRequired, true);
-  const task = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
-  assert.ok(task, 'an unmatched adjustment must remain in a durable manual queue');
-  assert.equal(task.params[1], 'transaction_owner_unlinked');
-});
-
-test('adjustments for recurring Vow purchases do not touch lifetime entitlement', async () => {
-  const { pool, calls } = makePool({ linkedPlan: '3months', linkedStatus: 'completed' });
-  const result = await sendAdjustment(pool, { action: 'refund', status: 'approved', type: 'full' });
-  assert.equal(result.adjustmentRecorded, true);
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
-  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')), false);
-});
-
-test('transaction.canceled events are retained even without a matched checkout row', async () => {
-  const originalMonthlyPrice = process.env.PADDLE_PRICE_ID_1MONTH;
-  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_monthly_test';
-  const calls = [];
-  const client = {
-    async query(sql, params = []) {
-      const statement = String(sql);
-      calls.push({ statement, params });
-      if (statement.includes('UPDATE paddle_checkout_attempts') && statement.includes("status = 'canceled'")) {
-        return { rowCount: 0, rows: [] };
-      }
-      return { rowCount: 1, rows: [] };
-    },
-    release() {}
-  };
-  try {
-    await processPaddleEvent({ async connect() { return client; } }, {
-      eventId: 'evt_canceledtransactionhistory',
-      eventType: 'transaction.canceled',
-      occurredAt: '2026-11-03T10:00:00Z',
-      data: { id: transactionId, items: [{ price: { id: 'pri_monthly_test' } }], details: { totals: { total: '990', grand_total: '990', credit: '0', balance: '0' } }, currency_code: 'GEL' }
-    });
-    const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
-    assert.ok(ledger);
-    assert.deepEqual(ledger.params.slice(0, 5), [
-      'evt_canceledtransactionhistory', transactionId, null, '1month', 'canceled'
-    ]);
-    assert.deepEqual(ledger.params.slice(5, 10), ['990', '990', '0', '0', 'GEL']);
-  } finally {
-    if (originalMonthlyPrice === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
-    else process.env.PADDLE_PRICE_ID_1MONTH = originalMonthlyPrice;
-  }
-});
-
-test('malformed adjustment payloads create a durable webhook reconciliation case', async () => {
-  const { pool, calls } = makePool();
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_invalidadjustmentpayload',
-    eventType: 'adjustment.created',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: { id: 'not-an-adjustment', transaction_id: transactionId, action: 'refund', type: 'full', status: 'approved' }
-  });
-  assert.equal(result.reconciliationRequired, true);
-  const task = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
-  assert.ok(task, 'invalid adjustment evidence must not disappear after the webhook is acknowledged');
-  assert.equal(task.params[1], 'invalid_adjustment_payload');
-});
-
-test('malformed adjustment identifiers are acknowledged without changing entitlement', async () => {
-  const { pool, calls } = makePool();
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_invalid_adjustment',
-    eventType: 'adjustment.created',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: { id: 'not-an-adjustment', transaction_id: transactionId, action: 'refund', type: 'full', status: 'approved' }
-  });
-  assert.equal(result.reconciliationRequired, true);
-  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')), false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE users')), false);
-});
-
-test('a delayed chargeback.created event observes an earlier recorded chargeback_reverse', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    chargeback: false,
-    chargebackReversed: true
-  });
-  const result = await sendAdjustment(pool, {
-    action: 'chargeback', status: 'approved', eventType: 'adjustment.created'
-  });
-  assert.equal(result.entitlementChanged, true);
-  assert.equal(result.premiumRevoked, false);
-  assert.deepEqual(
-    calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')).params,
-    [transactionId, userId, 'active', null]
-  );
-});
-
-test('one chargeback_reverse cannot restore access while another chargeback remains unmatched', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    chargeback: true,
-    chargebackReversed: false
-  });
-  const result = await sendAdjustment(pool, {
-    action: 'chargeback_reverse', status: 'approved'
-  });
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false,
-    'a reversal must not restore the purchase while any transaction chargeback remains outstanding');
-  const stateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
-  assert.match(stateQuery.statement, /COUNT\(\*\)[\s\S]*chargeback_reverse/,
-    'the effective state must compare chargeback and chargeback_reverse adjustments');
-});
-
-test('a refund reversal restores only a full-refund-revoked entitlement with matching prior approval', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_full_refund',
-    fullRefund: false,
-    fullRefundReversed: true
-  });
-  const result = await sendAdjustment(pool, {
-    action: 'refund', status: 'reversed', type: 'full', eventType: 'adjustment.updated'
-  });
-  assert.equal(result.entitlementChanged, true);
-  assert.deepEqual(
-    calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')).params,
-    [transactionId, userId, 'active', null]
-  );
-});
-
-test('a refund rejection cannot restore a chargeback-revoked entitlement', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    fullRefund: false,
-    fullRefundReversed: false,
-    chargeback: false,
-    chargebackReversed: false
-  });
-  const result = await sendAdjustment(pool, {
-    action: 'refund', status: 'rejected', type: 'full', eventType: 'adjustment.updated'
-  });
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false,
-    'a refund rejection cannot stand in for reversal of the chargeback that revoked this purchase');
-});
-
-test('a rejected chargeback reversal cannot restore lifetime Premium', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    chargeback: false
-  });
-  const result = await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'rejected' });
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
-});
-
-test('a chargeback reversal cannot restore access while a full approved refund remains active', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    fullRefund: true,
-    chargeback: false
-  });
-  const result = await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'approved' });
-  assert.equal(result.premiumRevoked, true);
-  const update = calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements'));
-  assert.deepEqual(update.params, [transactionId, userId, 'revoked', 'paddle_full_refund']);
-});
-
-test('adjustment evidence is processed even when unrelated customer metadata is malformed', async () => {
-  const { pool, calls } = makePool({ ledgerStatus: 'active', fullRefund: true });
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_malformed_customer_adjustment',
-    eventType: 'adjustment.updated',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: {
-      id: 'adj_0123456789abcdef01234567',
-      transactionId,
-      customerId: 'not-a-paddle-customer',
-      action: 'refund',
-      type: 'full',
-      status: 'approved',
-      currency_code: 'USD',
-      totals: { total: '500', currency_code: 'USD' }
-    }
-  });
-  assert.equal(result.premiumRevoked, true);
-  assert.ok(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')));
-});
-
-test('transaction completion reconciles an approved refund delivered earlier', async () => {
-  const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
-  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_lifetime_test';
-  const calls = [];
-  const client = {
-    async query(sql, params = []) {
-      const statement = String(sql);
-      calls.push({ statement, params });
-      if (statement.includes('INSERT INTO paddle_webhook_events')) {
-        return { rowCount: 1, rows: [{ event_id: params[0] }] };
-      }
-      if (statement.includes("SET transaction_id = $1, status = 'completed'")) {
-        return { rowCount: 1, rows: [{ user_id: userId }] };
-      }
-      if (statement.includes('SELECT DISTINCT user_id') &&
-          statement.includes('paddle_checkout_attempt_history')) {
-        return { rowCount: 1, rows: [{ user_id: userId }] };
-      }
-      if (statement.includes('WITH latest_per_adjustment AS')) {
-        return { rowCount: 1, rows: [{ full_refund_active: true, chargeback_active: false }] };
-      }
-      return { rowCount: 1, rows: [] };
-    },
-    release() {}
-  };
-  try {
-    const result = await processPaddleEvent({ async connect() { return client; } }, {
-      eventId: 'evt_transaction_after_refund',
-      eventType: 'transaction.completed',
-      data: {
-        id: transactionId,
-        customerId: 'ctm_0123456789abcdef0123456789',
-        customData: {
-          userId,
-          plan: 'lifetime',
-          checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
-        },
-        items: [{ price: { id: 'pri_lifetime_test' } }],
-        details: { totals: { total: '1290', grand_total: '1190', credit: '100', balance: '0' } },
-        currencyCode: 'USD'
-      }
-    });
-    assert.equal(result.handled, true);
-    const transactionLedger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
-    assert.ok(transactionLedger, 'every completed Paddle transaction must be retained independently of the checkout pointer');
-    assert.deepEqual(transactionLedger.params.slice(0, 5), [
-      'evt_transaction_after_refund', transactionId, userId, 'lifetime', 'completed'
-    ]);
-    assert.deepEqual(transactionLedger.params.slice(5, 10), ['1290', '1190', '100', '0', 'USD']);
-    const transactionLockIndex = calls.findIndex(call => call.statement.includes("paddle-transaction:"));
-    const userLockIndex = calls.findIndex(call => call.statement.includes("gift-safety-user:"));
-    assert.ok(transactionLockIndex >= 0 && userLockIndex > transactionLockIndex,
-      'transaction.completed must acquire the same transaction lock before the user lock');
-    assert.match(calls[transactionLockIndex].statement,
-      /pg_advisory_xact_lock\(hashtextextended\('paddle-transaction:'/,
-      'transaction completion must share the database guard\'s 64-bit advisory-lock key');
-    const revoke = calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements'));
-    assert.deepEqual(revoke.params, [transactionId, 'paddle_full_refund', userId]);
-    assert.ok(calls.some(call =>
-      call.statement.includes('UPDATE users') && call.statement.includes('premium_lifetime = EXISTS')
-    ), 'the prior approved refund must be applied before the new lifetime entitlement is exposed');
-    const caseResolution = calls.find(call =>
-      call.statement.includes('UPDATE paddle_adjustment_reconciliation_cases')
-    );
-    assert.ok(caseResolution, 'a previously unmatched adjustment case must be considered after transaction linkage');
-    assert.equal(caseResolution.params[1], userId);
-    assert.equal(caseResolution.params[2], 'transaction_completed_linked_to_vow_checkout');
-    assert.match(caseResolution.statement, /reason_code = 'transaction_owner_unlinked'/);
-    assert.match(caseResolution.statement, /COUNT\(DISTINCT \(user_id, plan\)\)[\s\S]*?\) = 1/);
-    assert.match(caseResolution.statement, /linked_attempt\.user_id = \$2/);
-    assert.match(caseResolution.statement, /linked_transaction\.plan IN \('1month', '3months'\)/,
-      'unverified lifetime transactions must not auto-resolve reconciliation without a linked checkout attempt');
-
-  } finally {
-    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
-    else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
-  }
-});
-
-test('unmatched valid adjustments create a durable reconciliation case', async () => {
-  const { pool, calls } = makePool({ linkedRowCount: 0 });
-  const result = await sendAdjustment(pool, { action: 'refund', status: 'approved', type: 'full' });
-  assert.equal(result.reconciliationRequired, true);
-  const task = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
-  assert.ok(task, 'an unmatched adjustment must remain in a durable manual queue');
-  assert.equal(task.params[1], 'transaction_owner_unlinked');
-});
-
-test('adjustments for recurring Vow purchases do not touch lifetime entitlement', async () => {
-  const { pool, calls } = makePool({ linkedPlan: '3months', linkedStatus: 'completed' });
-  const result = await sendAdjustment(pool, { action: 'refund', status: 'approved', type: 'full' });
-  assert.equal(result.adjustmentRecorded, true);
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
-  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')), false);
-});
-
-test('transaction.canceled events are retained even without a matched checkout row', async () => {
-  const originalMonthlyPrice = process.env.PADDLE_PRICE_ID_1MONTH;
-  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_monthly_test';
-  const calls = [];
-  const client = {
-    async query(sql, params = []) {
-      const statement = String(sql);
-      calls.push({ statement, params });
-      if (statement.includes('UPDATE paddle_checkout_attempts') && statement.includes("status = 'canceled'")) {
-        return { rowCount: 0, rows: [] };
-      }
-      return { rowCount: 1, rows: [] };
-    },
-    release() {}
-  };
-  try {
-    await processPaddleEvent({ async connect() { return client; } }, {
-      eventId: 'evt_canceledtransactionhistory',
-      eventType: 'transaction.canceled',
-      occurredAt: '2026-11-03T10:00:00Z',
-      data: { id: transactionId, items: [{ price: { id: 'pri_monthly_test' } }], details: { totals: { total: '990', grand_total: '990', credit: '0', balance: '0' } }, currency_code: 'GEL' }
-    });
-    const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
-    assert.ok(ledger);
-    assert.deepEqual(ledger.params.slice(0, 5), [
-      'evt_canceledtransactionhistory', transactionId, null, '1month', 'canceled'
-    ]);
-    assert.deepEqual(ledger.params.slice(5, 10), ['990', '990', '0', '0', 'GEL']);
-  } finally {
-    if (originalMonthlyPrice === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
-    else process.env.PADDLE_PRICE_ID_1MONTH = originalMonthlyPrice;
-  }
-});
-
-test('malformed adjustment payloads create a durable webhook reconciliation case', async () => {
-  const { pool, calls } = makePool();
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_invalidadjustmentpayload',
-    eventType: 'adjustment.created',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: { id: 'not-an-adjustment', transaction_id: transactionId, action: 'refund', type: 'full', status: 'approved' }
-  });
-  assert.equal(result.reconciliationRequired, true);
-  const task = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
-  assert.ok(task, 'invalid adjustment evidence must not disappear after the webhook is acknowledged');
-  assert.equal(task.params[1], 'invalid_adjustment_payload');
-});
-
-test('malformed adjustment identifiers are acknowledged without changing entitlement', async () => {
-  const { pool, calls } = makePool();
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_invalid_adjustment',
-    eventType: 'adjustment.created',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: { id: 'not-an-adjustment', transaction_id: transactionId, action: 'refund', type: 'full', status: 'approved' }
-  });
-  assert.equal(result.reconciliationRequired, true);
-  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')), false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE users')), false);
-});
-
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    fullRefund: false,
-    fullRefundReversed: false,
-    chargeback: false,
-    chargebackReversed: false
-  });
-  const result = await sendAdjustment(pool, {
-    action: 'refund', status: 'rejected', type: 'full', eventType: 'adjustment.updated'
-  });
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false,
-    'a refund rejection cannot stand in for reversal of the chargeback that revoked this purchase');
-});
-
-test('a rejected chargeback reversal cannot restore lifetime Premium', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    chargeback: false
-  });
-  const result = await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'rejected' });
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
-});
-
-test('a chargeback reversal cannot restore access while a full approved refund remains active', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    fullRefund: true,
-    chargeback: false
-  });
-  const result = await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'approved' });
-  assert.equal(result.premiumRevoked, true);
-  const update = calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements'));
-  assert.deepEqual(update.params, [transactionId, userId, 'revoked', 'paddle_full_refund']);
-});
-
-test('adjustment evidence is processed even when unrelated customer metadata is malformed', async () => {
-  const { pool, calls } = makePool({ ledgerStatus: 'active', fullRefund: true });
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_malformed_customer_adjustment',
-    eventType: 'adjustment.updated',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: {
-      id: 'adj_0123456789abcdef01234567',
-      transactionId,
-      customerId: 'not-a-paddle-customer',
-      action: 'refund',
-      type: 'full',
-      status: 'approved',
-      currency_code: 'USD',
-      totals: { total: '500', currency_code: 'USD' }
-    }
-  });
-  assert.equal(result.premiumRevoked, true);
-  assert.ok(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')));
-});
-
-test('transaction completion reconciles an approved refund delivered earlier', async () => {
-  const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
-  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_lifetime_test';
-  const calls = [];
-  const client = {
-    async query(sql, params = []) {
-      const statement = String(sql);
-      calls.push({ statement, params });
-      if (statement.includes('INSERT INTO paddle_webhook_events')) {
-        return { rowCount: 1, rows: [{ event_id: params[0] }] };
-      }
-      if (statement.includes("SET transaction_id = $1, status = 'completed'")) {
-        return { rowCount: 1, rows: [{ user_id: userId }] };
-      }
-      if (statement.includes('SELECT DISTINCT user_id') &&
-          statement.includes('paddle_checkout_attempt_history')) {
-        return { rowCount: 1, rows: [{ user_id: userId }] };
-      }
-      if (statement.includes('WITH latest_per_adjustment AS')) {
-        return { rowCount: 1, rows: [{ full_refund_active: true, chargeback_active: false }] };
-      }
-      return { rowCount: 1, rows: [] };
-    },
-    release() {}
-  };
-  try {
-    const result = await processPaddleEvent({ async connect() { return client; } }, {
-      eventId: 'evt_transaction_after_refund',
-      eventType: 'transaction.completed',
-      data: {
-        id: transactionId,
-        customerId: 'ctm_0123456789abcdef0123456789',
-        customData: {
-          userId,
-          plan: 'lifetime',
-          checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
-        },
-        items: [{ price: { id: 'pri_lifetime_test' } }],
-        details: { totals: { total: '1290', grand_total: '1190', credit: '100', balance: '0' } },
-        currencyCode: 'USD'
-      }
-    });
-    assert.equal(result.handled, true);
-    const transactionLedger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
-    assert.ok(transactionLedger, 'every completed Paddle transaction must be retained independently of the checkout pointer');
-    assert.deepEqual(transactionLedger.params.slice(0, 5), [
-      'evt_transaction_after_refund', transactionId, userId, 'lifetime', 'completed'
-    ]);
-    assert.deepEqual(transactionLedger.params.slice(5, 10), ['1290', '1190', '100', '0', 'USD']);
-    const transactionLockIndex = calls.findIndex(call => call.statement.includes("paddle-transaction:"));
-    const userLockIndex = calls.findIndex(call => call.statement.includes("gift-safety-user:"));
-    assert.ok(transactionLockIndex >= 0 && userLockIndex > transactionLockIndex,
-      'transaction.completed must acquire the same transaction lock before the user lock');
-    assert.match(calls[transactionLockIndex].statement,
-      /pg_advisory_xact_lock\(hashtextextended\('paddle-transaction:'/,
-      'transaction completion must share the database guard\'s 64-bit advisory-lock key');
-    const revoke = calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements'));
-    assert.deepEqual(revoke.params, [transactionId, 'paddle_full_refund', userId]);
-    assert.ok(calls.some(call =>
-      call.statement.includes('UPDATE users') && call.statement.includes('premium_lifetime = EXISTS')
-    ), 'the prior approved refund must be applied before the new lifetime entitlement is exposed');
-    const caseResolution = calls.find(call =>
-      call.statement.includes('UPDATE paddle_adjustment_reconciliation_cases')
-    );
-    assert.ok(caseResolution, 'a previously unmatched adjustment case must be considered after transaction linkage');
-    assert.equal(caseResolution.params[1], userId);
-    assert.equal(caseResolution.params[2], 'transaction_completed_linked_to_vow_checkout');
-    assert.match(caseResolution.statement, /reason_code = 'transaction_owner_unlinked'/);
-    assert.match(caseResolution.statement, /COUNT\(DISTINCT \(user_id, plan\)\)[\s\S]*?\) = 1/);
-    assert.match(caseResolution.statement, /linked_attempt\.user_id = \$2/);
-    assert.match(caseResolution.statement, /linked_transaction\.plan IN \('1month', '3months'\)/,
-      'unverified lifetime transactions must not auto-resolve reconciliation without a linked checkout attempt');
-
-  } finally {
-    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
-    else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
-  }
-});
-
-test('unmatched valid adjustments create a durable reconciliation case', async () => {
-  const { pool, calls } = makePool({ linkedRowCount: 0 });
-  const result = await sendAdjustment(pool, { action: 'refund', status: 'approved', type: 'full' });
-  assert.equal(result.reconciliationRequired, true);
-  const task = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
-  assert.ok(task, 'an unmatched adjustment must remain in a durable manual queue');
-  assert.equal(task.params[1], 'transaction_owner_unlinked');
-});
-
-test('adjustments for recurring Vow purchases do not touch lifetime entitlement', async () => {
-  const { pool, calls } = makePool({ linkedPlan: '3months', linkedStatus: 'completed' });
-  const result = await sendAdjustment(pool, { action: 'refund', status: 'approved', type: 'full' });
-  assert.equal(result.adjustmentRecorded, true);
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
-  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')), false);
-});
-
-test('transaction.canceled events are retained even without a matched checkout row', async () => {
-  const originalMonthlyPrice = process.env.PADDLE_PRICE_ID_1MONTH;
-  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_monthly_test';
-  const calls = [];
-  const client = {
-    async query(sql, params = []) {
-      const statement = String(sql);
-      calls.push({ statement, params });
-      if (statement.includes('UPDATE paddle_checkout_attempts') && statement.includes("status = 'canceled'")) {
-        return { rowCount: 0, rows: [] };
-      }
-      return { rowCount: 1, rows: [] };
-    },
-    release() {}
-  };
-  try {
-    await processPaddleEvent({ async connect() { return client; } }, {
-      eventId: 'evt_canceledtransactionhistory',
-      eventType: 'transaction.canceled',
-      occurredAt: '2026-11-03T10:00:00Z',
-      data: { id: transactionId, items: [{ price: { id: 'pri_monthly_test' } }], details: { totals: { total: '990', grand_total: '990', credit: '0', balance: '0' } }, currency_code: 'GEL' }
-    });
-    const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
-    assert.ok(ledger);
-    assert.deepEqual(ledger.params.slice(0, 5), [
-      'evt_canceledtransactionhistory', transactionId, null, '1month', 'canceled'
-    ]);
-    assert.deepEqual(ledger.params.slice(5, 10), ['990', '990', '0', '0', 'GEL']);
-  } finally {
-    if (originalMonthlyPrice === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
-    else process.env.PADDLE_PRICE_ID_1MONTH = originalMonthlyPrice;
-  }
-});
-
-test('malformed adjustment payloads create a durable webhook reconciliation case', async () => {
-  const { pool, calls } = makePool();
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_invalidadjustmentpayload',
-    eventType: 'adjustment.created',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: { id: 'not-an-adjustment', transaction_id: transactionId, action: 'refund', type: 'full', status: 'approved' }
-  });
-  assert.equal(result.reconciliationRequired, true);
-  const task = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
-  assert.ok(task, 'invalid adjustment evidence must not disappear after the webhook is acknowledged');
-  assert.equal(task.params[1], 'invalid_adjustment_payload');
-});
-
-test('malformed adjustment identifiers are acknowledged without changing entitlement', async () => {
-  const { pool, calls } = makePool();
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_invalid_adjustment',
-    eventType: 'adjustment.created',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: { id: 'not-an-adjustment', transaction_id: transactionId, action: 'refund', type: 'full', status: 'approved' }
-  });
-  assert.equal(result.reconciliationRequired, true);
-  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')), false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE users')), false);
-});
-
-test('a delayed chargeback.created event observes an earlier recorded chargeback_reverse', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    chargeback: false,
-    chargebackReversed: true
-  });
-  const result = await sendAdjustment(pool, {
-    action: 'chargeback', status: 'approved', eventType: 'adjustment.created'
-  });
-  assert.equal(result.entitlementChanged, true);
-  assert.equal(result.premiumRevoked, false);
-  assert.deepEqual(
-    calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')).params,
-    [transactionId, userId, 'active', null]
-  );
-});
-
-test('one chargeback_reverse cannot restore access while another chargeback remains unmatched', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    chargeback: true,
-    chargebackReversed: false
-  });
-  const result = await sendAdjustment(pool, {
-    action: 'chargeback_reverse', status: 'approved'
-  });
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false,
-    'a reversal must not restore the purchase while any transaction chargeback remains outstanding');
-  const stateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
-  assert.match(stateQuery.statement, /COUNT\(\*\)[\s\S]*chargeback_reverse/,
-    'the effective state must compare chargeback and chargeback_reverse adjustments');
-});
-
-test('a refund reversal restores only a full-refund-revoked entitlement with matching prior approval', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_full_refund',
-    fullRefund: false,
-    fullRefundReversed: true
-  });
-  const result = await sendAdjustment(pool, {
-    action: 'refund', status: 'reversed', type: 'full', eventType: 'adjustment.updated'
-  });
-  assert.equal(result.entitlementChanged, true);
-  assert.deepEqual(
-    calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')).params,
-    [transactionId, userId, 'active', null]
-  );
-});
-
-test('a refund rejection cannot restore a chargeback-revoked entitlement', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    fullRefund: false,
-    fullRefundReversed: false,
-    chargeback: false,
-    chargebackReversed: false
-  });
-  const result = await sendAdjustment(pool, {
-    action: 'refund', status: 'rejected', type: 'full', eventType: 'adjustment.updated'
-  });
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false,
-    'a refund rejection cannot stand in for reversal of the chargeback that revoked this purchase');
-});
-
-test('a rejected chargeback reversal cannot restore lifetime Premium', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    chargeback: false
-  });
-  const result = await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'rejected' });
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
-});
-
-test('a chargeback reversal cannot restore access while a full approved refund remains active', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    fullRefund: true,
-    chargeback: false
-  });
-  const result = await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'approved' });
-  assert.equal(result.premiumRevoked, true);
-  const update = calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements'));
-  assert.deepEqual(update.params, [transactionId, userId, 'revoked', 'paddle_full_refund']);
-});
-
-test('adjustment evidence is processed even when unrelated customer metadata is malformed', async () => {
-  const { pool, calls } = makePool({ ledgerStatus: 'active', fullRefund: true });
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_malformed_customer_adjustment',
-    eventType: 'adjustment.updated',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: {
-      id: 'adj_0123456789abcdef01234567',
-      transactionId,
-      customerId: 'not-a-paddle-customer',
-      action: 'refund',
-      type: 'full',
-      status: 'approved',
-      currency_code: 'USD',
-      totals: { total: '500', currency_code: 'USD' }
-    }
-  });
-  assert.equal(result.premiumRevoked, true);
-  assert.ok(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')));
-});
-
-test('transaction completion reconciles an approved refund delivered earlier', async () => {
-  const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
-  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_lifetime_test';
-  const calls = [];
-  const client = {
-    async query(sql, params = []) {
-      const statement = String(sql);
-      calls.push({ statement, params });
-      if (statement.includes('INSERT INTO paddle_webhook_events')) {
-        return { rowCount: 1, rows: [{ event_id: params[0] }] };
-      }
-      if (statement.includes("SET transaction_id = $1, status = 'completed'")) {
-        return { rowCount: 1, rows: [{ user_id: userId }] };
-      }
-      if (statement.includes('SELECT DISTINCT user_id') &&
-          statement.includes('paddle_checkout_attempt_history')) {
-        return { rowCount: 1, rows: [{ user_id: userId }] };
-      }
-      if (statement.includes('WITH latest_per_adjustment AS')) {
-        return { rowCount: 1, rows: [{ full_refund_active: true, chargeback_active: false }] };
-      }
-      return { rowCount: 1, rows: [] };
-    },
-    release() {}
-  };
-  try {
-    const result = await processPaddleEvent({ async connect() { return client; } }, {
-      eventId: 'evt_transaction_after_refund',
-      eventType: 'transaction.completed',
-      data: {
-        id: transactionId,
-        customerId: 'ctm_0123456789abcdef0123456789',
-        customData: {
-          userId,
-          plan: 'lifetime',
-          checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
-        },
-        items: [{ price: { id: 'pri_lifetime_test' } }],
-        details: { totals: { total: '1290', grand_total: '1190', credit: '100', balance: '0' } },
-        currencyCode: 'USD'
-      }
-    });
-    assert.equal(result.handled, true);
-    const transactionLedger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
-    assert.ok(transactionLedger, 'every completed Paddle transaction must be retained independently of the checkout pointer');
-    assert.deepEqual(transactionLedger.params.slice(0, 5), [
-      'evt_transaction_after_refund', transactionId, userId, 'lifetime', 'completed'
-    ]);
-    assert.deepEqual(transactionLedger.params.slice(5, 10), ['1290', '1190', '100', '0', 'USD']);
-    const transactionLockIndex = calls.findIndex(call => call.statement.includes("paddle-transaction:"));
-    const userLockIndex = calls.findIndex(call => call.statement.includes("gift-safety-user:"));
-    assert.ok(transactionLockIndex >= 0 && userLockIndex > transactionLockIndex,
-      'transaction.completed must acquire the same transaction lock before the user lock');
-    assert.match(calls[transactionLockIndex].statement,
-      /pg_advisory_xact_lock\(hashtextextended\('paddle-transaction:'/,
-      'transaction completion must share the database guard\'s 64-bit advisory-lock key');
-    const revoke = calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements'));
-    assert.deepEqual(revoke.params, [transactionId, 'paddle_full_refund', userId]);
-    assert.ok(calls.some(call =>
-      call.statement.includes('UPDATE users') && call.statement.includes('premium_lifetime = EXISTS')
-    ), 'the prior approved refund must be applied before the new lifetime entitlement is exposed');
-    const caseResolution = calls.find(call =>
-      call.statement.includes('UPDATE paddle_adjustment_reconciliation_cases')
-    );
-    assert.ok(caseResolution, 'a previously unmatched adjustment case must be considered after transaction linkage');
-    assert.equal(caseResolution.params[1], userId);
-    assert.equal(caseResolution.params[2], 'transaction_completed_linked_to_vow_checkout');
-    assert.match(caseResolution.statement, /reason_code = 'transaction_owner_unlinked'/);
-    assert.match(caseResolution.statement, /COUNT\(DISTINCT \(user_id, plan\)\)[\s\S]*?\) = 1/);
-    assert.match(caseResolution.statement, /linked_attempt\.user_id = \$2/);
-    assert.match(caseResolution.statement, /linked_transaction\.plan IN \('1month', '3months'\)/,
-      'unverified lifetime transactions must not auto-resolve reconciliation without a linked checkout attempt');
-
-  } finally {
-    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
-    else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
-  }
-});
-
-test('unmatched valid adjustments create a durable reconciliation case', async () => {
-  const { pool, calls } = makePool({ linkedRowCount: 0 });
-  const result = await sendAdjustment(pool, { action: 'refund', status: 'approved', type: 'full' });
-  assert.equal(result.reconciliationRequired, true);
-  const task = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
-  assert.ok(task, 'an unmatched adjustment must remain in a durable manual queue');
-  assert.equal(task.params[1], 'transaction_owner_unlinked');
-});
-
-test('adjustments for recurring Vow purchases do not touch lifetime entitlement', async () => {
-  const { pool, calls } = makePool({ linkedPlan: '3months', linkedStatus: 'completed' });
-  const result = await sendAdjustment(pool, { action: 'refund', status: 'approved', type: 'full' });
-  assert.equal(result.adjustmentRecorded, true);
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
-  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')), false);
-});
-
-test('transaction.canceled events are retained even without a matched checkout row', async () => {
-  const originalMonthlyPrice = process.env.PADDLE_PRICE_ID_1MONTH;
-  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_monthly_test';
-  const calls = [];
-  const client = {
-    async query(sql, params = []) {
-      const statement = String(sql);
-      calls.push({ statement, params });
-      if (statement.includes('UPDATE paddle_checkout_attempts') && statement.includes("status = 'canceled'")) {
-        return { rowCount: 0, rows: [] };
-      }
-      return { rowCount: 1, rows: [] };
-    },
-    release() {}
-  };
-  try {
-    await processPaddleEvent({ async connect() { return client; } }, {
-      eventId: 'evt_canceledtransactionhistory',
-      eventType: 'transaction.canceled',
-      occurredAt: '2026-11-03T10:00:00Z',
-      data: { id: transactionId, items: [{ price: { id: 'pri_monthly_test' } }], details: { totals: { total: '990', grand_total: '990', credit: '0', balance: '0' } }, currency_code: 'GEL' }
-    });
-    const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
-    assert.ok(ledger);
-    assert.deepEqual(ledger.params.slice(0, 5), [
-      'evt_canceledtransactionhistory', transactionId, null, '1month', 'canceled'
-    ]);
-    assert.deepEqual(ledger.params.slice(5, 10), ['990', '990', '0', '0', 'GEL']);
-  } finally {
-    if (originalMonthlyPrice === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
-    else process.env.PADDLE_PRICE_ID_1MONTH = originalMonthlyPrice;
-  }
-});
-
-test('malformed adjustment payloads create a durable webhook reconciliation case', async () => {
-  const { pool, calls } = makePool();
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_invalidadjustmentpayload',
-    eventType: 'adjustment.created',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: { id: 'not-an-adjustment', transaction_id: transactionId, action: 'refund', type: 'full', status: 'approved' }
-  });
-  assert.equal(result.reconciliationRequired, true);
-  const task = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
-  assert.ok(task, 'invalid adjustment evidence must not disappear after the webhook is acknowledged');
-  assert.equal(task.params[1], 'invalid_adjustment_payload');
-});
-
-test('malformed adjustment identifiers are acknowledged without changing entitlement', async () => {
-  const { pool, calls } = makePool();
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_invalid_adjustment',
-    eventType: 'adjustment.created',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: { id: 'not-an-adjustment', transaction_id: transactionId, action: 'refund', type: 'full', status: 'approved' }
-  });
-  assert.equal(result.reconciliationRequired, true);
-  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')), false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE users')), false);
-});
-
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    fullRefund: false,
-    fullRefundReversed: false,
-    chargeback: false,
-    chargebackReversed: false
-  });
-  const result = await sendAdjustment(pool, {
-    action: 'refund', status: 'rejected', type: 'full', eventType: 'adjustment.updated'
-  });
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false,
-    'a refund rejection cannot stand in for reversal of the chargeback that revoked this purchase');
-});
-
-test('a rejected chargeback reversal cannot restore lifetime Premium', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    chargeback: false
-  });
-  const result = await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'rejected' });
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
-});
-
-test('a chargeback reversal cannot restore access while a full approved refund remains active', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    fullRefund: true,
-    chargeback: false
-  });
-  const result = await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'approved' });
-  assert.equal(result.premiumRevoked, true);
-  const update = calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements'));
-  assert.deepEqual(update.params, [transactionId, userId, 'revoked', 'paddle_full_refund']);
-});
-
-test('adjustment evidence is processed even when unrelated customer metadata is malformed', async () => {
-  const { pool, calls } = makePool({ ledgerStatus: 'active', fullRefund: true });
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_malformed_customer_adjustment',
-    eventType: 'adjustment.updated',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: {
-      id: 'adj_0123456789abcdef01234567',
-      transactionId,
-      customerId: 'not-a-paddle-customer',
-      action: 'refund',
-      type: 'full',
-      status: 'approved',
-      currency_code: 'USD',
-      totals: { total: '500', currency_code: 'USD' }
-    }
-  });
-  assert.equal(result.premiumRevoked, true);
-  assert.ok(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')));
-});
-
-test('transaction completion reconciles an approved refund delivered earlier', async () => {
-  const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
-  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_lifetime_test';
-  const calls = [];
-  const client = {
-    async query(sql, params = []) {
-      const statement = String(sql);
-      calls.push({ statement, params });
-      if (statement.includes('INSERT INTO paddle_webhook_events')) {
-        return { rowCount: 1, rows: [{ event_id: params[0] }] };
-      }
-      if (statement.includes("SET transaction_id = $1, status = 'completed'")) {
-        return { rowCount: 1, rows: [{ user_id: userId }] };
-      }
-      if (statement.includes('SELECT DISTINCT user_id') &&
-          statement.includes('paddle_checkout_attempt_history')) {
-        return { rowCount: 1, rows: [{ user_id: userId }] };
-      }
-      if (statement.includes('WITH latest_per_adjustment AS')) {
-        return { rowCount: 1, rows: [{ full_refund_active: true, chargeback_active: false }] };
-      }
-      return { rowCount: 1, rows: [] };
-    },
-    release() {}
-  };
-  try {
-    const result = await processPaddleEvent({ async connect() { return client; } }, {
-      eventId: 'evt_transaction_after_refund',
-      eventType: 'transaction.completed',
-      data: {
-        id: transactionId,
-        customerId: 'ctm_0123456789abcdef0123456789',
-        customData: {
-          userId,
-          plan: 'lifetime',
-          checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
-        },
-        items: [{ price: { id: 'pri_lifetime_test' } }],
-        details: { totals: { total: '1290', grand_total: '1190', credit: '100', balance: '0' } },
-        currencyCode: 'USD'
-      }
-    });
-    assert.equal(result.handled, true);
-    const transactionLedger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
-    assert.ok(transactionLedger, 'every completed Paddle transaction must be retained independently of the checkout pointer');
-    assert.deepEqual(transactionLedger.params.slice(0, 5), [
-      'evt_transaction_after_refund', transactionId, userId, 'lifetime', 'completed'
-    ]);
-    assert.deepEqual(transactionLedger.params.slice(5, 10), ['1290', '1190', '100', '0', 'USD']);
-    const transactionLockIndex = calls.findIndex(call => call.statement.includes("paddle-transaction:"));
-    const userLockIndex = calls.findIndex(call => call.statement.includes("gift-safety-user:"));
-    assert.ok(transactionLockIndex >= 0 && userLockIndex > transactionLockIndex,
-      'transaction.completed must acquire the same transaction lock before the user lock');
-    assert.match(calls[transactionLockIndex].statement,
-      /pg_advisory_xact_lock\(hashtextextended\('paddle-transaction:'/,
-      'transaction completion must share the database guard\'s 64-bit advisory-lock key');
-    const revoke = calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements'));
-    assert.deepEqual(revoke.params, [transactionId, 'paddle_full_refund', userId]);
-    assert.ok(calls.some(call =>
-      call.statement.includes('UPDATE users') && call.statement.includes('premium_lifetime = EXISTS')
-    ), 'the prior approved refund must be applied before the new lifetime entitlement is exposed');
-    const caseResolution = calls.find(call =>
-      call.statement.includes('UPDATE paddle_adjustment_reconciliation_cases')
-    );
-    assert.ok(caseResolution, 'a previously unmatched adjustment case must be considered after transaction linkage');
-    assert.equal(caseResolution.params[1], userId);
-    assert.equal(caseResolution.params[2], 'transaction_completed_linked_to_vow_checkout');
-    assert.match(caseResolution.statement, /reason_code = 'transaction_owner_unlinked'/);
-    assert.match(caseResolution.statement, /COUNT\(DISTINCT \(user_id, plan\)\)[\s\S]*?\) = 1/);
-    assert.match(caseResolution.statement, /linked_attempt\.user_id = \$2/);
-    assert.match(caseResolution.statement, /linked_transaction\.plan IN \('1month', '3months'\)/,
-      'unverified lifetime transactions must not auto-resolve reconciliation without a linked checkout attempt');
-
-  } finally {
-    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
-    else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
-  }
-});
-
-test('unmatched valid adjustments create a durable reconciliation case', async () => {
-  const { pool, calls } = makePool({ linkedRowCount: 0 });
-  const result = await sendAdjustment(pool, { action: 'refund', status: 'approved', type: 'full' });
-  assert.equal(result.reconciliationRequired, true);
-  const task = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
-  assert.ok(task, 'an unmatched adjustment must remain in a durable manual queue');
-  assert.equal(task.params[1], 'transaction_owner_unlinked');
-});
-
-test('adjustments for recurring Vow purchases do not touch lifetime entitlement', async () => {
-  const { pool, calls } = makePool({ linkedPlan: '3months', linkedStatus: 'completed' });
-  const result = await sendAdjustment(pool, { action: 'refund', status: 'approved', type: 'full' });
-  assert.equal(result.adjustmentRecorded, true);
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
-  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')), false);
-});
-
-test('transaction.canceled events are retained even without a matched checkout row', async () => {
-  const originalMonthlyPrice = process.env.PADDLE_PRICE_ID_1MONTH;
-  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_monthly_test';
-  const calls = [];
-  const client = {
-    async query(sql, params = []) {
-      const statement = String(sql);
-      calls.push({ statement, params });
-      if (statement.includes('UPDATE paddle_checkout_attempts') && statement.includes("status = 'canceled'")) {
-        return { rowCount: 0, rows: [] };
-      }
-      return { rowCount: 1, rows: [] };
-    },
-    release() {}
-  };
-  try {
-    await processPaddleEvent({ async connect() { return client; } }, {
-      eventId: 'evt_canceledtransactionhistory',
-      eventType: 'transaction.canceled',
-      occurredAt: '2026-11-03T10:00:00Z',
-      data: { id: transactionId, items: [{ price: { id: 'pri_monthly_test' } }], details: { totals: { total: '990', grand_total: '990', credit: '0', balance: '0' } }, currency_code: 'GEL' }
-    });
-    const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
-    assert.ok(ledger);
-    assert.deepEqual(ledger.params.slice(0, 5), [
-      'evt_canceledtransactionhistory', transactionId, null, '1month', 'canceled'
-    ]);
-    assert.deepEqual(ledger.params.slice(5, 10), ['990', '990', '0', '0', 'GEL']);
-  } finally {
-    if (originalMonthlyPrice === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
-    else process.env.PADDLE_PRICE_ID_1MONTH = originalMonthlyPrice;
-  }
-});
-
-test('malformed adjustment payloads create a durable webhook reconciliation case', async () => {
-  const { pool, calls } = makePool();
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_invalidadjustmentpayload',
-    eventType: 'adjustment.created',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: { id: 'not-an-adjustment', transaction_id: transactionId, action: 'refund', type: 'full', status: 'approved' }
-  });
-  assert.equal(result.reconciliationRequired, true);
-  const task = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
-  assert.ok(task, 'invalid adjustment evidence must not disappear after the webhook is acknowledged');
-  assert.equal(task.params[1], 'invalid_adjustment_payload');
-});
-
-test('malformed adjustment identifiers are acknowledged without changing entitlement', async () => {
-  const { pool, calls } = makePool();
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_invalid_adjustment',
-    eventType: 'adjustment.created',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: { id: 'not-an-adjustment', transaction_id: transactionId, action: 'refund', type: 'full', status: 'approved' }
-  });
-  assert.equal(result.reconciliationRequired, true);
-  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')), false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE users')), false);
-});
-
-test('a delayed chargeback.created event observes an earlier recorded chargeback_reverse', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    chargeback: false,
-    chargebackReversed: true
-  });
-  const result = await sendAdjustment(pool, {
-    action: 'chargeback', status: 'approved', eventType: 'adjustment.created'
-  });
-  assert.equal(result.entitlementChanged, true);
-  assert.equal(result.premiumRevoked, false);
-  assert.deepEqual(
-    calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')).params,
-    [transactionId, userId, 'active', null]
-  );
-});
-
-test('one chargeback_reverse cannot restore access while another chargeback remains unmatched', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    chargeback: true,
-    chargebackReversed: false
-  });
-  const result = await sendAdjustment(pool, {
-    action: 'chargeback_reverse', status: 'approved'
-  });
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false,
-    'a reversal must not restore the purchase while any transaction chargeback remains outstanding');
-  const stateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
-  assert.match(stateQuery.statement, /COUNT\(\*\)[\s\S]*chargeback_reverse/,
-    'the effective state must compare chargeback and chargeback_reverse adjustments');
-});
-
-test('a refund reversal restores only a full-refund-revoked entitlement with matching prior approval', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_full_refund',
-    fullRefund: false,
-    fullRefundReversed: true
-  });
-  const result = await sendAdjustment(pool, {
-    action: 'refund', status: 'reversed', type: 'full', eventType: 'adjustment.updated'
-  });
-  assert.equal(result.entitlementChanged, true);
-  assert.deepEqual(
-    calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')).params,
-    [transactionId, userId, 'active', null]
-  );
-});
-
-test('a refund rejection cannot restore a chargeback-revoked entitlement', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    fullRefund: false,
-    fullRefundReversed: false,
-    chargeback: false,
-    chargebackReversed: false
-  });
-  const result = await sendAdjustment(pool, {
-    action: 'refund', status: 'rejected', type: 'full', eventType: 'adjustment.updated'
-  });
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false,
-    'a refund rejection cannot stand in for reversal of the chargeback that revoked this purchase');
-});
-
-test('a rejected chargeback reversal cannot restore lifetime Premium', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    chargeback: false
-  });
-  const result = await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'rejected' });
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
-});
-
-test('a chargeback reversal cannot restore access while a full approved refund remains active', async () => {
-  const { pool, calls } = makePool({
-    ledgerStatus: 'revoked',
-    revokeReason: 'paddle_chargeback',
-    fullRefund: true,
-    chargeback: false
-  });
-  const result = await sendAdjustment(pool, { action: 'chargeback_reverse', status: 'approved' });
-  assert.equal(result.premiumRevoked, true);
-  const update = calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements'));
-  assert.deepEqual(update.params, [transactionId, userId, 'revoked', 'paddle_full_refund']);
-});
-
-test('adjustment evidence is processed even when unrelated customer metadata is malformed', async () => {
-  const { pool, calls } = makePool({ ledgerStatus: 'active', fullRefund: true });
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_malformed_customer_adjustment',
-    eventType: 'adjustment.updated',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: {
-      id: 'adj_0123456789abcdef01234567',
-      transactionId,
-      customerId: 'not-a-paddle-customer',
-      action: 'refund',
-      type: 'full',
-      status: 'approved',
-      currency_code: 'USD',
-      totals: { total: '500', currency_code: 'USD' }
-    }
-  });
-  assert.equal(result.premiumRevoked, true);
-  assert.ok(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')));
-});
-
-test('transaction completion reconciles an approved refund delivered earlier', async () => {
-  const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
-  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_lifetime_test';
-  const calls = [];
-  const client = {
-    async query(sql, params = []) {
-      const statement = String(sql);
-      calls.push({ statement, params });
-      if (statement.includes('INSERT INTO paddle_webhook_events')) {
-        return { rowCount: 1, rows: [{ event_id: params[0] }] };
-      }
-      if (statement.includes("SET transaction_id = $1, status = 'completed'")) {
-        return { rowCount: 1, rows: [{ user_id: userId }] };
-      }
-      if (statement.includes('SELECT DISTINCT user_id') &&
-          statement.includes('paddle_checkout_attempt_history')) {
-        return { rowCount: 1, rows: [{ user_id: userId }] };
-      }
-      if (statement.includes('WITH latest_per_adjustment AS')) {
-        return { rowCount: 1, rows: [{ full_refund_active: true, chargeback_active: false }] };
-      }
-      return { rowCount: 1, rows: [] };
-    },
-    release() {}
-  };
-  try {
-    const result = await processPaddleEvent({ async connect() { return client; } }, {
-      eventId: 'evt_transaction_after_refund',
-      eventType: 'transaction.completed',
-      data: {
-        id: transactionId,
-        customerId: 'ctm_0123456789abcdef0123456789',
-        customData: {
-          userId,
-          plan: 'lifetime',
-          checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
-        },
-        items: [{ price: { id: 'pri_lifetime_test' } }],
-        details: { totals: { total: '1290', grand_total: '1190', credit: '100', balance: '0' } },
-        currencyCode: 'USD'
-      }
-    });
-    assert.equal(result.handled, true);
-    const transactionLedger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
-    assert.ok(transactionLedger, 'every completed Paddle transaction must be retained independently of the checkout pointer');
-    assert.deepEqual(transactionLedger.params.slice(0, 5), [
-      'evt_transaction_after_refund', transactionId, userId, 'lifetime', 'completed'
-    ]);
-    assert.deepEqual(transactionLedger.params.slice(5, 10), ['1290', '1190', '100', '0', 'USD']);
-    const transactionLockIndex = calls.findIndex(call => call.statement.includes("paddle-transaction:"));
-    const userLockIndex = calls.findIndex(call => call.statement.includes("gift-safety-user:"));
-    assert.ok(transactionLockIndex >= 0 && userLockIndex > transactionLockIndex,
-      'transaction.completed must acquire the same transaction lock before the user lock');
-    assert.match(calls[transactionLockIndex].statement,
-      /pg_advisory_xact_lock\(hashtextextended\('paddle-transaction:'/,
-      'transaction completion must share the database guard\'s 64-bit advisory-lock key');
-    const revoke = calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements'));
-    assert.deepEqual(revoke.params, [transactionId, 'paddle_full_refund', userId]);
-    assert.ok(calls.some(call =>
-      call.statement.includes('UPDATE users') && call.statement.includes('premium_lifetime = EXISTS')
-    ), 'the prior approved refund must be applied before the new lifetime entitlement is exposed');
-    const caseResolution = calls.find(call =>
-      call.statement.includes('UPDATE paddle_adjustment_reconciliation_cases')
-    );
-    assert.ok(caseResolution, 'a previously unmatched adjustment case must be considered after transaction linkage');
-    assert.equal(caseResolution.params[1], userId);
-    assert.equal(caseResolution.params[2], 'transaction_completed_linked_to_vow_checkout');
-    assert.match(caseResolution.statement, /reason_code = 'transaction_owner_unlinked'/);
-    assert.match(caseResolution.statement, /COUNT\(DISTINCT \(user_id, plan\)\)[\s\S]*?\) = 1/);
-    assert.match(caseResolution.statement, /linked_attempt\.user_id = \$2/);
-    assert.match(caseResolution.statement, /linked_transaction\.plan IN \('1month', '3months'\)/,
-      'unverified lifetime transactions must not auto-resolve reconciliation without a linked checkout attempt');
-
-  } finally {
-    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
-    else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
-  }
-});
-
-test('unmatched valid adjustments create a durable reconciliation case', async () => {
-  const { pool, calls } = makePool({ linkedRowCount: 0 });
-  const result = await sendAdjustment(pool, { action: 'refund', status: 'approved', type: 'full' });
-  assert.equal(result.reconciliationRequired, true);
-  const task = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
-  assert.ok(task, 'an unmatched adjustment must remain in a durable manual queue');
-  assert.equal(task.params[1], 'transaction_owner_unlinked');
-});
-
-test('adjustments for recurring Vow purchases do not touch lifetime entitlement', async () => {
-  const { pool, calls } = makePool({ linkedPlan: '3months', linkedStatus: 'completed' });
-  const result = await sendAdjustment(pool, { action: 'refund', status: 'approved', type: 'full' });
-  assert.equal(result.adjustmentRecorded, true);
-  assert.equal(result.entitlementChanged, false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
-  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')), false);
-});
-
-test('transaction.canceled events are retained even without a matched checkout row', async () => {
-  const originalMonthlyPrice = process.env.PADDLE_PRICE_ID_1MONTH;
-  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_monthly_test';
-  const calls = [];
-  const client = {
-    async query(sql, params = []) {
-      const statement = String(sql);
-      calls.push({ statement, params });
-      if (statement.includes('UPDATE paddle_checkout_attempts') && statement.includes("status = 'canceled'")) {
-        return { rowCount: 0, rows: [] };
-      }
-      return { rowCount: 1, rows: [] };
-    },
-    release() {}
-  };
-  try {
-    await processPaddleEvent({ async connect() { return client; } }, {
-      eventId: 'evt_canceledtransactionhistory',
-      eventType: 'transaction.canceled',
-      occurredAt: '2026-11-03T10:00:00Z',
-      data: { id: transactionId, items: [{ price: { id: 'pri_monthly_test' } }], details: { totals: { total: '990', grand_total: '990', credit: '0', balance: '0' } }, currency_code: 'GEL' }
-    });
-    const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
-    assert.ok(ledger);
-    assert.deepEqual(ledger.params.slice(0, 5), [
-      'evt_canceledtransactionhistory', transactionId, null, '1month', 'canceled'
-    ]);
-    assert.deepEqual(ledger.params.slice(5, 10), ['990', '990', '0', '0', 'GEL']);
-  } finally {
-    if (originalMonthlyPrice === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
-    else process.env.PADDLE_PRICE_ID_1MONTH = originalMonthlyPrice;
-  }
-});
-
-test('malformed adjustment payloads create a durable webhook reconciliation case', async () => {
-  const { pool, calls } = makePool();
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_invalidadjustmentpayload',
-    eventType: 'adjustment.created',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: { id: 'not-an-adjustment', transaction_id: transactionId, action: 'refund', type: 'full', status: 'approved' }
-  });
-  assert.equal(result.reconciliationRequired, true);
-  const task = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
-  assert.ok(task, 'invalid adjustment evidence must not disappear after the webhook is acknowledged');
-  assert.equal(task.params[1], 'invalid_adjustment_payload');
-});
-
-test('malformed adjustment identifiers are acknowledged without changing entitlement', async () => {
-  const { pool, calls } = makePool();
-  const result = await processPaddleEvent(pool, {
-    eventId: 'evt_invalid_adjustment',
-    eventType: 'adjustment.created',
-    occurredAt: '2026-11-03T10:00:00Z',
-    data: { id: 'not-an-adjustment', transaction_id: transactionId, action: 'refund', type: 'full', status: 'approved' }
-  });
-  assert.equal(result.reconciliationRequired, true);
-  assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_events')), false);
-  assert.equal(calls.some(call => call.statement.includes('UPDATE users')), false);
-});
