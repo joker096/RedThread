@@ -637,6 +637,11 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       assert.equal(reportDeleteError?.code, '55000');
       await client.query('ROLLBACK TO SAVEPOINT real_report_delete_blocked');
       await client.query('RELEASE SAVEPOINT real_report_delete_blocked');
+      // Flush deferred FK/constraint-trigger work from the account-erasure
+      // checks first; PostgreSQL refuses TRUNCATE while those events are pending,
+      // which would otherwise bypass the dedicated no-TRUNCATE trigger assertion.
+      await client.query('SET CONSTRAINTS ALL IMMEDIATE');
+      await client.query('SET CONSTRAINTS ALL DEFERRED');
       await client.query('SAVEPOINT real_report_truncate_blocked');
       let reportTruncateError;
       try { await client.query('TRUNCATE TABLE user_reports'); }
