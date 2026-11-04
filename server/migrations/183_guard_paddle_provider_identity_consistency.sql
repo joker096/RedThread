@@ -102,6 +102,16 @@ BEGIN
         WHERE prior.transaction_id = NEW.transaction_id
           AND prior_owner.id <> NEW.user_id
       )
+      OR EXISTS (
+        SELECT 1
+        FROM paddle_transaction_events AS prior
+        WHERE prior.user_id IS NOT NULL
+          AND prior.user_id <> NEW.user_id
+          AND (
+            (NEW.customer_id IS NOT NULL AND prior.customer_id = NEW.customer_id)
+            OR (NEW.subscription_id IS NOT NULL AND prior.subscription_id = NEW.subscription_id)
+          )
+      )
     ) THEN
       RAISE EXCEPTION 'Paddle provider customer or subscription identity belongs to a different Vow account'
         USING ERRCODE = '23505';
