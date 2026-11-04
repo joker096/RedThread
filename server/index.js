@@ -3586,11 +3586,15 @@ app.get('/api/admin/paddle-adjustment-reconciliation', requireSession, async (re
       const result = await client.query(
         `SELECT c.event_id AS "eventId", c.reason_code AS "reasonCode",
                 to_char(c.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "createdAt",
+                webhook.event_type AS "eventType",
                 e.adjustment_id AS "adjustmentId",
-                e.transaction_id AS "transactionId", e.action,
-                e.status AS "adjustmentStatus", e.amount_minor_units AS "amountMinorUnits",
+                COALESCE(e.transaction_id, c.provider_transaction_id) AS "transactionId",
+                c.provider_user_ref AS "providerUserRef", c.provider_plan AS "providerPlan",
+                e.action, e.status AS "adjustmentStatus",
+                e.amount_minor_units AS "amountMinorUnits",
                 e.currency_code AS "currencyCode", e.occurred_at AS "occurredAt"
          FROM paddle_adjustment_reconciliation_cases AS c
+         JOIN paddle_webhook_events AS webhook USING (event_id)
          LEFT JOIN paddle_adjustment_events AS e USING (event_id)
          WHERE c.status = 'open'
            AND ($2::timestamptz IS NULL OR (c.created_at, c.event_id) > ($2::timestamptz, $3::text))
@@ -3642,7 +3646,9 @@ app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
       }
 
       const pending = await client.query(
-        `SELECT c.event_id, c.reason_code, e.adjustment_id, e.transaction_id
+        `SELECT c.event_id, c.reason_code, e.adjustment_id,
+                COALESCE(e.transaction_id, c.provider_transaction_id) AS transaction_id,
+                c.provider_user_ref, c.provider_plan
          FROM paddle_adjustment_reconciliation_cases AS c
          LEFT JOIN paddle_adjustment_events AS e USING (event_id)
          WHERE c.event_id = $1 AND c.status = 'open'
@@ -3681,6 +3687,8 @@ app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
           reasonCode: pending.rows[0].reason_code,
           adjustmentId: pending.rows[0].adjustment_id,
           transactionId: pending.rows[0].transaction_id,
+          providerUserRef: pending.rows[0].provider_user_ref,
+          providerPlan: pending.rows[0].provider_plan,
           resolutionSource: 'manual_operator'
         })]
       );
