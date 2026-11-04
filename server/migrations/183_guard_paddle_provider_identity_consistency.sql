@@ -4,8 +4,11 @@
 -- Freeze provider identity writes while checking retained evidence so no
 -- contradictory rows can slip between the preflight and trigger activation.
 -- Match the application write order: subscription.created updates users before
--- inserting its transaction evidence. Reversing these table locks can deadlock
--- an online migration against a webhook holding the users table write lock.
+-- inserting its transaction evidence, while transaction.completed explicitly
+-- acquires a ROW EXCLUSIVE lock on users before inserting its transaction
+-- evidence and then updating the entitlement. Every path therefore acquires
+-- users before paddle_transaction_events. Reversing these table locks can
+-- deadlock an online migration against a webhook holding the users write lock.
 LOCK TABLE users, paddle_transaction_events IN SHARE ROW EXCLUSIVE MODE;
 
 DO $migration183$
