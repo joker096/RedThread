@@ -16,6 +16,14 @@ BEGIN
          'provider_lifecycle_conflict'
        )
        OR NOT EXISTS (
+         SELECT 1 FROM paddle_webhook_events AS webhook
+         WHERE webhook.event_id = NEW.event_id
+           AND webhook.event_type IN (
+             'adjustment.created', 'adjustment.updated',
+             'customer.created', 'customer.updated'
+           )
+       )
+       OR NOT EXISTS (
          SELECT 1 FROM users AS moderator
          WHERE moderator.id = NEW.resolved_by_ref
            AND moderator.status = 'active'
