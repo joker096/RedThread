@@ -1874,18 +1874,30 @@ test('auth API supports registration, session lookup, logout and login', {
       );
     }
 
-    await identityGateDb.query(
-      `WITH granted AS (
-         INSERT INTO identity_l3_consents (user_id, consent_version, granted_at)
+    const consentSetupClient = await identityGateDb.connect();
+    try {
+      await consentSetupClient.query('BEGIN');
+      const initialGrants = await consentSetupClient.query(
+        `INSERT INTO identity_l3_consents (user_id, consent_version, granted_at)
          VALUES ($1, 2, statement_timestamp()), ($2, 1, statement_timestamp())
-         RETURNING user_id, consent_version, granted_at
-       )
-       INSERT INTO identity_l3_consent_events
-         (user_id, actor_user_id, event_type, consent_version, occurred_at)
-       SELECT user_id, user_id, 'granted', consent_version, granted_at
-       FROM granted`,
-      [maleRegistered.user.id, secondMaleRegistered.user.id]
-    );
+         RETURNING user_id, consent_version, granted_at`,
+        [maleRegistered.user.id, secondMaleRegistered.user.id]
+      );
+      for (const grant of initialGrants.rows) {
+        await consentSetupClient.query(
+          `INSERT INTO identity_l3_consent_events
+             (user_id, actor_user_id, event_type, consent_version, occurred_at)
+           VALUES ($1, $1, 'granted', $2, $3)`,
+          [grant.user_id, grant.consent_version, grant.granted_at]
+        );
+      }
+      await consentSetupClient.query('COMMIT');
+    } catch (error) {
+      await consentSetupClient.query('ROLLBACK');
+      throw error;
+    } finally {
+      consentSetupClient.release();
+    }
 
     const consentBefore = await request('/api/identity/l3/consent', {
       headers: { Cookie: secondMaleCookie }
