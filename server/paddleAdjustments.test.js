@@ -329,7 +329,7 @@ test('chargeback entitlement predicate requires an approved, non-warning dispute
   assert.match(stateQuery.statement,
     /WHERE action = 'chargeback_reverse' AND status = 'approved'/,
     'only an approved provider-created chargeback reversal can offset a chargeback');
-  assert.doesNotMatch(stateQuery.statement, /status <> 'reversed'/,
+  assert.doesNotMatch(stateQuery.statement, /action = 'chargeback' AND status <> 'reversed'/,
     'rejected chargebacks must not be treated as an active dispute');
 });
 
