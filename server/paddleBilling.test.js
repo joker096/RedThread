@@ -1154,14 +1154,14 @@ test('only a verified new subscription event links a completed recurring checkou
   const client = {
     async query(sql, params) {
       queries.push({ sql: String(sql), params });
-      if (String(sql).includes('INSERT INTO paddle_webhook_events')) return { rowCount: 1, rows: [{ event_id: 'evt_month_subscription' }] };
+      if (String(sql).includes('INSERT INTO paddle_webhook_events')) return { rowCount: 1, rows: [{ event_id: 'evt_monthsubscription' }] };
       return { rowCount: 1, rows: [] };
     },
     release() {}
   };
   try {
     await processPaddleEvent({ async connect() { return client; } }, {
-      eventId: 'evt_month_subscription',
+      eventId: 'evt_monthsubscription',
       eventType: 'subscription.created',
       occurredAt: '2026-10-30T18:00:00Z',
       data: {
@@ -1184,6 +1184,20 @@ test('only a verified new subscription event links a completed recurring checkou
     ]);
     assert.ok(attemptUpdate.sql.includes('attempt_id = $4'));
     assert.match(attemptUpdate.sql, /transaction_id IS NULL OR transaction_id = \$3/);
+    const transactionEvidence = queries.find(query =>
+      query.sql.includes('INSERT INTO paddle_transaction_events')
+    );
+    assert.ok(transactionEvidence,
+      'a verified subscription.created event must retain provider transaction linkage evidence');
+    assert.deepEqual(transactionEvidence.params.slice(0, 7), [
+      'evt_monthsubscription',
+      'txn_0123456789abcdef01234567',
+      '00000000-0000-4000-8000-000000000001',
+      '1month',
+      'completed',
+      'sub_0123456789abcdef01234567',
+      'ctm_0123456789abcdef01234567'
+    ]);
     const finalAttemptUpdate = queries.find(query =>
       query.sql.includes('SET status = $3') && query.sql.includes('transaction_id = $5')
     );
