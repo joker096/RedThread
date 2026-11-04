@@ -2187,6 +2187,73 @@ test('captured recurring subscription evidence is paid, owner-bound, and distinc
   }
 });
 
+test('unlinked Paddle transaction cases cannot be manually closed by a note and audit row', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const client = await pool.connect();
+  const moderatorId = randomUUID();
+  const eventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      "INSERT INTO users (id, email, password_hash, role, status) VALUES ($1, $2, 'test-only-hash', 'moderator', 'active')",
+      [moderatorId, `unlinked-case-mod-${moderatorId}@example.invalid`]
+    );
+    await client.query(
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'adjustment.created')",
+      [eventId]
+    );
+    await client.query(
+      "INSERT INTO paddle_adjustment_reconciliation_cases (event_id, reason_code) VALUES ($1, 'transaction_owner_unlinked')",
+      [eventId]
+    );
+    await client.query('SAVEPOINT reject_unverified_manual_close');
+    await client.query(
+      `UPDATE paddle_adjustment_reconciliation_cases
+       SET status = 'resolved', resolution_note = 'reviewed; owner remains unresolved',
+           resolution_source = 'manual_operator', resolved_by_ref = $2,
+           resolved_at = statement_timestamp(), updated_at = statement_timestamp()
+       WHERE event_id = $1`,
+      [eventId, moderatorId]
+    );
+    await client.query(
+      `INSERT INTO moderation_audit_log
+       (moderator_id, action, target_type, target_id, reason, details)
+       VALUES ($1, 'paddle_adjustment_reconciliation_resolved',
+               'paddle_adjustment_case', $2, 'reviewed; owner remains unresolved',
+               jsonb_build_object(
+                 'eventId', $2::text,
+                 'reasonCode', 'transaction_owner_unlinked',
+                 'resolutionSource', 'manual_operator'
+               ))`,
+      [moderatorId, eventId]
+    );
+    let blockedError;
+    try {
+      await client.query('SET CONSTRAINTS paddle_adjustment_reconciliation_manual_audit_guard IMMEDIATE');
+    } catch (error) { blockedError = error; }
+    assert.equal(blockedError?.code, '23514',
+      'manual audit evidence must not close an unlinked or ambiguous entitlement owner case');
+    await client.query('ROLLBACK TO SAVEPOINT reject_unverified_manual_close');
+    await client.query('RELEASE SAVEPOINT reject_unverified_manual_close');
+    await client.query('SET CONSTRAINTS paddle_adjustment_reconciliation_manual_audit_guard DEFERRED');
+    const retained = await client.query(
+      'SELECT status FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1',
+      [eventId]
+    );
+    assert.deepEqual(retained.rows, [{ status: 'open' }]);
+    await client.query('ROLLBACK');
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw error;
+  } finally {
+    client.release();
+    await pool.end();
+  }
+});
+
 test('provider identity reconciliation retains immutable minimal context and audits its manual resolution', {
   skip: !process.env.DATABASE_URL,
   timeout: 15_000
