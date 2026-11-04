@@ -3,7 +3,10 @@
 -- must not retain a provider identity belonging to another account.
 -- Freeze provider identity writes while checking retained evidence so no
 -- contradictory rows can slip between the preflight and trigger activation.
-LOCK TABLE paddle_transaction_events, users IN SHARE ROW EXCLUSIVE MODE;
+-- Match the application write order: subscription.created updates users before
+-- inserting its transaction evidence. Reversing these table locks can deadlock
+-- an online migration against a webhook holding the users table write lock.
+LOCK TABLE users, paddle_transaction_events IN SHARE ROW EXCLUSIVE MODE;
 
 DO $migration183$
 BEGIN
