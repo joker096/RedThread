@@ -538,7 +538,7 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
     (entitlement.revoke_reason === 'paddle_chargeback' &&
       ['chargeback_reverse', 'chargeback'].includes(action) &&
       ((action === 'chargeback_reverse' && status === 'approved') ||
-       (action === 'chargeback' && status === 'reversed')) &&
+       (action === 'chargeback' && ['approved', 'reversed'].includes(status))) &&
       adjustmentState.chargebackReversed) ||
     (entitlement.revoke_reason === 'paddle_full_refund' &&
       action === 'refund' && type === 'full' &&
