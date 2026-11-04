@@ -146,6 +146,8 @@ async function findPaddleTransactionOwner(client, {
          SELECT user_id, transaction_id FROM paddle_checkout_attempts
          UNION ALL
          SELECT user_id, transaction_id FROM paddle_checkout_attempt_history
+         UNION ALL
+         SELECT user_id, transaction_id FROM paddle_transaction_events WHERE user_id IS NOT NULL
        ) AS attempts
        WHERE transaction_id = $1
        ORDER BY user_id
