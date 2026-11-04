@@ -2009,18 +2009,26 @@ test('transaction.paid is retained as captured payment without granting or final
     },
     release() {}
   };
-  const result = await processPaddleEvent({ async connect() { return client; } }, {
-    eventId: 'evt_transactionpaid',
-    eventType: 'transaction.paid',
-    occurredAt: '2026-11-04T08:00:00Z',
-    data: {
-      id: 'txn_transactionpaid',
-      customerId: 'ctm_0123456789abcdef01234567',
-      items: [{ price: { id: 'pri_month_test' } }],
-      details: { totals: { total: '990', grand_total: '990', credit: '0', balance: '0' } },
-      currencyCode: 'GEL'
-    }
-  });
+  const originalMonthlyPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_test';
+  let result;
+  try {
+    result = await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_transactionpaid',
+      eventType: 'transaction.paid',
+      occurredAt: '2026-11-04T08:00:00Z',
+      data: {
+        id: 'txn_transactionpaid',
+        customerId: 'ctm_0123456789abcdef01234567',
+        items: [{ price: { id: 'pri_month_test' } }],
+        details: { totals: { total: '990', grand_total: '990', credit: '0', balance: '0' } },
+        currencyCode: 'GEL'
+      }
+    });
+  } finally {
+    if (originalMonthlyPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalMonthlyPriceId;
+  }
   assert.deepEqual(result, { duplicate: false, handled: true });
   const ledger = queries.find(query => query.statement.includes('INSERT INTO paddle_transaction_events'));
   assert.ok(ledger, 'captured payment must be retained independently of later transaction completion');
