@@ -9,25 +9,25 @@ BEGIN
        NEW.transaction_id IS NULL
        OR NOT EXISTS (
          SELECT 1
-         FROM paddle_transaction_events AS transaction
+         FROM paddle_transaction_events AS txn_event
          JOIN paddle_webhook_events AS webhook
            ON webhook.event_id = transaction.event_id
-         WHERE transaction.transaction_id = NEW.transaction_id
-           AND transaction.user_id = NEW.user_id
-           AND transaction.plan = NEW.plan
-           AND transaction.status = 'completed'
+         WHERE txn_event.transaction_id = NEW.transaction_id
+           AND txn_event.user_id = NEW.user_id
+           AND txn_event.plan = NEW.plan
+           AND txn_event.status = 'completed'
            AND (
              webhook.event_type = 'transaction.completed'
              OR (
                webhook.event_type = 'subscription.created'
                AND NEW.plan IN ('1month', '3months')
-               AND transaction.subscription_id IS NOT NULL
-               AND transaction.customer_id IS NOT NULL
+               AND txn_event.subscription_id IS NOT NULL
+               AND txn_event.customer_id IS NOT NULL
                AND EXISTS (
                  SELECT 1 FROM users AS owner
                  WHERE owner.id = NEW.user_id
-                   AND owner.paddle_subscription_id = transaction.subscription_id
-                   AND owner.paddle_customer_id = transaction.customer_id
+                   AND owner.paddle_subscription_id = txn_event.subscription_id
+                   AND owner.paddle_customer_id = txn_event.customer_id
                )
              )
            )
