@@ -434,6 +434,9 @@ test('chargeback reversals are paired one-to-one in provider chronology', async 
   assert.match(stateQuery.statement,
     /COUNT\(\*\) FROM chargebacks\) =\s*\(SELECT COUNT\(\*\) FROM chargeback_reversals\)/,
     'extra or missing reversal evidence must remain fail-closed');
+  assert.match(stateQuery.statement,
+    /chargeback_count > 0\s+AND NOT \(chargeback_count = reversal_count AND all_chargebacks_paired\)/,
+    'any unmatched or ambiguously timed chargeback must remain active and block entitlement restoration');
 });
 
 test('a delayed chargeback.created event observes an earlier recorded chargeback_reverse', async () => {
