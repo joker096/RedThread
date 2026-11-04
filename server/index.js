@@ -3472,10 +3472,13 @@ app.get('/api/admin/reports', requireSession, async (req, res) => {
   try {
     const read = await withActiveModeratorRead(req.authUser.id, async client => {
       const result = await client.query(
-        `SELECT r.id, r.reporter_id AS "reporterId", r.reported_user_id AS "reportedUserId",
+        `SELECT r.id, r.reporter_ref AS "reporterId", r.reported_user_ref AS "reportedUserId",
+                r.reporter_id AS "reporterLiveUserId",
+                r.reported_user_id AS "reportedLiveUserId",
                 r.category, r.details, r.status, r.created_at AS "createdAt",
                 p.display_name AS "reportedDisplayName"
-         FROM user_reports r JOIN profiles p ON p.user_id = r.reported_user_id
+         FROM user_reports r
+         LEFT JOIN profiles p ON p.user_id = r.reported_user_id
          WHERE r.status IN ('open', 'reviewing')
          ORDER BY r.created_at ASC LIMIT $1`,
         [limit]
@@ -3809,7 +3812,7 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
     client = await pool.connect();
     await client.query('BEGIN');
     const preview = await client.query(
-      'SELECT id, reported_user_id FROM user_reports WHERE id = $1',
+      'SELECT id, reported_user_id, reported_user_ref FROM user_reports WHERE id = $1',
       [reportId]
     );
     const previewReport = preview.rows[0];
@@ -3817,7 +3820,7 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'open_report_not_found' });
     }
-    await acquireGiftSafetyUserLocks(client, req.authUser.id, previewReport.reported_user_id);
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, previewReport.reported_user_ref);
     const moderator = await client.query(
       "SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
       [req.authUser.id]
@@ -3831,12 +3834,12 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
       return res.status(403).json({ error: 'moderator_access_required' });
     }
     const reportResult = await client.query(
-      'SELECT id, reported_user_id, category, status FROM user_reports WHERE id = $1 FOR UPDATE',
+      'SELECT id, reported_user_id, reported_user_ref, category, status FROM user_reports WHERE id = $1 FOR UPDATE',
       [reportId]
     );
     const report = reportResult.rows[0];
     if (!report || report.status === 'resolved' || report.status === 'dismissed' ||
-        String(report.reported_user_id).toLowerCase() !== String(previewReport.reported_user_id).toLowerCase()) {
+        String(report.reported_user_ref).toLowerCase() !== String(previewReport.reported_user_ref).toLowerCase()) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'open_report_not_found' });
     }
@@ -3846,6 +3849,10 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
     }
     let accountSuspended = false;
     if (action === 'suspend_user') {
+      if (!report.reported_user_id) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'reported_user_account_unavailable' });
+      }
       if (!['children_misrepresentation', 'duplicate_profile', 'fake_profile', 'safety'].includes(report.category)) {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'category_not_eligible_for_suspension' });
@@ -3875,7 +3882,7 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
     const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 500) : '';
     await client.query(
       'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, reason, details) VALUES ($1, $2, $3, $4, $5, $6::jsonb)',
-      [req.authUser.id, action, 'user_report', reportId, reason || null, JSON.stringify({ category: report.category, targetUserId: report.reported_user_id, newStatus: status })]
+      [req.authUser.id, action, 'user_report', reportId, reason || null, JSON.stringify({ category: report.category, targetUserId: report.reported_user_ref, newStatus: status })]
     );
     await client.query('COMMIT');
     return res.json({ ok: true, action, accountSuspended });
@@ -4294,8 +4301,8 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
               EXISTS (
                 SELECT 1 FROM user_reports r
                 WHERE r.status IN ('open', 'reviewing')
-                  AND ((r.reporter_id = o.sender_id AND r.reported_user_id = o.recipient_id)
-                    OR (r.reporter_id = o.recipient_id AND r.reported_user_id = o.sender_id))
+                  AND ((r.reporter_ref = o.sender_id AND r.reported_user_ref = o.recipient_id)
+                    OR (r.reporter_ref = o.recipient_id AND r.reported_user_ref = o.sender_id))
               ) AS has_open_report,
               EXISTS (
                 SELECT 1 FROM user_safety_screenings ss
@@ -4384,8 +4391,8 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
                 EXISTS (
                   SELECT 1 FROM user_reports r
                   WHERE r.status IN ('open', 'reviewing')
-                    AND ((r.reporter_id = $1 AND r.reported_user_id = $2)
-                      OR (r.reporter_id = $2 AND r.reported_user_id = $1))
+                    AND ((r.reporter_ref = $1 AND r.reported_user_ref = $2)
+                      OR (r.reporter_ref = $2 AND r.reported_user_ref = $1))
                 ) AS has_open_report,
                 EXISTS (
                   SELECT 1 FROM user_safety_screenings ss
