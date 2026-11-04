@@ -349,6 +349,24 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     assert.deepEqual(queued.rows, [{ status: 'queued' }],
       'rejected media must be queued for physical deletion automatically');
     await assert.rejects(
+      pool.query(
+        `UPDATE identity_l3_submissions
+         SET storage_object_key = NULL, media_purged_at = statement_timestamp()
+         WHERE id = $1`,
+        [second.submissionId]
+      ),
+      error => error.code === '23514'
+    );
+    await assert.rejects(
+      pool.query(
+        `UPDATE identity_l3_media_purge_jobs
+         SET status = 'completed', completed_at = statement_timestamp()
+         WHERE submission_id = $1`,
+        [second.submissionId]
+      ),
+      error => error.code === '55000'
+    );
+    await assert.rejects(
       pool.query('DELETE FROM identity_l3_submissions WHERE id = $1', [second.submissionId]),
       error => error.code === '55000'
     );
