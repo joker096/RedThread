@@ -70,6 +70,42 @@ BEGIN
 END;
 $migration203_preflight$;
 
+ALTER TABLE gift_delivery_orders
+  ADD COLUMN IF NOT EXISTS payment_state_changed_transaction_id xid8;
+ALTER TABLE gift_delivery_order_events
+  ADD COLUMN IF NOT EXISTS created_transaction_id xid8;
+
+CREATE OR REPLACE FUNCTION stamp_gift_payment_state_transaction()
+RETURNS trigger LANGUAGE plpgsql AS $gift_payment_state_tx$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    NEW.payment_state_changed_transaction_id := NULL;
+  ELSIF NEW.payment_status IS DISTINCT FROM OLD.payment_status THEN
+    NEW.payment_state_changed_transaction_id := pg_current_xact_id();
+  ELSE
+    -- The transaction marker is database-owned; callers cannot forge or clear it.
+    NEW.payment_state_changed_transaction_id := OLD.payment_state_changed_transaction_id;
+  END IF;
+  RETURN NEW;
+END;
+$gift_payment_state_tx$;
+
+CREATE TRIGGER gift_delivery_orders_payment_state_transaction_guard
+  BEFORE INSERT OR UPDATE ON gift_delivery_orders
+  FOR EACH ROW EXECUTE FUNCTION stamp_gift_payment_state_transaction();
+
+CREATE OR REPLACE FUNCTION stamp_gift_order_event_transaction()
+RETURNS trigger LANGUAGE plpgsql AS $gift_order_event_tx$
+BEGIN
+  NEW.created_transaction_id := pg_current_xact_id();
+  RETURN NEW;
+END;
+$gift_order_event_tx$;
+
+CREATE TRIGGER gift_delivery_order_events_stamp_transaction
+  BEFORE INSERT ON gift_delivery_order_events
+  FOR EACH ROW EXECUTE FUNCTION stamp_gift_order_event_transaction();
+
 CREATE OR REPLACE FUNCTION guard_gift_payment_reconciliation_task_update()
 RETURNS trigger LANGUAGE plpgsql AS $gift_payment_task_guard$
 BEGIN
@@ -160,18 +196,20 @@ DECLARE
   order_payment_status TEXT;
   order_status TEXT;
   order_updated_at TIMESTAMPTZ;
+  order_payment_state_transaction_id xid8;
   required_event_type TEXT;
 BEGIN
   IF NEW.status <> 'completed' OR OLD.status = 'completed' THEN
     RETURN NULL;
   END IF;
 
-  SELECT payment_status, status, updated_at
-    INTO order_payment_status, order_status, order_updated_at
+  SELECT payment_status, status, updated_at, payment_state_changed_transaction_id
+    INTO order_payment_status, order_status, order_updated_at, order_payment_state_transaction_id
   FROM gift_delivery_orders
   WHERE id = NEW.order_id;
 
-  IF NOT FOUND OR order_updated_at < transaction_timestamp() THEN
+  IF NOT FOUND OR order_updated_at < transaction_timestamp()
+     OR order_payment_state_transaction_id IS DISTINCT FROM pg_current_xact_id() THEN
     RAISE EXCEPTION 'gift payment reconciliation completion requires an order payment update in the same transaction'
       USING ERRCODE = '23514';
   END IF;
@@ -194,6 +232,7 @@ BEGIN
       AND event.event_type = required_event_type
       AND event.actor_type = 'payment_service'
       AND event.created_at >= transaction_timestamp()
+      AND event.created_transaction_id = pg_current_xact_id()
       AND event.metadata->>'reconciliationTaskId' = NEW.id::text
       AND event.metadata->>'toPaymentStatus' = order_payment_status
       AND event.metadata->>'fromPaymentStatus' IN (
@@ -217,6 +256,10 @@ CREATE CONSTRAINT TRIGGER gift_payment_reconciliation_tasks_completion_evidence
   DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION require_gift_payment_reconciliation_completion_evidence();
 
+COMMENT ON FUNCTION stamp_gift_payment_state_transaction() IS
+  'Stamps payment-state changes with the current PostgreSQL transaction ID and prevents callers from forging or clearing that marker.';
+COMMENT ON FUNCTION stamp_gift_order_event_transaction() IS
+  'Stamps every new gift-order event with the current PostgreSQL transaction ID so reconciliation completion can prove same-transaction evidence.';
 COMMENT ON FUNCTION guard_gift_payment_reconciliation_task_update() IS
   'Requires pending-first task creation, counted claims, bounded error codes, valid retry transitions and immutable completed tasks.';
 COMMENT ON FUNCTION require_gift_payment_reconciliation_completion_evidence() IS
