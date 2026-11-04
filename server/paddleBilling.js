@@ -201,14 +201,17 @@ async function recordPaddleTransactionEvent(client, {
 async function getPaddleAdjustmentState(client, transactionId) {
   const result = await client.query(
     `WITH latest_per_adjustment AS (
-       SELECT DISTINCT ON (adjustment_id)
+       -- Keep each action's lifecycle independent. In particular,
+       -- chargeback_reverse is not proof that the original chargeback itself
+       -- reached status=reversed; never let a reversal action hide it.
+       SELECT DISTINCT ON (adjustment_id, action)
          adjustment_id, action, adjustment_type, status, occurred_at, received_at, event_id
        FROM paddle_adjustment_events
        WHERE transaction_id = $1
          -- A refund with no recognized scope is retained for review but must
          -- not supersede a previously verified full/partial adjustment state.
          AND NOT (action = 'refund' AND adjustment_type IS NULL)
-       ORDER BY adjustment_id, occurred_at DESC,
+       ORDER BY adjustment_id, action, occurred_at DESC,
          CASE status
            WHEN 'pending_approval' THEN 0
            WHEN 'approved' THEN 1
