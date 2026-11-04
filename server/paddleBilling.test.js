@@ -149,7 +149,7 @@ test('subscription updates compare source timestamps and do not bypass ordering 
 test('subscription.updated does not extend access when supplied custom_data owner is malformed', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
-  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_subscription_identity';
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_monthsubscriptionidentity';
   const existingOwner = '00000000-0000-4000-8000-000000000087';
   const calls = [];
   const client = {
@@ -176,7 +176,7 @@ test('subscription.updated does not extend access when supplied custom_data owne
         status: 'active',
         customer_id: 'ctm_subscriptionidentity123',
         current_billing_period: { ends_at: '2027-01-01T00:00:00Z' },
-        items: [{ price: { id: 'pri_month_subscription_identity' } }],
+        items: [{ price: { id: 'pri_monthsubscriptionidentity' } }],
         custom_data: { userId: 'not-a-vow-user-id', plan: '1month' }
       }
     });
@@ -194,7 +194,7 @@ test('subscription.updated does not extend access when supplied custom_data owne
 test('subscription.updated can still revoke access on past_due when owner metadata conflicts', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
-  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_subscription_past_due';
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_monthsubscriptionpastdue';
   const existingOwner = '00000000-0000-4000-8000-000000000088';
   const conflictingOwner = '00000000-0000-4000-8000-000000000089';
   const calls = [];
@@ -222,7 +222,7 @@ test('subscription.updated can still revoke access on past_due when owner metada
         status: 'past_due',
         customer_id: 'ctm_subscriptionpastdue123',
         current_billing_period: { ends_at: '2027-01-01T00:00:00Z' },
-        items: [{ price: { id: 'pri_month_subscription_past_due' } }],
+        items: [{ price: { id: 'pri_monthsubscriptionpastdue' } }],
         custom_data: { userId: conflictingOwner, plan: '1month' }
       }
     });
@@ -2080,7 +2080,7 @@ test('ambiguous cross-account Paddle transaction ownership is retained without a
 test('transaction.completed quarantines custom_data owner that contradicts the retained transaction owner', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
-  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_owner_conflict';
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_monthownerconflict';
   const ownerA = '00000000-0000-4000-8000-000000000081';
   const ownerB = '00000000-0000-4000-8000-000000000082';
   const transactionId = 'txn_ownerconflicttransaction123';
@@ -2114,7 +2114,7 @@ test('transaction.completed quarantines custom_data owner that contradicts the r
           plan: '1month',
           checkoutAttemptId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
         },
-        items: [{ price: { id: 'pri_month_owner_conflict' } }]
+        items: [{ price: { id: 'pri_monthownerconflict' } }]
       }
     });
     const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
@@ -2138,7 +2138,7 @@ test('transaction.completed quarantines custom_data owner that contradicts the r
 test('transaction.completed quarantines custom_data plan that contradicts the configured Paddle price', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
-  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_lifetime_plan_conflict';
+  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_lifetimeplanconflict';
   const ownerId = '00000000-0000-4000-8000-000000000083';
   const transactionId = 'txn_planconflicttransaction123';
   const calls = [];
@@ -2171,7 +2171,7 @@ test('transaction.completed quarantines custom_data plan that contradicts the co
           plan: '1month',
           checkoutAttemptId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
         },
-        items: [{ price: { id: 'pri_lifetime_plan_conflict' } }]
+        items: [{ price: { id: 'pri_lifetimeplanconflict' } }]
       }
     });
     const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
@@ -2232,7 +2232,7 @@ test('transaction.paid quarantines custom_data owner that contradicts the retain
 test('transaction.completed quarantines conflicting camelCase and snake_case owner metadata', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
-  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_alias_conflict';
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_monthaliasconflict';
   const ownerA = '00000000-0000-4000-8000-000000000084';
   const ownerB = '00000000-0000-4000-8000-000000000085';
   const calls = [];
@@ -2266,7 +2266,7 @@ test('transaction.completed quarantines conflicting camelCase and snake_case own
           plan: '1month',
           checkoutAttemptId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
         },
-        items: [{ price: { id: 'pri_month_alias_conflict' } }]
+        items: [{ price: { id: 'pri_monthaliasconflict' } }]
       }
     });
     const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
@@ -2286,7 +2286,7 @@ test('transaction.completed quarantines conflicting camelCase and snake_case own
 test('transaction.completed quarantines a supplied but unrecognized custom_data plan', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
-  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_unknown_metadata_plan';
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_monthunknownmetadataplan';
   const ownerId = '00000000-0000-4000-8000-000000000086';
   const calls = [];
   const client = {
@@ -2318,7 +2318,7 @@ test('transaction.completed quarantines a supplied but unrecognized custom_data 
           plan: 'unknown_plan',
           checkoutAttemptId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
         },
-        items: [{ price: { id: 'pri_month_unknown_metadata_plan' } }]
+        items: [{ price: { id: 'pri_monthunknownmetadataplan' } }]
       }
     });
     const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
