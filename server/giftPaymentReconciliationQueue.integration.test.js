@@ -215,6 +215,23 @@ test('gift reconciliation task completion requires a same-transaction provider o
     );
     const taskId = task.rows[0].id;
 
+    await assert.rejects(
+      client.query(
+        'UPDATE gift_payment_reconciliation_tasks SET attempt_count = attempt_count + 1 WHERE id = $1',
+        [taskId]
+      ),
+      error => error.code === '23514',
+      'attempt counts can increase only when a pending/failed task is claimed as in_progress'
+    );
+    await assert.rejects(
+      client.query(
+        'UPDATE gift_payment_reconciliation_tasks SET status = \'completed\' WHERE id = $1',
+        [taskId]
+      ),
+      error => error.code === '23514',
+      'a pending task cannot skip directly to completed'
+    );
+
     await client.query('BEGIN');
     await client.query(
       'UPDATE gift_payment_reconciliation_tasks ' +
