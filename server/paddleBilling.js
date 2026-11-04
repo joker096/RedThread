@@ -1112,16 +1112,39 @@ export async function processPaddleEvent(pool, rawEvent) {
     } else if (eventType === 'customer.created' || eventType === 'customer.updated') {
       const customerEmail = data.email;
       if (customUserId && customerId && typeof customerEmail === 'string') {
-        await client.query(
+        const customerIdentityUpdate = await client.query(
           `UPDATE users SET paddle_customer_id = COALESCE($2, paddle_customer_id), updated_at = NOW()
            WHERE id = $1::uuid AND users.status = 'active' AND lower(email) = lower($3)
              AND (paddle_customer_id IS NULL OR paddle_customer_id = $2)
              AND NOT EXISTS (
-               SELECT 1 FROM users AS other
-               WHERE other.paddle_customer_id = $2 AND other.id <> users.id
-             )`,
+               SELECT 1 FROM users AS other_user
+               WHERE other_user.paddle_customer_id = $2 AND other_user.id <> users.id
+             )
+           RETURNING id`,
           [customUserId, customerId, customerEmail]
         );
+        if (customerIdentityUpdate.rowCount !== 1) {
+          const identityConflict = await client.query(
+            `SELECT
+               EXISTS (
+                 SELECT 1 FROM users AS other_user
+                 WHERE other_user.paddle_customer_id = $1 AND other_user.id <> $2::uuid
+               ) AS customer_owned_by_other,
+               EXISTS (
+                 SELECT 1 FROM users AS owner
+                 WHERE owner.id = $2::uuid
+                   AND owner.paddle_customer_id IS NOT NULL
+                   AND owner.paddle_customer_id <> $1
+               ) AS account_customer_mismatch`,
+            [customerId, customUserId]
+          );
+          if (identityConflict.rows?.[0]?.customer_owned_by_other === true ||
+              identityConflict.rows?.[0]?.account_customer_mismatch === true) {
+            const conflict = new Error('Paddle customer identity conflicts with retained Vow account ownership');
+            conflict.code = '23505';
+            throw conflict;
+          }
+        }
       }
     }
 
