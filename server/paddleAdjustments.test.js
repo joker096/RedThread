@@ -392,6 +392,34 @@ test('chargeback_reverse is authoritative reversal evidence without requiring ad
     'reversals must be reconciled against the number of chargeback adjustments');
 });
 
+test('chargeback reversals are paired one-to-one in provider chronology', async () => {
+  const { pool, calls } = makePool({
+    ledgerStatus: 'revoked',
+    revokeReason: 'paddle_chargeback',
+    chargeback: false,
+    chargebackReversed: true
+  });
+  await sendAdjustment(pool, {
+    action: 'chargeback_reverse', status: 'approved'
+  });
+  const stateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
+  assert.ok(stateQuery, 'adjustment processing must recalculate the transaction chargeback state');
+  assert.equal(
+    (stateQuery.statement.match(/ROW_NUMBER\(\) OVER \(ORDER BY occurred_at, adjustment_id\)/g) || []).length,
+    2,
+    'chargebacks and reversals must each receive a stable chronological sequence'
+  );
+  assert.match(stateQuery.statement,
+    /ON reversal\.sequence_number = chargeback\.sequence_number/,
+    'one reversal must offset only its corresponding chargeback sequence, never multiple chargebacks');
+  assert.match(stateQuery.statement,
+    /reversal\.occurred_at < chargeback\.occurred_at/,
+    'a reversal cannot offset a chargeback that happened later');
+  assert.match(stateQuery.statement,
+    /COUNT\(\*\) FROM chargebacks\) =\s*\(SELECT COUNT\(\*\) FROM chargeback_reversals\)/,
+    'extra or missing reversal evidence must remain fail-closed');
+});
+
 test('a delayed chargeback.created event observes an earlier recorded chargeback_reverse', async () => {
   const { pool, calls } = makePool({
     ledgerStatus: 'revoked',
