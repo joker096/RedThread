@@ -201,9 +201,11 @@ async function recordPaddleTransactionEvent(client, {
 async function getPaddleAdjustmentState(client, transactionId) {
   const result = await client.query(
     `WITH latest_per_adjustment AS (
-       -- Keep each action's lifecycle independent. In particular,
-       -- chargeback_reverse is not proof that the original chargeback itself
-       -- reached status=reversed; never let a reversal action hide it.
+       -- Keep each adjustment/action lifecycle independent. Paddle emits a
+       -- separate chargeback_reverse adjustment when it successfully contests
+       -- a dispute; it may not emit adjustment.updated for the original
+       -- chargeback. Reconcile reversals against chargebacks at transaction
+       -- scope, and fail closed while any chargeback remains unmatched.
        SELECT DISTINCT ON (adjustment_id, action)
          adjustment_id, action, adjustment_type, status, occurred_at, received_at, event_id
        FROM paddle_adjustment_events
