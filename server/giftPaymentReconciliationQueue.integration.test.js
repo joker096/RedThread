@@ -274,6 +274,30 @@ test('gift reconciliation task completion requires a same-transaction provider o
     assert.equal(completed.rows[0].attempt_count, 1);
     assert.ok(completed.rows[0].completed_at);
 
+    const transactionEvidence = await client.query(
+      'SELECT gift_order.payment_state_changed_transaction_id::text AS order_tx, ' +
+      'event.created_transaction_id::text AS event_tx ' +
+      'FROM gift_delivery_orders AS gift_order ' +
+      'JOIN gift_delivery_order_events AS event ON event.order_id = gift_order.id ' +
+      'WHERE gift_order.id = $1 AND event.metadata->>\'reconciliationTaskId\' = $2::text',
+      [orderId, taskId]
+    );
+    assert.equal(transactionEvidence.rowCount, 1);
+    assert.equal(transactionEvidence.rows[0].order_tx, transactionEvidence.rows[0].event_tx,
+      'the provider outcome and order payment transition must share the exact database transaction');
+
+    const originalTransactionMarker = transactionEvidence.rows[0].order_tx;
+    await client.query(
+      'UPDATE gift_delivery_orders SET payment_state_changed_transaction_id = NULL WHERE id = $1',
+      [orderId]
+    );
+    const protectedMarker = await client.query(
+      'SELECT payment_state_changed_transaction_id::text AS tx FROM gift_delivery_orders WHERE id = $1',
+      [orderId]
+    );
+    assert.equal(protectedMarker.rows[0].tx, originalTransactionMarker,
+      'callers must not forge or clear the payment-state transaction marker');
+
     await assert.rejects(
       client.query(
         'UPDATE gift_payment_reconciliation_tasks SET status = \'pending\' WHERE id = $1',
