@@ -2118,6 +2118,91 @@ test('captured recurring subscription evidence is paid, owner-bound, and distinc
   }
 });
 
+test('provider identity reconciliation retains immutable minimal context and audits its manual resolution', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const client = await pool.connect();
+  const moderatorId = randomUUID();
+  const ownerId = randomUUID();
+  const eventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  const transactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      "INSERT INTO users (id, email, password_hash, role, status) VALUES ($1, $2, 'test-only-hash', 'moderator', 'active'), ($3, $4, 'test-only-hash', 'active')",
+      [moderatorId, `provider-case-mod-${moderatorId}@example.invalid`,
+        ownerId, `provider-case-owner-${ownerId}@example.invalid`]
+    );
+    await client.query(
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'transaction.completed')",
+      [eventId]
+    );
+    await client.query(
+      `INSERT INTO paddle_adjustment_reconciliation_cases
+       (event_id, reason_code, provider_transaction_id, provider_user_ref, provider_plan)
+       VALUES ($1, 'provider_identity_conflict', $2, $3, '1month')`,
+      [eventId, transactionId, ownerId]
+    );
+    await client.query('SAVEPOINT immutable_provider_case_context');
+    let immutableContextError;
+    try {
+      await client.query(
+        'UPDATE paddle_adjustment_reconciliation_cases SET provider_plan = $2 WHERE event_id = $1',
+        [eventId, '3months']
+      );
+    } catch (error) { immutableContextError = error; }
+    assert.equal(immutableContextError?.code, '55000',
+      'provider transaction, owner and plan context must not be rewritten after queueing');
+    await client.query('ROLLBACK TO SAVEPOINT immutable_provider_case_context');
+    await client.query('RELEASE SAVEPOINT immutable_provider_case_context');
+
+    await client.query(
+      `UPDATE paddle_adjustment_reconciliation_cases
+       SET status = 'resolved', resolution_note = 'Provider event and account ownership verified',
+           resolution_source = 'manual_operator', resolved_by_ref = $2,
+           resolved_at = statement_timestamp(), updated_at = statement_timestamp()
+       WHERE event_id = $1`,
+      [eventId, moderatorId]
+    );
+    await client.query(
+      `INSERT INTO moderation_audit_log
+       (moderator_id, action, target_type, target_id, reason, details)
+       VALUES ($1, 'paddle_adjustment_reconciliation_resolved',
+               'paddle_adjustment_case', $2, 'Provider event and account ownership verified',
+               jsonb_build_object(
+                 'eventId', $2::text,
+                 'reasonCode', 'provider_identity_conflict',
+                 'transactionId', $3::text,
+                 'providerUserRef', $4::text,
+                 'providerPlan', '1month',
+                 'resolutionSource', 'manual_operator'
+               ))`,
+      [moderatorId, eventId, transactionId, ownerId]
+    );
+    await client.query('SET CONSTRAINTS paddle_adjustment_reconciliation_manual_audit_guard IMMEDIATE');
+    const resolved = await client.query(
+      `SELECT status, provider_transaction_id, provider_user_ref, provider_plan
+       FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1`,
+      [eventId]
+    );
+    assert.deepEqual(resolved.rows, [{
+      status: 'resolved',
+      provider_transaction_id: transactionId,
+      provider_user_ref: ownerId,
+      provider_plan: '1month'
+    }]);
+    await client.query('ROLLBACK');
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw error;
+  } finally {
+    client.release();
+    await pool.end();
+  }
+});
+
 test('captured recurring payment can automatically resolve only its uniquely linked adjustment case', {
   skip: !process.env.DATABASE_URL,
   timeout: 15_000
