@@ -2119,6 +2119,26 @@ test('Paddle transaction IDs remain globally unique across current and archived 
     await client.query('ROLLBACK TO SAVEPOINT conflicting_transaction_ledger_owner');
     await client.query('RELEASE SAVEPOINT conflicting_transaction_ledger_owner');
 
+    const canceledEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+    await client.query(
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'transaction.canceled')",
+      [canceledEventId]
+    );
+    await client.query('SAVEPOINT conflicting_transaction_lifecycle');
+    let conflictingLifecycleError;
+    try {
+      await client.query(
+        `INSERT INTO paddle_transaction_events
+         (event_id, transaction_id, user_id, plan, status)
+         VALUES ($1, $2, $3, '1month', 'canceled')`,
+        [canceledEventId, ledgerTransactionId, firstUserId]
+      );
+    } catch (error) { conflictingLifecycleError = error; }
+    assert.equal(conflictingLifecycleError?.code, '23505',
+      'one provider transaction cannot be both completed and canceled');
+    await client.query('ROLLBACK TO SAVEPOINT conflicting_transaction_lifecycle');
+    await client.query('RELEASE SAVEPOINT conflicting_transaction_lifecycle');
+
     const conflictingAttemptId = randomUUID();
     await client.query(
       `INSERT INTO paddle_checkout_attempts
@@ -2148,7 +2168,8 @@ test('Paddle transaction IDs remain globally unique across current and archived 
     assert.match(guardFunction.rows[0].definition, /pg_advisory_xact_lock/,
       'cross-table transaction ownership checks must serialize concurrent claims until commit');
     assert.match(guardFunction.rows[0].definition, /USING ERRCODE = '23505'/,
-      'owner/plan collisions must be classified as identity conflicts for webhook reconciliation');
+      'owner/plan/lifecycle collisions must be classified as identity conflicts for webhook reconciliation');
+    assert.match(guardFunction.rows[0].definition, /completed\/canceled state/);
     const currentGuard = await client.query(
       "SELECT pg_get_triggerdef(oid) AS definition FROM pg_trigger WHERE tgname = 'paddle_checkout_attempts_global_transaction_identity' AND NOT tgisinternal"
     );
