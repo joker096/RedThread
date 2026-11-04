@@ -2612,13 +2612,17 @@ test('Paddle transaction IDs remain globally unique across current and archived 
     assert.match(guardFunction.rows[0].definition, /USING ERRCODE = '23505'/,
       'owner/plan/lifecycle collisions must be classified as identity conflicts for webhook reconciliation');
     assert.match(guardFunction.rows[0].definition, /completed\/canceled state/);
-    assert.match(guardFunction.rows[0].definition, /paddle-customer:/);
-    assert.match(guardFunction.rows[0].definition, /paddle-subscription:/);
+    const customerIdentityLockPattern =
+      /pg_advisory_xact_lock\\s*\\(\\s*hashtextextended\\s*\\(\\s*'paddle-customer:'/;
+    const subscriptionIdentityLockPattern =
+      /pg_advisory_xact_lock\\s*\\(\\s*hashtextextended\\s*\\(\\s*'paddle-subscription:'/;
+    assert.match(guardFunction.rows[0].definition, customerIdentityLockPattern);
+    assert.match(guardFunction.rows[0].definition, subscriptionIdentityLockPattern);
     const userIdentityGuard = await client.query(
       "SELECT pg_get_functiondef('guard_paddle_user_provider_identity()'::regprocedure) AS definition"
     );
-    assert.match(userIdentityGuard.rows[0].definition, /paddle-customer:/);
-    assert.match(userIdentityGuard.rows[0].definition, /paddle-subscription:/);
+    assert.match(userIdentityGuard.rows[0].definition, customerIdentityLockPattern);
+    assert.match(userIdentityGuard.rows[0].definition, subscriptionIdentityLockPattern);
     const userIdentityTrigger = await client.query(
       `SELECT tgname FROM pg_trigger
        WHERE tgrelid = 'users'::regclass
