@@ -2037,6 +2037,62 @@ test('transaction.completed quarantines custom_data owner that contradicts the r
   }
 });
 
+
+test('transaction.completed quarantines custom_data plan that contradicts the configured Paddle price', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
+  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_lifetime_plan_conflict';
+  const ownerId = '00000000-0000-4000-8000-000000000083';
+  const transactionId = 'txn_plan_conflict_transaction123';
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      calls.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      if (statement.includes("SET transaction_id = $1, status = 'completed'")) {
+        return { rowCount: 0, rows: [] };
+      }
+      if (statement.includes('SELECT DISTINCT user_id') && statement.includes('paddle_checkout_attempt_history')) {
+        return { rowCount: 1, rows: [{ user_id: ownerId }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_plan_conflict_transaction',
+      eventType: 'transaction.completed',
+      occurredAt: '2026-11-04T12:10:00Z',
+      data: {
+        id: transactionId,
+        customData: {
+          userId: ownerId,
+          plan: '1month',
+          checkoutAttemptId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+        },
+        items: [{ price: { id: 'pri_lifetime_plan_conflict' } }]
+      }
+    });
+    const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
+    assert.ok(ledger);
+    assert.equal(ledger.params[2], null,
+      'the owner must remain unassigned when signed plan metadata contradicts the configured provider price');
+    const conflict = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
+    assert.ok(conflict);
+    assert.equal(conflict.params[2], ownerId);
+    assert.equal(conflict.params[3], '1month');
+    assert.equal(calls.some(call => call.statement.includes('premium_lifetime = TRUE')), false);
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
+    else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
+  }
+});
+
+
 test('transaction.paid quarantines custom_data owner that contradicts the retained transaction owner', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const ownerA = '00000000-0000-4000-8000-000000000091';
