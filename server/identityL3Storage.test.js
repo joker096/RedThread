@@ -169,6 +169,26 @@ test('L3 storage rejects owner-writable ancestors owned by another principal', a
       error => error instanceof IdentityL3StorageError &&
         error.code === 'l3_storage_root_unsafe'
     );
+
+    // A foreign directory owner can chmod the directory later even if its
+    // current mode has no owner-write bit; validation must reject ownership,
+    // not merely the permissions visible at startup.
+    const readOnlyForeignParent = path.join(root, 'foreign-owner-readonly-parent');
+    const readOnlyEncryptedRoot = path.join(readOnlyForeignParent, 'encrypted');
+    const readOnlyScratchRoot = path.join(root, 'foreign-owner-readonly-scratch');
+    await mkdir(readOnlyForeignParent, { mode: 0o700 });
+    await chown(readOnlyForeignParent, 65534, 65534);
+    await chmod(readOnlyForeignParent, 0o555);
+    await mkdir(readOnlyEncryptedRoot, { mode: 0o700 });
+    await mkdir(readOnlyScratchRoot, { mode: 0o700 });
+
+    await assert.rejects(
+      assertIdentityL3StorageReady({
+        root: readOnlyEncryptedRoot, tempRoot: readOnlyScratchRoot, key
+      }),
+      error => error instanceof IdentityL3StorageError &&
+        error.code === 'l3_storage_root_unsafe'
+    );
   });
 });
 
