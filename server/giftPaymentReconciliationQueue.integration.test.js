@@ -204,7 +204,7 @@ test('gift reconciliation task completion requires a same-transaction provider o
       'INSERT INTO gift_delivery_orders ' +
       '(id, match_id, sender_id, recipient_id, product_name_snapshot, product_category, ' +
       'total_minor_units, currency, idempotency_key, status, payment_status) ' +
-      'VALUES ($1, $2, $3, $4, \'Reconciliation test gift\', \'approved_gift\', 1500, \'USD\', $5, ' +
+      'VALUES ($1, $2, $3, $4, \'Reconciliation test gift\', \'chocolate\', 1500, \'USD\', $5, ' +
       '\'awaiting_recipient_consent\', \'authorized\')',
       [orderId, matchId, senderId, recipientId, idempotencyKey]
     );
