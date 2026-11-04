@@ -2031,8 +2031,8 @@ test('captured recurring subscription evidence is paid, owner-bound, and distinc
   try {
     await client.query('BEGIN');
     await client.query(
-      "INSERT INTO users (id, email, password_hash, status, paddle_subscription_id, paddle_customer_id) VALUES ($1, $2, 'test-only-hash', 'active', $3, $4), ($5, $6, 'test-only-hash', 'active', 'sub_1123456789abcdef01234567', 'ctm_1123456789abcdef01234567')",
-      [ownerId, `paid-evidence-${ownerId}@example.invalid`, subscriptionId, customerId,
+      "INSERT INTO users (id, email, password_hash, status, paddle_subscription_id, paddle_customer_id) VALUES ($1, $2, 'test-only-hash', 'active', NULL, NULL), ($3, $4, 'test-only-hash', 'active', 'sub_1123456789abcdef01234567', 'ctm_1123456789abcdef01234567')",
+      [ownerId, `paid-evidence-${ownerId}@example.invalid`,
         otherOwnerId, `paid-evidence-other-${otherOwnerId}@example.invalid`]
     );
 
@@ -2048,6 +2048,21 @@ test('captured recurring subscription evidence is paid, owner-bound, and distinc
        SET transaction_id = $2, status = 'completed', updated_at = statement_timestamp()
        WHERE user_id = $1`,
       [ownerId, transactionId]
+    );
+    const earlyPaidEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+    await client.query(
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'transaction.paid')",
+      [earlyPaidEventId]
+    );
+    await client.query(
+      `INSERT INTO paddle_transaction_events
+       (event_id, transaction_id, user_id, plan, status, customer_id)
+       VALUES ($1, $2, $3, '1month', 'paid', $4)`,
+      [earlyPaidEventId, transactionId, ownerId, customerId]
+    );
+    await client.query(
+      "UPDATE users SET paddle_subscription_id = $2, paddle_customer_id = $3 WHERE id = $1",
+      [ownerId, subscriptionId, customerId]
     );
     const subscriptionEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
     await client.query(
