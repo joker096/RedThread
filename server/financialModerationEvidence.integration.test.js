@@ -2507,6 +2507,67 @@ test('Paddle transaction IDs remain globally unique across current and archived 
     await client.query('ROLLBACK TO SAVEPOINT conflicting_checkout_plan');
     await client.query('RELEASE SAVEPOINT conflicting_checkout_plan');
 
+    const firstCustomerId = 'ctm_2123456789abcdef01234567';
+    const secondCustomerId = 'ctm_3123456789abcdef01234567';
+    await client.query(
+      'UPDATE users SET paddle_customer_id = $2 WHERE id = $1',
+      [firstUserId, firstCustomerId]
+    );
+    await client.query(
+      'UPDATE users SET paddle_customer_id = $2 WHERE id = $1',
+      [secondUserId, secondCustomerId]
+    );
+    const mismatchedCustomerTransactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+    const mismatchedCustomerEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+    await client.query(
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'transaction.completed')",
+      [mismatchedCustomerEventId]
+    );
+    await client.query('SAVEPOINT mismatched_provider_customer_owner');
+    let mismatchedProviderCustomerError;
+    try {
+      await client.query(
+        `INSERT INTO paddle_transaction_events
+         (event_id, transaction_id, user_id, plan, status, customer_id)
+         VALUES ($1, $2, $3, 'lifetime', 'completed', $4)`,
+        [mismatchedCustomerEventId, mismatchedCustomerTransactionId, firstUserId, secondCustomerId]
+      );
+    } catch (error) { mismatchedProviderCustomerError = error; }
+    assert.equal(mismatchedProviderCustomerError?.code, '23505',
+      'a completed transaction must not attach another account\'s Paddle customer ID to the checkout owner');
+    await client.query('ROLLBACK TO SAVEPOINT mismatched_provider_customer_owner');
+    await client.query('RELEASE SAVEPOINT mismatched_provider_customer_owner');
+
+    const unboundCustomerTransactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+    const unboundCustomerFirstEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+    const unboundCustomerSecondEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+    const firstUnboundCustomerId = 'ctm_4123456789abcdef01234567';
+    const secondUnboundCustomerId = 'ctm_5123456789abcdef01234567';
+    await client.query(
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'transaction.completed'), ($2, 'transaction.completed')",
+      [unboundCustomerFirstEventId, unboundCustomerSecondEventId]
+    );
+    await client.query(
+      `INSERT INTO paddle_transaction_events
+       (event_id, transaction_id, user_id, plan, status, customer_id)
+       VALUES ($1, $2, $3, 'lifetime', 'completed', $4)`,
+      [unboundCustomerFirstEventId, unboundCustomerTransactionId, thirdUserId, firstUnboundCustomerId]
+    );
+    await client.query('SAVEPOINT conflicting_provider_customer_history');
+    let conflictingProviderCustomerHistoryError;
+    try {
+      await client.query(
+        `INSERT INTO paddle_transaction_events
+         (event_id, transaction_id, user_id, plan, status, customer_id)
+         VALUES ($1, $2, $3, 'lifetime', 'completed', $4)`,
+        [unboundCustomerSecondEventId, unboundCustomerTransactionId, thirdUserId, secondUnboundCustomerId]
+      );
+    } catch (error) { conflictingProviderCustomerHistoryError = error; }
+    assert.equal(conflictingProviderCustomerHistoryError?.code, '23505',
+      'all events for one Paddle transaction must retain the same customer identity even before it is linked to a user');
+    await client.query('ROLLBACK TO SAVEPOINT conflicting_provider_customer_history');
+    await client.query('RELEASE SAVEPOINT conflicting_provider_customer_history');
+
     const guardFunction = await client.query(
       "SELECT pg_get_functiondef('guard_paddle_checkout_transaction_global_uniqueness()'::regprocedure) AS definition"
     );
