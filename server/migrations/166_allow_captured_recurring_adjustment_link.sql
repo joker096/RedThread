@@ -95,6 +95,9 @@ END;
 $automatic_adjustment_link$;
 
 
+DROP TRIGGER IF EXISTS paddle_adjustment_reconciliation_automatic_link_guard
+  ON paddle_adjustment_reconciliation_cases;
+
 CREATE CONSTRAINT TRIGGER paddle_adjustment_reconciliation_automatic_link_guard
   AFTER INSERT OR UPDATE ON paddle_adjustment_reconciliation_cases
   DEFERRABLE INITIALLY DEFERRED
