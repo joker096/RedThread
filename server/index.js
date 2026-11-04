@@ -3654,6 +3654,7 @@ app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
                 COALESCE(e.transaction_id, c.provider_transaction_id) AS transaction_id,
                 c.provider_user_ref, c.provider_plan
          FROM paddle_adjustment_reconciliation_cases AS c
+         JOIN paddle_webhook_events AS webhook USING (event_id)
          LEFT JOIN paddle_adjustment_events AS e USING (event_id)
          WHERE c.event_id = $1 AND c.status = 'open'
          FOR UPDATE OF c`,
