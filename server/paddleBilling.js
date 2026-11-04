@@ -663,12 +663,13 @@ export async function processPaddleEvent(pool, rawEvent) {
     // consumed without changing account identity, avoiding endless webhook retries.
     if ((eventType === 'subscription.created' && customerId === null) ||
         (customerId !== null && !/^ctm_[A-Za-z0-9]+$/.test(customerId) && !adjustmentWebhookEvent)) {
-      if (['transaction.completed', 'transaction.canceled'].includes(eventType) &&
+      if (['transaction.paid', 'transaction.completed', 'transaction.canceled'].includes(eventType) &&
           typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
         await recordPaddleTransactionEvent(client, {
           eventId, transactionId: data.id, userId: null,
           plan: inferPaddleTransactionPlan(data),
-          status: eventType === 'transaction.completed' ? 'completed' : 'canceled',
+          status: eventType === 'transaction.completed' ? 'completed'
+            : eventType === 'transaction.paid' ? 'paid' : 'canceled',
           subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
           customerId: null,
           occurredAt,
@@ -676,7 +677,7 @@ export async function processPaddleEvent(pool, rawEvent) {
           currencyCode: paddleCurrencyCode(data)
         });
       }
-      const malformedEventTransactionId = eventType === 'transaction.completed'
+      const malformedEventTransactionId = ['transaction.paid', 'transaction.completed'].includes(eventType)
         ? data.id
         : eventType === 'subscription.created'
           ? (typeof data.transactionId === 'string' ? data.transactionId
@@ -834,6 +835,29 @@ export async function processPaddleEvent(pool, rawEvent) {
       const adjustmentResult = await processPaddleAdjustment(client, { eventId, occurredAt, data });
       await client.query('COMMIT');
       return { duplicate: false, ...adjustmentResult };
+    } else if (eventType === 'transaction.paid') {
+      // Paddle emits transaction.paid when payment is captured, before internal
+      // transaction processing completes. Retain the captured state but never
+      // grant access or finalize a checkout from this event alone.
+      if (typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
+        const transactionOwnerUserId = await findPaddleTransactionOwner(client, {
+          transactionId: data.id,
+          subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
+          customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null
+        });
+        await recordPaddleTransactionEvent(client, {
+          eventId,
+          transactionId: data.id,
+          userId: transactionOwnerUserId,
+          plan: inferPaddleTransactionPlan(data),
+          status: 'paid',
+          subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
+          customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null,
+          occurredAt,
+          ...paddleTransactionFinancialTotals(data),
+          currencyCode: paddleCurrencyCode(data)
+        });
+      }
     } else if (eventType === 'transaction.completed') {
       // Provider payloads are external input even after signature verification.
       // Reject malformed identifiers before they reach database CHECK constraints,
@@ -1102,7 +1126,7 @@ export async function processPaddleEvent(pool, rawEvent) {
     }
 
     await client.query('COMMIT');
-    return { duplicate: false, handled: ['subscription.created', 'subscription.updated', 'subscription.canceled', 'transaction.completed', 'transaction.canceled', 'adjustment.created', 'adjustment.updated', 'customer.created', 'customer.updated'].includes(eventType) };
+    return { duplicate: false, handled: ['subscription.created', 'subscription.updated', 'subscription.canceled', 'transaction.paid', 'transaction.completed', 'transaction.canceled', 'adjustment.created', 'adjustment.updated', 'customer.created', 'customer.updated'].includes(eventType) };
   } catch (error) {
     if (error?.code === '23505') {
       // A unique identity collision is a security conflict, not a transient
