@@ -87,17 +87,21 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       await client.query('COMMIT');
 
       await client.query('BEGIN');
-      await client.query(
-        `WITH granted AS (
-           INSERT INTO identity_l3_consents (user_id, consent_version, granted_at)
-           VALUES ($1, 2, statement_timestamp())
-           RETURNING user_id, consent_version, granted_at
-         )
-         INSERT INTO identity_l3_consent_events
-           (user_id, actor_user_id, event_type, consent_version, occurred_at)
-         SELECT user_id, user_id, 'granted', consent_version, granted_at
-         FROM granted`,
+      const initialConsentGrant = await client.query(
+        `INSERT INTO identity_l3_consents (user_id, consent_version, granted_at)
+         VALUES ($1, 2, statement_timestamp())
+         RETURNING user_id, consent_version, granted_at`,
         [consentProbeUserId]
+      );
+      await client.query(
+        `INSERT INTO identity_l3_consent_events
+           (user_id, actor_user_id, event_type, consent_version, occurred_at)
+         VALUES ($1, $1, 'granted', $2, $3)`,
+        [
+          initialConsentGrant.rows[0].user_id,
+          initialConsentGrant.rows[0].consent_version,
+          initialConsentGrant.rows[0].granted_at
+        ]
       );
       await client.query('COMMIT');
 
