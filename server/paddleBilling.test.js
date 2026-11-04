@@ -2191,6 +2191,19 @@ test('transaction.completed acquires the users table lock before transaction evi
   }
 });
 
+test('Paddle adjustment conflict migration preserves provider adjustment identity and audits it', async () => {
+  const migration = await readFile(
+    new URL('./migrations/185_preserve_conflicting_adjustment_identity.sql', import.meta.url),
+    'utf8'
+  );
+  assert.match(migration,
+    /ADD COLUMN provider_adjustment_id TEXT[\s\S]*\^adj_\[A-Za-z0-9\]\+\$/);
+  assert.match(migration,
+    /NEW\.provider_adjustment_id IS DISTINCT FROM OLD\.provider_adjustment_id/);
+  assert.match(migration,
+    /audit\.details->>'adjustmentId'[\s\S]*NEW\.provider_adjustment_id/);
+});
+
 test('Paddle identity migration acquires table locks in the application write order', async () => {
   const migration = await readFile(
     new URL('./migrations/183_guard_paddle_provider_identity_consistency.sql', import.meta.url),
