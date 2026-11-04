@@ -1143,12 +1143,23 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       );
       assert.equal(giftOrderSnapshotTrigger.rowCount, 1,
         'new gift orders must snapshot catalog and delivery-partner UUIDs');
-      const giftPartnerSnapshot = await client.query(
+      const giftPartnerSnapshots = await client.query(
         `SELECT column_name FROM information_schema.columns
          WHERE table_schema = current_schema()
-           AND table_name = 'gift_delivery_orders' AND column_name = 'delivery_partner_ref'`
+           AND table_name = 'gift_delivery_orders'
+           AND column_name IN (
+             'delivery_partner_ref',
+             'delivery_partner_key_snapshot',
+             'delivery_partner_name_snapshot'
+           )`
       );
-      assert.equal(giftPartnerSnapshot.rowCount, 1);
+      assert.equal(giftPartnerSnapshots.rowCount, 3,
+        'gift orders must preserve partner UUID, stable key and display name after live partner deletion');
+      const giftPartnerSnapshotFunction = await client.query(
+        `SELECT pg_get_functiondef('snapshot_gift_delivery_order_references()'::regprocedure) AS definition`
+      );
+      assert.match(giftPartnerSnapshotFunction.rows[0].definition, /partner_key/);
+      assert.match(giftPartnerSnapshotFunction.rows[0].definition, /display_name/);
       const giftCatalogDeleteRule = await client.query(
         `SELECT confdeltype FROM pg_constraint
          WHERE conrelid = 'gift_delivery_orders'::regclass
