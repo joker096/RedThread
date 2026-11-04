@@ -2031,10 +2031,14 @@ test('auth API supports registration, session lookup, logout and login', {
       last_error_code: null
     }], 'an explicit retry must safely reset only a failed purge lease');
     const consentAudit = await identityGateDb.query(
-      'SELECT event_type FROM identity_l3_consent_events WHERE user_id = $1 ORDER BY occurred_at, id',
+      'SELECT event_type, consent_version FROM identity_l3_consent_events WHERE user_id = $1 ORDER BY occurred_at, id',
       [secondMaleRegistered.user.id]
     );
-    assert.deepEqual(consentAudit.rows.map(row => row.event_type), ['granted', 'withdrawn']);
+    assert.deepEqual(consentAudit.rows, [
+      { event_type: 'granted', consent_version: 1 },
+      { event_type: 'granted', consent_version: 2 },
+      { event_type: 'withdrawn', consent_version: 2 }
+    ]);
     const consentAfter = await request('/api/identity/l3/consent', {
       headers: { Cookie: secondMaleCookie }
     });
