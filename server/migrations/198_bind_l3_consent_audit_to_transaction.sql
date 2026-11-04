@@ -34,6 +34,21 @@ WHERE consent.withdrawn_at IS NOT NULL
       AND event.occurred_at = consent.withdrawn_at
   );
 
+CREATE OR REPLACE FUNCTION set_identity_l3_consent_event_transaction()
+RETURNS trigger LANGUAGE plpgsql AS $l3_consent_event_txid$
+BEGIN
+  -- Never trust a caller-supplied transaction ID. Capture the transaction
+  -- that actually inserts this immutable event.
+  NEW.recorded_txid := txid_current();
+  RETURN NEW;
+END;
+$l3_consent_event_txid$;
+
+CREATE TRIGGER identity_l3_consent_events_transaction_id
+  BEFORE INSERT ON identity_l3_consent_events
+  FOR EACH ROW
+  EXECUTE FUNCTION set_identity_l3_consent_event_transaction();
+
 CREATE OR REPLACE FUNCTION require_identity_l3_consent_state_audit_event()
 RETURNS trigger LANGUAGE plpgsql AS $l3_consent_event_guard$
 DECLARE
