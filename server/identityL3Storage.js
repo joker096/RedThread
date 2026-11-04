@@ -43,6 +43,7 @@ async function ensurePrivateRoot(root) {
   const components = absoluteRoot.slice(parsedRoot.root.length).split(path.sep).filter(Boolean);
   let currentPath = parsedRoot.root;
   let stat;
+  const currentUid = typeof process.getuid === 'function' ? process.getuid() : null;
 
   // Walk and inspect every component before descending into it. Recursive mkdir()
   // would follow an existing symlinked parent and create directories outside the
@@ -74,9 +75,13 @@ async function ensurePrivateRoot(root) {
     // A private final directory is still replaceable if an untrusted principal
     // can rename it through a writable ancestor. Permit sticky shared parents
     // such as /tmp, where the child owner is protected from other users.
-    if (currentPath !== absoluteRoot && (stat.mode & 0o022) !== 0 &&
-        (stat.mode & 0o1000) === 0) {
-      throw new IdentityL3StorageError('l3_storage_root_unsafe');
+    if (currentPath !== absoluteRoot && (stat.mode & 0o022) !== 0) {
+      const stickyParent = (stat.mode & 0o1000) !== 0;
+      const trustedStickyOwner = stat.uid === 0 ||
+        (currentUid !== null && stat.uid === currentUid);
+      if (!stickyParent || !trustedStickyOwner) {
+        throw new IdentityL3StorageError('l3_storage_root_unsafe');
+      }
     }
   }
 
@@ -93,7 +98,6 @@ async function ensurePrivateRoot(root) {
   }
 
   stat = await lstat(absoluteRoot);
-  const currentUid = typeof process.getuid === 'function' ? process.getuid() : null;
   if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0 ||
       (currentUid !== null && stat.uid !== currentUid)) {
     // Never silently chmod/chown an operator-managed mount. Fail closed if
