@@ -1173,7 +1173,7 @@ test('auth API supports registration, session lookup, logout and login', {
         });
         assert.equal(optOutWithActivePayment.status, 200);
         const activePaymentState = await giftTestDb.query(
-          'SELECT status, payment_status, recipient_requests_disabled_at FROM gift_delivery_orders WHERE id = $1',
+          'SELECT status, payment_status, recipient_requests_disabled_at, updated_at FROM gift_delivery_orders WHERE id = $1',
           [activePaymentOrderId]
         );
         assert.deepEqual({
@@ -1185,6 +1185,19 @@ test('auth API supports registration, session lookup, logout and login', {
         });
         assert.ok(activePaymentState.rows[0].recipient_requests_disabled_at,
           'opt-out must invalidate a pending request even while payment reconciliation is required');
+        const repeatedOptOut = await request('/api/gifts/preferences', {
+          method: 'PUT',
+          headers: { Cookie: giftRecipient.cookie },
+          body: JSON.stringify({ requestsEnabled: false })
+        });
+        assert.equal(repeatedOptOut.status, 200);
+        const afterRepeatedOptOut = await giftTestDb.query(
+          'SELECT updated_at FROM gift_delivery_orders WHERE id = $1',
+          [activePaymentOrderId]
+        );
+        assert.equal(afterRepeatedOptOut.rows[0].updated_at.getTime(),
+          activePaymentState.rows[0].updated_at.getTime(),
+          'repeating an already-applied opt-out must not rewrite the old order or repeat its notifications');
         const acceptAfterPaymentOptOut = await request(
           `/api/gifts/orders/${activePaymentReference}/decision`,
           {
