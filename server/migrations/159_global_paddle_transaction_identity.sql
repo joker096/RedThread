@@ -36,6 +36,15 @@ BEGIN
       RAISE EXCEPTION 'Paddle transaction ID already belongs to an archived checkout attempt'
         USING ERRCODE = '23505';
     END IF;
+    IF EXISTS (
+      SELECT 1 FROM paddle_transaction_events AS event
+      WHERE event.transaction_id = NEW.transaction_id
+        AND ((event.user_id IS NOT NULL AND event.user_id <> NEW.user_id)
+          OR (event.plan IS NOT NULL AND event.plan <> NEW.plan))
+    ) THEN
+      RAISE EXCEPTION 'Paddle checkout conflicts with retained provider transaction ownership or plan'
+        USING ERRCODE = '23514';
+    END IF;
   ELSIF TG_TABLE_NAME = 'paddle_checkout_attempt_history' THEN
     IF EXISTS (
       SELECT 1
@@ -48,6 +57,31 @@ BEGIN
     ) THEN
       RAISE EXCEPTION 'Paddle transaction ID already belongs to another current checkout attempt'
         USING ERRCODE = '23505';
+    END IF;
+    IF EXISTS (
+      SELECT 1 FROM paddle_transaction_events AS event
+      WHERE event.transaction_id = NEW.transaction_id
+        AND ((event.user_id IS NOT NULL AND event.user_id <> NEW.user_id)
+          OR (event.plan IS NOT NULL AND event.plan <> NEW.plan))
+    ) THEN
+      RAISE EXCEPTION 'Archived Paddle checkout conflicts with retained provider transaction ownership or plan'
+        USING ERRCODE = '23514';
+    END IF;
+  ELSIF TG_TABLE_NAME = 'paddle_transaction_events' THEN
+    IF EXISTS (
+      SELECT 1
+      FROM (
+        SELECT user_id, plan FROM paddle_checkout_attempts WHERE transaction_id = NEW.transaction_id
+        UNION ALL
+        SELECT user_id, plan FROM paddle_checkout_attempt_history WHERE transaction_id = NEW.transaction_id
+        UNION ALL
+        SELECT user_id, plan FROM paddle_transaction_events WHERE transaction_id = NEW.transaction_id
+      ) AS existing
+      WHERE (NEW.user_id IS NOT NULL AND existing.user_id IS NOT NULL AND existing.user_id <> NEW.user_id)
+         OR (NEW.plan IS NOT NULL AND existing.plan IS NOT NULL AND existing.plan <> NEW.plan)
+    ) THEN
+      RAISE EXCEPTION 'Paddle transaction ledger conflicts with an existing owner or plan'
+        USING ERRCODE = '23514';
     END IF;
   END IF;
 
@@ -65,5 +99,10 @@ CREATE TRIGGER paddle_checkout_attempt_history_global_transaction_identity
   FOR EACH ROW
   EXECUTE FUNCTION guard_paddle_checkout_transaction_global_uniqueness();
 
+CREATE TRIGGER paddle_transaction_events_owner_identity_guard
+  BEFORE INSERT ON paddle_transaction_events
+  FOR EACH ROW
+  EXECUTE FUNCTION guard_paddle_checkout_transaction_global_uniqueness();
+
 COMMENT ON FUNCTION guard_paddle_checkout_transaction_global_uniqueness() IS
-  'Enforces provider transaction ID uniqueness across both the mutable current checkout pointer and append-only archived checkout history; the rollover trigger may archive only its own source row.';
+  'Enforces provider transaction ownership and plan consistency across current attempts, archived history, and the append-only transaction ledger; the rollover trigger may archive only its own source row.';
