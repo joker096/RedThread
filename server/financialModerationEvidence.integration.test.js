@@ -2770,8 +2770,9 @@ test('Paddle chargeback reversals are paired one-to-one and must be strictly lat
       { action: 'refund', adjustmentId: approvedThenReversedRefundAdjustmentId, status: 'approved', occurredAt: '2026-11-01T10:00:00Z' },
       { action: 'refund', adjustmentId: approvedThenReversedRefundAdjustmentId, status: 'reversed', occurredAt: '2026-11-01T11:00:00Z' }
     ]);
-    assert.equal(approvedThenReversedRefund.fullRefundActive, false);
-    assert.equal(approvedThenReversedRefund.fullRefundReversed, true);
+    assert.equal(approvedThenReversedRefund.fullRefundActive, true,
+      'a refund status of reversed is not a supported reversal action and must remain adverse');
+    assert.equal(approvedThenReversedRefund.fullRefundReversed, false);
 
     const sameTimeRefundAdjustmentId = makeId('adj');
     const sameTimeRefundReversal = await stateFor([
@@ -2904,6 +2905,28 @@ test('contradictory refund final webhook is queued and cannot clear approved ref
       [rejectedEventId]
     );
     assert.deepEqual(caseResult.rows, [{ reason_code: 'provider_lifecycle_conflict' }]);
+    const reversedEventId = makeId('evt');
+    const reversedResult = await processPaddleEvent(pool, {
+      eventId: reversedEventId,
+      eventType: 'adjustment.updated',
+      occurredAt: '2026-11-01T12:00:00Z',
+      data: {
+        id: adjustmentId,
+        transactionId,
+        action: 'refund',
+        type: 'full',
+        status: 'reversed',
+        currencyCode: 'USD',
+        totals: { total: '500', currencyCode: 'USD' }
+      }
+    });
+    assert.equal(reversedResult.reconciliationRequired, true);
+    const reversedCase = await pool.query(
+      'SELECT reason_code FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1',
+      [reversedEventId]
+    );
+    assert.deepEqual(reversedCase.rows, [{ reason_code: 'provider_lifecycle_conflict' }]);
+
     const state = await getPaddleAdjustmentState(
       { query: (sql, params) => pool.query(sql, params) },
       transactionId
