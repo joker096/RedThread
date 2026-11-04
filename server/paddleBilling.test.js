@@ -2214,6 +2214,9 @@ test('Paddle manual resolution migration keeps unverified ownership cases open',
   );
   assert.match(migration,
     /NEW\.reason_code NOT IN \([\s\S]*'invalid_adjustment_payload'[\s\S]*'provider_identity_conflict'[\s\S]*'provider_lifecycle_conflict'/);
+  assert.match(migration,
+    /webhook\.event_type IN \([\s\S]*'adjustment\.created'[\s\S]*'adjustment\.updated'[\s\S]*'customer\.created'[\s\S]*'customer\.updated'/,
+    'transaction and subscription lifecycle conflicts must remain open for verified transaction reconciliation');
   const lockIndex = migration.indexOf('LOCK TABLE paddle_adjustment_reconciliation_cases IN SHARE ROW EXCLUSIVE MODE;');
   const functionIndex = migration.indexOf('CREATE OR REPLACE FUNCTION require_manual_paddle_adjustment_resolution_audit()');
   assert.ok(lockIndex >= 0 && functionIndex > lockIndex,
