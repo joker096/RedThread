@@ -4074,6 +4074,25 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
          RETURNING id, sender_id, public_reference, payment_status`,
         [req.authUser.id]
       );
+      // Every invalidated request gets its own durable opt-out event, even
+      // when no provider payment reconciliation task is needed.
+      for (const order of invalidatedOrders.rows) {
+        await client.query(
+          `INSERT INTO gift_delivery_order_events
+             (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
+           SELECT id, $2, 'recipient', 'recipient_opted_out', status, status,
+                  jsonb_build_object('reason', 'recipient_opted_out')
+           FROM gift_delivery_orders
+           WHERE id = $1
+             AND NOT EXISTS (
+               SELECT 1 FROM gift_delivery_order_events e
+               WHERE e.order_id = gift_delivery_orders.id
+                 AND e.event_type = 'recipient_opted_out'
+                 AND e.metadata->>'reason' = 'recipient_opted_out'
+             )`,
+          [order.id, req.authUser.id]
+        );
+      }
       // Notify every affected sender, including requests awaiting payment
       // reconciliation. The generic notification exposes no address or contact data.
       for (const order of invalidatedOrders.rows) {
