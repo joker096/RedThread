@@ -2099,6 +2099,18 @@ test('transaction.paid is retained as captured payment without granting or final
     'paid events must serialize with transaction completion and adjustment processing');
 });
 
+test('Paddle adjustment identity migration freezes ledger writes before preflight', async () => {
+  const migration = await readFile(
+    new URL('./migrations/184_guard_paddle_adjustment_identity.sql', import.meta.url),
+    'utf8'
+  );
+  const lockIndex = migration.indexOf('LOCK TABLE paddle_adjustment_events IN SHARE ROW EXCLUSIVE MODE;');
+  const preflightIndex = migration.indexOf('DO $migration184$');
+  const triggerIndex = migration.indexOf('CREATE TRIGGER paddle_adjustment_events_identity_guard');
+  assert.ok(lockIndex >= 0 && preflightIndex > lockIndex && triggerIndex > preflightIndex,
+    'migration 184 must block concurrent adjustment writes across conflict preflight and identity-trigger installation');
+});
+
 test('Paddle identity migration acquires table locks in the application write order', async () => {
   const migration = await readFile(
     new URL('./migrations/183_guard_paddle_provider_identity_consistency.sql', import.meta.url),
