@@ -1986,7 +1986,7 @@ test('transaction.completed quarantines custom_data owner that contradicts the r
   process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_owner_conflict';
   const ownerA = '00000000-0000-4000-8000-000000000081';
   const ownerB = '00000000-0000-4000-8000-000000000082';
-  const transactionId = 'txn_owner_conflict_transaction123';
+  const transactionId = 'txn_ownerconflicttransaction123';
   const calls = [];
   const client = {
     async query(sql, params = []) {
@@ -2043,7 +2043,7 @@ test('transaction.completed quarantines custom_data plan that contradicts the co
   const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
   process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_lifetime_plan_conflict';
   const ownerId = '00000000-0000-4000-8000-000000000083';
-  const transactionId = 'txn_plan_conflict_transaction123';
+  const transactionId = 'txn_planconflicttransaction123';
   const calls = [];
   const client = {
     async query(sql, params = []) {
@@ -2117,7 +2117,7 @@ test('transaction.paid quarantines custom_data owner that contradicts the retain
     eventType: 'transaction.paid',
     occurredAt: '2026-11-04T12:05:00Z',
     data: {
-      id: 'txn_paid_owner_conflict_transaction123',
+      id: 'txn_paidownerconflicttransaction123',
       customData: { userId: ownerB, plan: '3months' },
       items: [{ price: { id: 'pri_unknown_paid_plan' } }]
     }
