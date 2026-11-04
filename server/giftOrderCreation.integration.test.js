@@ -1070,6 +1070,21 @@ test('gift request opt-out permanently invalidates pending requests even after r
       [ids.recipientA]
     );
     await pool.query(
+      `INSERT INTO gift_delivery_order_events
+         (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
+       SELECT id, $2, 'recipient', 'recipient_opted_out', status, status,
+              jsonb_build_object('reason', 'recipient_opted_out')
+       FROM gift_delivery_orders
+       WHERE recipient_id = $2 AND status = 'awaiting_recipient_consent'
+         AND NOT EXISTS (
+           SELECT 1 FROM gift_delivery_order_events e
+           WHERE e.order_id = gift_delivery_orders.id
+             AND e.event_type = 'recipient_opted_out'
+             AND e.metadata->>'reason' = 'recipient_opted_out'
+         )`,
+      [ids.recipientA, ids.recipientA]
+    );
+    await pool.query(
       'UPDATE gift_receiving_preferences SET requests_enabled = FALSE WHERE user_id = $1',
       [ids.recipientA]
     );
@@ -1092,6 +1107,19 @@ test('gift request opt-out permanently invalidates pending requests even after r
     assert.equal(stored.rows[0].status, 'awaiting_recipient_consent');
     assert.equal(stored.rows[0].payment_status, 'not_started');
     assert.ok(stored.rows[0].recipient_requests_disabled_at);
+    const optOutEvents = await pool.query(
+      `SELECT event_type, from_status, to_status, metadata
+       FROM gift_delivery_order_events
+       WHERE order_id = (SELECT id FROM gift_delivery_orders WHERE sender_id = $1 AND idempotency_key = $2)
+         AND event_type = 'recipient_opted_out'`,
+      [ids.sender, input.idempotencyKey]
+    );
+    assert.deepEqual(optOutEvents.rows, [{
+      event_type: 'recipient_opted_out',
+      from_status: 'awaiting_recipient_consent',
+      to_status: 'awaiting_recipient_consent',
+      metadata: { reason: 'recipient_opted_out' }
+    }], 'opt-out must remain in the append-only event trail even when no payment task is needed');
   } finally {
     if (fixture) await cleanupFixture(pool, fixture);
     await pool.end();
