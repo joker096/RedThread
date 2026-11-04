@@ -1555,6 +1555,11 @@ test('Paddle identity unique conflicts reconcile only the matching checkout atte
     reconciliationRequired: true
   });
   assert.equal(queries.some(query => query.statement === 'ROLLBACK TO SAVEPOINT paddle_event_effects'), true);
+  const queuedConflict = queries.find(query =>
+    query.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')
+  );
+  assert.ok(queuedConflict, 'provider identity conflicts must remain visible in the moderator reconciliation queue');
+  assert.deepEqual(queuedConflict.params, ['evt_identity_conflict', 'provider_identity_conflict']);
   const reconciliationUpdate = queries.find(query =>
     query.statement.includes("SET status = 'reconciliation_required'")
   );
