@@ -2826,3 +2826,60 @@ test('conflicting Paddle adjustment identity is quarantined without entering the
   }
 });
 
+test('contradictory refund final webhook is queued and cannot clear approved refund state', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const makeId = prefix => `${prefix}_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  const adjustmentId = makeId('adj');
+  const transactionId = makeId('txn');
+  const approvedEventId = makeId('evt');
+  const rejectedEventId = makeId('evt');
+
+  try {
+    await pool.query(
+      'INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, $2)',
+      [approvedEventId, 'adjustment.created']
+    );
+    await pool.query(
+      `INSERT INTO paddle_adjustment_events
+       (event_id, adjustment_id, transaction_id, action, adjustment_type, status,
+        amount_minor_units, currency_code, occurred_at)
+       VALUES ($1, $2, $3, 'refund', 'full', 'approved', 500, 'USD', $4::timestamptz)`,
+      [approvedEventId, adjustmentId, transactionId, '2026-11-01T10:00:00Z']
+    );
+
+    const result = await processPaddleEvent(pool, {
+      eventId: rejectedEventId,
+      eventType: 'adjustment.updated',
+      occurredAt: '2026-11-01T11:00:00Z',
+      data: {
+        id: adjustmentId,
+        transactionId,
+        action: 'refund',
+        type: 'full',
+        status: 'rejected',
+        currencyCode: 'USD',
+        totals: { total: '500', currencyCode: 'USD' }
+      }
+    });
+
+    assert.equal(result.reconciliationRequired, true);
+    const caseResult = await pool.query(
+      'SELECT reason_code FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1',
+      [rejectedEventId]
+    );
+    assert.deepEqual(caseResult.rows, [{ reason_code: 'provider_lifecycle_conflict' }]);
+    const state = await getPaddleAdjustmentState(
+      { query: (sql, params) => pool.query(sql, params) },
+      transactionId
+    );
+    assert.equal(state.fullRefundActive, true,
+      'the previously approved full refund must remain adverse after contradictory rejection');
+    assert.equal(state.fullRefundReversed, false);
+  } finally {
+    await pool.end();
+  }
+});
+
