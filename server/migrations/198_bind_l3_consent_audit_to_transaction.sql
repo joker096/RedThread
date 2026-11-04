@@ -4,6 +4,36 @@
 ALTER TABLE identity_l3_consent_events
   ADD COLUMN recorded_txid BIGINT NOT NULL DEFAULT txid_current();
 
+-- Migration 197 used a non-strict timestamp comparison when reconstructing
+-- historical evidence. Rebuild any missing exact grant/withdrawal event so a
+-- future-dated row cannot suppress the real historical audit record.
+INSERT INTO identity_l3_consent_events
+  (user_id, actor_user_id, event_type, consent_version, occurred_at)
+SELECT consent.user_id, consent.user_id, 'granted', consent.consent_version, consent.granted_at
+FROM identity_l3_consents AS consent
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM identity_l3_consent_events AS event
+  WHERE event.user_id = consent.user_id
+    AND event.event_type = 'granted'
+    AND event.consent_version = consent.consent_version
+    AND event.occurred_at = consent.granted_at
+);
+
+INSERT INTO identity_l3_consent_events
+  (user_id, actor_user_id, event_type, consent_version, occurred_at)
+SELECT consent.user_id, consent.user_id, 'withdrawn', consent.consent_version, consent.withdrawn_at
+FROM identity_l3_consents AS consent
+WHERE consent.withdrawn_at IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1
+    FROM identity_l3_consent_events AS event
+    WHERE event.user_id = consent.user_id
+      AND event.event_type = 'withdrawn'
+      AND event.consent_version = consent.consent_version
+      AND event.occurred_at = consent.withdrawn_at
+  );
+
 CREATE OR REPLACE FUNCTION require_identity_l3_consent_state_audit_event()
 RETURNS trigger LANGUAGE plpgsql AS $l3_consent_event_guard$
 DECLARE
