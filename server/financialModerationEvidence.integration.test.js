@@ -1236,6 +1236,38 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
         moderator_ref: moderatorActorId
       }], 'moderator audit snapshots must derive only from a live moderator FK');
 
+      await client.query(`
+        CREATE TEMP TABLE gift_order_reference_guard_test (
+          catalog_item_id uuid, catalog_item_ref uuid,
+          delivery_partner_id uuid, delivery_partner_ref uuid,
+          delivery_partner_key_snapshot text, delivery_partner_name_snapshot text
+        ) ON COMMIT DROP
+      `);
+      await client.query(`
+        CREATE TRIGGER gift_order_reference_snapshot_test
+        BEFORE INSERT ON gift_order_reference_guard_test
+        FOR EACH ROW EXECUTE FUNCTION snapshot_gift_delivery_order_references()
+      `);
+      await client.query('SAVEPOINT forged_catalog_snapshot');
+      await assert.rejects(
+        client.query(
+          'INSERT INTO gift_order_reference_guard_test (catalog_item_id, catalog_item_ref) VALUES (NULL, $1)',
+          [randomUUID()]
+        ),
+        error => error.code === '23514'
+      );
+      await client.query('ROLLBACK TO SAVEPOINT forged_catalog_snapshot');
+      await client.query('RELEASE SAVEPOINT forged_catalog_snapshot');
+      await client.query('SAVEPOINT missing_catalog_reference');
+      await assert.rejects(
+        client.query(
+          'INSERT INTO gift_order_reference_guard_test (catalog_item_id, catalog_item_ref) VALUES (NULL, NULL)'
+        ),
+        error => error.code === '23514'
+      );
+      await client.query('ROLLBACK TO SAVEPOINT missing_catalog_reference');
+      await client.query('RELEASE SAVEPOINT missing_catalog_reference');
+
       const giftActorSnapshot = await client.query(
         `SELECT column_name FROM information_schema.columns
          WHERE table_schema = current_schema()
