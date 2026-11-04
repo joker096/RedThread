@@ -694,6 +694,11 @@ export async function processPaddleEvent(pool, rawEvent) {
     const customUserId = rawCustomUserId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawCustomUserId)
       ? rawCustomUserId
       : null;
+    const hasCamelCustomUserId = Object.prototype.hasOwnProperty.call(customData, 'userId');
+    const hasSnakeCustomUserId = Object.prototype.hasOwnProperty.call(customData, 'user_id');
+    const customUserIdMetadataConflict =
+      ((hasCamelCustomUserId || hasSnakeCustomUserId) && !customUserId) ||
+      (hasCamelCustomUserId && hasSnakeCustomUserId && customData.userId !== customData.user_id);
     const rawCheckoutAttemptId = typeof customData.checkoutAttemptId === 'string'
       ? customData.checkoutAttemptId : null;
     const checkoutAttemptId = rawCheckoutAttemptId &&
@@ -943,12 +948,10 @@ export async function processPaddleEvent(pool, rawEvent) {
         // A retained transaction link must not override contradictory signed
         // checkout metadata. Preserve the provider event without attributing it
         // to the old account; the conflict remains visible for reconciliation.
-        const providerOwnerConflict = Boolean(customUserId && transactionOwnerUserId &&
-          customUserId !== transactionOwnerUserId);
-        const providerPlanConflict = Boolean(
-          ['1month', '3months', 'lifetime'].includes(customData.plan) &&
-          customData.plan !== transactionPlan
-        );
+        const providerOwnerConflict = customUserIdMetadataConflict ||
+          Boolean(customUserId && transactionOwnerUserId && customUserId !== transactionOwnerUserId);
+        const providerPlanConflict = Object.prototype.hasOwnProperty.call(customData, 'plan') &&
+          customData.plan !== transactionPlan;
         if (providerOwnerConflict || providerPlanConflict) {
           // transaction.paid is only a capture snapshot. Defer opening the
           // durable ownership-conflict case until transaction.completed, whose
@@ -1041,15 +1044,15 @@ export async function processPaddleEvent(pool, rawEvent) {
       // Existing transaction evidence may identify an old account even when
       // this webhook's signed checkout metadata names another account. Never
       // let the old link win over contradictory provider context or plan.
-      const providerOwnerConflict = Boolean(customUserId && transactionOwnerUserId &&
-        customUserId !== transactionOwnerUserId);
-      const providerPlanConflict = Boolean(
-        ['1month', '3months', 'lifetime'].includes(customData.plan) &&
-        customData.plan !== transactionPlan
-      );
+      const providerOwnerConflict = customUserIdMetadataConflict ||
+        Boolean(customUserId && transactionOwnerUserId && customUserId !== transactionOwnerUserId);
+      const providerPlanConflict = Object.prototype.hasOwnProperty.call(customData, 'plan') &&
+        customData.plan !== transactionPlan;
       if (providerOwnerConflict || providerPlanConflict) {
         await recordPaddleProviderIdentityConflictCase(client, {
-          eventId, transactionId: data.id, userId: customUserId, plan: customData.plan
+          eventId, transactionId: data.id,
+          userId: customUserIdMetadataConflict ? null : customUserId,
+          plan: customData.plan
         });
         transactionOwnerUserId = null;
       }
