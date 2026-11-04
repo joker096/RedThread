@@ -696,7 +696,50 @@ test('ambiguous equal provider timestamps cannot reverse a chargeback', async ()
   assert.match(stateQuery.statement, /reversal\.occurred_at <= chargeback\.occurred_at/);
 });
 
+test('refund reversal without prior approval is quarantined and remains adverse', async () => {
+  const { pool, calls } = makePool({
+    ledgerStatus: 'revoked',
+    revokeReason: 'paddle_full_refund',
+    fullRefund: true,
+    fullRefundReversed: false,
+    conflictingRefundLifecycle: true
+  });
+  const result = await sendAdjustment(pool, {
+    action: 'refund', status: 'reversed', type: 'full', eventType: 'adjustment.updated'
+  });
+  assert.equal(result.entitlementChanged, false);
+  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
+  const reconciliation = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
+  assert.ok(reconciliation);
+  assert.equal(reconciliation.params[1], 'provider_lifecycle_conflict');
+  const stateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
+  assert.match(stateQuery.statement,
+    /latest\.status = 'reversed'[\s\S]*NOT EXISTS[\s\S]*prior\.status = 'approved'/);
+});
+
 test('contradictory refund final states stay adverse and enter reconciliation', async () => {
+  const { pool, calls } = makePool({
+    ledgerStatus: 'revoked',
+    revokeReason: 'paddle_full_refund',
+    fullRefund: true,
+    fullRefundReversed: false,
+    conflictingRefundLifecycle: true
+  });
+  const result = await sendAdjustment(pool, {
+    action: 'refund', status: 'rejected', type: 'full', eventType: 'adjustment.updated'
+  });
+  assert.equal(result.entitlementChanged, false);
+  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false);
+  const reconciliation = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
+  assert.ok(reconciliation);
+  assert.equal(reconciliation.params[1], 'provider_lifecycle_conflict');
+  const stateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
+  assert.match(stateQuery.statement, /latest\.status <> 'reversed'[\s\S]*prior\.status = 'approved'/);
+  assert.match(stateQuery.statement, /latest\.status = 'reversed'/);
+  assert.doesNotMatch(stateQuery.statement, /latest\.status IN \('rejected', 'reversed'\)/);
+});
+
+
   const { pool, calls } = makePool({
     ledgerStatus: 'revoked',
     revokeReason: 'paddle_full_refund',
