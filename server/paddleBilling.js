@@ -1137,14 +1137,14 @@ export async function processPaddleEvent(pool, rawEvent) {
         // Reconcile only the checkout attempt tied to this provider transaction.
         // A subscription.updated/canceled identity conflict must never downgrade
         // unrelated or already-linked/canceled purchases for the same account.
-        const reconciliationTransactionId = eventType === 'transaction.completed'
+        const reconciliationTransactionId = ['transaction.paid', 'transaction.completed', 'transaction.canceled'].includes(eventType)
           ? data.id
           : eventType === 'subscription.created'
             ? (typeof data.transactionId === 'string' ? data.transactionId
               : typeof data.transaction_id === 'string' ? data.transaction_id : null)
             : null;
         const providerIdentityConflict = [
-          'transaction.completed', 'transaction.canceled',
+          'transaction.paid', 'transaction.completed', 'transaction.canceled',
           'subscription.created', 'subscription.updated', 'subscription.canceled',
           'customer.created', 'customer.updated'
         ].includes(eventType);
