@@ -179,6 +179,17 @@ test('L3 schema persists metadata only and protects workflow decisions', {
          WHERE tgrelid = 'identity_l3_decision_events'::regclass AND NOT tgisinternal`
       );
       assert.ok(eventTrigger.rows.some(row => row.tgname === 'identity_l3_decision_events_append_only'));
+      const decisionEventInsertGuard = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'identity_l3_decision_events'::regclass AND NOT tgisinternal`
+      );
+      assert.ok(decisionEventInsertGuard.rows.some(row =>
+        row.tgname === 'identity_l3_decision_events_source_insert_guard'
+      ), 'decision events must be emitted only by the guarded submission transition trigger');
+      const decisionEventSourceFunction = await client.query(
+        `SELECT pg_get_functiondef('require_identity_l3_decision_event_source()'::regprocedure) AS definition`
+      );
+      assert.match(decisionEventSourceFunction.rows[0].definition, /pg_trigger_depth\(\) <= 1/);
       const eventForeignKeys = await client.query(
         `SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
          WHERE conrelid = 'identity_l3_decision_events'::regclass AND contype = 'f'`
