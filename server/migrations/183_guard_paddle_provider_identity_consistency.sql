@@ -5,7 +5,7 @@
 -- contradictory rows can slip between the preflight and trigger activation.
 LOCK TABLE paddle_transaction_events, users IN SHARE ROW EXCLUSIVE MODE;
 
-DO $
+DO $migration183$
 BEGIN
   IF EXISTS (
     SELECT transaction_id
@@ -50,7 +50,7 @@ BEGIN
       USING ERRCODE = '23514';
   END IF;
 END;
-$;
+$migration183$;
 
 CREATE OR REPLACE FUNCTION guard_paddle_checkout_transaction_global_uniqueness()
 RETURNS trigger LANGUAGE plpgsql AS $paddle_transaction_global_identity$
