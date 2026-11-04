@@ -2201,7 +2201,7 @@ test('Paddle identity migration acquires table locks in the application write or
   assert.deepEqual(
     lock[1].split(',').map(table => table.trim()),
     ['users', 'paddle_transaction_events'],
-    'subscription.created updates users before inserting transaction evidence; migration locks must use the same order to avoid online-migration deadlocks'
+    'subscription.created writes users before transaction evidence, and transaction.completed explicitly acquires the users table lock before its later entitlement update; migration locks must use this common order to avoid online-migration deadlocks'
   );
 });
 
