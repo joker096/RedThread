@@ -1883,6 +1883,7 @@ test('auth API supports registration, session lookup, logout and login', {
          RETURNING user_id, consent_version, granted_at`,
         [maleRegistered.user.id, secondMaleRegistered.user.id]
       );
+      assert.equal(initialGrants.rowCount, 2, 'both L3 consent grants must be created');
       await consentSetupClient.query(
         `INSERT INTO identity_l3_consent_events
            (user_id, actor_user_id, event_type, consent_version, occurred_at)
