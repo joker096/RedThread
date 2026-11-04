@@ -2013,6 +2013,7 @@ test('Paddle transaction evidence stores signed gross and net totals after credi
   const client = await pool.connect();
   const eventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
   const transactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  const expectAdjustmentId = `adj_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
   try {
     await client.query('BEGIN');
     await client.query(
@@ -2210,16 +2211,17 @@ test('provider identity reconciliation retains immutable minimal context and aud
     );
     await client.query(
       `INSERT INTO paddle_adjustment_reconciliation_cases
-       (event_id, reason_code, provider_transaction_id, provider_user_ref, provider_plan)
-       VALUES ($1, 'provider_identity_conflict', $2, $3, '1month')`,
-      [eventId, transactionId, ownerId]
+       (event_id, reason_code, provider_transaction_id, provider_adjustment_id,
+        provider_user_ref, provider_plan)
+       VALUES ($1, 'provider_identity_conflict', $2, $3, $4, '1month')`,
+      [eventId, transactionId, expectAdjustmentId, ownerId]
     );
     await client.query('SAVEPOINT immutable_provider_case_context');
     let immutableContextError;
     try {
       await client.query(
-        'UPDATE paddle_adjustment_reconciliation_cases SET provider_plan = $2 WHERE event_id = $1',
-        [eventId, '3months']
+        'UPDATE paddle_adjustment_reconciliation_cases SET provider_adjustment_id = $2 WHERE event_id = $1',
+        [eventId, `adj_${randomUUID().replace(/-/g, '').slice(0, 26)}`]
       );
     } catch (error) { immutableContextError = error; }
     assert.equal(immutableContextError?.code, '55000',
@@ -2243,6 +2245,7 @@ test('provider identity reconciliation retains immutable minimal context and aud
                jsonb_build_object(
                  'eventId', $2::text,
                  'reasonCode', 'provider_identity_conflict',
+                 'adjustmentId', (SELECT provider_adjustment_id FROM paddle_adjustment_reconciliation_cases WHERE event_id = $2),
                  'transactionId', $3::text,
                  'providerUserRef', $4::text,
                  'providerPlan', '1month',
@@ -2252,13 +2255,15 @@ test('provider identity reconciliation retains immutable minimal context and aud
     );
     await client.query('SET CONSTRAINTS paddle_adjustment_reconciliation_manual_audit_guard IMMEDIATE');
     const resolved = await client.query(
-      `SELECT status, provider_transaction_id, provider_user_ref, provider_plan
+      `SELECT status, provider_transaction_id, provider_adjustment_id,
+              provider_user_ref, provider_plan
        FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1`,
       [eventId]
     );
     assert.deepEqual(resolved.rows, [{
       status: 'resolved',
       provider_transaction_id: transactionId,
+      provider_adjustment_id: expectAdjustmentId,
       provider_user_ref: ownerId,
       provider_plan: '1month'
     }]);
