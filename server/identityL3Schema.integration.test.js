@@ -215,6 +215,21 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       assert.ok(purgeQueueTriggerNames.rows.some(row =>
         row.tgname === 'identity_l3_media_purge_job_completion_guard'
       ), 'purge jobs may complete only after their submission object key is cleared');
+      assert.ok(purgeQueueTriggerNames.rows.some(row =>
+        row.tgname === 'identity_l3_media_purge_jobs_enqueue_source_guard'
+      ), 'purge jobs must be created only by a guarded terminal submission transition');
+      await assert.rejects(
+        client.query(
+          `INSERT INTO identity_l3_media_purge_jobs
+             (submission_id, user_id, status, attempts, completed_at)
+           VALUES (
+             'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+             'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+             'completed', 0, statement_timestamp()
+           )`
+        ),
+        error => error.code === '55000'
+      );
       const submissionPurgeCompletionGuard = await client.query(
         `SELECT tgname FROM pg_trigger
          WHERE tgrelid = 'identity_l3_submissions'::regclass AND NOT tgisinternal`
