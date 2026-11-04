@@ -1072,17 +1072,17 @@ test('gift request opt-out permanently invalidates pending requests even after r
     await pool.query(
       `INSERT INTO gift_delivery_order_events
          (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
-       SELECT id, $2, 'recipient', 'recipient_opted_out', status, status,
+       SELECT id, $1, 'recipient', 'recipient_opted_out', status, status,
               jsonb_build_object('reason', 'recipient_opted_out')
        FROM gift_delivery_orders
-       WHERE recipient_id = $2 AND status = 'awaiting_recipient_consent'
+       WHERE recipient_id = $1 AND status = 'awaiting_recipient_consent'
          AND NOT EXISTS (
            SELECT 1 FROM gift_delivery_order_events e
            WHERE e.order_id = gift_delivery_orders.id
              AND e.event_type = 'recipient_opted_out'
              AND e.metadata->>'reason' = 'recipient_opted_out'
          )`,
-      [ids.recipientA, ids.recipientA]
+      [ids.recipientA]
     );
     let optoutTimestampError;
     try {
