@@ -117,18 +117,32 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
        VALUES ($1, 'didit', $2, $3, 'verified', 'Approved', 'live')`,
       [applicantId, randomUUID(), randomUUID()]
     );
-    await pool.query(
-      `WITH granted AS (
-         INSERT INTO identity_l3_consents (user_id, consent_version, granted_at)
+    const consentGrantClient = await pool.connect();
+    try {
+      await consentGrantClient.query('BEGIN');
+      const grantedConsent = await consentGrantClient.query(
+        `INSERT INTO identity_l3_consents (user_id, consent_version, granted_at)
          VALUES ($1, 2, statement_timestamp())
-         RETURNING user_id, consent_version, granted_at
-       )
-       INSERT INTO identity_l3_consent_events
-         (user_id, actor_user_id, event_type, consent_version, occurred_at)
-       SELECT user_id, user_id, 'granted', consent_version, granted_at
-       FROM granted`,
-      [applicantId]
-    );
+         RETURNING user_id, consent_version, granted_at`,
+        [applicantId]
+      );
+      await consentGrantClient.query(
+        `INSERT INTO identity_l3_consent_events
+           (user_id, actor_user_id, event_type, consent_version, occurred_at)
+         VALUES ($1, $1, 'granted', $2, $3)`,
+        [
+          grantedConsent.rows[0].user_id,
+          grantedConsent.rows[0].consent_version,
+          grantedConsent.rows[0].granted_at
+        ]
+      );
+      await consentGrantClient.query('COMMIT');
+    } catch (error) {
+      await consentGrantClient.query('ROLLBACK');
+      throw error;
+    } finally {
+      consentGrantClient.release();
+    }
 
     await assert.rejects(
       pool.query('DELETE FROM identity_l3_consents WHERE user_id = $1', [applicantId]),
@@ -280,21 +294,35 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
       ),
       error => error.code === '23514'
     );
-    await pool.query(
-      `WITH changed AS (
-         UPDATE identity_l3_consents
+    const consentVersionClient = await pool.connect();
+    try {
+      await consentVersionClient.query('BEGIN');
+      const changedConsent = await consentVersionClient.query(
+        `UPDATE identity_l3_consents
          SET consent_version = 1,
              granted_at = statement_timestamp(),
              updated_at = statement_timestamp()
          WHERE user_id = $1
-         RETURNING user_id, consent_version, granted_at
-       )
-       INSERT INTO identity_l3_consent_events
-         (user_id, actor_user_id, event_type, consent_version, occurred_at)
-       SELECT user_id, user_id, 'granted', consent_version, granted_at
-       FROM changed`,
-      [applicantId]
-    );
+         RETURNING user_id, consent_version, granted_at`,
+        [applicantId]
+      );
+      await consentVersionClient.query(
+        `INSERT INTO identity_l3_consent_events
+           (user_id, actor_user_id, event_type, consent_version, occurred_at)
+         VALUES ($1, $1, 'granted', $2, $3)`,
+        [
+          changedConsent.rows[0].user_id,
+          changedConsent.rows[0].consent_version,
+          changedConsent.rows[0].granted_at
+        ]
+      );
+      await consentVersionClient.query('COMMIT');
+    } catch (error) {
+      await consentVersionClient.query('ROLLBACK');
+      throw error;
+    } finally {
+      consentVersionClient.release();
+    }
     const staleConsentAccess = await pool.query(
       'SELECT identity_l3_has_active_approval($1) AS active',
       [applicantId]
