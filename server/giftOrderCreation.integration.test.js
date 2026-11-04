@@ -1129,6 +1129,35 @@ test('gift request opt-out permanently invalidates pending requests even after r
       to_status: 'awaiting_recipient_consent',
       metadata: { reason: 'recipient_opted_out' }
     }], 'opt-out must remain in the append-only event trail even when no payment task is needed');
+
+    const partnerEvidence = await pool.query(
+      `SELECT gift_order.delivery_partner_ref, gift_order.delivery_partner_key_snapshot,
+              gift_order.delivery_partner_name_snapshot, partner.partner_key, partner.display_name
+       FROM gift_delivery_orders AS gift_order
+       JOIN gift_delivery_partners AS partner ON partner.id = gift_order.delivery_partner_id
+       WHERE gift_order.sender_id = $1 AND gift_order.idempotency_key = $2`,
+      [ids.sender, input.idempotencyKey]
+    );
+    assert.equal(partnerEvidence.rowCount, 1);
+    assert.equal(partnerEvidence.rows[0].delivery_partner_ref, ids.deliveryPartner);
+    assert.equal(partnerEvidence.rows[0].delivery_partner_key_snapshot, partnerEvidence.rows[0].partner_key);
+    assert.equal(partnerEvidence.rows[0].delivery_partner_name_snapshot, partnerEvidence.rows[0].display_name);
+
+    await pool.query('DELETE FROM gift_delivery_partners WHERE id = $1', [ids.deliveryPartner]);
+    const partnerAfterDelete = await pool.query(
+      `SELECT delivery_partner_id, delivery_partner_ref,
+              delivery_partner_key_snapshot, delivery_partner_name_snapshot
+       FROM gift_delivery_orders
+       WHERE sender_id = $1 AND idempotency_key = $2`,
+      [ids.sender, input.idempotencyKey]
+    );
+    assert.equal(partnerAfterDelete.rows[0].delivery_partner_id, null);
+    assert.equal(partnerAfterDelete.rows[0].delivery_partner_ref, ids.deliveryPartner);
+    assert.equal(partnerAfterDelete.rows[0].delivery_partner_key_snapshot,
+      partnerEvidence.rows[0].partner_key);
+    assert.equal(partnerAfterDelete.rows[0].delivery_partner_name_snapshot,
+      partnerEvidence.rows[0].display_name,
+      'partner name and stable key must survive live partner deletion');
   } finally {
     if (fixture) await cleanupFixture(pool, fixture);
     await pool.end();
