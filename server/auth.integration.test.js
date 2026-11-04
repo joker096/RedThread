@@ -879,15 +879,24 @@ test('auth API supports registration, session lookup, logout and login', {
           'opt-out must durably mark the old request as invalidated');
         const preferenceAudit = await giftTestDb.query(
           `SELECT actor_type, event_type, from_status, to_status
-           FROM gift_delivery_order_events WHERE order_id = $1`,
+           FROM gift_delivery_order_events WHERE order_id = $1
+           ORDER BY event_type`,
           [pendingPreferenceOrderId]
         );
-        assert.deepEqual(preferenceAudit.rows, [{
-          actor_type: 'recipient',
-          event_type: 'cancelled',
-          from_status: 'awaiting_recipient_consent',
-          to_status: 'cancelled'
-        }]);
+        assert.deepEqual(preferenceAudit.rows, [
+          {
+            actor_type: 'recipient',
+            event_type: 'cancelled',
+            from_status: 'awaiting_recipient_consent',
+            to_status: 'cancelled'
+          },
+          {
+            actor_type: 'recipient',
+            event_type: 'recipient_opted_out',
+            from_status: 'awaiting_recipient_consent',
+            to_status: 'awaiting_recipient_consent'
+          }
+        ]);
         const senderNotification = await giftTestDb.query(
           `SELECT type, metadata, dedupe_key
            FROM user_notifications
