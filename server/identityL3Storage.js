@@ -71,6 +71,13 @@ async function ensurePrivateRoot(root) {
     if (!stat.isDirectory() || stat.isSymbolicLink()) {
       throw new IdentityL3StorageError('l3_storage_root_unsafe');
     }
+    // A private final directory is still replaceable if an untrusted principal
+    // can rename it through a writable ancestor. Permit sticky shared parents
+    // such as /tmp, where the child owner is protected from other users.
+    if (currentPath !== absoluteRoot && (stat.mode & 0o022) !== 0 &&
+        (stat.mode & 0o1000) === 0) {
+      throw new IdentityL3StorageError('l3_storage_root_unsafe');
+    }
   }
 
   // Re-check canonical resolution after creation; the configured path must not
