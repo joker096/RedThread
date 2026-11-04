@@ -273,8 +273,26 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
 
     // Simulate an account that has the old notice version: it cannot authorize
     // access after the version bump, but its original consent remains withdrawable.
+    await assert.rejects(
+      pool.query(
+        'UPDATE identity_l3_consents SET consent_version = 1, granted_at = statement_timestamp() WHERE user_id = $1',
+        [applicantId]
+      ),
+      error => error.code === '23514'
+    );
     await pool.query(
-      'UPDATE identity_l3_consents SET consent_version = 1 WHERE user_id = $1',
+      `WITH changed AS (
+         UPDATE identity_l3_consents
+         SET consent_version = 1,
+             granted_at = statement_timestamp(),
+             updated_at = statement_timestamp()
+         WHERE user_id = $1
+         RETURNING user_id, consent_version, granted_at
+       )
+       INSERT INTO identity_l3_consent_events
+         (user_id, actor_user_id, event_type, consent_version, occurred_at)
+       SELECT user_id, user_id, 'granted', consent_version, granted_at
+       FROM changed`,
       [applicantId]
     );
     const staleConsentAccess = await pool.query(
