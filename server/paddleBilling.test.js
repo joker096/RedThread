@@ -2021,7 +2021,7 @@ test('transaction.completed quarantines custom_data owner that contradicts the r
       }
     });
     const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
-    assert.ok(ledger);
+    assert.ok(ledger, calls.map(call => call.statement).join('\n---\n'));
     assert.equal(ledger.params[2], null,
       'contradictory signed custom_data must not be attributed to the previously linked account');
     const conflict = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
@@ -2123,7 +2123,7 @@ test('transaction.paid quarantines custom_data owner that contradicts the retain
     }
   });
   const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
-  assert.ok(ledger);
+  assert.ok(ledger, calls.map(call => call.statement).join('\n---\n'));
   assert.equal(ledger.params[2], null,
     'captured payment metadata must not be attributed to a different retained account');
   const conflict = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
