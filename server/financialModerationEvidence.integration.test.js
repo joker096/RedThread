@@ -2083,14 +2083,14 @@ test('captured recurring subscription evidence is paid, owner-bound, and distinc
     );
     const mismatchedEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
     await client.query(
-      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'subscription.created')",
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'transaction.paid')",
       [mismatchedEventId]
     );
     await client.query(
       `INSERT INTO paddle_transaction_events
-       (event_id, transaction_id, user_id, plan, status, subscription_id, customer_id)
-       VALUES ($1, $2, $3, '1month', 'paid', $4, $5)`,
-      [mismatchedEventId, otherTransactionId, otherOwnerId, subscriptionId, customerId]
+       (event_id, transaction_id, user_id, plan, status, customer_id)
+       VALUES ($1, $2, $3, '1month', 'paid', 'ctm_1123456789abcdef01234567')`,
+      [mismatchedEventId, otherTransactionId, otherOwnerId]
     );
     await client.query('SET CONSTRAINTS paddle_checkout_attempts_linked_transaction_evidence_guard DEFERRED');
     await client.query('SAVEPOINT mismatched_subscription_identity');
@@ -2274,6 +2274,10 @@ test('Paddle transaction IDs remain globally unique across current and archived 
       [firstLedgerEventId, ledgerTransactionId, firstUserId]
     );
 
+    await client.query(
+      "UPDATE users SET paddle_subscription_id = 'sub_0123456789abcdef01234567', paddle_customer_id = 'ctm_0123456789abcdef01234567' WHERE id = $1",
+      [thirdUserId]
+    );
     const paidTransactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
     const subscriptionCreatedEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
     await client.query(
