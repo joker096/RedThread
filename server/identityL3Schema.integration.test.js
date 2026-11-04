@@ -98,6 +98,27 @@ test('L3 schema persists metadata only and protects workflow decisions', {
         error => error.code === '23514'
       );
       await client.query('ROLLBACK');
+
+      // Even an event inserted in the same transaction cannot claim a future
+      // occurrence time to authorize a present consent-state transition.
+      await client.query('BEGIN');
+      await client.query(
+        `INSERT INTO identity_l3_consent_events
+           (user_id, actor_user_id, event_type, consent_version, occurred_at)
+         SELECT user_id, user_id, 'withdrawn', consent_version,
+                statement_timestamp() + INTERVAL '1 day'
+         FROM identity_l3_consents WHERE user_id = $1`,
+        [consentProbeUserId]
+      );
+      await client.query(
+        'UPDATE identity_l3_consents SET withdrawn_at = statement_timestamp() WHERE user_id = $1',
+        [consentProbeUserId]
+      );
+      await assert.rejects(
+        client.query('COMMIT'),
+        error => error.code === '23514'
+      );
+      await client.query('ROLLBACK');
       await client.query("UPDATE users SET status = 'deleted' WHERE id = $1", [consentProbeUserId]);
       await client.query('DELETE FROM users WHERE id = $1', [consentProbeUserId]);
       const consentAuditTrigger = await client.query(
