@@ -2016,6 +2016,107 @@ test('Paddle transaction evidence stores signed gross and net totals after credi
 });
 
 
+test('captured recurring subscription evidence is paid, owner-bound, and distinct from transaction completion', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const client = await pool.connect();
+  const ownerId = randomUUID();
+  const otherOwnerId = randomUUID();
+  const subscriptionId = 'sub_0123456789abcdef01234567';
+  const customerId = 'ctm_0123456789abcdef01234567';
+  const transactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  const otherTransactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      "INSERT INTO users (id, email, password_hash, status, paddle_subscription_id, paddle_customer_id) VALUES ($1, $2, 'test-only-hash', 'active', $3, $4), ($5, $6, 'test-only-hash', 'active', 'sub_1123456789abcdef01234567', 'ctm_1123456789abcdef01234567')",
+      [ownerId, `paid-evidence-${ownerId}@example.invalid`, subscriptionId, customerId,
+        otherOwnerId, `paid-evidence-other-${otherOwnerId}@example.invalid`]
+    );
+
+    const attemptId = randomUUID();
+    await client.query(
+      `INSERT INTO paddle_checkout_attempts
+       (user_id, attempt_id, plan, status, created_at, updated_at)
+       VALUES ($1, $2, '1month', 'creating', statement_timestamp(), statement_timestamp())`,
+      [ownerId, attemptId]
+    );
+    await client.query(
+      `UPDATE paddle_checkout_attempts
+       SET transaction_id = $2, status = 'completed', updated_at = statement_timestamp()
+       WHERE user_id = $1`,
+      [ownerId, transactionId]
+    );
+    const subscriptionEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+    await client.query(
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'subscription.created')",
+      [subscriptionEventId]
+    );
+    await client.query(
+      `INSERT INTO paddle_transaction_events
+       (event_id, transaction_id, user_id, plan, status, subscription_id, customer_id)
+       VALUES ($1, $2, $3, '1month', 'paid', $4, $5)`,
+      [subscriptionEventId, transactionId, ownerId, subscriptionId, customerId]
+    );
+    await client.query(
+      `UPDATE paddle_checkout_attempts
+       SET status = 'linked', updated_at = statement_timestamp()
+       WHERE user_id = $1 AND attempt_id = $2`,
+      [ownerId, attemptId]
+    );
+    await client.query('SET CONSTRAINTS paddle_checkout_attempts_linked_transaction_evidence_guard IMMEDIATE');
+
+    const otherAttemptId = randomUUID();
+    await client.query(
+      `INSERT INTO paddle_checkout_attempts
+       (user_id, attempt_id, plan, status, created_at, updated_at)
+       VALUES ($1, $2, '1month', 'creating', statement_timestamp(), statement_timestamp())`,
+      [otherOwnerId, otherAttemptId]
+    );
+    await client.query(
+      `UPDATE paddle_checkout_attempts
+       SET transaction_id = $2, status = 'completed', updated_at = statement_timestamp()
+       WHERE user_id = $1`,
+      [otherOwnerId, otherTransactionId]
+    );
+    const mismatchedEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+    await client.query(
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'subscription.created')",
+      [mismatchedEventId]
+    );
+    await client.query(
+      `INSERT INTO paddle_transaction_events
+       (event_id, transaction_id, user_id, plan, status, subscription_id, customer_id)
+       VALUES ($1, $2, $3, '1month', 'paid', $4, $5)`,
+      [mismatchedEventId, otherTransactionId, otherOwnerId, subscriptionId, customerId]
+    );
+    await client.query('SAVEPOINT mismatched_subscription_identity');
+    await client.query(
+      `UPDATE paddle_checkout_attempts
+       SET status = 'linked', updated_at = statement_timestamp()
+       WHERE user_id = $1 AND attempt_id = $2`,
+      [otherOwnerId, otherAttemptId]
+    );
+    let mismatchError;
+    try {
+      await client.query('SET CONSTRAINTS paddle_checkout_attempts_linked_transaction_evidence_guard IMMEDIATE');
+    } catch (error) { mismatchError = error; }
+    assert.equal(mismatchError?.code, '23514',
+      'subscription.created paid evidence must match the exact stored owner subscription and customer IDs');
+    await client.query('ROLLBACK TO SAVEPOINT mismatched_subscription_identity');
+    await client.query('RELEASE SAVEPOINT mismatched_subscription_identity');
+    await client.query('ROLLBACK');
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw error;
+  } finally {
+    client.release();
+    await pool.end();
+  }
+});
+
 test('Paddle transaction IDs remain globally unique across current and archived checkout attempts', {
   skip: !process.env.DATABASE_URL,
   timeout: 15_000
