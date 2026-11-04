@@ -623,13 +623,21 @@ export async function processPaddleEvent(pool, rawEvent) {
       : typeof data.subscriptionId === 'string' ? data.subscriptionId
         : typeof data.subscription_id === 'string' ? data.subscription_id : null;
     const adjustmentWebhookEvent = eventType === 'adjustment.created' || eventType === 'adjustment.updated';
-    // The transaction lock is always acquired before any user lock. The
-    // adjustment handler follows the same order after resolving its owner.
-    if (['transaction.paid', 'transaction.completed', 'transaction.canceled'].includes(eventType) &&
-        typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
+    // The transaction lock is always acquired before any user lock. A
+    // subscription.created event also writes paid transaction evidence, so it
+    // must lock its originating transaction here rather than later in the
+    // database trigger (which would invert the user -> transaction lock order).
+    const paddleTransactionIdForLock = ['transaction.paid', 'transaction.completed', 'transaction.canceled'].includes(eventType)
+      ? data.id
+      : eventType === 'subscription.created'
+        ? (typeof data.transactionId === 'string' ? data.transactionId
+          : typeof data.transaction_id === 'string' ? data.transaction_id : null)
+        : null;
+    if (typeof paddleTransactionIdForLock === 'string' &&
+        /^txn_[A-Za-z0-9]+$/.test(paddleTransactionIdForLock)) {
       await client.query(
         "SELECT pg_advisory_xact_lock(hashtextextended('paddle-transaction:' || $1::text, 0))",
-        [data.id]
+        [paddleTransactionIdForLock]
       );
     }
     // Serialize provider identity/entitlement writes with account deletion and
