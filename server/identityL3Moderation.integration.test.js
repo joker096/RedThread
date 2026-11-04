@@ -34,9 +34,9 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
   const applicantId = randomUUID();
   const moderatorId = randomUUID();
   const storageRoot = await mkdtemp(path.join(tmpdir(), 'vow-identity-l3-moderation-'));
+  const tempRoot = await mkdtemp(path.join(tmpdir(), 'vow-identity-l3-moderation-scratch-'));
   await chmod(storageRoot, 0o700);
-  const tempRoot = path.join(storageRoot, 'scratch');
-  await mkdir(tempRoot, { mode: 0o700 });
+  await chmod(tempRoot, 0o700);
   const encryptionKey = randomBytes(32).toString('hex');
   const applicantSession = createSessionToken();
   const moderatorSession = createSessionToken();
@@ -398,6 +398,9 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
       [[applicantId, moderatorId]]
     );
     await pool.end();
-    await rm(storageRoot, { recursive: true, force: true });
+    await Promise.all([
+      rm(storageRoot, { recursive: true, force: true }),
+      rm(tempRoot, { recursive: true, force: true })
+    ]);
   }
 });
