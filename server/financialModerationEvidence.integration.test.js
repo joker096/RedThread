@@ -2178,7 +2178,7 @@ test('provider identity reconciliation retains immutable minimal context and aud
   try {
     await client.query('BEGIN');
     await client.query(
-      "INSERT INTO users (id, email, password_hash, role, status) VALUES ($1, $2, 'test-only-hash', 'moderator', 'active'), ($3, $4, 'test-only-hash', 'active')",
+      "INSERT INTO users (id, email, password_hash, role, status) VALUES ($1, $2, 'test-only-hash', 'moderator', 'active'), ($3, $4, 'test-only-hash', 'member', 'active')",
       [moderatorId, `provider-case-mod-${moderatorId}@example.invalid`,
         ownerId, `provider-case-owner-${ownerId}@example.invalid`]
     );
