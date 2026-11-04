@@ -2099,3 +2099,17 @@ test('transaction.paid is retained as captured payment without granting or final
   assert.ok(transactionLockIndex >= 0 && ledgerIndex > transactionLockIndex,
     'paid events must serialize with transaction completion and adjustment processing');
 });
+
+test('Paddle identity migration acquires table locks in the application write order', async () => {
+  const migration = await readFile(
+    new URL('./migrations/183_guard_paddle_provider_identity_consistency.sql', import.meta.url),
+    'utf8'
+  );
+  const lock = migration.match(/LOCK TABLE ([^;]+) IN SHARE ROW EXCLUSIVE MODE;/);
+  assert.ok(lock, 'migration 183 must freeze the identity evidence tables during its preflight');
+  assert.deepEqual(
+    lock[1].split(',').map(table => table.trim()),
+    ['users', 'paddle_transaction_events'],
+    'subscription.created updates users before inserting transaction evidence; migration locks must use the same order to avoid online-migration deadlocks'
+  );
+});
