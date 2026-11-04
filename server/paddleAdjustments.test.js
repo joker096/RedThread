@@ -544,6 +544,9 @@ test('transaction completion reconciles an approved refund delivered earlier', a
     const userLockIndex = calls.findIndex(call => call.statement.includes("gift-safety-user:"));
     assert.ok(transactionLockIndex >= 0 && userLockIndex > transactionLockIndex,
       'transaction.completed must acquire the same transaction lock before the user lock');
+    assert.match(calls[transactionLockIndex].statement,
+      /pg_advisory_xact_lock\\(hashtextextended\\('paddle-transaction:'/,
+      'transaction completion must share the database guard\'s 64-bit advisory-lock key');
     const revoke = calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements'));
     assert.deepEqual(revoke.params, [transactionId, 'paddle_full_refund', userId]);
     assert.ok(calls.some(call =>
