@@ -85,6 +85,7 @@ BEGIN
       AND event.event_type = expected_event_type
       AND event.consent_version = expected_version
       AND event.occurred_at >= expected_occurred_at
+      AND event.occurred_at <= statement_timestamp()
       AND event.recorded_txid = txid_current()
   ) THEN
     RAISE EXCEPTION 'identity L3 consent state transition requires a matching append-only audit event in the same transaction'
