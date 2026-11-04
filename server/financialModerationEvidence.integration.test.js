@@ -1259,7 +1259,8 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
           item_price_minor_units bigint, delivery_fee_minor_units bigint, delivery_fee_currency char(3),
           total_minor_units bigint, currency char(3), idempotency_key text,
           created_at timestamptz, expires_at timestamptz,
-          catalog_item_id uuid, catalog_item_ref uuid, delivery_partner_id uuid, delivery_partner_ref uuid
+          catalog_item_id uuid, catalog_item_ref uuid, delivery_partner_id uuid, delivery_partner_ref uuid,
+          delivery_partner_key_snapshot text, delivery_partner_name_snapshot text
         ) ON COMMIT DROP
       `);
       await client.query(`
@@ -1274,6 +1275,19 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
       `);
       const catalogItemId = randomUUID();
       const deliveryPartnerId = randomUUID();
+      const partnerKey = `evidence-test-${deliveryPartnerId}`;
+      const partnerName = 'Evidence Test Delivery Partner';
+      await client.query(
+        `INSERT INTO gift_catalog_items
+           (id, sku, category, display_name, price_minor_units, currency, supplier_key)
+         VALUES ($1, $2, 'chocolate', 'Evidence Test Gift', 700, 'USD', 'evidence-test')`,
+        [catalogItemId, `evidence-test-${catalogItemId}`]
+      );
+      await client.query(
+        `INSERT INTO gift_delivery_partners (id, partner_key, display_name, status)
+         VALUES ($1, $2, $3, 'pending')`,
+        [deliveryPartnerId, partnerKey, partnerName]
+      );
       await client.query(
         `INSERT INTO gift_order_facts_guard_test
          VALUES ($1, 'gift_ref', $2, $3, $4, 'snapshot', 'chocolate', 700, 300, 'USD', 1000,
@@ -1281,13 +1295,15 @@ test('financial and moderation evidence is immutable and checkout rollovers are 
         [randomUUID(), randomUUID(), randomUUID(), randomUUID(), catalogItemId, deliveryPartnerId]
       );
       const giftOrderSnapshots = await client.query(
-        'SELECT catalog_item_id, catalog_item_ref, delivery_partner_id, delivery_partner_ref, item_price_minor_units, delivery_fee_minor_units, delivery_fee_currency, total_minor_units FROM gift_order_facts_guard_test'
+        'SELECT catalog_item_id, catalog_item_ref, delivery_partner_id, delivery_partner_ref, delivery_partner_key_snapshot, delivery_partner_name_snapshot, item_price_minor_units, delivery_fee_minor_units, delivery_fee_currency, total_minor_units FROM gift_order_facts_guard_test'
       );
       assert.deepEqual(giftOrderSnapshots.rows[0], {
         catalog_item_id: catalogItemId,
         catalog_item_ref: catalogItemId,
         delivery_partner_id: deliveryPartnerId,
         delivery_partner_ref: deliveryPartnerId,
+        delivery_partner_key_snapshot: partnerKey,
+        delivery_partner_name_snapshot: partnerName,
         item_price_minor_units: '700',
         delivery_fee_minor_units: '300',
         delivery_fee_currency: 'USD',
