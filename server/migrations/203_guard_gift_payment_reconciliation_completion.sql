@@ -82,6 +82,7 @@ BEGIN
     NEW.payment_state_changed_transaction_id := NULL;
   ELSIF NEW.payment_status IS DISTINCT FROM OLD.payment_status THEN
     NEW.payment_state_changed_transaction_id := pg_current_xact_id();
+    NEW.updated_at := statement_timestamp();
   ELSE
     -- The transaction marker is database-owned; callers cannot forge or clear it.
     NEW.payment_state_changed_transaction_id := OLD.payment_state_changed_transaction_id;
@@ -256,6 +257,10 @@ CREATE CONSTRAINT TRIGGER gift_payment_reconciliation_tasks_completion_evidence
   DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION require_gift_payment_reconciliation_completion_evidence();
 
+COMMENT ON COLUMN gift_delivery_orders.payment_state_changed_transaction_id IS
+  'Database-stamped transaction ID of the most recent actual payment_status transition; callers cannot forge or clear it.';
+COMMENT ON COLUMN gift_delivery_order_events.created_transaction_id IS
+  'Database-stamped transaction ID for this immutable event; used to prove provider outcome evidence was written atomically with reconciliation completion.';
 COMMENT ON FUNCTION stamp_gift_payment_state_transaction() IS
   'Stamps payment-state changes with the current PostgreSQL transaction ID and prevents callers from forging or clearing that marker.';
 COMMENT ON FUNCTION stamp_gift_order_event_transaction() IS
