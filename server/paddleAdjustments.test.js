@@ -431,21 +431,22 @@ test('one chargeback_reverse cannot restore access while another chargeback rema
     'the effective state must compare chargeback and chargeback_reverse adjustments');
 });
 
-test('a refund reversal restores only a full-refund-revoked entitlement with matching prior approval', async () => {
+test('a refund status of reversed cannot restore a full-refund-revoked entitlement', async () => {
   const { pool, calls } = makePool({
     ledgerStatus: 'revoked',
     revokeReason: 'paddle_full_refund',
-    fullRefund: false,
+    fullRefund: true,
     fullRefundReversed: true
   });
   const result = await sendAdjustment(pool, {
     action: 'refund', status: 'reversed', type: 'full', eventType: 'adjustment.updated'
   });
-  assert.equal(result.entitlementChanged, true);
-  assert.deepEqual(
-    calls.find(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')).params,
-    [transactionId, userId, 'active', null]
-  );
+  assert.equal(result.entitlementChanged, false);
+  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_lifetime_entitlements')), false,
+    'Paddle exposes chargeback_reverse and credit_reverse, not a refund reversal action');
+  const reconciliation = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
+  assert.ok(reconciliation);
+  assert.equal(reconciliation.params[1], 'provider_lifecycle_conflict');
 });
 
 test('a refund rejection cannot restore a chargeback-revoked entitlement', async () => {
@@ -714,10 +715,9 @@ test('refund reversal without prior approval is quarantined and remains adverse'
   assert.equal(reconciliation.params[1], 'provider_lifecycle_conflict');
   const stateQuery = calls.find(call => call.statement.includes('WITH latest_per_adjustment AS'));
   assert.match(stateQuery.statement,
-    /latest\.status = 'reversed'[\s\S]*NOT EXISTS[\s\S]*prior\.status = 'approved'/);
-  assert.match(stateQuery.statement,
-    /prior\.occurred_at < latest\.occurred_at/,
-    'a refund reversal must be strictly later than its approval');
+    /latest\.status IN \('approved', 'reversed'\)/,
+    'a reversed refund status remains adverse because Paddle does not define a refund reversal action');
+  assert.match(stateQuery.statement, /FALSE AS full_refund_reversed/);
 
 });
 
