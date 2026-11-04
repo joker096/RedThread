@@ -77,10 +77,12 @@ async function ensurePrivateRoot(root) {
     // such as /tmp, where the child owner is protected from other users.
     if (currentPath !== absoluteRoot) {
       const writableByGroupOrOther = (stat.mode & 0o022) !== 0;
-      const writableByUntrustedOwner = stat.uid !== 0 &&
-        stat.uid !== currentUid &&
-        (stat.mode & 0o200) !== 0;
-      if (writableByGroupOrOther || writableByUntrustedOwner) {
+      // Directory owners can chmod their own directories even when the
+      // owner-write bit is currently clear. Never trust an ancestor owned by
+      // another UID: it can be made replaceable after startup validation.
+      const ownedByUntrustedPrincipal = currentUid !== null &&
+        stat.uid !== 0 && stat.uid !== currentUid;
+      if (writableByGroupOrOther || ownedByUntrustedPrincipal) {
         const stickyParent = (stat.mode & 0o1000) !== 0;
         const trustedStickyOwner = stat.uid === 0 ||
           (currentUid !== null && stat.uid === currentUid);
