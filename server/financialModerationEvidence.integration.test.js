@@ -2112,8 +2112,32 @@ test('Paddle transaction IDs remain globally unique across current and archived 
         [secondLedgerEventId, ledgerTransactionId, secondUserId]
       );
     } catch (error) { conflictingLedgerOwnerError = error; }
-    assert.equal(conflictingLedgerOwnerError?.code, '23514',
+    assert.equal(conflictingLedgerOwnerError?.code, '23505',
       'separate provider event IDs must not assign one Paddle transaction to two Vow accounts');
+    await client.query('ROLLBACK TO SAVEPOINT conflicting_transaction_ledger_owner');
+    await client.query('RELEASE SAVEPOINT conflicting_transaction_ledger_owner');
+
+    const conflictingAttemptId = randomUUID();
+    await client.query(
+      `INSERT INTO paddle_checkout_attempts
+       (user_id, attempt_id, plan, status, created_at, updated_at)
+       VALUES ($1, $2, '3months', 'creating', statement_timestamp(), statement_timestamp())`,
+      [secondUserId, conflictingAttemptId]
+    );
+    await client.query('SAVEPOINT conflicting_checkout_plan');
+    let conflictingCheckoutPlanError;
+    try {
+      await client.query(
+        `UPDATE paddle_checkout_attempts
+         SET transaction_id = $2, status = 'completed', updated_at = statement_timestamp()
+         WHERE user_id = $1 AND attempt_id = $3`,
+        [secondUserId, ledgerTransactionId, conflictingAttemptId]
+      );
+    } catch (error) { conflictingCheckoutPlanError = error; }
+    assert.equal(conflictingCheckoutPlanError?.code, '23505',
+      'a checkout must not claim a provider transaction recorded under a different plan');
+    await client.query('ROLLBACK TO SAVEPOINT conflicting_checkout_plan');
+    await client.query('RELEASE SAVEPOINT conflicting_checkout_plan');
     await client.query('ROLLBACK TO SAVEPOINT conflicting_transaction_ledger_owner');
     await client.query('RELEASE SAVEPOINT conflicting_transaction_ledger_owner');
 
@@ -2123,6 +2147,8 @@ test('Paddle transaction IDs remain globally unique across current and archived 
     assert.match(guardFunction.rows[0].definition, /paddle_checkout_attempt_history/);
     assert.match(guardFunction.rows[0].definition, /pg_advisory_xact_lock/,
       'cross-table transaction ownership checks must serialize concurrent claims until commit');
+    assert.match(guardFunction.rows[0].definition, /USING ERRCODE = '23505'/,
+      'owner/plan collisions must be classified as identity conflicts for webhook reconciliation');
     const currentGuard = await client.query(
       "SELECT pg_get_triggerdef(oid) AS definition FROM pg_trigger WHERE tgname = 'paddle_checkout_attempts_global_transaction_identity' AND NOT tgisinternal"
     );
