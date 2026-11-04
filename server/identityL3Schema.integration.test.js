@@ -71,6 +71,17 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       );
       await client.query('ROLLBACK TO SAVEPOINT reject_initially_withdrawn_consent');
       await client.query('RELEASE SAVEPOINT reject_initially_withdrawn_consent');
+      await client.query('SAVEPOINT reject_pre_purged_l3_submission');
+      await assert.rejects(
+        client.query(
+          `INSERT INTO identity_l3_submissions (user_id, status, media_purged_at)
+           VALUES ($1, 'draft', statement_timestamp())`,
+          [consentProbeUserId]
+        ),
+        error => error.code === '23514'
+      );
+      await client.query('ROLLBACK TO SAVEPOINT reject_pre_purged_l3_submission');
+      await client.query('RELEASE SAVEPOINT reject_pre_purged_l3_submission');
       await client.query('COMMIT');
 
       await client.query('BEGIN');
@@ -341,6 +352,7 @@ test('L3 schema persists metadata only and protects workflow decisions', {
          WHERE tgrelid = 'identity_l3_submissions'::regclass AND NOT tgisinternal`
       );
       assert.ok(triggerNames.rows.some(row => row.tgname === 'identity_l3_submission_transition_guard'));
+      assert.ok(triggerNames.rows.some(row => row.tgname === 'identity_l3_submission_initial_state_guard'));
       assert.ok(triggerNames.rows.some(row => row.tgname === 'identity_l3_submission_event_recorder'));
       const eventRecorder = await client.query(
         `SELECT pg_get_functiondef('record_identity_l3_submission_event()'::regprocedure) AS definition`
