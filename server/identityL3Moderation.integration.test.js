@@ -123,6 +123,11 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
       [applicantId]
     );
 
+    await assert.rejects(
+      pool.query('DELETE FROM identity_l3_consents WHERE user_id = $1', [applicantId]),
+      error => error.code === '55000'
+    );
+
     const port = await findFreePort();
     const origin = 'http://localhost:3000';
     const api = 'http://127.0.0.1:' + port;
