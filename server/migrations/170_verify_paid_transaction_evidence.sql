@@ -70,10 +70,9 @@ BEGIN
               OR EXISTS (
                 SELECT 1 FROM users AS owner
                 WHERE owner.id = NEW.user_id
-                  AND (
-                    (NEW.customer_id IS NOT NULL AND owner.paddle_customer_id = NEW.customer_id)
-                    OR (NEW.subscription_id IS NOT NULL AND owner.paddle_subscription_id = NEW.subscription_id)
-                  )
+                  AND (NEW.customer_id IS NOT NULL OR NEW.subscription_id IS NOT NULL)
+                  AND (NEW.customer_id IS NULL OR owner.paddle_customer_id = NEW.customer_id)
+                  AND (NEW.subscription_id IS NULL OR owner.paddle_subscription_id = NEW.subscription_id)
               )
             )
           )
