@@ -2031,6 +2031,39 @@ test('auth API supports registration, session lookup, logout and login', {
       'a male account without live L2 verification must not invoke discovery undo');
     await identityGateDb.query("UPDATE identity_verifications SET status = 'verified', provider_environment = 'live' WHERE user_id = $1", [maleRegistered.user.id]);
 
+    await identityGateDb.query(
+      "UPDATE users SET female_trial_ends_at = NOW() - INTERVAL '1 second' WHERE id = $1",
+      [registered.user.id]
+    );
+    const freeTierProfileSearch = await request('/api/profiles/search?minAge=36&maxAge=36&limit=3', {
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(freeTierProfileSearch.status, 200);
+    const freeTierProfilePayload = await freeTierProfileSearch.json();
+    assert.ok(freeTierProfilePayload.dailyQuota);
+    assert.equal(freeTierProfilePayload.dailyQuota.limit, 3);
+    assert.ok(freeTierProfilePayload.profiles.some(profile => profile.id === maleRegistered.user.id),
+      'a free-tier woman can still receive eligible profiles within her daily allowance');
+    const repeatedFreeTierSearch = await request('/api/profiles/search?minAge=36&maxAge=36&limit=3', {
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(repeatedFreeTierSearch.status, 200);
+    const repeatedFreeTierPayload = await repeatedFreeTierSearch.json();
+    assert.deepEqual(
+      repeatedFreeTierPayload.profiles.map(profile => profile.id),
+      freeTierProfilePayload.profiles.map(profile => profile.id),
+      'reloading the same page must return the same already-issued profiles'
+    );
+    assert.equal(repeatedFreeTierPayload.dailyQuota.used, freeTierProfilePayload.dailyQuota.used,
+      'reloading or paginating must not consume the daily quota twice');
+    const persistedDailyExposures = await identityGateDb.query(
+      `SELECT COUNT(*)::int AS count
+       FROM female_profile_exposures
+       WHERE user_id = $1 AND exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date`,
+      [registered.user.id]
+    );
+    assert.equal(persistedDailyExposures.rows[0].count, freeTierProfilePayload.dailyQuota.used);
+
     const firstLike = await request(`/api/likes/${maleRegistered.user.id}`, {
       method: 'POST',
       headers: { Cookie: secondCookie }
