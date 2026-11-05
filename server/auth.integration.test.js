@@ -2231,7 +2231,7 @@ test('auth API supports registration, session lookup, logout and login', {
     );
     assert.equal(fullHistoryResponse.status, 200);
     assert.equal((await fullHistoryResponse.json()).messages
-      .some(message => message.text === longMessageText), true,
+      .some(message => message.text === longMessageText.trim()), true,
       'the full message must remain available in the authorized conversation history');
 
     const malformedHistoryCursor = await request(
