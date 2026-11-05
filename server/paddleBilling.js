@@ -793,6 +793,7 @@ export async function processPaddleEvent(pool, rawEvent) {
           : typeof data.transaction_id === 'string' ? data.transaction_id : null)
         : null;
     const ambiguousTransactionOwner = await isPaddleTransactionOwnerAmbiguous(client, ownerCheckTransactionId);
+    if (ambiguousTransactionOwner) reconciliationContext.userId = null;
     // Never persist a provider customer identifier that cannot be used by the
     // authenticated portal/cancellation flows. A signed but malformed event is
     // consumed without changing account identity, avoiding endless webhook retries.
