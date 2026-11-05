@@ -25,6 +25,24 @@ type ServerProfile = {
 
 type ServerDiscoveryPanelProps = { onOpenAccount: () => void };
 
+export type FemaleDailyQuota = { limit: number; used: number; remaining: number; timezone: 'UTC' };
+
+export function normalizeFemaleDailyQuota(value: unknown): FemaleDailyQuota | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const quota = value as Partial<FemaleDailyQuota>;
+  if (quota.limit !== 3 || !Number.isSafeInteger(quota.used) || (quota.used as number) < 0 ||
+      !Number.isSafeInteger(quota.remaining) || (quota.remaining as number) < 0 ||
+      (quota.remaining as number) > 3 || quota.remaining !== Math.max(0, 3 - (quota.used as number)) ||
+      quota.timezone !== 'UTC') return null;
+  return { limit: 3, used: quota.used as number, remaining: quota.remaining as number, timezone: 'UTC' };
+}
+
+export function isFemaleWeeklyMatchQuotaExhausted(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const quota = value as { type?: unknown; exhausted?: unknown };
+  return quota.type === 'weekly_matches' && quota.exhausted === true;
+}
+
 export const isSafeProfilePhotoUrl = (value: unknown): value is string =>
   typeof value === 'string' &&
   value.trim() === value &&
@@ -92,7 +110,7 @@ const normalizeServerProfile = (value: unknown): ServerProfile | null => {
 };
 
 export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOpenAccount }) => {
-  const { t, formatNumber } = useLocale();
+  const { t, formatNumber, formatDate } = useLocale();
   const [profiles, setProfiles] = useState<ServerProfile[]>([]);
   const [matchedProfile, setMatchedProfile] = useState<ServerProfile | null>(null);
   const matchReturnFocus = useRef<HTMLElement | null>(null);
@@ -109,6 +127,8 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [searchFailed, setSearchFailed] = useState(false);
+  const [dailyQuota, setDailyQuota] = useState<FemaleDailyQuota | null>(null);
+  const [weeklyMatchQuotaReached, setWeeklyMatchQuotaReached] = useState(false);
   const [notice, setNotice] = useState('');
   const [likedIds, setLikedIds] = useState<string[]>([]);
   const [blockedIds, setBlockedIds] = useState<string[]>([]);
@@ -203,6 +223,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       if (response.status === 401) {
         setAuthenticated(false);
         setProfiles([]);
+        setDailyQuota(null);
         return;
       }
       if (response.status === 402) {
@@ -211,6 +232,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         // newer search may happen while it resolves, so revalidate before UI writes.
         if (!isCurrentDiscoverySearchResponse(requestId, searchRequestId.current, actionEpoch, sessionEpoch.current)) return;
         setProfiles([]);
+        setDailyQuota(null);
         setAuthenticated(true);
         setNotice(data?.message || t('trialEndedSearch'));
         return;
@@ -218,6 +240,8 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       if (!response.ok) throw new Error(t('searchSetupError'));
       const data = await response.json();
       if (!isCurrentDiscoverySearchResponse(requestId, searchRequestId.current, actionEpoch, sessionEpoch.current)) return;
+      const nextDailyQuota = normalizeFemaleDailyQuota(data?.dailyQuota);
+      setDailyQuota(nextDailyQuota);
       const seenProfileIds = new Set<string>();
       const nextProfiles: ServerProfile[] = Array.isArray(data?.profiles)
         ? data.profiles
@@ -231,7 +255,9 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       setProfiles(nextProfiles);
       setAuthenticated(true);
       setSearchFailed(false);
-      setNotice(nextProfiles.length ? `${t('registeredProfiles')}: ${formatNumber(nextProfiles.length)}` : t('noProfilesForFilters'));
+      setNotice(nextProfiles.length
+        ? `${t('registeredProfiles')}: ${formatNumber(nextProfiles.length)}`
+        : nextDailyQuota?.remaining === 0 ? t('femaleDailyQuotaExhausted') : t('noProfilesForFilters'));
     } catch (error) {
       if (isCurrentDiscoverySearchResponse(requestId, searchRequestId.current, actionEpoch, sessionEpoch.current)) {
         setProfiles([]);
@@ -262,6 +288,8 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       lastSearchKey.current = null;
       setAuthenticated(null);
       setProfiles([]);
+      setDailyQuota(null);
+      setWeeklyMatchQuotaReached(false);
       setLikedIds([]);
       setBlockedIds([]);
       setBlockedProfiles([]);
@@ -296,11 +324,20 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       }
       if (response.status === 402) throw new Error(data?.message || t('trialEndedLike'));
       if (!response.ok) throw new Error(t('sendLikeError'));
+      const weeklyQuotaExhausted = isFemaleWeeklyMatchQuotaExhausted(data?.quota);
+      if (weeklyQuotaExhausted) setWeeklyMatchQuotaReached(true);
       if (!data?.matched) setActionHistory(current => [...current, { type: 'like' as const, profile }].slice(-50));
       setLikedIds(current => current.includes(profile.id) ? current : [...current, profile.id]);
+      const nextMatchAvailableAt = typeof data?.quota?.nextAvailableAt === 'string' && Number.isFinite(Date.parse(data.quota.nextAvailableAt))
+        ? formatDate(new Date(data.quota.nextAvailableAt), { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' })
+        : null;
       setNotice(data?.matched
         ? t('mutualLikeOpenedChats').replace('{name}', profile.displayName)
-        : `${t('liked')}: «${profile.displayName}».`);
+        : weeklyQuotaExhausted
+          ? nextMatchAvailableAt
+            ? t('femaleWeeklyMatchQuotaReachedAt').replace('{date}', nextMatchAvailableAt)
+            : t('femaleWeeklyMatchQuotaReached')
+          : `${t('liked')}: «${profile.displayName}».`);
       if (data?.matched) {
         matchReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
         setMatchedProfile(profile);
@@ -544,6 +581,18 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         <h3 className="mt-1 text-lg font-bold text-white">{t('serverProfilesTitle')}</h3>
         <p className="mt-1 text-xs leading-relaxed text-stone-400">{t('realProfilesNote')}</p>
       </div>
+      {dailyQuota && (
+        <div role="status" aria-live="polite" aria-atomic="true" className="mb-3 rounded-xl border border-emerald-500/20 bg-emerald-950/20 px-3 py-2.5 text-xs text-emerald-100">
+          <p>{t('femaleDailyQuotaStatus')
+            .replace('{used}', formatNumber(dailyQuota.used))
+            .replace('{limit}', formatNumber(dailyQuota.limit))
+            .replace('{remaining}', formatNumber(dailyQuota.remaining))}</p>
+          {dailyQuota.remaining === 0 && <p className="mt-1 text-emerald-200/80">{t('femaleDailyQuotaExhausted')}</p>}
+        </div>
+      )}
+      {weeklyMatchQuotaReached && (
+        <p role="status" aria-live="polite" aria-atomic="true" className="mb-3 rounded-xl border border-amber-500/20 bg-amber-950/20 px-3 py-2.5 text-xs text-amber-100">{t('femaleWeeklyMatchQuotaReached')}</p>
+      )}
       {authenticated === false ? (
         <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-4">
           <p className="text-sm text-stone-200">{t('signInToSearch')}</p>
