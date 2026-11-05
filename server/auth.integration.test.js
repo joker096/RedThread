@@ -2105,6 +2105,8 @@ test('auth API supports registration, session lookup, logout and login', {
     const persistedLikeUndoPayload = await persistedLikeUndo.json();
     assert.equal(persistedLikeUndoPayload.type, 'like');
     assert.equal(persistedLikeUndoPayload.profile.id, maleRegistered.user.id);
+    assert.deepEqual(persistedLikeUndoPayload.dailyQuota, freeTierProfilePayload.dailyQuota,
+      'undoing an already-issued like preserves the idempotent daily exposure count');
 
     const firstLikeThird = await request(`/api/likes/${maleRegistered.user.id}`, {
       method: 'POST',
