@@ -2019,6 +2019,7 @@ test('real Vow inbox supports search, conversation filters and mobile chat navig
 
   await page.getByTestId('server-match-item').first().click();
   await expect(page.getByTestId('real-match-chat')).toBeVisible();
+  await expect(page.getByTestId('server-match-back')).toBeFocused();
   await expect(page.getByTestId('server-match-back')).toBeVisible();
   await expect(page.getByTestId('server-match-messages')).toContainText('Давай продолжим знакомство');
   expect(requestedLatestHistory).toBe(true);
@@ -2033,6 +2034,7 @@ test('real Vow inbox supports search, conversation filters and mobile chat navig
   await page.getByTestId('server-match-back').click();
   // The inbox retains the user's active filter when returning from a conversation.
   await expect(page.getByTestId('server-match-item')).toHaveCount(1);
+  await expect(page.getByTestId('server-match-item').first()).toBeFocused();
   await page.getByTestId('server-match-filter-all').click();
   await expect(page.getByTestId('server-match-item')).toHaveCount(2);
   const dimensions = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, document: document.documentElement.scrollWidth }));
