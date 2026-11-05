@@ -1867,6 +1867,12 @@ app.get('/api/profiles/search', requireSession, requireDiscoveryAccess, async (r
           "SELECT pg_advisory_xact_lock(hashtext('female-profile-quota:' || $1::uuid::text))",
           [req.authUser.id]
         );
+        await client.query(
+          `DELETE FROM profile_discovery_views
+           WHERE user_id = $1
+             AND viewed_on < (statement_timestamp() AT TIME ZONE 'UTC')::date`,
+          [req.authUser.id]
+        );
         const viewed = await client.query(
           `SELECT profile_id FROM profile_discovery_views
            WHERE user_id = $1
@@ -2743,6 +2749,12 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
       );
       if (!existingMatch.rowCount) {
         if (isFemaleFreeAccount(femaleAccount)) {
+          await client.query(
+            `DELETE FROM female_free_match_quota_events
+             WHERE user_id = $1
+               AND created_at < statement_timestamp() - INTERVAL '7 days'`,
+            [femaleAccountId]
+          );
           const weekly = await client.query(
             `SELECT COUNT(*)::int AS count,
                     (MIN(created_at) + INTERVAL '7 days') AS "retryAt"
