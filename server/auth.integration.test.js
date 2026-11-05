@@ -2267,6 +2267,13 @@ test('auth API supports registration, session lookup, logout and login', {
         [registered.user.id, entitlement.female_trial_ends_at, entitlement.premium_until, entitlement.premium_lifetime]
       );
     }
+    const activeTrialFemaleSend = await request(`/api/matches/${matchPayload.match.id}/messages`, {
+      method: 'POST',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({ text: 'Спасибо, что написали. Буду рада продолжить знакомство.' })
+    });
+    assert.equal(activeTrialFemaleSend.status, 201,
+      'a female account with an active trial must retain authorized messaging access');
 
     const noSessionMessages = await request(`/api/matches/${matchPayload.match.id}/messages`);
     assert.equal(noSessionMessages.status, 401);
