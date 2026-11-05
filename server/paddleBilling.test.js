@@ -2031,6 +2031,9 @@ test('ambiguous cross-account Paddle transaction ownership is retained without a
       if (statement.includes('INSERT INTO paddle_webhook_events')) {
         return { rowCount: 1, rows: [{ event_id: params[0] }] };
       }
+      if (statement.includes('COUNT(DISTINCT user_id) > 1')) {
+        return { rowCount: 1, rows: [{ ambiguous: true }] };
+      }
       if (statement.includes('UPDATE paddle_checkout_attempts') && statement.includes('SET transaction_id = $1')) {
         return { rowCount: 0, rows: [] };
       }
@@ -2073,8 +2076,10 @@ test('ambiguous cross-account Paddle transaction ownership is retained without a
     assert.equal(ledger.params[7], '90');
     assert.equal(ledger.params[8], '0');
     assert.equal(ledger.params[9], 'GEL');
-    assert.ok(calls.some(call => call.statement.includes("SET status = 'reconciliation_required'")),
-      'the exact checkout attempt must remain visible for reconciliation');
+    assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_checkout_attempts')), false,
+      'ambiguous transaction ownership must not mutate any account checkout attempt');
+    assert.ok(calls.some(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases')),
+      'ambiguous transaction ownership must be retained in the provider reconciliation queue');
     assert.equal(calls.some(call => call.statement.includes('UPDATE users SET')), false,
       'ambiguous ownership must never grant or mutate an account entitlement');
   } finally {
