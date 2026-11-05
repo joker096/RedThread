@@ -3015,7 +3015,8 @@ app.get('/api/matches/:matchId/messages', requireSession, requirePaidFeatures, a
     }
 
     const result = await client.query(
-      `SELECT id, sender_id AS "senderId", body AS text, created_at AS "createdAt"
+      `SELECT id, sender_id AS "senderId", body AS text, created_at AS "createdAt",
+         to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "cursorCreatedAt"
        FROM messages WHERE match_id = $1 AND deleted_at IS NULL ${cursorClause}
        ORDER BY created_at ${order}, id ${order} LIMIT $2 OFFSET $3`,
       hasCursor
