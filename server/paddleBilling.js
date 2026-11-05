@@ -788,8 +788,21 @@ export async function processPaddleEvent(pool, rawEvent) {
     if (subscriptionLifecycleEvent &&
         (!isValidPaddleTimestamp(occurredAt) ||
          typeof data.id !== 'string' || !/^sub_[A-Za-z0-9]+$/.test(data.id))) {
+      // Keep malformed signed subscription lifecycle events visible for
+      // reconciliation. Never apply their status or billing period, and never
+      // use an untrusted timestamp to order a later valid event.
+      const validSubscriptionId = typeof data.id === 'string' && /^sub_[A-Za-z0-9]+$/.test(data.id)
+        ? data.id : null;
+      await client.query(
+        `INSERT INTO paddle_adjustment_reconciliation_cases
+           (event_id, reason_code, provider_subscription_id)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (event_id) DO NOTHING`,
+        [eventId, validSubscriptionId ? 'invalid_subscription_timestamp' : 'invalid_subscription_identity',
+          validSubscriptionId]
+      );
       await client.query('COMMIT');
-      return { duplicate: false, handled: true };
+      return { duplicate: false, handled: true, reconciliationRequired: true };
     }
     const customData = data.customData || data.custom_data || {};
     const rawCustomUserId = typeof customData.userId === 'string' ? customData.userId
