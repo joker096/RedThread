@@ -3603,6 +3603,7 @@ app.get('/api/admin/paddle-adjustment-reconciliation', requireSession, async (re
                 COALESCE(e.adjustment_id, c.provider_adjustment_id) AS "adjustmentId",
                 COALESCE(e.transaction_id, c.provider_transaction_id) AS "transactionId",
                 c.provider_user_ref AS "providerUserRef", c.provider_plan AS "providerPlan",
+                c.provider_subscription_id AS "providerSubscriptionId",
                 e.action, e.status AS "adjustmentStatus",
                 e.amount_minor_units AS "amountMinorUnits",
                 e.currency_code AS "currencyCode", e.occurred_at AS "occurredAt"
@@ -3705,15 +3706,19 @@ app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
         await client.query('ROLLBACK');
         return res.status(404).json({ error: 'open_adjustment_reconciliation_case_not_found' });
       }
-      if (![
+      const subscriptionEvidenceCase = [
+        'invalid_subscription_timestamp', 'invalid_subscription_identity'
+      ].includes(pending.rows[0].reason_code) &&
+        ['subscription.created', 'subscription.updated', 'subscription.canceled'].includes(pending.rows[0].event_type);
+      if ((![
         'invalid_adjustment_payload',
         'provider_identity_conflict',
         'provider_lifecycle_conflict'
-      ].includes(pending.rows[0].reason_code) ||
-          ![
+      ].includes(pending.rows[0].reason_code) && !subscriptionEvidenceCase) ||
+          (!subscriptionEvidenceCase && ![
             'adjustment.created', 'adjustment.updated',
             'customer.created', 'customer.updated'
-          ].includes(pending.rows[0].event_type) ||
+          ].includes(pending.rows[0].event_type)) ||
           (pending.rows[0].adjustment_action === 'refund' &&
             pending.rows[0].adjustment_type === null &&
             pending.rows[0].has_verified_refund_scope !== true) ||
@@ -3765,6 +3770,7 @@ app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
           transactionId: pending.rows[0].transaction_id,
           providerUserRef: pending.rows[0].provider_user_ref,
           providerPlan: pending.rows[0].provider_plan,
+          providerSubscriptionId: pending.rows[0].provider_subscription_id,
           resolutionSource: 'manual_operator'
         })]
       );
