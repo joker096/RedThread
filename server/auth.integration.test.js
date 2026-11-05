@@ -2113,12 +2113,59 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(firstLikeThird.status, 201);
 
-    const reciprocalLike = await request(`/api/likes/${registered.user.id}`, {
-      method: 'POST',
-      headers: { Cookie: maleCookie }
+    // A recent match consumes the woman's rolling weekly allowance regardless
+    // of which participant sends the final reciprocal like.
+    const quotaSeedMatch = await identityGateDb.query(
+      `INSERT INTO matches (user_a_id, user_b_id)
+       VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid))
+       RETURNING id`,
+      [registered.user.id, secondMaleRegistered.user.id]
+    );
+    assert.equal(quotaSeedMatch.rowCount, 1);
+    const maleFinalLikeAtQuota = await request(`/api/likes/${registered.user.id}`, {
+      method: 'POST', headers: { Cookie: maleCookie }
     });
-    assert.equal(reciprocalLike.status, 201);
-    const matchPayload = await reciprocalLike.json();
+    assert.equal(maleFinalLikeAtQuota.status, 201);
+    const maleQuotaPayload = await maleFinalLikeAtQuota.json();
+    assert.equal(maleQuotaPayload.matched, false);
+    assert.equal(maleQuotaPayload.quota?.type, 'weekly_matches');
+    assert.equal(maleQuotaPayload.quota?.exhausted, true);
+    assert.ok(maleQuotaPayload.quota?.nextAvailableAt,
+      'the API reports when the oldest counted match leaves the rolling seven-day window');
+    await identityGateDb.query('DELETE FROM matches WHERE id = $1', [quotaSeedMatch.rows[0].id]);
+
+    const maleRetryAfterQuota = await request(`/api/likes/${registered.user.id}`, {
+      method: 'POST', headers: { Cookie: maleCookie }
+    });
+    assert.equal(maleRetryAfterQuota.status, 201);
+    const maleInitiatedMatch = await maleRetryAfterQuota.json();
+    assert.equal(maleInitiatedMatch.matched, true);
+    assert.ok(maleInitiatedMatch.match.id);
+
+    // Repeat the same quota boundary with the woman sending the final like.
+    await identityGateDb.query('DELETE FROM matches WHERE id = $1', [maleInitiatedMatch.match.id]);
+    const secondQuotaSeedMatch = await identityGateDb.query(
+      `INSERT INTO matches (user_a_id, user_b_id)
+       VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid))
+       RETURNING id`,
+      [registered.user.id, secondMaleRegistered.user.id]
+    );
+    assert.equal(secondQuotaSeedMatch.rowCount, 1);
+    const femaleFinalLikeAtQuota = await request(`/api/likes/${maleRegistered.user.id}`, {
+      method: 'POST', headers: { Cookie: secondCookie }
+    });
+    assert.equal(femaleFinalLikeAtQuota.status, 201);
+    const femaleQuotaPayload = await femaleFinalLikeAtQuota.json();
+    assert.equal(femaleQuotaPayload.matched, false);
+    assert.equal(femaleQuotaPayload.quota?.type, 'weekly_matches');
+    assert.equal(femaleQuotaPayload.quota?.exhausted, true);
+    await identityGateDb.query('DELETE FROM matches WHERE id = $1', [secondQuotaSeedMatch.rows[0].id]);
+
+    const femaleRetryAfterQuota = await request(`/api/likes/${maleRegistered.user.id}`, {
+      method: 'POST', headers: { Cookie: secondCookie }
+    });
+    assert.equal(femaleRetryAfterQuota.status, 201);
+    const matchPayload = await femaleRetryAfterQuota.json();
     assert.equal(matchPayload.matched, true);
     assert.ok(matchPayload.match.id);
 
