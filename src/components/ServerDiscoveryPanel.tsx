@@ -323,18 +323,20 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       if (response.status === 402) throw new Error(data?.message || t('trialEndedLike'));
       if (!response.ok) throw new Error(t('sendLikeError'));
       const weeklyQuotaExhausted = isFemaleWeeklyMatchQuotaExhausted(data?.quota);
+      if (weeklyQuotaExhausted) {
+        const nextMatchAvailableAt = typeof data?.quota?.nextAvailableAt === 'string' && Number.isFinite(Date.parse(data.quota.nextAvailableAt))
+          ? formatDate(new Date(data.quota.nextAvailableAt), { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' })
+          : null;
+        setNotice(nextMatchAvailableAt
+          ? t('femaleWeeklyMatchQuotaReachedAt').replace('{date}', nextMatchAvailableAt)
+          : t('femaleWeeklyMatchQuotaReached'));
+        return;
+      }
       if (!data?.matched) setActionHistory(current => [...current, { type: 'like' as const, profile }].slice(-50));
       setLikedIds(current => current.includes(profile.id) ? current : [...current, profile.id]);
-      const nextMatchAvailableAt = typeof data?.quota?.nextAvailableAt === 'string' && Number.isFinite(Date.parse(data.quota.nextAvailableAt))
-        ? formatDate(new Date(data.quota.nextAvailableAt), { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' })
-        : null;
       setNotice(data?.matched
         ? t('mutualLikeOpenedChats').replace('{name}', profile.displayName)
-        : weeklyQuotaExhausted
-          ? nextMatchAvailableAt
-            ? t('femaleWeeklyMatchQuotaReachedAt').replace('{date}', nextMatchAvailableAt)
-            : t('femaleWeeklyMatchQuotaReached')
-          : `${t('liked')}: «${profile.displayName}».`);
+        : `${t('liked')}: «${profile.displayName}».`);
       if (data?.matched) {
         matchReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
         setMatchedProfile(profile);
