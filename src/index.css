@@ -1152,7 +1152,7 @@ main article[class*="rounded-2xl"][class*="border"] {
 .vow-inbox-search{display:flex;align-items:center;gap:.55rem;min-height:2.8rem;padding:0 .85rem;border:1px solid rgb(255 255 255 / 10%);border-radius:999px;background:#09090b;color:#a1a1aa}
 .vow-inbox-search>span{font-size:1.35rem;line-height:1}
 .vow-inbox-search input{width:100%;min-width:0;border:0;outline:0;color:#fafafa;background:transparent;font-size:.82rem;box-shadow:none!important}
-.vow-inbox-search input::placeholder{color:#71717a}
+.vow-inbox-search input::placeholder{color:#a1a1aa}
 .vow-inbox-search button{width:1.8rem;height:1.8rem;border:0;border-radius:50%;color:#d4d4d8;background:#27272a;cursor:pointer}
 .vow-inbox-quickstrip{display:flex;gap:.75rem;overflow-x:auto;padding:.95rem .1rem .8rem;scrollbar-width:thin;scrollbar-color:#3f3f46 transparent}
 .vow-inbox-quickcard{display:flex;min-width:3.9rem;max-width:4.6rem;flex-direction:column;align-items:center;gap:.4rem;border:0;color:#d4d4d8;background:transparent;cursor:pointer;font-size:.67rem}
@@ -1170,7 +1170,7 @@ main article[class*="rounded-2xl"][class*="border"] {
 .vow-inbox-row-copy{display:flex;min-width:0;flex:1;flex-direction:column;gap:.25rem}
 .vow-inbox-row-title{overflow:hidden;color:#fafafa;font-size:.82rem;font-weight:750;text-overflow:ellipsis;white-space:nowrap}
 .vow-inbox-row-preview{display:-webkit-box;overflow:hidden;color:#a1a1aa;font-size:.7rem;line-height:1.35;-webkit-box-orient:vertical;-webkit-line-clamp:2}
-.vow-inbox-row-location{overflow:hidden;color:#71717a;font-size:.63rem;text-overflow:ellipsis;white-space:nowrap}
+.vow-inbox-row-location{overflow:hidden;color:#a1a1aa;font-size:.63rem;text-overflow:ellipsis;white-space:nowrap}
 .vow-inbox-row-time{max-width:4.4rem;align-self:flex-start;color:#a1a1aa;font-size:.62rem;text-align:end}
 .vow-inbox-refresh{min-height:2.7rem;margin-top:.7rem;border:1px solid rgb(255 255 255 / 10%);border-radius:.85rem;color:#d4d4d8;background:#111114;font-size:.72rem;font-weight:650;cursor:pointer}
 .vow-inbox-conversation{display:flex;min-width:0;min-height:0;flex-direction:column;background:linear-gradient(160deg,#151316,#0b0b0e 65%)}
@@ -1183,7 +1183,7 @@ main article[class*="rounded-2xl"][class*="border"] {
 .vow-inbox-bubble{max-width:min(82%,34rem);padding:.75rem .9rem;border-radius:1.1rem;color:#f4f4f5;font-size:.78rem;line-height:1.5;box-shadow:0 8px 24px rgb(0 0 0 / 15%)}
 .vow-inbox-bubble.is-mine{align-self:flex-end;border:1px solid rgb(225 29 72 / 25%);border-end-end-radius:.35rem;background:linear-gradient(145deg,#9f1239,#881337)}
 .vow-inbox-bubble.is-theirs{align-self:flex-start;border:1px solid rgb(255 255 255 / 7%);border-end-start-radius:.35rem;background:#252529}
-.vow-inbox-bubble time{display:block;margin-top:.35rem;color:rgb(255 255 255 / 62%);font-size:.61rem}
+.vow-inbox-bubble time{display:block;margin-top:.35rem;color:#f4f4f5;font-size:.61rem}
 .vow-inbox-composer{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.5rem;padding:.85rem 1rem 1rem;border-top:1px solid rgb(255 255 255 / 8%)}
 .vow-inbox-composer textarea{grid-column:1/-1;width:100%;min-height:3.4rem;resize:vertical;border:1px solid rgb(255 255 255 / 10%);border-radius:1rem;padding:.8rem;color:#fafafa;background:#17171b;font-size:.85rem}
 .vow-inbox-composer button{min-height:2.8rem;padding:0 .9rem;border:1px solid rgb(255 255 255 / 12%);border-radius:.85rem;color:#f4f4f5;background:#242429;font-size:.72rem;font-weight:700;cursor:pointer}
