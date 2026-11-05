@@ -2598,11 +2598,14 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
     // identity/profile state, avoiding lock-order inversions with deletion.
     await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
     const actorIdentity = await client.query(
-      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment,
+      `SELECT p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime,
+              iv.status AS identity_status, iv.provider_environment AS identity_environment,
               l3.status AS l3_status, l3.expires_at AS l3_expires_at
-       FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id AND u.status = 'active'
+       LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
        LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
-       WHERE p.user_id = $1 FOR SHARE OF p`,
+       WHERE p.user_id = $1 FOR SHARE OF p, u`,
       [req.authUser.id]
     );
     const identityActor = actorIdentity.rows[0];
@@ -2643,7 +2646,7 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'target_not_available' });
     }
-    if (req.freeDiscovery && !await hasDailyProfileExposure(client, req.authUser.id, targetId)) {
+    if (isFemaleFreeAccount(identityActor) && !await hasDailyProfileExposure(client, req.authUser.id, targetId)) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'profile_not_in_daily_discovery_quota' });
     }
@@ -2672,11 +2675,14 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
     await client.query('BEGIN');
     await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
     const actorIdentity = await client.query(
-      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment,
+      `SELECT p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime,
+              iv.status AS identity_status, iv.provider_environment AS identity_environment,
               l3.status AS l3_status, l3.expires_at AS l3_expires_at
-       FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id AND u.status = 'active'
+       LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
        LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
-       WHERE p.user_id = $1 FOR SHARE OF p`,
+       WHERE p.user_id = $1 FOR SHARE OF p, u`,
       [req.authUser.id]
     );
     const actor = actorIdentity.rows[0];
@@ -2718,7 +2724,7 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'target_not_available' });
     }
-    if (req.freeDiscovery && !await hasDailyProfileExposure(client, req.authUser.id, targetId)) {
+    if (isFemaleFreeAccount(actor) && !await hasDailyProfileExposure(client, req.authUser.id, targetId)) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'profile_not_in_daily_discovery_quota' });
     }
@@ -2732,7 +2738,7 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
     );
     const femaleAccountId = actor.gender === 'female' ? req.authUser.id : targetId;
     const femaleAccount = actor.gender === 'female'
-      ? req.authUser
+      ? actor
       : {
           id: targetId,
           gender: target.gender,
