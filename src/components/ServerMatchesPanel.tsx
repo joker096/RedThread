@@ -236,7 +236,11 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   // without requiring a manual refresh or a full page reload.
   useEffect(() => {
     const refreshWhenVisible = () => {
-      if (document.visibilityState === 'visible') void loadMatches();
+      if (document.visibilityState !== 'visible') return;
+      void loadMatches();
+      // Refresh an open conversation on return, but do not replace older history
+      // while the reader is intentionally scrolled away from the newest messages.
+      if (selected && shouldAutoScrollMessagesRef.current) void loadMessages(selected);
     };
     window.addEventListener('focus', refreshWhenVisible);
     document.addEventListener('visibilitychange', refreshWhenVisible);
@@ -244,7 +248,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       window.removeEventListener('focus', refreshWhenVisible);
       document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
-  }, [loadMatches]);
+  }, [loadMatches, loadMessages, selected]);
   useEffect(() => {
     let cancelled = false;
     const requestId = ++currentUserRequestId.current;
@@ -485,7 +489,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const initials = (name: string) => name.trim().split(/\s+/u).slice(0, 2).map(part => Array.from(part)[0] || '').join('').toLocaleUpperCase();
 
   return (
-    <section data-testid="server-matches-panel" aria-busy={matchesLoading || messagesLoading || busy} className={`vow-screen vow-inbox-shell mb-5 overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#0b0b0e] shadow-2xl shadow-black/25 ${selected ? 'has-selection' : ''}`}>
+    <section data-testid="server-matches-panel" aria-busy={matchesLoading || messagesLoading || olderMessagesLoading || busy} className={`vow-screen vow-inbox-shell mb-5 overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#0b0b0e] shadow-2xl shadow-black/25 ${selected ? 'has-selection' : ''}`}>
       <div className="vow-inbox-heading">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-rose-300">{t('serverChats')}</p>
@@ -569,7 +573,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                       <div ref={messagesLogRef} onScroll={event => {
                         const log = event.currentTarget;
                         shouldAutoScrollMessagesRef.current = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
-                      }} data-testid="server-match-messages" role="log" aria-live="polite" aria-relevant="additions text" aria-atomic="false" aria-label={t('chatMessages')} aria-busy={messagesLoading} className="vow-inbox-message-log">
+                      }} data-testid="server-match-messages" role="log" aria-live="polite" aria-relevant="additions text" aria-atomic="false" aria-label={t('chatMessages')} aria-busy={messagesLoading || olderMessagesLoading} className="vow-inbox-message-log">
                         {messagesHasMore && <button type="button" data-testid="server-match-load-older" onClick={() => void loadOlderMessages()} disabled={olderMessagesLoading || busy} className="vow-inbox-load-older">{olderMessagesLoading ? t('loading') : olderMessagesFailed ? t('retryEarlierMessages') : t('loadEarlierMessages')}</button>}
                         {olderMessagesFailed && <p role="alert" className="px-2 text-center text-xs text-rose-300">{notice || t('loadMessagesError')}</p>}
                         {messages.map(message => (
