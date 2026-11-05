@@ -2461,7 +2461,7 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
   }
 });
 
-app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requireSession, requireDiscoveryAccess, async (req, res) => {
+app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
   let client;
   try {
     client = await pool.connect();
@@ -2884,7 +2884,7 @@ app.delete('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, 
   }
 });
 
-app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, requireSession, requireDiscoveryAccess, async (req, res) => {
+app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
   let client;
   try {
     client = await pool.connect();
