@@ -38,6 +38,9 @@ BEGIN
          AND NOT EXISTS (
            SELECT 1
            FROM paddle_adjustment_events AS verified_adjustment
+           JOIN paddle_webhook_events AS verified_webhook
+             ON verified_webhook.event_id = verified_adjustment.event_id
+            AND verified_webhook.event_type IN ('adjustment.created', 'adjustment.updated')
            WHERE verified_adjustment.adjustment_id = NEW.provider_adjustment_id
              AND NEW.provider_adjustment_id IS NOT NULL
              AND (NEW.provider_transaction_id IS NULL
@@ -61,6 +64,9 @@ BEGIN
            FROM paddle_adjustment_events AS source
            JOIN paddle_adjustment_events AS verified_scope
              ON verified_scope.adjustment_id = source.adjustment_id
+           JOIN paddle_webhook_events AS verified_webhook
+             ON verified_webhook.event_id = verified_scope.event_id
+            AND verified_webhook.event_type IN ('adjustment.created', 'adjustment.updated')
             AND verified_scope.transaction_id = source.transaction_id
             AND verified_scope.action = 'refund'
             AND verified_scope.adjustment_type IN ('full', 'partial')
