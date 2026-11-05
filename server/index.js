@@ -4921,6 +4921,14 @@ app.post('/api/moderation/identity-l3/submissions/:submissionId/decision', valid
       await client.query('ROLLBACK');
       return res.status(409).json({ error: 'l3_submission_not_reviewable' });
     }
+    const mediaReview = await client.query(
+      'SELECT 1 FROM identity_l3_media_access_events WHERE submission_id = $1 AND moderator_user_id = $2 LIMIT 1',
+      [req.params.submissionId, req.authUser.id]
+    );
+    if (!mediaReview.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'l3_media_review_required' });
+    }
     await client.query(
       "SELECT set_config('app.identity_l3_actor_user_id', $1, true), set_config('app.identity_l3_reason_code', $2, true)",
       [req.authUser.id, reasonCode]
