@@ -2224,6 +2224,10 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(femaleReplyAfterTrial.status, 201,
       'an expired female trial must not block sending messages in an already-created match');
+    await identityGateDb.query(
+      "UPDATE users SET female_trial_ends_at = NOW() + INTERVAL '1 day' WHERE id = $1",
+      [registered.user.id]
+    );
 
     const noSessionMessages = await request(`/api/matches/${matchPayload.match.id}/messages`);
     assert.equal(noSessionMessages.status, 401);
