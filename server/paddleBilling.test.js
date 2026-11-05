@@ -2576,6 +2576,23 @@ test('Paddle adjustment conflict migration preserves provider adjustment identit
     /audit\.details->>'adjustmentId'[\s\S]*NEW\.provider_adjustment_id/);
 });
 
+test('Paddle manual resolution refuses to close a refund until a later provider event verifies its scope', async () => {
+  const migration = await readFile(
+    new URL('./migrations/204_require_verified_refund_scope_before_manual_closure.sql', import.meta.url),
+    'utf8'
+  );
+  assert.match(migration,
+    /NEW\.reason_code = 'invalid_adjustment_payload'[\\s\\S]*source\.action = 'refund'[\\s\\S]*source\.adjustment_type IS NULL/);
+  assert.match(migration,
+    /verified_scope\.adjustment_type IN \\('full', 'partial'\\)/);
+
+  const api = await readFile(new URL('./index.js', import.meta.url), 'utf8');
+  assert.match(api,
+    /has_verified_refund_scope[\\s\\S]*refund_scope_requires_provider_verified_reconciliation/);
+  assert.match(api,
+    /verified_scope\.adjustment_id[\\s\\S]*verified_scope\.adjustment_type IN \\('full', 'partial'\\)/);
+});
+
 test('Paddle manual resolution migration keeps unverified ownership cases open', async () => {
   const migration = await readFile(
     new URL('./migrations/186_block_unverified_manual_adjustment_closure.sql', import.meta.url),
