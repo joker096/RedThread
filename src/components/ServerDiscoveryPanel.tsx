@@ -231,7 +231,9 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       setProfiles(nextProfiles);
       setAuthenticated(true);
       setSearchFailed(false);
-      setNotice(nextProfiles.length ? `${t('registeredProfiles')}: ${formatNumber(nextProfiles.length)}` : t('noProfilesForFilters'));
+      setNotice(data?.dailyQuota
+        ? (data.dailyQuota.remaining === 0 ? t('freeDailyProfilesExhausted') : t('freeDailyProfilesAvailable'))
+        : (nextProfiles.length ? `${t('registeredProfiles')}: ${formatNumber(nextProfiles.length)}` : t('noProfilesForFilters')));
     } catch (error) {
       if (isCurrentDiscoverySearchResponse(requestId, searchRequestId.current, actionEpoch, sessionEpoch.current)) {
         setProfiles([]);
@@ -295,6 +297,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         return;
       }
       if (response.status === 402) throw new Error(data?.message || t('trialEndedLike'));
+      if (response.status === 429 && data?.error === 'weekly_match_quota_reached') throw new Error(t('freeWeeklyMatchQuota'));
       if (!response.ok) throw new Error(t('sendLikeError'));
       if (!data?.matched) setActionHistory(current => [...current, { type: 'like' as const, profile }].slice(-50));
       setLikedIds(current => current.includes(profile.id) ? current : [...current, profile.id]);
