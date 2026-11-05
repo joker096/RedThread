@@ -412,6 +412,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       if (!response.ok) throw new Error(data?.error === 'too_many_messages' ? t('messageRateLimit') : t('sendMessageError'));
       const sentMessage = normalizeServerMessage(data?.message);
       if (!sentMessage) throw new Error(t('sendMessageError'));
+      shouldAutoScrollMessagesRef.current = true;
       setMessages(current => deduplicateById([...current, sentMessage]).slice(-500));
       setDrafts(current => ({ ...current, [matchId]: '' }));
       void loadMatches();
