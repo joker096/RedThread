@@ -2217,6 +2217,14 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(readMessages.status, 200);
     assert.equal((await readMessages.json()).messages.some(message => message.id === sentMessage.id), true);
 
+    const femaleReplyAfterTrial = await request(`/api/matches/${matchPayload.match.id}/messages`, {
+      method: 'POST',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({ text: 'Спасибо за сообщение! Продолжим знакомство.' })
+    });
+    assert.equal(femaleReplyAfterTrial.status, 201,
+      'an expired female trial must not block sending messages in an already-created match');
+
     const noSessionMessages = await request(`/api/matches/${matchPayload.match.id}/messages`);
     assert.equal(noSessionMessages.status, 401);
 
