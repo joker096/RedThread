@@ -3468,3 +3468,79 @@ test('malformed Paddle subscription lifecycle events are durably quarantined wit
     await pool.end();
   }
 });
+
+
+test('malformed subscription timestamp cases require matching moderator audit before manual closure', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const client = await pool.connect();
+  const moderatorId = randomUUID();
+  const eventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  const subscriptionId = `sub_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      "INSERT INTO users (id, email, password_hash, role, status) VALUES ($1, $2, 'test-only-hash', 'moderator', 'active')",
+      [moderatorId, `subscription-case-mod-${moderatorId}@example.invalid`]
+    );
+    await client.query(
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'subscription.updated')",
+      [eventId]
+    );
+    await client.query(
+      `INSERT INTO paddle_adjustment_reconciliation_cases
+       (event_id, reason_code, provider_subscription_id)
+       VALUES ($1, 'invalid_subscription_timestamp', $2)`,
+      [eventId, subscriptionId]
+    );
+    await client.query(
+      `UPDATE paddle_adjustment_reconciliation_cases
+       SET status = 'resolved',
+           resolution_note = 'Reviewed the original provider event and verified its subscription reference',
+           resolution_source = 'manual_operator',
+           resolved_by_ref = $2,
+           resolved_at = statement_timestamp(),
+           updated_at = statement_timestamp()
+       WHERE event_id = $1`,
+      [eventId, moderatorId]
+    );
+    await client.query(
+      `INSERT INTO moderation_audit_log
+       (moderator_id, action, target_type, target_id, reason, details)
+       VALUES ($1, 'paddle_adjustment_reconciliation_resolved',
+               'paddle_adjustment_case', $2,
+               'Reviewed the original provider event and verified its subscription reference',
+               jsonb_build_object(
+                 'eventId', $2::text,
+                 'reasonCode', 'invalid_subscription_timestamp',
+                 'adjustmentId', NULL,
+                 'transactionId', NULL,
+                 'providerUserRef', NULL,
+                 'providerPlan', NULL,
+                 'providerSubscriptionId', $3::text,
+                 'resolutionSource', 'manual_operator'
+               ))`,
+      [moderatorId, eventId, subscriptionId]
+    );
+    await client.query('SET CONSTRAINTS paddle_adjustment_reconciliation_manual_audit_guard IMMEDIATE');
+    const resolved = await client.query(
+      `SELECT status, resolution_source, provider_subscription_id
+       FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1`,
+      [eventId]
+    );
+    assert.deepEqual(resolved.rows, [{
+      status: 'resolved',
+      resolution_source: 'manual_operator',
+      provider_subscription_id: subscriptionId
+    }]);
+    await client.query('ROLLBACK');
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw error;
+  } finally {
+    client.release();
+    await pool.end();
+  }
+});
