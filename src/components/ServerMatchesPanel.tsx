@@ -196,7 +196,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     setMessagesFailed(false);
     try {
       const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/messages?limit=${MESSAGE_PAGE_SIZE}&latest=true`, { credentials: 'include' });
-      if (requestId !== messageRequestId.current) return;
+      if (actionEpoch !== sessionEpoch.current) return;
       if (response.status === 401) {
         clearSessionState();
         setNotice(t('loginToSeeMatches'));
@@ -250,7 +250,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       void loadMatches();
       // Refresh an open conversation on return, but do not replace older history
       // while the reader is intentionally scrolled away from the newest messages.
-      if (selected && shouldAutoScrollMessagesRef.current) void loadMessages(selected);
+      if (selected && shouldAutoScrollMessagesRef.current && !sendInFlight.current) void loadMessages(selected);
     };
     window.addEventListener('focus', refreshWhenVisible);
     document.addEventListener('visibilitychange', refreshWhenVisible);
@@ -378,12 +378,18 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     // Keep the request-side limit aligned with the composer maxLength.
     const text = draft.trim().slice(0, 4000);
     const matchId = selected;
-    const requestId = messageRequestId.current;
     const actionEpoch = sessionEpoch.current;
     // Lock synchronously so Enter + click (or two rapid key events) cannot
     // start duplicate POST requests before React re-renders with busy=true.
     if (!text || !matchId || busy || sendInFlight.current) return;
     sendInFlight.current = true;
+    // A send response is authoritative for the just-created message. Invalidate
+    // any older history/prepend request so it cannot overwrite that response.
+    messageRequestId.current += 1;
+    setMessagesLoading(false);
+    setOlderMessagesLoading(false);
+    setOlderMessagesFailed(false);
+    pendingScrollAdjustmentRef.current = null;
     setBusy(true);
     setNotice('');
     try {
@@ -407,26 +413,30 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         setMessagesLoading(false);
         setMatchesLoading(false);
         setMatches(current => current.filter(match => match.id !== matchId));
-        setSelected('');
-        setMessages([]);
-        setMessagesOffset(0);
-        setMessagesHasMore(false);
-        setOlderMessagesLoading(false);
-        setOlderMessagesFailed(false);
-        pendingScrollAdjustmentRef.current = null;
+        if (selected === matchId) {
+          setSelected('');
+          setMessages([]);
+          setMessagesOffset(0);
+          setMessagesHasMore(false);
+          setOlderMessagesLoading(false);
+          setOlderMessagesFailed(false);
+          pendingScrollAdjustmentRef.current = null;
+        }
         setNotice(t('sendMessageError'));
         return;
       }
       if (!response.ok) throw new Error(data?.error === 'too_many_messages' ? t('messageRateLimit') : t('sendMessageError'));
       const sentMessage = normalizeServerMessage(data?.message);
       if (!sentMessage) throw new Error(t('sendMessageError'));
-      shouldAutoScrollMessagesRef.current = true;
-      pendingScrollAdjustmentRef.current = null;
-      setMessages(current => deduplicateById([...current, sentMessage]));
+      if (selected === matchId) {
+        shouldAutoScrollMessagesRef.current = true;
+        pendingScrollAdjustmentRef.current = null;
+        setMessages(current => deduplicateById([...current, sentMessage]));
+      }
       setDrafts(current => ({ ...current, [matchId]: '' }));
       void loadMatches();
     } catch (error) {
-      if (requestId === messageRequestId.current) {
+      if (actionEpoch === sessionEpoch.current) {
         setNotice(error instanceof Error ? error.message : t('sendMessageError'));
       }
     } finally {
@@ -541,7 +551,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
 
                 <div className="vow-inbox-quickstrip" role="group" aria-label={t('yourMatches')}>
                   {matches.slice(0, 8).map(match => (
-                    <button key={match.id} type="button" data-testid="server-match-quick-card" aria-pressed={selected === match.id} onClick={() => { messageRequestId.current += 1; setMessages([]); setMessagesOffset(0); setMessagesHasMore(false); setOlderMessagesLoading(false); setOlderMessagesFailed(false); pendingScrollAdjustmentRef.current = null; setNotice(''); setSelected(match.id); }} className="vow-inbox-quickcard">
+                    <button key={match.id} type="button" data-testid="server-match-quick-card" disabled={busy} aria-pressed={selected === match.id} onClick={() => { messageRequestId.current += 1; setMessages([]); setMessagesOffset(0); setMessagesHasMore(false); setOlderMessagesLoading(false); setOlderMessagesFailed(false); pendingScrollAdjustmentRef.current = null; setNotice(''); setSelected(match.id); }} className="vow-inbox-quickcard">
                       <span className="vow-inbox-avatar vow-inbox-avatar--quick">{initials(match.displayName)}</span>
                       <span>{match.displayName}</span>
                     </button>
@@ -575,7 +585,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                 {selectedMatch ? (
                   <>
                     <header className="vow-inbox-chat-header">
-                      <button type="button" data-testid="server-match-back" onClick={() => { messageRequestId.current += 1; setSelected(''); setMessages([]); setMessagesOffset(0); setMessagesHasMore(false); setOlderMessagesLoading(false); setOlderMessagesFailed(false); pendingScrollAdjustmentRef.current = null; setNotice(''); }} className="vow-inbox-back" aria-label={t('chatBackToList')}>←</button>
+                      <button type="button" data-testid="server-match-back" disabled={busy} onClick={() => { messageRequestId.current += 1; setSelected(''); setMessages([]); setMessagesOffset(0); setMessagesHasMore(false); setOlderMessagesLoading(false); setOlderMessagesFailed(false); pendingScrollAdjustmentRef.current = null; setNotice(''); }} className="vow-inbox-back" aria-label={t('chatBackToList')}>←</button>
                       <span className="vow-inbox-avatar vow-inbox-avatar--header">{initials(selectedMatch.displayName)}</span>
                       <span className="min-w-0 flex-1">
                         <strong className="block truncate text-sm text-white">{selectedMatch.displayName}, {selectedMatch.age}</strong>
