@@ -472,8 +472,6 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     const requestId = messageRequestId.current;
     const offset = messagesOffset;
     if (!matchId || !messagesHasMore || olderMessagesLoading || busy) return;
-    const log = messagesLogRef.current;
-    if (log) pendingScrollAdjustmentRef.current = { scrollHeight: log.scrollHeight, scrollTop: log.scrollTop };
     setOlderMessagesLoading(true);
     setOlderMessagesFailed(false);
     try {
@@ -508,6 +506,12 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       const olderMessages = deduplicateById<ServerMessage>(
         rawMessages.map((value: unknown) => normalizeServerMessage(value)).filter((message: ServerMessage | null): message is ServerMessage => message !== null)
       );
+      // Capture the reader's actual position after the network wait, immediately
+      // before React prepends the page, so scrolling during the request is respected.
+      const currentLog = messagesLogRef.current;
+      pendingScrollAdjustmentRef.current = currentLog
+        ? { scrollHeight: currentLog.scrollHeight, scrollTop: currentLog.scrollTop }
+        : null;
       setMessages(current => deduplicateById([...olderMessages, ...current]));
       setMessagesOffset(offset + rawMessages.length);
       setMessagesHasMore(rawMessages.length === MESSAGE_PAGE_SIZE);
