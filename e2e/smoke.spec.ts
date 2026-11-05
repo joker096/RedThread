@@ -1959,12 +1959,16 @@ test('gift request notification opens the chats request list without exposing re
 
 test('real Vow inbox supports search, conversation filters and mobile chat navigation', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  let requestedLatestHistory = false;
   await page.route('**/api/auth/me', async route => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ user: { id: 'e2e-current-user' } }) });
   });
   await page.route('**/api/matches**', async route => {
     const url = new URL(route.request().url());
     if (url.pathname.endsWith('/messages')) {
+      if (route.request().method() === 'GET') {
+        requestedLatestHistory = url.searchParams.get('limit') === '100' && url.searchParams.get('latest') === 'true';
+      }
       if (route.request().method() === 'POST') {
         const payload = route.request().postDataJSON() as { text?: string };
         await route.fulfill({
@@ -2016,6 +2020,7 @@ test('real Vow inbox supports search, conversation filters and mobile chat navig
   await expect(page.getByTestId('real-match-chat')).toBeVisible();
   await expect(page.getByTestId('server-match-back')).toBeVisible();
   await expect(page.getByTestId('server-match-messages')).toContainText('Давай продолжим знакомство');
+  expect(requestedLatestHistory).toBe(true);
 
   await page.getByRole('textbox', { name: /write a message|напишите сообщение/i }).fill('Предлагаю встретиться в субботу');
   await page.getByTestId('server-match-send').click();
