@@ -89,6 +89,8 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [matchFilter, setMatchFilter] = useState<'all' | 'withMessages' | 'withoutMessages'>('all');
   const messageRequestId = useRef(0);
   const matchesRequestId = useRef(0);
   const currentUserRequestId = useRef(0);
@@ -349,60 +351,129 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     }
   };
 
+  const filteredMatches = matches.filter(match => {
+    const query = searchQuery.trim().toLocaleLowerCase();
+    const searchable = [match.displayName, match.city, match.country, match.lastMessage || ''].join(' ').toLocaleLowerCase();
+    if (query && !searchable.includes(query)) return false;
+    if (matchFilter === 'withMessages' && !match.lastMessage) return false;
+    if (matchFilter === 'withoutMessages' && match.lastMessage) return false;
+    return true;
+  });
+  const selectedMatch = matches.find(match => match.id === selected) || null;
+  const initials = (name: string) => name.trim().split(/\\s+/).slice(0, 2).map(part => Array.from(part)[0] || '').join('').toLocaleUpperCase();
+
   return (
-    <section data-testid="server-matches-panel" aria-busy={matchesLoading || messagesLoading || busy} className="vow-screen mb-5 overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-stone-900 via-stone-900 to-sky-950/40 p-4 shadow-xl shadow-black/10 sm:p-5">
-      <div className="mb-4">
-        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-sky-300">{t('serverChats')}</p>
-        <h3 className="mt-1 text-xl font-bold tracking-tight text-white">{t('mutualMatches')}</h3>
-        <p className="mt-1 max-w-sm text-xs leading-relaxed text-stone-400">{t('realMatchesOnly')}</p>
+    <section data-testid="server-matches-panel" aria-busy={matchesLoading || messagesLoading || busy} className={`vow-screen vow-inbox-shell mb-5 overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#0b0b0e] shadow-2xl shadow-black/25 ${selected ? 'has-selection' : ''}`}>
+      <div className="vow-inbox-heading">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-rose-300">{t('serverChats')}</p>
+          <h2 className="mt-1 text-2xl font-bold tracking-tight text-white">{t('mutualMatches')}</h2>
+          <p className="mt-1 text-xs text-stone-400">{t('realMatchesOnly')}</p>
+        </div>
+        <span className="vow-inbox-total">{matches.length}</span>
       </div>
       {authenticated === false ? (
-        <div className="rounded-2xl border border-white/10 bg-stone-950/50 p-4 shadow-inner">
+        <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-5">
           <p className="text-sm text-stone-200">{t('loginToSeeMatches')}</p>
-          <button type="button" onClick={onOpenAccount} className="mt-3 min-h-11 min-w-11 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">{t('login')}</button>
+          <button type="button" onClick={onOpenAccount} className="mt-3 min-h-11 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">{t('login')}</button>
         </div>
       ) : (
-        <div className="space-y-3">
-          {matchesLoading && <p role="status" aria-live="polite" aria-atomic="true" className="rounded-xl border border-white/10 bg-stone-950/40 px-3 py-3 text-center text-xs text-stone-300">{t('loading')}</p>}
-          {!matchesLoading && matchesFailed && <div className="rounded-xl border border-rose-500/20 bg-rose-950/20 p-3" role="alert"><p className="text-xs text-stone-200">{notice || t('loadMatchesError')}</p><button type="button" onClick={() => void loadMatches()} className="mt-2 min-h-11 min-w-11 rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300">{t('retry')}</button></div>}
-          {!matchesLoading && !matchesFailed && matches.length === 0 && <div role="status" aria-live="polite" aria-atomic="true" className="rounded-xl border border-white/10 bg-stone-950/40 p-4 text-center"><p className="text-sm text-stone-200">{t('noMutualMatches')}</p></div>}
-          {matches.map(match => (
-            <button data-testid="server-match-item" type="button" key={match.id} aria-pressed={selected === match.id} disabled={busy} onClick={() => { messageRequestId.current += 1; setMessages([]); setNotice(''); setSelected(match.id); }} className={`vow-motion-button min-h-16 w-full rounded-2xl border p-3.5 text-start transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300 disabled:cursor-not-allowed disabled:opacity-60 ${selected === match.id ? 'border-sky-400/60 bg-sky-950/40 shadow-md shadow-sky-950/30' : 'border-white/10 bg-stone-950/45 hover:border-white/20 hover:bg-stone-950/70'}`}>
-              <span className="block text-sm font-semibold text-white">{match.displayName}, {match.age}</span>
-              {(match.city || match.country) && (
-                <span className="mt-1 block text-xs text-stone-400">
-                  {[match.city, match.country].filter(Boolean).join(', ')}
-                </span>
-              )}
-              <span className="mt-1 block truncate text-xs text-stone-500">{match.lastMessage || t('matchCreatedMessage')}</span>
-            </button>
-          ))}
-          {notice && !matchesFailed && (matches.length > 0 || selected) && <p role="status" aria-live="polite" aria-atomic="true" className="text-xs text-stone-300">{notice}</p>}
-          {selected && (
-            <div data-testid="real-match-chat" className="rounded-2xl border border-white/10 bg-stone-950/55 p-3.5 shadow-inner sm:p-4">
-              <div className="mb-4">
-                {messagesLoading && <p role="status" aria-live="polite" aria-atomic="true" className="px-2 py-3 text-xs text-stone-400">{t('loading')}</p>}
-                {messagesFailed && <div role="alert" className="mb-2 rounded-xl border border-rose-500/20 bg-rose-950/20 p-3"><p className="text-xs text-stone-200">{notice || t('loadMessagesError')}</p><button type="button" onClick={() => void loadMessages(selected)} className="mt-2 min-h-11 min-w-11 rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300">{t('retry')}</button></div>}
-                <div ref={messagesLogRef} onScroll={event => {
-                  const log = event.currentTarget;
-                  shouldAutoScrollMessagesRef.current = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
-                }} data-testid="server-match-messages" role="log" aria-live="polite" aria-relevant="additions text" aria-atomic="false" aria-label={t('chatMessages')} aria-busy={messagesLoading} className="max-h-60 space-y-2.5 overflow-y-auto overscroll-contain rounded-xl bg-black/10 p-1 sm:max-h-80">
-                  {messages.map(message => (
-                    <div key={message.id} className={`max-w-[90%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed shadow-sm ${message.senderId === currentUserId ? 'ms-auto rounded-br-md bg-gradient-to-br from-rose-600 to-rose-700 text-white' : 'me-auto rounded-bl-md border border-white/5 bg-stone-800 text-stone-100'}`}>
-                      <p dir="auto" className="whitespace-pre-wrap break-words">{message.text}</p>
-                      <time dateTime={message.createdAt} className={`mt-1 block text-[10px] leading-4 ${message.senderId === currentUserId ? 'text-rose-100/85' : 'text-stone-400'}`}>{formatDate(message.createdAt, { dateStyle: 'medium', timeStyle: 'short' })}</time>
-                    </div>
+        <>
+          {matchesLoading && <p role="status" aria-live="polite" aria-atomic="true" className="mb-3 rounded-xl border border-white/10 bg-stone-950/50 px-3 py-3 text-center text-xs text-stone-300">{t('loading')}</p>}
+          {!matchesLoading && matchesFailed && <div className="mb-3 rounded-xl border border-rose-500/20 bg-rose-950/20 p-3" role="alert"><p className="text-xs text-stone-200">{notice || t('loadMatchesError')}</p><button type="button" onClick={() => void loadMatches()} className="mt-2 min-h-11 rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-white">{t('retry')}</button></div>}
+          {!matchesLoading && !matchesFailed && matches.length === 0 ? (
+            <div data-testid="server-match-empty" role="status" aria-live="polite" aria-atomic="true" className="rounded-2xl border border-white/10 bg-stone-950/50 p-6 text-center">
+              <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full border border-rose-400/20 bg-rose-500/10 text-2xl text-rose-300">♡</div>
+              <p className="text-sm font-semibold text-stone-100">{t('noMutualMatches')}</p>
+            </div>
+          ) : matches.length > 0 && (
+            <div className="vow-inbox-layout">
+              <aside className="vow-inbox-sidebar" aria-label={t('chatThreads')}>
+                <div className="vow-inbox-search">
+                  <label className="sr-only" htmlFor="vow-match-search">{t('search')}</label>
+                  <span aria-hidden="true">⌕</span>
+                  <input id="vow-match-search" data-testid="server-match-search" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder={t('search')} autoComplete="off" />
+                  {searchQuery && <button type="button" aria-label={locale?.startsWith('ru') ? 'Очистить поиск' : 'Clear search'} onClick={() => setSearchQuery('')}>×</button>}
+                </div>
+
+                <div className="vow-inbox-quickstrip" aria-label={locale?.startsWith('ru') ? 'Ваши совпадения' : 'Your matches'}>
+                  {matches.slice(0, 8).map(match => (
+                    <button key={match.id} type="button" data-testid="server-match-quick-card" aria-pressed={selected === match.id} onClick={() => { messageRequestId.current += 1; setMessages([]); setNotice(''); setSelected(match.id); }} className="vow-inbox-quickcard">
+                      <span className="vow-inbox-avatar vow-inbox-avatar--quick">{initials(match.displayName)}</span>
+                      <span>{match.displayName}</span>
+                    </button>
                   ))}
                 </div>
-                {!messagesLoading && !messagesFailed && !messages.length && <p role="status" className="px-2 py-3 text-xs text-stone-500">{t('noMessagesYet')}</p>}
+
+                <div className="vow-inbox-filters" role="group" aria-label={locale?.startsWith('ru') ? 'Фильтр диалогов' : 'Conversation filters'}>
+                  <button type="button" data-testid="server-match-filter-all" aria-pressed={matchFilter === 'all'} onClick={() => setMatchFilter('all')} className={matchFilter === 'all' ? 'is-active' : ''}>{locale?.startsWith('ru') ? 'Все' : 'All'}</button>
+                  <button type="button" data-testid="server-match-filter-messaged" aria-pressed={matchFilter === 'withMessages'} onClick={() => setMatchFilter('withMessages')} className={matchFilter === 'withMessages' ? 'is-active' : ''}>{locale?.startsWith('ru') ? 'С сообщениями' : 'With messages'}</button>
+                  <button type="button" data-testid="server-match-filter-new" aria-pressed={matchFilter === 'withoutMessages'} onClick={() => setMatchFilter('withoutMessages')} className={matchFilter === 'withoutMessages' ? 'is-active' : ''}>{locale?.startsWith('ru') ? 'Без сообщений' : 'No messages'}</button>
+                </div>
+
+                <div className="vow-inbox-list" aria-label={t('chatThreads')}>
+                  {filteredMatches.map(match => (
+                    <button data-testid="server-match-item" type="button" key={match.id} aria-pressed={selected === match.id} disabled={busy} onClick={() => { messageRequestId.current += 1; setMessages([]); setNotice(''); setSelected(match.id); }} className={`vow-inbox-row ${selected === match.id ? 'is-selected' : ''}`}>
+                      <span className="vow-inbox-avatar">{initials(match.displayName)}</span>
+                      <span className="vow-inbox-row-copy">
+                        <span className="vow-inbox-row-title">{match.displayName}, {match.age}</span>
+                        <span className="vow-inbox-row-preview">{match.lastMessage || t('matchCreatedMessage')}</span>
+                        {(match.city || match.country) && <span className="vow-inbox-row-location">{[match.city, match.country].filter(Boolean).join(', ')}</span>}
+                      </span>
+                      <span className="vow-inbox-row-time">{match.lastMessageAt ? formatDate(match.lastMessageAt, { dateStyle: 'short', timeStyle: 'short' }) : ''}</span>
+                    </button>
+                  ))}
+                  {!filteredMatches.length && <p data-testid="server-match-filter-empty" role="status" className="p-5 text-center text-xs text-stone-400">{locale?.startsWith('ru') ? 'Ничего не найдено. Измените запрос или фильтр.' : 'No conversations found. Try another search or filter.'}</p>}
+                </div>
+                <button type="button" onClick={() => void loadMatches()} disabled={matchesLoading || busy} aria-busy={matchesLoading} className="vow-inbox-refresh">{t('refreshMatches')}</button>
+              </aside>
+
+              <div className="vow-inbox-conversation">
+                {selectedMatch ? (
+                  <>
+                    <header className="vow-inbox-chat-header">
+                      <button type="button" data-testid="server-match-back" onClick={() => { messageRequestId.current += 1; setSelected(''); setMessages([]); setNotice(''); }} className="vow-inbox-back" aria-label={locale?.startsWith('ru') ? 'Назад к диалогам' : 'Back to conversations'}>←</button>
+                      <span className="vow-inbox-avatar vow-inbox-avatar--header">{initials(selectedMatch.displayName)}</span>
+                      <span className="min-w-0 flex-1">
+                        <strong className="block truncate text-sm text-white">{selectedMatch.displayName}, {selectedMatch.age}</strong>
+                        <span className="block truncate text-xs text-stone-400">{[selectedMatch.city, selectedMatch.country].filter(Boolean).join(', ') || t('mutualMatches')}</span>
+                      </span>
+                      <span className="vow-inbox-match-label">{locale?.startsWith('ru') ? 'Совпадение' : 'Matched'}</span>
+                    </header>
+                    {notice && !messagesFailed && <p role="status" aria-live="polite" className="px-4 pt-2 text-xs text-stone-300">{notice}</p>}
+                    <div className="vow-inbox-message-area">
+                      {messagesLoading && <p role="status" aria-live="polite" aria-atomic="true" className="py-3 text-xs text-stone-400">{t('loading')}</p>}
+                      {messagesFailed && <div role="alert" className="mb-2 rounded-xl border border-rose-500/20 bg-rose-950/20 p-3"><p className="text-xs text-stone-200">{notice || t('loadMessagesError')}</p><button type="button" onClick={() => void loadMessages(selected)} className="mt-2 min-h-11 rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-white">{t('retry')}</button></div>}
+                      <div ref={messagesLogRef} onScroll={event => {
+                        const log = event.currentTarget;
+                        shouldAutoScrollMessagesRef.current = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+                      }} data-testid="server-match-messages" role="log" aria-live="polite" aria-relevant="additions text" aria-atomic="false" aria-label={t('chatMessages')} aria-busy={messagesLoading} className="vow-inbox-message-log">
+                        {messages.map(message => (
+                          <div key={message.id} className={`vow-inbox-bubble ${message.senderId === currentUserId ? 'is-mine' : 'is-theirs'}`}>
+                            <p dir="auto" className="whitespace-pre-wrap break-words">{message.text}</p>
+                            <time dateTime={message.createdAt}>{formatDate(message.createdAt, { dateStyle: 'medium', timeStyle: 'short' })}</time>
+                          </div>
+                        ))}
+                      </div>
+                      {!messagesLoading && !messagesFailed && !messages.length && <p role="status" className="py-4 text-center text-xs text-stone-500">{t('noMessagesYet')}</p>}
+                    </div>
+                    <form className="vow-inbox-composer" onSubmit={event => { event.preventDefault(); void send(); }}>
+                      <textarea dir="auto" aria-label={t('writeMessage')} value={draft} onChange={event => setDrafts(current => ({ ...current, [selected]: event.target.value }))} onKeyDown={event => { if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || busy || !draft.trim()) return; event.preventDefault(); void send(); }} disabled={busy} maxLength={4000} rows={2} placeholder={t('writeMessage')} />
+                      <button data-testid="server-match-send" type="submit" disabled={busy || !draft.trim()}>{busy ? t('sendingMessage') : t('sendMessage')}</button>
+                      <button type="button" data-testid="server-match-refresh-messages" onClick={() => void loadMessages(selected)} disabled={busy || messagesLoading}>{t('refreshMessages')}</button>
+                    </form>
+                  </>
+                ) : (
+                  <div className="vow-inbox-welcome">
+                    <span className="vow-inbox-welcome-icon">♡</span>
+                    <h3>{locale?.startsWith('ru') ? 'Ваши настоящие знакомства' : 'Your real connections'}</h3>
+                    <p>{locale?.startsWith('ru') ? 'Выберите совпадение слева, чтобы продолжить знакомство.' : 'Choose a match to continue the conversation.'}</p>
+                  </div>
+                )}
               </div>
-              <textarea dir="auto" aria-label={t('writeMessage')} value={draft} onChange={e => setDrafts(current => ({ ...current, [selected]: e.target.value }))} onKeyDown={e => { if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229 || busy || !draft.trim()) return; e.preventDefault(); void send(); }} disabled={busy} maxLength={4000} rows={2} placeholder={t('writeMessage')} className="w-full resize-y rounded-xl border border-white/10 bg-stone-900/90 p-3.5 text-sm text-white outline-none transition placeholder:text-stone-500 focus:border-rose-400/60 focus:ring-2 focus:ring-rose-400/15 disabled:cursor-not-allowed disabled:opacity-60" />
-              <button data-testid="server-match-send" type="button" onClick={() => void send()} disabled={busy || !draft.trim()} className="vow-motion-button mt-2 min-h-12 w-full rounded-xl bg-gradient-to-r from-rose-600 to-rose-700 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-rose-950/25 transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300 disabled:cursor-not-allowed disabled:opacity-40">{busy ? t('sendingMessage') : t('sendMessage')}</button>
-              <button type="button" onClick={() => void loadMessages(selected)} disabled={busy || messagesLoading} className="vow-motion-button mt-2 min-h-11 w-full rounded-xl border border-white/10 px-4 py-2 text-xs font-semibold text-stone-300 transition hover:border-white/20 hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300 disabled:cursor-not-allowed disabled:opacity-50">{t('refreshMessages')}</button>
             </div>
           )}
-          <button type="button" onClick={() => void loadMatches()} disabled={matchesLoading || busy} aria-busy={matchesLoading} className="vow-motion-button min-h-11 w-full rounded-xl border border-white/10 px-4 py-2.5 text-xs font-semibold text-stone-300 transition hover:border-white/20 hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300 disabled:cursor-not-allowed disabled:opacity-50">{t('refreshMatches')}</button>
-        </div>
+        </>
       )}
     </section>
   );
