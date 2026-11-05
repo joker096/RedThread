@@ -413,7 +413,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       const sentMessage = normalizeServerMessage(data?.message);
       if (!sentMessage) throw new Error(t('sendMessageError'));
       shouldAutoScrollMessagesRef.current = true;
-      setMessages(current => deduplicateById([...current, sentMessage]).slice(-500));
+      setMessages(current => deduplicateById([...current, sentMessage]));
       setDrafts(current => ({ ...current, [matchId]: '' }));
       void loadMatches();
     } catch (error) {
