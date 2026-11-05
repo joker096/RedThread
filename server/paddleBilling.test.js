@@ -724,7 +724,7 @@ test('Paddle transaction timestamps must be strict RFC3339 calendar instants', a
   }
 });
 
-test('a later verified transaction cancellation resolves only the matching invalid-timestamp case', async () => {
+test('verified transaction cancellation resolves only the matching invalid-timestamp case', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const ownerId = '00000000-0000-4000-8000-000000000091';
   const transactionId = 'txn_verifiedtimestampresolution123';
@@ -772,10 +772,10 @@ test('a later verified transaction cancellation resolves only the matching inval
   });
 
   const resolution = queries.find(query => query.statement.includes("reason_code = 'invalid_transaction_timestamp'"));
-  assert.ok(resolution, 'later valid lifecycle evidence must attempt to resolve the timestamp case');
+  assert.ok(resolution, 'valid canonical lifecycle evidence must attempt to resolve the timestamp case');
   assert.equal(resolution.params[0], transactionId);
   assert.equal(resolution.params[1], ownerId);
-  assert.match(resolution.statement, /verified\.processed_at > original\.processed_at/);
+  assert.match(resolution.statement, /verified\.event_type = 'transaction\\.canceled'/);
   assert.match(resolution.statement, /COUNT\(DISTINCT owner\.user_id\)/);
   assert.match(resolution.statement, /evidence\.status IN \('completed', 'canceled'\)/);
 });
