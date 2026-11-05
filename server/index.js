@@ -2917,10 +2917,10 @@ app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) =>
       return res.status(401).json({ error: 'account_not_active' });
     }
     const result = await client.query(
-      `SELECT m.id, m.status, m.created_at AS "createdAt",
+      `SELECT m.id,
          other.user_id AS "partnerId", other.display_name AS "displayName",
          EXTRACT(YEAR FROM AGE(CURRENT_DATE, other.birth_date))::int AS age,
-         other.gender, other.country, other.city, other.bio,
+         other.country, other.city,
          latest.body AS "lastMessage", latest.created_at AS "lastMessageAt"
        FROM matches m
        JOIN profiles other ON other.user_id = CASE WHEN m.user_a_id = $1 THEN m.user_b_id ELSE m.user_a_id END
