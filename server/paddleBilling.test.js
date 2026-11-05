@@ -2610,6 +2610,8 @@ test('Paddle manual resolution keeps unledgered malformed adjustment events open
   assert.ok(migration.includes("verified_adjustment.action <> 'refund'"));
   assert.ok(migration.includes("verified_adjustment.adjustment_type IN ('full', 'partial')"));
   assert.ok(migration.includes('verified_webhook.event_id = verified_adjustment.event_id'));
+  assert.ok(migration.includes('verified_webhook.processed_at > original_webhook.processed_at'));
+  assert.ok(migration.includes('verified_webhook.processed_at > original_webhook.processed_at'));
   assert.ok(migration.includes("verified_webhook.event_type IN ('adjustment.created', 'adjustment.updated')"));
   const lock = migration.match(/LOCK TABLE ([^;]+) IN SHARE ROW EXCLUSIVE MODE;/);
   assert.deepEqual(lock?.[1].split(',').map(table => table.trim()),
@@ -2620,6 +2622,8 @@ test('Paddle manual resolution keeps unledgered malformed adjustment events open
   assert.ok(api.includes('has_verified_adjustment_evidence'));
   assert.ok(api.includes('adjustment_requires_later_provider_evidence'));
   assert.ok(api.includes('verified_adjustment_webhook.event_id = verified_adjustment.event_id'));
+  assert.ok(api.includes('verified_adjustment_webhook.processed_at > webhook.processed_at'));
+  assert.ok(api.includes('verified_scope_webhook.processed_at > webhook.processed_at'));
   assert.ok(api.includes('verified_scope_webhook.event_id = verified_scope.event_id'));
   assert.ok(api.includes('adjustment_ledger_event_id == null'));
 });
