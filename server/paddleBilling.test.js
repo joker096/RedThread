@@ -775,7 +775,7 @@ test('verified transaction cancellation resolves only the matching invalid-times
   assert.ok(resolution, 'valid canonical lifecycle evidence must attempt to resolve the timestamp case');
   assert.equal(resolution.params[0], transactionId);
   assert.equal(resolution.params[1], ownerId);
-  assert.match(resolution.statement, /verified\.event_type = 'transaction\\.canceled'/);
+  assert.ok(resolution.statement.includes("verified.event_type = 'transaction.canceled'"));
   assert.match(resolution.statement, /COUNT\(DISTINCT owner\.user_id\)/);
   assert.match(resolution.statement, /evidence\.status IN \('completed', 'canceled'\)/);
 });
