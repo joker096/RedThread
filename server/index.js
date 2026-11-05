@@ -3652,6 +3652,7 @@ app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
         `SELECT c.event_id, c.reason_code, webhook.event_type,
                 COALESCE(e.adjustment_id, c.provider_adjustment_id) AS adjustment_id,
                 COALESCE(e.transaction_id, c.provider_transaction_id) AS transaction_id,
+                e.event_id AS adjustment_ledger_event_id,
                 e.action AS adjustment_action, e.adjustment_type,
                 EXISTS (
                   SELECT 1
@@ -3663,6 +3664,15 @@ app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
                     AND verified_scope.action = 'refund'
                     AND verified_scope.adjustment_type IN ('full', 'partial')
                 ) AS has_verified_refund_scope,
+                EXISTS (
+                  SELECT 1
+                  FROM paddle_adjustment_events AS verified_adjustment
+                  WHERE verified_adjustment.adjustment_id = c.provider_adjustment_id
+                    AND c.provider_adjustment_id IS NOT NULL
+                    AND (c.provider_transaction_id IS NULL
+                      OR verified_adjustment.transaction_id = c.provider_transaction_id)
+                    AND verified_adjustment.event_id <> c.event_id
+                ) AS has_verified_adjustment_evidence,
                 c.provider_user_ref, c.provider_plan
          FROM paddle_adjustment_reconciliation_cases AS c
          JOIN paddle_webhook_events AS webhook USING (event_id)
@@ -3685,13 +3695,22 @@ app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
             'customer.created', 'customer.updated'
           ].includes(pending.rows[0].event_type) ||
           (pending.rows[0].adjustment_action === 'refund' &&
-            pending.rows[0].has_verified_refund_scope !== true)) {
+            pending.rows[0].has_verified_refund_scope !== true) ||
+          (pending.rows[0].reason_code === 'invalid_adjustment_payload' &&
+            ['adjustment.created', 'adjustment.updated'].includes(pending.rows[0].event_type) &&
+            pending.rows[0].adjustment_ledger_event_id == null &&
+            pending.rows[0].has_verified_adjustment_evidence !== true)) {
         await client.query('ROLLBACK');
         return res.status(409).json({
           error: pending.rows[0].adjustment_action === 'refund' &&
             pending.rows[0].has_verified_refund_scope !== true
             ? 'refund_scope_requires_provider_verified_reconciliation'
-            : 'adjustment_case_requires_verified_transaction_or_entitlement_reconciliation'
+            : pending.rows[0].reason_code === 'invalid_adjustment_payload' &&
+                ['adjustment.created', 'adjustment.updated'].includes(pending.rows[0].event_type) &&
+                pending.rows[0].adjustment_ledger_event_id == null &&
+                pending.rows[0].has_verified_adjustment_evidence !== true
+              ? 'adjustment_requires_later_provider_evidence'
+              : 'adjustment_case_requires_verified_transaction_or_entitlement_reconciliation'
         });
       }
 
