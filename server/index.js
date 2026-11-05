@@ -812,6 +812,39 @@ async function createNotification(userId, type, metadata = {}, dedupeKey = null,
   );
 }
 
+async function reserveFemaleProfileExposure(client, user, profileId) {
+  if (user?.gender !== 'female' || hasFemalePremiumAccess(user)) return { allowed: true, used: null };
+  const existing = await client.query(
+    `SELECT 1 FROM female_profile_exposures
+     WHERE user_id = $1 AND profile_user_id = $2
+       AND exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date`,
+    [user.id, profileId]
+  );
+  if (existing.rowCount) {
+    const usage = await client.query(
+      `SELECT COUNT(*)::int AS used FROM female_profile_exposures
+       WHERE user_id = $1 AND exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date`,
+      [user.id]
+    );
+    return { allowed: true, used: Number(usage.rows[0]?.used || 0) };
+  }
+  const usage = await client.query(
+    `SELECT COUNT(*)::int AS used FROM female_profile_exposures
+     WHERE user_id = $1 AND exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date`,
+    [user.id]
+  );
+  const used = Number(usage.rows[0]?.used || 0);
+  if (used >= FEMALE_FREE_DAILY_PROFILE_LIMIT) return { allowed: false, used };
+  const inserted = await client.query(
+    `INSERT INTO female_profile_exposures (user_id, profile_user_id, exposure_date)
+     VALUES ($1, $2, (statement_timestamp() AT TIME ZONE 'UTC')::date)
+     ON CONFLICT (user_id, exposure_date, profile_user_id) DO NOTHING
+     RETURNING profile_user_id`,
+    [user.id, profileId]
+  );
+  return { allowed: true, used: used + inserted.rowCount };
+}
+
 function requirePaidFeatures(req, res, next) {
   // Men retain the current free access model. Safety, account settings, and reports are never paywalled.
   if (req.authUser.gender !== 'female' || req.authUser.premium_lifetime === true) return next();
@@ -1860,6 +1893,7 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
       const lockedSearchParams = [...searchParams];
       lockedSearchParams[5] = 0; // candidateIds already represent the requested page after OFFSET.
       result = await client.query(finalSql, [...lockedSearchParams, candidateIds]);
+      result.hasMoreCandidates = result.rows.length > parsedLimit;
       const actorUser = actor.rows[0];
       let dailyQuota = null;
       if (actorUser.gender === 'female' && !hasFemalePremiumAccess(actorUser)) {
@@ -1919,7 +1953,7 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
       client?.release();
     }
     const hasMore = result.dailyQuota
-      ? result.dailyQuota.remaining > 0 && result.rows.length === parsedLimit
+      ? result.dailyQuota.remaining > 0 && result.hasMoreCandidates
       : result.rows.length > parsedLimit;
     const profiles = result.rows.slice(0, parsedLimit).map(profile => {
       const { assessment_answers: candidateAnswers, my_assessment_answers: myAnswers, ...publicProfile } = profile;
@@ -2547,8 +2581,19 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
          )`,
       [passedId, req.authUser.id]
     );
+    if (!profileResult.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'profile_not_available' });
+    }
+    const exposure = await reserveFemaleProfileExposure(client, req.authUser, profileResult.rows[0].id);
+    if (!exposure.allowed) {
+      await client.query('ROLLBACK');
+      return res.status(429).json({
+        error: 'daily_profile_limit_reached',
+        dailyQuota: { limit: FEMALE_FREE_DAILY_PROFILE_LIMIT, used: exposure.used, remaining: 0, timezone: 'UTC' }
+      });
+    }
     await client.query('COMMIT');
-    if (!profileResult.rows[0]) return res.status(404).json({ error: 'profile_not_available' });
     return res.json({ profile: profileResult.rows[0] });
   } catch (error) {
     if (client && !await rollbackPooledTransaction(client)) client = null;
@@ -2947,6 +2992,14 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
     if (!profileResult.rows[0]) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'profile_not_available' });
+    }
+    const exposure = await reserveFemaleProfileExposure(client, req.authUser, profileResult.rows[0].id);
+    if (!exposure.allowed) {
+      await client.query('ROLLBACK');
+      return res.status(429).json({
+        error: 'daily_profile_limit_reached',
+        dailyQuota: { limit: FEMALE_FREE_DAILY_PROFILE_LIMIT, used: exposure.used, remaining: 0, timezone: 'UTC' }
+      });
     }
 
     if (action.actionType === 'like') {
