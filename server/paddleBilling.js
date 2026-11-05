@@ -834,18 +834,10 @@ export async function processPaddleEvent(pool, rawEvent) {
       const transactionId = typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)
         ? data.id : null;
       if (transactionId) {
-        const status = eventType === 'transaction.completed' ? 'completed'
-          : eventType === 'transaction.paid' ? 'paid' : 'canceled';
-        await recordPaddleTransactionEvent(client, {
-          eventId, transactionId, userId: null,
-          plan: inferPaddleTransactionPlan(data),
-          status,
-          subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
-          customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null,
-          occurredAt: null,
-          ...paddleTransactionFinancialTotals(data),
-          currencyCode: paddleCurrencyCode(data)
-        });
+        // The webhook deduplication row plus this reconciliation case preserve
+        // the signed event and transaction ID. Do not insert an un-timestamped
+        // completed/canceled status into the lifecycle ledger: later valid
+        // provider events must not be blocked by untrusted chronology.
         await recordPaddleProviderIdentityConflictCase(client, {
           eventId, transactionId, userId: null, plan: customData.plan,
           reasonCode: 'provider_lifecycle_conflict'
