@@ -2606,7 +2606,15 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
       });
     }
     await client.query('COMMIT');
-    return res.json({ profile: profileResult.rows[0] });
+    return res.json({
+      profile: profileResult.rows[0],
+      dailyQuota: exposure.used === null ? null : {
+        limit: FEMALE_FREE_DAILY_PROFILE_LIMIT,
+        used: exposure.used,
+        remaining: remainingFemaleDailyProfiles(exposure.used),
+        timezone: 'UTC'
+      }
+    });
   } catch (error) {
     if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Undo profile pass failed:', error?.message || 'unknown error');
@@ -3060,7 +3068,16 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
     }
 
     await client.query('COMMIT');
-    return res.json({ type: action.actionType, profile: profileResult.rows[0] });
+    return res.json({
+      type: action.actionType,
+      profile: profileResult.rows[0],
+      dailyQuota: exposure.used === null ? null : {
+        limit: FEMALE_FREE_DAILY_PROFILE_LIMIT,
+        used: exposure.used,
+        remaining: remainingFemaleDailyProfiles(exposure.used),
+        timezone: 'UTC'
+      }
+    });
   } catch (error) {
     if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Discovery undo failed:', error?.message || 'unknown error');
