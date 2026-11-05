@@ -1552,7 +1552,7 @@ test('manual Paddle reconciliation resolution requires an immutable moderator au
       [moderatorId, `manual-adjustment-audit-${moderatorId}@example.invalid`]
     );
     await client.query(
-      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'adjustment.created')",
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'customer.updated')",
       [eventId]
     );
     await client.query(
