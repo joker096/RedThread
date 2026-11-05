@@ -3282,3 +3282,86 @@ test('contradictory refund final webhook is queued and cannot clear approved ref
   }
 });
 
+
+
+test('invalid transaction timestamp cases resolve only after database-verified unique lifecycle ownership', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const userId = randomUUID();
+  const attemptId = randomUUID();
+  const transactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  const malformedEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  const verifiedEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
+  const priceId = `pri_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  process.env.PADDLE_PRICE_ID_LIFETIME = priceId;
+  try {
+    await pool.query(
+      "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
+      [userId, `invalid-timestamp-owner-${userId}@example.invalid`]
+    );
+    await pool.query(
+      `INSERT INTO paddle_checkout_attempts
+       (user_id, attempt_id, plan, status, created_at, updated_at)
+       VALUES ($1, $2, 'lifetime', 'creating', statement_timestamp(), statement_timestamp())`,
+      [userId, attemptId]
+    );
+
+    const malformed = await processPaddleEvent(pool, {
+      eventId: malformedEventId,
+      eventType: 'transaction.completed',
+      occurredAt: 'not-a-provider-timestamp',
+      data: {
+        id: transactionId,
+        customData: { userId, plan: 'lifetime', checkoutAttemptId: attemptId },
+        items: [{ price: { id: priceId } }]
+      }
+    });
+    assert.equal(malformed.reconciliationRequired, true);
+    const quarantined = await pool.query(
+      'SELECT status, reason_code FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1',
+      [malformedEventId]
+    );
+    assert.deepEqual(quarantined.rows, [{ status: 'open', reason_code: 'invalid_transaction_timestamp' }]);
+
+    await processPaddleEvent(pool, {
+      eventId: verifiedEventId,
+      eventType: 'transaction.canceled',
+      occurredAt: '2026-11-05T13:00:00Z',
+      data: {
+        id: transactionId,
+        customData: { userId, plan: 'lifetime', checkoutAttemptId: attemptId },
+        items: [{ price: { id: priceId } }]
+      }
+    });
+
+    const resolved = await pool.query(
+      'SELECT status, resolution_source FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1',
+      [malformedEventId]
+    );
+    assert.deepEqual(resolved.rows, [{
+      status: 'resolved',
+      resolution_source: 'automatic_provider_transaction_link'
+    }]);
+    const evidence = await pool.query(
+      `SELECT event.status, event.occurred_at IS NOT NULL AS has_provider_time,
+              attempt.status AS attempt_status
+       FROM paddle_transaction_events AS event
+       JOIN paddle_checkout_attempts AS attempt
+         ON attempt.transaction_id = event.transaction_id AND attempt.user_id = event.user_id
+       WHERE event.event_id = $1`,
+      [verifiedEventId]
+    );
+    assert.deepEqual(evidence.rows, [{
+      status: 'canceled',
+      has_provider_time: true,
+      attempt_status: 'canceled'
+    }]);
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
+    else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
+    await pool.end();
+  }
+});
