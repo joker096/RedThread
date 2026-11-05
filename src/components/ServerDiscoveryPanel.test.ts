@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isCurrentDiscoverySearchResponse, isSafeProfilePhotoUrl } from './ServerDiscoveryPanel.tsx';
+import { isCurrentDiscoverySearchResponse, isSafeProfilePhotoUrl, normalizeFemaleDailyQuota, isFemaleWeeklyMatchQuotaExhausted } from './ServerDiscoveryPanel.tsx';
 
 test('server profile photos must use private same-origin photo assets', () => {
   assert.equal(
@@ -30,4 +30,23 @@ test('discovery ignores a response parsed after a newer search or account sessio
     'a session switch invalidates a response even when its body resolves later');
   assert.equal(isCurrentDiscoverySearchResponse(0, 0, 2, 2), false);
   assert.equal(isCurrentDiscoverySearchResponse(4, 4, Number.NaN, 2), false);
+});
+
+
+test('female daily quota payloads are validated before being displayed', () => {
+  assert.deepEqual(normalizeFemaleDailyQuota({ limit: 3, used: 2, remaining: 1, timezone: 'UTC' }), {
+    limit: 3, used: 2, remaining: 1, timezone: 'UTC'
+  });
+  assert.equal(normalizeFemaleDailyQuota({ limit: 3, used: 3, remaining: 0, timezone: 'UTC' })?.remaining, 0);
+  assert.equal(normalizeFemaleDailyQuota({ limit: 3, used: 3, remaining: 1, timezone: 'UTC' }), null);
+  assert.equal(normalizeFemaleDailyQuota({ limit: 4, used: 1, remaining: 3, timezone: 'UTC' }), null);
+  assert.equal(normalizeFemaleDailyQuota({ limit: 3, used: -1, remaining: 4, timezone: 'UTC' }), null);
+  assert.equal(normalizeFemaleDailyQuota(null), null);
+});
+
+test('weekly match quota exhaustion is recognized only for an explicit exhausted quota response', () => {
+  assert.equal(isFemaleWeeklyMatchQuotaExhausted({ type: 'weekly_matches', exhausted: true }), true);
+  assert.equal(isFemaleWeeklyMatchQuotaExhausted({ type: 'weekly_matches', exhausted: false }), false);
+  assert.equal(isFemaleWeeklyMatchQuotaExhausted({ type: 'daily_profiles', exhausted: true }), false);
+  assert.equal(isFemaleWeeklyMatchQuotaExhausted(null), false);
 });
