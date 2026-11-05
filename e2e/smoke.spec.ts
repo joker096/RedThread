@@ -2186,6 +2186,78 @@ test('real Vow chat opens on the newest page and can prepend older messages', as
 });
 
 
+
+test('refreshing latest history supersedes an in-flight older page without locking pagination', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let olderRequests = 0;
+  let releaseFirstOlder: (() => void) | undefined;
+  let finishFirstOlder: (() => void) | undefined;
+  const firstOlderStarted = new Promise<void>(resolve => { finishFirstOlder = resolve; });
+  const firstOlderFinished = new Promise<void>(resolve => {
+    // The route releases this after the deliberately delayed response is fulfilled.
+    (globalThis as typeof globalThis & { __finishOlder?: () => void }).__finishOlder = resolve;
+  });
+  await page.route('**/api/auth/me', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ user: { id: 'e2e-current-user' } })
+  }));
+  await page.route('**/api/matches**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/messages')) {
+      const isOlderPage = url.searchParams.has('beforeCreatedAt') && url.searchParams.has('beforeId');
+      if (isOlderPage) {
+        olderRequests += 1;
+        if (olderRequests === 1) {
+          finishFirstOlder?.();
+          await new Promise<void>(resolve => { releaseFirstOlder = resolve; });
+        }
+      }
+      const first = isOlderPage ? 1 : 101;
+      const count = isOlderPage ? 23 : 100;
+      const messages = Array.from({ length: count }, (_, index) => ({
+        id: `00000000-0000-4000-8000-${String(first + index).padStart(12, '0')}`,
+        senderId: 'e2e-partner',
+        text: `Message ${first + index}`,
+        createdAt: new Date(Date.UTC(2026, 10, 5, 8, 0, first + index)).toISOString()
+      }));
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ messages, pagination: { limit: 100, offset: isOlderPage ? 100 : 0, latest: true } })
+      });
+      if (isOlderPage && olderRequests === 1) {
+        (globalThis as typeof globalThis & { __finishOlder?: () => void }).__finishOlder?.();
+      }
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ matches: [{ id: 'history-match', partnerId: 'e2e-partner', displayName: 'Елена', age: 30, country: 'Грузия', city: 'Тбилиси', lastMessage: 'Message 200', lastMessageAt: '2026-11-05T08:00:00.000Z' }] })
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('[data-testid="nav-chats"]:visible').first().click();
+  await page.getByTestId('server-match-item').click();
+  const log = page.getByTestId('server-match-messages');
+  await expect(log.locator('.vow-inbox-bubble')).toHaveCount(100);
+  await page.getByTestId('server-match-load-older').click();
+  await firstOlderStarted;
+
+  // A refresh invalidates the delayed prepend request and must clear its loading state.
+  await page.getByTestId('server-match-refresh-messages').click();
+  await expect(log.locator('.vow-inbox-bubble')).toHaveCount(100);
+  await expect(page.getByTestId('server-match-load-older')).toBeEnabled();
+
+  releaseFirstOlder?.();
+  await firstOlderFinished;
+  await page.getByTestId('server-match-load-older').click();
+  await expect(log.locator('.vow-inbox-bubble')).toHaveCount(123);
+  expect(olderRequests).toBe(2);
+});
+
 test('real Vow inbox fits narrow phone widths in list and conversation views', async ({ page }) => {
   await page.route('**/api/auth/me', route => route.fulfill({
     status: 200,
