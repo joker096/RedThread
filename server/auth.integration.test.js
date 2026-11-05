@@ -2193,7 +2193,7 @@ test('auth API supports registration, session lookup, logout and login', {
     const latestHistory = (await latestHistoryResponse.json()).messages;
     const cursorMessage = latestHistory.find(message => message.id === sentMessage.id);
     assert.ok(cursorMessage, 'latest history must include the newly sent message');
-    assert.match(cursorMessage.cursorCreatedAt, /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$/,
+    assert.match(cursorMessage.cursorCreatedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/,
       'keyset cursors must preserve PostgreSQL microsecond precision');
 
     const olderHistoryResponse = await request(
