@@ -813,7 +813,7 @@ export async function processPaddleEvent(pool, rawEvent) {
           currencyCode: paddleCurrencyCode(data)
         });
       }
-      const malformedEventTransactionId = ['transaction.paid', 'transaction.completed'].includes(eventType)
+      const malformedEventTransactionId = ['transaction.paid', 'transaction.completed', 'transaction.canceled'].includes(eventType)
         ? data.id
         : eventType === 'subscription.created'
           ? (typeof data.transactionId === 'string' ? data.transactionId
