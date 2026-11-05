@@ -76,7 +76,7 @@ export const deduplicateById = <T extends { id: string }>(items: T[]): T[] => {
 };
 
 export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
-  const { t, formatDate, locale } = useLocale();
+  const { t, formatDate } = useLocale();
   const [matches, setMatches] = useState<ServerMatch[]>([]);
   const [selected, setSelected] = useState<string>('');
   const [messages, setMessages] = useState<ServerMessage[]>([]);
@@ -515,10 +515,10 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                   <label className="sr-only" htmlFor="vow-match-search">{t('search')}</label>
                   <span aria-hidden="true">⌕</span>
                   <input id="vow-match-search" data-testid="server-match-search" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder={t('search')} autoComplete="off" />
-                  {searchQuery && <button type="button" aria-label={locale?.startsWith('ru') ? 'Очистить поиск' : 'Clear search'} onClick={() => setSearchQuery('')}>×</button>}
+                  {searchQuery && <button type="button" aria-label={t('clearSearch')} onClick={() => setSearchQuery('')}>×</button>}
                 </div>
 
-                <div className="vow-inbox-quickstrip" aria-label={locale?.startsWith('ru') ? 'Ваши совпадения' : 'Your matches'}>
+                <div className="vow-inbox-quickstrip" aria-label={t('yourMatches')}>
                   {matches.slice(0, 8).map(match => (
                     <button key={match.id} type="button" data-testid="server-match-quick-card" aria-pressed={selected === match.id} onClick={() => { messageRequestId.current += 1; setMessages([]); setMessagesOffset(0); setMessagesHasMore(false); setOlderMessagesLoading(false); setOlderMessagesFailed(false); pendingScrollAdjustmentRef.current = null; setNotice(''); setSelected(match.id); }} className="vow-inbox-quickcard">
                       <span className="vow-inbox-avatar vow-inbox-avatar--quick">{initials(match.displayName)}</span>
@@ -527,10 +527,10 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                   ))}
                 </div>
 
-                <div className="vow-inbox-filters" role="group" aria-label={locale?.startsWith('ru') ? 'Фильтр диалогов' : 'Conversation filters'}>
-                  <button type="button" data-testid="server-match-filter-all" aria-pressed={matchFilter === 'all'} onClick={() => setMatchFilter('all')} className={matchFilter === 'all' ? 'is-active' : ''}>{locale?.startsWith('ru') ? 'Все' : 'All'}</button>
-                  <button type="button" data-testid="server-match-filter-messaged" aria-pressed={matchFilter === 'withMessages'} onClick={() => setMatchFilter('withMessages')} className={matchFilter === 'withMessages' ? 'is-active' : ''}>{locale?.startsWith('ru') ? 'С сообщениями' : 'With messages'}</button>
-                  <button type="button" data-testid="server-match-filter-new" aria-pressed={matchFilter === 'withoutMessages'} onClick={() => setMatchFilter('withoutMessages')} className={matchFilter === 'withoutMessages' ? 'is-active' : ''}>{locale?.startsWith('ru') ? 'Без сообщений' : 'No messages'}</button>
+                <div className="vow-inbox-filters" role="group" aria-label={t('conversationFilters')}>
+                  <button type="button" data-testid="server-match-filter-all" aria-pressed={matchFilter === 'all'} onClick={() => setMatchFilter('all')} className={matchFilter === 'all' ? 'is-active' : ''}>{t('filterAll')}</button>
+                  <button type="button" data-testid="server-match-filter-messaged" aria-pressed={matchFilter === 'withMessages'} onClick={() => setMatchFilter('withMessages')} className={matchFilter === 'withMessages' ? 'is-active' : ''}>{t('filterWithMessages')}</button>
+                  <button type="button" data-testid="server-match-filter-new" aria-pressed={matchFilter === 'withoutMessages'} onClick={() => setMatchFilter('withoutMessages')} className={matchFilter === 'withoutMessages' ? 'is-active' : ''}>{t('filterWithoutMessages')}</button>
                 </div>
 
                 <div className="vow-inbox-list" aria-label={t('chatThreads')}>
@@ -545,7 +545,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                       <span className="vow-inbox-row-time">{match.lastMessageAt ? formatDate(match.lastMessageAt, { dateStyle: 'short', timeStyle: 'short' }) : ''}</span>
                     </button>
                   ))}
-                  {!filteredMatches.length && <p data-testid="server-match-filter-empty" role="status" className="p-5 text-center text-xs text-stone-400">{locale?.startsWith('ru') ? 'Ничего не найдено. Измените запрос или фильтр.' : 'No conversations found. Try another search or filter.'}</p>}
+                  {!filteredMatches.length && <p data-testid="server-match-filter-empty" role="status" className="p-5 text-center text-xs text-stone-400">{t('noConversationsFound')}</p>}
                 </div>
                 <button type="button" onClick={() => void loadMatches()} disabled={matchesLoading || busy} aria-busy={matchesLoading} className="vow-inbox-refresh">{t('refreshMatches')}</button>
               </aside>
@@ -554,13 +554,13 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                 {selectedMatch ? (
                   <>
                     <header className="vow-inbox-chat-header">
-                      <button type="button" data-testid="server-match-back" onClick={() => { messageRequestId.current += 1; setSelected(''); setMessages([]); setMessagesOffset(0); setMessagesHasMore(false); setOlderMessagesLoading(false); setOlderMessagesFailed(false); pendingScrollAdjustmentRef.current = null; setNotice(''); }} className="vow-inbox-back" aria-label={locale?.startsWith('ru') ? 'Назад к диалогам' : 'Back to conversations'}>←</button>
+                      <button type="button" data-testid="server-match-back" onClick={() => { messageRequestId.current += 1; setSelected(''); setMessages([]); setMessagesOffset(0); setMessagesHasMore(false); setOlderMessagesLoading(false); setOlderMessagesFailed(false); pendingScrollAdjustmentRef.current = null; setNotice(''); }} className="vow-inbox-back" aria-label={t('chatBackToList')}>←</button>
                       <span className="vow-inbox-avatar vow-inbox-avatar--header">{initials(selectedMatch.displayName)}</span>
                       <span className="min-w-0 flex-1">
                         <strong className="block truncate text-sm text-white">{selectedMatch.displayName}, {selectedMatch.age}</strong>
                         <span className="block truncate text-xs text-stone-400">{[selectedMatch.city, selectedMatch.country].filter(Boolean).join(', ') || t('mutualMatches')}</span>
                       </span>
-                      <span className="vow-inbox-match-label">{locale?.startsWith('ru') ? 'Совпадение' : 'Matched'}</span>
+                      <span className="vow-inbox-match-label">{t('matched')}</span>
                     </header>
                     {notice && !messagesFailed && <p role="status" aria-live="polite" className="px-4 pt-2 text-xs text-stone-300">{notice}</p>}
                     <div className="vow-inbox-message-area">
@@ -570,7 +570,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                         const log = event.currentTarget;
                         shouldAutoScrollMessagesRef.current = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
                       }} data-testid="server-match-messages" role="log" aria-live="polite" aria-relevant="additions text" aria-atomic="false" aria-label={t('chatMessages')} aria-busy={messagesLoading} className="vow-inbox-message-log">
-                        {messagesHasMore && <button type="button" data-testid="server-match-load-older" onClick={() => void loadOlderMessages()} disabled={olderMessagesLoading || busy} className="vow-inbox-load-older">{olderMessagesLoading ? t('loading') : olderMessagesFailed ? (locale?.startsWith('ru') ? 'Повторить загрузку' : 'Retry loading earlier messages') : (locale?.startsWith('ru') ? 'Загрузить предыдущие сообщения' : 'Load earlier messages')}</button>}
+                        {messagesHasMore && <button type="button" data-testid="server-match-load-older" onClick={() => void loadOlderMessages()} disabled={olderMessagesLoading || busy} className="vow-inbox-load-older">{olderMessagesLoading ? t('loading') : olderMessagesFailed ? t('retryEarlierMessages') : t('loadEarlierMessages')}</button>}
                         {olderMessagesFailed && <p role="alert" className="px-2 text-center text-xs text-rose-300">{notice || t('loadMessagesError')}</p>}
                         {messages.map(message => (
                           <div key={message.id} className={`vow-inbox-bubble ${message.senderId === currentUserId ? 'is-mine' : 'is-theirs'}`}>
@@ -590,8 +590,8 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                 ) : (
                   <div className="vow-inbox-welcome">
                     <span className="vow-inbox-welcome-icon">♡</span>
-                    <h3>{locale?.startsWith('ru') ? 'Ваши настоящие знакомства' : 'Your real connections'}</h3>
-                    <p>{locale?.startsWith('ru') ? 'Выберите совпадение слева, чтобы продолжить знакомство.' : 'Choose a match to continue the conversation.'}</p>
+                    <h3>{t('inboxWelcomeTitle')}</h3>
+                    <p>{t('inboxWelcomeDescription')}</p>
                   </div>
                 )}
               </div>
