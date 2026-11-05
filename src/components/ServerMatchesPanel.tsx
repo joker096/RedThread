@@ -108,6 +108,9 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const messagesLogRef = useRef<HTMLDivElement | null>(null);
   const shouldAutoScrollMessagesRef = useRef(true);
   const pendingScrollAdjustmentRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
+  const mobileBackButtonRef = useRef<HTMLButtonElement | null>(null);
+  const matchButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const lastSelectedMatchIdRef = useRef('');
 
   // Drop every piece of account-scoped inbox state when the server rejects the session.
   // This also invalidates pending reads/sends so an old account cannot repopulate the UI.
@@ -356,6 +359,20 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     shouldAutoScrollMessagesRef.current = true;
   }, [selected]);
 
+  // On mobile the list and conversation are mutually exclusive. Move focus into
+  // the visible view when one replaces the other so keyboard users never remain
+  // focused on a control hidden by display:none.
+  useEffect(() => {
+    if (!window.matchMedia('(max-width: 767px)').matches) return;
+    if (selected) {
+      lastSelectedMatchIdRef.current = selected;
+      mobileBackButtonRef.current?.focus();
+      return;
+    }
+    const previousMatchId = lastSelectedMatchIdRef.current;
+    if (previousMatchId) matchButtonRefs.current.get(previousMatchId)?.focus();
+  }, [selected]);
+
   // Keep the newest message visible without moving the whole page.
   // Respect the user's reduced-motion preference when scrolling.
   useEffect(() => {
@@ -566,7 +583,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
 
                 <div className="vow-inbox-list" role="group" aria-label={t('chatThreads')}>
                   {filteredMatches.map(match => (
-                    <button data-testid="server-match-item" type="button" key={match.id} aria-pressed={selected === match.id} disabled={busy} onClick={() => { messageRequestId.current += 1; setMessages([]); setMessagesOffset(0); setMessagesHasMore(false); setOlderMessagesLoading(false); setOlderMessagesFailed(false); pendingScrollAdjustmentRef.current = null; setNotice(''); setSelected(match.id); }} className={`vow-inbox-row ${selected === match.id ? 'is-selected' : ''}`}>
+                    <button data-testid="server-match-item" type="button" key={match.id} ref={node => { if (node) matchButtonRefs.current.set(match.id, node); else matchButtonRefs.current.delete(match.id); }} aria-pressed={selected === match.id} disabled={busy} onClick={() => { messageRequestId.current += 1; setMessages([]); setMessagesOffset(0); setMessagesHasMore(false); setOlderMessagesLoading(false); setOlderMessagesFailed(false); pendingScrollAdjustmentRef.current = null; setNotice(''); setSelected(match.id); }} className={`vow-inbox-row ${selected === match.id ? 'is-selected' : ''}`}>
                       <span className="vow-inbox-avatar">{initials(match.displayName)}</span>
                       <span className="vow-inbox-row-copy">
                         <span className="vow-inbox-row-title">{match.displayName}, {match.age}</span>
@@ -585,7 +602,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                 {selectedMatch ? (
                   <>
                     <header className="vow-inbox-chat-header">
-                      <button type="button" data-testid="server-match-back" disabled={busy} onClick={() => { messageRequestId.current += 1; setSelected(''); setMessages([]); setMessagesOffset(0); setMessagesHasMore(false); setOlderMessagesLoading(false); setOlderMessagesFailed(false); pendingScrollAdjustmentRef.current = null; setNotice(''); }} className="vow-inbox-back" aria-label={t('chatBackToList')}>←</button>
+                      <button type="button" data-testid="server-match-back" ref={mobileBackButtonRef} disabled={busy} onClick={() => { messageRequestId.current += 1; setSelected(''); setMessages([]); setMessagesOffset(0); setMessagesHasMore(false); setOlderMessagesLoading(false); setOlderMessagesFailed(false); pendingScrollAdjustmentRef.current = null; setNotice(''); }} className="vow-inbox-back" aria-label={t('chatBackToList')}>←</button>
                       <span className="vow-inbox-avatar vow-inbox-avatar--header">{initials(selectedMatch.displayName)}</span>
                       <span className="min-w-0 flex-1">
                         <strong className="block truncate text-sm text-white">{selectedMatch.displayName}, {selectedMatch.age}</strong>
