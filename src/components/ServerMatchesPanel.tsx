@@ -575,12 +575,12 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                     <div className="vow-inbox-message-area">
                       {messagesLoading && <p role="status" aria-live="polite" aria-atomic="true" className="py-3 text-xs text-stone-400">{t('loading')}</p>}
                       {messagesFailed && <div role="alert" className="mb-2 rounded-xl border border-rose-500/20 bg-rose-950/20 p-3"><p className="text-xs text-stone-200">{notice || t('loadMessagesError')}</p><button type="button" onClick={() => void loadMessages(selected)} className="mt-2 min-h-11 rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-white">{t('retry')}</button></div>}
+                      {messagesHasMore && <button type="button" data-testid="server-match-load-older" onClick={() => void loadOlderMessages()} disabled={olderMessagesLoading || busy} className="vow-inbox-load-older">{olderMessagesLoading ? t('loading') : olderMessagesFailed ? t('retryEarlierMessages') : t('loadEarlierMessages')}</button>}
+                      {olderMessagesFailed && <p role="alert" className="px-2 text-center text-xs text-rose-300">{notice || t('loadMessagesError')}</p>}
                       <div ref={messagesLogRef} onScroll={event => {
                         const log = event.currentTarget;
                         shouldAutoScrollMessagesRef.current = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
                       }} data-testid="server-match-messages" role="log" aria-live="polite" aria-relevant="additions text" aria-atomic="false" aria-label={t('chatMessages')} aria-busy={messagesLoading || olderMessagesLoading} className="vow-inbox-message-log">
-                        {messagesHasMore && <button type="button" data-testid="server-match-load-older" onClick={() => void loadOlderMessages()} disabled={olderMessagesLoading || busy} className="vow-inbox-load-older">{olderMessagesLoading ? t('loading') : olderMessagesFailed ? t('retryEarlierMessages') : t('loadEarlierMessages')}</button>}
-                        {olderMessagesFailed && <p role="alert" className="px-2 text-center text-xs text-rose-300">{notice || t('loadMessagesError')}</p>}
                         {messages.map(message => (
                           <div key={message.id} className={`vow-inbox-bubble ${message.senderId === currentUserId ? 'is-mine' : 'is-theirs'}`}>
                             <p dir="auto" className="whitespace-pre-wrap break-words">{message.text}</p>
