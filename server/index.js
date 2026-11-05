@@ -2492,7 +2492,7 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
        JOIN users u ON u.id = p.user_id
        LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
        LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
-       WHERE p.user_id = $1 FOR SHARE OF p, u`,
+       WHERE p.user_id = $1 FOR SHARE OF p`,
       [req.authUser.id]
     );
     const identityActor = actorIdentity.rows[0];
@@ -2537,7 +2537,9 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
     }
     await acquireGiftSafetyUserLocks(client, req.authUser.id, previewTargetId);
     const actor = await client.query(
-      "SELECT u.id, p.gender FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.id = $1 AND u.status = 'active' FOR SHARE OF u, p",
+      `SELECT u.id, p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime
+       FROM users u JOIN profiles p ON p.user_id = u.id
+       WHERE u.id = $1 AND u.status = 'active' FOR SHARE OF u, p`,
       [req.authUser.id]
     );
     if (!actor.rows[0]) {
@@ -2600,7 +2602,7 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'profile_not_available' });
     }
-    const exposure = await reserveFemaleProfileExposure(client, identityActor, profileResult.rows[0].id);
+    const exposure = await reserveFemaleProfileExposure(client, actor.rows[0], profileResult.rows[0].id);
     if (!exposure.allowed) {
       await client.query('ROLLBACK');
       return res.status(429).json({
@@ -2642,7 +2644,7 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
        JOIN users u ON u.id = p.user_id
        LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
        LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
-       WHERE p.user_id = $1 FOR SHARE OF p, u`,
+       WHERE p.user_id = $1 FOR SHARE OF p`,
       [req.authUser.id]
     );
     const identityActor = actorIdentity.rows[0];
@@ -2654,6 +2656,17 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
     }
     await client.query('BEGIN');
     await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
+    const currentActorResult = await client.query(
+      `SELECT u.id, p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime
+       FROM users u JOIN profiles p ON p.user_id = u.id
+       WHERE u.id = $1 AND u.status = 'active' FOR SHARE OF u, p`,
+      [req.authUser.id]
+    );
+    const currentActor = currentActorResult.rows[0];
+    if (!currentActor) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
     const target = await client.query(
       `SELECT p.gender
        FROM profiles p
@@ -2685,7 +2698,7 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'target_not_available' });
     }
-    if (identityActor.gender === 'female' && !hasFemalePremiumAccess(identityActor)) {
+    if (identityActor.gender === 'female' && !hasFemalePremiumAccess(currentActor)) {
       const issued = await client.query(
         `SELECT 1 FROM female_profile_exposures
          WHERE user_id = $1 AND profile_user_id = $2
@@ -2935,7 +2948,7 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
        JOIN users u ON u.id = p.user_id
        LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
        LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
-       WHERE p.user_id = $1 FOR SHARE OF p, u`,
+       WHERE p.user_id = $1 FOR SHARE OF p`,
       [req.authUser.id]
     );
     const identityActor = actorIdentity.rows[0];
@@ -2966,7 +2979,9 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
     }
     await acquireGiftSafetyUserLocks(client, req.authUser.id, previewAction.id);
     const actor = await client.query(
-      "SELECT u.id, p.gender FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.id = $1 AND u.status = 'active' FOR SHARE OF u, p",
+      `SELECT u.id, p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime
+       FROM users u JOIN profiles p ON p.user_id = u.id
+       WHERE u.id = $1 AND u.status = 'active' FOR SHARE OF u, p`,
       [req.authUser.id]
     );
     if (!actor.rows[0]) {
@@ -3029,7 +3044,7 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'profile_not_available' });
     }
-    const exposure = await reserveFemaleProfileExposure(client, identityActor, profileResult.rows[0].id);
+    const exposure = await reserveFemaleProfileExposure(client, actor.rows[0], profileResult.rows[0].id);
     if (!exposure.allowed) {
       await client.query('ROLLBACK');
       return res.status(429).json({
