@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 
 type ServerMatch = {
@@ -377,7 +377,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
 
   // Keep the newest message visible without moving the whole page.
   // Respect the user's reduced-motion preference when scrolling.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!selected || messagesLoading) return;
     const log = messagesLogRef.current;
     if (!log) return;
