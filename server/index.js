@@ -2960,7 +2960,8 @@ app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) =>
 
 app.get('/api/matches/:matchId/messages', requireSession, requirePaidFeatures, async (req, res) => {
   if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
-  const { limit, offset, latest, beforeCreatedAt, beforeId } = normalizeMatchMessageHistoryOptions(req.query);
+  const { limit, offset, latest, beforeCreatedAt, beforeId, invalidCursor } = normalizeMatchMessageHistoryOptions(req.query);
+  if (invalidCursor) return res.status(400).json({ error: 'invalid_message_history_cursor' });
   const order = matchMessageHistoryOrder(latest);
   const hasCursor = latest && beforeCreatedAt !== null && beforeId !== null;
   const cursorClause = hasCursor ? 'AND (created_at, id) < ($4::timestamptz, $5::uuid)' : '';
