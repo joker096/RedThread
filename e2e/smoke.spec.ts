@@ -1959,6 +1959,7 @@ test('gift request notification opens the chats request list without exposing re
 
 test('real Vow inbox supports search, conversation filters and mobile chat navigation', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  let latestMessageText = 'Давай продолжим знакомство';
   let requestedLatestHistory = false;
   await page.route('**/api/auth/me', async route => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ user: { id: 'e2e-current-user' } }) });
@@ -1981,7 +1982,7 @@ test('real Vow inbox supports search, conversation filters and mobile chat navig
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ messages: [{ id: 'e2e-incoming-message', senderId: 'e2e-partner-1', text: 'Давай продолжим знакомство', createdAt: '2026-11-05T08:00:00.000Z' }] })
+        body: JSON.stringify({ messages: [{ id: 'e2e-incoming-message', senderId: 'e2e-partner-1', text: latestMessageText, createdAt: '2026-11-05T08:00:00.000Z' }] })
       });
       return;
     }
@@ -2025,6 +2026,9 @@ test('real Vow inbox supports search, conversation filters and mobile chat navig
   await page.getByRole('textbox', { name: /write a message|напишите сообщение/i }).fill('Предлагаю встретиться в субботу');
   await page.getByTestId('server-match-send').click();
   await expect(page.getByTestId('server-match-messages')).toContainText('Предлагаю встретиться в субботу');
+  latestMessageText = 'Новое сообщение после возвращения';
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByTestId('server-match-messages')).toContainText('Новое сообщение после возвращения');
 
   await page.getByTestId('server-match-back').click();
   // The inbox retains the user's active filter when returning from a conversation.
