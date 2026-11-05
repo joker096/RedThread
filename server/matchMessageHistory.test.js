@@ -83,6 +83,7 @@ test('rejects partial, malformed, over-precision and legacy-mode cursors', () =>
     { latest: 'true', beforeId: '123e4567-e89b-12d3-a456-426614174000' },
     { latest: 'true', beforeCreatedAt: 'not-a-date', beforeId: 'not-a-uuid' },
     { latest: 'true', beforeCreatedAt: '2026-11-05T08:00:00.0000001Z', beforeId: '123e4567-e89b-12d3-a456-426614174000' },
+    { latest: 'true', beforeCreatedAt: '2026-02-31T08:00:00.000123Z', beforeId: '123e4567-e89b-12d3-a456-426614174000' },
     { latest: 'false', beforeCreatedAt: '2026-11-05T08:00:00.000123Z', beforeId: '123e4567-e89b-12d3-a456-426614174000' }
   ];
   for (const query of invalidQueries) {
