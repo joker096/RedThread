@@ -48,7 +48,7 @@
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",
     "@types/express": "^4.17.21",
-    "@playwright/test": "^1.55.0"
+    "@playwright/test": "1.64.1"
   },
   "overrides": {
     "tslib": "2.8.1"
