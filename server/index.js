@@ -3636,8 +3636,11 @@ app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
     const eventId = req.params.eventId;
     const resolutionNote = typeof req.body?.resolutionNote === 'string'
       ? req.body.resolutionNote.trim() : '';
+    const providerEvidenceReference = typeof req.body?.providerEvidenceReference === 'string'
+      ? req.body.providerEvidenceReference.trim() : '';
     if (!/^evt_[a-z0-9]{26}$/i.test(eventId) ||
-        resolutionNote.length < 1 || resolutionNote.length > 500) {
+        resolutionNote.length < 1 || resolutionNote.length > 500 ||
+        providerEvidenceReference.length > 200) {
       return res.status(400).json({ error: 'invalid_adjustment_reconciliation_resolution' });
     }
 
@@ -3710,15 +3713,24 @@ app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
         'invalid_subscription_timestamp', 'invalid_subscription_identity'
       ].includes(pending.rows[0].reason_code) &&
         ['subscription.created', 'subscription.updated', 'subscription.canceled'].includes(pending.rows[0].event_type);
+      const transactionLifecycleEvidenceCase =
+        pending.rows[0].reason_code === 'provider_lifecycle_conflict' &&
+        ['transaction.paid', 'transaction.completed', 'transaction.canceled', 'subscription.created'].includes(pending.rows[0].event_type) &&
+        typeof pending.rows[0].transaction_id === 'string' &&
+        /^txn_[A-Za-z0-9]+$/.test(pending.rows[0].transaction_id);
+      const requiresProviderEvidenceReference =
+        pending.rows[0].reason_code === 'provider_lifecycle_conflict';
       if ((![
         'invalid_adjustment_payload',
         'provider_identity_conflict',
         'provider_lifecycle_conflict'
       ].includes(pending.rows[0].reason_code) && !subscriptionEvidenceCase) ||
-          (!subscriptionEvidenceCase && ![
+          (!subscriptionEvidenceCase && !transactionLifecycleEvidenceCase && ![
             'adjustment.created', 'adjustment.updated',
             'customer.created', 'customer.updated'
           ].includes(pending.rows[0].event_type)) ||
+          (requiresProviderEvidenceReference &&
+            (providerEvidenceReference.length < 1 || providerEvidenceReference.length > 200)) ||
           (pending.rows[0].adjustment_action === 'refund' &&
             pending.rows[0].adjustment_type === null &&
             pending.rows[0].has_verified_refund_scope !== true) ||
@@ -3771,6 +3783,7 @@ app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
           providerUserRef: pending.rows[0].provider_user_ref,
           providerPlan: pending.rows[0].provider_plan,
           providerSubscriptionId: pending.rows[0].provider_subscription_id,
+          providerEvidenceReference: providerEvidenceReference || null,
           resolutionSource: 'manual_operator'
         })]
       );
