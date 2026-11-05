@@ -122,6 +122,8 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     setOlderMessagesFailed(false);
     pendingScrollAdjustmentRef.current = null;
     setDrafts({});
+    setSearchQuery('');
+    setMatchFilter('all');
     setCurrentUserId(null);
     setAuthenticated(false);
     setNotice('');
@@ -301,6 +303,8 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       setOlderMessagesFailed(false);
       pendingScrollAdjustmentRef.current = null;
       setDrafts({});
+      setSearchQuery('');
+      setMatchFilter('all');
       setNotice('');
       setAuthenticated(null);
       setCurrentUserId(null);
