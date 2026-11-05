@@ -2105,7 +2105,7 @@ test('expired chat session clears private drafts before the inbox is restored', 
   expireNextMessagesRead = true;
   await page.getByTestId('server-match-refresh-messages').click();
   await expect.poll(() => unauthorizedMessagesReads).toBe(1);
-  await expect(page.getByText(/sign in to see your matches|войдите, чтобы увидеть/i)).toBeVisible();
+  await expect(page.getByTestId('server-match-login-required')).toBeVisible();
 
   // Simulate the session becoming valid again without remounting the inbox.
   // A visibility/focus refresh must not resurrect the previous account's draft.
