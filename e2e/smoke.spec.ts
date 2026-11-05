@@ -2066,6 +2066,7 @@ test('real Vow inbox keeps the list and selected conversation side by side on de
 test('expired chat session clears private drafts before the inbox is restored', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   let expireNextMessagesRead = false;
+  let unauthorizedMessagesReads = 0;
   await page.route('**/api/auth/me', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -2076,6 +2077,7 @@ test('expired chat session clears private drafts before the inbox is restored', 
     if (url.pathname.endsWith('/messages')) {
       if (route.request().method() === 'GET' && expireNextMessagesRead) {
         expireNextMessagesRead = false;
+        unauthorizedMessagesReads += 1;
         await route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'unauthorized' }) });
         return;
       }
@@ -2102,7 +2104,7 @@ test('expired chat session clears private drafts before the inbox is restored', 
 
   expireNextMessagesRead = true;
   await page.getByTestId('server-match-refresh-messages').click();
-  await expect(page.getByRole('button', { name: /sign in|login|вход|войти/i })).toBeVisible();
+  await expect.poll(() => unauthorizedMessagesReads).toBe(1);
 
   // Simulate the session becoming valid again without remounting the inbox.
   // A visibility/focus refresh must not resurrect the previous account's draft.
