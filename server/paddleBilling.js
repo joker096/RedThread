@@ -827,7 +827,7 @@ export async function processPaddleEvent(pool, rawEvent) {
         }
       }
       await client.query('COMMIT');
-      return { duplicate: false, handled: true };
+      return { duplicate: false, handled: true, reconciliationRequired: Boolean(transactionId) };
     }
 
     // Never persist a provider customer identifier that cannot be used by the
