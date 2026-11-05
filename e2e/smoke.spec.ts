@@ -1985,7 +1985,7 @@ test('real Vow inbox supports search, conversation filters and mobile chat navig
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ matches: [
-        { id: 'e2e-match-1', partnerId: 'e2e-partner-1', displayName: 'Александра', age: 29, country: 'Грузия', city: 'Тбилиси', lastMessage: 'Давай продолжим знакомство', lastMessageAt: '2026-11-05T08:00:00.000Z' },
+        { id: 'e2e-match-1', partnerId: 'e2e-partner-1', displayName: 'Александра Петрова', age: 29, country: 'Грузия', city: 'Тбилиси', lastMessage: 'Давай продолжим знакомство', lastMessageAt: '2026-11-05T08:00:00.000Z' },
         { id: 'e2e-match-2', partnerId: 'e2e-partner-2', displayName: 'Мария', age: 31, country: 'Грузия', city: 'Батуми', lastMessage: null, lastMessageAt: null }
       ] })
     });
@@ -1996,6 +1996,7 @@ test('real Vow inbox supports search, conversation filters and mobile chat navig
   await expect(page.getByTestId('server-matches-panel')).toBeVisible();
   await expect(page.getByTestId('server-match-item')).toHaveCount(2);
   await expect(page.getByTestId('server-match-quick-card')).toHaveCount(2);
+  await expect(page.locator('.vow-inbox-quickcard .vow-inbox-avatar').first()).toHaveText('АП');
 
   const search = page.getByTestId('server-match-search');
   await search.fill('Александра');
