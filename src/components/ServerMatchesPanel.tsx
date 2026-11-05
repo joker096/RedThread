@@ -184,6 +184,10 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const loadMessages = useCallback(async (matchId: string) => {
     if (!matchId) return;
     const requestId = ++messageRequestId.current;
+    // A latest-history refresh supersedes any older-page request and its scroll anchor.
+    setOlderMessagesLoading(false);
+    setOlderMessagesFailed(false);
+    pendingScrollAdjustmentRef.current = null;
     setMessagesLoading(true);
     setMessagesFailed(false);
     try {
@@ -413,6 +417,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       const sentMessage = normalizeServerMessage(data?.message);
       if (!sentMessage) throw new Error(t('sendMessageError'));
       shouldAutoScrollMessagesRef.current = true;
+      pendingScrollAdjustmentRef.current = null;
       setMessages(current => deduplicateById([...current, sentMessage]));
       setDrafts(current => ({ ...current, [matchId]: '' }));
       void loadMatches();
@@ -439,7 +444,10 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     setOlderMessagesLoading(true);
     setOlderMessagesFailed(false);
     try {
-      const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/messages?limit=${MESSAGE_PAGE_SIZE}&latest=true&offset=${offset}`, { credentials: 'include' });
+      const oldestLoadedMessage = messages[0];
+      if (!oldestLoadedMessage) return;
+      const cursor = `beforeCreatedAt=${encodeURIComponent(oldestLoadedMessage.createdAt)}&beforeId=${encodeURIComponent(oldestLoadedMessage.id)}`;
+      const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/messages?limit=${MESSAGE_PAGE_SIZE}&latest=true&${cursor}`, { credentials: 'include' });
       if (requestId !== messageRequestId.current) return;
       if (response.status === 401) {
         clearSessionState();
