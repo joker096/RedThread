@@ -722,7 +722,8 @@ export async function processPaddleEvent(pool, rawEvent) {
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawCheckoutAttemptId)
       ? rawCheckoutAttemptId : null;
     reconciliationContext = {
-      userId: customUserId,
+      // Never carry one side of contradictory owner aliases into later helpers.
+      userId: customUserIdMetadataConflict ? null : customUserId,
       plan: typeof customData.plan === 'string' ? customData.plan : null,
       attemptId: checkoutAttemptId
     };
@@ -768,7 +769,7 @@ export async function processPaddleEvent(pool, rawEvent) {
     // If provider metadata conflicts with a retained subscription owner, lock
     // the retained owner only for safe adverse lifecycle updates. Never lock or
     // mutate an arbitrary account selected from contradictory custom_data.
-    let paddleIdentityUserId = subscriptionOwnerMetadataConflict
+    let paddleIdentityUserId = subscriptionOwnerMetadataConflict || customUserIdMetadataConflict
       ? existingSubscriptionOwnerUserId
       : customUserId || existingSubscriptionOwnerUserId;
     if (paddleIdentityUserId && !adjustmentWebhookEvent) {
