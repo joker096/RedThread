@@ -3029,3 +3029,12 @@ test('malformed customer ID on canceled transaction retains the valid transactio
   assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_checkout_attempts')), false);
   assert.equal(calls.some(call => call.statement.includes('UPDATE users SET')), false);
 });
+
+
+test('manual Paddle reconciliation requires later refund-scope evidence only when the original refund scope is unknown', async () => {
+  const indexSource = await readFile(new URL('./index.js', import.meta.url), 'utf8');
+  assert.match(indexSource, /adjustment_action === 'refund'[\\s\\S]{0,120}adjustment_type === null[\\s\\S]{0,120}has_verified_refund_scope !== true/,
+    'a refund with a known full/partial scope must not be blocked waiting for a duplicate provider event');
+  assert.match(indexSource, /refund_scope_requires_provider_verified_reconciliation/,
+    'unknown refund scope must remain blocked until later verified provider evidence exists');
+});
