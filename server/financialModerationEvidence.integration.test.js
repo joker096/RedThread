@@ -3421,6 +3421,9 @@ test('malformed Paddle subscription lifecycle events are durably quarantined wit
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   const eventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
   const subscriptionId = `sub_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  const originalMonthlyPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  const monthlyPriceId = `pri_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  process.env.PADDLE_PRICE_ID_1MONTH = monthlyPriceId;
   try {
     const result = await processPaddleEvent(pool, {
       eventId,
@@ -3477,9 +3480,19 @@ test('malformed Paddle subscription lifecycle events are durably quarantined wit
     await pool.query(
       `INSERT INTO paddle_checkout_attempts
        (user_id, attempt_id, transaction_id, plan, status, created_at, updated_at)
-       VALUES ($1, $2, $3, '1month', 'completed', statement_timestamp(), statement_timestamp())`,
-      [checkoutUserId, checkoutAttemptId, checkoutTransactionId]
+       VALUES ($1, $2, NULL, '1month', 'creating', statement_timestamp(), statement_timestamp())`,
+      [checkoutUserId, checkoutAttemptId]
     );
+    await processPaddleEvent(pool, {
+      eventId: `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`,
+      eventType: 'transaction.completed',
+      occurredAt: '2026-11-05T15:00:00Z',
+      data: {
+        id: checkoutTransactionId,
+        customData: { userId: checkoutUserId, plan: '1month', checkoutAttemptId },
+        items: [{ price: { id: monthlyPriceId } }]
+      }
+    });
     const createdResult = await processPaddleEvent(pool, {
       eventId: createdEventId,
       eventType: 'subscription.created',
@@ -3516,6 +3529,8 @@ test('malformed Paddle subscription lifecycle events are durably quarantined wit
       provider_plan: '1month'
     }]);
   } finally {
+    if (originalMonthlyPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalMonthlyPriceId;
     await pool.end();
   }
 });
