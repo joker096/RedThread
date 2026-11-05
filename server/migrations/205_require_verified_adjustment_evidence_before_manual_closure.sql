@@ -43,6 +43,8 @@ BEGIN
              AND (NEW.provider_transaction_id IS NULL
                OR verified_adjustment.transaction_id = NEW.provider_transaction_id)
              AND verified_adjustment.event_id <> NEW.event_id
+             AND (verified_adjustment.action <> 'refund'
+               OR verified_adjustment.adjustment_type IN ('full', 'partial'))
          )
        )
        OR (
