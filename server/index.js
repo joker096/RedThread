@@ -1885,7 +1885,7 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
       const candidateIds = preview.rows.map(profile => profile.id);
       await acquireGiftSafetyUserLocks(client, req.authUser.id, ...candidateIds);
       const actor = await client.query(
-        "SELECT id, gender, female_trial_ends_at, premium_until, premium_lifetime FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+        "SELECT u.id, p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.id = $1 AND u.status = 'active' FOR SHARE OF u, p",
         [req.authUser.id]
       );
       if (!actor.rowCount) {
@@ -2789,8 +2789,9 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
     if (!match) {
       const femaleUserId = actor.gender === 'female' ? req.authUser.id : targetId;
       const femaleAccountResult = await client.query(
-        `SELECT gender, female_trial_ends_at, premium_until, premium_lifetime
-         FROM users WHERE id = $1 AND status = 'active' FOR SHARE`,
+        `SELECT p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime
+         FROM users u JOIN profiles p ON p.user_id = u.id
+         WHERE u.id = $1 AND u.status = 'active' FOR SHARE OF u, p`,
         [femaleUserId]
       );
       const femaleAccount = femaleAccountResult.rows[0];
