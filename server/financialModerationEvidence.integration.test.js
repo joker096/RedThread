@@ -3363,15 +3363,20 @@ test('invalid transaction timestamp cases resolve only after database-verified u
     // Reverse delivery order: the valid cancellation is already retained when
     // a malformed completed-event redelivery arrives. It must not leave a
     // permanent open case or overwrite the canonical canceled lifecycle.
+    const secondUserId = randomUUID();
     const secondAttemptId = randomUUID();
     const secondTransactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
     const secondVerifiedEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
     const secondMalformedEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
     await pool.query(
+      "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
+      [secondUserId, `invalid-timestamp-prior-owner-${secondUserId}@example.invalid`]
+    );
+    await pool.query(
       `INSERT INTO paddle_checkout_attempts
        (user_id, attempt_id, plan, status, created_at, updated_at)
        VALUES ($1, $2, 'lifetime', 'creating', statement_timestamp(), statement_timestamp())`,
-      [userId, secondAttemptId]
+      [secondUserId, secondAttemptId]
     );
     await processPaddleEvent(pool, {
       eventId: secondVerifiedEventId,
@@ -3379,7 +3384,7 @@ test('invalid transaction timestamp cases resolve only after database-verified u
       occurredAt: '2026-11-05T14:00:00Z',
       data: {
         id: secondTransactionId,
-        customData: { userId, plan: 'lifetime', checkoutAttemptId: secondAttemptId },
+        customData: { userId: secondUserId, plan: 'lifetime', checkoutAttemptId: secondAttemptId },
         items: [{ price: { id: priceId } }]
       }
     });
@@ -3389,7 +3394,7 @@ test('invalid transaction timestamp cases resolve only after database-verified u
       occurredAt: 'invalid-redelivery-time',
       data: {
         id: secondTransactionId,
-        customData: { userId, plan: 'lifetime', checkoutAttemptId: secondAttemptId },
+        customData: { userId: secondUserId, plan: 'lifetime', checkoutAttemptId: secondAttemptId },
         items: [{ price: { id: priceId } }]
       }
     });
