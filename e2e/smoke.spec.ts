@@ -2131,7 +2131,7 @@ test('expired chat session clears private drafts before the inbox is restored', 
 
 test('real Vow chat opens on the newest page and can prepend older messages', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  const requestedOffsets: number[] = [];
+  const requestedCursors: Array<{ beforeCreatedAt: string | null; beforeId: string | null }> = [];
   await page.route('**/api/auth/me', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -2140,10 +2140,12 @@ test('real Vow chat opens on the newest page and can prepend older messages', as
   await page.route('**/api/matches**', async route => {
     const url = new URL(route.request().url());
     if (url.pathname.endsWith('/messages')) {
-      const offset = Number(url.searchParams.get('offset') || 0);
-      requestedOffsets.push(offset);
-      const first = offset === 0 ? 101 : 1;
-      const count = offset === 0 ? 100 : 23;
+      const beforeCreatedAt = url.searchParams.get('beforeCreatedAt');
+      const beforeId = url.searchParams.get('beforeId');
+      requestedCursors.push({ beforeCreatedAt, beforeId });
+      const isOlderPage = Boolean(beforeCreatedAt && beforeId);
+      const first = isOlderPage ? 1 : 101;
+      const count = isOlderPage ? 100 : 100;
       const messages = Array.from({ length: count }, (_, index) => ({
         id: `history-message-${first + index}`,
         senderId: 'e2e-partner',
@@ -2177,7 +2179,10 @@ test('real Vow chat opens on the newest page and can prepend older messages', as
   await expect(log.locator('.vow-inbox-bubble').first()).toContainText('Message 1');
   await expect(log.locator('.vow-inbox-bubble').last()).toContainText('Message 200');
   await expect(page.getByTestId('server-match-load-older')).toHaveCount(0);
-  expect(requestedOffsets).toEqual([0, 100]);
+  expect(requestedCursors).toHaveLength(2);
+  expect(requestedCursors[0]).toEqual({ beforeCreatedAt: null, beforeId: null });
+  expect(requestedCursors[1].beforeCreatedAt).toBeTruthy();
+  expect(requestedCursors[1].beforeId).toBe('history-message-101');
 });
 
 
