@@ -2155,7 +2155,7 @@ test('real Vow chat opens on the newest page and can prepend older messages', as
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ messages, pagination: { limit: 100, offset, latest: true } })
+        body: JSON.stringify({ messages, pagination: { limit: 100, offset: isOlderPage ? 100 : 0, latest: true } })
       });
       return;
     }
