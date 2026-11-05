@@ -360,7 +360,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     return true;
   });
   const selectedMatch = matches.find(match => match.id === selected) || null;
-  const initials = (name: string) => name.trim().split(/\\s+/).slice(0, 2).map(part => Array.from(part)[0] || '').join('').toLocaleUpperCase();
+  const initials = (name: string) => name.trim().split(/\s+/u).slice(0, 2).map(part => Array.from(part)[0] || '').join('').toLocaleUpperCase();
 
   return (
     <section data-testid="server-matches-panel" aria-busy={matchesLoading || messagesLoading || busy} className={`vow-screen vow-inbox-shell mb-5 overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#0b0b0e] shadow-2xl shadow-black/25 ${selected ? 'has-selection' : ''}`}>
