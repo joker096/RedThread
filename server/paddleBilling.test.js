@@ -2928,3 +2928,46 @@ test('transaction.canceled does not cancel a checkout attempt owned by a differe
     else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
   }
 });
+
+
+test('malformed customer ID on canceled transaction retains the valid transaction ID in identity reconciliation', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      calls.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      if (statement.includes('COUNT(DISTINCT user_id) > 1')) {
+        return { rowCount: 1, rows: [{ ambiguous: false }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  const result = await processPaddleEvent({ async connect() { return client; } }, {
+    eventId: 'evt_canceled_bad_customer_alias_conflict',
+    eventType: 'transaction.canceled',
+    occurredAt: '2026-11-05T12:00:00Z',
+    data: {
+      id: 'txn_canceledbadcustomer123',
+      customerId: 'not-a-paddle-customer',
+      customData: {
+        userId: '00000000-0000-4000-8000-000000000111',
+        user_id: '00000000-0000-4000-8000-000000000112',
+        plan: '1month'
+      }
+    }
+  });
+  assert.deepEqual(result, { duplicate: false, handled: true });
+  const conflict = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
+  assert.ok(conflict, 'ambiguous signed owner metadata must remain in reconciliation');
+  assert.equal(conflict.params[1], 'txn_canceledbadcustomer123',
+    'the valid canceled transaction ID must not be discarded because customer metadata is malformed');
+  assert.equal(conflict.params[2], null,
+    'a contradictory owner alias pair must never be attributed to either account');
+  assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_checkout_attempts')), false);
+  assert.equal(calls.some(call => call.statement.includes('UPDATE users SET')), false);
+});
