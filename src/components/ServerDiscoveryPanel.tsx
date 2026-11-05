@@ -429,6 +429,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       if (response.status === 404) throw new Error(t('undoUnavailable'));
       if (response.status === 409) throw new Error(t('undoMatchError'));
       if (!response.ok) throw new Error(t('undoActionError'));
+      setDailyQuota(normalizeFemaleDailyQuota(data?.dailyQuota));
       const restoredProfile = normalizeServerProfile(data?.profile);
       if (
         !restoredProfile ||
