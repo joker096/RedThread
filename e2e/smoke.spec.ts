@@ -2065,8 +2065,9 @@ test('real Vow inbox keeps the list and selected conversation side by side on de
 
 test('expired chat session clears private drafts before the inbox is restored', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  let expireNextMessagesRead = false;
+  let sessionExpired = false;
   let unauthorizedMessagesReads = 0;
+  let unauthorizedMatchesReads = 0;
   await page.route('**/api/auth/me', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -2075,8 +2076,7 @@ test('expired chat session clears private drafts before the inbox is restored', 
   await page.route('**/api/matches**', async route => {
     const url = new URL(route.request().url());
     if (url.pathname.endsWith('/messages')) {
-      if (route.request().method() === 'GET' && expireNextMessagesRead) {
-        expireNextMessagesRead = false;
+      if (route.request().method() === 'GET' && sessionExpired) {
         unauthorizedMessagesReads += 1;
         await route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'unauthorized' }) });
         return;
@@ -2086,6 +2086,11 @@ test('expired chat session clears private drafts before the inbox is restored', 
         contentType: 'application/json',
         body: JSON.stringify({ messages: [{ id: 'session-message', senderId: 'e2e-current-user', text: 'Привет', createdAt: '2026-11-05T08:00:00.000Z' }] })
       });
+      return;
+    }
+    if (sessionExpired) {
+      unauthorizedMatchesReads += 1;
+      await route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'unauthorized' }) });
       return;
     }
     await route.fulfill({
@@ -2102,10 +2107,12 @@ test('expired chat session clears private drafts before the inbox is restored', 
   await expect(composer).toBeVisible();
   await composer.fill('PRIVATE_UNSENT_DRAFT');
 
-  expireNextMessagesRead = true;
+  sessionExpired = true;
   await page.getByTestId('server-match-refresh-messages').click();
-  await expect.poll(() => unauthorizedMessagesReads).toBe(1);
+  await expect.poll(() => unauthorizedMessagesReads).toBeGreaterThan(0);
+  await expect.poll(() => unauthorizedMatchesReads).toBeGreaterThan(0);
   await expect(page.getByTestId('server-match-login-required')).toBeVisible();
+  sessionExpired = false;
 
   // Simulate the session becoming valid again without remounting the inbox.
   // A visibility/focus refresh must not resurrect the previous account's draft.
