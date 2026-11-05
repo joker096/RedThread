@@ -13,6 +13,7 @@ type ServerMatch = {
 };
 type ServerMessage = { id: string; senderId: string; text: string; createdAt: string };
 type Props = { onOpenAccount: () => void };
+const MESSAGE_PAGE_SIZE = 100;
 
 export const normalizeServerMatch = (value: unknown): ServerMatch | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -84,6 +85,10 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const [busy, setBusy] = useState(false);
   const [matchesLoading, setMatchesLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  const [messagesOffset, setMessagesOffset] = useState(0);
+  const [messagesHasMore, setMessagesHasMore] = useState(false);
+  const [olderMessagesLoading, setOlderMessagesLoading] = useState(false);
+  const [olderMessagesFailed, setOlderMessagesFailed] = useState(false);
   const [matchesFailed, setMatchesFailed] = useState(false);
   const [messagesFailed, setMessagesFailed] = useState(false);
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
@@ -98,6 +103,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const sendInFlight = useRef(false);
   const messagesLogRef = useRef<HTMLDivElement | null>(null);
   const shouldAutoScrollMessagesRef = useRef(true);
+  const pendingScrollAdjustmentRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
 
   // Drop every piece of account-scoped inbox state when the server rejects the session.
   // This also invalidates pending reads/sends so an old account cannot repopulate the UI.
@@ -110,6 +116,11 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     setMatches([]);
     setSelected('');
     setMessages([]);
+    setMessagesOffset(0);
+    setMessagesHasMore(false);
+    setOlderMessagesLoading(false);
+    setOlderMessagesFailed(false);
+    pendingScrollAdjustmentRef.current = null;
     setDrafts({});
     setCurrentUserId(null);
     setAuthenticated(false);
@@ -152,6 +163,10 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         setMessagesFailed(false);
         setSelected('');
         setMessages([]);
+        setMessagesOffset(0);
+        setMessagesHasMore(false);
+        setOlderMessagesLoading(false);
+        setOlderMessagesFailed(false);
       }
     } catch (error) {
       if (requestId === matchesRequestId.current) {
@@ -169,7 +184,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     setMessagesLoading(true);
     setMessagesFailed(false);
     try {
-      const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/messages?limit=100&latest=true`, { credentials: 'include' });
+      const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/messages?limit=${MESSAGE_PAGE_SIZE}&latest=true`, { credentials: 'include' });
       if (requestId !== messageRequestId.current) return;
       if (response.status === 401) {
         clearSessionState();
@@ -185,18 +200,24 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         setMatches(current => current.filter(match => match.id !== matchId));
         setSelected('');
         setMessages([]);
+        setMessagesOffset(0);
+        setMessagesHasMore(false);
+        setOlderMessagesLoading(false);
+        setOlderMessagesFailed(false);
         setNotice(t('loadMessagesError'));
         return;
       }
       if (!response.ok) throw new Error(t('loadMessagesError'));
       const data = await response.json();
       if (requestId !== messageRequestId.current) return;
+      const rawMessages = Array.isArray(data?.messages) ? data.messages : [];
       const nextMessages = deduplicateById<ServerMessage>(
-        Array.isArray(data?.messages)
-          ? data.messages.slice(-1000).map((value: unknown) => normalizeServerMessage(value)).filter((message: ServerMessage | null): message is ServerMessage => message !== null)
-          : []
-      ).slice(-500);
+        rawMessages.map((value: unknown) => normalizeServerMessage(value)).filter((message: ServerMessage | null): message is ServerMessage => message !== null)
+      );
       setMessages(nextMessages);
+      setMessagesOffset(rawMessages.length);
+      setMessagesHasMore(rawMessages.length === MESSAGE_PAGE_SIZE);
+      setOlderMessagesFailed(false);
       setMessagesFailed(false);
     } catch (error) {
       if (requestId === messageRequestId.current) {
@@ -295,7 +316,16 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     return () => window.removeEventListener('vow:session-changed', refreshOnSessionChange);
   }, [loadMatches]);
 
-  useEffect(() => { if (selected) void loadMessages(selected); }, [selected, loadMessages]);
+  useEffect(() => {
+    if (selected) {
+      setMessagesOffset(0);
+      setMessagesHasMore(false);
+      setOlderMessagesLoading(false);
+      setOlderMessagesFailed(false);
+      pendingScrollAdjustmentRef.current = null;
+      void loadMessages(selected);
+    }
+  }, [selected, loadMessages]);
 
   // Start each conversation at the latest message. Within a conversation,
   // preserve the reader's position when they have scrolled up through history.
@@ -309,6 +339,13 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     if (!selected || messagesLoading || !shouldAutoScrollMessagesRef.current) return;
     const log = messagesLogRef.current;
     if (!log) return;
+    const pendingAdjustment = pendingScrollAdjustmentRef.current;
+    if (pendingAdjustment) {
+      log.scrollTop = pendingAdjustment.scrollTop + (log.scrollHeight - pendingAdjustment.scrollHeight);
+      pendingScrollAdjustmentRef.current = null;
+      shouldAutoScrollMessagesRef.current = false;
+      return;
+    }
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     log.scrollTo({ top: log.scrollHeight, behavior: reduceMotion ? 'auto' : 'smooth' });
   }, [selected, messages, messagesLoading]);
@@ -348,6 +385,10 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         setMatches(current => current.filter(match => match.id !== matchId));
         setSelected('');
         setMessages([]);
+        setMessagesOffset(0);
+        setMessagesHasMore(false);
+        setOlderMessagesLoading(false);
+        setOlderMessagesFailed(false);
         setNotice(t('sendMessageError'));
         return;
       }
@@ -367,6 +408,59 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         sendInFlight.current = false;
         setBusy(false);
       }
+    }
+  };
+
+  const loadOlderMessages = async () => {
+    const matchId = selected;
+    const requestId = messageRequestId.current;
+    const offset = messagesOffset;
+    if (!matchId || !messagesHasMore || olderMessagesLoading || busy) return;
+    const log = messagesLogRef.current;
+    if (log) pendingScrollAdjustmentRef.current = { scrollHeight: log.scrollHeight, scrollTop: log.scrollTop };
+    setOlderMessagesLoading(true);
+    setOlderMessagesFailed(false);
+    try {
+      const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/messages?limit=${MESSAGE_PAGE_SIZE}&latest=true&offset=${offset}`, { credentials: 'include' });
+      if (requestId !== messageRequestId.current) return;
+      if (response.status === 401) {
+        clearSessionState();
+        setNotice(t('loginToSeeMatches'));
+        return;
+      }
+      if (response.status === 404) {
+        messageRequestId.current += 1;
+        matchesRequestId.current += 1;
+        setMatches(current => current.filter(match => match.id !== matchId));
+        setSelected('');
+        setMessages([]);
+        setMessagesOffset(0);
+        setMessagesHasMore(false);
+        setOlderMessagesLoading(false);
+        setOlderMessagesFailed(false);
+        pendingScrollAdjustmentRef.current = null;
+        setNotice(t('loadMessagesError'));
+        return;
+      }
+      if (!response.ok) throw new Error(t('loadMessagesError'));
+      const data = await response.json();
+      if (requestId !== messageRequestId.current) return;
+      const rawMessages = Array.isArray(data?.messages) ? data.messages : [];
+      const olderMessages = deduplicateById<ServerMessage>(
+        rawMessages.map((value: unknown) => normalizeServerMessage(value)).filter((message: ServerMessage | null): message is ServerMessage => message !== null)
+      );
+      setMessages(current => deduplicateById([...olderMessages, ...current]));
+      setMessagesOffset(offset + rawMessages.length);
+      setMessagesHasMore(rawMessages.length === MESSAGE_PAGE_SIZE);
+      setNotice('');
+    } catch (error) {
+      if (requestId === messageRequestId.current) {
+        pendingScrollAdjustmentRef.current = null;
+        setOlderMessagesFailed(true);
+        setNotice(error instanceof Error ? error.message : t('loadMessagesError'));
+      }
+    } finally {
+      if (requestId === messageRequestId.current) setOlderMessagesLoading(false);
     }
   };
 
@@ -417,7 +511,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
 
                 <div className="vow-inbox-quickstrip" aria-label={locale?.startsWith('ru') ? 'Ваши совпадения' : 'Your matches'}>
                   {matches.slice(0, 8).map(match => (
-                    <button key={match.id} type="button" data-testid="server-match-quick-card" aria-pressed={selected === match.id} onClick={() => { messageRequestId.current += 1; setMessages([]); setNotice(''); setSelected(match.id); }} className="vow-inbox-quickcard">
+                    <button key={match.id} type="button" data-testid="server-match-quick-card" aria-pressed={selected === match.id} onClick={() => { messageRequestId.current += 1; setMessages([]); setMessagesOffset(0); setMessagesHasMore(false); setOlderMessagesLoading(false); setOlderMessagesFailed(false); pendingScrollAdjustmentRef.current = null; setNotice(''); setSelected(match.id); }} className="vow-inbox-quickcard">
                       <span className="vow-inbox-avatar vow-inbox-avatar--quick">{initials(match.displayName)}</span>
                       <span>{match.displayName}</span>
                     </button>
@@ -432,7 +526,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
 
                 <div className="vow-inbox-list" aria-label={t('chatThreads')}>
                   {filteredMatches.map(match => (
-                    <button data-testid="server-match-item" type="button" key={match.id} aria-pressed={selected === match.id} disabled={busy} onClick={() => { messageRequestId.current += 1; setMessages([]); setNotice(''); setSelected(match.id); }} className={`vow-inbox-row ${selected === match.id ? 'is-selected' : ''}`}>
+                    <button data-testid="server-match-item" type="button" key={match.id} aria-pressed={selected === match.id} disabled={busy} onClick={() => { messageRequestId.current += 1; setMessages([]); setMessagesOffset(0); setMessagesHasMore(false); setOlderMessagesLoading(false); setOlderMessagesFailed(false); pendingScrollAdjustmentRef.current = null; setNotice(''); setSelected(match.id); }} className={`vow-inbox-row ${selected === match.id ? 'is-selected' : ''}`}>
                       <span className="vow-inbox-avatar">{initials(match.displayName)}</span>
                       <span className="vow-inbox-row-copy">
                         <span className="vow-inbox-row-title">{match.displayName}, {match.age}</span>
@@ -451,7 +545,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                 {selectedMatch ? (
                   <>
                     <header className="vow-inbox-chat-header">
-                      <button type="button" data-testid="server-match-back" onClick={() => { messageRequestId.current += 1; setSelected(''); setMessages([]); setNotice(''); }} className="vow-inbox-back" aria-label={locale?.startsWith('ru') ? 'Назад к диалогам' : 'Back to conversations'}>←</button>
+                      <button type="button" data-testid="server-match-back" onClick={() => { messageRequestId.current += 1; setSelected(''); setMessages([]); setMessagesOffset(0); setMessagesHasMore(false); setOlderMessagesLoading(false); setOlderMessagesFailed(false); pendingScrollAdjustmentRef.current = null; setNotice(''); }} className="vow-inbox-back" aria-label={locale?.startsWith('ru') ? 'Назад к диалогам' : 'Back to conversations'}>←</button>
                       <span className="vow-inbox-avatar vow-inbox-avatar--header">{initials(selectedMatch.displayName)}</span>
                       <span className="min-w-0 flex-1">
                         <strong className="block truncate text-sm text-white">{selectedMatch.displayName}, {selectedMatch.age}</strong>
@@ -467,6 +561,8 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                         const log = event.currentTarget;
                         shouldAutoScrollMessagesRef.current = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
                       }} data-testid="server-match-messages" role="log" aria-live="polite" aria-relevant="additions text" aria-atomic="false" aria-label={t('chatMessages')} aria-busy={messagesLoading} className="vow-inbox-message-log">
+                        {messagesHasMore && <button type="button" data-testid="server-match-load-older" onClick={() => void loadOlderMessages()} disabled={olderMessagesLoading || busy} className="vow-inbox-load-older">{olderMessagesLoading ? t('loading') : olderMessagesFailed ? (locale?.startsWith('ru') ? 'Повторить загрузку' : 'Retry loading earlier messages') : (locale?.startsWith('ru') ? 'Загрузить предыдущие сообщения' : 'Load earlier messages')}</button>}
+                        {olderMessagesFailed && <p role="alert" className="px-2 text-center text-xs text-rose-300">{notice || t('loadMessagesError')}</p>}
                         {messages.map(message => (
                           <div key={message.id} className={`vow-inbox-bubble ${message.senderId === currentUserId ? 'is-mine' : 'is-theirs'}`}>
                             <p dir="auto" className="whitespace-pre-wrap break-words">{message.text}</p>
