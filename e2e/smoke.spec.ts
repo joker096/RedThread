@@ -2364,6 +2364,78 @@ test('sending a message supersedes an in-flight older page without losing the se
   expect(olderRequests).toBe(2);
 });
 
+
+test('prepending older messages preserves the reader position after scrolling during the request', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let releaseOlder: (() => void) | undefined;
+  let signalOlderStarted: (() => void) | undefined;
+  const olderStarted = new Promise<void>(resolve => { signalOlderStarted = resolve; });
+  const olderResponseReleased = new Promise<void>(resolve => { releaseOlder = resolve; });
+
+  await page.route('**/api/auth/me', route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ user: { id: 'e2e-current-user' } })
+  }));
+  await page.route('**/api/matches**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/messages')) {
+      const isOlderPage = url.searchParams.has('beforeCreatedAt') && url.searchParams.has('beforeId');
+      if (isOlderPage) {
+        signalOlderStarted?.();
+        await olderResponseReleased;
+      }
+      const first = isOlderPage ? 78 : 101;
+      const count = isOlderPage ? 23 : 100;
+      const messages = Array.from({ length: count }, (_, index) => {
+        const sequence = first + index;
+        const createdAt = new Date(Date.UTC(2026, 10, 5, 8, 0, sequence)).toISOString();
+        return {
+          id: `00000000-0000-4000-8000-${String(sequence).padStart(12, '0')}`,
+          senderId: 'e2e-partner', text: `Message ${sequence}`, createdAt,
+          cursorCreatedAt: createdAt.replace('.000Z', '.000123Z')
+        };
+      });
+      await route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ messages, pagination: { limit: 100, offset: 0, latest: true } })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ matches: [{
+        id: 'scroll-anchor-match', partnerId: 'e2e-partner', displayName: 'Елена', age: 30,
+        country: 'Грузия', city: 'Тбилиси', lastMessage: 'Message 200',
+        lastMessageAt: '2026-11-05T08:00:00.000Z'
+      }] })
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('[data-testid="nav-chats"]:visible').first().click();
+  await page.getByTestId('server-match-item').click();
+  const log = page.getByTestId('server-match-messages');
+  await expect(log.locator('.vow-inbox-bubble')).toHaveCount(100);
+
+  await page.getByTestId('server-match-load-older').click();
+  await olderStarted;
+
+  await log.evaluate(element => {
+    element.scrollTop = 70;
+    element.dispatchEvent(new Event('scroll'));
+  });
+  const anchorMessage = log.getByText('Message 103');
+  await expect(anchorMessage).toBeVisible();
+  const before = await anchorMessage.boundingBox();
+  expect(before).not.toBeNull();
+
+  releaseOlder?.();
+  await expect(log.locator('.vow-inbox-bubble')).toHaveCount(123);
+  const after = await anchorMessage.boundingBox();
+  expect(after).not.toBeNull();
+  expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0))).toBeLessThan(2);
+});
+
 test('real Vow inbox fits narrow phone widths in list and conversation views', async ({ page }) => {
   await page.route('**/api/auth/me', route => route.fulfill({
     status: 200,
