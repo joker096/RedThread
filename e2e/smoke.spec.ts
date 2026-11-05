@@ -2073,7 +2073,7 @@ test('expired chat session clears private drafts before the inbox is restored', 
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ messages: [{ id: 'session-message', senderId: 'e2e-partner', text: 'Привет', createdAt: '2026-11-05T08:00:00.000Z' }] })
+        body: JSON.stringify({ messages: [{ id: 'session-message', senderId: 'e2e-current-user', text: 'Привет', createdAt: '2026-11-05T08:00:00.000Z' }] })
       });
       return;
     }
@@ -2103,4 +2103,5 @@ test('expired chat session clears private drafts before the inbox is restored', 
   await expect(composer).toBeVisible();
   await expect(composer).toHaveValue('');
   await expect(page.getByText('PRIVATE_UNSENT_DRAFT')).toHaveCount(0);
+  await expect(page.locator('.vow-inbox-bubble.is-mine')).toContainText('Привет');
 });
