@@ -2367,6 +2367,7 @@ test('sending a message supersedes an in-flight older page without losing the se
 
 test('prepending older messages preserves the reader position after scrolling during the request', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   let releaseOlder: (() => void) | undefined;
   let signalOlderStarted: (() => void) | undefined;
   const olderStarted = new Promise<void>(resolve => { signalOlderStarted = resolve; });
