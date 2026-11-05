@@ -75,7 +75,7 @@ export const deduplicateById = <T extends { id: string }>(items: T[]): T[] => {
 };
 
 export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
-  const { t, formatDate } = useLocale();
+  const { t, formatDate, locale } = useLocale();
   const [matches, setMatches] = useState<ServerMatch[]>([]);
   const [selected, setSelected] = useState<string>('');
   const [messages, setMessages] = useState<ServerMessage[]>([]);
