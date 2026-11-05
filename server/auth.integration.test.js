@@ -1997,7 +1997,7 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.equal(quotaFirstData.dailyQuota.limit, 3);
       assert.equal(quotaFirstData.dailyQuota.used, 1);
       assert.equal(quotaFirstData.dailyQuota.remaining, 2);
-      assert.match(quotaFirstData.dailyQuota.resetsAt, /^\\d{4}-\\d{2}-\\d{2}T00:00:00\\.000Z$/);
+      assert.match(quotaFirstData.dailyQuota.resetsAt, /^\d{4}-\d{2}-\d{2}T00:00:00\.000Z$/);
       const firstExposedId = quotaFirstData.profiles[0].id;
       const notYetExposedId = firstExposedId === maleRegistered.user.id
         ? secondMaleRegistered.user.id
