@@ -2166,3 +2166,50 @@ test('real Vow chat opens on the newest page and can prepend older messages', as
   await expect(page.getByTestId('server-match-load-older')).toHaveCount(0);
   expect(requestedOffsets).toEqual([0, 100]);
 });
+
+
+test('real Vow inbox fits narrow phone widths in list and conversation views', async ({ page }) => {
+  await page.route('**/api/auth/me', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ user: { id: 'e2e-current-user' } })
+  }));
+  await page.route('**/api/matches**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/messages')) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ messages: [] }) });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ matches: [{ id: 'narrow-match', partnerId: 'narrow-partner', displayName: 'Елена Петрова', age: 30, country: 'Грузия', city: 'Тбилиси', lastMessage: null, lastMessageAt: null }] })
+    });
+  });
+
+  for (const width of [320, 360, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/');
+    await page.locator('[data-testid="nav-chats"]:visible').first().click();
+    await expect(page.getByTestId('server-match-item')).toBeVisible();
+    let dimensions = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      document: document.documentElement.scrollWidth,
+      body: document.body.scrollWidth
+    }));
+    expect(dimensions.document, `inbox list overflows at ${width}px: ${JSON.stringify(dimensions)}`).toBeLessThanOrEqual(dimensions.viewport + 1);
+    expect(dimensions.body).toBeLessThanOrEqual(dimensions.viewport + 1);
+
+    await page.getByTestId('server-match-item').click();
+    await expect(page.getByTestId('real-match-chat')).toBeVisible();
+    await expect(page.getByTestId('server-match-back')).toBeVisible();
+    await expect(page.getByRole('textbox', { name: /write a message|напишите сообщение/i })).toBeVisible();
+    dimensions = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      document: document.documentElement.scrollWidth,
+      body: document.body.scrollWidth
+    }));
+    expect(dimensions.document, `conversation overflows at ${width}px: ${JSON.stringify(dimensions)}`).toBeLessThanOrEqual(dimensions.viewport + 1);
+    expect(dimensions.body).toBeLessThanOrEqual(dimensions.viewport + 1);
+  }
+});
