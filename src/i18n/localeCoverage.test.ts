@@ -32,7 +32,7 @@ test('language selector has unique locale codes and explicit auto, English, and 
 });
 
 test('Georgian is temporarily unsupported and legacy preferences safely fall back', () => {
-  assert.ok(!LANGUAGE_OPTIONS.some(language => language.code === 'ka'),
+  assert.ok(!LANGUAGE_OPTIONS.some(language => String(language.code) === 'ka'),
     'Georgian must not appear in the language selector');
   assert.equal(normalizeLocalePreference('ka'), 'auto',
     'Previously saved Georgian preferences must fall back to automatic language');
