@@ -657,7 +657,7 @@ test('completed Paddle transactions without a valid provider timestamp cannot gr
     assert.equal(reconciliation.params[1], 'provider_lifecycle_conflict');
     assert.equal(calls.some(call => call.statement.includes('UPDATE users SET') && call.statement.includes('premium_lifetime = TRUE')), false,
       'a completed event without occurred_at must never grant lifetime Premium');
-    assert.equal(calls.some(call => call.statement.includes('SET status = $3') && call.statement.includes('reconciliation_required')), true,
+    assert.equal(calls.some(call => call.statement.includes("SET status = 'reconciliation_required'")), true,
       'the exact checkout attempt must remain visible for manual reconciliation');
     assert.equal(calls.some(call => call.statement === 'COMMIT'), true);
     assert.equal(calls.some(call => call.statement === 'ROLLBACK'), false);
