@@ -3676,6 +3676,7 @@ test('transaction lifecycle conflict cases require provider evidence reference f
       'a moderator note without a provider evidence reference must not close a lifecycle conflict');
     await client.query('ROLLBACK TO SAVEPOINT reject_missing_provider_evidence');
     await client.query('RELEASE SAVEPOINT reject_missing_provider_evidence');
+    await client.query('SET CONSTRAINTS paddle_adjustment_reconciliation_manual_audit_guard DEFERRED');
 
     await client.query(
       `UPDATE paddle_adjustment_reconciliation_cases
