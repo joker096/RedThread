@@ -1854,6 +1854,8 @@ app.get('/api/profiles/search', requireSession, requireDiscoveryAccess, async (r
     const searchParams = [req.authUser.id, country, city, intent, parsedLimit + 1, parsedOffset, minAge, maxAge, minFinancialAlignment, familyFormat, childrenFilter === null ? null : childrenFilter === 'true'];
     let client;
     let result;
+    let dailyQuota = null;
+    let quotaHasMore = false;
     try {
       client = await pool.connect();
       await client.query('BEGIN');
@@ -1909,8 +1911,6 @@ app.get('/api/profiles/search', requireSession, requireDiscoveryAccess, async (r
       const lockedSearchParams = [...searchParams];
       lockedSearchParams[5] = 0; // candidateIds already represent the requested page after OFFSET.
       result = await client.query(finalSql, [...lockedSearchParams, candidateIds]);
-      let dailyQuota = null;
-      let quotaHasMore = false;
       if (req.freeDiscovery) {
         const selection = selectProfilesWithinDailyQuota(result.rows, viewedProfileIds, parsedLimit);
         result.rows = selection.profiles;
@@ -2681,7 +2681,7 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
     }
     const targetResult = await client.query(
       `SELECT p.user_id, p.gender,
-              u.id AS user_id, u.female_trial_ends_at, u.premium_until, u.premium_lifetime
+              u.female_trial_ends_at, u.premium_until, u.premium_lifetime
        FROM profiles p
        JOIN users u ON u.id = p.user_id AND u.status = 'active'
        JOIN users actor ON actor.id = $2 AND actor.status = 'active'
@@ -2723,6 +2723,16 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
       'SELECT 1 FROM likes WHERE sender_id = $1 AND target_id = $2 LIMIT 1',
       [targetId, req.authUser.id]
     );
+    const femaleAccountId = actor.gender === 'female' ? req.authUser.id : targetId;
+    const femaleAccount = actor.gender === 'female'
+      ? req.authUser
+      : {
+          id: targetId,
+          gender: target.gender,
+          female_trial_ends_at: target.female_trial_ends_at,
+          premium_until: target.premium_until,
+          premium_lifetime: target.premium_lifetime
+        };
     if (reciprocal.rowCount > 0) {
       const existingMatch = await client.query(
         `SELECT id FROM matches
@@ -2732,22 +2742,12 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
         [req.authUser.id, targetId]
       );
       if (!existingMatch.rowCount) {
-        const femaleAccountId = actor.gender === 'female' ? req.authUser.id : targetId;
-        const femaleAccount = actor.gender === 'female'
-          ? req.authUser
-          : {
-              id: targetId,
-              gender: target.gender,
-              female_trial_ends_at: target.female_trial_ends_at,
-              premium_until: target.premium_until,
-              premium_lifetime: target.premium_lifetime
-            };
         if (isFemaleFreeAccount(femaleAccount)) {
           const weekly = await client.query(
             `SELECT COUNT(*)::int AS count,
                     (MIN(created_at) + INTERVAL '7 days') AS "retryAt"
-             FROM matches
-             WHERE (user_a_id = $1 OR user_b_id = $1)
+             FROM female_free_match_quota_events
+             WHERE user_id = $1
                AND created_at >= statement_timestamp() - INTERVAL '7 days'`,
             [femaleAccountId]
           );
@@ -2772,12 +2772,21 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
       return res.status(201).json({ liked: true, matched: false, match: null });
     }
 
-    await client.query(
+    const createdMatch = await client.query(
       `INSERT INTO matches (user_a_id, user_b_id)
        VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid))
-       ON CONFLICT (user_a_id, user_b_id) DO NOTHING`,
+       ON CONFLICT (user_a_id, user_b_id) DO NOTHING
+       RETURNING id`,
       [req.authUser.id, targetId]
     );
+    if (createdMatch.rowCount && isFemaleFreeAccount(femaleAccount)) {
+      await client.query(
+        `INSERT INTO female_free_match_quota_events (user_id, match_id)
+         VALUES ($1, $2)
+         ON CONFLICT (match_id) DO NOTHING`,
+        [femaleAccountId, createdMatch.rows[0].id]
+      );
+    }
     const matchResult = await client.query(
       `SELECT id, status, created_at AS "createdAt" FROM matches
        WHERE user_a_id = LEAST($1::uuid, $2::uuid) AND user_b_id = GREATEST($1::uuid, $2::uuid)`,
