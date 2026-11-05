@@ -3359,6 +3359,48 @@ test('invalid transaction timestamp cases resolve only after database-verified u
       has_provider_time: true,
       attempt_status: 'canceled'
     }]);
+
+    // Reverse delivery order: the valid cancellation is already retained when
+    // a malformed completed-event redelivery arrives. It must not leave a
+    // permanent open case or overwrite the canonical canceled lifecycle.
+    const secondAttemptId = randomUUID();
+    const secondTransactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+    const secondVerifiedEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+    const secondMalformedEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+    await pool.query(
+      `INSERT INTO paddle_checkout_attempts
+       (user_id, attempt_id, plan, status, created_at, updated_at)
+       VALUES ($1, $2, 'lifetime', 'creating', statement_timestamp(), statement_timestamp())`,
+      [userId, secondAttemptId]
+    );
+    await processPaddleEvent(pool, {
+      eventId: secondVerifiedEventId,
+      eventType: 'transaction.canceled',
+      occurredAt: '2026-11-05T14:00:00Z',
+      data: {
+        id: secondTransactionId,
+        customData: { userId, plan: 'lifetime', checkoutAttemptId: secondAttemptId },
+        items: [{ price: { id: priceId } }]
+      }
+    });
+    await processPaddleEvent(pool, {
+      eventId: secondMalformedEventId,
+      eventType: 'transaction.completed',
+      occurredAt: 'invalid-redelivery-time',
+      data: {
+        id: secondTransactionId,
+        customData: { userId, plan: 'lifetime', checkoutAttemptId: secondAttemptId },
+        items: [{ price: { id: priceId } }]
+      }
+    });
+    const resolvedAfterPriorEvidence = await pool.query(
+      'SELECT status, resolution_source FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1',
+      [secondMalformedEventId]
+    );
+    assert.deepEqual(resolvedAfterPriorEvidence.rows, [{
+      status: 'resolved',
+      resolution_source: 'automatic_provider_transaction_link'
+    }]);
   } finally {
     if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
     else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
