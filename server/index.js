@@ -2594,6 +2594,9 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+    // Use the same globally ordered account locks as likes before reading
+    // identity/profile state, avoiding lock-order inversions with deletion.
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
     const actorIdentity = await client.query(
       `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment,
               l3.status AS l3_status, l3.expires_at AS l3_expires_at
@@ -2609,8 +2612,6 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
     }
-    await client.query('BEGIN');
-    await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
     const target = await client.query(
       `SELECT p.gender
        FROM profiles p
