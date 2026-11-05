@@ -410,6 +410,11 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
       queueAfterSecondUploadPayload.submissions.map(item => item.submissionId),
       [second.submissionId]
     );
+    const secondMedia = await request('/api/moderation/identity-l3/submissions/' + second.submissionId + '/media', {
+      headers: { Cookie: moderatorCookie }
+    });
+    assert.equal(secondMedia.status, 200);
+    assert.deepEqual(Buffer.from(await secondMedia.arrayBuffer()), secondVideo);
 
     const rejected = await request('/api/moderation/identity-l3/submissions/' + second.submissionId + '/decision', {
       method: 'POST',
