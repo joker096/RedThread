@@ -97,7 +97,11 @@ export async function claimIdentityL3Submission(pool, {
     `SELECT id, user_id
      FROM identity_l3_submissions
      WHERE status IN ('uploaded', 'processing')
-       AND processing_attempts < $1
+       AND (
+         processing_attempts < $1
+         OR (status = 'processing' AND processing_attempts >= $1
+             AND processing_lease_expires_at <= statement_timestamp())
+       )
        AND processing_next_attempt_at <= statement_timestamp()
        AND (processing_lease_expires_at IS NULL
             OR processing_lease_expires_at <= statement_timestamp())
@@ -134,11 +138,15 @@ export async function claimIdentityL3Submission(pool, {
 
     const locked = await client.query(
       `SELECT id, user_id, status, storage_object_key, media_mime_type,
-              processing_attempts
+              processing_attempts, processing_lease_expires_at
        FROM identity_l3_submissions
        WHERE id = $1 AND user_id = $2
          AND status IN ('uploaded', 'processing')
-         AND processing_attempts < $3
+         AND (
+           processing_attempts < $3
+           OR (status = 'processing' AND processing_attempts >= $3
+               AND processing_lease_expires_at <= statement_timestamp())
+         )
          AND processing_next_attempt_at <= statement_timestamp()
          AND (processing_lease_expires_at IS NULL
               OR processing_lease_expires_at <= statement_timestamp())
@@ -148,6 +156,36 @@ export async function claimIdentityL3Submission(pool, {
     const row = locked.rows[0];
     if (!row || !row.storage_object_key || !row.media_mime_type) {
       await client.query('ROLLBACK');
+      transactionOpen = false;
+      await releaseAccountLock(client, selected.user_id);
+      lockAcquired = false;
+      client.release();
+      return null;
+    }
+
+    // A process can disappear during its final leased attempt. Once that lease
+    // expires, do not leave the submission stuck in "processing" forever:
+    // terminalize it so the normal guarded purge trigger can remove its media.
+    if (row.status === 'processing' &&
+        row.processing_attempts >= IDENTITY_L3_WORKER_MAX_ATTEMPTS) {
+      await client.query(
+        "SELECT set_config('app.identity_l3_actor_user_id', '', true), set_config('app.identity_l3_reason_code', 'media_processing_failed', true)"
+      );
+      const exhausted = await client.query(
+        `UPDATE identity_l3_submissions
+         SET status = 'failed',
+             processing_lease_token = NULL,
+             processing_lease_expires_at = NULL,
+             processing_last_error_code = 'l3_processing_worker_lease_expired_max_attempts'
+         WHERE id = $1 AND user_id = $2
+           AND status = 'processing'
+           AND processing_attempts >= $3
+           AND processing_lease_expires_at <= statement_timestamp()
+         RETURNING id`,
+        [row.id, row.user_id, IDENTITY_L3_WORKER_MAX_ATTEMPTS]
+      );
+      if (!exhausted.rowCount) throw new Error('identity_l3_worker_lease_lost');
+      await client.query('COMMIT');
       transactionOpen = false;
       await releaseAccountLock(client, selected.user_id);
       lockAcquired = false;
@@ -395,7 +433,11 @@ export async function runIdentityL3PurgeOnce(pool, {
     `SELECT j.id, j.user_id
      FROM identity_l3_media_purge_jobs j
      WHERE j.status IN ('queued', 'processing')
-       AND j.attempts < $1
+       AND (
+         j.attempts < $1
+         OR (j.status = 'processing' AND j.attempts >= $1
+             AND j.lease_expires_at <= statement_timestamp())
+       )
        AND j.next_attempt_at <= statement_timestamp()
        AND (j.lease_expires_at IS NULL OR j.lease_expires_at <= statement_timestamp())
        AND ($2::uuid IS NULL OR j.submission_id = $2)
@@ -426,7 +468,11 @@ export async function runIdentityL3PurgeOnce(pool, {
          ON s.id = j.submission_id AND s.user_id = j.user_id
        WHERE j.id = $1
          AND j.status IN ('queued', 'processing')
-         AND j.attempts < $2
+         AND (
+           j.attempts < $2
+           OR (j.status = 'processing' AND j.attempts >= $2
+               AND j.lease_expires_at <= statement_timestamp())
+         )
          AND j.next_attempt_at <= statement_timestamp()
          AND (j.lease_expires_at IS NULL OR j.lease_expires_at <= statement_timestamp())
        FOR UPDATE OF j, s SKIP LOCKED`,
@@ -442,6 +488,35 @@ export async function runIdentityL3PurgeOnce(pool, {
     }
     if (!['rejected', 'withdrawn', 'revoked', 'expired', 'failed'].includes(job.submission_status)) {
       throw new Error('identity_l3_purge_submission_not_terminal');
+    }
+    // A crash during attempt five leaves an expired processing lease that
+    // cannot be claimed as a sixth attempt. Convert it to failed so an operator
+    // can safely requeue it; deleteObject is idempotent if the prior process
+    // had already unlinked the file before crashing.
+    if (job.status === 'processing' && job.attempts >= IDENTITY_L3_PURGE_MAX_ATTEMPTS) {
+      const exhausted = await client.query(
+        `UPDATE identity_l3_media_purge_jobs
+         SET status = 'failed',
+             lease_token = NULL,
+             lease_expires_at = NULL,
+             next_attempt_at = statement_timestamp(),
+             last_error_code = 'l3_purge_worker_lease_expired_max_attempts',
+             updated_at = statement_timestamp()
+         WHERE id = $1 AND status = 'processing'
+           AND attempts >= $2
+           AND lease_expires_at <= statement_timestamp()
+         RETURNING id`,
+        [job.id, IDENTITY_L3_PURGE_MAX_ATTEMPTS]
+      );
+      if (!exhausted.rowCount) throw new Error('identity_l3_purge_lease_lost');
+      await client.query('COMMIT');
+      transactionOpen = false;
+      return {
+        processed: true,
+        purgeJobId: job.id,
+        status: 'failed',
+        errorCode: 'l3_purge_worker_lease_expired_max_attempts'
+      };
     }
     const leaseToken = randomUUID();
     const attempt = job.attempts + 1;
