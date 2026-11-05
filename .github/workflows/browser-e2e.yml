@@ -2,7 +2,7 @@ name: Browser E2E
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, "feat/vow-messenger-inbox-redesign"]
   push:
     branches: [main, "feat/contextual-advertising-policy"]
 
