@@ -1,5 +1,5 @@
--- Extend the database-level automatic-resolution guard for quarantined
--- transaction timestamps. Genuine provider lifecycle conflicts remain ineligible.
+-- Preserve the complete recurring-payment proof added in migration 166 while
+-- extending automatic resolution to timestamp-quarantined transaction events.
 -- Follow the webhook/migration lock order: users, checkout attempts/history,
 -- transaction evidence, then reconciliation cases.
 LOCK TABLE users, paddle_checkout_attempts, paddle_checkout_attempt_history,
@@ -31,9 +31,22 @@ BEGIN
                  FROM paddle_transaction_events AS transaction
                  JOIN paddle_webhook_events AS webhook
                    ON webhook.event_id = transaction.event_id
-                  AND webhook.event_type = 'transaction.completed'
+                  AND (
+                    (webhook.event_type = 'transaction.completed' AND transaction.status = 'completed')
+                    OR (
+                      webhook.event_type = 'subscription.created'
+                      AND transaction.status = 'paid'
+                      AND transaction.subscription_id IS NOT NULL
+                      AND transaction.customer_id IS NOT NULL
+                      AND EXISTS (
+                        SELECT 1 FROM users AS owner
+                        WHERE owner.id = transaction.user_id
+                          AND owner.paddle_subscription_id = transaction.subscription_id
+                          AND owner.paddle_customer_id = transaction.customer_id
+                      )
+                    )
+                  )
                  WHERE transaction.transaction_id = source.transaction_id
-                   AND transaction.status = 'completed'
                    AND transaction.user_id IS NOT NULL
                    AND transaction.plan IS NOT NULL
                ) AS candidate
@@ -52,12 +65,26 @@ BEGIN
                    AND linked_history.status = 'linked'
                )
                OR EXISTS (
-                 SELECT 1 FROM paddle_transaction_events AS linked_transaction
+                 SELECT 1
+                 FROM paddle_transaction_events AS linked_transaction
                  JOIN paddle_webhook_events AS webhook
                    ON webhook.event_id = linked_transaction.event_id
-                  AND webhook.event_type = 'transaction.completed'
+                  AND (
+                    (webhook.event_type = 'transaction.completed' AND linked_transaction.status = 'completed')
+                    OR (
+                      webhook.event_type = 'subscription.created'
+                      AND linked_transaction.status = 'paid'
+                      AND linked_transaction.subscription_id IS NOT NULL
+                      AND linked_transaction.customer_id IS NOT NULL
+                      AND EXISTS (
+                        SELECT 1 FROM users AS owner
+                        WHERE owner.id = linked_transaction.user_id
+                          AND owner.paddle_subscription_id = linked_transaction.subscription_id
+                          AND owner.paddle_customer_id = linked_transaction.customer_id
+                      )
+                    )
+                  )
                  WHERE linked_transaction.transaction_id = source.transaction_id
-                   AND linked_transaction.status = 'completed'
                    AND linked_transaction.user_id IS NOT NULL
                    AND linked_transaction.plan IN ('1month', '3months')
                )
@@ -147,4 +174,4 @@ END;
 $automatic_adjustment_link$;
 
 COMMENT ON FUNCTION require_verified_automatic_paddle_adjustment_link() IS
-  'Automatic transaction-owner-unlinked adjustment closure requires the original verified linked-checkout evidence. Invalid transaction timestamp cases may close only with timestamp-valid completed/canceled ledger evidence and one unique checkout or subscription owner. Genuine provider lifecycle conflicts cannot be auto-closed.';
+  'Preserves verified automatic adjustment reconciliation for linked checkout/completed transactions and captured subscription.created recurring payments. Invalid transaction timestamp cases may close only with timestamp-valid completed/canceled ledger evidence and one unique checkout or subscription owner. Genuine provider lifecycle conflicts cannot be auto-closed.';
