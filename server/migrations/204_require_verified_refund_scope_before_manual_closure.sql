@@ -1,7 +1,9 @@
 -- A malformed refund must not be manually dismissed while its scope is unknown.
 -- A later signed event for the same immutable adjustment may enrich the missing
 -- scope; only then may the malformed source event be closed with moderator audit.
-LOCK TABLE paddle_adjustment_reconciliation_cases, paddle_adjustment_events
+-- Webhooks insert adjustment evidence before the reconciliation case; keep this
+-- lock order identical so the migration cannot deadlock with an in-flight event.
+LOCK TABLE paddle_adjustment_events, paddle_adjustment_reconciliation_cases
   IN SHARE ROW EXCLUSIVE MODE;
 
 CREATE OR REPLACE FUNCTION require_manual_paddle_adjustment_resolution_audit()
