@@ -31,6 +31,15 @@ test('language selector has unique locale codes and explicit auto, English, and 
   assert.ok(LANGUAGE_OPTIONS.every(language => language.nativeName.trim().length > 0));
 });
 
+test('Georgian is temporarily unsupported and legacy preferences safely fall back', () => {
+  assert.ok(!LANGUAGE_OPTIONS.some(language => language.code === 'ka'),
+    'Georgian must not appear in the language selector');
+  assert.equal(normalizeLocalePreference('ka'), 'auto',
+    'Previously saved Georgian preferences must fall back to automatic language');
+  assert.equal(getTranslationCoverage('ka').translated, 0,
+    'The removed Georgian catalog must not remain available at runtime');
+});
+
 test('every advertised language has a truthful, internally consistent coverage report', () => {
   const locales = LANGUAGE_OPTIONS.filter(language => language.code !== 'auto');
   assert.ok(locales.length >= 40, 'The international language selector should remain comprehensive');
@@ -50,7 +59,7 @@ test('every advertised language has a truthful, internally consistent coverage r
 });
 
 test('unsupported advertised locales fall back honestly rather than claiming complete translation', () => {
-  for (const language of LANGUAGE_OPTIONS.filter(item => !['auto', 'en', 'ru', 'es', 'fr', 'de', 'pt', 'it', 'tr', 'ar', 'zh', 'hi', 'ka', 'id', 'pl', 'uk', 'nl', 'vi'].includes(item.code))) {
+  for (const language of LANGUAGE_OPTIONS.filter(item => !['auto', 'en', 'ru', 'es', 'fr', 'de', 'pt', 'it', 'tr', 'ar', 'zh', 'hi', 'id', 'pl', 'uk', 'nl', 'vi'].includes(item.code))) {
     const coverage = getTranslationCoverage(language.code);
     if (coverage.translated === 0) {
       assert.equal(coverage.percentage, 0);
@@ -168,14 +177,6 @@ test('Portuguese catalog covers core discovery, safety, account and messaging UI
   }
 });
 
-test('Georgian translations cover the core discovery and safety interface without claiming full localization', () => {
-  const georgian = getTranslationCoverage('ka');
-  assert.ok(georgian.translated > 0, 'Georgian should provide real translated messages');
-  assert.ok(georgian.percentage < 100, 'Partial Georgian coverage must remain clearly partial');
-  for (const key of ['language', 'discovery', 'safety', 'like', 'report', 'block', 'search', 'relationshipGoal'] as const) {
-    assert.ok(!georgian.missing.includes(key), `Georgian core key "${key}" should be translated`);
-  }
-});
 test('account access copy stays in the locale catalog instead of hardcoded Cyrillic text', async () => {
   const { readFile } = await import('node:fs/promises');
   const component = await readFile(new URL('../components/AccountAccessPanel.tsx', import.meta.url), 'utf8');
@@ -290,25 +291,10 @@ test('text direction is RTL only for locales with right-to-left scripts', () => 
 });
 
 test('locale preferences accept supported values and safely fall back for invalid storage values', () => {
-  for (const locale of ['auto', 'en', 'ru', 'ar', 'he', 'fa', 'ur', 'ka', 'vi', 'zh']) {
+  for (const locale of ['auto', 'en', 'ru', 'ar', 'he', 'fa', 'ur', 'vi', 'zh']) {
     assert.equal(normalizeLocalePreference(locale), locale);
   }
   for (const invalid of [null, undefined, '', 'xx', 'EN', 'en-US', 'rtl', 'undefined']) {
     assert.equal(normalizeLocalePreference(invalid), 'auto', `${String(invalid)} should fall back to automatic language`);
-  }
-});
-
-
-test('Georgian catalog covers core discovery, safety, account and messaging UI', () => {
-  const georgian = getTranslationCoverage('ka');
-  assert.ok(georgian.translated >= 200, 'Georgian should translate a substantial core set of interface messages');
-  assert.ok(georgian.percentage > 0 && georgian.percentage < 100,
-    'Georgian must remain marked partial until the complete catalog is translated');
-  for (const key of [
-    'language', 'discovery', 'safety', 'like', 'pass', 'report', 'block',
-    'search', 'relationshipGoal', 'accountTitle', 'chats', 'authInvalidEmail',
-    'authDeleteConfirm', 'partialTranslationHelp'
-  ] as const) {
-    assert.ok(!georgian.missing.includes(key), `Georgian core key "${key}" should be translated`);
   }
 });
