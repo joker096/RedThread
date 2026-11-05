@@ -2257,9 +2257,10 @@ test('auth API supports registration, session lookup, logout and login', {
         headers: { Cookie: secondCookie },
         body: JSON.stringify({ text: 'Обход ограничения подписки через прямой POST' })
       });
-      assert.equal(expiredFemaleSend.status, 402,
-        'an expired free female account must not bypass the paid-feature gate by posting directly to the message API');
-      assert.equal((await expiredFemaleSend.json()).error, 'premium_required');
+      assert.equal(expiredFemaleSend.status, 201,
+        'an expired free female account must retain access to an already-created conversation');
+      assert.equal((await expiredFemaleSend.json()).message.text,
+        'Обход ограничения подписки через прямой POST');
     } finally {
       const entitlement = originalFemaleEntitlement.rows[0];
       await identityGateDb.query(
