@@ -370,7 +370,9 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       return;
     }
     const previousMatchId = lastSelectedMatchIdRef.current;
-    if (previousMatchId) matchButtonRefs.current.get(previousMatchId)?.focus();
+    const previousMatchButton = previousMatchId ? matchButtonRefs.current.get(previousMatchId) : null;
+    if (previousMatchButton?.isConnected && previousMatchButton.offsetParent !== null) previousMatchButton.focus();
+    else document.getElementById('vow-match-search')?.focus();
   }, [selected]);
 
   // Keep the newest message visible without moving the whole page.
