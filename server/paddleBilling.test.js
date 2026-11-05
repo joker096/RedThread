@@ -659,7 +659,8 @@ test('completed Paddle transactions without a valid provider timestamp cannot gr
     assert.equal(ledger.params[12], null, 'do not substitute server receipt time for provider chronology');
     const reconciliation = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
     assert.ok(reconciliation, 'record the provider lifecycle anomaly for reconciliation');
-    assert.equal(reconciliation.params[1], 'provider_lifecycle_conflict');
+    assert.ok(reconciliation.statement.includes("'provider_lifecycle_conflict'"));
+    assert.equal(reconciliation.params[1], 'txn_lifetimemissingtimestamp123');
     assert.equal(calls.some(call => call.statement.includes('UPDATE users SET') && call.statement.includes('premium_lifetime = TRUE')), false,
       'a completed event without occurred_at must never grant lifetime Premium');
     assert.equal(calls.some(call => call.statement.includes("SET status = 'reconciliation_required'")), true,
