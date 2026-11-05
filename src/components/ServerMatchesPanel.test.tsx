@@ -63,6 +63,19 @@ test('normalizes message payloads and rejects malformed messages', () => {
   assert.equal(normalizeServerMessage({ id: '1', senderId: '2', text: 'hello', createdAt: 'bad-date' }), null);
 });
 
+
+test('preserves the server precision cursor separately from the display timestamp', () => {
+  const message = normalizeServerMessage({
+    id: 'message-precision',
+    senderId: 'user-1',
+    text: 'Hello',
+    createdAt: '2026-11-05T08:00:00.000Z',
+    cursorCreatedAt: '2026-11-05T08:00:00.000123Z'
+  });
+  assert.equal(message?.createdAt, '2026-11-05T08:00:00.000Z');
+  assert.equal(message?.cursorCreatedAt, '2026-11-05T08:00:00.000123Z');
+});
+
 test('enforces message identifier and timestamp length limits', () => {
   const base = { id: 'm'.repeat(256), senderId: 'u'.repeat(256), text: 'hello', createdAt: '2026-10-22T12:00:00Z' };
   assert.equal(normalizeServerMessage(base)?.id, 'm'.repeat(256));
