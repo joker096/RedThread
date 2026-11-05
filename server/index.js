@@ -3657,6 +3657,9 @@ app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
                 EXISTS (
                   SELECT 1
                   FROM paddle_adjustment_events AS verified_scope
+                  JOIN paddle_webhook_events AS verified_scope_webhook
+                    ON verified_scope_webhook.event_id = verified_scope.event_id
+                   AND verified_scope_webhook.event_type IN ('adjustment.created', 'adjustment.updated')
                   WHERE verified_scope.adjustment_id =
                     COALESCE(e.adjustment_id, c.provider_adjustment_id)
                     AND verified_scope.transaction_id =
@@ -3667,6 +3670,9 @@ app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
                 EXISTS (
                   SELECT 1
                   FROM paddle_adjustment_events AS verified_adjustment
+                  JOIN paddle_webhook_events AS verified_adjustment_webhook
+                    ON verified_adjustment_webhook.event_id = verified_adjustment.event_id
+                   AND verified_adjustment_webhook.event_type IN ('adjustment.created', 'adjustment.updated')
                   WHERE verified_adjustment.adjustment_id = c.provider_adjustment_id
                     AND c.provider_adjustment_id IS NOT NULL
                     AND (c.provider_transaction_id IS NULL
