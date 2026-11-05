@@ -209,8 +209,12 @@ test('auth API supports registration, session lookup, logout and login', {
     const reconciliationDb = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
     try {
       await reconciliationDb.query(
-        "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'adjustment.created'), ($2, 'adjustment.updated')",
-        [reconciliationEventId, verifiedAdjustmentEventId]
+        "INSERT INTO paddle_webhook_events (event_id, event_type, processed_at) VALUES ($1, 'adjustment.created', statement_timestamp() - INTERVAL '1 minute')",
+        [reconciliationEventId]
+      );
+      await reconciliationDb.query(
+        "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'adjustment.updated')",
+        [verifiedAdjustmentEventId]
       );
       await reconciliationDb.query(
         "INSERT INTO paddle_adjustment_reconciliation_cases (event_id, reason_code, provider_adjustment_id, provider_transaction_id) VALUES ($1, 'invalid_adjustment_payload', $2, $3)",
