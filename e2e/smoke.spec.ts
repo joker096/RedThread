@@ -1972,8 +1972,6 @@ test('real Vow inbox supports search, conversation filters and mobile chat navig
       }
       if (route.request().method() === 'POST') {
         const payload = route.request().postDataJSON() as { text?: string };
-        signalSendStarted?.();
-        await sendResponseReleased;
         await route.fulfill({
           status: 201,
           contentType: 'application/json',
@@ -2206,7 +2204,6 @@ test('refreshing latest history supersedes an in-flight older page without locki
   await page.route('**/api/matches**', async route => {
     const url = new URL(route.request().url());
     if (url.pathname.endsWith('/messages')) {
-      historyRequests += 1;
       const isOlderPage = url.searchParams.has('beforeCreatedAt') && url.searchParams.has('beforeId');
       if (isOlderPage) {
         olderRequests += 1;
@@ -2283,6 +2280,8 @@ test('sending a message supersedes an in-flight older page without losing the se
     if (url.pathname.endsWith('/messages')) {
       if (route.request().method() === 'POST') {
         const payload = route.request().postDataJSON() as { text?: string };
+        signalSendStarted?.();
+        await sendResponseReleased;
         await route.fulfill({
           status: 201, contentType: 'application/json',
           body: JSON.stringify({ message: {
@@ -2293,6 +2292,7 @@ test('sending a message supersedes an in-flight older page without losing the se
         });
         return;
       }
+      historyRequests += 1;
       const isOlderPage = url.searchParams.has('beforeCreatedAt') && url.searchParams.has('beforeId');
       if (isOlderPage) {
         olderRequests += 1;
