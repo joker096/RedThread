@@ -2064,6 +2064,21 @@ test('auth API supports registration, session lookup, logout and login', {
     );
     assert.equal(persistedDailyExposures.rows[0].count, freeTierProfilePayload.dailyQuota.used);
 
+    const femalePassIssuedProfile = await request(`/api/passes/${maleRegistered.user.id}`, {
+      method: 'POST', headers: { Cookie: secondCookie }
+    });
+    assert.equal(femalePassIssuedProfile.status, 204,
+      'free-tier women may pass a profile that was actually issued today');
+    const femaleUndoIssuedPass = await request('/api/passes/undo', {
+      method: 'POST', headers: { Cookie: secondCookie },
+      body: JSON.stringify({ targetId: maleRegistered.user.id })
+    });
+    assert.equal(femaleUndoIssuedPass.status, 200);
+    const femaleUndoIssuedPassPayload = await femaleUndoIssuedPass.json();
+    assert.equal(femaleUndoIssuedPassPayload.profile.id, maleRegistered.user.id);
+    assert.deepEqual(femaleUndoIssuedPassPayload.dailyQuota, freeTierProfilePayload.dailyQuota,
+      'undoing an already-issued pass does not consume another daily profile slot');
+
     const firstLike = await request(`/api/likes/${maleRegistered.user.id}`, {
       method: 'POST',
       headers: { Cookie: secondCookie }
