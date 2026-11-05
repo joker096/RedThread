@@ -90,8 +90,8 @@ test('malformed subscription lifecycle events are acknowledged without entitleme
       eventType: 'subscription.updated',
       occurredAt: '2026-10-24T20:00:00Z',
       data: { id: 'txn_not_a_subscription', status: 'active', currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' } }
-    }
-    ,{
+    },
+    {
       eventId: 'evt_bad_created_timestamp',
       eventType: 'subscription.created',
       occurredAt: 'invalid-created-time',
