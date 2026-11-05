@@ -2191,12 +2191,10 @@ test('refreshing latest history supersedes an in-flight older page without locki
   await page.setViewportSize({ width: 390, height: 844 });
   let olderRequests = 0;
   let releaseFirstOlder: (() => void) | undefined;
-  let finishFirstOlder: (() => void) | undefined;
-  const firstOlderStarted = new Promise<void>(resolve => { finishFirstOlder = resolve; });
-  const firstOlderFinished = new Promise<void>(resolve => {
-    // The route releases this after the deliberately delayed response is fulfilled.
-    (globalThis as typeof globalThis & { __finishOlder?: () => void }).__finishOlder = resolve;
-  });
+  let finishFirstOlderStarted: (() => void) | undefined;
+  let finishFirstOlderResponse: (() => void) | undefined;
+  const firstOlderStarted = new Promise<void>(resolve => { finishFirstOlderStarted = resolve; });
+  const firstOlderFinished = new Promise<void>(resolve => { finishFirstOlderResponse = resolve; });
   await page.route('**/api/auth/me', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -2209,7 +2207,7 @@ test('refreshing latest history supersedes an in-flight older page without locki
       if (isOlderPage) {
         olderRequests += 1;
         if (olderRequests === 1) {
-          finishFirstOlder?.();
+          finishFirstOlderStarted?.();
           await new Promise<void>(resolve => { releaseFirstOlder = resolve; });
         }
       }
@@ -2227,7 +2225,7 @@ test('refreshing latest history supersedes an in-flight older page without locki
         body: JSON.stringify({ messages, pagination: { limit: 100, offset: isOlderPage ? 100 : 0, latest: true } })
       });
       if (isOlderPage && olderRequests === 1) {
-        (globalThis as typeof globalThis & { __finishOlder?: () => void }).__finishOlder?.();
+        finishFirstOlderResponse?.();
       }
       return;
     }
