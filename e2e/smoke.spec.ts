@@ -2021,6 +2021,9 @@ test('real Vow inbox supports search, conversation filters and mobile chat navig
   await expect(page.getByTestId('server-match-messages')).toContainText('Предлагаю встретиться в субботу');
 
   await page.getByTestId('server-match-back').click();
+  // The inbox retains the user's active filter when returning from a conversation.
+  await expect(page.getByTestId('server-match-item')).toHaveCount(1);
+  await page.getByTestId('server-match-filter-all').click();
   await expect(page.getByTestId('server-match-item')).toHaveCount(2);
   const dimensions = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, document: document.documentElement.scrollWidth }));
   expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport + 1);
