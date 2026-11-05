@@ -782,28 +782,6 @@ export async function processPaddleEvent(pool, rawEvent) {
     // Keep the deduplication row outside a savepoint so invalid provider
     // payloads and identity conflicts can be acknowledged without endless retries.
     await client.query('SAVEPOINT paddle_event_effects');
-    // Lifecycle events need a valid source timestamp and subscription identity
-    // for ordering/ownership. Consume malformed signed events without changing
-    // entitlement rather than returning 500 forever to the provider.
-    if (subscriptionLifecycleEvent &&
-        (!isValidPaddleTimestamp(occurredAt) ||
-         typeof data.id !== 'string' || !/^sub_[A-Za-z0-9]+$/.test(data.id))) {
-      // Keep malformed signed subscription lifecycle events visible for
-      // reconciliation. Never apply their status or billing period, and never
-      // use an untrusted timestamp to order a later valid event.
-      const validSubscriptionId = typeof data.id === 'string' && /^sub_[A-Za-z0-9]+$/.test(data.id)
-        ? data.id : null;
-      await client.query(
-        `INSERT INTO paddle_adjustment_reconciliation_cases
-           (event_id, reason_code, provider_subscription_id)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (event_id) DO NOTHING`,
-        [eventId, validSubscriptionId ? 'invalid_subscription_timestamp' : 'invalid_subscription_identity',
-          validSubscriptionId]
-      );
-      await client.query('COMMIT');
-      return { duplicate: false, handled: true, reconciliationRequired: true };
-    }
     const customData = data.customData || data.custom_data || {};
     const rawCustomUserId = typeof customData.userId === 'string' ? customData.userId
       : typeof customData.user_id === 'string' ? customData.user_id : null;
@@ -895,6 +873,46 @@ export async function processPaddleEvent(pool, rawEvent) {
         : null;
     const ambiguousTransactionOwner = await isPaddleTransactionOwnerAmbiguous(client, ownerCheckTransactionId);
     if (ambiguousTransactionOwner) reconciliationContext.userId = null;
+
+    // Only after validating checkout metadata, locking any uniquely known
+    // owner/transaction and checking ambiguity can a malformed subscription
+    // event be safely quarantined. For subscription.created, retain its exact
+    // transaction and mark only the matching server attempt for reconciliation.
+    if (subscriptionLifecycleEvent &&
+        (!isValidPaddleTimestamp(occurredAt) ||
+         typeof data.id !== 'string' || !/^sub_[A-Za-z0-9]+$/.test(data.id))) {
+      const validSubscriptionId = typeof data.id === 'string' && /^sub_[A-Za-z0-9]+$/.test(data.id)
+        ? data.id : null;
+      const rawSubscriptionTransactionId = eventType === 'subscription.created'
+        ? (typeof data.transactionId === 'string' ? data.transactionId
+          : typeof data.transaction_id === 'string' ? data.transaction_id : null)
+        : null;
+      const providerTransactionId = typeof rawSubscriptionTransactionId === 'string' &&
+        /^txn_[A-Za-z0-9]+$/.test(rawSubscriptionTransactionId)
+        ? rawSubscriptionTransactionId : null;
+      const providerOwnerIsUnambiguous = !customUserIdMetadataConflict &&
+        !subscriptionOwnerMetadataConflict && !ambiguousTransactionOwner;
+      const providerUserRef = providerOwnerIsUnambiguous ? customUserId : null;
+      const providerPlan = ['1month', '3months', 'lifetime'].includes(customData.plan)
+        ? customData.plan : null;
+      await client.query(
+        `INSERT INTO paddle_adjustment_reconciliation_cases
+           (event_id, reason_code, provider_subscription_id, provider_transaction_id,
+            provider_user_ref, provider_plan)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (event_id) DO NOTHING`,
+        [eventId, validSubscriptionId ? 'invalid_subscription_timestamp' : 'invalid_subscription_identity',
+          validSubscriptionId, providerTransactionId, providerUserRef, providerPlan]
+      );
+      if (eventType === 'subscription.created' && providerTransactionId && providerUserRef &&
+          providerOwnerIsUnambiguous) {
+        await markPaddleCheckoutAttemptForReconciliation(
+          client, providerUserRef, providerPlan, providerTransactionId, checkoutAttemptId
+        );
+      }
+      await client.query('COMMIT');
+      return { duplicate: false, handled: true, reconciliationRequired: true };
+    }
 
     // Transaction lifecycle events are entitlement evidence too. Unlike
     // subscription lifecycle events, they must not be allowed to grant or
