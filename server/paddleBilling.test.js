@@ -349,6 +349,7 @@ test('grants lifetime Premium only for a verified matching transaction price', a
     const result = await processPaddleEvent(pool, {
       eventId: 'evt_lifetime',
       eventType: 'transaction.completed',
+      occurredAt: '2026-11-05T12:00:00Z',
       data: {
         id: 'txn_0123456789abcdef01234567',
         customData: { userId: '00000000-0000-4000-8000-000000000001', plan: 'lifetime', checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
@@ -412,6 +413,7 @@ test('does not grant lifetime Premium when no matching durable checkout attempt 
     await processPaddleEvent({ async connect() { return client; } }, {
       eventId: 'evt_unowned_lifetime',
       eventType: 'transaction.completed',
+      occurredAt: '2026-11-05T12:00:00Z',
       data: {
         id: 'txn_0123456789abcdef01234567',
         customData: { userId: '00000000-0000-4000-8000-000000000001', plan: 'lifetime' },
@@ -451,6 +453,7 @@ test('recurring transaction completion cannot bind Paddle identities without its
     await processPaddleEvent({ async connect() { return client; } }, {
       eventId: 'evt_unowned_recurring',
       eventType: 'transaction.completed',
+      occurredAt: '2026-11-05T12:00:00Z',
       data: {
         id: 'txn_0123456789abcdef01234567',
         subscriptionId: 'sub_0123456789abcdef01234567',
@@ -486,6 +489,7 @@ test('does not grant lifetime Premium when the transaction price does not match 
     await processPaddleEvent(pool, {
       eventId: 'evt_wrong_price',
       eventType: 'transaction.completed',
+      occurredAt: '2026-11-05T12:00:00Z',
       data: {
         id: 'txn_wrongprice',
         customData: {
@@ -541,6 +545,7 @@ test('ambiguous configured price IDs cannot link a lifetime checkout', async () 
     const result = await processPaddleEvent({ async connect() { return client; } }, {
       eventId: 'evt_ambiguousplan',
       eventType: 'transaction.completed',
+      occurredAt: '2026-11-05T12:00:00Z',
       data: {
         id: 'txn_ambiguousplan',
         customData: {
@@ -636,7 +641,7 @@ test('completed Paddle transactions without a valid provider timestamp cannot gr
       eventId: 'evt_lifetime_missing_timestamp',
       eventType: 'transaction.completed',
       data: {
-        id: 'txn_lifetime_missingtimestamp123',
+        id: 'txn_lifetimemissingtimestamp123',
         customData: {
           userId: '00000000-0000-4000-8000-000000000001',
           plan: 'lifetime',
@@ -758,6 +763,7 @@ test('duplicate Paddle webhook IDs commit without replaying entitlement updates'
   const result = await processPaddleEvent({ async connect() { return client; } }, {
     eventId: 'evt_already_processed',
     eventType: 'transaction.completed',
+      occurredAt: '2026-11-05T12:00:00Z',
     data: {
       customData: { userId: '00000000-0000-4000-8000-000000000001', plan: 'lifetime' },
       items: [{ price: { id: 'pri_lifetime_test' } }]
@@ -789,6 +795,7 @@ test('malformed Paddle custom user IDs are ignored instead of poisoning webhook 
     const result = await processPaddleEvent({ async connect() { return client; } }, {
       eventId: 'evt_bad_custom_user_id',
       eventType: 'transaction.completed',
+      occurredAt: '2026-11-05T12:00:00Z',
       data: {
         customData: { userId: 'not-a-uuid', plan: 'lifetime' },
         items: [{ price: { id: 'pri_lifetime_test' } }]
@@ -1224,6 +1231,7 @@ test('verified recurring transaction completion is held until its subscription w
     await processPaddleEvent({ async connect() { return client; } }, {
       eventId: 'evt_month_transaction',
       eventType: 'transaction.completed',
+      occurredAt: '2026-11-05T12:00:00Z',
       data: {
         id: 'txn_0123456789abcdef01234567',
         customData: { userId: '00000000-0000-4000-8000-000000000001', plan: '1month', checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
@@ -1467,6 +1475,7 @@ test('transaction.canceled webhook clears a pending checkout attempt', async () 
   const result = await processPaddleEvent({ async connect() { return client; } }, {
     eventId: 'evt_transaction_canceled',
     eventType: 'transaction.canceled',
+      occurredAt: '2026-11-05T12:00:00Z',
     data: { id: 'txn_0123456789abcdef01234567' }
   });
   assert.equal(result.handled, true);
@@ -1500,6 +1509,7 @@ test('transaction.canceled webhook settles a creating attempt before checkout re
     const result = await processPaddleEvent({ async connect() { return client; } }, {
       eventId: 'evt_transaction_canceled_during_create',
       eventType: 'transaction.canceled',
+      occurredAt: '2026-11-05T12:00:00Z',
       data: {
         id: 'txn_0123456789abcdef01234567',
         items: [{ price: { id: 'pri_month_test' } }],
@@ -1626,6 +1636,7 @@ test('malformed customer IDs on completed transactions mark only the matching ch
   const result = await processPaddleEvent({ async connect() { return client; } }, {
     eventId: 'evt_bad_transaction_customer',
     eventType: 'transaction.completed',
+      occurredAt: '2026-11-05T12:00:00Z',
     data: {
       id: 'txn_customerbad123',
       customerId: 'not-a-paddle-customer',
@@ -1690,6 +1701,7 @@ test('malformed subscription IDs in completed transactions reconcile only their 
   const result = await processPaddleEvent({ async connect() { return client; } }, {
     eventId: 'evt_bad_transaction_subscription',
     eventType: 'transaction.completed',
+      occurredAt: '2026-11-05T12:00:00Z',
     data: {
       id: 'txn_valid123',
       subscriptionId: 'not-a-subscription-id',
@@ -1741,6 +1753,7 @@ test('Paddle identity unique conflicts reconcile only the matching checkout atte
     result = await processPaddleEvent({ async connect() { return client; } }, {
       eventId: 'evt_identity_conflict',
       eventType: 'transaction.completed',
+      occurredAt: '2026-11-05T12:00:00Z',
       data: {
         id: 'txn_identityconflict',
         customerId: 'ctm_identityconflict',
@@ -1901,6 +1914,7 @@ test('Paddle webhook rolls back the outer transaction if identity-conflict recon
       processPaddleEvent({ async connect() { return client; } }, {
         eventId: 'evt_reconcile_failure',
         eventType: 'transaction.completed',
+      occurredAt: '2026-11-05T12:00:00Z',
         data: {
           id: 'txn_reconcilefailure',
           customerId: 'ctm_reconcilefailure',
