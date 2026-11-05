@@ -444,7 +444,7 @@ async function resolveInvalidPaddleTransactionTimestampCases(client, transaction
   const result = await client.query(
     `UPDATE paddle_adjustment_reconciliation_cases AS cases
      SET status = 'resolved',
-         resolution_note = 'superseded_by_later_verified_transaction_lifecycle_event',
+         resolution_note = 'superseded_by_verified_transaction_lifecycle_evidence',
          resolution_source = 'automatic_provider_transaction_link',
          resolved_by_ref = NULL,
          resolved_at = statement_timestamp(),
@@ -507,7 +507,9 @@ async function recordPaddleProviderIdentityConflictCase(client, {
     ? reasonCode : 'provider_identity_conflict';
   const reasonSql = safeReasonCode === 'provider_lifecycle_conflict'
     ? "'provider_lifecycle_conflict'"
-    : "'provider_identity_conflict'";
+    : safeReasonCode === 'invalid_transaction_timestamp'
+      ? "'invalid_transaction_timestamp'"
+      : "'provider_identity_conflict'";
   await client.query(
     `INSERT INTO paddle_adjustment_reconciliation_cases
        (event_id, reason_code, provider_transaction_id, provider_user_ref, provider_plan)
