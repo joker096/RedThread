@@ -3672,6 +3672,8 @@ app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
                     AND (c.provider_transaction_id IS NULL
                       OR verified_adjustment.transaction_id = c.provider_transaction_id)
                     AND verified_adjustment.event_id <> c.event_id
+                    AND (verified_adjustment.action <> 'refund'
+                      OR verified_adjustment.adjustment_type IN ('full', 'partial'))
                 ) AS has_verified_adjustment_evidence,
                 c.provider_user_ref, c.provider_plan
          FROM paddle_adjustment_reconciliation_cases AS c
