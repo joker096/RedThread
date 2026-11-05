@@ -461,7 +461,8 @@ async function resolveInvalidPaddleTransactionTimestampCases(client, transaction
          WHERE evidence.transaction_id = $1 AND evidence.user_id = $2
            AND evidence.status IN ('completed', 'canceled')
            AND evidence.occurred_at IS NOT NULL
-           AND verified.processed_at > original.processed_at
+           -- The malformed timestamp is not chronology evidence. A valid
+           -- canonical lifecycle event may have been delivered before or after it.
            AND ((evidence.status = 'completed' AND verified.event_type = 'transaction.completed')
              OR (evidence.status = 'canceled' AND verified.event_type = 'transaction.canceled'))
            AND (
