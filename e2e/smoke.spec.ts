@@ -2147,7 +2147,7 @@ test('real Vow chat opens on the newest page and can prepend older messages', as
       const first = isOlderPage ? 1 : 101;
       const count = isOlderPage ? 23 : 100;
       const messages = Array.from({ length: count }, (_, index) => ({
-        id: `history-message-${first + index}`,
+        id: `00000000-0000-4000-8000-${String(first + index).padStart(12, '0')}`,
         senderId: 'e2e-partner',
         text: `Message ${first + index}`,
         createdAt: new Date(Date.UTC(2026, 10, 5, 8, 0, first + index)).toISOString()
@@ -2182,7 +2182,7 @@ test('real Vow chat opens on the newest page and can prepend older messages', as
   expect(requestedCursors).toHaveLength(2);
   expect(requestedCursors[0]).toEqual({ beforeCreatedAt: null, beforeId: null });
   expect(requestedCursors[1].beforeCreatedAt).toBeTruthy();
-  expect(requestedCursors[1].beforeId).toBe('history-message-101');
+  expect(requestedCursors[1].beforeId).toBe('00000000-0000-4000-8000-000000000101');
 });
 
 
