@@ -22,6 +22,7 @@ import { DIDIT_FREE_MONTHLY_SESSION_LIMIT } from './diditQuota.js';
 import express from 'express';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import { withPooledTransaction, rollbackPooledTransaction } from './withPooledTransaction.js';
+import { FEMALE_FREE_DAILY_PROFILE_LIMIT, canCreateFemaleFreeMatch, hasFemalePremiumAccess, remainingFemaleDailyProfiles } from './femaleFreeTierPolicy.js';
 import rateLimit from 'express-rate-limit';
 import { PostgresRateLimitStore } from './postgresRateLimitStore.js';
 import pg from 'pg';
@@ -1721,7 +1722,7 @@ app.get('/api/billing/status', requireSession, async (req, res) => {
   }
 });
 
-app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req, res) => {
+app.get('/api/profiles/search', requireSession, async (req, res) => {
   const cleanFilter = (value, maxLength) => {
     if (typeof value !== 'string') return null;
     const trimmed = value.trim();
@@ -1845,7 +1846,7 @@ app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req,
       const candidateIds = preview.rows.map(profile => profile.id);
       await acquireGiftSafetyUserLocks(client, req.authUser.id, ...candidateIds);
       const actor = await client.query(
-        "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+        "SELECT id, gender, female_trial_ends_at, premium_until, premium_lifetime FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
         [req.authUser.id]
       );
       if (!actor.rowCount) {
@@ -1859,6 +1860,57 @@ app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req,
       const lockedSearchParams = [...searchParams];
       lockedSearchParams[5] = 0; // candidateIds already represent the requested page after OFFSET.
       result = await client.query(finalSql, [...lockedSearchParams, candidateIds]);
+      const actorUser = actor.rows[0];
+      let dailyQuota = null;
+      if (actorUser.gender === 'female' && !hasFemalePremiumAccess(actorUser)) {
+        const usage = await client.query(
+          `SELECT COUNT(*)::int AS used
+           FROM female_profile_exposures
+           WHERE user_id = $1
+             AND exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date`,
+          [req.authUser.id]
+        );
+        const usedBefore = Number(usage.rows[0]?.used || 0);
+        const alreadyIssuedResult = await client.query(
+          `SELECT profile_user_id
+           FROM female_profile_exposures
+           WHERE user_id = $1
+             AND exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date`,
+          [req.authUser.id]
+        );
+        const alreadyIssued = new Set(alreadyIssuedResult.rows.map(row => String(row.profile_user_id).toLowerCase()));
+        const pageRows = result.rows.slice(0, parsedLimit);
+        const selectedRows = [];
+        let newlyIssued = 0;
+        for (const profile of pageRows) {
+          const profileId = String(profile.id).toLowerCase();
+          if (alreadyIssued.has(profileId)) {
+            selectedRows.push(profile);
+            continue;
+          }
+          if (usedBefore + newlyIssued >= FEMALE_FREE_DAILY_PROFILE_LIMIT) break;
+          const exposure = await client.query(
+            `INSERT INTO female_profile_exposures (user_id, profile_user_id, exposure_date)
+             VALUES ($1, $2, (statement_timestamp() AT TIME ZONE 'UTC')::date)
+             ON CONFLICT (user_id, exposure_date, profile_user_id) DO NOTHING
+             RETURNING profile_user_id`,
+            [req.authUser.id, profile.id]
+          );
+          if (exposure.rowCount) {
+            selectedRows.push(profile);
+            newlyIssued += 1;
+            alreadyIssued.add(profileId);
+          }
+        }
+        result.rows = selectedRows;
+        dailyQuota = {
+          limit: FEMALE_FREE_DAILY_PROFILE_LIMIT,
+          used: usedBefore + newlyIssued,
+          remaining: remainingFemaleDailyProfiles(usedBefore + newlyIssued),
+          timezone: 'UTC'
+        };
+      }
+      result.dailyQuota = dailyQuota;
       await client.query('COMMIT');
     } catch (error) {
       if (client && !await rollbackPooledTransaction(client)) client = null;
@@ -1866,15 +1918,18 @@ app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req,
     } finally {
       client?.release();
     }
-    const hasMore = result.rows.length > parsedLimit;
-    const profiles = (hasMore ? result.rows.slice(0, parsedLimit) : result.rows).map(profile => {
+    const hasMore = result.dailyQuota
+      ? result.dailyQuota.remaining > 0 && result.rows.length === parsedLimit
+      : result.rows.length > parsedLimit;
+    const profiles = result.rows.slice(0, parsedLimit).map(profile => {
       const { assessment_answers: candidateAnswers, my_assessment_answers: myAnswers, ...publicProfile } = profile;
       const alignment = candidateAnswers && myAnswers ? financialAlignment(myAnswers, candidateAnswers).score : null;
       return { ...publicProfile, financialAlignment: alignment };
     });
     return res.json({
       profiles,
-      pagination: { limit: parsedLimit, offset: parsedOffset, hasMore }
+      pagination: { limit: parsedLimit, offset: parsedOffset, hasMore },
+      ...(result.dailyQuota ? { dailyQuota: result.dailyQuota } : {})
     });
   } catch (error) {
     console.error('Profile search failed:', error?.message || 'unknown error');
@@ -2378,7 +2433,7 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
   }
 });
 
-app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requireSession, async (req, res) => {
   let client;
   try {
     client = await pool.connect();
@@ -2504,7 +2559,7 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
   }
 });
 
-app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, async (req, res) => {
   const targetId = req.params.targetId;
   if (!isUuid(targetId) || targetId === req.authUser.id) return res.status(400).json({ error: 'invalid_pass_target' });
   let client;
@@ -2559,6 +2614,18 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'target_not_available' });
     }
+    if (identityActor.gender === 'female' && !hasFemalePremiumAccess(req.authUser)) {
+      const issued = await client.query(
+        `SELECT 1 FROM female_profile_exposures
+         WHERE user_id = $1 AND profile_user_id = $2
+           AND exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date`,
+        [req.authUser.id, targetId]
+      );
+      if (!issued.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'profile_not_issued_today' });
+      }
+    }
     await client.query(
       'INSERT INTO profile_passes (passer_id, passed_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
       [req.authUser.id, targetId]
@@ -2573,7 +2640,7 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
     client?.release();
   }
 });
-app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, async (req, res) => {
   const targetId = req.params.targetId;
   if (!isUuid(targetId)) return res.status(400).json({ error: 'invalid_target_id' });
   if (targetId === req.authUser.id) return res.status(400).json({ error: 'cannot_like_self' });
@@ -2629,6 +2696,18 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'target_not_available' });
     }
+    if (actor.gender === 'female' && !hasFemalePremiumAccess(req.authUser)) {
+      const issued = await client.query(
+        `SELECT 1 FROM female_profile_exposures
+         WHERE user_id = $1 AND profile_user_id = $2
+           AND exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date`,
+        [req.authUser.id, targetId]
+      );
+      if (!issued.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'profile_not_issued_today' });
+      }
+    }
 
     await client.query(
       'INSERT INTO likes (sender_id, target_id) VALUES ($1, $2) ON CONFLICT (sender_id, target_id) DO NOTHING',
@@ -2643,18 +2722,52 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
       return res.status(201).json({ liked: true, matched: false, match: null });
     }
 
-    await client.query(
-      `INSERT INTO matches (user_a_id, user_b_id)
-       VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid))
-       ON CONFLICT (user_a_id, user_b_id) DO NOTHING`,
-      [req.authUser.id, targetId]
-    );
-    const matchResult = await client.query(
+    const existingMatchResult = await client.query(
       `SELECT id, status, created_at AS "createdAt" FROM matches
-       WHERE user_a_id = LEAST($1::uuid, $2::uuid) AND user_b_id = GREATEST($1::uuid, $2::uuid)`,
+       WHERE user_a_id = LEAST($1::uuid, $2::uuid) AND user_b_id = GREATEST($1::uuid, $2::uuid)
+       LIMIT 1`,
       [req.authUser.id, targetId]
     );
-    const match = matchResult.rows[0];
+    let match = existingMatchResult.rows[0] || null;
+    if (!match) {
+      const femaleUserId = actor.gender === 'female' ? req.authUser.id : targetId;
+      const femaleAccountResult = await client.query(
+        `SELECT gender, female_trial_ends_at, premium_until, premium_lifetime
+         FROM users WHERE id = $1 AND status = 'active' FOR SHARE`,
+        [femaleUserId]
+      );
+      const femaleAccount = femaleAccountResult.rows[0];
+      if (femaleAccount?.gender === 'female' && !hasFemalePremiumAccess(femaleAccount)) {
+        const recentMatches = await client.query(
+          `SELECT COUNT(*)::int AS count
+           FROM matches
+           WHERE (user_a_id = $1 OR user_b_id = $1)
+             AND created_at >= statement_timestamp() - INTERVAL '7 days'`,
+          [femaleUserId]
+        );
+        if (!canCreateFemaleFreeMatch(recentMatches.rows[0]?.count)) {
+          await client.query('COMMIT');
+          return res.status(201).json({
+            liked: true,
+            matched: false,
+            match: null,
+            quota: { type: 'weekly_matches', limit: 1, windowDays: 7, exhausted: true }
+          });
+        }
+      }
+      const createdMatch = await client.query(
+        `INSERT INTO matches (user_a_id, user_b_id)
+         VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid))
+         ON CONFLICT (user_a_id, user_b_id) DO NOTHING
+         RETURNING id, status, created_at AS "createdAt"`,
+        [req.authUser.id, targetId]
+      );
+      match = createdMatch.rows[0] || (await client.query(
+        `SELECT id, status, created_at AS "createdAt" FROM matches
+         WHERE user_a_id = LEAST($1::uuid, $2::uuid) AND user_b_id = GREATEST($1::uuid, $2::uuid)`,
+        [req.authUser.id, targetId]
+      )).rows[0] || null;
+    }
     if (match?.status === 'active') {
       // Notifications commit with the match while both account safety locks are held.
       await createNotification(req.authUser.id, 'new_match', { matchId: match.id }, 'match:' + match.id, client);
@@ -2675,7 +2788,7 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
   }
 });
 
-app.delete('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+app.delete('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, async (req, res) => {
   const targetId = req.params.targetId;
   if (!isUuid(targetId) || targetId === req.authUser.id) return res.status(400).json({ error: 'invalid_target_id' });
   let client;
@@ -2727,7 +2840,7 @@ app.delete('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, 
   }
 });
 
-app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, requireSession, async (req, res) => {
   let client;
   try {
     client = await pool.connect();
@@ -2884,7 +2997,7 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
   }
 });
 
-app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) => {
+app.get('/api/matches', requireSession, async (req, res) => {
   let client;
   try {
     client = await pool.connect();
@@ -2957,7 +3070,7 @@ app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) =>
   }
 });
 
-app.get('/api/matches/:matchId/messages', requireSession, requirePaidFeatures, async (req, res) => {
+app.get('/api/matches/:matchId/messages', requireSession, async (req, res) => {
   if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
   const limit = Math.min(100, Math.max(1, Number.parseInt(String(req.query.limit ?? '50'), 10) || 50));
   const offset = Math.min(5000, Math.max(0, Number.parseInt(String(req.query.offset ?? '0'), 10) || 0));
