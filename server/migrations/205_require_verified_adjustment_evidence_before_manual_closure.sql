@@ -41,7 +41,10 @@ BEGIN
            JOIN paddle_webhook_events AS verified_webhook
              ON verified_webhook.event_id = verified_adjustment.event_id
             AND verified_webhook.event_type IN ('adjustment.created', 'adjustment.updated')
+           JOIN paddle_webhook_events AS original_webhook
+             ON original_webhook.event_id = NEW.event_id
            WHERE verified_adjustment.adjustment_id = NEW.provider_adjustment_id
+             AND verified_webhook.processed_at > original_webhook.processed_at
              AND NEW.provider_adjustment_id IS NOT NULL
              AND (NEW.provider_transaction_id IS NULL
                OR verified_adjustment.transaction_id = NEW.provider_transaction_id)
@@ -67,6 +70,9 @@ BEGIN
            JOIN paddle_webhook_events AS verified_webhook
              ON verified_webhook.event_id = verified_scope.event_id
             AND verified_webhook.event_type IN ('adjustment.created', 'adjustment.updated')
+           JOIN paddle_webhook_events AS original_webhook
+             ON original_webhook.event_id = source.event_id
+            AND verified_webhook.processed_at > original_webhook.processed_at
             AND verified_scope.transaction_id = source.transaction_id
             AND verified_scope.action = 'refund'
             AND verified_scope.adjustment_type IN ('full', 'partial')
