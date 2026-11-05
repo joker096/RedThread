@@ -2257,6 +2257,94 @@ test('refreshing latest history supersedes an in-flight older page without locki
   expect(olderRequests).toBe(2);
 });
 
+
+test('sending a message supersedes an in-flight older page without losing the sent message', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let olderRequests = 0;
+  let releaseOlder: (() => void) | undefined;
+  let signalOlderStarted: (() => void) | undefined;
+  const olderStarted = new Promise<void>(resolve => { signalOlderStarted = resolve; });
+  const olderResponseReleased = new Promise<void>(resolve => { releaseOlder = resolve; });
+
+  await page.route('**/api/auth/me', route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ user: { id: 'e2e-current-user' } })
+  }));
+  await page.route('**/api/matches**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/messages')) {
+      if (route.request().method() === 'POST') {
+        const payload = route.request().postDataJSON() as { text?: string };
+        await route.fulfill({
+          status: 201, contentType: 'application/json',
+          body: JSON.stringify({ message: {
+            id: '00000000-0000-4000-8000-000000000201',
+            senderId: 'e2e-current-user', text: payload.text || '',
+            createdAt: '2026-11-05T08:10:00.000Z'
+          } })
+        });
+        return;
+      }
+      const isOlderPage = url.searchParams.has('beforeCreatedAt') && url.searchParams.has('beforeId');
+      if (isOlderPage) {
+        olderRequests += 1;
+        if (olderRequests === 1) {
+          signalOlderStarted?.();
+          await olderResponseReleased;
+        }
+      }
+      const first = isOlderPage ? 78 : 101;
+      const count = isOlderPage ? 23 : 100;
+      const messages = Array.from({ length: count }, (_, index) => {
+        const sequence = first + index;
+        const createdAt = new Date(Date.UTC(2026, 10, 5, 8, 0, sequence)).toISOString();
+        return {
+          id: `00000000-0000-4000-8000-${String(sequence).padStart(12, '0')}`,
+          senderId: 'e2e-partner', text: `Message ${sequence}`, createdAt,
+          cursorCreatedAt: createdAt.replace('.000Z', '.000123Z')
+        };
+      });
+      await route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ messages, pagination: { limit: 100, offset: 0, latest: true } })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ matches: [{
+        id: 'send-race-match', partnerId: 'e2e-partner', displayName: 'Елена', age: 30,
+        country: 'Грузия', city: 'Тбилиси', lastMessage: 'Message 200',
+        lastMessageAt: '2026-11-05T08:00:00.000Z'
+      }] })
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('[data-testid="nav-chats"]:visible').first().click();
+  await page.getByTestId('server-match-item').click();
+  const log = page.getByTestId('server-match-messages');
+  await expect(log.locator('.vow-inbox-bubble')).toHaveCount(100);
+
+  await page.getByTestId('server-match-load-older').click();
+  await olderStarted;
+
+  await page.getByRole('textbox', { name: /write a message|напишите сообщение/i }).fill('Сообщение во время подгрузки истории');
+  await page.getByTestId('server-match-send').click();
+  await expect(log).toContainText('Сообщение во время подгрузки истории');
+  await expect(page.getByTestId('server-match-load-older')).toBeEnabled();
+
+  releaseOlder?.();
+  await expect(log.locator('.vow-inbox-bubble')).toHaveCount(101);
+  await expect(log).toContainText('Сообщение во время подгрузки истории');
+  expect(olderRequests).toBe(1);
+
+  await page.getByTestId('server-match-load-older').click();
+  await expect(log.locator('.vow-inbox-bubble')).toHaveCount(124);
+  await expect(log).toContainText('Сообщение во время подгрузки истории');
+  expect(olderRequests).toBe(2);
+});
+
 test('real Vow inbox fits narrow phone widths in list and conversation views', async ({ page }) => {
   await page.route('**/api/auth/me', route => route.fulfill({
     status: 200,
