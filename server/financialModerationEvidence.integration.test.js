@@ -2329,6 +2329,89 @@ test('unlinked Paddle transaction cases cannot be manually closed by a note and 
   }
 });
 
+test('unledgered malformed Paddle adjustments require a later signed adjustment before manual closure', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const client = await pool.connect();
+  const moderatorId = randomUUID();
+  const eventId = 'evt_' + randomUUID().replace(/-/g, '').slice(0, 26);
+  const laterEventId = 'evt_' + randomUUID().replace(/-/g, '').slice(0, 26);
+  const adjustmentId = 'adj_' + randomUUID().replace(/-/g, '').slice(0, 26);
+  const transactionId = 'txn_' + randomUUID().replace(/-/g, '').slice(0, 26);
+  const note = 'later signed adjustment verified the malformed event';
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      "INSERT INTO users (id, email, password_hash, role, status) VALUES ($1, $2, 'test-only-hash', 'moderator', 'active')",
+      [moderatorId, 'unledgered-adjustment-mod-' + moderatorId + '@example.invalid']
+    );
+    await client.query(
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'adjustment.created')",
+      [eventId]
+    );
+    await client.query(
+      "INSERT INTO paddle_adjustment_reconciliation_cases (event_id, reason_code, provider_adjustment_id, provider_transaction_id) VALUES ($1, 'invalid_adjustment_payload', $2, $3)",
+      [eventId, adjustmentId, transactionId]
+    );
+
+    await client.query('SAVEPOINT reject_unledgered_manual_close');
+    await client.query(
+      "UPDATE paddle_adjustment_reconciliation_cases SET status = 'resolved', resolution_note = $2, resolution_source = 'manual_operator', resolved_by_ref = $3, resolved_at = statement_timestamp(), updated_at = statement_timestamp() WHERE event_id = $1",
+      [eventId, note, moderatorId]
+    );
+    await client.query(
+      "INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, reason, details) VALUES ($1, 'paddle_adjustment_reconciliation_resolved', 'paddle_adjustment_case', $2, $3, jsonb_build_object('eventId', $2::text, 'reasonCode', 'invalid_adjustment_payload', 'adjustmentId', $4::text, 'transactionId', $5::text, 'resolutionSource', 'manual_operator'))",
+      [moderatorId, eventId, note, adjustmentId, transactionId]
+    );
+    let missingLaterEvidenceError;
+    try {
+      await client.query('SET CONSTRAINTS paddle_adjustment_reconciliation_manual_audit_guard IMMEDIATE');
+    } catch (error) { missingLaterEvidenceError = error; }
+    assert.equal(missingLaterEvidenceError?.code, '23514',
+      'a matching moderator note must not close an adjustment case with no source ledger event');
+    await client.query('ROLLBACK TO SAVEPOINT reject_unledgered_manual_close');
+    await client.query('RELEASE SAVEPOINT reject_unledgered_manual_close');
+    await client.query('SET CONSTRAINTS paddle_adjustment_reconciliation_manual_audit_guard DEFERRED');
+    const stillOpen = await client.query(
+      'SELECT status FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1', [eventId]
+    );
+    assert.deepEqual(stillOpen.rows, [{ status: 'open' }]);
+
+    await client.query(
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'adjustment.updated')",
+      [laterEventId]
+    );
+    await client.query(
+      "INSERT INTO paddle_adjustment_events (event_id, adjustment_id, transaction_id, action, adjustment_type, status, amount_minor_units, currency_code, occurred_at) VALUES ($1, $2, $3, 'refund', 'partial', 'pending_approval', 250, 'USD', statement_timestamp())",
+      [laterEventId, adjustmentId, transactionId]
+    );
+    await client.query('SAVEPOINT allow_verified_later_evidence');
+    await client.query(
+      "UPDATE paddle_adjustment_reconciliation_cases SET status = 'resolved', resolution_note = $2, resolution_source = 'manual_operator', resolved_by_ref = $3, resolved_at = statement_timestamp(), updated_at = statement_timestamp() WHERE event_id = $1",
+      [eventId, note, moderatorId]
+    );
+    await client.query(
+      "INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, reason, details) VALUES ($1, 'paddle_adjustment_reconciliation_resolved', 'paddle_adjustment_case', $2, $3, jsonb_build_object('eventId', $2::text, 'reasonCode', 'invalid_adjustment_payload', 'adjustmentId', $4::text, 'transactionId', $5::text, 'resolutionSource', 'manual_operator'))",
+      [moderatorId, eventId, note, adjustmentId, transactionId]
+    );
+    await client.query('SET CONSTRAINTS paddle_adjustment_reconciliation_manual_audit_guard IMMEDIATE');
+    const resolved = await client.query(
+      'SELECT status, resolution_source FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1',
+      [eventId]
+    );
+    assert.deepEqual(resolved.rows, [{ status: 'resolved', resolution_source: 'manual_operator' }]);
+    await client.query('ROLLBACK');
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw error;
+  } finally {
+    client.release();
+    await pool.end();
+  }
+});
+
 test('provider identity reconciliation retains immutable minimal context and audits its manual resolution', {
   skip: !process.env.DATABASE_URL,
   timeout: 15_000
