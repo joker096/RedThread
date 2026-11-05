@@ -522,7 +522,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                   {searchQuery && <button type="button" aria-label={t('clearSearch')} onClick={() => setSearchQuery('')}>×</button>}
                 </div>
 
-                <div className="vow-inbox-quickstrip" aria-label={t('yourMatches')}>
+                <div className="vow-inbox-quickstrip" role="group" aria-label={t('yourMatches')}>
                   {matches.slice(0, 8).map(match => (
                     <button key={match.id} type="button" data-testid="server-match-quick-card" aria-pressed={selected === match.id} onClick={() => { messageRequestId.current += 1; setMessages([]); setMessagesOffset(0); setMessagesHasMore(false); setOlderMessagesLoading(false); setOlderMessagesFailed(false); pendingScrollAdjustmentRef.current = null; setNotice(''); setSelected(match.id); }} className="vow-inbox-quickcard">
                       <span className="vow-inbox-avatar vow-inbox-avatar--quick">{initials(match.displayName)}</span>
@@ -537,7 +537,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                   <button type="button" data-testid="server-match-filter-new" aria-pressed={matchFilter === 'withoutMessages'} onClick={() => setMatchFilter('withoutMessages')} className={matchFilter === 'withoutMessages' ? 'is-active' : ''}>{t('filterWithoutMessages')}</button>
                 </div>
 
-                <div className="vow-inbox-list" aria-label={t('chatThreads')}>
+                <div className="vow-inbox-list" role="group" aria-label={t('chatThreads')}>
                   {filteredMatches.map(match => (
                     <button data-testid="server-match-item" type="button" key={match.id} aria-pressed={selected === match.id} disabled={busy} onClick={() => { messageRequestId.current += 1; setMessages([]); setMessagesOffset(0); setMessagesHasMore(false); setOlderMessagesLoading(false); setOlderMessagesFailed(false); pendingScrollAdjustmentRef.current = null; setNotice(''); setSelected(match.id); }} className={`vow-inbox-row ${selected === match.id ? 'is-selected' : ''}`}>
                       <span className="vow-inbox-avatar">{initials(match.displayName)}</span>
