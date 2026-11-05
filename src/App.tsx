@@ -847,7 +847,7 @@ export default function App() {
             />
 
             {/* Main Stage */}
-            <main className="flex-1 w-full max-w-xl mx-auto px-3 sm:px-4 py-3 sm:py-5 flex flex-col items-center pb-28">
+            <main className={`flex-1 w-full ${activeTab === 'chats' ? 'max-w-6xl' : 'max-w-xl'} mx-auto px-3 sm:px-4 py-3 sm:py-5 flex flex-col items-center pb-28`}>
               {renderMainContent()}
             </main>
 
