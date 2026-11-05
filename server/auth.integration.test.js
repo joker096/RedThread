@@ -2031,6 +2031,9 @@ test('auth API supports registration, session lookup, logout and login', {
       'a male account without live L2 verification must not invoke discovery undo');
     await identityGateDb.query("UPDATE identity_verifications SET status = 'verified', provider_environment = 'live' WHERE user_id = $1", [maleRegistered.user.id]);
 
+    // Reset only the test database's profile-action limiter so this long
+    // integration scenario can exercise quota boundaries without a false 429.
+    await identityGateDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'profile:%'");
     await identityGateDb.query(
       "UPDATE users SET female_trial_ends_at = NOW() - INTERVAL '1 second' WHERE id = $1",
       [registered.user.id]
