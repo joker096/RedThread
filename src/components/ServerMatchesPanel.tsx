@@ -107,7 +107,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const sendInFlight = useRef(false);
   const messagesLogRef = useRef<HTMLDivElement | null>(null);
   const shouldAutoScrollMessagesRef = useRef(true);
-  const pendingScrollAdjustmentRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
+  const pendingScrollAdjustmentRef = useRef<{ anchor: HTMLElement | null; anchorTop: number; scrollHeight: number; scrollTop: number; logTop: number } | null>(null);
   const mobileBackButtonRef = useRef<HTMLButtonElement | null>(null);
   const matchButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const lastSelectedMatchIdRef = useRef('');
@@ -383,7 +383,15 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     if (!log) return;
     const pendingAdjustment = pendingScrollAdjustmentRef.current;
     if (pendingAdjustment) {
-      log.scrollTop = pendingAdjustment.scrollTop + (log.scrollHeight - pendingAdjustment.scrollHeight);
+      if (pendingAdjustment.anchor?.isConnected) {
+        // Preserve the exact visible message position, including changes to the
+        // log's own top edge when controls above it appear or disappear.
+        log.scrollTop += pendingAdjustment.anchor.getBoundingClientRect().top - pendingAdjustment.anchorTop;
+      } else {
+        log.scrollTop = pendingAdjustment.scrollTop +
+          (log.scrollHeight - pendingAdjustment.scrollHeight) +
+          (log.getBoundingClientRect().top - pendingAdjustment.logTop);
+      }
       pendingScrollAdjustmentRef.current = null;
       shouldAutoScrollMessagesRef.current = false;
       return;
@@ -509,9 +517,23 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       // Capture the reader's actual position after the network wait, immediately
       // before React prepends the page, so scrolling during the request is respected.
       const currentLog = messagesLogRef.current;
-      pendingScrollAdjustmentRef.current = currentLog
-        ? { scrollHeight: currentLog.scrollHeight, scrollTop: currentLog.scrollTop }
-        : null;
+      if (currentLog) {
+        const logRect = currentLog.getBoundingClientRect();
+        const visibleAnchor = Array.from(currentLog.querySelectorAll<HTMLElement>('.vow-inbox-bubble'))
+          .find(element => {
+            const rect = element.getBoundingClientRect();
+            return rect.bottom > logRect.top && rect.top < logRect.bottom;
+          }) || null;
+        pendingScrollAdjustmentRef.current = {
+          anchor: visibleAnchor,
+          anchorTop: visibleAnchor?.getBoundingClientRect().top ?? logRect.top,
+          scrollHeight: currentLog.scrollHeight,
+          scrollTop: currentLog.scrollTop,
+          logTop: logRect.top
+        };
+      } else {
+        pendingScrollAdjustmentRef.current = null;
+      }
       setMessages(current => deduplicateById([...olderMessages, ...current]));
       setMessagesOffset(offset + rawMessages.length);
       setMessagesHasMore(rawMessages.length === MESSAGE_PAGE_SIZE);
