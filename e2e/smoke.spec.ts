@@ -2482,3 +2482,49 @@ test('real Vow inbox fits narrow phone widths in list and conversation views', a
     expect(dimensions.body).toBeLessThanOrEqual(dimensions.viewport + 1);
   }
 });
+
+test('reselecting the active desktop conversation preserves its loaded history', async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 900 });
+  let historyRequests = 0;
+  await page.route('**/api/auth/me', route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ user: { id: 'e2e-current-user' } })
+  }));
+  await page.route('**/api/matches**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/messages')) {
+      historyRequests += 1;
+      await route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ messages: [{
+          id: 'active-reselect-message', senderId: 'e2e-partner',
+          text: 'История должна остаться на месте',
+          createdAt: '2026-11-05T08:00:00.000Z'
+        }] })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ matches: [{
+        id: 'active-reselect-match', partnerId: 'e2e-partner',
+        displayName: 'Елена', age: 30, country: 'Грузия', city: 'Тбилиси',
+        lastMessage: 'История должна остаться на месте',
+        lastMessageAt: '2026-11-05T08:00:00.000Z'
+      }] })
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('[data-testid="nav-chats"]:visible').first().click();
+  const row = page.getByTestId('server-match-item');
+  await row.click();
+  const log = page.getByTestId('server-match-messages');
+  await expect(log).toContainText('История должна остаться на месте');
+  await expect.poll(() => historyRequests).toBe(1);
+
+  await row.click();
+  await expect(log).toContainText('История должна остаться на месте');
+  await expect.poll(() => historyRequests).toBe(1);
+  await expect(log.locator('.vow-inbox-bubble')).toHaveCount(1);
+});
