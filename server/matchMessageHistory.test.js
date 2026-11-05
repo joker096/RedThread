@@ -49,3 +49,23 @@ test('latest-first database pages are returned in chronological display order', 
   assert.equal(matchMessageHistoryOrder(false), 'ASC');
   assert.equal(toChronologicalMessageHistory(newestFirst, false), newestFirst);
 });
+
+
+test('accepts only a complete, valid keyset cursor for older message pages', () => {
+  assert.deepEqual(normalizeMatchMessageHistoryOptions({
+    latest: 'true',
+    beforeCreatedAt: '2026-11-05T08:00:00.000Z',
+    beforeId: '123e4567-e89b-12d3-a456-426614174000'
+  }), {
+    limit: 50,
+    offset: 0,
+    latest: true,
+    beforeCreatedAt: '2026-11-05T08:00:00.000Z',
+    beforeId: '123e4567-e89b-12d3-a456-426614174000'
+  });
+  const invalid = normalizeMatchMessageHistoryOptions({
+    latest: 'true', beforeCreatedAt: 'not-a-date', beforeId: 'not-a-uuid'
+  });
+  assert.equal(invalid.beforeCreatedAt, null);
+  assert.equal(invalid.beforeId, null);
+});
