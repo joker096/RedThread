@@ -437,6 +437,62 @@ async function resolvePaddleAdjustmentReconciliationCases(client, transactionId,
   );
 }
 
+async function resolveInvalidPaddleTransactionTimestampCases(client, transactionId, userId) {
+  if (typeof transactionId !== 'string' || !/^txn_[A-Za-z0-9]+$/.test(transactionId) ||
+      typeof userId !== 'string' ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) return 0;
+  const result = await client.query(
+    `UPDATE paddle_adjustment_reconciliation_cases AS cases
+     SET status = 'resolved',
+         resolution_note = 'superseded_by_later_verified_transaction_lifecycle_event',
+         resolution_source = 'automatic_provider_transaction_link',
+         resolved_by_ref = NULL,
+         resolved_at = statement_timestamp(),
+         updated_at = statement_timestamp()
+     FROM paddle_webhook_events AS original
+     WHERE cases.event_id = original.event_id
+       AND cases.status = 'open'
+       AND cases.reason_code = 'invalid_transaction_timestamp'
+       AND cases.provider_transaction_id = $1
+       AND original.event_type IN ('transaction.paid', 'transaction.completed', 'transaction.canceled')
+       AND EXISTS (
+         SELECT 1 FROM paddle_transaction_events AS evidence
+         JOIN paddle_webhook_events AS verified ON verified.event_id = evidence.event_id
+         WHERE evidence.transaction_id = $1 AND evidence.user_id = $2
+           AND evidence.status IN ('completed', 'canceled')
+           AND evidence.occurred_at IS NOT NULL
+           AND verified.processed_at > original.processed_at
+           AND ((evidence.status = 'completed' AND verified.event_type = 'transaction.completed')
+             OR (evidence.status = 'canceled' AND verified.event_type = 'transaction.canceled'))
+           AND (
+             EXISTS (
+               SELECT 1 FROM paddle_checkout_attempts AS attempt
+               WHERE attempt.transaction_id = $1 AND attempt.user_id = $2
+                 AND attempt.plan IS NOT DISTINCT FROM evidence.plan
+                 AND attempt.status IN ('linked', 'completed', 'canceled')
+               UNION ALL
+               SELECT 1 FROM paddle_checkout_attempt_history AS archived
+               WHERE archived.transaction_id = $1 AND archived.user_id = $2
+                 AND archived.plan IS NOT DISTINCT FROM evidence.plan
+                 AND archived.status IN ('linked', 'completed', 'canceled')
+             )
+             OR EXISTS (
+               SELECT 1 FROM users AS owner WHERE owner.id = $2
+                 AND ((evidence.customer_id IS NOT NULL AND owner.paddle_customer_id = evidence.customer_id)
+                   OR (evidence.subscription_id IS NOT NULL AND owner.paddle_subscription_id = evidence.subscription_id))
+             )
+           )
+       )
+       AND (SELECT COUNT(DISTINCT owner.user_id) FROM (
+         SELECT user_id FROM paddle_checkout_attempts WHERE transaction_id = $1
+         UNION ALL SELECT user_id FROM paddle_checkout_attempt_history WHERE transaction_id = $1
+         UNION ALL SELECT user_id FROM paddle_transaction_events WHERE transaction_id = $1
+       ) AS owner WHERE owner.user_id IS NOT NULL) = 1`,
+    [transactionId, userId]
+  );
+  return result.rowCount;
+}
+
 async function recordPaddleProviderIdentityConflictCase(client, {
   eventId, transactionId, userId, plan, reasonCode = 'provider_identity_conflict'
 }) {
@@ -446,7 +502,7 @@ async function recordPaddleProviderIdentityConflictCase(client, {
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)
     ? userId : null;
   const providerPlan = ['1month', '3months', 'lifetime'].includes(plan) ? plan : null;
-  const safeReasonCode = ['provider_identity_conflict', 'provider_lifecycle_conflict'].includes(reasonCode)
+  const safeReasonCode = ['provider_identity_conflict', 'provider_lifecycle_conflict', 'invalid_transaction_timestamp'].includes(reasonCode)
     ? reasonCode : 'provider_identity_conflict';
   const reasonSql = safeReasonCode === 'provider_lifecycle_conflict'
     ? "'provider_lifecycle_conflict'"
@@ -840,7 +896,7 @@ export async function processPaddleEvent(pool, rawEvent) {
         // provider events must not be blocked by untrusted chronology.
         await recordPaddleProviderIdentityConflictCase(client, {
           eventId, transactionId, userId: null, plan: customData.plan,
-          reasonCode: 'provider_lifecycle_conflict'
+          reasonCode: 'invalid_transaction_timestamp'
         });
         if (!customUserIdMetadataConflict && !ambiguousTransactionOwner) {
           await markPaddleCheckoutAttemptForReconciliation(
@@ -1223,6 +1279,7 @@ export async function processPaddleEvent(pool, rawEvent) {
           client, data.id, transactionOwnerUserId,
           'recurring_transaction_linked_to_vow_subscription'
         );
+        await resolveInvalidPaddleTransactionTimestampCases(client, data.id, transactionOwnerUserId);
       }
       if (!ownsCheckoutAttempt && !providerOwnerConflict &&
           typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
@@ -1341,6 +1398,7 @@ export async function processPaddleEvent(pool, rawEvent) {
           await resolvePaddleAdjustmentReconciliationCases(
             client, data.id, customUserId, 'transaction_completed_linked_to_vow_checkout'
           );
+          await resolveInvalidPaddleTransactionTimestampCases(client, data.id, customUserId);
         }
       }
     } else if (eventType === 'transaction.canceled') {
@@ -1406,6 +1464,9 @@ export async function processPaddleEvent(pool, rawEvent) {
           ...paddleTransactionFinancialTotals(data),
           currencyCode: paddleCurrencyCode(data)
         });
+        if (transactionOwnerUserId) {
+          await resolveInvalidPaddleTransactionTimestampCases(client, data.id, transactionOwnerUserId);
+        }
       }
     } else if (eventType === 'customer.created' || eventType === 'customer.updated') {
       const customerEmail = data.email;
