@@ -814,6 +814,12 @@ async function createNotification(userId, type, metadata = {}, dedupeKey = null,
 
 async function reserveFemaleProfileExposure(client, user, profileId) {
   if (user?.gender !== 'female' || hasFemalePremiumAccess(user)) return { allowed: true, used: null };
+  await client.query(
+    `DELETE FROM female_profile_exposures
+     WHERE user_id = $1
+       AND exposure_date < (statement_timestamp() AT TIME ZONE 'UTC')::date`,
+    [user.id]
+  );
   const existing = await client.query(
     `SELECT 1 FROM female_profile_exposures
      WHERE user_id = $1 AND profile_user_id = $2
@@ -1897,6 +1903,12 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
       const actorUser = actor.rows[0];
       let dailyQuota = null;
       if (actorUser.gender === 'female' && !hasFemalePremiumAccess(actorUser)) {
+        await client.query(
+          `DELETE FROM female_profile_exposures
+           WHERE user_id = $1
+             AND exposure_date < (statement_timestamp() AT TIME ZONE 'UTC')::date`,
+          [req.authUser.id]
+        );
         const usage = await client.query(
           `SELECT COUNT(*)::int AS used
            FROM female_profile_exposures
