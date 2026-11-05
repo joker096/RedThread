@@ -460,7 +460,7 @@ export async function runIdentityL3PurgeOnce(pool, {
     await client.query('BEGIN');
     transactionOpen = true;
     const locked = await client.query(
-      `SELECT j.id, j.submission_id, j.user_id, j.attempts,
+      `SELECT j.id, j.submission_id, j.user_id, j.attempts, j.status,
               s.status AS submission_status, s.storage_object_key,
               s.media_purged_at
        FROM identity_l3_media_purge_jobs j
