@@ -2121,7 +2121,14 @@ test('auth API supports registration, session lookup, logout and login', {
 
     const femaleMatches = await request('/api/matches', { headers: { Cookie: secondCookie } });
     assert.equal(femaleMatches.status, 200);
-    assert.equal((await femaleMatches.json()).matches.some(match => match.id === matchPayload.match.id), true);
+    const femaleMatchesPayload = await femaleMatches.json();
+    assert.equal(femaleMatchesPayload.matches.some(match => match.id === matchPayload.match.id), true);
+    const visibleMatch = femaleMatchesPayload.matches.find(match => match.id === matchPayload.match.id);
+    assert.ok(visibleMatch);
+    for (const privateOrUnusedField of ['bio', 'gender', 'status', 'createdAt']) {
+      assert.equal(Object.hasOwn(visibleMatch, privateOrUnusedField), false,
+        `the inbox API must not expose unused profile or match field: ${privateOrUnusedField}`);
+    }
 
     const outsiderRegistration = await request('/api/auth/register', {
       method: 'POST',
