@@ -3412,3 +3412,59 @@ test('invalid transaction timestamp cases resolve only after database-verified u
     await pool.end();
   }
 });
+
+
+test('malformed Paddle subscription lifecycle events are durably quarantined without changing entitlements', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const eventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  const subscriptionId = `sub_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  try {
+    const result = await processPaddleEvent(pool, {
+      eventId,
+      eventType: 'subscription.canceled',
+      occurredAt: 'invalid-provider-time',
+      data: { id: subscriptionId, status: 'canceled' }
+    });
+    assert.deepEqual(result, {
+      duplicate: false, handled: true, reconciliationRequired: true
+    });
+    const retained = await pool.query(
+      `SELECT cases.status, cases.reason_code, cases.provider_subscription_id,
+              webhook.event_type
+       FROM paddle_adjustment_reconciliation_cases AS cases
+       JOIN paddle_webhook_events AS webhook ON webhook.event_id = cases.event_id
+       WHERE cases.event_id = $1`,
+      [eventId]
+    );
+    assert.deepEqual(retained.rows, [{
+      status: 'open',
+      reason_code: 'invalid_subscription_timestamp',
+      provider_subscription_id: subscriptionId,
+      event_type: 'subscription.canceled'
+    }]);
+    await assert.rejects(
+      pool.query(
+        `UPDATE paddle_adjustment_reconciliation_cases
+         SET provider_subscription_id = 'sub_rewritten'
+         WHERE event_id = $1`,
+        [eventId]
+      ),
+      /immutable/
+    );
+    const identityOnly = await pool.query(
+      `SELECT provider_user_ref, provider_transaction_id, provider_adjustment_id
+       FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1`,
+      [eventId]
+    );
+    assert.deepEqual(identityOnly.rows, [{
+      provider_user_ref: null,
+      provider_transaction_id: null,
+      provider_adjustment_id: null
+    }]);
+  } finally {
+    await pool.end();
+  }
+});
