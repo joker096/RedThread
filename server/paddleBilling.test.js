@@ -610,6 +610,63 @@ test('malformed completed transaction IDs are acknowledged without database cons
   }
 });
 
+test('completed Paddle transactions without a valid provider timestamp cannot grant Premium', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
+  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_lifetime_timestamp_guard';
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      calls.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      if (statement.includes('COUNT(DISTINCT user_id) > 1')) {
+        return { rowCount: 1, rows: [{ ambiguous: false }] };
+      }
+      if (statement.includes('UPDATE paddle_checkout_attempts')) return { rowCount: 1, rows: [] };
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+
+  try {
+    const result = await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_lifetime_missing_timestamp',
+      eventType: 'transaction.completed',
+      data: {
+        id: 'txn_lifetime_missingtimestamp123',
+        customData: {
+          userId: '00000000-0000-4000-8000-000000000001',
+          plan: 'lifetime',
+          checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+        },
+        items: [{ price: { id: 'pri_lifetime_timestamp_guard' } }]
+      }
+    });
+
+    assert.deepEqual(result, { duplicate: false, handled: true });
+    const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
+    assert.ok(ledger, 'retain signed transaction evidence for moderator review');
+    assert.equal(ledger.params[2], null, 'do not attribute malformed timestamp evidence to an account');
+    assert.equal(ledger.params[4], 'completed');
+    assert.equal(ledger.params[12], null, 'do not substitute server receipt time for provider chronology');
+    const reconciliation = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
+    assert.ok(reconciliation, 'record the provider lifecycle anomaly for reconciliation');
+    assert.equal(reconciliation.params[1], 'provider_lifecycle_conflict');
+    assert.equal(calls.some(call => call.statement.includes('UPDATE users SET') && call.statement.includes('premium_lifetime = TRUE')), false,
+      'a completed event without occurred_at must never grant lifetime Premium');
+    assert.equal(calls.some(call => call.statement.includes('SET status = $3') && call.statement.includes('reconciliation_required')), true,
+      'the exact checkout attempt must remain visible for manual reconciliation');
+    assert.equal(calls.some(call => call.statement === 'COMMIT'), true);
+    assert.equal(calls.some(call => call.statement === 'ROLLBACK'), false);
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
+    else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
+  }
+});
+
 test('customer webhook cannot replace an account customer ID once established', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const queries = [];
