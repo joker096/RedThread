@@ -1767,6 +1767,7 @@ const messages = {
     matched: "მატჩი", inboxWelcomeTitle: "თქვენი რეალური ნაცნობობები",
     inboxWelcomeDescription: "აირჩიეთ მატჩი მარცხნივ, რათა საუბარი გააგრძელოთ.",
     loadEarlierMessages: "წინა შეტყობინებების ჩატვირთვა", retryEarlierMessages: "ჩატვირთვის ხელახლა ცდა",
+    chatBackToList: "დიალოგებში დაბრუნება",
     switchToLightTheme: "ღია თემაზე გადართვა",
     demoChatsHiddenTitle: "პროტოტიპის საუბრები დამალულია",
     loginToSeeMatches: "მატჩებისა და შეტყობინებების სანახავად შედით ანგარიშში.",
