@@ -595,6 +595,7 @@ test('transaction completion reconciles an approved refund delivered earlier', a
     const result = await processPaddleEvent({ async connect() { return client; } }, {
       eventId: 'evt_transaction_after_refund',
       eventType: 'transaction.completed',
+      occurredAt: '2026-11-05T12:00:00Z',
       data: {
         id: transactionId,
         customerId: 'ctm_0123456789abcdef0123456789',
