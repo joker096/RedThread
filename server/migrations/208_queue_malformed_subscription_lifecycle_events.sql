@@ -48,7 +48,10 @@ COMMENT ON COLUMN paddle_adjustment_reconciliation_cases.provider_subscription_i
   'Immutable validated Paddle subscription identifier for manual lookup only; never sufficient to establish Vow account ownership or authorize an entitlement change.';
 COMMENT ON COLUMN paddle_adjustment_reconciliation_cases.reason_code IS
   'Bounded reconciliation reason. Invalid transaction and subscription timestamps/identities are retained separately from lifecycle conflicts and cannot be auto-resolved without their respective verified evidence.';
-\n-- Extend the existing audited manual-closure policy without weakening its\n-- provider evidence, moderator role, or immutable audit matching requirements.\n-- A malformed adjustment event that could not be written to the ledger must
+
+-- Extend the existing audited manual-closure policy without weakening its
+-- provider evidence, moderator role, or immutable audit matching requirements.
+-- A malformed adjustment event that could not be written to the ledger must
 -- remain open until a later signed event proves the same provider adjustment.
 -- If the provider adjustment ID is absent/invalid, there is no safe correlation
 -- key and the case cannot be manually dismissed.
