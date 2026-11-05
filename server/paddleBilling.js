@@ -487,7 +487,7 @@ async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
   ]);
   const validStatuses = new Set(['pending_approval', 'approved', 'rejected', 'reversed']);
   if (!validAdjustmentId || !validTransactionId || !validActions.has(action) || !validStatuses.has(status) ||
-      !occurredAt || !Number.isFinite(Date.parse(occurredAt))) {
+      !isValidPaddleTimestamp(occurredAt)) {
     await recordPaddleAdjustmentReconciliationCase(client, {
       eventId, adjustmentId, transactionId,
       reasonCode: 'invalid_adjustment_payload'
@@ -830,7 +830,7 @@ export async function processPaddleEvent(pool, rawEvent) {
     // Preserve the event without assigning an owner and leave the exact checkout
     // attempt in reconciliation rather than trusting local receipt time.
     if (['transaction.paid', 'transaction.completed', 'transaction.canceled'].includes(eventType) &&
-        (!occurredAt || !Number.isFinite(Date.parse(occurredAt)))) {
+        (!isValidPaddleTimestamp(occurredAt))) {
       const transactionId = typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)
         ? data.id : null;
       if (transactionId) {
