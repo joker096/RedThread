@@ -2285,6 +2285,8 @@ test('transaction.completed quarantines conflicting camelCase and snake_case own
     assert.ok(conflict);
     assert.equal(conflict.params[2], null,
       'a conflicting pair of owner aliases must not snapshot either value as authoritative');
+    assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_checkout_attempts')), false,
+      'ambiguous owner aliases must not mark either account checkout attempt for reconciliation');
   } finally {
     if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
     else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
@@ -2811,4 +2813,113 @@ test('customer.updated quarantines conflicting owner aliases instead of binding 
   assert.equal(conflict.params[1], null);
   assert.equal(conflict.params[2], null,
     'neither contradictory owner alias is authoritative reconciliation context');
+});
+
+
+test('subscription.created with conflicting owner aliases does not mark either checkout attempt', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_subscription_alias_conflict';
+  const ownerA = '00000000-0000-4000-8000-000000000107';
+  const ownerB = '00000000-0000-4000-8000-000000000108';
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      calls.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      if (statement.includes('SELECT id FROM users WHERE paddle_subscription_id')) {
+        return { rowCount: 0, rows: [] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_subscription_owner_alias_conflict',
+      eventType: 'subscription.created',
+      occurredAt: '2026-11-05T11:00:00Z',
+      data: {
+        id: 'sub_subscriptionaliasconflict123',
+        transactionId: 'txn_subscriptionaliasconflict123',
+        customerId: 'ctm_subscriptionaliasconflict123',
+        status: 'active',
+        currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' },
+        items: [{ price: { id: 'pri_month_subscription_alias_conflict' } }],
+        customData: {
+          userId: ownerA,
+          user_id: ownerB,
+          plan: '1month',
+          checkoutAttemptId: 'abababab-abab-4bab-8bab-abababababab'
+        }
+      }
+    });
+    assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_checkout_attempts')), false,
+      'contradictory owner aliases must not alter checkout-attempt state');
+    assert.equal(calls.some(call => call.statement.includes('UPDATE users SET')), false,
+      'contradictory owner aliases must not attach a subscription or grant access');
+    const conflict = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
+    assert.ok(conflict, 'the provider identity conflict must remain visible for reconciliation');
+    assert.equal(conflict.params[2], null);
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
+  }
+});
+
+test('transaction.canceled does not cancel a checkout attempt owned by a different retained account', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_1MONTH;
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_retained_owner_conflict';
+  const retainedOwner = '00000000-0000-4000-8000-000000000109';
+  const metadataOwner = '00000000-0000-4000-8000-000000000110';
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      calls.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      if (statement.includes('SELECT DISTINCT user_id') && statement.includes('paddle_checkout_attempt_history')) {
+        return { rowCount: 1, rows: [{ user_id: retainedOwner }] };
+      }
+      if (statement.includes('SET transaction_id = COALESCE(transaction_id, $1)')) {
+        return { rowCount: 1, rows: [{ user_id: metadataOwner, plan: '1month' }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+  try {
+    await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_cancel_retained_owner_conflict',
+      eventType: 'transaction.canceled',
+      occurredAt: '2026-11-05T11:10:00Z',
+      data: {
+        id: 'txn_cancelretainedownerconflict123',
+        customData: {
+          userId: metadataOwner,
+          plan: '1month',
+          checkoutAttemptId: 'bcbcbcbc-bcbc-4cbc-8cbc-bcbcbcbcbcbc'
+        },
+        items: [{ price: { id: 'pri_month_retained_owner_conflict' } }]
+      }
+    });
+    assert.equal(calls.some(call => call.statement.includes('SET transaction_id = COALESCE(transaction_id, $1)')), false,
+      'a retained transaction owner mismatch must be detected before mutating a checkout attempt');
+    const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
+    assert.ok(ledger);
+    assert.equal(ledger.params[2], null,
+      'a contradictory retained owner must not be attributed to the metadata account');
+    const conflict = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
+    assert.ok(conflict);
+    assert.equal(conflict.params[2], metadataOwner);
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_1MONTH;
+    else process.env.PADDLE_PRICE_ID_1MONTH = originalPriceId;
+  }
 });
