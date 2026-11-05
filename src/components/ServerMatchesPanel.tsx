@@ -428,7 +428,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                 <button type="button" onClick={() => void loadMatches()} disabled={matchesLoading || busy} aria-busy={matchesLoading} className="vow-inbox-refresh">{t('refreshMatches')}</button>
               </aside>
 
-              <div className="vow-inbox-conversation">
+              <div data-testid="real-match-chat" className="vow-inbox-conversation">
                 {selectedMatch ? (
                   <>
                     <header className="vow-inbox-chat-header">
