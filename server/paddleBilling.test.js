@@ -2596,6 +2596,28 @@ test('Paddle manual resolution refuses to close a refund until a later provider 
   assert.ok(api.includes("verified_scope.adjustment_type IN ('full', 'partial')"));
 });
 
+test('Paddle manual resolution keeps unledgered malformed adjustment events open', async () => {
+  const migration = await readFile(
+    new URL('./migrations/205_require_verified_adjustment_evidence_before_manual_closure.sql', import.meta.url),
+    'utf8'
+  );
+  assert.ok(migration.includes("NEW.reason_code = 'invalid_adjustment_payload'"));
+  assert.ok(migration.includes("webhook.event_type IN ('adjustment.created', 'adjustment.updated')"));
+  assert.ok(migration.includes('verified_adjustment.adjustment_id = NEW.provider_adjustment_id'));
+  assert.ok(migration.includes('verified_adjustment.event_id <> NEW.event_id'));
+  assert.ok(migration.includes('NEW.provider_adjustment_id IS NOT NULL'));
+  assert.ok(migration.includes('verified_adjustment.transaction_id = NEW.provider_transaction_id'));
+  const lock = migration.match(/LOCK TABLE ([^;]+) IN SHARE ROW EXCLUSIVE MODE;/);
+  assert.deepEqual(lock?.[1].split(',').map(table => table.trim()),
+    ['paddle_adjustment_events', 'paddle_adjustment_reconciliation_cases'],
+    'migration lock order must match webhook insertion order');
+
+  const api = await readFile(new URL('./index.js', import.meta.url), 'utf8');
+  assert.ok(api.includes('has_verified_adjustment_evidence'));
+  assert.ok(api.includes('adjustment_requires_later_provider_evidence'));
+  assert.ok(api.includes('adjustment_ledger_event_id == null'));
+});
+
 test('Paddle manual resolution migration keeps unverified ownership cases open', async () => {
   const migration = await readFile(
     new URL('./migrations/186_block_unverified_manual_adjustment_closure.sql', import.meta.url),
