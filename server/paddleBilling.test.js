@@ -91,6 +91,20 @@ test('malformed subscription lifecycle events are acknowledged without entitleme
       occurredAt: '2026-10-24T20:00:00Z',
       data: { id: 'txn_not_a_subscription', status: 'active', currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' } }
     }
+,    {
+      eventId: 'evt_bad_created_timestamp',
+      eventType: 'subscription.created',
+      occurredAt: 'invalid-created-time',
+      data: {
+        id: 'sub_created123',
+        transactionId: 'txn_created123',
+        customData: {
+          userId: '00000000-0000-4000-8000-000000000001',
+          plan: '1month',
+          checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+        }
+      }
+    }
   ];
 
   for (const event of malformedEvents) {
@@ -98,17 +112,30 @@ test('malformed subscription lifecycle events are acknowledged without entitleme
       duplicate: false, handled: true, reconciliationRequired: true
     });
   }
-  assert.equal(queries.filter(query => query.sql.includes('INSERT INTO paddle_webhook_events')).length, 4);
+  assert.equal(queries.filter(query => query.sql.includes('INSERT INTO paddle_webhook_events')).length, 5);
   const queued = queries.filter(query => query.sql.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
   assert.equal(queued.length, 4);
   assert.deepEqual(queued.map(query => query.params), [
     ['evt_missing_timestamp', 'invalid_subscription_timestamp', 'sub_valid123'],
     ['evt_invalid_timestamp', 'invalid_subscription_timestamp', 'sub_valid123'],
     ['evt_missing_subscription_id', 'invalid_subscription_identity', null],
-    ['evt_malformed_subscription_id', 'invalid_subscription_identity', null]
+    ['evt_malformed_subscription_id', 'invalid_subscription_identity', null, null, null, null],
+    ['evt_bad_created_timestamp', 'invalid_subscription_timestamp', 'sub_created123',
+      'txn_created123', '00000000-0000-4000-8000-000000000001', '1month']
+  ]);
+  const attemptQuarantine = queries.find(query =>
+    query.sql.includes("UPDATE paddle_checkout_attempts") &&
+    query.sql.includes("SET status = 'reconciliation_required'")
+  );
+  assert.ok(attemptQuarantine, 'malformed subscription.created must quarantine its exact checkout attempt');
+  assert.deepEqual(attemptQuarantine.params, [
+    '00000000-0000-4000-8000-000000000001',
+    '1month',
+    'txn_created123',
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
   ]);
   assert.equal(queries.some(query => query.sql.includes('UPDATE users')), false);
-  assert.equal(queries.filter(query => query.sql === 'COMMIT').length, 4);
+  assert.equal(queries.filter(query => query.sql === 'COMMIT').length, 5);
   assert.equal(queries.some(query => query.sql === 'ROLLBACK'), false);
 });
 test('subscription updates compare source timestamps and do not bypass ordering when missing', async () => {
