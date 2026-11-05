@@ -2211,6 +2211,29 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal((await olderHistoryResponse.json()).messages.some(message => message.id === sentMessage.id), false,
       'the exclusive keyset cursor must not repeat its boundary message');
 
+    const longMessageText = 'Буду рад обсудить планы на выходные и выбрать удобное место для встречи. '.repeat(8);
+    const longMessageResponse = await request(`/api/matches/${matchPayload.match.id}/messages`, {
+      method: 'POST',
+      headers: { Cookie: maleCookie },
+      body: JSON.stringify({ text: longMessageText })
+    });
+    assert.equal(longMessageResponse.status, 201);
+    const longMessageMatchesResponse = await request('/api/matches', { headers: { Cookie: secondCookie } });
+    assert.equal(longMessageMatchesResponse.status, 200);
+    const longMessageMatch = (await longMessageMatchesResponse.json()).matches
+      .find(match => match.id === matchPayload.match.id);
+    assert.ok(longMessageMatch);
+    assert.equal(longMessageMatch.lastMessage.length, 240,
+      'the inbox preview must be capped at 240 characters instead of returning the full private message');
+    const fullHistoryResponse = await request(
+      `/api/matches/${matchPayload.match.id}/messages?limit=100&latest=true`,
+      { headers: { Cookie: secondCookie } }
+    );
+    assert.equal(fullHistoryResponse.status, 200);
+    assert.equal((await fullHistoryResponse.json()).messages
+      .some(message => message.text === longMessageText), true,
+      'the full message must remain available in the authorized conversation history');
+
     const malformedHistoryCursor = await request(
       `/api/matches/${matchPayload.match.id}/messages?latest=true&beforeCreatedAt=${encodeURIComponent(cursorMessage.cursorCreatedAt)}`,
       { headers: { Cookie: secondCookie } }
