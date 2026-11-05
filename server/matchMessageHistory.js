@@ -4,7 +4,7 @@ export const normalizeMatchMessageHistoryOptions = (query = {}) => {
   const latest = query.latest === 'true';
   const cursorRequested = query.beforeCreatedAt !== undefined || query.beforeId !== undefined;
   const validBeforeCreatedAt = typeof query.beforeCreatedAt === 'string' &&
-    /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?(?:Z|[+-]\\d{2}:\\d{2})$/.test(query.beforeCreatedAt) &&
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(query.beforeCreatedAt) &&
     Number.isFinite(Date.parse(query.beforeCreatedAt));
   const validBeforeId = typeof query.beforeId === 'string' &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query.beforeId);
