@@ -3705,6 +3705,7 @@ app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
             'customer.created', 'customer.updated'
           ].includes(pending.rows[0].event_type) ||
           (pending.rows[0].adjustment_action === 'refund' &&
+            pending.rows[0].adjustment_type === null &&
             pending.rows[0].has_verified_refund_scope !== true) ||
           (pending.rows[0].reason_code === 'invalid_adjustment_payload' &&
             ['adjustment.created', 'adjustment.updated'].includes(pending.rows[0].event_type) &&
@@ -3713,6 +3714,7 @@ app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
         await client.query('ROLLBACK');
         return res.status(409).json({
           error: pending.rows[0].adjustment_action === 'refund' &&
+            pending.rows[0].adjustment_type === null &&
             pending.rows[0].has_verified_refund_scope !== true
             ? 'refund_scope_requires_provider_verified_reconciliation'
             : pending.rows[0].reason_code === 'invalid_adjustment_payload' &&
