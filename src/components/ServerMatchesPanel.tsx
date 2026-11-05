@@ -475,7 +475,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       if (requestId === messageRequestId.current) {
         pendingScrollAdjustmentRef.current = null;
         setOlderMessagesFailed(true);
-        setNotice(error instanceof Error ? error.message : t('loadMessagesError'));
+        setNotice('');
       }
     } finally {
       if (requestId === messageRequestId.current) setOlderMessagesLoading(false);
