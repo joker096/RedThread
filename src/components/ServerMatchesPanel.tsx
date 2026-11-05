@@ -167,6 +167,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         setMessagesHasMore(false);
         setOlderMessagesLoading(false);
         setOlderMessagesFailed(false);
+        pendingScrollAdjustmentRef.current = null;
       }
     } catch (error) {
       if (requestId === matchesRequestId.current) {
@@ -204,6 +205,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         setMessagesHasMore(false);
         setOlderMessagesLoading(false);
         setOlderMessagesFailed(false);
+        pendingScrollAdjustmentRef.current = null;
         setNotice(t('loadMessagesError'));
         return;
       }
@@ -289,6 +291,11 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       setMatches([]);
       setSelected('');
       setMessages([]);
+      setMessagesOffset(0);
+      setMessagesHasMore(false);
+      setOlderMessagesLoading(false);
+      setOlderMessagesFailed(false);
+      pendingScrollAdjustmentRef.current = null;
       setDrafts({});
       setNotice('');
       setAuthenticated(null);
@@ -390,6 +397,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         setMessagesHasMore(false);
         setOlderMessagesLoading(false);
         setOlderMessagesFailed(false);
+        pendingScrollAdjustmentRef.current = null;
         setNotice(t('sendMessageError'));
         return;
       }
