@@ -724,6 +724,62 @@ test('Paddle transaction timestamps must be strict RFC3339 calendar instants', a
   }
 });
 
+test('a later verified transaction cancellation resolves only the matching invalid-timestamp case', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const ownerId = '00000000-0000-4000-8000-000000000091';
+  const transactionId = 'txn_verifiedtimestampresolution123';
+  const queries = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      queries.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      if (statement.includes('COUNT(DISTINCT user_id) > 1')) {
+        return { rowCount: 1, rows: [{ ambiguous: false }] };
+      }
+      if (statement.includes('SELECT DISTINCT user_id')) {
+        return { rowCount: 1, rows: [{ user_id: ownerId }] };
+      }
+      if (statement.includes('UPDATE paddle_checkout_attempts') && statement.includes("status = 'canceled'")) {
+        return { rowCount: 1, rows: [{ user_id: ownerId, plan: 'lifetime' }] };
+      }
+      if (statement.includes('INSERT INTO paddle_transaction_events')) {
+        return { rowCount: 1, rows: [] };
+      }
+      if (statement.includes("reason_code = 'invalid_transaction_timestamp'")) {
+        return { rowCount: 1, rows: [] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+
+  await processPaddleEvent({ async connect() { return client; } }, {
+    eventId: 'evt_valid_cancellation_after_bad_time',
+    eventType: 'transaction.canceled',
+    occurredAt: '2026-11-05T13:00:00Z',
+    data: {
+      id: transactionId,
+      customData: {
+        userId: ownerId,
+        plan: 'lifetime',
+        checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+      },
+      items: [{ price: { id: 'pri_lifetime_timestamp_resolution' } }]
+    }
+  });
+
+  const resolution = queries.find(query => query.statement.includes("reason_code = 'invalid_transaction_timestamp'"));
+  assert.ok(resolution, 'later valid lifecycle evidence must attempt to resolve the timestamp case');
+  assert.equal(resolution.params[0], transactionId);
+  assert.equal(resolution.params[1], ownerId);
+  assert.match(resolution.statement, /verified\.processed_at > original\.processed_at/);
+  assert.match(resolution.statement, /COUNT\(DISTINCT owner\.user_id\)/);
+  assert.match(resolution.statement, /evidence\.status IN \('completed', 'canceled'\)/);
+});
+
 test('customer webhook cannot replace an account customer ID once established', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const queries = [];
