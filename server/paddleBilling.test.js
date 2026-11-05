@@ -656,7 +656,7 @@ test('completed Paddle transactions without a valid provider timestamp cannot gr
       'untrusted chronology must not enter the transaction lifecycle ledger');
     const reconciliation = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
     assert.ok(reconciliation, 'record the provider lifecycle anomaly for reconciliation');
-    assert.ok(reconciliation.statement.includes("'provider_lifecycle_conflict'"));
+    assert.ok(reconciliation.statement.includes("'invalid_transaction_timestamp'"));
     assert.equal(reconciliation.params[1], 'txn_lifetimemissingtimestamp123');
     assert.equal(calls.some(call => call.statement.includes('UPDATE users SET') && call.statement.includes('premium_lifetime = TRUE')), false,
       'a completed event without occurred_at must never grant lifetime Premium');
@@ -726,6 +726,8 @@ test('Paddle transaction timestamps must be strict RFC3339 calendar instants', a
 
 test('verified transaction cancellation resolves only the matching invalid-timestamp case', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalPriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
+  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_lifetime_timestamp_resolution';
   const ownerId = '00000000-0000-4000-8000-000000000091';
   const transactionId = 'txn_verifiedtimestampresolution123';
   const queries = [];
@@ -778,6 +780,8 @@ test('verified transaction cancellation resolves only the matching invalid-times
   assert.ok(resolution.statement.includes("verified.event_type = 'transaction.canceled'"));
   assert.match(resolution.statement, /COUNT\(DISTINCT owner\.user_id\)/);
   assert.match(resolution.statement, /evidence\.status IN \('completed', 'canceled'\)/);
+  if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
+  else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
 });
 
 test('customer webhook cannot replace an account customer ID once established', async () => {
