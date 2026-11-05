@@ -2607,6 +2607,8 @@ test('Paddle manual resolution keeps unledgered malformed adjustment events open
   assert.ok(migration.includes('verified_adjustment.event_id <> NEW.event_id'));
   assert.ok(migration.includes('NEW.provider_adjustment_id IS NOT NULL'));
   assert.ok(migration.includes('verified_adjustment.transaction_id = NEW.provider_transaction_id'));
+  assert.ok(migration.includes("verified_adjustment.action <> 'refund'"));
+  assert.ok(migration.includes("verified_adjustment.adjustment_type IN ('full', 'partial')"));
   const lock = migration.match(/LOCK TABLE ([^;]+) IN SHARE ROW EXCLUSIVE MODE;/);
   assert.deepEqual(lock?.[1].split(',').map(table => table.trim()),
     ['paddle_adjustment_events', 'paddle_adjustment_reconciliation_cases'],
