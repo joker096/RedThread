@@ -91,7 +91,7 @@ test('malformed subscription lifecycle events are acknowledged without entitleme
       occurredAt: '2026-10-24T20:00:00Z',
       data: { id: 'txn_not_a_subscription', status: 'active', currentBillingPeriod: { endsAt: '2027-01-01T00:00:00Z' } }
     }
-,    {
+    ,{
       eventId: 'evt_bad_created_timestamp',
       eventType: 'subscription.created',
       occurredAt: 'invalid-created-time',
@@ -114,11 +114,11 @@ test('malformed subscription lifecycle events are acknowledged without entitleme
   }
   assert.equal(queries.filter(query => query.sql.includes('INSERT INTO paddle_webhook_events')).length, 5);
   const queued = queries.filter(query => query.sql.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
-  assert.equal(queued.length, 4);
+  assert.equal(queued.length, 5);
   assert.deepEqual(queued.map(query => query.params), [
-    ['evt_missing_timestamp', 'invalid_subscription_timestamp', 'sub_valid123'],
-    ['evt_invalid_timestamp', 'invalid_subscription_timestamp', 'sub_valid123'],
-    ['evt_missing_subscription_id', 'invalid_subscription_identity', null],
+    ['evt_missing_timestamp', 'invalid_subscription_timestamp', 'sub_valid123', null, null, null],
+    ['evt_invalid_timestamp', 'invalid_subscription_timestamp', 'sub_valid123', null, null, null],
+    ['evt_missing_subscription_id', 'invalid_subscription_identity', null, null, null, null],
     ['evt_malformed_subscription_id', 'invalid_subscription_identity', null, null, null, null],
     ['evt_bad_created_timestamp', 'invalid_subscription_timestamp', 'sub_created123',
       'txn_created123', '00000000-0000-4000-8000-000000000001', '1month']
