@@ -218,6 +218,14 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     assert.equal(JSON.stringify(queuePayload).includes(storageRoot), false,
       'moderation queue must never expose private storage paths');
 
+    const decisionBeforeMediaReview = await request('/api/moderation/identity-l3/submissions/' + first.submissionId + '/decision', {
+      method: 'POST',
+      headers: { Cookie: moderatorCookie },
+      body: JSON.stringify({ decision: 'approved', reasonCode: 'video_matches_l2' })
+    });
+    assert.equal(decisionBeforeMediaReview.status, 409,
+      'a moderator must successfully open the authenticated video before issuing an L3 decision');
+
     const media = await request('/api/moderation/identity-l3/submissions/' + first.submissionId + '/media', {
       headers: { Cookie: moderatorCookie }
     });
