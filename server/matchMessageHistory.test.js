@@ -10,7 +10,9 @@ test('preserves the existing message-history pagination defaults', () => {
   assert.deepEqual(normalizeMatchMessageHistoryOptions({}), {
     limit: 50,
     offset: 0,
-    latest: false
+    latest: false,
+    beforeCreatedAt: null,
+    beforeId: null
   });
 });
 
@@ -22,7 +24,9 @@ test('bounds message-history pagination and accepts only an explicit latest flag
   }), {
     limit: 100,
     offset: 0,
-    latest: true
+    latest: true,
+    beforeCreatedAt: null,
+    beforeId: null
   });
   assert.deepEqual(normalizeMatchMessageHistoryOptions({
     limit: 'not-a-number',
@@ -31,12 +35,16 @@ test('bounds message-history pagination and accepts only an explicit latest flag
   }), {
     limit: 50,
     offset: 5000,
-    latest: false
+    latest: false,
+    beforeCreatedAt: null,
+    beforeId: null
   });
   assert.deepEqual(normalizeMatchMessageHistoryOptions({ limit: '0', offset: '12' }), {
     limit: 50,
     offset: 12,
-    latest: false
+    latest: false,
+    beforeCreatedAt: null,
+    beforeId: null
   });
 });
 
