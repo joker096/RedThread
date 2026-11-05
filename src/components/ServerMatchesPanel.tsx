@@ -336,7 +336,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   // Keep the newest message visible without moving the whole page.
   // Respect the user's reduced-motion preference when scrolling.
   useEffect(() => {
-    if (!selected || messagesLoading || !shouldAutoScrollMessagesRef.current) return;
+    if (!selected || messagesLoading) return;
     const log = messagesLogRef.current;
     if (!log) return;
     const pendingAdjustment = pendingScrollAdjustmentRef.current;
@@ -346,6 +346,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       shouldAutoScrollMessagesRef.current = false;
       return;
     }
+    if (!shouldAutoScrollMessagesRef.current) return;
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     log.scrollTo({ top: log.scrollHeight, behavior: reduceMotion ? 'auto' : 'smooth' });
   }, [selected, messages, messagesLoading]);
