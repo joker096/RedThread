@@ -57,6 +57,36 @@ export function projectDiditStatus(status, environment, decision) {
     hasApprovedFeature('liveness_checks') &&
     hasApprovedFeature('face_matches') ? 'verified' : 'pending';
 }
+const DIDIT_TERMINAL_FAILURE_STATUSES = new Set(['Declined', 'Expired', 'Abandoned', 'Kyc Expired']);
+
+function diditStatusPriority(providerStatus, projectedStatus) {
+  if (DIDIT_TERMINAL_FAILURE_STATUSES.has(providerStatus)) return 3;
+  if (providerStatus === 'Approved' && projectedStatus === 'verified') return 2;
+  if (providerStatus === 'Approved') return 1;
+  return 0;
+}
+
+/**
+ * Didit created_at has one-second precision. When two distinct signed events
+ * share that timestamp, keep the more conclusive/fail-closed verdict instead
+ * of allowing arrival order to decide whether an identity remains verified.
+ */
+export function shouldApplyDiditStatusUpdate(current, incoming) {
+  const incomingTime = incoming?.providerEventAt instanceof Date
+    ? incoming.providerEventAt.getTime()
+    : Date.parse(incoming?.providerEventAt);
+  if (!Number.isFinite(incomingTime)) return false;
+  const currentTime = current?.providerEventAt == null
+    ? Number.NaN
+    : current.providerEventAt instanceof Date
+      ? current.providerEventAt.getTime()
+      : Date.parse(current.providerEventAt);
+  if (!Number.isFinite(currentTime) || incomingTime > currentTime) return true;
+  if (incomingTime < currentTime) return false;
+  return diditStatusPriority(incoming.providerStatus, incoming.status) >
+    diditStatusPriority(current.providerStatus, current.status);
+}
+
 export function isDiditStatus(value) { return DIDIT_STATUSES.has(value); }
 export function isDiditUuid(value) { return typeof value === 'string' && UUID_PATTERN.test(value); }
 export async function createDiditSession({ userId, env = process.env, fetchImpl = fetch, callbackOrigin = env.APP_ORIGIN || 'http://localhost:3000' }) {
