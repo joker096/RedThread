@@ -2145,7 +2145,7 @@ test('real Vow chat opens on the newest page and can prepend older messages', as
       requestedCursors.push({ beforeCreatedAt, beforeId });
       const isOlderPage = Boolean(beforeCreatedAt && beforeId);
       const first = isOlderPage ? 1 : 101;
-      const count = isOlderPage ? 100 : 100;
+      const count = isOlderPage ? 23 : 100;
       const messages = Array.from({ length: count }, (_, index) => ({
         id: `history-message-${first + index}`,
         senderId: 'e2e-partner',
