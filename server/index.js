@@ -3694,7 +3694,7 @@ app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
                     AND (verified_adjustment.action <> 'refund'
                       OR verified_adjustment.adjustment_type IN ('full', 'partial'))
                 ) AS has_verified_adjustment_evidence,
-                c.provider_user_ref, c.provider_plan
+                c.provider_user_ref, c.provider_plan, c.provider_subscription_id
          FROM paddle_adjustment_reconciliation_cases AS c
          JOIN paddle_webhook_events AS webhook USING (event_id)
          LEFT JOIN paddle_adjustment_events AS e USING (event_id)
