@@ -673,6 +673,60 @@ test('completed Paddle transactions without a valid provider timestamp cannot gr
   }
 });
 
+test('Paddle transaction timestamps must be strict RFC3339 calendar instants', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const invalidTimestamps = [
+    '2026-02-30T12:00:00Z',
+    '2026-11-05 12:00:00Z',
+    '2026-11-05T12:00:00',
+    1793880000
+  ];
+
+  for (let index = 0; index < invalidTimestamps.length; index += 1) {
+    const calls = [];
+    const client = {
+      async query(sql, params = []) {
+        const statement = String(sql);
+        calls.push({ statement, params });
+        if (statement.includes('INSERT INTO paddle_webhook_events')) {
+          return { rowCount: 1, rows: [{ event_id: params[0] }] };
+        }
+        if (statement.includes('COUNT(DISTINCT user_id) > 1')) {
+          return { rowCount: 1, rows: [{ ambiguous: false }] };
+        }
+        if (statement.includes('UPDATE paddle_checkout_attempts')) return { rowCount: 1, rows: [] };
+        return { rowCount: 1, rows: [] };
+      },
+      release() {}
+    };
+
+    const result = await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: `evt_invalid_provider_time_${index}`,
+      eventType: 'transaction.completed',
+      occurredAt: invalidTimestamps[index],
+      data: {
+        id: `txn_invalidprovidertime${index}123`,
+        customData: {
+          userId: '00000000-0000-4000-8000-000000000001',
+          plan: 'lifetime',
+          checkoutAttemptId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+        },
+        items: [{ price: { id: 'pri_lifetime_timestamp_guard' } }]
+      }
+    });
+
+    assert.equal(result.reconciliationRequired, true, 'malformed provider chronology must enter reconciliation');
+    const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
+    assert.ok(ledger, 'retain the signed transaction identity');
+    assert.equal(ledger.params[2], null, 'do not attribute malformed time evidence to an account');
+    assert.equal(ledger.params[12], null, 'never persist an invalid provider timestamp');
+    assert.equal(calls.some(call => call.statement.includes('premium_lifetime = TRUE')), false,
+      'malformed provider chronology must not grant Premium');
+    assert.equal(calls.some(call => call.statement.includes("SET status = 'reconciliation_required'")), true,
+      'the checkout attempt must be held for reconciliation');
+  }
+});
+
 test('customer webhook cannot replace an account customer ID once established', async () => {
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const queries = [];
