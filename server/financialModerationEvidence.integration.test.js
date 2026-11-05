@@ -3464,6 +3464,57 @@ test('malformed Paddle subscription lifecycle events are durably quarantined wit
       provider_transaction_id: null,
       provider_adjustment_id: null
     }]);
+
+    const checkoutUserId = randomUUID();
+    const checkoutAttemptId = randomUUID();
+    const checkoutTransactionId = `txn_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+    const createdEventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+    const createdSubscriptionId = `sub_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+    await pool.query(
+      "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
+      [checkoutUserId, `malformed-subscription-checkout-${checkoutUserId}@example.invalid`]
+    );
+    await pool.query(
+      `INSERT INTO paddle_checkout_attempts
+       (user_id, attempt_id, transaction_id, plan, status, created_at, updated_at)
+       VALUES ($1, $2, $3, '1month', 'completed', statement_timestamp(), statement_timestamp())`,
+      [checkoutUserId, checkoutAttemptId, checkoutTransactionId]
+    );
+    const createdResult = await processPaddleEvent(pool, {
+      eventId: createdEventId,
+      eventType: 'subscription.created',
+      occurredAt: 'invalid-subscription-created-time',
+      data: {
+        id: createdSubscriptionId,
+        transactionId: checkoutTransactionId,
+        customData: {
+          userId: checkoutUserId,
+          plan: '1month',
+          checkoutAttemptId
+        }
+      }
+    });
+    assert.deepEqual(createdResult, {
+      duplicate: false, handled: true, reconciliationRequired: true
+    });
+    const quarantinedAttempt = await pool.query(
+      'SELECT status FROM paddle_checkout_attempts WHERE attempt_id = $1',
+      [checkoutAttemptId]
+    );
+    assert.deepEqual(quarantinedAttempt.rows, [{ status: 'reconciliation_required' }]);
+    const createdCase = await pool.query(
+      `SELECT reason_code, provider_subscription_id, provider_transaction_id,
+              provider_user_ref, provider_plan
+       FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1`,
+      [createdEventId]
+    );
+    assert.deepEqual(createdCase.rows, [{
+      reason_code: 'invalid_subscription_timestamp',
+      provider_subscription_id: createdSubscriptionId,
+      provider_transaction_id: checkoutTransactionId,
+      provider_user_ref: checkoutUserId,
+      provider_plan: '1month'
+    }]);
   } finally {
     await pool.end();
   }
