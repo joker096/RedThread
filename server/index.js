@@ -2960,8 +2960,11 @@ app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) =>
 
 app.get('/api/matches/:matchId/messages', requireSession, requirePaidFeatures, async (req, res) => {
   if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
-  const { limit, offset, latest } = normalizeMatchMessageHistoryOptions(req.query);
+  const { limit, offset, latest, beforeCreatedAt, beforeId } = normalizeMatchMessageHistoryOptions(req.query);
   const order = matchMessageHistoryOrder(latest);
+  const hasCursor = latest && beforeCreatedAt !== null && beforeId !== null;
+  const cursorClause = hasCursor ? 'AND (created_at, id) < ($4::timestamptz, $5::uuid)' : '';
+  const queryOffset = hasCursor ? 0 : offset;
 
   let client;
   try {
@@ -3013,9 +3016,11 @@ app.get('/api/matches/:matchId/messages', requireSession, requirePaidFeatures, a
 
     const result = await client.query(
       `SELECT id, sender_id AS "senderId", body AS text, created_at AS "createdAt"
-       FROM messages WHERE match_id = $1 AND deleted_at IS NULL
+       FROM messages WHERE match_id = $1 AND deleted_at IS NULL ${cursorClause}
        ORDER BY created_at ${order}, id ${order} LIMIT $2 OFFSET $3`,
-      [req.params.matchId, limit, offset]
+      hasCursor
+        ? [req.params.matchId, limit, queryOffset, beforeCreatedAt, beforeId]
+        : [req.params.matchId, limit, queryOffset]
     );
     await client.query('COMMIT');
     return res.json({
