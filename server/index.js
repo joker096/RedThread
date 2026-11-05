@@ -2796,15 +2796,15 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
       }
     }
 
-    await client.query(
-      'INSERT INTO likes (sender_id, target_id) VALUES ($1, $2) ON CONFLICT (sender_id, target_id) DO NOTHING',
-      [req.authUser.id, targetId]
-    );
     const reciprocal = await client.query(
       'SELECT 1 FROM likes WHERE sender_id = $1 AND target_id = $2 LIMIT 1',
       [targetId, req.authUser.id]
     );
     if (reciprocal.rowCount === 0) {
+      await client.query(
+        'INSERT INTO likes (sender_id, target_id) VALUES ($1, $2) ON CONFLICT (sender_id, target_id) DO NOTHING',
+        [req.authUser.id, targetId]
+      );
       await client.query('COMMIT');
       return res.status(201).json({ liked: true, matched: false, match: null });
     }
@@ -2840,7 +2840,7 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
         if (!canCreateFemaleFreeMatch(recentMatches.rows[0]?.count)) {
           await client.query('COMMIT');
           return res.status(201).json({
-            liked: true,
+            liked: false,
             matched: false,
             match: null,
             quota: {
@@ -2850,6 +2850,12 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
           });
         }
       }
+    }
+    await client.query(
+      'INSERT INTO likes (sender_id, target_id) VALUES ($1, $2) ON CONFLICT (sender_id, target_id) DO NOTHING',
+      [req.authUser.id, targetId]
+    );
+    if (!match) {
       const createdMatch = await client.query(
         `INSERT INTO matches (user_a_id, user_b_id)
          VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid))
