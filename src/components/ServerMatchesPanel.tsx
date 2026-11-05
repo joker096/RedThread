@@ -11,7 +11,7 @@ type ServerMatch = {
   lastMessage: string | null;
   lastMessageAt: string | null;
 };
-type ServerMessage = { id: string; senderId: string; text: string; createdAt: string };
+type ServerMessage = { id: string; senderId: string; text: string; createdAt: string; cursorCreatedAt?: string };
 type Props = { onOpenAccount: () => void };
 const MESSAGE_PAGE_SIZE = 100;
 
@@ -56,7 +56,11 @@ export const normalizeServerMessage = (value: unknown): ServerMessage | null => 
     id: message.id.trim(),
     senderId: message.senderId.trim(),
     text: message.text,
-    createdAt: message.createdAt
+    createdAt: message.createdAt,
+    ...(typeof message.cursorCreatedAt === 'string' && message.cursorCreatedAt.length <= 100 &&
+      Number.isFinite(Date.parse(message.cursorCreatedAt))
+      ? { cursorCreatedAt: message.cursorCreatedAt }
+      : {})
   };
 };
 
@@ -446,7 +450,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     try {
       const oldestLoadedMessage = messages[0];
       if (!oldestLoadedMessage) return;
-      const cursor = `beforeCreatedAt=${encodeURIComponent(oldestLoadedMessage.createdAt)}&beforeId=${encodeURIComponent(oldestLoadedMessage.id)}`;
+      const cursor = `beforeCreatedAt=${encodeURIComponent(oldestLoadedMessage.cursorCreatedAt || oldestLoadedMessage.createdAt)}&beforeId=${encodeURIComponent(oldestLoadedMessage.id)}`;
       const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/messages?limit=${MESSAGE_PAGE_SIZE}&latest=true&${cursor}`, { credentials: 'include' });
       if (requestId !== messageRequestId.current) return;
       if (response.status === 401) {
