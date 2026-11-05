@@ -238,6 +238,25 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     return () => { cancelled = true; };
   }, []);
 
+  // A session may become valid again while this panel stays mounted (for example,
+  // after a focus refresh). Re-read the account ID before classifying message authors.
+  useEffect(() => {
+    if (authenticated !== true || currentUserId !== null) return;
+    let cancelled = false;
+    const requestId = ++currentUserRequestId.current;
+    void fetch('/api/auth/me', { credentials: 'include' })
+      .then(response => response.ok ? response.json() : null)
+      .then(data => {
+        if (!cancelled && requestId === currentUserRequestId.current) {
+          setCurrentUserId(normalizeUserId(data?.user?.id));
+        }
+      })
+      .catch(() => {
+        if (!cancelled && requestId === currentUserRequestId.current) setCurrentUserId(null);
+      });
+    return () => { cancelled = true; };
+  }, [authenticated, currentUserId]);
+
   useEffect(() => {
     const refreshOnSessionChange = () => {
       // Invalidate actions from the previous account, including their finally handlers.
