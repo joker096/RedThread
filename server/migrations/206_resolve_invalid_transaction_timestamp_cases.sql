@@ -1,7 +1,8 @@
 -- Separate malformed transaction chronology from genuine provider lifecycle conflicts.
 -- A timestamp-invalid transaction webhook is retained without a lifecycle row;
--- it may be auto-resolved only after a later, timestamp-valid completed/canceled
--- event proves the same transaction and a unique checkout/subscription owner.
+-- it may be auto-resolved when timestamp-valid completed/canceled evidence
+-- proves the same transaction and a unique checkout/subscription owner, regardless
+-- of webhook delivery order. The malformed timestamp is never used for chronology.
 ALTER TABLE paddle_adjustment_reconciliation_cases
   DROP CONSTRAINT IF EXISTS paddle_adjustment_reconciliation_cases_reason_code_check;
 
@@ -19,4 +20,4 @@ ALTER TABLE paddle_adjustment_reconciliation_cases
   ));
 
 COMMENT ON COLUMN paddle_adjustment_reconciliation_cases.reason_code IS
-  'Bounded reconciliation reason. invalid_transaction_timestamp is distinct from a genuine lifecycle contradiction and can close only after later verified transaction evidence establishes the same transaction and unique owner.';
+  'Bounded reconciliation reason. invalid_transaction_timestamp is distinct from a genuine lifecycle contradiction and can close only when verified transaction evidence establishes the same transaction and unique owner.';
