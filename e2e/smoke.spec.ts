@@ -2150,7 +2150,8 @@ test('real Vow chat opens on the newest page and can prepend older messages', as
         id: `00000000-0000-4000-8000-${String(first + index).padStart(12, '0')}`,
         senderId: 'e2e-partner',
         text: `Message ${first + index}`,
-        createdAt: new Date(Date.UTC(2026, 10, 5, 8, 0, first + index)).toISOString()
+        createdAt: new Date(Date.UTC(2026, 10, 5, 8, 0, first + index)).toISOString(),
+        cursorCreatedAt: new Date(Date.UTC(2026, 10, 5, 8, 0, first + index)).toISOString().replace('.000Z', '.000123Z')
       }));
       await route.fulfill({
         status: 200,
@@ -2181,7 +2182,7 @@ test('real Vow chat opens on the newest page and can prepend older messages', as
   await expect(page.getByTestId('server-match-load-older')).toHaveCount(0);
   expect(requestedCursors).toHaveLength(2);
   expect(requestedCursors[0]).toEqual({ beforeCreatedAt: null, beforeId: null });
-  expect(requestedCursors[1].beforeCreatedAt).toBeTruthy();
+  expect(requestedCursors[1].beforeCreatedAt).toBe(new Date(Date.UTC(2026, 10, 5, 8, 0, 101)).toISOString().replace('.000Z', '.000123Z'));
   expect(requestedCursors[1].beforeId).toBe('00000000-0000-4000-8000-000000000101');
 });
 
