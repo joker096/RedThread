@@ -758,7 +758,8 @@ test('verified transaction cancellation resolves only the matching invalid-times
     release() {}
   };
 
-  await processPaddleEvent({ async connect() { return client; } }, {
+  try {
+    await processPaddleEvent({ async connect() { return client; } }, {
     eventId: 'evt_valid_cancellation_after_bad_time',
     eventType: 'transaction.canceled',
     occurredAt: '2026-11-05T13:00:00Z',
@@ -777,11 +778,13 @@ test('verified transaction cancellation resolves only the matching invalid-times
   assert.ok(resolution, 'valid canonical lifecycle evidence must attempt to resolve the timestamp case');
   assert.equal(resolution.params[0], transactionId);
   assert.equal(resolution.params[1], ownerId);
-  assert.ok(resolution.statement.includes("verified.event_type = 'transaction.canceled'"));
-  assert.match(resolution.statement, /COUNT\(DISTINCT owner\.user_id\)/);
-  assert.match(resolution.statement, /evidence\.status IN \('completed', 'canceled'\)/);
-  if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
-  else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
+    assert.ok(resolution.statement.includes("verified.event_type = 'transaction.canceled'"));
+    assert.match(resolution.statement, /COUNT\(DISTINCT owner\.user_id\)/);
+    assert.match(resolution.statement, /evidence\.status IN \('completed', 'canceled'\)/);
+  } finally {
+    if (originalPriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
+    else process.env.PADDLE_PRICE_ID_LIFETIME = originalPriceId;
+  }
 });
 
 test('customer webhook cannot replace an account customer ID once established', async () => {
