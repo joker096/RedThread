@@ -2921,7 +2921,7 @@ app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) =>
          other.user_id AS "partnerId", other.display_name AS "displayName",
          EXTRACT(YEAR FROM AGE(CURRENT_DATE, other.birth_date))::int AS age,
          other.country, other.city,
-         latest.body AS "lastMessage", latest.created_at AS "lastMessageAt"
+         LEFT(latest.body, 240) AS "lastMessage", latest.created_at AS "lastMessageAt"
        FROM matches m
        JOIN profiles other ON other.user_id = CASE WHEN m.user_a_id = $1 THEN m.user_b_id ELSE m.user_a_id END
        JOIN users me ON me.id = $1 AND me.status = 'active'
