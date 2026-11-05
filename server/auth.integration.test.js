@@ -1933,6 +1933,171 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(l2OnlyMaleUndo.status, 403,
       'live L2 without a trusted active L3 approval must not undo discovery actions');
 
+    // Exercise the free-female quotas through the real HTTP routes and PostgreSQL.
+    // Restore the second male's L3 approval only for this isolated scenario.
+    const quotaRegrantConsent = await request('/api/identity/l3/consent', {
+      method: 'PUT',
+      headers: { Cookie: secondMaleCookie },
+      body: JSON.stringify({ accepted: true, version: 2 })
+    });
+    assert.equal(quotaRegrantConsent.status, 201);
+    const quotaL3SubmissionId = randomUUID();
+    await identityGateDb.query(
+      'INSERT INTO identity_l3_submissions (id, user_id) VALUES ($1, $2)',
+      [quotaL3SubmissionId, secondMaleRegistered.user.id]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'upload_authorized' WHERE id = $1",
+      [quotaL3SubmissionId]
+    );
+    await identityGateDb.query(
+      `UPDATE identity_l3_submissions
+       SET status = 'uploaded', storage_object_key = $2, media_sha256 = repeat('f', 64),
+           media_mime_type = 'video/mp4', media_size_bytes = 1024,
+           media_duration_seconds = 30, uploaded_at = NOW()
+       WHERE id = $1`,
+      [quotaL3SubmissionId, `test-only/${quotaL3SubmissionId}`]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'processing' WHERE id = $1",
+      [quotaL3SubmissionId]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'pending_review', processing_completed_at = NOW() WHERE id = $1",
+      [quotaL3SubmissionId]
+    );
+    await identityGateDb.query(
+      `UPDATE identity_l3_submissions
+       SET status = 'approved', reviewed_by = $2, reviewed_at = NOW() + INTERVAL '1 second',
+           decision_reason_code = 'integration_test_free_quota',
+           approved_at = NOW() + INTERVAL '1 second', expires_at = NOW() + INTERVAL '6 months'
+       WHERE id = $1`,
+      [quotaL3SubmissionId, randomUUID()]
+    );
+
+    const originalFemaleEntitlement = await identityGateDb.query(
+      'SELECT female_trial_ends_at, premium_until, premium_lifetime FROM users WHERE id = $1',
+      [registered.user.id]
+    );
+    try {
+      await identityGateDb.query(
+        `UPDATE users
+         SET female_trial_ends_at = NOW() - INTERVAL '1 second',
+             premium_until = NULL, premium_lifetime = FALSE
+         WHERE id = $1`,
+        [registered.user.id]
+      );
+
+      const quotaFirstPage = await request('/api/profiles/search?limit=1&offset=0', {
+        headers: { Cookie: secondCookie }
+      });
+      assert.equal(quotaFirstPage.status, 200);
+      const quotaFirstData = await quotaFirstPage.json();
+      assert.equal(quotaFirstData.profiles.length, 1);
+      assert.deepEqual(quotaFirstData.dailyQuota, {
+        limit: 3, used: 1, remaining: 2, resetsAt: quotaFirstData.dailyQuota.resetsAt
+      });
+      const firstExposedId = quotaFirstData.profiles[0].id;
+      const notYetExposedId = firstExposedId === maleRegistered.user.id
+        ? secondMaleRegistered.user.id
+        : maleRegistered.user.id;
+
+      const directLikeWithoutExposure = await request(`/api/likes/${notYetExposedId}`, {
+        method: 'POST',
+        headers: { Cookie: secondCookie }
+      });
+      assert.equal(directLikeWithoutExposure.status, 403,
+        'free discovery actions must not target profiles that were not returned in the daily discovery quota');
+
+      const quotaSecondPage = await request('/api/profiles/search?limit=1&offset=1', {
+        headers: { Cookie: secondCookie }
+      });
+      assert.equal(quotaSecondPage.status, 200);
+      const quotaSecondData = await quotaSecondPage.json();
+      assert.equal(quotaSecondData.profiles.length, 1);
+      assert.equal(quotaSecondData.profiles[0].id, notYetExposedId);
+      assert.equal(quotaSecondData.dailyQuota.used, 2);
+      assert.equal(quotaSecondData.dailyQuota.remaining, 1);
+
+      const repeatedQuotaFirstPage = await request('/api/profiles/search?limit=1&offset=0', {
+        headers: { Cookie: secondCookie }
+      });
+      const repeatedQuotaFirstData = await repeatedQuotaFirstPage.json();
+      assert.equal(repeatedQuotaFirstPage.status, 200);
+      assert.equal(repeatedQuotaFirstData.profiles[0].id, firstExposedId);
+      assert.equal(repeatedQuotaFirstData.dailyQuota.used, 2,
+        'reloading a previously exposed profile must not consume another daily slot');
+
+      const femaleFirstFreeLike = await request(`/api/likes/${maleRegistered.user.id}`, {
+        method: 'POST', headers: { Cookie: secondCookie }
+      });
+      assert.equal(femaleFirstFreeLike.status, 201);
+      assert.equal((await femaleFirstFreeLike.json()).matched, false);
+      const femaleSecondFreeLike = await request(`/api/likes/${secondMaleRegistered.user.id}`, {
+        method: 'POST', headers: { Cookie: secondCookie }
+      });
+      assert.equal(femaleSecondFreeLike.status, 201);
+      assert.equal((await femaleSecondFreeLike.json()).matched, false);
+
+      const firstFreeMatchFinalLike = await request(`/api/likes/${registered.user.id}`, {
+        method: 'POST', headers: { Cookie: maleCookie }
+      });
+      assert.equal(firstFreeMatchFinalLike.status, 201);
+      assert.equal((await firstFreeMatchFinalLike.json()).matched, true);
+      const consumedWeeklyQuota = await identityGateDb.query(
+        'SELECT COUNT(*)::int AS count FROM female_free_match_quota_events WHERE user_id = $1',
+        [registered.user.id]
+      );
+      assert.equal(consumedWeeklyQuota.rows[0].count, 1,
+        'a newly created free-tier mutual match must consume exactly one weekly slot');
+
+      const maleFinalLikeQuotaBypass = await request(`/api/likes/${registered.user.id}`, {
+        method: 'POST', headers: { Cookie: secondMaleCookie }
+      });
+      assert.equal(maleFinalLikeQuotaBypass.status, 429,
+        'a male sending the final like must not bypass the female participant weekly match quota');
+      assert.equal((await maleFinalLikeQuotaBypass.json()).error, 'weekly_match_quota_reached');
+      const rejectedFinalLike = await identityGateDb.query(
+        'SELECT COUNT(*)::int AS count FROM likes WHERE sender_id = $1 AND target_id = $2',
+        [secondMaleRegistered.user.id, registered.user.id]
+      );
+      assert.equal(rejectedFinalLike.rows[0].count, 0,
+        'a blocked final like must not leave a latent reciprocal like that auto-creates a match later');
+
+    } finally {
+      const [quotaUserA, quotaUserB] = [registered.user.id, maleRegistered.user.id].sort();
+      await identityGateDb.query(
+        'DELETE FROM matches WHERE user_a_id = $1 AND user_b_id = $2',
+        [quotaUserA, quotaUserB]
+      ).catch(() => {});
+      await identityGateDb.query(
+        'DELETE FROM likes WHERE (sender_id = $1 AND target_id = $2) OR (sender_id = $2 AND target_id = $1)',
+        [registered.user.id, maleRegistered.user.id]
+      ).catch(() => {});
+      await identityGateDb.query(
+        'DELETE FROM likes WHERE sender_id = $1 AND target_id = $2',
+        [registered.user.id, secondMaleRegistered.user.id]
+      ).catch(() => {});
+      await identityGateDb.query(
+        'DELETE FROM profile_discovery_views WHERE user_id = $1',
+        [registered.user.id]
+      ).catch(() => {});
+      await identityGateDb.query(
+        `UPDATE users
+         SET female_trial_ends_at = $2, premium_until = $3, premium_lifetime = $4
+         WHERE id = $1`,
+        [
+          registered.user.id,
+          originalFemaleEntitlement.rows[0].female_trial_ends_at,
+          originalFemaleEntitlement.rows[0].premium_until,
+          originalFemaleEntitlement.rows[0].premium_lifetime
+        ]
+      ).catch(() => {});
+      await request('/api/identity/l3/consent', {
+        method: 'DELETE', headers: { Cookie: secondMaleCookie }
+      }).catch(() => {});
+    }
+
     const firstSearchPage = await request('/api/profiles/search?limit=1&offset=0', {
       headers: { Cookie: secondCookie }
     });
