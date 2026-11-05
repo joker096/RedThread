@@ -2110,12 +2110,15 @@ test('expired chat session clears private drafts before the inbox is restored', 
   sessionExpired = true;
   await page.getByTestId('server-match-refresh-messages').click();
   await expect.poll(() => unauthorizedMessagesReads).toBeGreaterThan(0);
+  // Keep the session expired during a focus refresh too, so both the active
+  // conversation and inbox-list paths exercise their 401 invalidation handlers.
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect.poll(() => unauthorizedMatchesReads).toBeGreaterThan(0);
   await expect(page.getByTestId('server-match-login-required')).toBeVisible();
-  sessionExpired = false;
 
   // Simulate the session becoming valid again without remounting the inbox.
   // A visibility/focus refresh must not resurrect the previous account's draft.
+  sessionExpired = false;
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(page.getByTestId('server-match-item')).toBeVisible();
   await page.getByTestId('server-match-item').click();
