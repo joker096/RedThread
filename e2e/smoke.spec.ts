@@ -2052,3 +2052,55 @@ test('real Vow inbox keeps the list and selected conversation side by side on de
   await expect(page.getByTestId('server-match-item').first()).toBeVisible();
   await expect(page.getByTestId('server-match-back')).toBeHidden();
 });
+
+
+test('expired chat session clears private drafts before the inbox is restored', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let expireNextMessagesRead = false;
+  await page.route('**/api/auth/me', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ user: { id: 'e2e-current-user' } })
+  }));
+  await page.route('**/api/matches**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/messages')) {
+      if (route.request().method() === 'GET' && expireNextMessagesRead) {
+        expireNextMessagesRead = false;
+        await route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'unauthorized' }) });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ messages: [{ id: 'session-message', senderId: 'e2e-partner', text: 'Привет', createdAt: '2026-11-05T08:00:00.000Z' }] })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ matches: [{ id: 'session-match', partnerId: 'e2e-partner', displayName: 'Елена', age: 30, country: 'Грузия', city: 'Тбилиси', lastMessage: 'Привет', lastMessageAt: '2026-11-05T08:00:00.000Z' }] })
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('[data-testid="nav-chats"]:visible').first().click();
+  await page.getByTestId('server-match-item').click();
+  const composer = page.getByRole('textbox', { name: /write a message|напишите сообщение/i });
+  await expect(composer).toBeVisible();
+  await composer.fill('PRIVATE_UNSENT_DRAFT');
+
+  expireNextMessagesRead = true;
+  await page.getByTestId('server-match-refresh-messages').click();
+  await expect(page.getByRole('button', { name: /login|войти/i })).toBeVisible();
+
+  // Simulate the session becoming valid again without remounting the inbox.
+  // A visibility/focus refresh must not resurrect the previous account's draft.
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByTestId('server-match-item')).toBeVisible();
+  await page.getByTestId('server-match-item').click();
+  await expect(composer).toBeVisible();
+  await expect(composer).toHaveValue('');
+  await expect(page.getByText('PRIVATE_UNSENT_DRAFT')).toHaveCount(0);
+});
