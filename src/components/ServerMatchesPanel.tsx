@@ -505,7 +505,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       </div>
       {authenticated === false ? (
         <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-5">
-          <p className="text-sm text-stone-200">{t('loginToSeeMatches')}</p>
+          <p data-testid="server-match-login-required" className="text-sm text-stone-200">{t('loginToSeeMatches')}</p>
           <button type="button" onClick={onOpenAccount} className="mt-3 min-h-11 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">{t('login')}</button>
         </div>
       ) : (
