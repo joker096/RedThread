@@ -2,6 +2,30 @@ import { rollbackPooledTransaction } from './withPooledTransaction.js';
 
 const ACTIVE_PADDLE_SUBSCRIPTION_STATUSES = new Set(['active', 'trialing']);
 
+function isValidPaddleTimestamp(value) {
+  if (typeof value !== 'string') return false;
+  const match = /^(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2}):(\\d{2})(?:\\.\\d+)?(?:Z|[+-](\\d{2}):(\\d{2}))$/.exec(value);
+  if (!match) return false;
+  const [, rawYear, rawMonth, rawDay, rawHour, rawMinute, rawSecond, rawOffsetHour, rawOffsetMinute] = match;
+  const year = Number(rawYear);
+  const month = Number(rawMonth);
+  const day = Number(rawDay);
+  const hour = Number(rawHour);
+  const minute = Number(rawMinute);
+  const second = Number(rawSecond);
+  const offsetHour = rawOffsetHour === undefined ? 0 : Number(rawOffsetHour);
+  const offsetMinute = rawOffsetMinute === undefined ? 0 : Number(rawOffsetMinute);
+  if (month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59 ||
+      offsetHour > 23 || offsetMinute > 59) return false;
+  const calendarDate = new Date(0);
+  calendarDate.setUTCFullYear(year, month - 1, day);
+  calendarDate.setUTCHours(0, 0, 0, 0);
+  if (calendarDate.getUTCFullYear() !== year ||
+      calendarDate.getUTCMonth() !== month - 1 ||
+      calendarDate.getUTCDate() !== day) return false;
+  return Number.isFinite(Date.parse(value));
+}
+
 export function normalizePaddleEvent(event) {
   if (!event || typeof event !== 'object') return null;
   const eventId = event.eventId || event.event_id;
@@ -200,7 +224,7 @@ async function recordPaddleTransactionEvent(client, {
   amountMinorUnits = null, grandTotalMinorUnits = null,
   creditMinorUnits = null, balanceMinorUnits = null, currencyCode = null
 }) {
-  const providerTime = typeof occurredAt === 'string' && Number.isFinite(Date.parse(occurredAt))
+  const providerTime = isValidPaddleTimestamp(occurredAt)
     ? occurredAt : null;
   await client.query(
     `INSERT INTO paddle_transaction_events
@@ -703,7 +727,7 @@ export async function processPaddleEvent(pool, rawEvent) {
     // for ordering/ownership. Consume malformed signed events without changing
     // entitlement rather than returning 500 forever to the provider.
     if (subscriptionLifecycleEvent &&
-        (!occurredAt || !Number.isFinite(Date.parse(occurredAt)) ||
+        (!isValidPaddleTimestamp(occurredAt) ||
          typeof data.id !== 'string' || !/^sub_[A-Za-z0-9]+$/.test(data.id))) {
       await client.query('COMMIT');
       return { duplicate: false, handled: true };
@@ -884,7 +908,7 @@ export async function processPaddleEvent(pool, rawEvent) {
       const rawPeriodEnd = data.currentBillingPeriod?.endsAt ?? data.current_billing_period?.ends_at ?? null;
       // Invalid/missing period ends must never grant Premium, but the lifecycle
       // status should still be persisted (especially cancellations) without a DB cast error.
-      const periodEnd = typeof rawPeriodEnd === 'string' && Number.isFinite(Date.parse(rawPeriodEnd))
+      const periodEnd = isValidPaddleTimestamp(rawPeriodEnd)
         ? rawPeriodEnd : null;
       const firstItem = Array.isArray(data.items) ? data.items[0] : null;
       const priceId = firstItem?.price?.id || firstItem?.priceId || firstItem?.price_id || null;
