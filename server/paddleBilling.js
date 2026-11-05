@@ -817,6 +817,15 @@ export async function processPaddleEvent(pool, rawEvent) {
           ? (typeof data.transactionId === 'string' ? data.transactionId
             : typeof data.transaction_id === 'string' ? data.transaction_id : null)
           : null;
+      if (customUserIdMetadataConflict || subscriptionOwnerMetadataConflict || ambiguousTransactionOwner) {
+        await recordPaddleProviderIdentityConflictCase(client, {
+          eventId,
+          transactionId: typeof malformedEventTransactionId === 'string' &&
+            /^txn_[A-Za-z0-9]+$/.test(malformedEventTransactionId) ? malformedEventTransactionId : null,
+          userId: null,
+          plan: customData.plan
+        });
+      }
       if (!customUserIdMetadataConflict && !subscriptionOwnerMetadataConflict && !ambiguousTransactionOwner) {
         await markPaddleCheckoutAttemptForReconciliation(
           client, reconciliationContext.userId, reconciliationContext.plan, malformedEventTransactionId, reconciliationContext.attemptId
@@ -1117,7 +1126,7 @@ export async function processPaddleEvent(pool, rawEvent) {
       // Existing transaction evidence may identify an old account even when
       // this webhook's signed checkout metadata names another account. Never
       // let the old link win over contradictory provider context or plan.
-      const providerOwnerConflict = customUserIdMetadataConflict ||
+      const providerOwnerConflict = customUserIdMetadataConflict || ambiguousTransactionOwner ||
         Boolean(customUserId && transactionOwnerUserId && customUserId !== transactionOwnerUserId);
       const providerPlanConflict = Object.prototype.hasOwnProperty.call(customData, 'plan') &&
         customData.plan !== transactionPlan;
