@@ -22,6 +22,7 @@ import { DIDIT_FREE_MONTHLY_SESSION_LIMIT } from './diditQuota.js';
 import express from 'express';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import { withPooledTransaction, rollbackPooledTransaction } from './withPooledTransaction.js';
+import { normalizeMatchMessageHistoryOptions, matchMessageHistoryOrder, toChronologicalMessageHistory } from './matchMessageHistory.js';
 import rateLimit from 'express-rate-limit';
 import { PostgresRateLimitStore } from './postgresRateLimitStore.js';
 import pg from 'pg';
@@ -2959,8 +2960,8 @@ app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) =>
 
 app.get('/api/matches/:matchId/messages', requireSession, requirePaidFeatures, async (req, res) => {
   if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
-  const limit = Math.min(100, Math.max(1, Number.parseInt(String(req.query.limit ?? '50'), 10) || 50));
-  const offset = Math.min(5000, Math.max(0, Number.parseInt(String(req.query.offset ?? '0'), 10) || 0));
+  const { limit, offset, latest } = normalizeMatchMessageHistoryOptions(req.query);
+  const order = matchMessageHistoryOrder(latest);
 
   let client;
   try {
@@ -3013,11 +3014,14 @@ app.get('/api/matches/:matchId/messages', requireSession, requirePaidFeatures, a
     const result = await client.query(
       `SELECT id, sender_id AS "senderId", body AS text, created_at AS "createdAt"
        FROM messages WHERE match_id = $1 AND deleted_at IS NULL
-       ORDER BY created_at ASC LIMIT $2 OFFSET $3`,
+       ORDER BY created_at ${order}, id ${order} LIMIT $2 OFFSET $3`,
       [req.params.matchId, limit, offset]
     );
     await client.query('COMMIT');
-    return res.json({ messages: result.rows, pagination: { limit, offset } });
+    return res.json({
+      messages: toChronologicalMessageHistory(result.rows, latest),
+      pagination: { limit, offset, latest }
+    });
   } catch (error) {
     if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Message history failed:', error?.message || 'unknown error');
