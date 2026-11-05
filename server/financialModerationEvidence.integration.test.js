@@ -2348,7 +2348,7 @@ test('unledgered malformed Paddle adjustments require a later signed adjustment 
       [moderatorId, 'unledgered-adjustment-mod-' + moderatorId + '@example.invalid']
     );
     await client.query(
-      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'adjustment.created')",
+      "INSERT INTO paddle_webhook_events (event_id, event_type, processed_at) VALUES ($1, 'adjustment.created', statement_timestamp() - INTERVAL '1 minute')",
       [eventId]
     );
     await client.query(
