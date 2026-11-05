@@ -414,7 +414,7 @@ async function resolvePaddleAdjustmentReconciliationCases(client, transactionId,
 }
 
 async function recordPaddleProviderIdentityConflictCase(client, {
-  eventId, transactionId, userId, plan
+  eventId, transactionId, userId, plan, reasonCode = 'provider_identity_conflict'
 }) {
   const providerTransactionId = typeof transactionId === 'string' &&
     /^txn_[A-Za-z0-9]+$/.test(transactionId) ? transactionId : null;
@@ -422,12 +422,14 @@ async function recordPaddleProviderIdentityConflictCase(client, {
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)
     ? userId : null;
   const providerPlan = ['1month', '3months', 'lifetime'].includes(plan) ? plan : null;
+  const safeReasonCode = ['provider_identity_conflict', 'provider_lifecycle_conflict'].includes(reasonCode)
+    ? reasonCode : 'provider_identity_conflict';
   await client.query(
     `INSERT INTO paddle_adjustment_reconciliation_cases
        (event_id, reason_code, provider_transaction_id, provider_user_ref, provider_plan)
-     VALUES ($1, 'provider_identity_conflict', $2, $3, $4)
+     VALUES ($1, $2, $3, $4, $5)
      ON CONFLICT (event_id) DO NOTHING`,
-    [eventId, providerTransactionId, providerUserRef, providerPlan]
+    [eventId, safeReasonCode, providerTransactionId, providerUserRef, providerPlan]
   );
 }
 
@@ -818,7 +820,8 @@ export async function processPaddleEvent(pool, rawEvent) {
           currencyCode: paddleCurrencyCode(data)
         });
         await recordPaddleProviderIdentityConflictCase(client, {
-          eventId, transactionId, userId: null, plan: customData.plan
+          eventId, transactionId, userId: null, plan: customData.plan,
+          reasonCode: 'provider_lifecycle_conflict'
         });
         if (!customUserIdMetadataConflict && !ambiguousTransactionOwner) {
           await markPaddleCheckoutAttemptForReconciliation(
@@ -827,7 +830,7 @@ export async function processPaddleEvent(pool, rawEvent) {
         }
       }
       await client.query('COMMIT');
-      return { duplicate: false, handled: true, reconciliationRequired: Boolean(transactionId) };
+      return { duplicate: false, handled: true, ...(transactionId ? { reconciliationRequired: true } : {}) };
     }
 
     // Never persist a provider customer identifier that cannot be used by the
