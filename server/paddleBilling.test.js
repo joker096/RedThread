@@ -2968,6 +2968,12 @@ test('malformed customer ID on canceled transaction retains the valid transactio
     'the valid canceled transaction ID must not be discarded because customer metadata is malformed');
   assert.equal(conflict.params[2], null,
     'a contradictory owner alias pair must never be attributed to either account');
+  const transactionEvidence = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
+  assert.ok(transactionEvidence, 'the valid canceled transaction must remain in the immutable provider ledger');
+  assert.equal(transactionEvidence.params[1], 'txn_canceledbadcustomer123');
+  assert.equal(transactionEvidence.params[2], null,
+    'the provider ledger must preserve the transaction without attributing it to either conflicting account');
+  assert.equal(transactionEvidence.params[4], 'canceled');
   assert.equal(calls.some(call => call.statement.includes('UPDATE paddle_checkout_attempts')), false);
   assert.equal(calls.some(call => call.statement.includes('UPDATE users SET')), false);
 });
