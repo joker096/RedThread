@@ -651,7 +651,7 @@ test('completed Paddle transactions without a valid provider timestamp cannot gr
       }
     });
 
-    assert.deepEqual(result, { duplicate: false, handled: true });
+    assert.deepEqual(result, { duplicate: false, handled: true, reconciliationRequired: true });
     const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
     assert.ok(ledger, 'retain signed transaction evidence for moderator review');
     assert.equal(ledger.params[2], null, 'do not attribute malformed timestamp evidence to an account');
