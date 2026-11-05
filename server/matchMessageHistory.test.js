@@ -34,7 +34,7 @@ test('bounds message-history pagination and accepts only an explicit latest flag
     latest: false
   });
   assert.deepEqual(normalizeMatchMessageHistoryOptions({ limit: '0', offset: '12' }), {
-    limit: 1,
+    limit: 50,
     offset: 12,
     latest: false
   });
