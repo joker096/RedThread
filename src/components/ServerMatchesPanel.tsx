@@ -99,6 +99,28 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const messagesLogRef = useRef<HTMLDivElement | null>(null);
   const shouldAutoScrollMessagesRef = useRef(true);
 
+  // Drop every piece of account-scoped inbox state when the server rejects the session.
+  // This also invalidates pending reads/sends so an old account cannot repopulate the UI.
+  const clearSessionState = useCallback(() => {
+    sessionEpoch.current += 1;
+    sendInFlight.current = false;
+    messageRequestId.current += 1;
+    matchesRequestId.current += 1;
+    currentUserRequestId.current += 1;
+    setMatches([]);
+    setSelected('');
+    setMessages([]);
+    setDrafts({});
+    setCurrentUserId(null);
+    setAuthenticated(false);
+    setNotice('');
+    setMatchesLoading(false);
+    setMessagesLoading(false);
+    setMatchesFailed(false);
+    setMessagesFailed(false);
+    setBusy(false);
+  }, []);
+
   const loadMatches = useCallback(async () => {
     const requestId = ++matchesRequestId.current;
     setMatchesLoading(true);
@@ -107,15 +129,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       const response = await fetch('/api/matches', { credentials: 'include' });
       if (requestId !== matchesRequestId.current) return;
       if (response.status === 401) {
-        // Prevent older match-list requests from restoring an authenticated state.
-        matchesRequestId.current += 1;
-        messageRequestId.current += 1;
-        setMatchesLoading(false);
-        setMessagesLoading(false);
-        setAuthenticated(false);
-        setMatches([]);
-        setSelected('');
-        setMessages([]);
+        clearSessionState();
         setNotice(t('loginToSeeMatches'));
         return;
       }
@@ -147,7 +161,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     } finally {
       if (requestId === matchesRequestId.current) setMatchesLoading(false);
     }
-  }, [selected, t]);
+  }, [selected, t, clearSessionState]);
 
   const loadMessages = useCallback(async (matchId: string) => {
     if (!matchId) return;
@@ -158,15 +172,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/messages`, { credentials: 'include' });
       if (requestId !== messageRequestId.current) return;
       if (response.status === 401) {
-        // Invalidate in-flight reads/sends before clearing a session-expired chat.
-        messageRequestId.current += 1;
-        matchesRequestId.current += 1;
-        setMessagesLoading(false);
-        setMatchesLoading(false);
-        setAuthenticated(false);
-        setMatches([]);
-        setSelected('');
-        setMessages([]);
+        clearSessionState();
         setNotice(t('loginToSeeMatches'));
         return;
       }
@@ -200,7 +206,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     } finally {
       if (requestId === messageRequestId.current) setMessagesLoading(false);
     }
-  }, [t]);
+  }, [t, clearSessionState]);
 
   useEffect(() => { void loadMatches(); }, [loadMatches]);
   // Refresh the inbox when the user returns to the app so new mutual matches appear
@@ -310,13 +316,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       const data = await response.json().catch(() => null);
       if (requestId !== messageRequestId.current) return;
       if (response.status === 401) {
-        // The session expired while sending; discard the conversation and stale requests.
-        messageRequestId.current += 1;
-        matchesRequestId.current += 1;
-        setAuthenticated(false);
-        setMatches([]);
-        setSelected('');
-        setMessages([]);
+        clearSessionState();
         setNotice(t('loginToSeeMatches'));
         return;
       }
