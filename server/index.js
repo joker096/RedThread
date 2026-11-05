@@ -3695,7 +3695,6 @@ app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
         });
       }
 
-      /*
       const resolved = await client.query(
         `UPDATE paddle_adjustment_reconciliation_cases
          SET status = 'resolved',
