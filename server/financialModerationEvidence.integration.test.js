@@ -2336,6 +2336,7 @@ test('unledgered malformed Paddle adjustments require a later signed adjustment 
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   const client = await pool.connect();
   const moderatorId = randomUUID();
+  const earlierEventId = 'evt_' + randomUUID().replace(/-/g, '').slice(0, 26);
   const eventId = 'evt_' + randomUUID().replace(/-/g, '').slice(0, 26);
   const laterEventId = 'evt_' + randomUUID().replace(/-/g, '').slice(0, 26);
   const adjustmentId = 'adj_' + randomUUID().replace(/-/g, '').slice(0, 26);
@@ -2346,6 +2347,14 @@ test('unledgered malformed Paddle adjustments require a later signed adjustment 
     await client.query(
       "INSERT INTO users (id, email, password_hash, role, status) VALUES ($1, $2, 'test-only-hash', 'moderator', 'active')",
       [moderatorId, 'unledgered-adjustment-mod-' + moderatorId + '@example.invalid']
+    );
+    await client.query(
+      "INSERT INTO paddle_webhook_events (event_id, event_type, processed_at) VALUES ($1, 'adjustment.updated', statement_timestamp() - INTERVAL '2 minutes')",
+      [earlierEventId]
+    );
+    await client.query(
+      "INSERT INTO paddle_adjustment_events (event_id, adjustment_id, transaction_id, action, adjustment_type, status, amount_minor_units, currency_code, occurred_at) VALUES ($1, $2, $3, 'refund', 'partial', 'pending_approval', 250, 'USD', statement_timestamp() - INTERVAL '2 minutes')",
+      [earlierEventId, adjustmentId, transactionId]
     );
     await client.query(
       "INSERT INTO paddle_webhook_events (event_id, event_type, processed_at) VALUES ($1, 'adjustment.created', statement_timestamp() - INTERVAL '1 minute')",
