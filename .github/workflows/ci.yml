@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, "audit/**", "feat/contextual-advertising-policy"]
   pull_request:
-    branches: [main]
+    branches: [main, "feat/vow-messenger-inbox-redesign"]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
