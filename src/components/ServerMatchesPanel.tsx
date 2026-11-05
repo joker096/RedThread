@@ -549,6 +549,21 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     }
   };
 
+  const selectMatch = (matchId: string) => {
+    // Clicking the already-open conversation must not invalidate its active
+    // history request or clear the messages without triggering a state change.
+    if (selected === matchId) return;
+    messageRequestId.current += 1;
+    setMessages([]);
+    setMessagesOffset(0);
+    setMessagesHasMore(false);
+    setOlderMessagesLoading(false);
+    setOlderMessagesFailed(false);
+    pendingScrollAdjustmentRef.current = null;
+    setNotice('');
+    setSelected(matchId);
+  };
+
   const filteredMatches = matches.filter(match => {
     const query = searchQuery.trim().toLocaleLowerCase();
     const searchable = [match.displayName, match.city, match.country, match.lastMessage || ''].join(' ').toLocaleLowerCase();
@@ -596,7 +611,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
 
                 <div className="vow-inbox-quickstrip" role="group" aria-label={t('yourMatches')}>
                   {matches.slice(0, 8).map(match => (
-                    <button key={match.id} type="button" data-testid="server-match-quick-card" disabled={busy} aria-pressed={selected === match.id} onClick={() => { messageRequestId.current += 1; setMessages([]); setMessagesOffset(0); setMessagesHasMore(false); setOlderMessagesLoading(false); setOlderMessagesFailed(false); pendingScrollAdjustmentRef.current = null; setNotice(''); setSelected(match.id); }} className="vow-inbox-quickcard">
+                    <button key={match.id} type="button" data-testid="server-match-quick-card" disabled={busy} aria-pressed={selected === match.id} onClick={() => selectMatch(match.id)} className="vow-inbox-quickcard">
                       <span className="vow-inbox-avatar vow-inbox-avatar--quick">{initials(match.displayName)}</span>
                       <span>{match.displayName}</span>
                     </button>
@@ -611,7 +626,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
 
                 <div className="vow-inbox-list" role="group" aria-label={t('chatThreads')}>
                   {filteredMatches.map(match => (
-                    <button data-testid="server-match-item" type="button" key={match.id} ref={node => { if (node) matchButtonRefs.current.set(match.id, node); else matchButtonRefs.current.delete(match.id); }} aria-pressed={selected === match.id} disabled={busy} onClick={() => { messageRequestId.current += 1; setMessages([]); setMessagesOffset(0); setMessagesHasMore(false); setOlderMessagesLoading(false); setOlderMessagesFailed(false); pendingScrollAdjustmentRef.current = null; setNotice(''); setSelected(match.id); }} className={`vow-inbox-row ${selected === match.id ? 'is-selected' : ''}`}>
+                    <button data-testid="server-match-item" type="button" key={match.id} ref={node => { if (node) matchButtonRefs.current.set(match.id, node); else matchButtonRefs.current.delete(match.id); }} aria-pressed={selected === match.id} disabled={busy} onClick={() => selectMatch(match.id)} className={`vow-inbox-row ${selected === match.id ? 'is-selected' : ''}`}>
                       <span className="vow-inbox-avatar">{initials(match.displayName)}</span>
                       <span className="vow-inbox-row-copy">
                         <span className="vow-inbox-row-title">{match.displayName}, {match.age}</span>
