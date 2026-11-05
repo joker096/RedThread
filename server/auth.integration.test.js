@@ -2068,6 +2068,15 @@ test('auth API supports registration, session lookup, logout and login', {
     } finally {
       const [quotaUserA, quotaUserB] = [registered.user.id, maleRegistered.user.id].sort();
       await identityGateDb.query(
+        `DELETE FROM user_notifications
+         WHERE dedupe_key = 'match:' || (
+           SELECT id::text FROM matches
+           WHERE user_a_id = $1 AND user_b_id = $2
+           LIMIT 1
+         )`,
+        [quotaUserA, quotaUserB]
+      ).catch(() => {});
+      await identityGateDb.query(
         'DELETE FROM matches WHERE user_a_id = $1 AND user_b_id = $2',
         [quotaUserA, quotaUserB]
       ).catch(() => {});
