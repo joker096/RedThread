@@ -1955,3 +1955,96 @@ test('gift request notification opens the chats request list without exposing re
   await page.getByRole('button', { name: 'Review gift' }).click();
   await expect.poll(async () => (await ordersPanel.boundingBox())?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(250);
 });
+
+
+test('real Vow inbox supports search, conversation filters and mobile chat navigation', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/auth/me', async route => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ user: { id: 'e2e-current-user' } }) });
+  });
+  await page.route('**/api/matches**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/messages')) {
+      if (route.request().method() === 'POST') {
+        const payload = route.request().postDataJSON() as { text?: string };
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({ message: { id: 'e2e-sent-message', senderId: 'e2e-current-user', text: payload.text || '', createdAt: new Date().toISOString() } })
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ messages: [{ id: 'e2e-incoming-message', senderId: 'e2e-partner-1', text: 'Давай продолжим знакомство', createdAt: '2026-11-05T08:00:00.000Z' }] })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ matches: [
+        { id: 'e2e-match-1', partnerId: 'e2e-partner-1', displayName: 'Александра', age: 29, country: 'Грузия', city: 'Тбилиси', lastMessage: 'Давай продолжим знакомство', lastMessageAt: '2026-11-05T08:00:00.000Z' },
+        { id: 'e2e-match-2', partnerId: 'e2e-partner-2', displayName: 'Мария', age: 31, country: 'Грузия', city: 'Батуми', lastMessage: null, lastMessageAt: null }
+      ] })
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('[data-testid="nav-chats"]:visible').first().click();
+  await expect(page.getByTestId('server-matches-panel')).toBeVisible();
+  await expect(page.getByTestId('server-match-item')).toHaveCount(2);
+  await expect(page.getByTestId('server-match-quick-card')).toHaveCount(2);
+
+  const search = page.getByTestId('server-match-search');
+  await search.fill('Александра');
+  await expect(page.getByTestId('server-match-item')).toHaveCount(1);
+  await expect(page.getByTestId('server-match-item').first()).toContainText('Александра');
+
+  await search.fill('');
+  await page.getByTestId('server-match-filter-new').click();
+  await expect(page.getByTestId('server-match-item')).toHaveCount(1);
+  await expect(page.getByTestId('server-match-item').first()).toContainText('Мария');
+
+  await page.getByTestId('server-match-filter-messaged').click();
+  await expect(page.getByTestId('server-match-item')).toHaveCount(1);
+  await expect(page.getByTestId('server-match-item').first()).toContainText('Александра');
+
+  await page.getByTestId('server-match-item').first().click();
+  await expect(page.getByTestId('real-match-chat')).toBeVisible();
+  await expect(page.getByTestId('server-match-back')).toBeVisible();
+  await expect(page.getByTestId('server-match-messages')).toContainText('Давай продолжим знакомство');
+
+  await page.getByRole('textbox', { name: /write a message|напишите сообщение/i }).fill('Предлагаю встретиться в субботу');
+  await page.getByTestId('server-match-send').click();
+  await expect(page.getByTestId('server-match-messages')).toContainText('Предлагаю встретиться в субботу');
+
+  await page.getByTestId('server-match-back').click();
+  await expect(page.getByTestId('server-match-item')).toHaveCount(2);
+  const dimensions = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, document: document.documentElement.scrollWidth }));
+  expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport + 1);
+});
+
+test('real Vow inbox keeps the list and selected conversation side by side on desktop', async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await page.route('**/api/matches**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/messages')) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ messages: [] }) });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ matches: [{ id: 'desktop-match', partnerId: 'desktop-partner', displayName: 'Елена', age: 30, country: 'Грузия', city: 'Тбилиси', lastMessage: 'Здравствуйте', lastMessageAt: '2026-11-05T08:00:00.000Z' }] })
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('[data-testid="nav-chats"]:visible').first().click();
+  await page.getByTestId('server-match-item').first().click();
+  await expect(page.getByTestId('real-match-chat')).toBeVisible();
+  await expect(page.getByTestId('server-match-item').first()).toBeVisible();
+  await expect(page.getByTestId('server-match-back')).toBeHidden();
+});
