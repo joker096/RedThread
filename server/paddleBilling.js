@@ -901,10 +901,26 @@ export async function processPaddleEvent(pool, rawEvent) {
           eventId, transactionId, userId: null, plan: customData.plan,
           reasonCode: 'invalid_transaction_timestamp'
         });
-        if (!customUserIdMetadataConflict && !ambiguousTransactionOwner) {
+        const malformedTimestampPlanConflict =
+          Object.prototype.hasOwnProperty.call(customData, 'plan') &&
+          customData.plan !== inferPaddleTransactionPlan(data);
+        if (!customUserIdMetadataConflict && !ambiguousTransactionOwner && !malformedTimestampPlanConflict) {
           await markPaddleCheckoutAttemptForReconciliation(
             client, customUserId, customData.plan, transactionId, checkoutAttemptId
           );
+          // The canonical transaction event may already have arrived before
+          // this malformed redelivery. Its timestamped immutable evidence is
+          // sufficient to close only this timestamp quarantine, never a true
+          // completed/canceled lifecycle conflict.
+          const verifiedOwner = await findPaddleTransactionOwner(client, {
+            attemptUserId: customUserId,
+            transactionId,
+            subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
+            customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null
+          });
+          if (verifiedOwner) {
+            await resolveInvalidPaddleTransactionTimestampCases(client, transactionId, verifiedOwner);
+          }
         }
       }
       await client.query('COMMIT');
