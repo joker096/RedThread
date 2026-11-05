@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main, "feat/contextual-advertising-policy"]
+    branches: [main, "feat/**"]
 
 permissions:
   contents: read
