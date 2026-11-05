@@ -593,7 +593,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                     <form className="vow-inbox-composer" onSubmit={event => { event.preventDefault(); void send(); }}>
                       <textarea dir="auto" aria-label={t('writeMessage')} value={draft} onChange={event => setDrafts(current => ({ ...current, [selected]: event.target.value }))} onKeyDown={event => { if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || busy || !draft.trim()) return; event.preventDefault(); void send(); }} disabled={busy} maxLength={4000} rows={2} placeholder={t('writeMessage')} />
                       <button data-testid="server-match-send" type="submit" disabled={busy || !draft.trim()}>{busy ? t('sendingMessage') : t('sendMessage')}</button>
-                      <button type="button" data-testid="server-match-refresh-messages" onClick={() => void loadMessages(selected)} disabled={busy || messagesLoading}>{t('refreshMessages')}</button>
+                      <button type="button" data-testid="server-match-refresh-messages" onClick={() => { shouldAutoScrollMessagesRef.current = true; void loadMessages(selected); }} disabled={busy || messagesLoading}>{t('refreshMessages')}</button>
                     </form>
                   </>
                 ) : (
