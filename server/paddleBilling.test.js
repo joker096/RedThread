@@ -2585,6 +2585,10 @@ test('Paddle manual resolution refuses to close a refund until a later provider 
   assert.ok(migration.includes("source.action = 'refund'"));
   assert.ok(migration.includes("source.adjustment_type IS NULL"));
   assert.ok(migration.includes("verified_scope.adjustment_type IN ('full', 'partial')"));
+  const lock = migration.match(/LOCK TABLE ([^;]+) IN SHARE ROW EXCLUSIVE MODE;/);
+  assert.deepEqual(lock?.[1].split(',').map(table => table.trim()),
+    ['paddle_adjustment_events', 'paddle_adjustment_reconciliation_cases'],
+    'migration lock order must match webhook insertion order');
 
   const api = await readFile(new URL('./index.js', import.meta.url), 'utf8');
   assert.ok(api.includes('has_verified_refund_scope'));
