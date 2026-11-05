@@ -85,11 +85,23 @@ BEGIN
                  'subscription.created', 'subscription.updated', 'subscription.canceled'
                )
              )
+             OR (
+               NEW.reason_code = 'provider_lifecycle_conflict'
+               AND NEW.provider_transaction_id IS NOT NULL
+               AND webhook.event_type IN (
+                 'transaction.paid', 'transaction.completed', 'transaction.canceled',
+                 'subscription.created'
+               )
+             )
            )
        )
        OR (
          NEW.reason_code = 'invalid_subscription_timestamp'
          AND NEW.provider_subscription_id IS NULL
+       )
+       OR (
+         NEW.reason_code = 'provider_lifecycle_conflict'
+         AND NEW.provider_transaction_id IS NULL
        )
        OR (
          NEW.reason_code = 'invalid_adjustment_payload'
@@ -179,6 +191,10 @@ BEGIN
            AND audit.details->>'providerUserRef' IS NOT DISTINCT FROM NEW.provider_user_ref::text
            AND audit.details->>'providerPlan' IS NOT DISTINCT FROM NEW.provider_plan
            AND audit.details->>'providerSubscriptionId' IS NOT DISTINCT FROM NEW.provider_subscription_id
+           AND (
+             NEW.reason_code <> 'provider_lifecycle_conflict'
+             OR length(btrim(COALESCE(audit.details->>'providerEvidenceReference', ''))) BETWEEN 1 AND 200
+           )
        )
      ) THEN
     RAISE EXCEPTION 'manual Paddle resolution requires later verified adjustment evidence, verified refund scope and matching moderator audit evidence'
