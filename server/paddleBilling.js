@@ -794,6 +794,42 @@ export async function processPaddleEvent(pool, rawEvent) {
         : null;
     const ambiguousTransactionOwner = await isPaddleTransactionOwnerAmbiguous(client, ownerCheckTransactionId);
     if (ambiguousTransactionOwner) reconciliationContext.userId = null;
+
+    // Transaction lifecycle events are entitlement evidence too. Unlike
+    // subscription lifecycle events, they must not be allowed to grant or
+    // finalize access when their signed provider timestamp is absent/invalid.
+    // Preserve the event without assigning an owner and leave the exact checkout
+    // attempt in reconciliation rather than trusting local receipt time.
+    if (['transaction.paid', 'transaction.completed', 'transaction.canceled'].includes(eventType) &&
+        (!occurredAt || !Number.isFinite(Date.parse(occurredAt)))) {
+      const transactionId = typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)
+        ? data.id : null;
+      if (transactionId) {
+        const status = eventType === 'transaction.completed' ? 'completed'
+          : eventType === 'transaction.paid' ? 'paid' : 'canceled';
+        await recordPaddleTransactionEvent(client, {
+          eventId, transactionId, userId: null,
+          plan: inferPaddleTransactionPlan(data),
+          status,
+          subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
+          customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null,
+          occurredAt: null,
+          ...paddleTransactionFinancialTotals(data),
+          currencyCode: paddleCurrencyCode(data)
+        });
+        await recordPaddleProviderIdentityConflictCase(client, {
+          eventId, transactionId, userId: null, plan: customData.plan
+        });
+        if (!customUserIdMetadataConflict && !ambiguousTransactionOwner) {
+          await markPaddleCheckoutAttemptForReconciliation(
+            client, customUserId, customData.plan, transactionId, checkoutAttemptId
+          );
+        }
+      }
+      await client.query('COMMIT');
+      return { duplicate: false, handled: true };
+    }
+
     // Never persist a provider customer identifier that cannot be used by the
     // authenticated portal/cancellation flows. A signed but malformed event is
     // consumed without changing account identity, avoiding endless webhook retries.
