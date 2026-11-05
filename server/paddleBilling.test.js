@@ -57,8 +57,8 @@ test('malformed subscription lifecycle events are acknowledged without entitleme
   const { processPaddleEvent } = await import('./paddleBilling.js');
   const queries = [];
   const client = {
-    async query(sql) {
-      queries.push(String(sql));
+    async query(sql, params) {
+      queries.push({ sql: String(sql), params });
       if (String(sql).includes('INSERT INTO paddle_webhook_events')) {
         return { rowCount: 1, rows: [{ event_id: 'evt_malformed_lifecycle' }] };
       }
