@@ -231,9 +231,11 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       setProfiles(nextProfiles);
       setAuthenticated(true);
       setSearchFailed(false);
-      setNotice(data?.dailyQuota
-        ? (data.dailyQuota.remaining === 0 ? t('freeDailyProfilesExhausted') : t('freeDailyProfilesAvailable'))
-        : (nextProfiles.length ? `${t('registeredProfiles')}: ${formatNumber(nextProfiles.length)}` : t('noProfilesForFilters')));
+      setNotice(data?.dailyQuota && data.dailyQuota.remaining === 0
+        ? t('freeDailyProfilesExhausted')
+        : (nextProfiles.length
+            ? (data?.dailyQuota ? t('freeDailyProfilesAvailable') : `${t('registeredProfiles')}: ${formatNumber(nextProfiles.length)}`)
+            : t('noProfilesForFilters')));
     } catch (error) {
       if (isCurrentDiscoverySearchResponse(requestId, searchRequestId.current, actionEpoch, sessionEpoch.current)) {
         setProfiles([]);
