@@ -203,15 +203,22 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(forbiddenModerationAction.status, 403, 'ordinary users must not perform moderator actions');
 
     const reconciliationEventId = `evt_${randomUUID().replaceAll('-', '').slice(0, 26)}`;
+    const verifiedAdjustmentEventId = `evt_${randomUUID().replaceAll('-', '').slice(0, 26)}`;
+    const reconciliationAdjustmentId = `adj_${randomUUID().replaceAll('-', '').slice(0, 26)}`;
+    const reconciliationTransactionId = `txn_${randomUUID().replaceAll('-', '').slice(0, 26)}`;
     const reconciliationDb = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
     try {
       await reconciliationDb.query(
-        "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'adjustment.created')",
-        [reconciliationEventId]
+        "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'adjustment.created'), ($2, 'adjustment.updated')",
+        [reconciliationEventId, verifiedAdjustmentEventId]
       );
       await reconciliationDb.query(
-        "INSERT INTO paddle_adjustment_reconciliation_cases (event_id, reason_code) VALUES ($1, 'invalid_adjustment_payload')",
-        [reconciliationEventId]
+        "INSERT INTO paddle_adjustment_reconciliation_cases (event_id, reason_code, provider_adjustment_id, provider_transaction_id) VALUES ($1, 'invalid_adjustment_payload', $2, $3)",
+        [reconciliationEventId, reconciliationAdjustmentId, reconciliationTransactionId]
+      );
+      await reconciliationDb.query(
+        "INSERT INTO paddle_adjustment_events (event_id, adjustment_id, transaction_id, action, adjustment_type, status, amount_minor_units, currency_code, occurred_at) VALUES ($1, $2, $3, 'refund', 'partial', 'pending_approval', 250, 'USD', statement_timestamp())",
+        [verifiedAdjustmentEventId, reconciliationAdjustmentId, reconciliationTransactionId]
       );
       const forbiddenResolution = await request(
         `/api/admin/paddle-adjustment-reconciliation/${reconciliationEventId}/resolve`,
