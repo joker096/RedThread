@@ -131,6 +131,23 @@ function inferPaddleTransactionPlan(data) {
   return matches.length === 1 ? matches[0] : null;
 }
 
+async function isPaddleTransactionOwnerAmbiguous(client, transactionId) {
+  if (typeof transactionId !== 'string' || !/^txn_[A-Za-z0-9]+$/.test(transactionId)) return false;
+  const result = await client.query(
+    `SELECT COUNT(DISTINCT user_id) > 1 AS ambiguous
+     FROM (
+       SELECT user_id, transaction_id FROM paddle_checkout_attempts
+       UNION ALL
+       SELECT user_id, transaction_id FROM paddle_checkout_attempt_history
+       UNION ALL
+       SELECT user_id, transaction_id FROM paddle_transaction_events WHERE user_id IS NOT NULL
+     ) AS owners
+     WHERE transaction_id = $1`,
+    [transactionId]
+  );
+  return result.rows?.[0]?.ambiguous === true;
+}
+
 async function findPaddleTransactionOwner(client, {
   attemptUserId = null, transactionId = null, subscriptionId = null, customerId = null
 } = {}) {
@@ -768,6 +785,13 @@ export async function processPaddleEvent(pool, rawEvent) {
     const customerId = typeof data.customerId === 'string' ? data.customerId
       : typeof data.customer_id === 'string' ? data.customer_id
         : (eventType === 'customer.created' || eventType === 'customer.updated') && typeof data.id === 'string' ? data.id : null;
+    const ownerCheckTransactionId = ['transaction.completed', 'transaction.canceled'].includes(eventType)
+      ? data.id
+      : eventType === 'subscription.created'
+        ? (typeof data.transactionId === 'string' ? data.transactionId
+          : typeof data.transaction_id === 'string' ? data.transaction_id : null)
+        : null;
+    const ambiguousTransactionOwner = await isPaddleTransactionOwnerAmbiguous(client, ownerCheckTransactionId);
     // Never persist a provider customer identifier that cannot be used by the
     // authenticated portal/cancellation flows. A signed but malformed event is
     // consumed without changing account identity, avoiding endless webhook retries.
@@ -793,7 +817,7 @@ export async function processPaddleEvent(pool, rawEvent) {
           ? (typeof data.transactionId === 'string' ? data.transactionId
             : typeof data.transaction_id === 'string' ? data.transaction_id : null)
           : null;
-      if (!customUserIdMetadataConflict && !subscriptionOwnerMetadataConflict) {
+      if (!customUserIdMetadataConflict && !subscriptionOwnerMetadataConflict && !ambiguousTransactionOwner) {
         await markPaddleCheckoutAttemptForReconciliation(
           client, reconciliationContext.userId, reconciliationContext.plan, malformedEventTransactionId, reconciliationContext.attemptId
         );
@@ -824,7 +848,8 @@ export async function processPaddleEvent(pool, rawEvent) {
         : priceId === process.env.PADDLE_PRICE_ID_3MONTHS ? '3months' : null;
       const providerPlanMetadataConflict =
         Object.prototype.hasOwnProperty.call(customData, 'plan') && customData.plan !== checkoutPlan;
-      const subscriptionIdentityConflict = subscriptionOwnerMetadataConflict || providerPlanMetadataConflict;
+      const subscriptionIdentityConflict = subscriptionOwnerMetadataConflict ||
+        ambiguousTransactionOwner || providerPlanMetadataConflict;
       // A newly-created subscription is the event that grants recurring access.
       // Require a matching durable checkout attempt; custom_data and a known price
       // alone are not proof that this account initiated this Vow checkout.
@@ -842,7 +867,7 @@ export async function processPaddleEvent(pool, rawEvent) {
         await recordPaddleProviderIdentityConflictCase(client, {
           eventId,
           transactionId: validSubscriptionTransactionId ? subscriptionTransactionId : null,
-          userId: customUserIdMetadataConflict ? null : customUserId,
+          userId: customUserIdMetadataConflict || ambiguousTransactionOwner ? null : customUserId,
           plan: customData.plan
         });
         // A subscription.created event can grant access, so any owner/plan
@@ -851,7 +876,7 @@ export async function processPaddleEvent(pool, rawEvent) {
         // retained owner, but never extend access from contradictory metadata.
         if (eventType === 'subscription.created' || active) {
           if (eventType === 'subscription.created') {
-            if (!subscriptionOwnerMetadataConflict) {
+            if (!subscriptionOwnerMetadataConflict && !ambiguousTransactionOwner) {
               await markPaddleCheckoutAttemptForReconciliation(
                 client, customUserId, customData.plan, subscriptionTransactionId, checkoutAttemptId
               );
@@ -865,7 +890,7 @@ export async function processPaddleEvent(pool, rawEvent) {
       const subscriptionUpdateCustomerId = subscriptionIdentityConflict ? null : customerId;
       const subscriptionUpdatePriceId = subscriptionIdentityConflict ? null : priceId;
       let subscriptionAttemptClaim = { rowCount: 0, rows: [] };
-      if (eventType === 'subscription.created' && customUserId &&
+      if (eventType === 'subscription.created' && customUserId && !ambiguousTransactionOwner &&
           checkoutPlan && customData.plan === checkoutPlan && validSubscriptionTransactionId) {
         subscriptionAttemptClaim = await client.query(
           `UPDATE paddle_checkout_attempts
@@ -885,7 +910,7 @@ export async function processPaddleEvent(pool, rawEvent) {
         // Persist the webhook event id, but do not grant an entitlement when no
         // server-created checkout attempt can be matched. If the originating
         // transaction is valid, mark only that exact/in-flight attempt for review.
-        if (!subscriptionOwnerMetadataConflict) {
+        if (!subscriptionOwnerMetadataConflict && !ambiguousTransactionOwner) {
           await markPaddleCheckoutAttemptForReconciliation(
             client, reconciliationContext.userId, customData.plan, subscriptionTransactionId, checkoutAttemptId
           );
@@ -992,7 +1017,7 @@ export async function processPaddleEvent(pool, rawEvent) {
         // A retained transaction link must not override contradictory signed
         // checkout metadata. Preserve the provider event without attributing it
         // to the old account; the conflict remains visible for reconciliation.
-        const providerOwnerConflict = customUserIdMetadataConflict ||
+        const providerOwnerConflict = customUserIdMetadataConflict || ambiguousTransactionOwner ||
           Boolean(customUserId && transactionOwnerUserId && customUserId !== transactionOwnerUserId);
         const providerPlanConflict = Object.prototype.hasOwnProperty.call(customData, 'plan') &&
           customData.plan !== transactionPlan;
@@ -1066,7 +1091,8 @@ export async function processPaddleEvent(pool, rawEvent) {
       // Contradictory owner aliases are ambiguous identity evidence. Do not
       // claim even an otherwise matching checkout attempt: downstream entitlement
       // writes are intentionally gated by this exact claim result.
-      const attemptClaim = !customUserIdMetadataConflict && transactionPlanMatches && customUserId && data.id
+      const attemptClaim = !customUserIdMetadataConflict && !ambiguousTransactionOwner &&
+        transactionPlanMatches && customUserId && data.id
         ? await client.query(
           `UPDATE paddle_checkout_attempts
            SET transaction_id = $1, status = 'completed', updated_at = NOW()
@@ -1098,7 +1124,7 @@ export async function processPaddleEvent(pool, rawEvent) {
       if (providerOwnerConflict || providerPlanConflict) {
         await recordPaddleProviderIdentityConflictCase(client, {
           eventId, transactionId: data.id,
-          userId: customUserIdMetadataConflict ? null : customUserId,
+          userId: customUserIdMetadataConflict || ambiguousTransactionOwner ? null : customUserId,
           plan: customData.plan
         });
         transactionOwnerUserId = null;
@@ -1267,7 +1293,7 @@ export async function processPaddleEvent(pool, rawEvent) {
           subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
           customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null
         });
-        const canceledOwnerConflict = customUserIdMetadataConflict || canceledPlanConflict ||
+        const canceledOwnerConflict = customUserIdMetadataConflict || ambiguousTransactionOwner || canceledPlanConflict ||
           Boolean(customUserId && transactionOwnerUserId && customUserId !== transactionOwnerUserId);
         const canceledAttempt = canceledOwnerConflict
           ? { rows: [] }
@@ -1294,7 +1320,7 @@ export async function processPaddleEvent(pool, rawEvent) {
           await recordPaddleProviderIdentityConflictCase(client, {
             eventId,
             transactionId: data.id,
-            userId: customUserIdMetadataConflict ? null : customUserId,
+            userId: customUserIdMetadataConflict || ambiguousTransactionOwner ? null : customUserId,
             plan: customData.plan
           });
           transactionOwnerUserId = null;
