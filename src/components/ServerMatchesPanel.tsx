@@ -169,7 +169,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     setMessagesLoading(true);
     setMessagesFailed(false);
     try {
-      const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/messages`, { credentials: 'include' });
+      const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/messages?limit=100&latest=true`, { credentials: 'include' });
       if (requestId !== messageRequestId.current) return;
       if (response.status === 401) {
         clearSessionState();
