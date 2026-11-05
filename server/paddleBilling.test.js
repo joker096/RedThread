@@ -94,9 +94,19 @@ test('malformed subscription lifecycle events are acknowledged without entitleme
   ];
 
   for (const event of malformedEvents) {
-    assert.deepEqual(await processPaddleEvent(pool, event), { duplicate: false, handled: true });
+    assert.deepEqual(await processPaddleEvent(pool, event), {
+      duplicate: false, handled: true, reconciliationRequired: true
+    });
   }
   assert.equal(queries.filter(sql => sql.includes('INSERT INTO paddle_webhook_events')).length, 4);
+  const queued = queries.filter(sql => sql.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
+  assert.equal(queued.length, 4);
+  assert.deepEqual(queued.map(query => query.params), [
+    ['evt_missing_timestamp', 'invalid_subscription_timestamp', 'sub_valid123'],
+    ['evt_invalid_timestamp', 'invalid_subscription_timestamp', 'sub_valid123'],
+    ['evt_missing_subscription_id', 'invalid_subscription_identity', null],
+    ['evt_malformed_subscription_id', 'invalid_subscription_identity', null]
+  ]);
   assert.equal(queries.some(sql => sql.includes('UPDATE users')), false);
   assert.equal(queries.filter(sql => sql === 'COMMIT').length, 4);
   assert.equal(queries.some(sql => sql === 'ROLLBACK'), false);
