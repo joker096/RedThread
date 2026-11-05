@@ -652,11 +652,8 @@ test('completed Paddle transactions without a valid provider timestamp cannot gr
     });
 
     assert.deepEqual(result, { duplicate: false, handled: true, reconciliationRequired: true });
-    const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
-    assert.ok(ledger, 'retain signed transaction evidence for moderator review');
-    assert.equal(ledger.params[2], null, 'do not attribute malformed timestamp evidence to an account');
-    assert.equal(ledger.params[4], 'completed');
-    assert.equal(ledger.params[12], null, 'do not substitute server receipt time for provider chronology');
+    assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_transaction_events')), false,
+      'untrusted chronology must not enter the transaction lifecycle ledger');
     const reconciliation = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
     assert.ok(reconciliation, 'record the provider lifecycle anomaly for reconciliation');
     assert.ok(reconciliation.statement.includes("'provider_lifecycle_conflict'"));
@@ -716,10 +713,10 @@ test('Paddle transaction timestamps must be strict RFC3339 calendar instants', a
     });
 
     assert.equal(result.reconciliationRequired, true, 'malformed provider chronology must enter reconciliation');
-    const ledger = calls.find(call => call.statement.includes('INSERT INTO paddle_transaction_events'));
-    assert.ok(ledger, 'retain the signed transaction identity');
-    assert.equal(ledger.params[2], null, 'do not attribute malformed time evidence to an account');
-    assert.equal(ledger.params[12], null, 'never persist an invalid provider timestamp');
+    assert.equal(calls.some(call => call.statement.includes('INSERT INTO paddle_transaction_events')), false,
+      'untrusted chronology must not become transaction lifecycle evidence');
+    const reconciliation = calls.find(call => call.statement.includes('INSERT INTO paddle_adjustment_reconciliation_cases'));
+    assert.ok(reconciliation, 'retain the validated transaction ID in reconciliation evidence');
     assert.equal(calls.some(call => call.statement.includes('premium_lifetime = TRUE')), false,
       'malformed provider chronology must not grant Premium');
     assert.equal(calls.some(call => call.statement.includes("SET status = 'reconciliation_required'")), true,
