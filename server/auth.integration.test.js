@@ -2241,6 +2241,33 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(malformedHistoryCursor.status, 400,
       'a partial cursor must be rejected instead of silently returning the newest page');
 
+    const originalFemaleEntitlement = await identityGateDb.query(
+      'SELECT female_trial_ends_at, premium_until, premium_lifetime FROM users WHERE id = $1',
+      [registered.user.id]
+    );
+    assert.equal(originalFemaleEntitlement.rowCount, 1);
+    try {
+      await identityGateDb.query(
+        `UPDATE users SET female_trial_ends_at = NOW() - INTERVAL '1 day',
+           premium_until = NULL, premium_lifetime = FALSE WHERE id = $1`,
+        [registered.user.id]
+      );
+      const expiredFemaleSend = await request(`/api/matches/${matchPayload.match.id}/messages`, {
+        method: 'POST',
+        headers: { Cookie: secondCookie },
+        body: JSON.stringify({ text: 'Обход ограничения подписки через прямой POST' })
+      });
+      assert.equal(expiredFemaleSend.status, 402,
+        'an expired free female account must not bypass the paid-feature gate by posting directly to the message API');
+      assert.equal((await expiredFemaleSend.json()).error, 'premium_required');
+    } finally {
+      const entitlement = originalFemaleEntitlement.rows[0];
+      await identityGateDb.query(
+        'UPDATE users SET female_trial_ends_at = $2, premium_until = $3, premium_lifetime = $4 WHERE id = $1',
+        [registered.user.id, entitlement.female_trial_ends_at, entitlement.premium_until, entitlement.premium_lifetime]
+      );
+    }
+
     const noSessionMessages = await request(`/api/matches/${matchPayload.match.id}/messages`);
     assert.equal(noSessionMessages.status, 401);
 
