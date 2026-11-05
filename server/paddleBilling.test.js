@@ -2611,7 +2611,7 @@ test('Paddle manual resolution keeps unledgered malformed adjustment events open
   assert.ok(migration.includes("verified_adjustment.adjustment_type IN ('full', 'partial')"));
   assert.ok(migration.includes('verified_webhook.event_id = verified_adjustment.event_id'));
   assert.ok(migration.includes('verified_webhook.processed_at > original_webhook.processed_at'));
-  assert.ok(migration.includes('verified_webhook.processed_at > original_webhook.processed_at'));
+  assert.ok(migration.includes('original_webhook.event_id = source.event_id'));
   assert.ok(migration.includes("verified_webhook.event_type IN ('adjustment.created', 'adjustment.updated')"));
   const lock = migration.match(/LOCK TABLE ([^;]+) IN SHARE ROW EXCLUSIVE MODE;/);
   assert.deepEqual(lock?.[1].split(',').map(table => table.trim()),
