@@ -2797,7 +2797,7 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
       const femaleAccount = femaleAccountResult.rows[0];
       if (femaleAccount?.gender === 'female' && !hasFemalePremiumAccess(femaleAccount)) {
         const recentMatches = await client.query(
-          `SELECT COUNT(*)::int AS count
+          `SELECT COUNT(*)::int AS count, MIN(created_at) + INTERVAL '7 days' AS next_available_at
            FROM matches
            WHERE (user_a_id = $1 OR user_b_id = $1)
              AND created_at >= GREATEST(
@@ -2813,7 +2813,10 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
             liked: true,
             matched: false,
             match: null,
-            quota: { type: 'weekly_matches', limit: 1, windowDays: 7, exhausted: true }
+            quota: {
+              type: 'weekly_matches', limit: 1, windowDays: 7, exhausted: true,
+              nextAvailableAt: recentMatches.rows[0]?.next_available_at || null
+            }
           });
         }
       }
