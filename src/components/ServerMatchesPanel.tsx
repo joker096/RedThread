@@ -196,7 +196,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     setMessagesFailed(false);
     try {
       const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/messages?limit=${MESSAGE_PAGE_SIZE}&latest=true`, { credentials: 'include' });
-      if (actionEpoch !== sessionEpoch.current) return;
+      if (requestId !== messageRequestId.current) return;
       if (response.status === 401) {
         clearSessionState();
         setNotice(t('loginToSeeMatches'));
@@ -400,7 +400,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         body: JSON.stringify({ text })
       });
       const data = await response.json().catch(() => null);
-      if (requestId !== messageRequestId.current) return;
+      if (actionEpoch !== sessionEpoch.current) return;
       if (response.status === 401) {
         clearSessionState();
         setNotice(t('loginToSeeMatches'));
