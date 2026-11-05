@@ -2182,7 +2182,34 @@ test('auth API supports registration, session lookup, logout and login', {
       headers: { Cookie: secondCookie }
     });
     assert.equal(readMessages.status, 200);
-    assert.equal((await readMessages.json()).messages.some(message => message.id === sentMessage.id), true);
+    const legacyHistory = (await readMessages.json()).messages;
+    assert.equal(legacyHistory.some(message => message.id === sentMessage.id), true);
+
+    const latestHistoryResponse = await request(
+      `/api/matches/${matchPayload.match.id}/messages?limit=100&latest=true`,
+      { headers: { Cookie: secondCookie } }
+    );
+    assert.equal(latestHistoryResponse.status, 200);
+    const latestHistory = (await latestHistoryResponse.json()).messages;
+    const cursorMessage = latestHistory.find(message => message.id === sentMessage.id);
+    assert.ok(cursorMessage, 'latest history must include the newly sent message');
+    assert.match(cursorMessage.cursorCreatedAt, /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$/,
+      'keyset cursors must preserve PostgreSQL microsecond precision');
+
+    const olderHistoryResponse = await request(
+      `/api/matches/${matchPayload.match.id}/messages?limit=100&latest=true&beforeCreatedAt=${encodeURIComponent(cursorMessage.cursorCreatedAt)}&beforeId=${encodeURIComponent(cursorMessage.id)}`,
+      { headers: { Cookie: secondCookie } }
+    );
+    assert.equal(olderHistoryResponse.status, 200);
+    assert.equal((await olderHistoryResponse.json()).messages.some(message => message.id === sentMessage.id), false,
+      'the exclusive keyset cursor must not repeat its boundary message');
+
+    const malformedHistoryCursor = await request(
+      `/api/matches/${matchPayload.match.id}/messages?latest=true&beforeCreatedAt=${encodeURIComponent(cursorMessage.cursorCreatedAt)}`,
+      { headers: { Cookie: secondCookie } }
+    );
+    assert.equal(malformedHistoryCursor.status, 400,
+      'a partial cursor must be rejected instead of silently returning the newest page');
 
     const noSessionMessages = await request(`/api/matches/${matchPayload.match.id}/messages`);
     assert.equal(noSessionMessages.status, 401);
