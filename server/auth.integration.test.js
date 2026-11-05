@@ -2147,11 +2147,18 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(maleFinalLikeAtQuota.status, 201);
     const maleQuotaPayload = await maleFinalLikeAtQuota.json();
+    assert.equal(maleQuotaPayload.liked, false,
+      'the final like is not persisted while the weekly match quota is exhausted');
     assert.equal(maleQuotaPayload.matched, false);
     assert.equal(maleQuotaPayload.quota?.type, 'weekly_matches');
     assert.equal(maleQuotaPayload.quota?.exhausted, true);
     assert.ok(maleQuotaPayload.quota?.nextAvailableAt,
       'the API reports when the oldest counted match leaves the rolling seven-day window');
+    const maleLikeWasDeferred = await identityGateDb.query(
+      'SELECT 1 FROM likes WHERE sender_id = $1 AND target_id = $2',
+      [maleRegistered.user.id, registered.user.id]
+    );
+    assert.equal(maleLikeWasDeferred.rowCount, 0);
     await identityGateDb.query('DELETE FROM matches WHERE id = $1', [quotaSeedMatch.rows[0].id]);
 
     const maleRetryAfterQuota = await request(`/api/likes/${registered.user.id}`, {
@@ -2171,13 +2178,22 @@ test('auth API supports registration, session lookup, logout and login', {
       [registered.user.id, secondMaleRegistered.user.id]
     );
     assert.equal(secondQuotaSeedMatch.rowCount, 1);
+    await identityGateDb.query('DELETE FROM likes WHERE sender_id = $1 AND target_id = $2',
+      [registered.user.id, maleRegistered.user.id]);
     const femaleFinalLikeAtQuota = await request(`/api/likes/${maleRegistered.user.id}`, {
       method: 'POST', headers: { Cookie: secondCookie }
     });
     assert.equal(femaleFinalLikeAtQuota.status, 201);
     const femaleQuotaPayload = await femaleFinalLikeAtQuota.json();
+    assert.equal(femaleQuotaPayload.liked, false,
+      'the final like is not persisted when the woman is the participant sending it');
     assert.equal(femaleQuotaPayload.matched, false);
     assert.equal(femaleQuotaPayload.quota?.type, 'weekly_matches');
+    const femaleLikeWasDeferred = await identityGateDb.query(
+      'SELECT 1 FROM likes WHERE sender_id = $1 AND target_id = $2',
+      [registered.user.id, maleRegistered.user.id]
+    );
+    assert.equal(femaleLikeWasDeferred.rowCount, 0);
     assert.equal(femaleQuotaPayload.quota?.exhausted, true);
     await identityGateDb.query('DELETE FROM matches WHERE id = $1', [secondQuotaSeedMatch.rows[0].id]);
 
