@@ -128,7 +128,6 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const [busy, setBusy] = useState(false);
   const [searchFailed, setSearchFailed] = useState(false);
   const [dailyQuota, setDailyQuota] = useState<FemaleDailyQuota | null>(null);
-  const [weeklyMatchQuotaReached, setWeeklyMatchQuotaReached] = useState(false);
   const [notice, setNotice] = useState('');
   const [likedIds, setLikedIds] = useState<string[]>([]);
   const [blockedIds, setBlockedIds] = useState<string[]>([]);
@@ -289,7 +288,6 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       setAuthenticated(null);
       setProfiles([]);
       setDailyQuota(null);
-      setWeeklyMatchQuotaReached(false);
       setLikedIds([]);
       setBlockedIds([]);
       setBlockedProfiles([]);
@@ -325,7 +323,6 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       if (response.status === 402) throw new Error(data?.message || t('trialEndedLike'));
       if (!response.ok) throw new Error(t('sendLikeError'));
       const weeklyQuotaExhausted = isFemaleWeeklyMatchQuotaExhausted(data?.quota);
-      if (weeklyQuotaExhausted) setWeeklyMatchQuotaReached(true);
       if (!data?.matched) setActionHistory(current => [...current, { type: 'like' as const, profile }].slice(-50));
       setLikedIds(current => current.includes(profile.id) ? current : [...current, profile.id]);
       const nextMatchAvailableAt = typeof data?.quota?.nextAvailableAt === 'string' && Number.isFinite(Date.parse(data.quota.nextAvailableAt))
@@ -589,9 +586,6 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
             .replace('{remaining}', formatNumber(dailyQuota.remaining))}</p>
           {dailyQuota.remaining === 0 && <p className="mt-1 text-emerald-200/80">{t('femaleDailyQuotaExhausted')}</p>}
         </div>
-      )}
-      {weeklyMatchQuotaReached && (
-        <p role="status" aria-live="polite" aria-atomic="true" className="mb-3 rounded-xl border border-amber-500/20 bg-amber-950/20 px-3 py-2.5 text-xs text-amber-100">{t('femaleWeeklyMatchQuotaReached')}</p>
       )}
       {authenticated === false ? (
         <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-4">
