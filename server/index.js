@@ -2485,11 +2485,14 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
     client = await pool.connect();
     await client.query('BEGIN');
     const actorIdentity = await client.query(
-      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment,
+      `SELECT p.user_id AS id, p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime,
+              iv.status AS identity_status, iv.provider_environment AS identity_environment,
               l3.status AS l3_status, l3.expires_at AS l3_expires_at
-       FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id
+       LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
        LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
-       WHERE p.user_id = $1 FOR SHARE OF p`,
+       WHERE p.user_id = $1 FOR SHARE OF p, u`,
       [req.authUser.id]
     );
     const identityActor = actorIdentity.rows[0];
@@ -2597,7 +2600,7 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'profile_not_available' });
     }
-    const exposure = await reserveFemaleProfileExposure(client, req.authUser, profileResult.rows[0].id);
+    const exposure = await reserveFemaleProfileExposure(client, identityActor, profileResult.rows[0].id);
     if (!exposure.allowed) {
       await client.query('ROLLBACK');
       return res.status(429).json({
@@ -2632,11 +2635,14 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
     client = await pool.connect();
     await client.query('BEGIN');
     const actorIdentity = await client.query(
-      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment,
+      `SELECT p.user_id AS id, p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime,
+              iv.status AS identity_status, iv.provider_environment AS identity_environment,
               l3.status AS l3_status, l3.expires_at AS l3_expires_at
-       FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id
+       LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
        LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
-       WHERE p.user_id = $1 FOR SHARE OF p`,
+       WHERE p.user_id = $1 FOR SHARE OF p, u`,
       [req.authUser.id]
     );
     const identityActor = actorIdentity.rows[0];
@@ -2679,7 +2685,7 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'target_not_available' });
     }
-    if (identityActor.gender === 'female' && !hasFemalePremiumAccess(req.authUser)) {
+    if (identityActor.gender === 'female' && !hasFemalePremiumAccess(identityActor)) {
       const issued = await client.query(
         `SELECT 1 FROM female_profile_exposures
          WHERE user_id = $1 AND profile_user_id = $2
@@ -2716,11 +2722,14 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
     await client.query('BEGIN');
     await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
     const actorIdentity = await client.query(
-      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment,
+      `SELECT p.user_id AS id, p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime,
+              iv.status AS identity_status, iv.provider_environment AS identity_environment,
               l3.status AS l3_status, l3.expires_at AS l3_expires_at
-       FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id
+       LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
        LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
-       WHERE p.user_id = $1 FOR SHARE OF p`,
+       WHERE p.user_id = $1 FOR SHARE OF p, u`,
       [req.authUser.id]
     );
     const actor = actorIdentity.rows[0];
@@ -2761,7 +2770,7 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'target_not_available' });
     }
-    if (actor.gender === 'female' && !hasFemalePremiumAccess(req.authUser)) {
+    if (actor.gender === 'female' && !hasFemalePremiumAccess(actor)) {
       const issued = await client.query(
         `SELECT 1 FROM female_profile_exposures
          WHERE user_id = $1 AND profile_user_id = $2
@@ -2919,11 +2928,14 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
     client = await pool.connect();
     await client.query('BEGIN');
     const actorIdentity = await client.query(
-      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment,
+      `SELECT p.user_id AS id, p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime,
+              iv.status AS identity_status, iv.provider_environment AS identity_environment,
               l3.status AS l3_status, l3.expires_at AS l3_expires_at
-       FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id
+       LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
        LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
-       WHERE p.user_id = $1 FOR SHARE OF p`,
+       WHERE p.user_id = $1 FOR SHARE OF p, u`,
       [req.authUser.id]
     );
     const identityActor = actorIdentity.rows[0];
@@ -3017,7 +3029,7 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'profile_not_available' });
     }
-    const exposure = await reserveFemaleProfileExposure(client, req.authUser, profileResult.rows[0].id);
+    const exposure = await reserveFemaleProfileExposure(client, identityActor, profileResult.rows[0].id);
     if (!exposure.allowed) {
       await client.query('ROLLBACK');
       return res.status(429).json({
