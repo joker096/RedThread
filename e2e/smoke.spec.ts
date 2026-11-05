@@ -2110,3 +2110,55 @@ test('expired chat session clears private drafts before the inbox is restored', 
   await expect(page.getByText('PRIVATE_UNSENT_DRAFT')).toHaveCount(0);
   await expect(page.locator('.vow-inbox-bubble.is-mine')).toContainText('Привет');
 });
+
+
+test('real Vow chat opens on the newest page and can prepend older messages', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const requestedOffsets: number[] = [];
+  await page.route('**/api/auth/me', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ user: { id: 'e2e-current-user' } })
+  }));
+  await page.route('**/api/matches**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/messages')) {
+      const offset = Number(url.searchParams.get('offset') || 0);
+      requestedOffsets.push(offset);
+      const first = offset === 0 ? 101 : 1;
+      const count = offset === 0 ? 100 : 23;
+      const messages = Array.from({ length: count }, (_, index) => ({
+        id: `history-message-${first + index}`,
+        senderId: 'e2e-partner',
+        text: `Message ${first + index}`,
+        createdAt: new Date(Date.UTC(2026, 10, 5, 8, 0, first + index)).toISOString()
+      }));
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ messages, pagination: { limit: 100, offset, latest: true } })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ matches: [{ id: 'history-match', partnerId: 'e2e-partner', displayName: 'Елена', age: 30, country: 'Грузия', city: 'Тбилиси', lastMessage: 'Message 200', lastMessageAt: '2026-11-05T08:00:00.000Z' }] })
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('[data-testid="nav-chats"]:visible').first().click();
+  await page.getByTestId('server-match-item').click();
+  const log = page.getByTestId('server-match-messages');
+  await expect(log.locator('.vow-inbox-bubble')).toHaveCount(100);
+  await expect(log.locator('.vow-inbox-bubble').last()).toContainText('Message 200');
+  await expect(page.getByTestId('server-match-load-older')).toBeVisible();
+
+  await page.getByTestId('server-match-load-older').click();
+  await expect(log.locator('.vow-inbox-bubble')).toHaveCount(123);
+  await expect(log.locator('.vow-inbox-bubble').first()).toContainText('Message 1');
+  await expect(log.locator('.vow-inbox-bubble').last()).toContainText('Message 200');
+  await expect(page.getByTestId('server-match-load-older')).toHaveCount(0);
+  expect(requestedOffsets).toEqual([0, 100]);
+});
