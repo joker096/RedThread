@@ -16,7 +16,7 @@ import { consumeIdentityL3UploadCapability, IDENTITY_L3_CONSENT_NOTICE, IDENTITY
 import { assertIdentityL3StorageReady, assertIdentityL3TemporaryStorageReady, clearIdentityL3TemporaryFiles, deleteIdentityL3Object, IDENTITY_L3_MAX_MEDIA_BYTES, IdentityL3StorageError, openIdentityL3Stream, parseIdentityL3EncryptionKey, storeIdentityL3Stream } from './identityL3Storage.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
-import { createDiditSession, isDiditConfigured, isDiditStatus, projectDiditStatus, verifyDiditWebhook, isDiditUuid } from './diditIdentity.js';
+import { createDiditSession, isDiditConfigured, isDiditStatus, projectDiditStatus, shouldApplyDiditStatusUpdate, verifyDiditWebhook, isDiditUuid } from './diditIdentity.js';
 import { canInteract as canIdentityInteract } from './identityAccessPolicy.js';
 import { DIDIT_FREE_MONTHLY_SESSION_LIMIT } from './diditQuota.js';
 import express from 'express';
@@ -155,7 +155,7 @@ app.post('/api/didit/webhook', express.json({ limit: '256kb', strict: true }), a
   try {
     await withPooledTransaction(pool, async client => {
       const session = await client.query(
-        'SELECT user_id FROM identity_verifications WHERE provider = \'didit\' AND provider_environment = $2 AND provider_session_id = $1 FOR UPDATE',
+        'SELECT user_id, provider_status, status, provider_event_at FROM identity_verifications WHERE provider = \'didit\' AND provider_environment = $2 AND provider_session_id = $1 FOR UPDATE',
         [event.session_id, event.environment]
       );
       // Do not bind an account from vendor_data; only our persisted session mapping is authoritative.
@@ -165,9 +165,19 @@ app.post('/api/didit/webhook', express.json({ limit: '256kb', strict: true }), a
         [event.event_id, session.rows[0].user_id, event.session_id, eventTime]
       );
       if (!inserted.rowCount) return;
+      const projectedStatus = projectDiditStatus(event.status, event.environment, event.decision);
+      if (!shouldApplyDiditStatusUpdate({
+        providerStatus: session.rows[0].provider_status,
+        status: session.rows[0].status,
+        providerEventAt: session.rows[0].provider_event_at
+      }, {
+        providerStatus: event.status,
+        status: projectedStatus,
+        providerEventAt: eventTime
+      })) return;
       await client.query(
-        'UPDATE identity_verifications SET provider_status = $2, status = $3, provider_event_at = $4, updated_at = NOW() WHERE user_id = $1 AND provider_session_id = $5 AND provider_environment = $6 AND (provider_event_at IS NULL OR provider_event_at < $4)',
-        [session.rows[0].user_id, event.status, projectDiditStatus(event.status, event.environment, event.decision), eventTime, event.session_id, event.environment]
+        'UPDATE identity_verifications SET provider_status = $2, status = $3, provider_event_at = $4, updated_at = NOW() WHERE user_id = $1 AND provider_session_id = $5 AND provider_environment = $6 AND (provider_event_at IS NULL OR provider_event_at <= $4)',
+        [session.rows[0].user_id, event.status, projectedStatus, eventTime, event.session_id, event.environment]
       );
     });
     return res.status(200).json({ received: true });
