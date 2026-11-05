@@ -424,12 +424,15 @@ async function recordPaddleProviderIdentityConflictCase(client, {
   const providerPlan = ['1month', '3months', 'lifetime'].includes(plan) ? plan : null;
   const safeReasonCode = ['provider_identity_conflict', 'provider_lifecycle_conflict'].includes(reasonCode)
     ? reasonCode : 'provider_identity_conflict';
+  const reasonSql = safeReasonCode === 'provider_lifecycle_conflict'
+    ? "'provider_lifecycle_conflict'"
+    : "'provider_identity_conflict'";
   await client.query(
     `INSERT INTO paddle_adjustment_reconciliation_cases
        (event_id, reason_code, provider_transaction_id, provider_user_ref, provider_plan)
-     VALUES ($1, $2, $3, $4, $5)
+     VALUES ($1, ${reasonSql}, $2, $3, $4)
      ON CONFLICT (event_id) DO NOTHING`,
-    [eventId, safeReasonCode, providerTransactionId, providerUserRef, providerPlan]
+    [eventId, providerTransactionId, providerUserRef, providerPlan]
   );
 }
 
