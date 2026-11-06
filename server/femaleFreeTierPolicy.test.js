@@ -149,6 +149,26 @@ test('weekly match quota captures its rolling-window clock after account locks',
   assert.equal(route.includes("created_at >= statement_timestamp() - INTERVAL '7 days'"), false);
 });
 
+test('match creation rechecks Trial/Premium expiry at the transaction commit boundary', async () => {
+  const source = await readFile(new URL('./index.js', import.meta.url), 'utf8');
+  const start = source.indexOf("app.post('/api/likes/:targetId'");
+  const next = source.indexOf('\\napp.', start + 1);
+  const route = source.slice(start, next === -1 ? source.length : next);
+  const initialEntitlement = route.indexOf('femaleWasPremiumAtQuotaCheck');
+  const matchInsert = route.indexOf('INSERT INTO matches');
+  const finalClock = route.indexOf("SELECT clock_timestamp() AS quota_now", matchInsert);
+  const finalEntitlement = route.indexOf('hasFemalePremiumAccess(', finalClock);
+  const priorMatchCount = route.indexOf('recentMatchesAtCommit', finalEntitlement);
+  const excludeNewMatch = route.indexOf('id <> $3::uuid', priorMatchCount);
+  const rollback = route.indexOf("await client.query('ROLLBACK');", priorMatchCount);
+  const commit = route.indexOf("await client.query('COMMIT');", rollback);
+  assert.ok(initialEntitlement >= 0 && matchInsert > initialEntitlement);
+  assert.ok(finalClock > matchInsert && finalEntitlement > finalClock);
+  assert.ok(priorMatchCount > finalEntitlement && excludeNewMatch > priorMatchCount);
+  assert.ok(rollback > priorMatchCount && commit > rollback,
+    'an expired entitlement with a previously consumed slot must roll back the new like and match');
+});
+
 test('new mutual matches use the wall-clock insertion time for the rolling quota window', async () => {
   const source = await readFile(new URL('./index.js', import.meta.url), 'utf8');
   const start = source.indexOf("app.post('/api/likes/:targetId'");
