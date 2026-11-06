@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import {
   FEMALE_FREE_DAILY_PROFILE_LIMIT,
   FEMALE_FREE_MATCH_LIMIT,
@@ -31,4 +32,26 @@ test('free women may create only one new match in the rolling seven-day window',
   assert.equal(canCreateFemaleFreeMatch(0), true);
   assert.equal(canCreateFemaleFreeMatch(1), false);
   assert.equal(canCreateFemaleFreeMatch(2), false);
+});
+
+
+test('profile pass and undo handlers acquire account locks before row locks and use one transaction', async () => {
+  const source = await readFile(new URL('./index.js', import.meta.url), 'utf8');
+  const routes = [
+    "app.post('/api/passes/undo'",
+    "app.post('/api/passes/:targetId'",
+    "app.post('/api/discovery/undo'"
+  ];
+  for (const marker of routes) {
+    const start = source.indexOf(marker);
+    assert.notEqual(start, -1, `route exists: ${marker}`);
+    const next = source.indexOf('\\napp.', start + marker.length);
+    const route = source.slice(start, next === -1 ? source.length : next);
+    assert.equal((route.match(/await client\\.query\\('BEGIN'\\)/g) || []).length, 1,
+      `${marker} must open exactly one transaction`);
+    const accountLock = route.indexOf('await acquireGiftSafetyUserLocks(');
+    const rowLock = route.search(/FOR (?:SHARE|UPDATE)/);
+    assert.ok(accountLock >= 0 && rowLock > accountLock,
+      `${marker} must acquire account advisory locks before row-level locks`);
+  }
 });
