@@ -2900,8 +2900,8 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
     );
     if (!match) {
       const createdMatch = await client.query(
-        `INSERT INTO matches (user_a_id, user_b_id)
-         VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid))
+        `INSERT INTO matches (user_a_id, user_b_id, created_at)
+         VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid), clock_timestamp())
          ON CONFLICT (user_a_id, user_b_id) DO NOTHING
          RETURNING id, status, created_at AS "createdAt"`,
         [req.authUser.id, targetId]
