@@ -88,3 +88,14 @@ test('weekly match quota 429 responses are shown as quota notices, not generic s
   assert.ok(quotaCheck >= 0 && genericFailure > quotaCheck,
     'the explicit weekly quota response must be handled before the generic HTTP error');
 });
+
+test('failed discovery refresh clears the last server-confirmed daily quota', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('./ServerDiscoveryPanel.tsx', import.meta.url), 'utf8');
+  const catchStart = source.indexOf('} catch (error) {', source.indexOf('const search = useCallback'));
+  const catchEnd = source.indexOf('\n    } finally {', catchStart);
+  assert.ok(catchStart >= 0 && catchEnd > catchStart, 'discovery search failure handler exists');
+  const failureHandler = source.slice(catchStart, catchEnd);
+  assert.match(failureHandler, /setDailyQuota\(null\)/,
+    'a failed refresh must not keep displaying yesterday or otherwise stale quota usage');
+});
