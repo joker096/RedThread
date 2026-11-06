@@ -53,17 +53,22 @@ test('daily exposure reservations pin one UTC date across every statement in a t
   const searchEnd = source.indexOf('\nfunction isUuid', searchStart);
   assert.ok(searchStart >= 0 && searchEnd > searchStart, 'profile search route exists');
   const search = source.slice(searchStart, searchEnd);
-  assert.equal((search.match(/clock_timestamp\(\)/g) || []).length, 2,
-    'Discovery captures the preview date and rechecks it after account locks');
+  assert.equal((search.match(/clock_timestamp\(\)/g) || []).length, 3,
+    'Discovery captures the preview date, rechecks after locks, and validates again before commit');
   const previewDateCapture = search.indexOf('const previewDateResult = await client.query(');
   const previewQuery = search.indexOf('const preview = await client.query(searchSql, [...searchParams, previewDate])');
   const accountLocks = search.indexOf('await acquireGiftSafetyUserLocks(client, req.authUser.id, ...candidateIds)');
   const lockedDateCapture = search.indexOf('const lockedDateResult = await client.query(');
   const reservationStart = search.indexOf('const exposureDate = lockedExposureDate;');
   const reservationEnd = search.indexOf('result.dailyQuota = dailyQuota;', reservationStart);
+  const finalDateCapture = search.indexOf('const finalDateResult = await client.query(', reservationEnd);
+  const finalCommit = search.indexOf("await client.query('COMMIT');", finalDateCapture);
   assert.ok(previewDateCapture >= 0 && previewQuery > previewDateCapture);
   assert.ok(accountLocks > previewQuery && lockedDateCapture > accountLocks);
   assert.ok(reservationStart > lockedDateCapture && reservationEnd > reservationStart);
+  assert.ok(finalDateCapture > reservationEnd && finalCommit > finalDateCapture,
+    'Discovery must revalidate the UTC day after all reservations and immediately before commit');
+  assert.match(search.slice(finalDateCapture, finalCommit), /String\(finalDateResult\.rows\[0\]\.exposure_date\) !== String\(exposureDate\)/);
   assert.doesNotMatch(search.slice(reservationStart, reservationEnd), /statement_timestamp\(\)/,
     'profile exposure reservations must use the post-lock UTC date');
   assert.match(search, /exposure_date < \$2::date/);
@@ -178,4 +183,20 @@ test('daily quota keeps previously issued profiles visible when the allowance is
   assert.match(search, /if \(usedBefore \+ newlyIssued >= FEMALE_FREE_DAILY_PROFILE_LIMIT\) continue;/,
     'an unseen profile at the exhausted quota must not stop later already-issued profiles from being returned');
   assert.match(search, /hasMoreIssuedCandidates/);
+});
+
+
+test('undo endpoints revalidate the exposure UTC date immediately before returning a restored profile', async () => {
+  const source = await readFile(new URL('./index.js', import.meta.url), 'utf8');
+  for (const marker of ["app.post('/api/passes/undo'", "app.post('/api/discovery/undo'"]) {
+    const start = source.indexOf(marker);
+    const next = source.indexOf('\napp.', start + marker.length);
+    const route = source.slice(start, next === -1 ? source.length : next);
+    const reservation = route.indexOf('const exposure = await reserveFemaleProfileExposure(');
+    const dateCheck = route.indexOf('const finalDateResult = await client.query(', reservation);
+    const commit = route.indexOf("await client.query('COMMIT');", dateCheck);
+    assert.ok(reservation >= 0 && dateCheck > reservation && commit > dateCheck,
+      `${marker} must recheck the UTC day after reserving exposure and before commit`);
+    assert.match(route.slice(dateCheck, commit), /quota_day_changed_retry/);
+  }
 });
