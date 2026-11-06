@@ -2365,6 +2365,20 @@ test('auth API supports registration, session lookup, logout and login', {
       'INSERT INTO likes (sender_id, target_id) VALUES ($1, $3), ($2, $3)',
       [...concurrentQuotaMaleIds, registered.user.id]
     );
+    const concurrentReciprocalPreconditions = await identityGateDb.query(
+      'SELECT sender_id FROM likes WHERE target_id = $1 AND sender_id = ANY($2::uuid[])',
+      [registered.user.id, concurrentQuotaMaleIds]
+    );
+    assert.equal(concurrentReciprocalPreconditions.rowCount, 2,
+      'both distinct male accounts must have a reciprocal like persisted before the race');
+    const weeklyMatchesBeforeRace = await identityGateDb.query(
+      `SELECT COUNT(*)::int AS count FROM matches
+       WHERE (user_a_id = $1 OR user_b_id = $1)
+         AND created_at >= statement_timestamp() - INTERVAL '7 days'`,
+      [registered.user.id]
+    );
+    assert.equal(weeklyMatchesBeforeRace.rows[0].count, 0,
+      'the test woman must have no recent match before racing for her final weekly slot');
     try {
       const competingFinalLikes = await Promise.all([
         request(`/api/likes/${registered.user.id}`, {
@@ -2377,7 +2391,7 @@ test('auth API supports registration, session lookup, logout and login', {
       for (const response of competingFinalLikes) assert.equal(response.status, 201);
       const competingPayloads = await Promise.all(competingFinalLikes.map(response => response.json()));
       assert.equal(competingPayloads.filter(payload => payload.matched === true).length, 1,
-        'exactly one distinct pair may consume the final weekly match slot');
+        `exactly one distinct pair may consume the final weekly match slot; responses: ${JSON.stringify(competingPayloads)}`);
       const losingPayload = competingPayloads.find(payload => payload.quota?.type === 'weekly_matches');
       assert.ok(losingPayload, 'the losing pair must receive the weekly quota response');
       assert.equal(losingPayload.liked, false,
