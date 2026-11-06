@@ -2358,8 +2358,9 @@ test('auth API supports registration, session lookup, logout and login', {
     const femaleFinalLikeAtQuota = await request(`/api/likes/${maleRegistered.user.id}`, {
       method: 'POST', headers: { Cookie: secondCookie }
     });
-    assert.equal(femaleFinalLikeAtQuota.status, 201);
+    assert.equal(femaleFinalLikeAtQuota.status, 429);
     const femaleQuotaPayload = await femaleFinalLikeAtQuota.json();
+    assert.equal(femaleQuotaPayload.error, 'weekly_match_limit_reached');
     assert.equal(femaleQuotaPayload.liked, false,
       'the final like is not persisted when the woman is the participant sending it');
     assert.equal(femaleQuotaPayload.matched, false);
