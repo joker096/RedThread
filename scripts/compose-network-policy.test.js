@@ -27,6 +27,13 @@ test('Docker database network is isolated from the public web proxy container', 
   assert.deepEqual(networksFor('migrate'), ['backend']);
   assert.deepEqual(networksFor('ad-event-retention'), ['backend']);
   assert.deepEqual(networksFor('female-profile-exposure-retention'), ['backend']);
+  assert.deepEqual(networksFor('account-reuse-retention'), ['backend']);
+  const accountReuseWorker = serviceBlock('account-reuse-retention');
+  assert.match(accountReuseWorker, /cap_drop: \\[ALL\\]/);
+  assert.match(accountReuseWorker, /no-new-privileges:true/);
+  assert.match(accountReuseWorker, /ACCOUNT_REUSE_CLEANUP_BATCH_SIZE/);
+  assert.match(accountReuseWorker, /sleep 3600/);
+  assert.match(accountReuseWorker, /migrate:\\n        condition: service_completed_successfully/);
   const exposureRetentionWorker = serviceBlock('female-profile-exposure-retention');
   assert.match(exposureRetentionWorker, /cap_drop: \[ALL\]/);
   assert.match(exposureRetentionWorker, /no-new-privileges:true/);
@@ -83,6 +90,7 @@ test('Docker database network is isolated from the public web proxy container', 
   const api = serviceBlock('api');
   const web = serviceBlock('web');
   assert.ok(api.includes('IDENTITY_L3_STORAGE_DIR: /app/uploads/private-identity-l3'));
+  assert.ok(api.includes('ACCOUNT_REUSE_HMAC_KEY: ${ACCOUNT_REUSE_HMAC_KEY:-}'));
   assert.ok(api.includes('IDENTITY_L3_ENCRYPTION_KEY: ${IDENTITY_L3_ENCRYPTION_KEY:-}'));
   assert.match(api, /cap_drop: \[ALL\]/);
   assert.match(api, /no-new-privileges:true/);

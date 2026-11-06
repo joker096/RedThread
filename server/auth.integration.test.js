@@ -36,6 +36,7 @@ test('auth API supports registration, session lookup, logout and login', {
       API_PORT: String(port),
       APP_ORIGIN: origin,
       NODE_ENV: 'test',
+      ACCOUNT_REUSE_HMAC_KEY: 'a'.repeat(64),
       PG_STATEMENT_TIMEOUT_MS: '8000'
     },
     stdio: 'ignore'

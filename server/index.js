@@ -28,6 +28,7 @@ import { PostgresRateLimitStore } from './postgresRateLimitStore.js';
 import pg from 'pg';
 import { isValidAssessment, financialAlignment, ASSESSMENT_VERSION } from './relationshipAssessment.js';
 import {
+  createAccountReuseDigest,
   createSessionToken,
   hashPassword,
   hashSessionToken,
@@ -931,11 +932,34 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
   if (!['yes', 'no', 'discuss', 'unsure'].includes(wantsChildren)) return res.status(400).json({ error: 'invalid_wants_children' });
   if (!['with_me', 'shared_custody', 'with_other_parent', 'not_applicable', 'prefer_to_discuss'].includes(childrenLivingArrangement)) return res.status(400).json({ error: 'invalid_children_living_arrangement' });
 
+  const accountReuseDigest = createAccountReuseDigest(email, process.env.ACCOUNT_REUSE_HMAC_KEY);
+  if (!accountReuseDigest) return res.status(503).json({ error: 'account_reuse_protection_not_configured' });
+
   let client;
   try {
     const passwordHash = await hashPassword(password);
     client = await pool.connect();
     await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`account-reuse:${accountReuseDigest}`]);
+    await client.query(
+      'DELETE FROM account_reuse_restrictions WHERE email_hmac = $1 AND expires_at <= clock_timestamp()',
+      [accountReuseDigest]
+    );
+    const accountReuseRestriction = await client.query(
+      'SELECT expires_at FROM account_reuse_restrictions WHERE email_hmac = $1 AND expires_at > clock_timestamp()',
+      [accountReuseDigest]
+    );
+    if (accountReuseRestriction.rowCount) {
+      const retryAt = new Date(accountReuseRestriction.rows[0].expires_at);
+      const retryAfterSeconds = Math.max(1, Math.ceil((retryAt.getTime() - Date.now()) / 1000));
+      await client.query('ROLLBACK');
+      res.setHeader('Retry-After', String(retryAfterSeconds));
+      return res.status(429).json({
+        error: 'account_recreation_restricted',
+        retryAt: retryAt.toISOString(),
+        retryAfterSeconds
+      });
+    }
     if (emailVerificationRequired && !emailDeliveryConfigured()) {
       await client.query('ROLLBACK');
       return res.status(503).json({ error: 'email_delivery_not_configured' });
@@ -1462,7 +1486,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     safetyLockAcquired = true;
 
     const account = await client.query(
-      `SELECT u.password_hash
+      `SELECT u.password_hash, u.email
        FROM users u
        JOIN sessions s ON s.user_id = u.id
        WHERE u.id = $1 AND u.status = 'active'
@@ -1472,6 +1496,10 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     if (!account.rows[0] || typeof account.rows[0].password_hash !== 'string' ||
         !(await verifyPassword(password, account.rows[0].password_hash))) {
       return res.status(401).json({ error: 'password_confirmation_failed' });
+    }
+    const accountReuseDigest = createAccountReuseDigest(account.rows[0].email, process.env.ACCOUNT_REUSE_HMAC_KEY);
+    if (!accountReuseDigest) {
+      return res.status(503).json({ error: 'account_reuse_protection_not_configured' });
     }
 
     // Check this before any external Paddle cancellation side effect. The
@@ -1617,6 +1645,17 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     }
 
     await client.query('BEGIN');
+    // Serialize deletion with registration for the same normalized email. This
+    // prevents a concurrent registration from slipping between the tombstone
+    // check and the account anonymization commit.
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`account-reuse:${accountReuseDigest}`]);
+    await client.query(
+      `INSERT INTO account_reuse_restrictions (email_hmac, expires_at)
+       VALUES ($1, clock_timestamp() + INTERVAL '90 days')
+       ON CONFLICT (email_hmac) DO UPDATE
+       SET expires_at = GREATEST(account_reuse_restrictions.expires_at, EXCLUDED.expires_at)`,
+      [accountReuseDigest]
+    );
     // The session-level account-safety lock acquired before Paddle calls is
     // still held by this connection, excluding concurrent account mutations.
     const l3Media = await client.query(
