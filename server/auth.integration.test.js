@@ -2483,7 +2483,8 @@ test('auth API supports registration, session lookup, logout and login', {
           method: 'POST', headers: { Cookie: concurrentMaleCookie }
         })
       ]);
-      for (const response of competingFinalLikes) assert.equal(response.status, 201);
+      assert.deepEqual(competingFinalLikes.map(response => response.status).sort(), [201, 429],
+        'the winning match is created and the quota-rejected final like returns HTTP 429');
       const competingPayloads = await Promise.all(competingFinalLikes.map(response => response.json()));
       assert.equal(competingPayloads.filter(payload => payload.matched === true).length, 1,
         `exactly one distinct pair may consume the final weekly match slot; responses: ${JSON.stringify(competingPayloads)}`);
