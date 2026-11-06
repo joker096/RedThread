@@ -814,16 +814,20 @@ async function createNotification(userId, type, metadata = {}, dedupeKey = null,
 }
 
 async function reserveFemaleProfileExposure(client, user, profileId) {
-  if (user?.gender !== 'female' || hasFemalePremiumAccess(user)) {
-    return { allowed: true, used: null, exposureDate: null };
+  if (user?.gender !== 'female') {
+    return { allowed: true, used: null, exposureDate: null, quotaApplied: false };
   }
-  // Capture the UTC calendar date once after the caller has acquired the
-  // account-safety lock. Every statement in this reservation must use the
-  // same date even if the transaction crosses midnight.
-  const exposureDateResult = await client.query(
-    "SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date"
+  // Capture entitlement time and UTC day from one PostgreSQL wall-clock
+  // instant after the caller has acquired the account-safety lock.
+  const policyClock = await client.query(
+    `SELECT policy_now, (policy_now AT TIME ZONE 'UTC')::date AS exposure_date
+     FROM (SELECT clock_timestamp() AS policy_now) AS policy_clock`
   );
-  const exposureDate = exposureDateResult.rows[0].exposure_date;
+  const policyNow = new Date(policyClock.rows[0].policy_now).getTime();
+  if (hasFemalePremiumAccess(user, policyNow)) {
+    return { allowed: true, used: null, exposureDate: null, quotaApplied: false };
+  }
+  const exposureDate = policyClock.rows[0].exposure_date;
   await client.query(
     `DELETE FROM female_profile_exposures
      WHERE user_id = $1 AND exposure_date < $2::date`,
@@ -848,7 +852,7 @@ async function reserveFemaleProfileExposure(client, user, profileId) {
     [user.id, exposureDate]
   );
   const used = Number(usage.rows[0]?.used || 0);
-  if (used >= FEMALE_FREE_DAILY_PROFILE_LIMIT) return { allowed: false, used };
+  if (used >= FEMALE_FREE_DAILY_PROFILE_LIMIT) return { allowed: false, used, exposureDate, quotaApplied: true };
   const inserted = await client.query(
     `INSERT INTO female_profile_exposures (user_id, profile_user_id, exposure_date)
      VALUES ($1, $2, $3::date)
@@ -856,7 +860,7 @@ async function reserveFemaleProfileExposure(client, user, profileId) {
      RETURNING profile_user_id`,
     [user.id, profileId, exposureDate]
   );
-  return { allowed: true, used: used + inserted.rowCount, exposureDate };
+  return { allowed: true, used: used + inserted.rowCount, exposureDate, quotaApplied: true };
 }
 
 function requirePaidFeatures(req, res, next) {
@@ -1969,11 +1973,13 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
       }
       const actorUser = actor.rows[0];
       const lockedDateResult = await client.query(
-        "SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date"
+        `SELECT policy_now, (policy_now AT TIME ZONE 'UTC')::date AS exposure_date
+         FROM (SELECT clock_timestamp() AS policy_now) AS policy_clock`
       );
       const lockedExposureDate = lockedDateResult.rows[0].exposure_date;
-      if (actorUser.gender === 'female' && !hasFemalePremiumAccess(actorUser) &&
-          String(lockedExposureDate) !== String(previewDate)) {
+      const actorIsFreeTierAtLock = actorUser.gender === 'female' &&
+        !hasFemalePremiumAccess(actorUser, new Date(lockedDateResult.rows[0].policy_now).getTime());
+      if (actorIsFreeTierAtLock && String(lockedExposureDate) !== String(previewDate)) {
         await client.query('ROLLBACK');
         if (attempt >= 2) {
           throw new Error('Discovery UTC date changed repeatedly while acquiring account locks');
@@ -2003,7 +2009,7 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
       result.hasMoreCandidates = result.rows.length > parsedLimit;
       const exposureDate = lockedExposureDate;
       let dailyQuota = null;
-      if (actorUser.gender === 'female' && !hasFemalePremiumAccess(actorUser)) {
+      if (actorIsFreeTierAtLock) {
         await client.query(
           `DELETE FROM female_profile_exposures
            WHERE user_id = $1 AND exposure_date < $2::date`,
@@ -2057,21 +2063,20 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
         };
       }
       result.dailyQuota = dailyQuota;
-      if (actorUser.gender === 'female' && !hasFemalePremiumAccess(actorUser)) {
-        // A long final query or reservation loop can itself cross UTC midnight
-        // after the post-lock date capture. Never return cards recorded against
-        // yesterday's quota date after the new UTC day has begun.
-        const finalDateResult = await client.query(
-          "SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date"
-        );
-        if (String(finalDateResult.rows[0].exposure_date) !== String(exposureDate)) {
-          await client.query('ROLLBACK');
-          if (attempt >= 2) {
-            throw new Error('Discovery UTC date changed repeatedly before commit');
-          }
-          attempt += 1;
-          continue;
+      const finalPolicyClock = await client.query(
+        `SELECT policy_now, (policy_now AT TIME ZONE 'UTC')::date AS exposure_date
+         FROM (SELECT clock_timestamp() AS policy_now) AS policy_clock`
+      );
+      const actorIsFreeTierAtCommit = actorUser.gender === 'female' &&
+        !hasFemalePremiumAccess(actorUser, new Date(finalPolicyClock.rows[0].policy_now).getTime());
+      if (actorIsFreeTierAtCommit !== actorIsFreeTierAtLock ||
+          (actorIsFreeTierAtCommit && String(finalPolicyClock.rows[0].exposure_date) !== String(exposureDate))) {
+        await client.query('ROLLBACK');
+        if (attempt >= 2) {
+          throw new Error('Discovery quota date or entitlement changed repeatedly before commit');
         }
+        attempt += 1;
+        continue;
       }
       await client.query('COMMIT');
       break;
@@ -2752,12 +2757,16 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
       });
     }
     if (exposure.exposureDate) {
-      const finalDateResult = await client.query(
-        "SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date"
+      const finalPolicyClock = await client.query(
+        `SELECT policy_now, (policy_now AT TIME ZONE 'UTC')::date AS exposure_date
+         FROM (SELECT clock_timestamp() AS policy_now) AS policy_clock`
       );
-      if (String(finalDateResult.rows[0].exposure_date) !== String(exposure.exposureDate)) {
+      const quotaRequiredAtCommit = actor.rows[0].gender === 'female' &&
+        !hasFemalePremiumAccess(actor.rows[0], new Date(finalPolicyClock.rows[0].policy_now).getTime());
+      if (quotaRequiredAtCommit !== exposure.quotaApplied ||
+          (quotaRequiredAtCommit && String(finalPolicyClock.rows[0].exposure_date) !== String(exposure.exposureDate))) {
         await client.query('ROLLBACK');
-        return res.status(409).json({ error: 'quota_day_changed_retry' });
+        return res.status(409).json({ error: 'quota_policy_changed_retry' });
       }
     }
     await client.query('COMMIT');
@@ -3284,12 +3293,16 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
       });
     }
     if (exposure.exposureDate) {
-      const finalDateResult = await client.query(
-        "SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date"
+      const finalPolicyClock = await client.query(
+        `SELECT policy_now, (policy_now AT TIME ZONE 'UTC')::date AS exposure_date
+         FROM (SELECT clock_timestamp() AS policy_now) AS policy_clock`
       );
-      if (String(finalDateResult.rows[0].exposure_date) !== String(exposure.exposureDate)) {
+      const quotaRequiredAtCommit = actor.rows[0].gender === 'female' &&
+        !hasFemalePremiumAccess(actor.rows[0], new Date(finalPolicyClock.rows[0].policy_now).getTime());
+      if (quotaRequiredAtCommit !== exposure.quotaApplied ||
+          (quotaRequiredAtCommit && String(finalPolicyClock.rows[0].exposure_date) !== String(exposure.exposureDate))) {
         await client.query('ROLLBACK');
-        return res.status(409).json({ error: 'quota_day_changed_retry' });
+        return res.status(409).json({ error: 'quota_policy_changed_retry' });
       }
     }
 
