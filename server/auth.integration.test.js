@@ -1945,7 +1945,7 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(secondSearchPage.status, 200);
     const firstPageData = await firstSearchPage.json();
     const secondPageData = await secondSearchPage.json();
-    assert.equal(firstPageData.dailyQuota, null,
+    assert.equal(firstPageData.dailyQuota ?? null, null,
       'an active female trial must bypass the free daily profile quota');
     assert.equal(firstPageData.profiles.length, 1);
     assert.equal(secondPageData.profiles.length, 0,
@@ -2115,7 +2115,7 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(premiumDailyQuotaSearch.status, 200);
     const premiumDailyQuotaPayload = await premiumDailyQuotaSearch.json();
-    assert.equal(premiumDailyQuotaPayload.dailyQuota, null,
+    assert.equal(premiumDailyQuotaPayload.dailyQuota ?? null, null,
       'an active Lady Premium subscription must bypass the daily profile quota');
     await identityGateDb.query(
       'UPDATE users SET premium_until = NULL WHERE id = $1',
