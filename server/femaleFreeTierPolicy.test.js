@@ -48,6 +48,8 @@ test('daily exposure reservations pin one UTC date across every statement in a t
   assert.match(helper, /exposure_date < \$2::date/);
   assert.match(helper, /exposure_date = \$3::date/);
   assert.match(helper, /VALUES \(\$1, \$2, \$3::date\)/);
+  assert.match(helper, /used: Number\(usage\.rows\[0\]\?\.used \|\| 0\), exposureDate, quotaApplied: true/,
+    'an already-issued profile must retain the same commit-time quota snapshot as a newly reserved profile');
 
   const searchStart = source.indexOf("app.get('/api/profiles/search'");
   const searchEnd = source.indexOf('\nfunction isUuid', searchStart);
