@@ -24,7 +24,7 @@ Requirements: Docker Engine and the Docker Compose plugin.
 4. Open `http://localhost:8080`. Check `docker compose ps`, `docker compose logs --tail=100 api`, and `curl -fsS http://localhost:8080/api/health`.
 5. Stop it with `docker compose down`. Persistent database and private-photo volumes remain. To destroy local data explicitly, `docker compose down -v` (destructive).
 
-The first start builds the API and web image, waits for PostgreSQL health, applies migrations once through the one-shot `migrate` service, and then starts the API and web proxy. For local-only testing without a configured Resend sender, you may set `EMAIL_VERIFICATION_REQUIRED=false`; never disable verification on a public deployment. The database is not published to the host. The default web binding is loopback-only.
+The first start builds the API and web image, waits for PostgreSQL health, applies migrations once through the one-shot `migrate` service, and then starts the API, web proxy, and both bounded hourly retention workers (`female-profile-exposure-retention` and `account-reuse-retention`). For local-only testing without a configured Resend sender, you may set `EMAIL_VERIFICATION_REQUIRED=false`; never disable verification on a public deployment. The database is not published to the host. The default web binding is loopback-only.
 
 ## Public hosting requirements
 
@@ -34,6 +34,7 @@ Before public launch:
 - Provision a supported host, DNS, TLS, and monitoring; set resource limits and update policies.
 - Use a managed PostgreSQL service or a protected private database network. Enable TLS verification when required by the provider.
 - Use a secret manager for database, Resend, Paddle, and `ACCOUNT_REUSE_HMAC_KEY` secrets. Keep the account-reuse key stable and available to the API service; the cleanup worker does not need it. Do not commit credentials.
+- Deploy and monitor both retention workers. If the API is not deployed with this Compose stack, schedule `node scripts/cleanup-account-reuse-restrictions.js` and `node scripts/cleanup-female-profile-exposures.js` at least hourly with the production `DATABASE_URL` and matching `PGSSL` setting; alert on failures or missed runs so expired pseudonymous email digests and prior-day exposure rows are not retained indefinitely.
 - The API fails closed for registration and account deletion when `ACCOUNT_REUSE_HMAC_KEY` is missing or is not exactly 32 bytes encoded as 64 hexadecimal characters. Configure it before starting the API.
 - Configure a verified sender domain and test email verification, resend and password reset end-to-end.
 - When the deferred payment task resumes, configure Paddle Sandbox products/prices and webhook secret; test checkout, subscription lifecycle, duplicate/out-of-order events, cancellation and refunds before considering production billing.
