@@ -2484,6 +2484,30 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+    const actorIdentityPreflight = await client.query(
+      `SELECT p.user_id AS id, p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime,
+              iv.status AS identity_status, iv.provider_environment AS identity_environment,
+              l3.status AS l3_status, l3.expires_at AS l3_expires_at
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id
+       LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
+       WHERE p.user_id = $1 `,
+      [req.authUser.id]
+    );
+    const identityActor = actorIdentityPreflight.rows[0];
+    if (!identityActor || !canIdentityInteract({
+      gender: identityActor.gender, status: identityActor.identity_status, environment: identityActor.identity_environment, l3Status: identityActor.l3_status, l3ExpiresAt: identityActor.l3_expires_at
+    })) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
+    }
+    const requestedTargetId = req.body?.targetId ?? null;
+    if (requestedTargetId !== null && !isUuid(requestedTargetId)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'invalid_pass_target' });
+    }
+
     const preview = await client.query(
       `SELECT pp.passed_user_id AS id
        FROM profile_passes pp
@@ -2946,6 +2970,25 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+    const actorIdentityPreflight = await client.query(
+      `SELECT p.user_id AS id, p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime,
+              iv.status AS identity_status, iv.provider_environment AS identity_environment,
+              l3.status AS l3_status, l3.expires_at AS l3_expires_at
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id
+       LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
+       WHERE p.user_id = $1 `,
+      [req.authUser.id]
+    );
+    const identityActor = actorIdentityPreflight.rows[0];
+    if (!identityActor || !canIdentityInteract({
+      gender: identityActor.gender, status: identityActor.identity_status, environment: identityActor.identity_environment, l3Status: identityActor.l3_status, l3ExpiresAt: identityActor.l3_expires_at
+    })) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
+    }
+
     const preview = await client.query(
       `SELECT action_type AS "actionType", target_id AS id
        FROM (
