@@ -50,3 +50,15 @@ test('weekly match quota exhaustion is recognized only for an explicit exhausted
   assert.equal(isFemaleWeeklyMatchQuotaExhausted({ type: 'daily_profiles', exhausted: true }), false);
   assert.equal(isFemaleWeeklyMatchQuotaExhausted(null), false);
 });
+
+
+test('stale daily profile actions refresh discovery and exhausted undo reports the quota', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('./ServerDiscoveryPanel.tsx', import.meta.url), 'utf8');
+  assert.match(source, /response\.status === 403 && data\?\.error === 'profile_not_issued_today'/);
+  assert.equal((source.match(/await search\(\);\s*if \(actionEpoch === sessionEpoch\.current\) setNotice\(t\('profileNotIssuedToday'\)\);/g) || []).length, 2,
+    'both stale likes and passes refresh discovery before showing the localized notice');
+  assert.match(source, /response\.status === 429 && data\?\.error === 'daily_profile_limit_reached'/);
+  assert.match(source, /setDailyQuota\(exhaustedQuota\)/);
+  assert.match(source, /setNotice\(t\('femaleDailyQuotaExhausted'\)\)/);
+});
