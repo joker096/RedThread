@@ -27,6 +27,11 @@ type ServerDiscoveryPanelProps = { onOpenAccount: () => void };
 
 export type FemaleDailyQuota = { limit: number; used: number; remaining: number; timezone: 'UTC' };
 
+export function millisecondsUntilNextUtcDay(now = Date.now()): number {
+  const current = new Date(now);
+  return Date.UTC(current.getUTCFullYear(), current.getUTCMonth(), current.getUTCDate() + 1) - now;
+}
+
 export function normalizeFemaleDailyQuota(value: unknown): FemaleDailyQuota | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const quota = value as Partial<FemaleDailyQuota>;
@@ -144,6 +149,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
   const lastSearchKey = useRef<string | null>(null);
+  const lastQuotaUtcDate = useRef(new Date().toISOString().slice(0, 10));
   const searchRequestId = useRef(0);
   const searchAbortController = useRef<AbortController | null>(null);
   const sessionEpoch = useRef(0);
@@ -278,6 +284,31 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       searchRequestId.current += 1;
       searchAbortController.current?.abort();
       searchAbortController.current = null;
+    };
+  }, [search]);
+
+  useEffect(() => {
+    let timeoutId: number | undefined;
+    const refreshIfUtcDayChanged = () => {
+      const currentUtcDate = new Date().toISOString().slice(0, 10);
+      if (lastQuotaUtcDate.current === currentUtcDate) return;
+      lastQuotaUtcDate.current = currentUtcDate;
+      void search();
+    };
+    const scheduleUtcResetRefresh = () => {
+      timeoutId = window.setTimeout(() => {
+        refreshIfUtcDayChanged();
+        scheduleUtcResetRefresh();
+      }, Math.max(1, millisecondsUntilNextUtcDay()) + 50);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refreshIfUtcDayChanged();
+    };
+    scheduleUtcResetRefresh();
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [search]);
 
