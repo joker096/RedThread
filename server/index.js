@@ -1642,8 +1642,10 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     await client.query('DELETE FROM identity_verifications WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM likes WHERE sender_id = $1 OR target_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM profile_passes WHERE passer_id = $1 OR passed_user_id = $1', [req.authUser.id]);
-    // Exposure rows are account-linked discovery history; soft deletion does not trigger FK cascades.
-    await client.query('DELETE FROM female_profile_exposures WHERE user_id = $1 OR profile_user_id = $1', [req.authUser.id]);
+    // Remove the deleted account's own discovery history. Keep same-day rows
+    // owned by other women: deleting a viewed profile must not refund their
+    // already-consumed daily slots. Those short-lived rows expire at UTC cleanup.
+    await client.query('DELETE FROM female_profile_exposures WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM profile_preferences WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM user_notifications WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM account_action_tokens WHERE user_id = $1', [req.authUser.id]);
