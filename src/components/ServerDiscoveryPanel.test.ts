@@ -63,6 +63,23 @@ test('stale daily profile actions refresh discovery and exhausted undo reports t
   assert.match(source, /setNotice\(t\('femaleDailyQuotaExhausted'\)\)/);
 });
 
+test('undoing a like reissues the profile instead of restoring a cached card across UTC days', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('./ServerDiscoveryPanel.tsx', import.meta.url), 'utf8');
+  const undoStart = source.indexOf('const undoPass = async () => {');
+  const reportStart = source.indexOf('const submitReport = async', undoStart);
+  assert.ok(undoStart >= 0 && reportStart > undoStart, 'discovery undo handler exists');
+  const undo = source.slice(undoStart, reportStart);
+  const likeStart = undo.indexOf("if (lastAction?.type === 'like')");
+  const likeEnd = undo.indexOf("const response = lastAction", likeStart);
+  assert.ok(likeStart >= 0 && likeEnd > likeStart, 'undo-like branch exists');
+  const unlike = undo.slice(likeStart, likeEnd);
+  assert.ok(unlike.indexOf('await search();') > unlike.indexOf('setActionHistory('),
+    'after removing the like, the card must be reissued by the server before it can be shown again');
+  assert.doesNotMatch(unlike, /setProfiles\(current => current\.some\(item => item\.id === lastAction\.profile\.id\)/,
+    'the old cached profile must not bypass the current UTC-day exposure reservation');
+});
+
 test('weekly match quota 429 responses are shown as quota notices, not generic send failures', async () => {
   const { readFile } = await import('node:fs/promises');
   const source = await readFile(new URL('./ServerDiscoveryPanel.tsx', import.meta.url), 'utf8');
