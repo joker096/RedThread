@@ -156,7 +156,15 @@ test('daily quota keeps previously issued profiles visible when the allowance is
   const compatibilityOrder = search.indexOf('"compatibilityScore" DESC');
   assert.ok(issuedPriority >= 0 && compatibilityOrder > issuedPriority,
     'already-issued profiles must sort before unseen profiles for a free account');
-  assert.ok(search.includes("exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date"));
+  assert.ok(search.includes('issued.exposure_date = $12::date'),
+    'issued-profile ordering must use the UTC date captured before preview');
+  assert.ok(search.includes('const previewDateResult = await client.query('));
+  assert.ok(search.includes('const lockedDateResult = await client.query('));
+  assert.ok(search.includes('String(lockedExposureDate) !== String(previewDate)'));
+  assert.ok(search.includes('p.user_id = ANY($13::uuid[])'));
+  assert.ok(search.includes('if (attempt >= 2)'));
+  assert.ok(search.includes("await client.query('ROLLBACK');\\n        if (attempt >= 2)"),
+    'a preview that crosses UTC midnight must roll back before retrying');
   assert.match(search, /hasMoreIssuedCandidates = result\.rows\.length > parsedLimit/);
   assert.match(search, /if \(usedBefore \+ newlyIssued >= FEMALE_FREE_DAILY_PROFILE_LIMIT\) continue;/,
     'an unseen profile at the exhausted quota must not stop later already-issued profiles from being returned');
