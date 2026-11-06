@@ -2997,10 +2997,11 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
         [femaleUserId]
       );
       const femaleAccount = femaleAccountResult.rows[0];
-      if (femaleAccount?.gender === 'female' && !hasFemalePremiumAccess(femaleAccount)) {
-        // Evaluate the rolling window after account locks have been
-        // acquired; transaction-start time can be stale after lock waits.
-        const quotaNowResult = await client.query('SELECT clock_timestamp() AS quota_now');
+      // Use one PostgreSQL wall-clock instant for both entitlement expiry and
+      // the rolling seven-day window; the application host clock may differ.
+      const quotaNowResult = await client.query('SELECT clock_timestamp() AS quota_now');
+      const quotaNow = new Date(quotaNowResult.rows[0].quota_now).getTime();
+      if (femaleAccount?.gender === 'female' && !hasFemalePremiumAccess(femaleAccount, quotaNow)) {
         const recentMatches = await client.query(
           `SELECT COUNT(*)::int AS count, MAX(created_at) + INTERVAL '7 days' AS next_available_at
            FROM matches
