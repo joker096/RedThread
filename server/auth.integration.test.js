@@ -1945,6 +1945,8 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(secondSearchPage.status, 200);
     const firstPageData = await firstSearchPage.json();
     const secondPageData = await secondSearchPage.json();
+    assert.equal(firstPageData.dailyQuota, null,
+      'an active female trial must bypass the free daily profile quota');
     assert.equal(firstPageData.profiles.length, 1);
     assert.equal(secondPageData.profiles.length, 0,
       'the second page must not expose the L2-only male profile excluded by the active L3 visibility gate');
@@ -2103,6 +2105,23 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(repeatedFreeTierPayload.dailyQuota.used, 3,
       'the daily quota remains exhausted when only previously issued profiles match the current filters');
     assert.equal(repeatedFreeTierPayload.dailyQuota.remaining, 0);
+
+    await identityGateDb.query(
+      "UPDATE users SET premium_until = NOW() + INTERVAL '1 day' WHERE id = $1",
+      [registered.user.id]
+    );
+    const premiumDailyQuotaSearch = await request('/api/profiles/search?minAge=36&maxAge=36&limit=3', {
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(premiumDailyQuotaSearch.status, 200);
+    const premiumDailyQuotaPayload = await premiumDailyQuotaSearch.json();
+    assert.equal(premiumDailyQuotaPayload.dailyQuota, null,
+      'an active Lady Premium subscription must bypass the daily profile quota');
+    await identityGateDb.query(
+      'UPDATE users SET premium_until = NULL WHERE id = $1',
+      [registered.user.id]
+    );
+
     // Concurrent requests for the same discovery page must serialize on the
     // account-safety lock and reserve each profile exposure only once.
     const parallelSearchResponses = await Promise.all([
@@ -2210,6 +2229,29 @@ test('auth API supports registration, session lookup, logout and login', {
       [registered.user.id, secondMaleRegistered.user.id]
     );
     assert.equal(quotaSeedMatch.rowCount, 1);
+
+    await identityGateDb.query(
+      "UPDATE users SET premium_until = NOW() + INTERVAL '1 day' WHERE id = $1",
+      [registered.user.id]
+    );
+    const premiumMatchBypass = await request(`/api/likes/${registered.user.id}`, {
+      method: 'POST', headers: { Cookie: maleCookie }
+    });
+    assert.equal(premiumMatchBypass.status, 201);
+    const premiumMatchPayload = await premiumMatchBypass.json();
+    assert.equal(premiumMatchPayload.matched, true,
+      'an active Lady Premium subscription must bypass the weekly match quota');
+    assert.ok(premiumMatchPayload.match.id);
+    await identityGateDb.query('DELETE FROM matches WHERE id = $1', [premiumMatchPayload.match.id]);
+    await identityGateDb.query(
+      'DELETE FROM likes WHERE sender_id = $1 AND target_id = $2',
+      [maleRegistered.user.id, registered.user.id]
+    );
+    await identityGateDb.query(
+      'UPDATE users SET premium_until = NULL WHERE id = $1',
+      [registered.user.id]
+    );
+
     const maleFinalLikeAtQuota = await request(`/api/likes/${registered.user.id}`, {
       method: 'POST', headers: { Cookie: maleCookie }
     });
