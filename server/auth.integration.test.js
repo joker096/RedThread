@@ -2238,14 +2238,14 @@ test('auth API supports registration, session lookup, logout and login', {
          AND user_b_id = GREATEST($1::uuid, $2::uuid)`,
       [registered.user.id, concurrentQuotaTargetId]
     );
+    // Preserve (or restore) the male's reciprocal like: the following
+    // sequential retry assertion relies on it after this concurrency check.
     await identityGateDb.query(
-      `DELETE FROM likes
-       WHERE (sender_id = $1 AND target_id = $2)
-          OR (sender_id = $2 AND target_id = $1)`,
+      'DELETE FROM likes WHERE sender_id = $1 AND target_id = $2',
       [registered.user.id, concurrentQuotaTargetId]
     );
     await identityGateDb.query(
-      'INSERT INTO likes (sender_id, target_id) VALUES ($1, $2)',
+      'INSERT INTO likes (sender_id, target_id) VALUES ($1, $2) ON CONFLICT (sender_id, target_id) DO NOTHING',
       [concurrentQuotaTargetId, registered.user.id]
     );
     try {
@@ -2287,9 +2287,7 @@ test('auth API supports registration, session lookup, logout and login', {
         [registered.user.id, concurrentQuotaTargetId]
       );
       await identityGateDb.query(
-        `DELETE FROM likes
-         WHERE (sender_id = $1 AND target_id = $2)
-            OR (sender_id = $2 AND target_id = $1)`,
+        'DELETE FROM likes WHERE sender_id = $1 AND target_id = $2',
         [registered.user.id, concurrentQuotaTargetId]
       );
     }
