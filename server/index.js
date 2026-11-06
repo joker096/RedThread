@@ -952,12 +952,15 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
       [accountReuseDigest]
     );
     const accountReuseRestriction = await client.query(
-      'SELECT expires_at FROM account_reuse_restrictions WHERE email_hmac = $1 AND expires_at > clock_timestamp()',
+      `SELECT expires_at,
+              GREATEST(1, CEIL(EXTRACT(EPOCH FROM (expires_at - clock_timestamp()))))::int AS retry_after_seconds
+       FROM account_reuse_restrictions
+       WHERE email_hmac = $1 AND expires_at > clock_timestamp()`,
       [accountReuseDigest]
     );
     if (accountReuseRestriction.rowCount) {
       const retryAt = new Date(accountReuseRestriction.rows[0].expires_at);
-      const retryAfterSeconds = Math.max(1, Math.ceil((retryAt.getTime() - Date.now()) / 1000));
+      const retryAfterSeconds = Math.max(1, Number(accountReuseRestriction.rows[0].retry_after_seconds) || 1);
       await client.query('ROLLBACK');
       res.setHeader('Retry-After', String(retryAfterSeconds));
       return res.status(429).json({
