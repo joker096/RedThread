@@ -4038,8 +4038,13 @@ test('auth API supports registration, session lookup, logout and login', {
       'account deletion must persist one keyed email restriction');
     assert.ok(reuseRestriction.rows[0].expires_at.getTime() > Date.now(),
       'the account reuse restriction must still be active after deletion');
-    assert.ok(reuseRestriction.rows[0].expires_at.getTime() <= Date.now() + 90 * 24 * 60 * 60 * 1000 + 60_000,
-      'the account reuse restriction must expire after 90 days, not an unbounded period');
+    const reuseRestrictionDuration = reuseRestriction.rows[0].expires_at.getTime() -
+      reuseRestriction.rows[0].created_at.getTime();
+    assert.ok(reuseRestriction.rows[0].created_at.getTime() >= Date.now() - 2 * 60_000,
+      'the 90-day restriction must be created at the end of account deletion, not at transaction start');
+    assert.ok(reuseRestrictionDuration >= 90 * 24 * 60 * 60 * 1000 - 1_000 &&
+      reuseRestrictionDuration <= 90 * 24 * 60 * 60 * 1000 + 1_000,
+      'the restriction must retain the full 90-day interval from its creation timestamp');
     assert.equal(JSON.stringify(reuseRestriction.rows[0]).includes(email), false,
       'the restriction must not store the original email');
 
