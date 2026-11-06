@@ -2861,11 +2861,7 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
           `SELECT COUNT(*)::int AS count, MAX(created_at) + INTERVAL '7 days' AS next_available_at
            FROM matches
            WHERE (user_a_id = $1 OR user_b_id = $1)
-             AND created_at >= GREATEST(
-               statement_timestamp() - INTERVAL '7 days',
-               COALESCE($2::timestamptz, '-infinity'::timestamptz),
-               COALESCE($3::timestamptz, '-infinity'::timestamptz)
-             )`,
+             AND created_at >= statement_timestamp() - INTERVAL '7 days'`,
           [femaleUserId, femaleAccount.female_trial_ends_at, femaleAccount.premium_until]
         );
         if (!canCreateFemaleFreeMatch(recentMatches.rows[0]?.count)) {
