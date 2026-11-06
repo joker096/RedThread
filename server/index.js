@@ -2827,7 +2827,7 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
       const femaleAccount = femaleAccountResult.rows[0];
       if (femaleAccount?.gender === 'female' && !hasFemalePremiumAccess(femaleAccount)) {
         const recentMatches = await client.query(
-          `SELECT COUNT(*)::int AS count, MIN(created_at) + INTERVAL '7 days' AS next_available_at
+          `SELECT COUNT(*)::int AS count, MAX(created_at) + INTERVAL '7 days' AS next_available_at
            FROM matches
            WHERE (user_a_id = $1 OR user_b_id = $1)
              AND created_at >= GREATEST(
