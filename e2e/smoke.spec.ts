@@ -714,6 +714,28 @@ test('server discovery filters stay collapsed until requested and close after se
   await expect(page.locator('#server-discovery-filters')).toHaveCount(0);
 });
 
+test('server discovery shows the server-confirmed free daily quota and UTC reset', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let searchRequests = 0;
+  await page.route('**/api/profiles/search**', async route => {
+    searchRequests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        profiles: [],
+        dailyQuota: { limit: 3, used: 3, remaining: 0, timezone: 'UTC' }
+      })
+    });
+  });
+
+  await page.goto('/');
+  await page.getByTestId('server-discovery-search').click();
+  await expect.poll(() => searchRequests).toBeGreaterThan(0);
+  await expect(page.getByText(/Free discovery: 3\/3 profiles issued today \(UTC\)\. 0 remaining\./i)).toBeVisible();
+  await expect(page.getByText(/resets at 00:00 UTC/i)).toBeVisible();
+});
+
 test('server discovery swipe mode collapses and restores profile photos vertically', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/profiles/search**', async route => {
