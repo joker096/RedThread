@@ -53,16 +53,22 @@ test('daily exposure reservations pin one UTC date across every statement in a t
   const searchEnd = source.indexOf('\nfunction isUuid', searchStart);
   assert.ok(searchStart >= 0 && searchEnd > searchStart, 'profile search route exists');
   const search = source.slice(searchStart, searchEnd);
-  assert.equal((search.match(/clock_timestamp\(\)/g) || []).length, 1,
-    'profile search captures the UTC date exactly once');
-  const reservationStart = search.indexOf('// Fix one UTC date for the entire exposure reservation.');
+  assert.equal((search.match(/clock_timestamp\\(\\)/g) || []).length, 2,
+    'Discovery captures the preview date and rechecks it after account locks');
+  const previewDateCapture = search.indexOf('const previewDateResult = await client.query(');
+  const previewQuery = search.indexOf('const preview = await client.query(searchSql, [...searchParams, previewDate])');
+  const accountLocks = search.indexOf('await acquireGiftSafetyUserLocks(client, req.authUser.id, ...candidateIds)');
+  const lockedDateCapture = search.indexOf('const lockedDateResult = await client.query(');
+  const reservationStart = search.indexOf('const exposureDate = lockedExposureDate;');
   const reservationEnd = search.indexOf('result.dailyQuota = dailyQuota;', reservationStart);
-  assert.ok(reservationStart >= 0 && reservationEnd > reservationStart);
-  assert.doesNotMatch(search.slice(reservationStart, reservationEnd), /statement_timestamp\(\)/,
-    'profile exposure reservations must not recalculate the quota date per statement');
-  assert.match(search, /exposure_date < \$2::date/);
-  assert.match(search, /exposure_date = \$2::date/);
-  assert.match(search, /VALUES \(\$1, \$2, \$3::date\)/);
+  assert.ok(previewDateCapture >= 0 && previewQuery > previewDateCapture);
+  assert.ok(accountLocks > previewQuery && lockedDateCapture > accountLocks);
+  assert.ok(reservationStart > lockedDateCapture && reservationEnd > reservationStart);
+  assert.doesNotMatch(search.slice(reservationStart, reservationEnd), /statement_timestamp\\(\\)/,
+    'profile exposure reservations must use the post-lock UTC date');
+  assert.match(search, /exposure_date < \\$2::date/);
+  assert.match(search, /exposure_date = \\$2::date/);
+  assert.match(search, /VALUES \\(\\$1, \\$2, \\$3::date\\)/);
 });
 
 test('profile pass and undo handlers acquire account locks before row locks and use one transaction', async () => {
