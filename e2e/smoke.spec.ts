@@ -2528,3 +2528,31 @@ test('reselecting the active desktop conversation preserves its loaded history',
   await expect.poll(() => historyRequests).toBe(1);
   await expect(log.locator('.vow-inbox-bubble')).toHaveCount(1);
 });
+
+test('real inbox does not display prototype unread counts until demo conversations are explicitly shown', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/auth/me', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ user: { id: 'e2e-current-user' } })
+  }));
+  await page.route('**/api/matches**', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ matches: [] })
+  }));
+
+  await page.goto('/');
+  const chatNavigation = page.locator('[data-testid="nav-chats"]:visible').first();
+  // The real inbox has no server-side message receipt count. Do not leak the
+  // local prototype thread count into its navigation badge or accessible name.
+  await expect(chatNavigation.locator('.bg-amber-400')).toHaveCount(0);
+  await chatNavigation.click();
+  await expect(page.getByTestId('server-matches-panel')).toBeVisible();
+
+  await page.getByRole('button', { name: /show demo conversations|показать демо-переписки/i }).click();
+  await expect(page.locator('[data-testid="nav-chats"]:visible').first().locator('.bg-amber-400')).toBeVisible();
+
+  await page.getByRole('button', { name: /hide demo conversations|скрыть демо-переписки/i }).click();
+  await expect(page.locator('[data-testid="nav-chats"]:visible').first().locator('.bg-amber-400')).toHaveCount(0);
+});
