@@ -844,7 +844,7 @@ async function reserveFemaleProfileExposure(client, user, profileId) {
        WHERE user_id = $1 AND exposure_date = $2::date`,
       [user.id, exposureDate]
     );
-    return { allowed: true, used: Number(usage.rows[0]?.used || 0) };
+    return { allowed: true, used: Number(usage.rows[0]?.used || 0), exposureDate, quotaApplied: true };
   }
   const usage = await client.query(
     `SELECT COUNT(*)::int AS used FROM female_profile_exposures
