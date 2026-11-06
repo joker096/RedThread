@@ -2502,7 +2502,6 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
     }
-    await client.query('BEGIN');
     const requestedTargetId = req.body?.targetId ?? null;
     if (requestedTargetId !== null && !isUuid(requestedTargetId)) {
       await client.query('ROLLBACK');
@@ -2964,7 +2963,6 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
     }
-    await client.query('BEGIN');
     const preview = await client.query(
       `SELECT action_type AS "actionType", target_id AS id
        FROM (
