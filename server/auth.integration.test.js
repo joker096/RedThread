@@ -2389,7 +2389,7 @@ test('auth API supports registration, session lookup, logout and login', {
         [registered.user.id, concurrentQuotaMaleIds]
       );
       assert.equal(persistedCompetingMatches.rowCount, 1,
-        'only one match row may be created for the woman's final weekly slot');
+        "only one match row may be created for the woman's final weekly slot");
       const persistedFemaleFinalLikes = await identityGateDb.query(
         'SELECT target_id FROM likes WHERE sender_id = $1 AND target_id = ANY($2::uuid[])',
         [registered.user.id, concurrentQuotaMaleIds]
