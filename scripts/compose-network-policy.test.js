@@ -28,6 +28,8 @@ test('Docker database network is isolated from the public web proxy container', 
   assert.deepEqual(networksFor('ad-event-retention'), ['backend']);
   assert.deepEqual(networksFor('female-profile-exposure-retention'), ['backend']);
   const exposureRetentionWorker = serviceBlock('female-profile-exposure-retention');
+  assert.match(exposureRetentionWorker, /cap_drop: \[ALL\]/);
+  assert.match(exposureRetentionWorker, /no-new-privileges:true/);
   assert.match(exposureRetentionWorker, /FEMALE_PROFILE_EXPOSURE_CLEANUP_BATCH_SIZE/);
   assert.match(exposureRetentionWorker, /sleep 3600/);
   assert.match(exposureRetentionWorker, /migrate:\n        condition: service_completed_successfully/);
