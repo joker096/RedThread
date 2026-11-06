@@ -3541,6 +3541,19 @@ test('auth API supports registration, session lookup, logout and login', {
         'SELECT COUNT(*)::int AS count FROM messages WHERE match_id = $1 AND sender_id = $2',
         [matchPayload.match.id, registered.user.id]
       );
+      // Soft deletion must purge exposure rows both owned by the account and
+      // rows that retain its UUID as the viewed profile.
+      await deletionSafetyDb.query(
+        `WITH utc_day AS MATERIALIZED (
+           SELECT (statement_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date
+         )
+         INSERT INTO female_profile_exposures (user_id, profile_user_id, exposure_date)
+         SELECT $1::uuid, $2::uuid, exposure_date FROM utc_day
+         UNION ALL
+         SELECT $3::uuid, $1::uuid, exposure_date FROM utc_day
+         ON CONFLICT (user_id, exposure_date, profile_user_id) DO NOTHING`,
+        [registered.user.id, maleRegistered.user.id, secondMaleRegistered.user.id]
+      );
       // Hold the same per-user safety lock so deletion is first in the
       // PostgreSQL advisory-lock queue, followed by already-authenticated
       // profile-update, photo-upload, message, assessment and login requests.
@@ -3735,6 +3748,12 @@ test('auth API supports registration, session lookup, logout and login', {
         staleGiftDecisionPromise
       ]);
       assert.equal(deleteAccount.status, 204);
+      const deletedAccountExposures = await deletionSafetyDb.query(
+        'SELECT COUNT(*)::int AS count FROM female_profile_exposures WHERE user_id = $1 OR profile_user_id = $1',
+        [registered.user.id]
+      );
+      assert.equal(deletedAccountExposures.rows[0].count, 0,
+        'account deletion must purge discovery exposures owned by or referencing the deleted account');
       assert.equal(staleGiftDecision.status, 401,
         'a decline authenticated before deletion must wait for the account safety lock and then be rejected');
       const deletedPendingDecisionOrder = await deletionSafetyDb.query(
