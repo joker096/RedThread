@@ -144,7 +144,7 @@ test('daily quota keeps previously issued profiles visible when the allowance is
   const compatibilityOrder = search.indexOf('"compatibilityScore" DESC');
   assert.ok(issuedPriority >= 0 && compatibilityOrder > issuedPriority,
     'already-issued profiles must sort before unseen profiles for a free account');
-  assert.match(search, /exposure_date = \\(statement_timestamp\\(\\) AT TIME ZONE 'UTC'\\)::date/);
+  assert.ok(search.includes("exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date"));
   assert.match(search, /hasMoreIssuedCandidates = result\.rows\.length > parsedLimit/);
   assert.match(search, /if \(usedBefore \+ newlyIssued >= FEMALE_FREE_DAILY_PROFILE_LIMIT\) continue;/,
     'an unseen profile at the exhausted quota must not stop later already-issued profiles from being returned');
