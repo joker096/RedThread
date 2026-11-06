@@ -134,3 +134,19 @@ test('new mutual matches use the wall-clock insertion time for the rolling quota
   assert.ok(insert.includes('GREATEST($1::uuid, $2::uuid), clock_timestamp())'),
     'the stored match timestamp must be captured when the row is inserted, not at transaction start');
 });
+
+test('daily quota keeps previously issued profiles visible when the allowance is exhausted', async () => {
+  const source = await readFile(new URL('./index.js', import.meta.url), 'utf8');
+  const searchStart = source.indexOf("app.get('/api/profiles/search'");
+  const searchEnd = source.indexOf('\nfunction isUuid', searchStart);
+  const search = source.slice(searchStart, searchEnd);
+  const issuedPriority = search.indexOf('FROM female_profile_exposures issued');
+  const compatibilityOrder = search.indexOf('"compatibilityScore" DESC');
+  assert.ok(issuedPriority >= 0 && compatibilityOrder > issuedPriority,
+    'already-issued profiles must sort before unseen profiles for a free account');
+  assert.match(search, /exposure_date = \\(statement_timestamp\\(\\) AT TIME ZONE 'UTC'\\)::date/);
+  assert.match(search, /hasMoreIssuedCandidates = result\.rows\.length > parsedLimit/);
+  assert.match(search, /if \(usedBefore \+ newlyIssued >= FEMALE_FREE_DAILY_PROFILE_LIMIT\) continue;/,
+    'an unseen profile at the exhausted quota must not stop later already-issued profiles from being returned');
+  assert.match(search, /hasMoreIssuedCandidates/);
+});
