@@ -952,10 +952,14 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
       [accountReuseDigest]
     );
     const accountReuseRestriction = await client.query(
-      `SELECT expires_at,
-              GREATEST(1, CEIL(EXTRACT(EPOCH FROM (expires_at - clock_timestamp()))))::int AS retry_after_seconds
-       FROM account_reuse_restrictions
-       WHERE email_hmac = $1 AND expires_at > clock_timestamp()`,
+      `WITH policy_clock AS MATERIALIZED (
+         SELECT clock_timestamp() AS policy_now
+       )
+       SELECT restrictions.expires_at,
+              GREATEST(1, CEIL(EXTRACT(EPOCH FROM (restrictions.expires_at - policy_clock.policy_now))))::int AS retry_after_seconds
+       FROM account_reuse_restrictions AS restrictions
+       CROSS JOIN policy_clock
+       WHERE restrictions.email_hmac = $1 AND restrictions.expires_at > policy_clock.policy_now`,
       [accountReuseDigest]
     );
     if (accountReuseRestriction.rowCount) {
