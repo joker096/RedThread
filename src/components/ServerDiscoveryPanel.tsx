@@ -304,6 +304,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') refreshIfUtcDayChanged();
     };
+    refreshIfUtcDayChanged();
     scheduleUtcResetRefresh();
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
