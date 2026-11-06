@@ -2230,7 +2230,17 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.deepEqual(persistedLikeUndoPayload.dailyQuota, repeatedFreeTierPayload.dailyQuota,
       'undoing an already-issued like preserves the idempotent daily exposure count');
 
-    await identityGateDb.query('DELETE FROM users WHERE id = $1', [quotaExhaustionMaleUserId]);
+    const deletedViewedProfileId = quotaExhaustionMaleUserId;
+    await identityGateDb.query('DELETE FROM users WHERE id = $1', [deletedViewedProfileId]);
+    const retainedDeletedProfileExposure = await identityGateDb.query(
+      `SELECT COUNT(*)::int AS count
+       FROM female_profile_exposures
+       WHERE user_id = $1 AND profile_user_id = $2
+         AND exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date`,
+      [registered.user.id, deletedViewedProfileId]
+    );
+    assert.equal(retainedDeletedProfileExposure.rows[0].count, 1,
+      'hard deletion of a viewed profile must not refund another account daily exposure slot');
     quotaExhaustionMaleUserId = null;
 
     const firstLikeThird = await request(`/api/likes/${maleRegistered.user.id}`, {
