@@ -2580,6 +2580,23 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(femaleMatches.status, 200);
     assert.equal((await femaleMatches.json()).matches.some(match => match.id === matchPayload.match.id), true);
 
+    const existingChatMessage = await request(`/api/matches/${matchPayload.match.id}/messages`, {
+      method: 'POST',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({ text: 'Продолжаем общение после достижения недельной квоты.' })
+    });
+    assert.equal(existingChatMessage.status, 201,
+      'the weekly match quota must not disable messaging in an already-created active chat');
+    const existingChatMessagePayload = await existingChatMessage.json();
+    assert.equal(existingChatMessagePayload.message.text,
+      'Продолжаем общение после достижения недельной квоты.');
+    const existingChatHistory = await request(`/api/matches/${matchPayload.match.id}/messages`, {
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(existingChatHistory.status, 200);
+    assert.ok((await existingChatHistory.json()).messages.some(message => message.id === existingChatMessagePayload.message.id),
+      'messages in an existing match remain readable after the weekly match quota is reached');
+
     const outsiderRegistration = await request('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify({
