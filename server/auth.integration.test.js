@@ -2251,6 +2251,28 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(quotaSeedMatch.rowCount, 1);
 
     await identityGateDb.query(
+      "UPDATE users SET female_trial_ends_at = NOW() + INTERVAL '1 day' WHERE id = $1",
+      [registered.user.id]
+    );
+    const trialMatchBypass = await request(`/api/likes/${registered.user.id}`, {
+      method: 'POST', headers: { Cookie: maleCookie }
+    });
+    assert.equal(trialMatchBypass.status, 201);
+    const trialMatchPayload = await trialMatchBypass.json();
+    assert.equal(trialMatchPayload.matched, true,
+      'an active female trial must bypass the weekly match quota');
+    assert.ok(trialMatchPayload.match.id);
+    await identityGateDb.query('DELETE FROM matches WHERE id = $1', [trialMatchPayload.match.id]);
+    await identityGateDb.query(
+      'DELETE FROM likes WHERE sender_id = $1 AND target_id = $2',
+      [maleRegistered.user.id, registered.user.id]
+    );
+    await identityGateDb.query(
+      "UPDATE users SET female_trial_ends_at = NOW() - INTERVAL '1 second' WHERE id = $1",
+      [registered.user.id]
+    );
+
+    await identityGateDb.query(
       "UPDATE users SET premium_until = NOW() + INTERVAL '1 day' WHERE id = $1",
       [registered.user.id]
     );
