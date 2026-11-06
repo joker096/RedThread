@@ -45,9 +45,9 @@ test('profile pass and undo handlers acquire account locks before row locks and 
   for (const marker of routes) {
     const start = source.indexOf(marker);
     assert.notEqual(start, -1, `route exists: ${marker}`);
-    const next = source.indexOf('\\napp.', start + marker.length);
+    const next = source.indexOf('\napp.', start + marker.length);
     const route = source.slice(start, next === -1 ? source.length : next);
-    assert.equal((route.match(/await client\\.query\\('BEGIN'\\)/g) || []).length, 1,
+    assert.equal((route.match(/await client\.query\('BEGIN'\)/g) || []).length, 1,
       `${marker} must open exactly one transaction`);
     const accountLock = route.indexOf('await acquireGiftSafetyUserLocks(');
     const rowLock = route.search(/FOR (?:SHARE|UPDATE)/);
