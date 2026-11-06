@@ -152,7 +152,7 @@ test('weekly match quota captures its rolling-window clock after account locks',
 test('match creation rechecks Trial/Premium expiry at the transaction commit boundary', async () => {
   const source = await readFile(new URL('./index.js', import.meta.url), 'utf8');
   const start = source.indexOf("app.post('/api/likes/:targetId'");
-  const next = source.indexOf('\\napp.', start + 1);
+  const next = source.indexOf('\napp.', start + 1);
   const route = source.slice(start, next === -1 ? source.length : next);
   const initialEntitlement = route.indexOf('femaleWasPremiumAtQuotaCheck');
   const matchInsert = route.indexOf('INSERT INTO matches');
