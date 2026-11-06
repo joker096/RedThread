@@ -84,6 +84,15 @@ test('profile pass and undo handlers acquire account locks before row locks and 
     assert.ok(accountLock >= 0 && rowLock > accountLock,
       `${marker} must acquire account advisory locks before row-level locks`);
   }
+
+  const passUndoStart = source.indexOf("app.post('/api/passes/undo'");
+  const passUndoEnd = source.indexOf('\napp.', passUndoStart + 1);
+  const passUndo = source.slice(passUndoStart, passUndoEnd);
+  const lockedProfileLookup = passUndo.indexOf('const profileResult = await client.query(');
+  assert.ok(lockedProfileLookup >= 0);
+  const lockedProfileSql = passUndo.slice(lockedProfileLookup);
+  assert.match(lockedProfileSql, /p\.gender <> 'male' OR EXISTS\s*\([\s\S]*?iv\.status = 'verified' AND iv\.provider_environment = 'live'[\s\S]*?identity_l3_has_active_approval\(p\.user_id\)/,
+    'pass undo must recheck live L2 and active L3 for male profiles after acquiring account locks');
 });
 
 test('free-tier like and pass validate the same post-lock UTC date used by discovery issuance', async () => {
