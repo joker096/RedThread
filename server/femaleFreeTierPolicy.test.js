@@ -121,12 +121,12 @@ test('weekly match quota captures its rolling-window clock after account locks',
 test('new mutual matches use the wall-clock insertion time for the rolling quota window', async () => {
   const source = await readFile(new URL('./index.js', import.meta.url), 'utf8');
   const start = source.indexOf("app.post('/api/likes/:targetId'");
-  const next = source.indexOf('\\napp.', start + 1);
+  const next = source.indexOf('\napp.', start + 1);
   const route = source.slice(start, next === -1 ? source.length : next);
   const insertAt = route.indexOf('INSERT INTO matches');
   assert.notEqual(insertAt, -1, 'mutual match creation SQL exists');
   const insert = route.slice(insertAt, route.indexOf('RETURNING id', insertAt));
-  assert.match(insert, /INSERT INTO matches \\(user_a_id, user_b_id, created_at\\)/);
-  assert.match(insert, /VALUES \\(LEAST\\(\\$1::uuid, \\$2::uuid\\), GREATEST\\(\\$1::uuid, \\$2::uuid\\), clock_timestamp\\(\\)\\)/,
+  assert.ok(insert.includes('INSERT INTO matches (user_a_id, user_b_id, created_at)'));
+  assert.ok(insert.includes('GREATEST($1::uuid, $2::uuid), clock_timestamp())'),
     'the stored match timestamp must be captured when the row is inserted, not at transaction start');
 });
