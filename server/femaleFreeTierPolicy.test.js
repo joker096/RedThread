@@ -108,7 +108,7 @@ test('free-tier like and pass validate the same post-lock UTC date used by disco
 test('weekly match quota captures its rolling-window clock after account locks', async () => {
   const source = await readFile(new URL('./index.js', import.meta.url), 'utf8');
   const start = source.indexOf("app.post('/api/likes/:targetId'");
-    const next = source.indexOf('\napp.', start + marker.length);
+  const next = source.indexOf('\napp.', start + 1);
   const route = source.slice(start, next === -1 ? source.length : next);
   const lock = route.indexOf('await acquireGiftSafetyUserLocks(');
   const quotaClock = route.indexOf("SELECT clock_timestamp() AS quota_now");
