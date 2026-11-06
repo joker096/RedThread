@@ -91,7 +91,7 @@ test('free-tier like and pass validate the same post-lock UTC date used by disco
   ]) {
     const start = source.indexOf(marker);
     assert.notEqual(start, -1, `route exists: ${marker}`);
-    const next = source.indexOf('\\napp.', start + marker.length);
+    const next = source.indexOf('\napp.', start + marker.length);
     const route = source.slice(start, next === -1 ? source.length : next);
     const lock = route.indexOf('await acquireGiftSafetyUserLocks(');
     const dateCapture = route.indexOf("SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date");
@@ -100,7 +100,7 @@ test('free-tier like and pass validate the same post-lock UTC date used by disco
       `${marker} captures the UTC date only after account locks are held`);
     assert.ok(issuedCheck > dateCapture,
       `${marker} validates exposure against the captured UTC date`);
-    assert.doesNotMatch(route, /exposure_date = \\(statement_timestamp\\(\\) AT TIME ZONE 'UTC'\\)::date/,
+    assert.equal(route.includes("exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date"), false,
       `${marker} must not use transaction-start time for the exposure day`);
   }
 });
@@ -108,12 +108,12 @@ test('free-tier like and pass validate the same post-lock UTC date used by disco
 test('weekly match quota captures its rolling-window clock after account locks', async () => {
   const source = await readFile(new URL('./index.js', import.meta.url), 'utf8');
   const start = source.indexOf("app.post('/api/likes/:targetId'");
-  const next = source.indexOf('\\napp.', start + 1);
+    const next = source.indexOf('\napp.', start + marker.length);
   const route = source.slice(start, next === -1 ? source.length : next);
   const lock = route.indexOf('await acquireGiftSafetyUserLocks(');
   const quotaClock = route.indexOf("SELECT clock_timestamp() AS quota_now");
   const quotaQuery = route.indexOf("created_at >= $2::timestamptz - INTERVAL '7 days'");
   assert.ok(lock >= 0 && quotaClock > lock);
   assert.ok(quotaQuery > quotaClock);
-  assert.doesNotMatch(route, /created_at >= statement_timestamp\\(\\) - INTERVAL '7 days'/);
+  assert.equal(route.includes("created_at >= statement_timestamp() - INTERVAL '7 days'"), false);
 });
