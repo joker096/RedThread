@@ -2059,6 +2059,25 @@ test('auth API supports registration, session lookup, logout and login', {
     );
     assert.equal(repeatedFreeTierPayload.dailyQuota.used, freeTierProfilePayload.dailyQuota.used,
       'reloading or paginating must not consume the daily quota twice');
+    // Concurrent requests for the same discovery page must serialize on the
+    // account-safety lock and reserve each profile exposure only once.
+    const parallelSearchResponses = await Promise.all([
+      request('/api/profiles/search?minAge=36&maxAge=36&limit=3', { headers: { Cookie: secondCookie } }),
+      request('/api/profiles/search?minAge=36&maxAge=36&limit=3', { headers: { Cookie: secondCookie } }),
+      request('/api/profiles/search?minAge=36&maxAge=36&limit=3', { headers: { Cookie: secondCookie } })
+    ]);
+    for (const response of parallelSearchResponses) assert.equal(response.status, 200);
+    const parallelSearchPayloads = await Promise.all(parallelSearchResponses.map(response => response.json()));
+    for (const payload of parallelSearchPayloads) {
+      assert.deepEqual(
+        payload.profiles.map(profile => profile.id),
+        freeTierProfilePayload.profiles.map(profile => profile.id),
+        'parallel reloads must return the same already-issued discovery profiles'
+      );
+      assert.equal(payload.dailyQuota.used, freeTierProfilePayload.dailyQuota.used,
+        'parallel reloads must not over-count or reserve duplicate daily profile exposures');
+    }
+
     const persistedDailyExposures = await identityGateDb.query(
       `SELECT COUNT(*)::int AS count
        FROM female_profile_exposures
