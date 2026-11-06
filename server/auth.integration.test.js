@@ -4068,6 +4068,45 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.ok(Date.parse(blockedReRegistrationPayload.retryAt) > Date.now());
     assert.ok(Number(blockedReRegistration.headers.get('retry-after')) > 0);
 
+    // Hold the same transaction advisory lock used by account deletion.
+    // Registration must wait, then observe the tombstone committed by deletion.
+    await identityGateDb.query('DELETE FROM account_reuse_restrictions WHERE email_hmac = $1', [reuseDigest]);
+    await identityGateDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'auth:%'");
+    const reuseLockClient = await identityGateDb.connect();
+    let reuseLockTransactionOpen = false;
+    try {
+      await reuseLockClient.query('BEGIN');
+      reuseLockTransactionOpen = true;
+      await reuseLockClient.query(
+        'SELECT pg_advisory_xact_lock(hashtext($1))',
+        [`account-reuse:${reuseDigest}`]
+      );
+      let concurrentRegistrationSettled = false;
+      const concurrentRegistration = request('/api/auth/register', {
+        method: 'POST',
+        body: JSON.stringify(registrationBodyAfterDeletion)
+      }).then(response => {
+        concurrentRegistrationSettled = true;
+        return response;
+      });
+      await new Promise(resolve => setTimeout(resolve, 100));
+      assert.equal(concurrentRegistrationSettled, false,
+        'registration must wait while deletion holds the per-email advisory lock');
+      await reuseLockClient.query(
+        `INSERT INTO account_reuse_restrictions (email_hmac, expires_at)
+         VALUES ($1, clock_timestamp() + INTERVAL '90 days')`,
+        [reuseDigest]
+      );
+      await reuseLockClient.query('COMMIT');
+      reuseLockTransactionOpen = false;
+      const concurrentRegistrationResponse = await concurrentRegistration;
+      assert.equal(concurrentRegistrationResponse.status, 429,
+        'registration waiting behind deletion must observe the committed 90-day restriction');
+    } finally {
+      if (reuseLockTransactionOpen) await reuseLockClient.query('ROLLBACK').catch(() => {});
+      reuseLockClient.release();
+    }
+
     await identityGateDb.query(
       'UPDATE account_reuse_restrictions SET expires_at = clock_timestamp() - INTERVAL \'1 second\' WHERE email_hmac = $1',
       [reuseDigest]
