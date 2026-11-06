@@ -2157,7 +2157,7 @@ test('auth API supports registration, session lookup, logout and login', {
     const quotaSeedMatch = await identityGateDb.query(
       `INSERT INTO matches (user_a_id, user_b_id)
        VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid))
-       RETURNING id`,
+       RETURNING id, created_at`,
       [registered.user.id, secondMaleRegistered.user.id]
     );
     assert.equal(quotaSeedMatch.rowCount, 1);
@@ -2172,7 +2172,12 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(maleQuotaPayload.quota?.type, 'weekly_matches');
     assert.equal(maleQuotaPayload.quota?.exhausted, true);
     assert.ok(maleQuotaPayload.quota?.nextAvailableAt,
-      'the API reports when the oldest counted match leaves the rolling seven-day window');
+      'the API reports when the counted matches leave the rolling seven-day window');
+    assert.equal(
+      Date.parse(maleQuotaPayload.quota.nextAvailableAt),
+      Date.parse(quotaSeedMatch.rows[0].created_at) + 7 * 24 * 60 * 60 * 1000,
+      'the retry time is seven days after the latest counted match, not the earliest one'
+    );
     const maleLikeWasDeferred = await identityGateDb.query(
       'SELECT 1 FROM likes WHERE sender_id = $1 AND target_id = $2',
       [maleRegistered.user.id, registered.user.id]
