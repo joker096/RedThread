@@ -51,6 +51,28 @@ services:
         condition: service_completed_successfully
     networks: [backend]
 
+  female-profile-exposure-retention:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
+      PGSSL: "false"
+      FEMALE_PROFILE_EXPOSURE_CLEANUP_BATCH_SIZE: ${FEMALE_PROFILE_EXPOSURE_CLEANUP_BATCH_SIZE:-1000}
+    command:
+      - sh
+      - -c
+      - |
+        while :; do
+          node scripts/cleanup-female-profile-exposures.js || echo "Female profile exposure cleanup failed; retrying on the next hourly cycle."
+          sleep 3600
+        done
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [backend]
+
   gift-request-expiry:
     build:
       context: .
