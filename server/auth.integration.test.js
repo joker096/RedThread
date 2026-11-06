@@ -30,13 +30,14 @@ test('auth API supports registration, session lookup, logout and login', {
   const port = await findFreePort();
   const origin = 'http://localhost:3000';
   const api = `http://127.0.0.1:${port}`;
+  const accountReuseTestKey = 'a'.repeat(64);
   const child = spawn(process.execPath, ['server/index.js'], {
     env: {
       ...process.env,
       API_PORT: String(port),
       APP_ORIGIN: origin,
       NODE_ENV: 'test',
-      ACCOUNT_REUSE_HMAC_KEY: 'a'.repeat(64),
+      ACCOUNT_REUSE_HMAC_KEY: accountReuseTestKey,
       PG_STATEMENT_TIMEOUT_MS: '8000'
     },
     stdio: 'ignore'
@@ -4027,7 +4028,7 @@ test('auth API supports registration, session lookup, logout and login', {
 
     // Account deletion must prevent a fresh account/trial on the same normalized
     // email for 90 days, then permit registration after the exact expiry.
-    const reuseDigest = createAccountReuseDigest(email, process.env.ACCOUNT_REUSE_HMAC_KEY);
+    const reuseDigest = createAccountReuseDigest(email, accountReuseTestKey);
     assert.match(reuseDigest, /^[a-f0-9]{64}$/);
     const reuseRestriction = await identityGateDb.query(
       'SELECT email_hmac, created_at, expires_at FROM account_reuse_restrictions WHERE email_hmac = $1',
