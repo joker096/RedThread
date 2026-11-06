@@ -2227,6 +2227,75 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(femaleQuotaPayload.quota?.exhausted, true);
     await identityGateDb.query('DELETE FROM matches WHERE id = $1', [secondQuotaSeedMatch.rows[0].id]);
 
+    // Two different reciprocal likes race for the woman's final weekly slot.
+    // Both requests share the same female account lock; exactly one match may
+    // be created and the losing final like must remain unpersisted.
+    const concurrentQuotaMaleIds = [maleRegistered.user.id, secondMaleRegistered.user.id];
+    await identityGateDb.query(
+      `DELETE FROM matches
+       WHERE (user_a_id = LEAST($1::uuid, $2::uuid) AND user_b_id = GREATEST($1::uuid, $2::uuid))
+          OR (user_a_id = LEAST($1::uuid, $3::uuid) AND user_b_id = GREATEST($1::uuid, $3::uuid))`,
+      [registered.user.id, ...concurrentQuotaMaleIds]
+    );
+    await identityGateDb.query(
+      `DELETE FROM likes
+       WHERE (sender_id = $1 AND target_id = ANY($2::uuid[]))
+          OR (sender_id = ANY($2::uuid[]) AND target_id = $1)`,
+      [registered.user.id, concurrentQuotaMaleIds]
+    );
+    await identityGateDb.query(
+      'INSERT INTO likes (sender_id, target_id) VALUES ($1, $3), ($2, $3)',
+      [...concurrentQuotaMaleIds, registered.user.id]
+    );
+    try {
+      const concurrentFinalLikeResponses = await Promise.all(
+        concurrentQuotaMaleIds.map(targetId => request(`/api/likes/${targetId}`, {
+          method: 'POST', headers: { Cookie: secondCookie }
+        }))
+      );
+      for (const response of concurrentFinalLikeResponses) assert.equal(response.status, 201);
+      const concurrentFinalLikePayloads = await Promise.all(
+        concurrentFinalLikeResponses.map(response => response.json())
+      );
+      assert.equal(
+        concurrentFinalLikePayloads.filter(payload => payload.matched === true).length,
+        1,
+        'only one concurrent reciprocal like may consume the final weekly match slot'
+      );
+      const concurrentQuotaLoser = concurrentFinalLikePayloads.find(payload => payload.quota?.type === 'weekly_matches');
+      assert.ok(concurrentQuotaLoser,
+        'the losing concurrent final like must receive the weekly quota response');
+      assert.equal(concurrentQuotaLoser.liked, false,
+        'the losing concurrent final like must not be persisted');
+      const concurrentCreatedMatches = await identityGateDb.query(
+        `SELECT id FROM matches
+         WHERE user_a_id = LEAST($1::uuid, ANY($2::uuid[]))
+           AND user_b_id = GREATEST($1::uuid, ANY($2::uuid[]))`,
+        [registered.user.id, concurrentQuotaMaleIds]
+      );
+      assert.equal(concurrentCreatedMatches.rowCount, 1,
+        'the database must contain exactly one match after the concurrent race');
+      const concurrentPersistedFemaleLikes = await identityGateDb.query(
+        'SELECT target_id FROM likes WHERE sender_id = $1 AND target_id = ANY($2::uuid[])',
+        [registered.user.id, concurrentQuotaMaleIds]
+      );
+      assert.equal(concurrentPersistedFemaleLikes.rowCount, 1,
+        'only the winning reciprocal like may be persisted');
+    } finally {
+      await identityGateDb.query(
+        `DELETE FROM matches
+         WHERE (user_a_id = LEAST($1::uuid, $2::uuid) AND user_b_id = GREATEST($1::uuid, $2::uuid))
+            OR (user_a_id = LEAST($1::uuid, $3::uuid) AND user_b_id = GREATEST($1::uuid, $3::uuid))`,
+        [registered.user.id, ...concurrentQuotaMaleIds]
+      );
+      await identityGateDb.query(
+        `DELETE FROM likes
+         WHERE (sender_id = $1 AND target_id = ANY($2::uuid[]))
+            OR (sender_id = ANY($2::uuid[]) AND target_id = $1)`,
+        [registered.user.id, concurrentQuotaMaleIds]
+      );
+    }
+
     const femaleRetryAfterQuota = await request(`/api/likes/${maleRegistered.user.id}`, {
       method: 'POST', headers: { Cookie: secondCookie }
     });
