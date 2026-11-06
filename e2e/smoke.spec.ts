@@ -714,6 +714,35 @@ test('server discovery filters stay collapsed until requested and close after se
   await expect(page.locator('#server-discovery-filters')).toHaveCount(0);
 });
 
+test('server discovery refreshes its free daily quota automatically at UTC midnight', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-11-06T23:59:30.000Z') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  let searchRequests = 0;
+  await page.route('**/api/profiles/search**', async route => {
+    searchRequests += 1;
+    const used = searchRequests === 1 ? 3 : 0;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        profiles: [],
+        dailyQuota: { limit: 3, used, remaining: 3 - used, timezone: 'UTC' }
+      })
+    });
+  });
+
+  await page.goto('/');
+  await page.getByTestId('server-discovery-search').click();
+  await expect.poll(() => searchRequests).toBeGreaterThan(0);
+  await expect(page.getByRole('status').filter({ hasText: 'Free discovery:' }))
+    .toContainText('3/3 profiles issued today');
+
+  await page.clock.runFor(31_000);
+  await expect.poll(() => searchRequests).toBeGreaterThan(1);
+  await expect(page.getByRole('status').filter({ hasText: 'Free discovery:' }))
+    .toContainText('0/3 profiles issued today');
+});
+
 test('server discovery shows the server-confirmed free daily quota and UTC reset', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   let searchRequests = 0;
