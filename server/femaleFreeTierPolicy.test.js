@@ -140,6 +140,8 @@ test('weekly match quota captures its rolling-window clock after account locks',
   const quotaQuery = route.indexOf("created_at > $2::timestamptz - INTERVAL '7 days'");
   assert.ok(lock >= 0 && quotaClock > lock);
   assert.ok(quotaQuery > quotaClock);
+  assert.match(route, /hasFemalePremiumAccess\(femaleAccount, quotaNow\)/,
+    'entitlement expiry and rolling-window counting must use the same PostgreSQL clock snapshot');
   assert.match(route, /MAX\(created_at\) \+ INTERVAL '7 days' AS next_available_at/,
     'the next slot opens only when the newest counted match exits, leaving zero matches in the rolling window');
   assert.match(route, /created_at > \$2::timestamptz - INTERVAL '7 days'/,
