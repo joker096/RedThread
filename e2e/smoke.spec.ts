@@ -718,9 +718,10 @@ test('server discovery refreshes its free daily quota automatically at UTC midni
   await page.clock.install({ time: new Date('2026-11-06T23:59:30.000Z') });
   await page.setViewportSize({ width: 390, height: 844 });
   let searchRequests = 0;
+  let utcDayHasRolledOver = false;
   await page.route('**/api/profiles/search**', async route => {
     searchRequests += 1;
-    const used = searchRequests === 1 ? 3 : 0;
+    const used = utcDayHasRolledOver ? 0 : 3;
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -737,6 +738,7 @@ test('server discovery refreshes its free daily quota automatically at UTC midni
   await expect(page.getByRole('status').filter({ hasText: 'Free discovery:' }))
     .toContainText('3/3 profiles issued today');
 
+  utcDayHasRolledOver = true;
   await page.clock.runFor(31_000);
   await expect.poll(() => searchRequests).toBeGreaterThan(1);
   await expect(page.getByRole('status').filter({ hasText: 'Free discovery:' }))
