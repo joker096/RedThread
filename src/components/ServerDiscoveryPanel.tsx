@@ -321,6 +321,11 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         return;
       }
       if (response.status === 402) throw new Error(data?.message || t('trialEndedLike'));
+      if (response.status === 403 && data?.error === 'profile_not_issued_today') {
+        await search();
+        if (actionEpoch === sessionEpoch.current) setNotice(t('profileNotIssuedToday'));
+        return;
+      }
       if (!response.ok) throw new Error(t('sendLikeError'));
       const weeklyQuotaExhausted = isFemaleWeeklyMatchQuotaExhausted(data?.quota);
       if (weeklyQuotaExhausted) {
@@ -368,6 +373,11 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         return;
       }
       if (response.status === 402) throw new Error(data?.message || t('trialEndedPass'));
+      if (response.status === 403 && data?.error === 'profile_not_issued_today') {
+        await search();
+        if (actionEpoch === sessionEpoch.current) setNotice(t('profileNotIssuedToday'));
+        return;
+      }
       if (!response.ok) throw new Error(t('passError'));
       setActionHistory(current => [...current, { type: 'pass' as const, profile }].slice(-50));
       setProfiles(current => current.filter(item => item.id !== profile.id));
@@ -430,6 +440,12 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       if (response.status === 402) throw new Error(data?.message || t('premiumUndoRequired'));
       if (response.status === 404) throw new Error(t('undoUnavailable'));
       if (response.status === 409) throw new Error(t('undoMatchError'));
+      if (response.status === 429 && data?.error === 'daily_profile_limit_reached') {
+        const exhaustedQuota = normalizeFemaleDailyQuota(data?.dailyQuota);
+        if (exhaustedQuota) setDailyQuota(exhaustedQuota);
+        setNotice(t('femaleDailyQuotaExhausted'));
+        return;
+      }
       if (!response.ok) throw new Error(t('undoActionError'));
       setDailyQuota(normalizeFemaleDailyQuota(data?.dailyQuota));
       const restoredProfile = normalizeServerProfile(data?.profile);
