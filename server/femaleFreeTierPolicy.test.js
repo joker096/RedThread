@@ -112,12 +112,12 @@ test('weekly match quota captures its rolling-window clock after account locks',
   const route = source.slice(start, next === -1 ? source.length : next);
   const lock = route.indexOf('await acquireGiftSafetyUserLocks(');
   const quotaClock = route.indexOf("SELECT clock_timestamp() AS quota_now");
-  const quotaQuery = route.indexOf("created_at >= $2::timestamptz - INTERVAL '7 days'");
+  const quotaQuery = route.indexOf("created_at > $2::timestamptz - INTERVAL '7 days'");
   assert.ok(lock >= 0 && quotaClock > lock);
   assert.ok(quotaQuery > quotaClock);
-  assert.match(route, /MIN\\(created_at\\) \\+ INTERVAL '7 days' AS next_available_at/,
+  assert.match(route, /MIN\(created_at\) \+ INTERVAL '7 days' AS next_available_at/,
     'the next slot opens when the oldest counted match exits the rolling window');
-  assert.match(route, /created_at > \\$2::timestamptz - INTERVAL '7 days'/,
+  assert.match(route, /created_at > \$2::timestamptz - INTERVAL '7 days'/,
     'a match exactly seven days old is outside the rolling window at its expiry instant');
   assert.equal(route.includes("created_at >= statement_timestamp() - INTERVAL '7 days'"), false);
 });
