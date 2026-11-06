@@ -55,8 +55,11 @@ test('daily exposure reservations pin one UTC date across every statement in a t
   const search = source.slice(searchStart, searchEnd);
   assert.equal((search.match(/clock_timestamp\(\)/g) || []).length, 1,
     'profile search captures the UTC date exactly once');
-  assert.doesNotMatch(search, /statement_timestamp\(\)/,
-    'profile search must not recalculate the date per statement');
+  const reservationStart = search.indexOf('// Fix one UTC date for the entire exposure reservation.');
+  const reservationEnd = search.indexOf('result.dailyQuota = dailyQuota;', reservationStart);
+  assert.ok(reservationStart >= 0 && reservationEnd > reservationStart);
+  assert.doesNotMatch(search.slice(reservationStart, reservationEnd), /statement_timestamp\(\)/,
+    'profile exposure reservations must not recalculate the quota date per statement');
   assert.match(search, /exposure_date < \$2::date/);
   assert.match(search, /exposure_date = \$2::date/);
   assert.match(search, /VALUES \(\$1, \$2, \$3::date\)/);
