@@ -2254,6 +2254,12 @@ test('auth API supports registration, session lookup, logout and login', {
       "UPDATE users SET female_trial_ends_at = NOW() + INTERVAL '1 day' WHERE id = $1",
       [registered.user.id]
     );
+    // A match created while the trial is active still occupies the rolling
+    // seven-day allowance immediately after the trial expires.
+    await identityGateDb.query(
+      'UPDATE matches SET created_at = statement_timestamp() WHERE id = $1',
+      [quotaSeedMatch.rows[0].id]
+    );
     const trialMatchBypass = await request(`/api/likes/${registered.user.id}`, {
       method: 'POST', headers: { Cookie: maleCookie }
     });
