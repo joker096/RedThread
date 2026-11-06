@@ -35,6 +35,33 @@ test('free women may create only one new match in the rolling seven-day window',
 });
 
 
+test('daily exposure reservations pin one UTC date across every statement in a transaction', async () => {
+  const source = await readFile(new URL('./index.js', import.meta.url), 'utf8');
+  const helperStart = source.indexOf('async function reserveFemaleProfileExposure(');
+  const helperEnd = source.indexOf('\nfunction requirePaidFeatures', helperStart);
+  assert.ok(helperStart >= 0 && helperEnd > helperStart, 'exposure reservation helper exists');
+  const helper = source.slice(helperStart, helperEnd);
+  assert.equal((helper.match(/clock_timestamp\(\)/g) || []).length, 1,
+    'undo reservations capture the UTC date exactly once');
+  assert.doesNotMatch(helper, /statement_timestamp\(\)/,
+    'undo reservations must not recalculate the date per statement');
+  assert.match(helper, /exposure_date < \$2::date/);
+  assert.match(helper, /exposure_date = \$3::date/);
+  assert.match(helper, /VALUES \(\$1, \$2, \$3::date\)/);
+
+  const searchStart = source.indexOf("app.get('/api/profiles/search'");
+  const searchEnd = source.indexOf('\nfunction isUuid', searchStart);
+  assert.ok(searchStart >= 0 && searchEnd > searchStart, 'profile search route exists');
+  const search = source.slice(searchStart, searchEnd);
+  assert.equal((search.match(/clock_timestamp\(\)/g) || []).length, 1,
+    'profile search captures the UTC date exactly once');
+  assert.doesNotMatch(search, /statement_timestamp\(\)/,
+    'profile search must not recalculate the date per statement');
+  assert.match(search, /exposure_date < \$2::date/);
+  assert.match(search, /exposure_date = \$2::date/);
+  assert.match(search, /VALUES \(\$1, \$2, \$3::date\)/);
+});
+
 test('profile pass and undo handlers acquire account locks before row locks and use one transaction', async () => {
   const source = await readFile(new URL('./index.js', import.meta.url), 'utf8');
   const routes = [
