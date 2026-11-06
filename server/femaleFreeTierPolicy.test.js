@@ -61,14 +61,14 @@ test('daily exposure reservations pin one UTC date across every statement in a t
   const lockedDateCapture = search.indexOf('const lockedDateResult = await client.query(');
   const reservationStart = search.indexOf('const exposureDate = lockedExposureDate;');
   const reservationEnd = search.indexOf('result.dailyQuota = dailyQuota;', reservationStart);
-  const finalDateCapture = search.indexOf('const finalDateResult = await client.query(', reservationEnd);
+  const finalDateCapture = search.indexOf('const finalPolicyClock = await client.query(', reservationEnd);
   const finalCommit = search.indexOf("await client.query('COMMIT');", finalDateCapture);
   assert.ok(previewDateCapture >= 0 && previewQuery > previewDateCapture);
   assert.ok(accountLocks > previewQuery && lockedDateCapture > accountLocks);
   assert.ok(reservationStart > lockedDateCapture && reservationEnd > reservationStart);
   assert.ok(finalDateCapture > reservationEnd && finalCommit > finalDateCapture,
     'Discovery must revalidate the UTC day after all reservations and immediately before commit');
-  assert.match(search.slice(finalDateCapture, finalCommit), /String\(finalDateResult\.rows\[0\]\.exposure_date\) !== String\(exposureDate\)/);
+  assert.match(search.slice(finalDateCapture, finalCommit), /String\(finalPolicyClock\.rows\[0\]\.exposure_date\) !== String\(exposureDate\)/);
   assert.doesNotMatch(search.slice(reservationStart, reservationEnd), /statement_timestamp\(\)/,
     'profile exposure reservations must use the post-lock UTC date');
   assert.match(search, /exposure_date < \$2::date/);
@@ -193,10 +193,10 @@ test('undo endpoints revalidate the exposure UTC date immediately before returni
     const next = source.indexOf('\napp.', start + marker.length);
     const route = source.slice(start, next === -1 ? source.length : next);
     const reservation = route.indexOf('const exposure = await reserveFemaleProfileExposure(');
-    const dateCheck = route.indexOf('const finalDateResult = await client.query(', reservation);
+    const dateCheck = route.indexOf('const finalPolicyClock = await client.query(', reservation);
     const commit = route.indexOf("await client.query('COMMIT');", dateCheck);
     assert.ok(reservation >= 0 && dateCheck > reservation && commit > dateCheck,
       `${marker} must recheck the UTC day after reserving exposure and before commit`);
-    assert.match(route.slice(dateCheck, commit), /quota_day_changed_retry/);
+    assert.match(route.slice(dateCheck, commit), /quota_policy_changed_retry/);
   }
 });
