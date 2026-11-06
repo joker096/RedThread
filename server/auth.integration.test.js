@@ -2308,8 +2308,9 @@ test('auth API supports registration, session lookup, logout and login', {
     const maleFinalLikeAtQuota = await request(`/api/likes/${registered.user.id}`, {
       method: 'POST', headers: { Cookie: maleCookie }
     });
-    assert.equal(maleFinalLikeAtQuota.status, 201);
+    assert.equal(maleFinalLikeAtQuota.status, 429);
     const maleQuotaPayload = await maleFinalLikeAtQuota.json();
+    assert.equal(maleQuotaPayload.error, 'weekly_match_limit_reached');
     assert.equal(maleQuotaPayload.liked, false,
       'the final like is not persisted while the weekly match quota is exhausted');
     assert.equal(maleQuotaPayload.matched, false);
