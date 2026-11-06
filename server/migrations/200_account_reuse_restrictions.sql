@@ -5,8 +5,7 @@ CREATE TABLE IF NOT EXISTS account_reuse_restrictions (
   email_hmac CHAR(64) PRIMARY KEY
     CHECK (email_hmac ~ '^[a-f0-9]{64}$'),
   created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
-  expires_at TIMESTAMPTZ NOT NULL,
-  CHECK (expires_at > created_at)
+  expires_at TIMESTAMPTZ NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS account_reuse_restrictions_expiry_idx
