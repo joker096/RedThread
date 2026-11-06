@@ -16,7 +16,9 @@ concurrency:
 jobs:
   browser-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Chromium's apt dependencies can be slow on GitHub-hosted runners.
+    # Leave enough time for installation, migrations, build, and the E2E suite.
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16
