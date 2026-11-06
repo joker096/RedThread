@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isCurrentDiscoverySearchResponse, isSafeProfilePhotoUrl, normalizeFemaleDailyQuota, isFemaleWeeklyMatchQuotaExhausted } from './ServerDiscoveryPanel.tsx';
+import { isCurrentDiscoverySearchResponse, isSafeProfilePhotoUrl, normalizeFemaleDailyQuota, isFemaleWeeklyMatchQuotaExhausted, millisecondsUntilNextUtcDay } from './ServerDiscoveryPanel.tsx';
 
 test('server profile photos must use private same-origin photo assets', () => {
   assert.equal(
@@ -98,4 +98,11 @@ test('failed discovery refresh clears the last server-confirmed daily quota', as
   const failureHandler = source.slice(catchStart, catchEnd);
   assert.match(failureHandler, /setDailyQuota\(null\)/,
     'a failed refresh must not keep displaying yesterday or otherwise stale quota usage');
+});
+
+
+test('daily discovery quota refresh is scheduled at the next UTC midnight', () => {
+  assert.equal(millisecondsUntilNextUtcDay(Date.parse('2026-11-06T23:59:30.000Z')), 30_000);
+  assert.equal(millisecondsUntilNextUtcDay(Date.parse('2026-11-06T00:00:00.000Z')), 86_400_000);
+  assert.equal(millisecondsUntilNextUtcDay(Date.parse('2026-11-06T12:00:00.000Z')), 43_200_000);
 });
