@@ -2042,7 +2042,7 @@ test('auth API supports registration, session lookup, logout and login', {
       "UPDATE users SET female_trial_ends_at = NOW() - INTERVAL '1 second' WHERE id = $1",
       [registered.user.id]
     );
-    const freeTierProfileSearch = await request('/api/profiles/search?minAge=36&maxAge=36&limit=3', {
+    const freeTierProfileSearch = await request('/api/profiles/search?minAge=36&maxAge=36&limit=1&offset=0', {
       headers: { Cookie: secondCookie }
     });
     assert.equal(freeTierProfileSearch.status, 200);
@@ -2053,6 +2053,15 @@ test('auth API supports registration, session lookup, logout and login', {
       'a free-tier woman can still receive eligible profiles within her daily allowance');
     assert.equal(freeTierProfilePayload.dailyQuota.used, 1,
       'the first search consumes one slot for its one actually issued profile');
+    const secondFreeTierPage = await request('/api/profiles/search?minAge=36&maxAge=36&limit=1&offset=1', {
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(secondFreeTierPage.status, 200);
+    const secondFreeTierPagePayload = await secondFreeTierPage.json();
+    assert.equal(secondFreeTierPagePayload.profiles.length, 0,
+      'pagination must advance past the first issued profile instead of repeating it');
+    assert.equal(secondFreeTierPagePayload.dailyQuota.used, 1,
+      'an empty next page must not consume another daily exposure slot');
 
     // Fill the remaining two ledger slots with profiles that are no longer
     // eligible for this search (one is outside the age filter, the other has
