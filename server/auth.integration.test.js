@@ -6,7 +6,7 @@ import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { ASSESSMENT_OPTIONS } from './relationshipAssessment.js';
-import { hashSessionToken } from './security.js';
+import { createAccountReuseDigest, hashSessionToken } from './security.js';
 
 const { Pool } = pg;
 
@@ -4024,6 +4024,64 @@ test('auth API supports registration, session lookup, logout and login', {
 
     const deletedAccountMe = await request('/api/auth/me', { headers: { Cookie: secondCookie } });
     assert.equal(deletedAccountMe.status, 401);
+
+    // Account deletion must prevent a fresh account/trial on the same normalized
+    // email for 90 days, then permit registration after the exact expiry.
+    const reuseDigest = createAccountReuseDigest(email, process.env.ACCOUNT_REUSE_HMAC_KEY);
+    assert.match(reuseDigest, /^[a-f0-9]{64}$/);
+    const reuseRestriction = await identityGateDb.query(
+      'SELECT email_hmac, created_at, expires_at FROM account_reuse_restrictions WHERE email_hmac = $1',
+      [reuseDigest]
+    );
+    assert.equal(reuseRestriction.rowCount, 1,
+      'account deletion must persist one keyed email restriction');
+    assert.ok(reuseRestriction.rows[0].expires_at.getTime() > Date.now(),
+      'the account reuse restriction must still be active after deletion');
+    assert.ok(reuseRestriction.rows[0].expires_at.getTime() <= Date.now() + 90 * 24 * 60 * 60 * 1000 + 60_000,
+      'the account reuse restriction must expire after 90 days, not an unbounded period');
+    assert.equal(JSON.stringify(reuseRestriction.rows[0]).includes(email), false,
+      'the restriction must not store the original email');
+
+    const registrationBodyAfterDeletion = {
+      email: email.toUpperCase(),
+      password,
+      displayName: 'Повторная регистрация',
+      birthDate: '1990-01-01',
+      gender: 'female',
+      country: 'Грузия',
+      city: 'Тбилиси',
+      relationshipIntent: 'family_without_marriage',
+      familyFormat: 'cohabitation',
+      hasChildren: false,
+      wantsChildren: 'yes',
+      childrenLivingArrangement: 'not_applicable'
+    };
+    await identityGateDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'auth:%'");
+    const blockedReRegistration = await request('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(registrationBodyAfterDeletion)
+    });
+    assert.equal(blockedReRegistration.status, 429);
+    const blockedReRegistrationPayload = await blockedReRegistration.json();
+    assert.equal(blockedReRegistrationPayload.error, 'account_recreation_restricted');
+    assert.ok(Date.parse(blockedReRegistrationPayload.retryAt) > Date.now());
+    assert.ok(Number(blockedReRegistration.headers.get('retry-after')) > 0);
+
+    await identityGateDb.query(
+      'UPDATE account_reuse_restrictions SET expires_at = clock_timestamp() - INTERVAL \'1 second\' WHERE email_hmac = $1',
+      [reuseDigest]
+    );
+    await identityGateDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'auth:%'");
+    const allowedReRegistration = await request('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(registrationBodyAfterDeletion)
+    });
+    assert.equal(allowedReRegistration.status, 201,
+      'registration must be allowed again after the 90-day restriction expires');
+    const allowedReRegistrationPayload = await allowedReRegistration.json();
+    assert.equal(allowedReRegistrationPayload.user.email, email);
+    await identityGateDb.query('DELETE FROM users WHERE id = $1', [allowedReRegistrationPayload.user.id]);
+    await identityGateDb.query('DELETE FROM account_reuse_restrictions WHERE email_hmac = $1', [reuseDigest]);
 
     const deletedAccountConsentUpdate = await request('/api/ads/consent', {
       method: 'PUT',

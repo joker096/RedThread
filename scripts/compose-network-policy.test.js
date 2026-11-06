@@ -29,11 +29,11 @@ test('Docker database network is isolated from the public web proxy container', 
   assert.deepEqual(networksFor('female-profile-exposure-retention'), ['backend']);
   assert.deepEqual(networksFor('account-reuse-retention'), ['backend']);
   const accountReuseWorker = serviceBlock('account-reuse-retention');
-  assert.match(accountReuseWorker, /cap_drop: \\[ALL\\]/);
+  assert.match(accountReuseWorker, /cap_drop: \[ALL\]/);
   assert.match(accountReuseWorker, /no-new-privileges:true/);
   assert.match(accountReuseWorker, /ACCOUNT_REUSE_CLEANUP_BATCH_SIZE/);
   assert.match(accountReuseWorker, /sleep 3600/);
-  assert.match(accountReuseWorker, /migrate:\\n        condition: service_completed_successfully/);
+  assert.match(accountReuseWorker, /migrate:\n        condition: service_completed_successfully/);
   const exposureRetentionWorker = serviceBlock('female-profile-exposure-retention');
   assert.match(exposureRetentionWorker, /cap_drop: \[ALL\]/);
   assert.match(exposureRetentionWorker, /no-new-privileges:true/);
