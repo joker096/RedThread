@@ -210,6 +210,34 @@ test('daily quota keeps previously issued profiles visible when the allowance is
 });
 
 
+test('free-tier likes and passes revalidate entitlement and UTC exposure day before commit', async () => {
+  const source = await readFile(new URL('./index.js', import.meta.url), 'utf8');
+  for (const marker of [
+    "app.post('/api/likes/:targetId'",
+    "app.post('/api/passes/:targetId'"
+  ]) {
+    const start = source.indexOf(marker);
+    const next = source.indexOf('\\napp.', start + marker.length);
+    const route = source.slice(start, next === -1 ? source.length : next);
+    const lock = route.indexOf('await acquireGiftSafetyUserLocks(');
+    const snapshot = route.indexOf('captureFemaleExposurePolicy(');
+    const issuedCheck = route.indexOf('AND exposure_date = $3::date');
+    const finalChecks = [...route.matchAll(/femaleExposurePolicyChangedAtCommit\\(/g)].map(match => match.index);
+    assert.ok(lock >= 0 && snapshot > lock,
+      `${marker} must capture entitlement and UTC date after account locks`);
+    assert.ok(issuedCheck > snapshot,
+      `${marker} must validate the issued profile against the captured UTC date`);
+    assert.ok(finalChecks.length >= (marker.includes('/likes/') ? 2 : 1),
+      `${marker} must recheck the policy before every successful commit path`);
+    assert.ok(route.includes('quota_policy_changed_retry'),
+      `${marker} must return a refreshable conflict when the policy changes before commit`);
+    for (const check of finalChecks) {
+      const commit = route.indexOf("await client.query('COMMIT');", check);
+      assert.ok(commit > check, `${marker} must recheck the policy before commit`);
+    }
+  }
+});
+
 test('undo endpoints revalidate the exposure UTC date immediately before returning a restored profile', async () => {
   const source = await readFile(new URL('./index.js', import.meta.url), 'utf8');
   for (const marker of ["app.post('/api/passes/undo'", "app.post('/api/discovery/undo'"]) {
