@@ -106,3 +106,13 @@ test('daily discovery quota refresh is scheduled at the next UTC midnight', () =
   assert.equal(millisecondsUntilNextUtcDay(Date.parse('2026-11-06T00:00:00.000Z')), 86_400_000);
   assert.equal(millisecondsUntilNextUtcDay(Date.parse('2026-11-06T12:00:00.000Z')), 43_200_000);
 });
+
+
+test('discovery refreshes quota after UTC midnight when the timer fires or the tab becomes visible', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('./ServerDiscoveryPanel.tsx', import.meta.url), 'utf8');
+  assert.match(source, /millisecondsUntilNextUtcDay\(\)/);
+  assert.match(source, /refreshIfUtcDayChanged\(\);\s*scheduleUtcResetRefresh\(\);/);
+  assert.match(source, /document\.addEventListener\('visibilitychange', onVisibilityChange\)/);
+  assert.match(source, /document\.visibilityState === 'visible'/);
+});
