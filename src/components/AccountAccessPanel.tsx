@@ -187,7 +187,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         };
         if (data?.error === 'account_recreation_restricted') {
           const retryAt = typeof data?.retryAt === 'string' && Number.isFinite(Date.parse(data.retryAt))
-            ? formatDate(new Date(data.retryAt), { dateStyle: 'medium' })
+            ? formatDate(new Date(data.retryAt), { dateStyle: 'medium', timeStyle: 'short' })
             : null;
           throw new Error(retryAt
             ? t('authAccountRecreationRestrictedAt').replace('{date}', retryAt)
