@@ -31,12 +31,15 @@ test('auth API supports registration, session lookup, logout and login', {
   const origin = 'http://localhost:3000';
   const api = `http://127.0.0.1:${port}`;
   const accountReuseTestKey = 'a'.repeat(64);
+  const serverDatabaseUrl = new URL(process.env.DATABASE_URL);
+  serverDatabaseUrl.searchParams.set('application_name', 'vow-auth-integration');
   const child = spawn(process.execPath, ['server/index.js'], {
     env: {
       ...process.env,
       API_PORT: String(port),
       APP_ORIGIN: origin,
       NODE_ENV: 'test',
+      DATABASE_URL: serverDatabaseUrl.toString(),
       ACCOUNT_REUSE_HMAC_KEY: accountReuseTestKey,
       PG_STATEMENT_TIMEOUT_MS: '8000'
     },
@@ -4094,9 +4097,26 @@ test('auth API supports registration, session lookup, logout and login', {
         concurrentRegistrationSettled = true;
         return response;
       });
-      await new Promise(resolve => setTimeout(resolve, 100));
+      let advisoryWaitObserved = false;
+      for (let attempt = 0; attempt < 80; attempt += 1) {
+        const waiting = await identityGateDb.query(
+          `SELECT COUNT(*)::int AS count
+           FROM pg_stat_activity
+           WHERE application_name = 'vow-auth-integration'
+             AND wait_event_type = 'Lock' AND wait_event = 'advisory'
+             AND query ILIKE '%pg_advisory_xact_lock%'`
+        );
+        if (waiting.rows[0].count > 0) {
+          advisoryWaitObserved = true;
+          break;
+        }
+        if (concurrentRegistrationSettled) break;
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+      assert.equal(advisoryWaitObserved, true,
+        'registration must be observed waiting on PostgreSQL advisory lock before deletion commits');
       assert.equal(concurrentRegistrationSettled, false,
-        'registration must wait while deletion holds the per-email advisory lock');
+        'registration must remain pending while deletion holds the per-email advisory lock');
       await reuseLockClient.query(
         `INSERT INTO account_reuse_restrictions (email_hmac, expires_at)
          VALUES ($1, clock_timestamp() + INTERVAL '90 days')`,
