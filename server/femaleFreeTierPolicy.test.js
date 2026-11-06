@@ -163,8 +163,11 @@ test('daily quota keeps previously issued profiles visible when the allowance is
   assert.ok(search.includes('String(lockedExposureDate) !== String(previewDate)'));
   assert.ok(search.includes('p.user_id = ANY($13::uuid[])'));
   assert.ok(search.includes('if (attempt >= 2)'));
-  assert.ok(search.includes("await client.query('ROLLBACK');\\n        if (attempt >= 2)"),
+  assert.match(search, /await client\\.query\\('ROLLBACK'\\);\\s*if \\(attempt >= 2\\)/,
     'a preview that crosses UTC midnight must roll back before retrying');
+  assert.ok(search.includes('const lockedPreview = await client.query(searchSql, [...searchParams, previewDate])'));
+  assert.ok(search.includes('lockedCandidateIds.some('),
+    'candidate IDs must be revalidated after account locks before the final restricted query');
   assert.match(search, /hasMoreIssuedCandidates = result\.rows\.length > parsedLimit/);
   assert.match(search, /if \(usedBefore \+ newlyIssued >= FEMALE_FREE_DAILY_PROFILE_LIMIT\) continue;/,
     'an unseen profile at the exhausted quota must not stop later already-issued profiles from being returned');
