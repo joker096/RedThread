@@ -2191,6 +2191,70 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.deepEqual(femaleUndoIssuedPassPayload.dailyQuota, repeatedFreeTierPayload.dailyQuota,
       'undoing an already-issued pass does not consume another daily profile slot');
 
+    // Exercise entitlement expiry while the request is already inside its
+    // PostgreSQL transaction. The BEFORE INSERT trigger deliberately delays
+    // the write beyond the entitlement deadline; the commit-boundary policy
+    // check must reject the action and leave no like behind.
+    await identityGateDb.query(`
+      CREATE OR REPLACE FUNCTION vow_test_delay_female_like_insert()
+      RETURNS trigger LANGUAGE plpgsql AS $
+      BEGIN
+        PERFORM pg_sleep(0.7);
+        RETURN NEW;
+      END;
+      $;
+    `);
+    await identityGateDb.query(`
+      CREATE TRIGGER vow_test_delay_female_like_insert
+      BEFORE INSERT ON likes
+      FOR EACH ROW
+      WHEN (NEW.sender_id = '${registered.user.id}'::uuid
+        AND NEW.target_id = '${maleRegistered.user.id}'::uuid)
+      EXECUTE FUNCTION vow_test_delay_female_like_insert()
+    `);
+    try {
+      await identityGateDb.query(
+        "UPDATE users SET female_trial_ends_at = clock_timestamp() + INTERVAL '300 milliseconds', premium_until = NULL WHERE id = $1",
+        [registered.user.id]
+      );
+      const likeAfterTrialExpiry = await request(`/api/likes/${maleRegistered.user.id}`, {
+        method: 'POST', headers: { Cookie: secondCookie }
+      });
+      assert.equal(likeAfterTrialExpiry.status, 409,
+        'a like transaction that began during Trial must be rejected when Trial expires before commit');
+      assert.equal((await likeAfterTrialExpiry.json()).error, 'quota_policy_changed_retry');
+      const trialExpiryLike = await identityGateDb.query(
+        'SELECT 1 FROM likes WHERE sender_id = $1 AND target_id = $2',
+        [registered.user.id, maleRegistered.user.id]
+      );
+      assert.equal(trialExpiryLike.rowCount, 0,
+        'the delayed like must roll back after Trial expires');
+
+      await identityGateDb.query(
+        "UPDATE users SET female_trial_ends_at = clock_timestamp() - INTERVAL '1 second', premium_until = clock_timestamp() + INTERVAL '300 milliseconds' WHERE id = $1",
+        [registered.user.id]
+      );
+      const likeAfterPremiumExpiry = await request(`/api/likes/${maleRegistered.user.id}`, {
+        method: 'POST', headers: { Cookie: secondCookie }
+      });
+      assert.equal(likeAfterPremiumExpiry.status, 409,
+        'a like transaction that began during Lady Premium must be rejected when Premium expires before commit');
+      assert.equal((await likeAfterPremiumExpiry.json()).error, 'quota_policy_changed_retry');
+      const premiumExpiryLike = await identityGateDb.query(
+        'SELECT 1 FROM likes WHERE sender_id = $1 AND target_id = $2',
+        [registered.user.id, maleRegistered.user.id]
+      );
+      assert.equal(premiumExpiryLike.rowCount, 0,
+        'the delayed like must roll back after Lady Premium expires');
+    } finally {
+      await identityGateDb.query('DROP TRIGGER IF EXISTS vow_test_delay_female_like_insert ON likes');
+      await identityGateDb.query('DROP FUNCTION IF EXISTS vow_test_delay_female_like_insert()');
+      await identityGateDb.query(
+        "UPDATE users SET female_trial_ends_at = clock_timestamp() - INTERVAL '1 second', premium_until = NULL WHERE id = $1",
+        [registered.user.id]
+      );
+    }
+
     const firstLike = await request(`/api/likes/${maleRegistered.user.id}`, {
       method: 'POST',
       headers: { Cookie: secondCookie }
