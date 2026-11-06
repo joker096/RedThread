@@ -122,13 +122,13 @@ test('free-tier like and pass validate the same post-lock UTC date used by disco
     const snapshotCapture = route.indexOf('captureFemaleExposurePolicy(');
     const issuedCheck = route.indexOf('AND exposure_date = $3::date');
     const helperStart = source.indexOf('async function captureFemaleExposurePolicy(');
-    const helperEnd = source.indexOf('\\nasync function femaleExposurePolicyChangedAtCommit', helperStart);
+    const helperEnd = source.indexOf('\nasync function femaleExposurePolicyChangedAtCommit', helperStart);
     const helper = source.slice(helperStart, helperEnd);
     assert.ok(lock >= 0 && snapshotCapture > lock,
       `${marker} captures the UTC date only after account locks are held`);
     assert.ok(issuedCheck > snapshotCapture,
       `${marker} validates exposure against the captured UTC date`);
-    assert.match(helper, /clock_timestamp\\(\\)/);
+    assert.match(helper, /clock_timestamp\(\)/);
     assert.match(helper, /AT TIME ZONE 'UTC'/);
     assert.equal(route.includes("statement_timestamp()"), false,
       `${marker} must not use transaction-start time for the exposure day`);
