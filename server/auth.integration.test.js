@@ -3124,12 +3124,29 @@ test('auth API supports registration, session lookup, logout and login', {
       await giftSafetyDb.end();
     }
 
+    const issuedExposureBeforeBlock = await identityGateDb.query(
+      `SELECT COUNT(*)::int AS count FROM female_profile_exposures
+       WHERE user_id = $1 AND profile_user_id = $2
+         AND exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date`,
+      [registered.user.id, maleRegistered.user.id]
+    );
+    assert.equal(issuedExposureBeforeBlock.rows[0].count, 1,
+      'the block scenario must target a profile already charged to the daily allowance');
+
     const block = await request(`/api/blocks/${maleRegistered.user.id}`, {
       method: 'POST',
       headers: { Cookie: secondCookie },
       body: JSON.stringify({})
     });
     assert.equal(block.status, 204);
+    const issuedExposureAfterBlock = await identityGateDb.query(
+      `SELECT COUNT(*)::int AS count FROM female_profile_exposures
+       WHERE user_id = $1 AND profile_user_id = $2
+         AND exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date`,
+      [registered.user.id, maleRegistered.user.id]
+    );
+    assert.equal(issuedExposureAfterBlock.rows[0].count, 1,
+      'blocking an issued profile must not refund the consumed daily slot');
 
     const blockedList = await request('/api/blocks', { headers: { Cookie: secondCookie } });
     assert.equal(blockedList.status, 200);
