@@ -196,6 +196,7 @@ test('registration explains the 90-day account recreation restriction and retry 
   assert.match(source, /data\?\.error === 'account_recreation_restricted'/);
   assert.match(source, /authAccountRecreationRestrictedAt/);
   assert.match(source, /formatDate\(new Date\(data\.retryAt\)/);
+  assert.match(source, /timeStyle: 'short'/, 'the retry message must include the exact local time, not only the calendar date');
 });
 
 
