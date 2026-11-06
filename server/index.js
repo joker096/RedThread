@@ -863,6 +863,30 @@ async function reserveFemaleProfileExposure(client, user, profileId) {
   return { allowed: true, used: used + inserted.rowCount, exposureDate, quotaApplied: true };
 }
 
+async function captureFemaleExposurePolicy(client, user) {
+  if (user?.gender !== 'female') return { isFreeTier: false, exposureDate: null };
+  const clock = await client.query(
+    `SELECT policy_now, (policy_now AT TIME ZONE 'UTC')::date AS exposure_date
+     FROM (SELECT clock_timestamp() AS policy_now) AS policy_clock`
+  );
+  const isFreeTier = !hasFemalePremiumAccess(user, new Date(clock.rows[0].policy_now).getTime());
+  return {
+    isFreeTier,
+    exposureDate: isFreeTier ? clock.rows[0].exposure_date : null
+  };
+}
+
+async function femaleExposurePolicyChangedAtCommit(client, user, snapshot) {
+  if (user?.gender !== 'female') return false;
+  const clock = await client.query(
+    `SELECT policy_now, (policy_now AT TIME ZONE 'UTC')::date AS exposure_date
+     FROM (SELECT clock_timestamp() AS policy_now) AS policy_clock`
+  );
+  const isFreeTier = !hasFemalePremiumAccess(user, new Date(clock.rows[0].policy_now).getTime());
+  return isFreeTier !== snapshot.isFreeTier ||
+    (isFreeTier && String(clock.rows[0].exposure_date) !== String(snapshot.exposureDate));
+}
+
 function requirePaidFeatures(req, res, next) {
   // Men retain the current free access model. Safety, account settings, and reports are never paywalled.
   if (req.authUser.gender !== 'female' || req.authUser.premium_lifetime === true) return next();
@@ -2864,18 +2888,13 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'target_not_available' });
     }
-    if (identityActor.gender === 'female' && !hasFemalePremiumAccess(currentActor)) {
-      // Use the UTC day after the account/profile locks, matching discovery
-      // issuance even when this transaction waited across midnight.
-      const exposureDateResult = await client.query(
-        "SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date"
-      );
-      const exposureDate = exposureDateResult.rows[0].exposure_date;
+    const exposurePolicy = await captureFemaleExposurePolicy(client, currentActor);
+    if (exposurePolicy.isFreeTier) {
       const issued = await client.query(
         `SELECT 1 FROM female_profile_exposures
          WHERE user_id = $1 AND profile_user_id = $2
            AND exposure_date = $3::date`,
-        [req.authUser.id, targetId, exposureDate]
+        [req.authUser.id, targetId, exposurePolicy.exposureDate]
       );
       if (!issued.rowCount) {
         await client.query('ROLLBACK');
@@ -2886,6 +2905,10 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
       'INSERT INTO profile_passes (passer_id, passed_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
       [req.authUser.id, targetId]
     );
+    if (await femaleExposurePolicyChangedAtCommit(client, currentActor, exposurePolicy)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'quota_policy_changed_retry' });
+    }
     await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
@@ -2955,19 +2978,13 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'target_not_available' });
     }
-    if (actor.gender === 'female' && !hasFemalePremiumAccess(actor)) {
-      // Capture the quota date after all account and profile locks are held.
-      // statement_timestamp() would refer to transaction start and can be a
-      // different UTC day if this request waited across midnight for a lock.
-      const exposureDateResult = await client.query(
-        "SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date"
-      );
-      const exposureDate = exposureDateResult.rows[0].exposure_date;
+    const exposurePolicy = await captureFemaleExposurePolicy(client, actor);
+    if (exposurePolicy.isFreeTier) {
       const issued = await client.query(
         `SELECT 1 FROM female_profile_exposures
          WHERE user_id = $1 AND profile_user_id = $2
            AND exposure_date = $3::date`,
-        [req.authUser.id, targetId, exposureDate]
+        [req.authUser.id, targetId, exposurePolicy.exposureDate]
       );
       if (!issued.rowCount) {
         await client.query('ROLLBACK');
@@ -2984,6 +3001,10 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
         'INSERT INTO likes (sender_id, target_id) VALUES ($1, $2) ON CONFLICT (sender_id, target_id) DO NOTHING',
         [req.authUser.id, targetId]
       );
+      if (await femaleExposurePolicyChangedAtCommit(client, actor, exposurePolicy)) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'quota_policy_changed_retry' });
+      }
       await client.query('COMMIT');
       return res.status(201).json({ liked: true, matched: false, match: null });
     }
@@ -3098,6 +3119,10 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
           });
         }
       }
+    }
+    if (await femaleExposurePolicyChangedAtCommit(client, actor, exposurePolicy)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'quota_policy_changed_retry' });
     }
     await client.query('COMMIT');
     return res.status(201).json({
