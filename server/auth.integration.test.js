@@ -1469,6 +1469,17 @@ test('auth API supports registration, session lookup, logout and login', {
       statement_timeout: 8_000,
       query_timeout: 10_000
     });
+    const weeklyQuotaIndexes = await identityGateDb.query(
+      `SELECT indexname FROM pg_indexes
+       WHERE schemaname = current_schema() AND tablename = 'matches'
+         AND indexname = ANY($1::text[])`,
+      [['matches_user_a_created_at_idx', 'matches_user_b_created_at_idx']]
+    );
+    assert.deepEqual(
+      weeklyQuotaIndexes.rows.map(row => row.indexname).sort(),
+      ['matches_user_a_created_at_idx', 'matches_user_b_created_at_idx'],
+      'the rolling seven-day match quota must be indexed for both match participants'
+    );
     for (const userId of [maleRegistered.user.id, secondMaleRegistered.user.id]) {
       await identityGateDb.query(
         "INSERT INTO identity_verifications (user_id, provider, provider_session_id, workflow_id, status, provider_status, provider_environment) VALUES ($1, 'didit', $2, $3, 'verified', 'Approved', 'live')",
