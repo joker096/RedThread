@@ -2076,10 +2076,13 @@ test('auth API supports registration, session lookup, logout and login', {
     const quotaExhaustionMale = await quotaExhaustionMaleRegistration.json();
     quotaExhaustionMaleUserId = quotaExhaustionMale.user.id;
     const seededRemainingExposures = await identityGateDb.query(
-      `INSERT INTO female_profile_exposures (user_id, profile_user_id, exposure_date)
-       VALUES
-         ($1, $2, (clock_timestamp() AT TIME ZONE 'UTC')::date),
-         ($1, $3, (clock_timestamp() AT TIME ZONE 'UTC')::date)
+      `WITH utc_day AS MATERIALIZED (
+         SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date
+       )
+       INSERT INTO female_profile_exposures (user_id, profile_user_id, exposure_date)
+       SELECT $1, $2, exposure_date FROM utc_day
+       UNION ALL
+       SELECT $1, $3, exposure_date FROM utc_day
        ON CONFLICT (user_id, exposure_date, profile_user_id) DO NOTHING
        RETURNING profile_user_id`,
       [registered.user.id, secondMaleRegistered.user.id, quotaExhaustionMale.user.id]
