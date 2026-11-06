@@ -54,6 +54,7 @@ test('auth API supports registration, session lookup, logout and login', {
   }
 
   let identityGateDb;
+  let quotaExhaustionMaleUserId = null;
   try {
     let healthy = false;
     for (let attempt = 0; attempt < 80; attempt += 1) {
@@ -2047,6 +2048,44 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(freeTierProfilePayload.dailyQuota.limit, 3);
     assert.ok(freeTierProfilePayload.profiles.some(profile => profile.id === maleRegistered.user.id),
       'a free-tier woman can still receive eligible profiles within her daily allowance');
+    assert.equal(freeTierProfilePayload.dailyQuota.used, 1,
+      'the first search consumes one slot for its one actually issued profile');
+
+    // Fill the remaining two ledger slots with profiles that are no longer
+    // eligible for this search (one is outside the age filter, the other has
+    // no live L2 verification). Previously issued profiles still count for
+    // the UTC day even after they stop matching the current filters.
+    const quotaExhaustionMaleRegistration = await request('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: `quota-exhaustion-male-${randomUUID()}@example.test`,
+        password,
+        displayName: 'Анкета без проверки',
+        birthDate: '1990-08-20',
+        gender: 'male',
+        country: 'Грузия',
+        city: 'Тбилиси',
+        relationshipIntent: 'family_without_marriage',
+        familyFormat: 'cohabitation',
+        hasChildren: false,
+        wantsChildren: 'yes',
+        childrenLivingArrangement: 'not_applicable'
+      })
+    });
+    assert.equal(quotaExhaustionMaleRegistration.status, 201);
+    const quotaExhaustionMale = await quotaExhaustionMaleRegistration.json();
+    quotaExhaustionMaleUserId = quotaExhaustionMale.user.id;
+    const seededRemainingExposures = await identityGateDb.query(
+      `INSERT INTO female_profile_exposures (user_id, profile_user_id, exposure_date)
+       VALUES
+         ($1, $2, (clock_timestamp() AT TIME ZONE 'UTC')::date),
+         ($1, $3, (clock_timestamp() AT TIME ZONE 'UTC')::date)
+       ON CONFLICT (user_id, exposure_date, profile_user_id) DO NOTHING
+       RETURNING profile_user_id`,
+      [registered.user.id, secondMaleRegistered.user.id, quotaExhaustionMale.user.id]
+    );
+    assert.equal(seededRemainingExposures.rowCount, 2);
+
     const repeatedFreeTierSearch = await request('/api/profiles/search?minAge=36&maxAge=36&limit=3', {
       headers: { Cookie: secondCookie }
     });
@@ -2057,8 +2096,9 @@ test('auth API supports registration, session lookup, logout and login', {
       freeTierProfilePayload.profiles.map(profile => profile.id),
       'reloading the same page must return the same already-issued profiles'
     );
-    assert.equal(repeatedFreeTierPayload.dailyQuota.used, freeTierProfilePayload.dailyQuota.used,
-      'reloading or paginating must not consume the daily quota twice');
+    assert.equal(repeatedFreeTierPayload.dailyQuota.used, 3,
+      'the daily quota remains exhausted when only previously issued profiles match the current filters');
+    assert.equal(repeatedFreeTierPayload.dailyQuota.remaining, 0);
     // Concurrent requests for the same discovery page must serialize on the
     // account-safety lock and reserve each profile exposure only once.
     const parallelSearchResponses = await Promise.all([
@@ -2074,8 +2114,10 @@ test('auth API supports registration, session lookup, logout and login', {
         freeTierProfilePayload.profiles.map(profile => profile.id),
         'parallel reloads must return the same already-issued discovery profiles'
       );
-      assert.equal(payload.dailyQuota.used, freeTierProfilePayload.dailyQuota.used,
+      assert.equal(payload.dailyQuota.used, repeatedFreeTierPayload.dailyQuota.used,
         'parallel reloads must not over-count or reserve duplicate daily profile exposures');
+      assert.equal(payload.dailyQuota.remaining, 0,
+        'parallel searches must not reopen an exhausted daily quota');
     }
 
     const persistedDailyExposures = await identityGateDb.query(
@@ -2084,7 +2126,7 @@ test('auth API supports registration, session lookup, logout and login', {
        WHERE user_id = $1 AND exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date`,
       [registered.user.id]
     );
-    assert.equal(persistedDailyExposures.rows[0].count, freeTierProfilePayload.dailyQuota.used);
+    assert.equal(persistedDailyExposures.rows[0].count, repeatedFreeTierPayload.dailyQuota.used);
 
     const femalePassIssuedProfile = await request(`/api/passes/${maleRegistered.user.id}`, {
       method: 'POST', headers: { Cookie: secondCookie }
@@ -2098,7 +2140,7 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(femaleUndoIssuedPass.status, 200);
     const femaleUndoIssuedPassPayload = await femaleUndoIssuedPass.json();
     assert.equal(femaleUndoIssuedPassPayload.profile.id, maleRegistered.user.id);
-    assert.deepEqual(femaleUndoIssuedPassPayload.dailyQuota, freeTierProfilePayload.dailyQuota,
+    assert.deepEqual(femaleUndoIssuedPassPayload.dailyQuota, repeatedFreeTierPayload.dailyQuota,
       'undoing an already-issued pass does not consume another daily profile slot');
 
     const firstLike = await request(`/api/likes/${maleRegistered.user.id}`, {
@@ -2142,8 +2184,11 @@ test('auth API supports registration, session lookup, logout and login', {
     const persistedLikeUndoPayload = await persistedLikeUndo.json();
     assert.equal(persistedLikeUndoPayload.type, 'like');
     assert.equal(persistedLikeUndoPayload.profile.id, maleRegistered.user.id);
-    assert.deepEqual(persistedLikeUndoPayload.dailyQuota, freeTierProfilePayload.dailyQuota,
+    assert.deepEqual(persistedLikeUndoPayload.dailyQuota, repeatedFreeTierPayload.dailyQuota,
       'undoing an already-issued like preserves the idempotent daily exposure count');
+
+    await identityGateDb.query('DELETE FROM users WHERE id = $1', [quotaExhaustionMaleUserId]);
+    quotaExhaustionMaleUserId = null;
 
     const firstLikeThird = await request(`/api/likes/${maleRegistered.user.id}`, {
       method: 'POST',
@@ -3711,6 +3756,9 @@ test('auth API supports registration, session lookup, logout and login', {
     }
 
   } finally {
+    if (quotaExhaustionMaleUserId && identityGateDb) {
+      await identityGateDb.query('DELETE FROM users WHERE id = $1', [quotaExhaustionMaleUserId]).catch(() => {});
+    }
     await identityGateDb?.end().catch(() => {});
     if (child.exitCode === null && child.signalCode === null) {
       child.kill('SIGTERM');
