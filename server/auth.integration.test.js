@@ -2282,6 +2282,11 @@ test('auth API supports registration, session lookup, logout and login', {
       "UPDATE users SET premium_until = NOW() + INTERVAL '1 day' WHERE id = $1",
       [registered.user.id]
     );
+    // A match created while Lady Premium is active must still count after it expires.
+    await identityGateDb.query(
+      'UPDATE matches SET created_at = statement_timestamp() WHERE id = $1',
+      [quotaSeedMatch.rows[0].id]
+    );
     const premiumMatchBypass = await request(`/api/likes/${registered.user.id}`, {
       method: 'POST', headers: { Cookie: maleCookie }
     });
@@ -2296,7 +2301,7 @@ test('auth API supports registration, session lookup, logout and login', {
       [maleRegistered.user.id, registered.user.id]
     );
     await identityGateDb.query(
-      'UPDATE users SET premium_until = NULL WHERE id = $1',
+      "UPDATE users SET premium_until = NOW() - INTERVAL '1 second' WHERE id = $1",
       [registered.user.id]
     );
 
