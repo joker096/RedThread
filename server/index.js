@@ -1649,13 +1649,6 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     // prevents a concurrent registration from slipping between the tombstone
     // check and the account anonymization commit.
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`account-reuse:${accountReuseDigest}`]);
-    await client.query(
-      `INSERT INTO account_reuse_restrictions (email_hmac, expires_at)
-       VALUES ($1, clock_timestamp() + INTERVAL '90 days')
-       ON CONFLICT (email_hmac) DO UPDATE
-       SET expires_at = GREATEST(account_reuse_restrictions.expires_at, EXCLUDED.expires_at)`,
-      [accountReuseDigest]
-    );
     // The session-level account-safety lock acquired before Paddle calls is
     // still held by this connection, excluding concurrent account mutations.
     const l3Media = await client.query(
@@ -1723,6 +1716,16 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     await client.query(
       "UPDATE matches SET status = 'closed' WHERE user_a_id = $1 OR user_b_id = $1",
       [req.authUser.id]
+    );
+    // Start the full 90-day period at the end of deletion, not before the
+    // potentially long cleanup work above. The per-email transaction lock has
+    // remained held since BEGIN, so registration cannot slip into this gap.
+    await client.query(
+      `INSERT INTO account_reuse_restrictions (email_hmac, expires_at)
+       VALUES ($1, clock_timestamp() + INTERVAL '90 days')
+       ON CONFLICT (email_hmac) DO UPDATE
+       SET expires_at = GREATEST(account_reuse_restrictions.expires_at, EXCLUDED.expires_at)`,
+      [accountReuseDigest]
     );
     await client.query('COMMIT');
     await Promise.all(privatePhotoPaths.map(filePath => unlink(filePath).catch(() => {})));
