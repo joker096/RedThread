@@ -1885,7 +1885,7 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
          JOIN users quota_actor ON quota_actor.id = issued.user_id
          WHERE issued.user_id = $1
            AND issued.profile_user_id = p.user_id
-           AND issued.exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date
+           AND issued.exposure_date = $12::date
            AND quota_actor.status = 'active'
            AND quota_actor.premium_lifetime IS NOT TRUE
            AND COALESCE(quota_actor.premium_until <= statement_timestamp(), TRUE)
@@ -1899,11 +1899,19 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
     let hasMoreIssuedCandidates = false;
     try {
       client = await pool.connect();
+      let attempt = 0;
+      while (true) {
       await client.query('BEGIN');
+      // Capture the ordering date before preview. A lock wait across UTC
+      // midnight invalidates the preview candidate set and requires a retry.
+      const previewDateResult = await client.query(
+        "SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date"
+      );
+      const previewDate = previewDateResult.rows[0].exposure_date;
       // Preview the exact page, then lock the requester and every candidate in
       // one globally sorted set. Re-run the query after locks so a concurrent
       // deletion, profile change, like/pass or block cannot leak stale results.
-      const preview = await client.query(searchSql, searchParams);
+      const preview = await client.query(searchSql, [...searchParams, previewDate]);
       const candidateIds = preview.rows.map(profile => profile.id);
       await acquireGiftSafetyUserLocks(client, req.authUser.id, ...candidateIds);
       const actor = await client.query(
@@ -1914,24 +1922,31 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
         await client.query('ROLLBACK');
         return res.status(401).json({ error: 'account_not_active' });
       }
+      const actorUser = actor.rows[0];
+      const lockedDateResult = await client.query(
+        "SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date"
+      );
+      const lockedExposureDate = lockedDateResult.rows[0].exposure_date;
+      if (actorUser.gender === 'female' && !hasFemalePremiumAccess(actorUser) &&
+          String(lockedExposureDate) !== String(previewDate)) {
+        await client.query('ROLLBACK');
+        if (attempt >= 2) {
+          throw new Error('Discovery UTC date changed repeatedly while acquiring account locks');
+        }
+        attempt += 1;
+        continue;
+      }
       const finalSql = searchSql.replace(
         '       ORDER BY',
-        '         AND p.user_id = ANY($12::uuid[])\n       ORDER BY'
+        '         AND p.user_id = ANY($13::uuid[])\n       ORDER BY'
       );
-      const lockedSearchParams = [...searchParams];
+      const lockedSearchParams = [...searchParams, previewDate];
       lockedSearchParams[5] = 0; // candidateIds already represent the requested page after OFFSET.
       result = await client.query(finalSql, [...lockedSearchParams, candidateIds]);
       result.hasMoreCandidates = result.rows.length > parsedLimit;
-      const actorUser = actor.rows[0];
+      const exposureDate = lockedExposureDate;
       let dailyQuota = null;
       if (actorUser.gender === 'female' && !hasFemalePremiumAccess(actorUser)) {
-        // Fix one UTC date for the entire exposure reservation. A request
-        // waiting on account locks may cross midnight; subsequent statements
-        // must not silently switch to a different quota day.
-        const exposureDateResult = await client.query(
-          "SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date"
-        );
-        const exposureDate = exposureDateResult.rows[0].exposure_date;
         await client.query(
           `DELETE FROM female_profile_exposures
            WHERE user_id = $1 AND exposure_date < $2::date`,
@@ -1986,6 +2001,8 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
       }
       result.dailyQuota = dailyQuota;
       await client.query('COMMIT');
+      break;
+      }
     } catch (error) {
       if (client && !await rollbackPooledTransaction(client)) client = null;
       throw error;
