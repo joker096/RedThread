@@ -260,6 +260,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
     } catch (error) {
       if (isCurrentDiscoverySearchResponse(requestId, searchRequestId.current, actionEpoch, sessionEpoch.current)) {
         setProfiles([]);
+        setDailyQuota(null);
         setSearchFailed(true);
         setNotice(error instanceof Error ? error.message : t('connectionError'));
       }
