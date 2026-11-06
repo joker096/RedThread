@@ -2655,7 +2655,7 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
     }
-    await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
+
     const currentActorResult = await client.query(
       `SELECT u.id, p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime
        FROM users u JOIN profiles p ON p.user_id = u.id
