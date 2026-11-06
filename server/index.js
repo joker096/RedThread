@@ -2730,11 +2730,17 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
       return res.status(404).json({ error: 'target_not_available' });
     }
     if (identityActor.gender === 'female' && !hasFemalePremiumAccess(currentActor)) {
+      // Use the UTC day after the account/profile locks, matching discovery
+      // issuance even when this transaction waited across midnight.
+      const exposureDateResult = await client.query(
+        "SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date"
+      );
+      const exposureDate = exposureDateResult.rows[0].exposure_date;
       const issued = await client.query(
         `SELECT 1 FROM female_profile_exposures
          WHERE user_id = $1 AND profile_user_id = $2
-           AND exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date`,
-        [req.authUser.id, targetId]
+           AND exposure_date = $3::date`,
+        [req.authUser.id, targetId, exposureDate]
       );
       if (!issued.rowCount) {
         await client.query('ROLLBACK');
@@ -2815,11 +2821,18 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
       return res.status(404).json({ error: 'target_not_available' });
     }
     if (actor.gender === 'female' && !hasFemalePremiumAccess(actor)) {
+      // Capture the quota date after all account and profile locks are held.
+      // statement_timestamp() would refer to transaction start and can be a
+      // different UTC day if this request waited across midnight for a lock.
+      const exposureDateResult = await client.query(
+        "SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date"
+      );
+      const exposureDate = exposureDateResult.rows[0].exposure_date;
       const issued = await client.query(
         `SELECT 1 FROM female_profile_exposures
          WHERE user_id = $1 AND profile_user_id = $2
-           AND exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date`,
-        [req.authUser.id, targetId]
+           AND exposure_date = $3::date`,
+        [req.authUser.id, targetId, exposureDate]
       );
       if (!issued.rowCount) {
         await client.query('ROLLBACK');
@@ -2857,12 +2870,15 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
       );
       const femaleAccount = femaleAccountResult.rows[0];
       if (femaleAccount?.gender === 'female' && !hasFemalePremiumAccess(femaleAccount)) {
+        // Evaluate the rolling window after account locks have been
+        // acquired; transaction-start time can be stale after lock waits.
+        const quotaNowResult = await client.query('SELECT clock_timestamp() AS quota_now');
         const recentMatches = await client.query(
           `SELECT COUNT(*)::int AS count, MAX(created_at) + INTERVAL '7 days' AS next_available_at
            FROM matches
            WHERE (user_a_id = $1 OR user_b_id = $1)
-             AND created_at >= statement_timestamp() - INTERVAL '7 days'`,
-          [femaleUserId]
+             AND created_at >= $2::timestamptz - INTERVAL '7 days'`,
+          [femaleUserId, quotaNowResult.rows[0].quota_now]
         );
         if (!canCreateFemaleFreeMatch(recentMatches.rows[0]?.count)) {
           await client.query('COMMIT');
