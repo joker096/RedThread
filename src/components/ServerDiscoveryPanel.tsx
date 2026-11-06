@@ -411,11 +411,11 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         if (response.status === 409) throw new Error(t('undoLikeMatchError'));
         if (!response.ok) throw new Error(t('undoLikeError'));
         setLikedIds(current => current.filter(id => id !== lastAction.profile.id));
-        setProfiles(current => current.some(item => item.id === lastAction.profile.id)
-          ? current
-          : [lastAction.profile, ...current]);
         setActionHistory(current => current.slice(0, -1));
-        setNotice(t('undoLikeSuccess').replace('{name}', lastAction.profile.displayName));
+        // Re-fetch instead of restoring the cached card: a like may be undone
+        // after UTC midnight, and free-tier exposure must be reserved for the
+        // day on which the profile is actually shown again.
+        await search();
         return;
       }
 
