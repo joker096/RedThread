@@ -326,8 +326,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         if (actionEpoch === sessionEpoch.current) setNotice(t('profileNotIssuedToday'));
         return;
       }
-      if (!response.ok) throw new Error(t('sendLikeError'));
-      const weeklyQuotaExhausted = isFemaleWeeklyMatchQuotaExhausted(data?.quota);
+      const weeklyQuotaExhausted = response.status === 429 && isFemaleWeeklyMatchQuotaExhausted(data?.quota);
       if (weeklyQuotaExhausted) {
         const nextMatchAvailableAt = typeof data?.quota?.nextAvailableAt === 'string' && Number.isFinite(Date.parse(data.quota.nextAvailableAt))
           ? formatDate(new Date(data.quota.nextAvailableAt), { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' })
@@ -337,6 +336,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
           : t('femaleWeeklyMatchQuotaReached'));
         return;
       }
+      if (!response.ok) throw new Error(t('sendLikeError'));
       if (!data?.matched) setActionHistory(current => [...current, { type: 'like' as const, profile }].slice(-50));
       setLikedIds(current => current.includes(profile.id) ? current : [...current, profile.id]);
       setNotice(data?.matched
