@@ -2197,12 +2197,12 @@ test('auth API supports registration, session lookup, logout and login', {
     // check must reject the action and leave no like behind.
     await identityGateDb.query(`
       CREATE OR REPLACE FUNCTION vow_test_delay_female_like_insert()
-      RETURNS trigger LANGUAGE plpgsql AS $
+      RETURNS trigger LANGUAGE plpgsql AS $vow$
       BEGIN
         PERFORM pg_sleep(0.7);
         RETURN NEW;
       END;
-      $;
+      $vow$;
     `);
     await identityGateDb.query(`
       CREATE TRIGGER vow_test_delay_female_like_insert
