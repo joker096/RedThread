@@ -2874,10 +2874,10 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
         // acquired; transaction-start time can be stale after lock waits.
         const quotaNowResult = await client.query('SELECT clock_timestamp() AS quota_now');
         const recentMatches = await client.query(
-          `SELECT COUNT(*)::int AS count, MAX(created_at) + INTERVAL '7 days' AS next_available_at
+          `SELECT COUNT(*)::int AS count, MIN(created_at) + INTERVAL '7 days' AS next_available_at
            FROM matches
            WHERE (user_a_id = $1 OR user_b_id = $1)
-             AND created_at >= $2::timestamptz - INTERVAL '7 days'`,
+             AND created_at > $2::timestamptz - INTERVAL '7 days'`,
           [femaleUserId, quotaNowResult.rows[0].quota_now]
         );
         if (!canCreateFemaleFreeMatch(recentMatches.rows[0]?.count)) {
