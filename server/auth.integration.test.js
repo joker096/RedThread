@@ -2650,6 +2650,32 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.ok((await existingChatHistory.json()).messages.some(message => message.id === existingChatMessagePayload.message.id),
       'messages in an existing match remain readable after the weekly match quota is reached');
 
+    const blockChat = await request(`/api/blocks/${maleRegistered.user.id}`, {
+      method: 'POST',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({})
+    });
+    assert.equal(blockChat.status, 204);
+    for (const [cookie, label] of [[secondCookie, 'blocker'], [maleCookie, 'blocked participant']]) {
+      const blockedChatMessage = await request(`/api/matches/${matchPayload.match.id}/messages`, {
+        method: 'POST',
+        headers: { Cookie: cookie },
+        body: JSON.stringify({ text: `Сообщение после блокировки: ${label}` })
+      });
+      assert.equal(blockedChatMessage.status, 404,
+        'neither participant may send a message after either side blocks the pair');
+    }
+    const blockedChatHistory = await request(`/api/matches/${matchPayload.match.id}/messages`, {
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(blockedChatHistory.status, 404,
+      'blocked conversations must remain unavailable for history reads');
+    const unblockChat = await request(`/api/blocks/${maleRegistered.user.id}`, {
+      method: 'DELETE',
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(unblockChat.status, 204, 'the block fixture is removed before subsequent chat assertions');
+
     const outsiderRegistration = await request('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify({
