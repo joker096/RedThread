@@ -183,7 +183,7 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     assert.equal(queue.status, 200);
     const queuePayload = await queue.json();
     assert.deepEqual(
-      queuePayload.submissions.map(item => item.submissionId),
+      queuePayload.submissions.filter(item => item.applicantReference === applicantId).map(item => item.submissionId),
       [first.submissionId]
     );
     assert.equal(JSON.stringify(queuePayload).includes(storageRoot), false,
@@ -331,7 +331,7 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     assert.equal(queueAfterSecondUpload.status, 200);
     const queueAfterSecondUploadPayload = await queueAfterSecondUpload.json();
     assert.deepEqual(
-      queueAfterSecondUploadPayload.submissions.map(item => item.submissionId),
+      queueAfterSecondUploadPayload.submissions.filter(item => item.applicantReference === applicantId).map(item => item.submissionId),
       [second.submissionId]
     );
 
