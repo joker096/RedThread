@@ -2882,7 +2882,8 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
         );
         if (!canCreateFemaleFreeMatch(recentMatches.rows[0]?.count)) {
           await client.query('COMMIT');
-          return res.status(201).json({
+          return res.status(429).json({
+            error: 'weekly_match_limit_reached',
             liked: false,
             matched: false,
             match: null,
