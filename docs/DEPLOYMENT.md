@@ -17,7 +17,7 @@ Requirements: Docker Engine and the Docker Compose plugin.
    APP_URL=http://localhost:8080
    WEB_BIND=127.0.0.1:8080
    EMAIL_VERIFICATION_REQUIRED=false # local preview only if email provider is not configured
-   ACCOUNT_REUSE_HMAC_KEY=replace-with-64-hex-characters
+   ACCOUNT_REUSE_HMAC_KEY=
    ```
 2. Generate the database password and a dedicated stable account-reuse HMAC key (for example, `openssl rand -hex 32` for each). Keep `ACCOUNT_REUSE_HMAC_KEY` stable across restarts and deployments; rotating or losing it without a migration invalidates lookup of existing 90-day restrictions. Do not reuse the database password, commit `.env`, or paste secrets into issues/chat.
 3. Start the stack: `docker compose up --build -d`.
