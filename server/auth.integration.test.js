@@ -55,6 +55,7 @@ test('auth API supports registration, session lookup, logout and login', {
 
   let identityGateDb;
   let quotaExhaustionMaleUserId = null;
+  let concurrentQuotaMaleUserId = null;
   try {
     let healthy = false;
     for (let attempt = 0; attempt < 80; attempt += 1) {
@@ -2275,6 +2276,147 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(femaleQuotaPayload.quota?.exhausted, true);
     await identityGateDb.query('DELETE FROM matches WHERE id = $1', [secondQuotaSeedMatch.rows[0].id]);
 
+    // Two different male accounts race to create a match with the same
+    // free-tier woman when her final weekly match slot is available.
+    const concurrentMaleRegistration = await request('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: `concurrent-quota-male-${randomUUID()}@example.test`,
+        password,
+        displayName: 'Третья проверенная анкета',
+        birthDate: '1992-04-12',
+        gender: 'male',
+        country: 'Грузия',
+        city: 'Тбилиси',
+        relationshipIntent: 'family_without_marriage',
+        familyFormat: 'cohabitation',
+        hasChildren: false,
+        wantsChildren: 'yes',
+        childrenLivingArrangement: 'not_applicable'
+      })
+    });
+    assert.equal(concurrentMaleRegistration.status, 201);
+    const concurrentMale = await concurrentMaleRegistration.json();
+    concurrentQuotaMaleUserId = concurrentMale.user.id;
+    const concurrentMaleCookie = concurrentMaleRegistration.headers.get('set-cookie')?.split(';')[0];
+    assert.ok(concurrentMaleCookie?.startsWith('nit_session='));
+    await identityGateDb.query(
+      `INSERT INTO identity_verifications
+         (user_id, provider, provider_session_id, workflow_id, status, provider_status, provider_environment)
+       VALUES ($1, 'didit', $2, $3, 'verified', 'Approved', 'live')`,
+      [concurrentMale.user.id, randomUUID(), randomUUID()]
+    );
+    await identityGateDb.query(
+      'INSERT INTO identity_l3_consents (user_id, consent_version, granted_at) VALUES ($1, 2, statement_timestamp())',
+      [concurrentMale.user.id]
+    );
+    const concurrentMaleSubmissionId = randomUUID();
+    await identityGateDb.query(
+      'INSERT INTO identity_l3_submissions (id, user_id) VALUES ($1, $2)',
+      [concurrentMaleSubmissionId, concurrentMale.user.id]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'upload_authorized' WHERE id = $1",
+      [concurrentMaleSubmissionId]
+    );
+    await identityGateDb.query(
+      `UPDATE identity_l3_submissions
+       SET status = 'uploaded', storage_object_key = $2, media_sha256 = repeat('c', 64),
+           media_mime_type = 'video/mp4', media_size_bytes = 1024,
+           media_duration_seconds = 30, uploaded_at = NOW()
+       WHERE id = $1`,
+      [concurrentMaleSubmissionId, `test-only/${concurrentMaleSubmissionId}`]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'processing' WHERE id = $1",
+      [concurrentMaleSubmissionId]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'pending_review', processing_completed_at = NOW() WHERE id = $1",
+      [concurrentMaleSubmissionId]
+    );
+    await identityGateDb.query(
+      `UPDATE identity_l3_submissions
+       SET status = 'approved', reviewed_by = $2, reviewed_at = NOW(),
+           decision_reason_code = 'integration_test_concurrent_quota',
+           approved_at = NOW(), expires_at = NOW() + INTERVAL '6 months'
+       WHERE id = $1`,
+      [concurrentMaleSubmissionId, randomUUID()]
+    );
+    const concurrentMaleAccess = await request('/api/trust/summary', {
+      headers: { Cookie: concurrentMaleCookie }
+    });
+    assert.equal(concurrentMaleAccess.status, 200);
+    assert.equal((await concurrentMaleAccess.json()).identity.l3.status, 'approved',
+      'the second race participant must have a real active L3 approval');
+
+    const concurrentQuotaMaleIds = [maleRegistered.user.id, concurrentMale.user.id];
+    await identityGateDb.query(
+      `DELETE FROM matches
+       WHERE (user_a_id = $1 AND user_b_id = ANY($2::uuid[]))
+          OR (user_b_id = $1 AND user_a_id = ANY($2::uuid[]))`,
+      [registered.user.id, concurrentQuotaMaleIds]
+    );
+    await identityGateDb.query(
+      'DELETE FROM likes WHERE (sender_id = $1 AND target_id = ANY($2::uuid[])) OR (sender_id = ANY($2::uuid[]) AND target_id = $1)',
+      [registered.user.id, concurrentQuotaMaleIds]
+    );
+    await identityGateDb.query(
+      'INSERT INTO likes (sender_id, target_id) VALUES ($1, $3), ($2, $3)',
+      [...concurrentQuotaMaleIds, registered.user.id]
+    );
+    try {
+      const competingFinalLikes = await Promise.all([
+        request(`/api/likes/${registered.user.id}`, {
+          method: 'POST', headers: { Cookie: maleCookie }
+        }),
+        request(`/api/likes/${registered.user.id}`, {
+          method: 'POST', headers: { Cookie: concurrentMaleCookie }
+        })
+      ]);
+      for (const response of competingFinalLikes) assert.equal(response.status, 201);
+      const competingPayloads = await Promise.all(competingFinalLikes.map(response => response.json()));
+      assert.equal(competingPayloads.filter(payload => payload.matched === true).length, 1,
+        'exactly one distinct pair may consume the final weekly match slot');
+      const losingPayload = competingPayloads.find(payload => payload.quota?.type === 'weekly_matches');
+      assert.ok(losingPayload, 'the losing pair must receive the weekly quota response');
+      assert.equal(losingPayload.liked, false,
+        'the losing final reciprocal like must not be persisted');
+      const persistedCompetingMatches = await identityGateDb.query(
+        `SELECT user_a_id, user_b_id FROM matches
+         WHERE (user_a_id = $1 AND user_b_id = ANY($2::uuid[]))
+            OR (user_b_id = $1 AND user_a_id = ANY($2::uuid[]))`,
+        [registered.user.id, concurrentQuotaMaleIds]
+      );
+      assert.equal(persistedCompetingMatches.rowCount, 1,
+        'only one match row may be created for the woman's final weekly slot');
+      const persistedFemaleFinalLikes = await identityGateDb.query(
+        'SELECT target_id FROM likes WHERE sender_id = $1 AND target_id = ANY($2::uuid[])',
+        [registered.user.id, concurrentQuotaMaleIds]
+      );
+      assert.equal(persistedFemaleFinalLikes.rowCount, 1,
+        'the losing pair must not retain a female-originated reciprocal like');
+      const weeklyQuotaAfterRace = await identityGateDb.query(
+        `SELECT COUNT(*)::int AS count FROM matches
+         WHERE (user_a_id = $1 OR user_b_id = $1)
+           AND created_at >= statement_timestamp() - INTERVAL '7 days'`,
+        [registered.user.id]
+      );
+      assert.equal(weeklyQuotaAfterRace.rows[0].count, 1,
+        'the concurrent race must leave the woman with exactly one new match in the rolling window');
+    } finally {
+      await identityGateDb.query(
+        `DELETE FROM matches
+         WHERE (user_a_id = $1 AND user_b_id = ANY($2::uuid[]))
+            OR (user_b_id = $1 AND user_a_id = ANY($2::uuid[]))`,
+        [registered.user.id, concurrentQuotaMaleIds]
+      );
+      await identityGateDb.query(
+        'DELETE FROM likes WHERE (sender_id = $1 AND target_id = ANY($2::uuid[])) OR (sender_id = ANY($2::uuid[]) AND target_id = $1)',
+        [registered.user.id, concurrentQuotaMaleIds]
+      );
+    }
+
     // Two identical reciprocal likes race for one pair. The account locks
     // and unique match key must make the operation idempotent under concurrency.
     // The second male fixture is intentionally L3-revoked earlier in this test,
@@ -3761,6 +3903,9 @@ test('auth API supports registration, session lookup, logout and login', {
   } finally {
     if (quotaExhaustionMaleUserId && identityGateDb) {
       await identityGateDb.query('DELETE FROM users WHERE id = $1', [quotaExhaustionMaleUserId]).catch(() => {});
+    }
+    if (concurrentQuotaMaleUserId && identityGateDb) {
+      await identityGateDb.query('DELETE FROM users WHERE id = $1', [concurrentQuotaMaleUserId]).catch(() => {});
     }
     await identityGateDb?.end().catch(() => {});
     if (child.exitCode === null && child.signalCode === null) {
