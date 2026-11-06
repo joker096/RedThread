@@ -121,6 +121,6 @@ test('discovery refreshes quota after UTC midnight when the timer fires or the t
 test('undo refreshes Discovery when the UTC day changes before the restored card can be issued', async () => {
   const { readFile } = await import('node:fs/promises');
   const source = await readFile(new URL('./ServerDiscoveryPanel.tsx', import.meta.url), 'utf8');
-  assert.match(source, /response\.status === 409 && data\?\.error === 'quota_day_changed_retry'/);
-  assert.match(source, /await search\(\);\s*if \(actionEpoch === sessionEpoch\.current\) setNotice\(t\('discoveryUtcDayChanged'\)\)/);
+  assert.match(source, /response\.status === 409 && data\?\.error === 'quota_policy_changed_retry'/);
+  assert.match(source, /await search\(\);\s*if \(actionEpoch === sessionEpoch\.current\) setNotice\(t\('discoveryQuotaChanged'\)\)/);
 });
