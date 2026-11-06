@@ -3749,11 +3749,17 @@ test('auth API supports registration, session lookup, logout and login', {
       ]);
       assert.equal(deleteAccount.status, 204);
       const deletedAccountExposures = await deletionSafetyDb.query(
-        'SELECT COUNT(*)::int AS count FROM female_profile_exposures WHERE user_id = $1 OR profile_user_id = $1',
+        'SELECT COUNT(*)::int AS count FROM female_profile_exposures WHERE user_id = $1',
         [registered.user.id]
       );
       assert.equal(deletedAccountExposures.rows[0].count, 0,
-        'account deletion must purge discovery exposures owned by or referencing the deleted account');
+        'account deletion must purge the deleted account own discovery history');
+      const otherUsersExposure = await deletionSafetyDb.query(
+        'SELECT COUNT(*)::int AS count FROM female_profile_exposures WHERE user_id = $1 AND profile_user_id = $2',
+        [secondMaleRegistered.user.id, registered.user.id]
+      );
+      assert.equal(otherUsersExposure.rows[0].count, 1,
+        'deleting a viewed profile must not refund another account daily quota before UTC expiry');
       assert.equal(staleGiftDecision.status, 401,
         'a decline authenticated before deletion must wait for the account safety lock and then be rejected');
       const deletedPendingDecisionOrder = await deletionSafetyDb.query(
