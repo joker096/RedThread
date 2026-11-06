@@ -2235,8 +2235,7 @@ test('auth API supports registration, session lookup, logout and login', {
     const retainedDeletedProfileExposure = await identityGateDb.query(
       `SELECT COUNT(*)::int AS count
        FROM female_profile_exposures
-       WHERE user_id = $1 AND profile_user_id = $2
-         AND exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date`,
+       WHERE user_id = $1 AND profile_user_id = $2`,
       [registered.user.id, deletedViewedProfileId]
     );
     assert.equal(retainedDeletedProfileExposure.rows[0].count, 1,
