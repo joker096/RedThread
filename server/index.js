@@ -2547,19 +2547,13 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
        WHERE p.user_id = $1 FOR SHARE OF p`,
       [req.authUser.id]
     );
-    const identityActor = actorIdentity.rows[0];
-    if (!identityActor || !canIdentityInteract({
-      gender: identityActor.gender, status: identityActor.identity_status, environment: identityActor.identity_environment, l3Status: identityActor.l3_status, l3ExpiresAt: identityActor.l3_expires_at
+    const lockedIdentityActor = actorIdentity.rows[0];
+    if (!lockedIdentityActor || !canIdentityInteract({
+      gender: lockedIdentityActor.gender, status: lockedIdentityActor.identity_status, environment: lockedIdentityActor.identity_environment, l3Status: lockedIdentityActor.l3_status, l3ExpiresAt: lockedIdentityActor.l3_expires_at
     })) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
     }
-    const requestedTargetId = req.body?.targetId ?? null;
-    if (requestedTargetId !== null && !isUuid(requestedTargetId)) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'invalid_pass_target' });
-    }
-
     const actor = await client.query(
       `SELECT u.id, p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime
        FROM users u JOIN profiles p ON p.user_id = u.id
@@ -3019,9 +3013,9 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
        WHERE p.user_id = $1 FOR SHARE OF p`,
       [req.authUser.id]
     );
-    const identityActor = actorIdentity.rows[0];
-    if (!identityActor || !canIdentityInteract({
-      gender: identityActor.gender, status: identityActor.identity_status, environment: identityActor.identity_environment, l3Status: identityActor.l3_status, l3ExpiresAt: identityActor.l3_expires_at
+    const lockedIdentityActor = actorIdentity.rows[0];
+    if (!lockedIdentityActor || !canIdentityInteract({
+      gender: lockedIdentityActor.gender, status: lockedIdentityActor.identity_status, environment: lockedIdentityActor.identity_environment, l3Status: lockedIdentityActor.l3_status, l3ExpiresAt: lockedIdentityActor.l3_expires_at
     })) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
