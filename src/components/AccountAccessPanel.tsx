@@ -284,7 +284,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       setDeleteNotice(t('authDeletePasswordRequired'));
       return;
     }
-    const confirmed = window.confirm(t('authDeleteConfirm'));
+    const confirmed = window.confirm(`${t('authDeleteConfirm')}\n\n${t('authDeleteCooldownNotice')}`);
     if (!confirmed) return;
     auxiliaryRequestIdRef.current += 1;
     const actionId = ++sessionActionIdRef.current;

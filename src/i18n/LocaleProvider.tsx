@@ -279,6 +279,7 @@ const messages = {
     authLogoutSuccess: 'You have signed out.',
     authDeleteConfirmPrompt: 'Enter your password, then press again to confirm deletion.',
     authDeleteConfirm: 'Delete this account? Your profile will be hidden and profile data anonymized. This action cannot be undone.',
+    authDeleteCooldownNotice: 'The same email cannot be used to create another Vow account for 90 days after deletion.'
     authDeleteSuccess: 'Account deleted and personal fields anonymized.',
     authChildrenRequired: 'Required question',
     authChildrenLivingPrompt: 'How are your children’s living arrangements organized?',
@@ -651,6 +652,7 @@ const messages = {
     authLogoutSuccess: 'Вы вышли из аккаунта.',
     authDeleteConfirmPrompt: 'Введите пароль, затем нажмите ещё раз для подтверждения удаления.',
     authDeleteConfirm: 'Удалить аккаунт? Анкета будет скрыта, данные профиля обезличены. Действие нельзя отменить.',
+    authDeleteCooldownNotice: 'После удаления аккаунта повторная регистрация в Vow с этой же почтой будет недоступна 90 дней.'
     authDeleteSuccess: 'Аккаунт удалён, персональные поля обезличены.',
     authChildrenRequired: 'Обязательный вопрос',
     authChildrenLivingPrompt: 'Как организовано проживание детей?',

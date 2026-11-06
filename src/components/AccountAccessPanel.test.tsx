@@ -197,3 +197,9 @@ test('registration explains the 90-day account recreation restriction and retry 
   assert.match(source, /authAccountRecreationRestrictedAt/);
   assert.match(source, /formatDate\(new Date\(data\.retryAt\)/);
 });
+
+
+test('account deletion confirmation discloses the 90-day same-email restriction', async () => {
+  const source = await readFile(new URL('./AccountAccessPanel.tsx', import.meta.url), 'utf8');
+  assert.match(source, /authDeleteConfirm.*authDeleteCooldownNotice/s);
+});
