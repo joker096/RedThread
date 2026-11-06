@@ -62,3 +62,12 @@ test('stale daily profile actions refresh discovery and exhausted undo reports t
   assert.match(source, /setDailyQuota\(exhaustedQuota\)/);
   assert.match(source, /setNotice\(t\('femaleDailyQuotaExhausted'\)\)/);
 });
+
+test('weekly match quota 429 responses are shown as quota notices, not generic send failures', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('./ServerDiscoveryPanel.tsx', import.meta.url), 'utf8');
+  const quotaCheck = source.indexOf('response.status === 429 && isFemaleWeeklyMatchQuotaExhausted(data?.quota)');
+  const genericFailure = source.indexOf("if (!response.ok) throw new Error(t('sendLikeError'))");
+  assert.ok(quotaCheck >= 0 && genericFailure > quotaCheck,
+    'the explicit weekly quota response must be handled before the generic HTTP error');
+});
