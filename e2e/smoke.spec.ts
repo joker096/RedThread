@@ -732,8 +732,9 @@ test('server discovery shows the server-confirmed free daily quota and UTC reset
   await page.goto('/');
   await page.getByTestId('server-discovery-search').click();
   await expect.poll(() => searchRequests).toBeGreaterThan(0);
-  await expect(page.getByText(/Free discovery: 3\/3 profiles issued today \(UTC\)\. 0 remaining\./i)).toBeVisible();
-  await expect(page.getByText(/resets at 00:00 UTC/i)).toBeVisible();
+  const quotaStatus = page.getByText(/Free discovery: 3\/3 profiles issued today \(UTC\)\. 0 remaining\./i).locator('..');
+  await expect(quotaStatus).toBeVisible();
+  await expect(quotaStatus).toContainText(/resets at 00:00 UTC/i);
 });
 
 test('server discovery swipe mode collapses and restores profile photos vertically', async ({ page }) => {
