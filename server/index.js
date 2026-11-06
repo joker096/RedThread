@@ -2756,7 +2756,7 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
         dailyQuota: { limit: FEMALE_FREE_DAILY_PROFILE_LIMIT, used: exposure.used, remaining: 0, timezone: 'UTC' }
       });
     }
-    if (exposure.exposureDate) {
+    if (actor.rows[0].gender === 'female') {
       const finalPolicyClock = await client.query(
         `SELECT policy_now, (policy_now AT TIME ZONE 'UTC')::date AS exposure_date
          FROM (SELECT clock_timestamp() AS policy_now) AS policy_clock`
@@ -3292,7 +3292,7 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
         dailyQuota: { limit: FEMALE_FREE_DAILY_PROFILE_LIMIT, used: exposure.used, remaining: 0, timezone: 'UTC' }
       });
     }
-    if (exposure.exposureDate) {
+    if (actor.rows[0].gender === 'female') {
       const finalPolicyClock = await client.query(
         `SELECT policy_now, (policy_now AT TIME ZONE 'UTC')::date AS exposure_date
          FROM (SELECT clock_timestamp() AS policy_now) AS policy_clock`
