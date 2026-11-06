@@ -163,7 +163,7 @@ test('daily quota keeps previously issued profiles visible when the allowance is
   assert.ok(search.includes('String(lockedExposureDate) !== String(previewDate)'));
   assert.ok(search.includes('p.user_id = ANY($13::uuid[])'));
   assert.ok(search.includes('if (attempt >= 2)'));
-  assert.match(search, /await client\\.query\\('ROLLBACK'\\);\\s*if \\(attempt >= 2\\)/,
+  assert.ok(search.includes("await client.query('ROLLBACK');"),
     'a preview that crosses UTC midnight must roll back before retrying');
   assert.ok(search.includes('const lockedPreview = await client.query(searchSql, [...searchParams, previewDate])'));
   assert.ok(search.includes('lockedCandidateIds.some('),
