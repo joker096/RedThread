@@ -619,6 +619,8 @@ export default function App() {
   });
 
   const unreadCount = chatThreads.reduce((acc, t) => acc + t.unreadCount, 0);
+  // The real server inbox has no message-read receipt API yet. Never surface the local demo fixture count there.
+  const visibleUnreadCount = showDemoChats ? unreadCount : 0;
 
   // Content switcher
   const renderMainContent = () => {
@@ -843,7 +845,7 @@ export default function App() {
               showFilters={activeTab === 'discovery' && discoveryMode === 'demo'}
               activeTab={activeTab}
               setActiveTab={setActiveTab}
-              unreadChatsCount={unreadCount}
+              unreadChatsCount={visibleUnreadCount}
             />
 
             {/* Main Stage */}
@@ -889,8 +891,8 @@ export default function App() {
               >
                 <MessageCircle className="w-5 h-5" />
                 <span className="text-[10px] leading-tight">{t('chatsShort')}</span>
-                {unreadCount > 0 && (
-                  <span aria-label={`${unreadCount}`} className="absolute right-1 top-1 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-amber-400 px-1 text-[9px] font-black leading-none text-stone-950">{unreadCount > 99 ? '99+' : unreadCount}</span>
+                {visibleUnreadCount > 0 && (
+                  <span aria-label={`${visibleUnreadCount}`} className="absolute right-1 top-1 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-amber-400 px-1 text-[9px] font-black leading-none text-stone-950">{visibleUnreadCount > 99 ? '99+' : visibleUnreadCount}</span>
                 )}
               </button>
 
@@ -986,7 +988,7 @@ export default function App() {
                   showFilters={activeTab === 'discovery' && discoveryMode === 'demo'}
                   activeTab={activeTab}
                   setActiveTab={setActiveTab}
-                  unreadChatsCount={unreadCount}
+                  unreadChatsCount={visibleUnreadCount}
                 />
 
                 {/* Main Content inside phone */}
@@ -1028,12 +1030,12 @@ export default function App() {
                   >
                     <MessageCircle className="w-4 h-4" />
                     <span className="text-[9px] leading-tight">{t('chatsShort')}</span>
-                    {unreadCount > 0 && (
+                    {visibleUnreadCount > 0 && (
                       <span
-                        aria-label={`${t('chatsShort')}: ${unreadCount}`}
+                        aria-label={`${t('chatsShort')}: ${visibleUnreadCount}`}
                         className="absolute -top-1 -right-1 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-amber-400 px-1 text-[9px] font-black leading-none text-stone-950"
                       >
-                        {unreadCount > 99 ? '99+' : unreadCount}
+                        {visibleUnreadCount > 99 ? '99+' : visibleUnreadCount}
                       </span>
                     )}
                   </button>
