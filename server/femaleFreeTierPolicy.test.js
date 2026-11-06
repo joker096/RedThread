@@ -38,7 +38,7 @@ test('free women may create only one new match in the rolling seven-day window',
 test('daily exposure reservations pin one UTC date across every statement in a transaction', async () => {
   const source = await readFile(new URL('./index.js', import.meta.url), 'utf8');
   const helperStart = source.indexOf('async function reserveFemaleProfileExposure(');
-  const helperEnd = source.indexOf('\nfunction requirePaidFeatures', helperStart);
+  const helperEnd = source.indexOf('\nasync function captureFemaleExposurePolicy', helperStart);
   assert.ok(helperStart >= 0 && helperEnd > helperStart, 'exposure reservation helper exists');
   const helper = source.slice(helperStart, helperEnd);
   assert.equal((helper.match(/clock_timestamp\(\)/g) || []).length, 1,
@@ -119,13 +119,18 @@ test('free-tier like and pass validate the same post-lock UTC date used by disco
     const next = source.indexOf('\napp.', start + marker.length);
     const route = source.slice(start, next === -1 ? source.length : next);
     const lock = route.indexOf('await acquireGiftSafetyUserLocks(');
-    const dateCapture = route.indexOf("SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date");
+    const snapshotCapture = route.indexOf('captureFemaleExposurePolicy(');
     const issuedCheck = route.indexOf('AND exposure_date = $3::date');
-    assert.ok(lock >= 0 && dateCapture > lock,
+    const helperStart = source.indexOf('async function captureFemaleExposurePolicy(');
+    const helperEnd = source.indexOf('\\nasync function femaleExposurePolicyChangedAtCommit', helperStart);
+    const helper = source.slice(helperStart, helperEnd);
+    assert.ok(lock >= 0 && snapshotCapture > lock,
       `${marker} captures the UTC date only after account locks are held`);
-    assert.ok(issuedCheck > dateCapture,
+    assert.ok(issuedCheck > snapshotCapture,
       `${marker} validates exposure against the captured UTC date`);
-    assert.equal(route.includes("exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date"), false,
+    assert.match(helper, /clock_timestamp\\(\\)/);
+    assert.match(helper, /AT TIME ZONE 'UTC'/);
+    assert.equal(route.includes("statement_timestamp()"), false,
       `${marker} must not use transaction-start time for the exposure day`);
   }
 });
