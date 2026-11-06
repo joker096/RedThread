@@ -472,6 +472,11 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       }
       if (response.status === 402) throw new Error(data?.message || t('premiumUndoRequired'));
       if (response.status === 404) throw new Error(t('undoUnavailable'));
+      if (response.status === 409 && data?.error === 'quota_day_changed_retry') {
+        await search();
+        if (actionEpoch === sessionEpoch.current) setNotice(t('discoveryUtcDayChanged'));
+        return;
+      }
       if (response.status === 409) throw new Error(t('undoMatchError'));
       if (response.status === 429 && data?.error === 'daily_profile_limit_reached') {
         const exhaustedQuota = normalizeFemaleDailyQuota(data?.dailyQuota);
