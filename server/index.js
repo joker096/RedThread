@@ -1936,6 +1936,18 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
         attempt += 1;
         continue;
       }
+      const lockedPreview = await client.query(searchSql, [...searchParams, previewDate]);
+      const lockedCandidateIds = lockedPreview.rows.map(profile => String(profile.id).toLowerCase());
+      const previewCandidateIds = candidateIds.map(profileId => String(profileId).toLowerCase());
+      if (lockedCandidateIds.length !== previewCandidateIds.length ||
+          lockedCandidateIds.some((profileId, index) => profileId !== previewCandidateIds[index])) {
+        await client.query('ROLLBACK');
+        if (attempt >= 2) {
+          throw new Error('Discovery candidate page changed repeatedly while acquiring account locks');
+        }
+        attempt += 1;
+        continue;
+      }
       const finalSql = searchSql.replace(
         '       ORDER BY',
         '         AND p.user_id = ANY($13::uuid[])\n       ORDER BY'
