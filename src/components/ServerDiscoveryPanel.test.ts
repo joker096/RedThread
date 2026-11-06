@@ -128,11 +128,11 @@ test('undo refreshes Discovery when the UTC day changes before the restored card
 test('like and pass refresh Discovery when the UTC day or entitlement changes before commit', async () => {
   const { readFile } = await import('node:fs/promises');
   const source = await readFile(new URL('./ServerDiscoveryPanel.tsx', import.meta.url), 'utf8');
-  const retryHandlers = source.match(/response\\.status === 409 && data\\?\\.error === 'quota_policy_changed_retry'/g) || [];
+  const retryHandlers = source.match(/response\.status === 409 && data\?\.error === 'quota_policy_changed_retry'/g) || [];
   assert.equal(retryHandlers.length, 3,
     'like, pass, and undo must all refresh Discovery after a pre-commit quota policy change');
   assert.equal(
-    (source.match(/setNotice\\(t\\('discoveryQuotaChanged'\\)\\)/g) || []).length,
+    (source.match(/setNotice\(t\('discoveryQuotaChanged'\)\)/g) || []).length,
     3,
     'all three actions must show the localized quota refresh notice'
   );
