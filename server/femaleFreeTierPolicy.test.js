@@ -217,12 +217,12 @@ test('free-tier likes and passes revalidate entitlement and UTC exposure day bef
     "app.post('/api/passes/:targetId'"
   ]) {
     const start = source.indexOf(marker);
-    const next = source.indexOf('\\napp.', start + marker.length);
+    const next = source.indexOf('\napp.', start + marker.length);
     const route = source.slice(start, next === -1 ? source.length : next);
     const lock = route.indexOf('await acquireGiftSafetyUserLocks(');
     const snapshot = route.indexOf('captureFemaleExposurePolicy(');
     const issuedCheck = route.indexOf('AND exposure_date = $3::date');
-    const finalChecks = [...route.matchAll(/femaleExposurePolicyChangedAtCommit\\(/g)].map(match => match.index);
+    const finalChecks = [...route.matchAll(/femaleExposurePolicyChangedAtCommit\(/g)].map(match => match.index);
     assert.ok(lock >= 0 && snapshot > lock,
       `${marker} must capture entitlement and UTC date after account locks`);
     assert.ok(issuedCheck > snapshot,
