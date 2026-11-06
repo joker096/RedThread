@@ -4075,6 +4075,9 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(blockedReRegistrationPayload.error, 'account_recreation_restricted');
     assert.ok(Date.parse(blockedReRegistrationPayload.retryAt) > Date.now());
     assert.ok(Number(blockedReRegistration.headers.get('retry-after')) > 0);
+    assert.equal(Number(blockedReRegistration.headers.get('retry-after')),
+      blockedReRegistrationPayload.retryAfterSeconds,
+      'the HTTP Retry-After header and JSON response must use the same database-clock interval');
 
     // Hold the same transaction advisory lock used by account deletion.
     // Registration must wait, then observe the tombstone committed by deletion.
