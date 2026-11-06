@@ -2269,8 +2269,8 @@ test('auth API supports registration, session lookup, logout and login', {
         'the losing concurrent final like must not be persisted');
       const concurrentCreatedMatches = await identityGateDb.query(
         `SELECT id FROM matches
-         WHERE user_a_id = LEAST($1::uuid, ANY($2::uuid[]))
-           AND user_b_id = GREATEST($1::uuid, ANY($2::uuid[]))`,
+         WHERE (user_a_id = $1 AND user_b_id = ANY($2::uuid[]))
+            OR (user_b_id = $1 AND user_a_id = ANY($2::uuid[]))`,
         [registered.user.id, concurrentQuotaMaleIds]
       );
       assert.equal(concurrentCreatedMatches.rowCount, 1,
