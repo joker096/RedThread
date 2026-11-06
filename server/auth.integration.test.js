@@ -2199,7 +2199,7 @@ test('auth API supports registration, session lookup, logout and login', {
       CREATE OR REPLACE FUNCTION vow_test_delay_female_like_insert()
       RETURNS trigger LANGUAGE plpgsql AS $vow$
       BEGIN
-        PERFORM pg_sleep(0.7);
+        PERFORM pg_sleep(3);
         RETURN NEW;
       END;
       $vow$;
@@ -2214,7 +2214,7 @@ test('auth API supports registration, session lookup, logout and login', {
     `);
     try {
       await identityGateDb.query(
-        "UPDATE users SET female_trial_ends_at = clock_timestamp() + INTERVAL '300 milliseconds', premium_until = NULL WHERE id = $1",
+        "UPDATE users SET female_trial_ends_at = clock_timestamp() + INTERVAL '2 seconds', premium_until = NULL WHERE id = $1",
         [registered.user.id]
       );
       const likeAfterTrialExpiry = await request(`/api/likes/${maleRegistered.user.id}`, {
@@ -2231,7 +2231,7 @@ test('auth API supports registration, session lookup, logout and login', {
         'the delayed like must roll back after Trial expires');
 
       await identityGateDb.query(
-        "UPDATE users SET female_trial_ends_at = clock_timestamp() - INTERVAL '1 second', premium_until = clock_timestamp() + INTERVAL '300 milliseconds' WHERE id = $1",
+        "UPDATE users SET female_trial_ends_at = clock_timestamp() - INTERVAL '1 second', premium_until = clock_timestamp() + INTERVAL '2 seconds' WHERE id = $1",
         [registered.user.id]
       );
       const likeAfterPremiumExpiry = await request(`/api/likes/${maleRegistered.user.id}`, {
