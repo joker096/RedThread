@@ -2862,7 +2862,7 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
            FROM matches
            WHERE (user_a_id = $1 OR user_b_id = $1)
              AND created_at >= statement_timestamp() - INTERVAL '7 days'`,
-          [femaleUserId, femaleAccount.female_trial_ends_at, femaleAccount.premium_until]
+          [femaleUserId]
         );
         if (!canCreateFemaleFreeMatch(recentMatches.rows[0]?.count)) {
           await client.query('COMMIT');
