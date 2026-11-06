@@ -2995,26 +2995,32 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
       [req.authUser.id, targetId]
     );
     let match = existingMatchResult.rows[0] || null;
+    let femaleUserIdForQuota = null;
+    let femaleAccountForQuota = null;
+    let femaleWasPremiumAtQuotaCheck = false;
+    let newlyCreatedMatchId = null;
     if (!match) {
-      const femaleUserId = actor.gender === 'female' ? req.authUser.id : targetId;
+      femaleUserIdForQuota = actor.gender === 'female' ? req.authUser.id : targetId;
       const femaleAccountResult = await client.query(
         `SELECT p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime
          FROM users u JOIN profiles p ON p.user_id = u.id
          WHERE u.id = $1 AND u.status = 'active' FOR SHARE OF u, p`,
-        [femaleUserId]
+        [femaleUserIdForQuota]
       );
-      const femaleAccount = femaleAccountResult.rows[0];
+      femaleAccountForQuota = femaleAccountResult.rows[0];
       // Use one PostgreSQL wall-clock instant for both entitlement expiry and
       // the rolling seven-day window; the application host clock may differ.
       const quotaNowResult = await client.query('SELECT clock_timestamp() AS quota_now');
       const quotaNow = new Date(quotaNowResult.rows[0].quota_now).getTime();
-      if (femaleAccount?.gender === 'female' && !hasFemalePremiumAccess(femaleAccount, quotaNow)) {
+      femaleWasPremiumAtQuotaCheck = femaleAccountForQuota?.gender === 'female' &&
+        hasFemalePremiumAccess(femaleAccountForQuota, quotaNow);
+      if (femaleAccountForQuota?.gender === 'female' && !femaleWasPremiumAtQuotaCheck) {
         const recentMatches = await client.query(
           `SELECT COUNT(*)::int AS count, MAX(created_at) + INTERVAL '7 days' AS next_available_at
            FROM matches
            WHERE (user_a_id = $1 OR user_b_id = $1)
              AND created_at > $2::timestamptz - INTERVAL '7 days'`,
-          [femaleUserId, quotaNowResult.rows[0].quota_now]
+          [femaleUserIdForQuota, quotaNowResult.rows[0].quota_now]
         );
         if (!canCreateFemaleFreeMatch(recentMatches.rows[0]?.count)) {
           await client.query('COMMIT');
@@ -3043,6 +3049,7 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
          RETURNING id, status, created_at AS "createdAt"`,
         [req.authUser.id, targetId]
       );
+      newlyCreatedMatchId = createdMatch.rows[0]?.id || null;
       match = createdMatch.rows[0] || (await client.query(
         `SELECT id, status, created_at AS "createdAt" FROM matches
          WHERE user_a_id = LEAST($1::uuid, $2::uuid) AND user_b_id = GREATEST($1::uuid, $2::uuid)`,
@@ -3053,6 +3060,44 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
       // Notifications commit with the match while both account safety locks are held.
       await createNotification(req.authUser.id, 'new_match', { matchId: match.id }, 'match:' + match.id, client);
       await createNotification(targetId, 'new_match', { matchId: match.id }, 'match:' + match.id, client);
+    }
+    // A Trial/Premium period can expire naturally while this transaction is
+    // running; row locks cannot prevent a timestamp from passing. Recheck at
+    // the commit boundary and, if access expired, count prior matches while
+    // excluding the match just inserted by this transaction.
+    if (femaleWasPremiumAtQuotaCheck && femaleAccountForQuota?.gender === 'female') {
+      const finalQuotaClock = await client.query('SELECT clock_timestamp() AS quota_now');
+      if (!hasFemalePremiumAccess(
+        femaleAccountForQuota,
+        new Date(finalQuotaClock.rows[0].quota_now).getTime()
+      )) {
+        const recentMatchesAtCommit = await client.query(
+          `SELECT COUNT(*)::int AS count,
+                  MAX(created_at) + INTERVAL '7 days' AS next_available_at
+           FROM matches
+           WHERE (user_a_id = $1 OR user_b_id = $1)
+             AND created_at > $2::timestamptz - INTERVAL '7 days'
+             AND ($3::uuid IS NULL OR id <> $3::uuid)`,
+          [
+            femaleUserIdForQuota,
+            finalQuotaClock.rows[0].quota_now,
+            newlyCreatedMatchId
+          ]
+        );
+        if (!canCreateFemaleFreeMatch(recentMatchesAtCommit.rows[0]?.count)) {
+          await client.query('ROLLBACK');
+          return res.status(429).json({
+            error: 'weekly_match_limit_reached',
+            liked: false,
+            matched: false,
+            match: null,
+            quota: {
+              type: 'weekly_matches', limit: 1, windowDays: 7, exhausted: true,
+              nextAvailableAt: recentMatchesAtCommit.rows[0]?.next_available_at || null
+            }
+          });
+        }
+      }
     }
     await client.query('COMMIT');
     return res.status(201).json({
