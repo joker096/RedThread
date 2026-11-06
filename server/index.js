@@ -814,39 +814,44 @@ async function createNotification(userId, type, metadata = {}, dedupeKey = null,
 
 async function reserveFemaleProfileExposure(client, user, profileId) {
   if (user?.gender !== 'female' || hasFemalePremiumAccess(user)) return { allowed: true, used: null };
+  // Capture the UTC calendar date once after the caller has acquired the
+  // account-safety lock. Every statement in this reservation must use the
+  // same date even if the transaction crosses midnight.
+  const exposureDateResult = await client.query(
+    "SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date"
+  );
+  const exposureDate = exposureDateResult.rows[0].exposure_date;
   await client.query(
     `DELETE FROM female_profile_exposures
-     WHERE user_id = $1
-       AND exposure_date < (statement_timestamp() AT TIME ZONE 'UTC')::date`,
-    [user.id]
+     WHERE user_id = $1 AND exposure_date < $2::date`,
+    [user.id, exposureDate]
   );
   const existing = await client.query(
     `SELECT 1 FROM female_profile_exposures
-     WHERE user_id = $1 AND profile_user_id = $2
-       AND exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date`,
-    [user.id, profileId]
+     WHERE user_id = $1 AND profile_user_id = $2 AND exposure_date = $3::date`,
+    [user.id, profileId, exposureDate]
   );
   if (existing.rowCount) {
     const usage = await client.query(
       `SELECT COUNT(*)::int AS used FROM female_profile_exposures
-       WHERE user_id = $1 AND exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date`,
-      [user.id]
+       WHERE user_id = $1 AND exposure_date = $2::date`,
+      [user.id, exposureDate]
     );
     return { allowed: true, used: Number(usage.rows[0]?.used || 0) };
   }
   const usage = await client.query(
     `SELECT COUNT(*)::int AS used FROM female_profile_exposures
-     WHERE user_id = $1 AND exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date`,
-    [user.id]
+     WHERE user_id = $1 AND exposure_date = $2::date`,
+    [user.id, exposureDate]
   );
   const used = Number(usage.rows[0]?.used || 0);
   if (used >= FEMALE_FREE_DAILY_PROFILE_LIMIT) return { allowed: false, used };
   const inserted = await client.query(
     `INSERT INTO female_profile_exposures (user_id, profile_user_id, exposure_date)
-     VALUES ($1, $2, (statement_timestamp() AT TIME ZONE 'UTC')::date)
+     VALUES ($1, $2, $3::date)
      ON CONFLICT (user_id, exposure_date, profile_user_id) DO NOTHING
      RETURNING profile_user_id`,
-    [user.id, profileId]
+    [user.id, profileId, exposureDate]
   );
   return { allowed: true, used: used + inserted.rowCount };
 }
@@ -1903,26 +1908,30 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
       const actorUser = actor.rows[0];
       let dailyQuota = null;
       if (actorUser.gender === 'female' && !hasFemalePremiumAccess(actorUser)) {
+        // Fix one UTC date for the entire exposure reservation. A request
+        // waiting on account locks may cross midnight; subsequent statements
+        // must not silently switch to a different quota day.
+        const exposureDateResult = await client.query(
+          "SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date"
+        );
+        const exposureDate = exposureDateResult.rows[0].exposure_date;
         await client.query(
           `DELETE FROM female_profile_exposures
-           WHERE user_id = $1
-             AND exposure_date < (statement_timestamp() AT TIME ZONE 'UTC')::date`,
-          [req.authUser.id]
+           WHERE user_id = $1 AND exposure_date < $2::date`,
+          [req.authUser.id, exposureDate]
         );
         const usage = await client.query(
           `SELECT COUNT(*)::int AS used
            FROM female_profile_exposures
-           WHERE user_id = $1
-             AND exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date`,
-          [req.authUser.id]
+           WHERE user_id = $1 AND exposure_date = $2::date`,
+          [req.authUser.id, exposureDate]
         );
         const usedBefore = Number(usage.rows[0]?.used || 0);
         const alreadyIssuedResult = await client.query(
           `SELECT profile_user_id
            FROM female_profile_exposures
-           WHERE user_id = $1
-             AND exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date`,
-          [req.authUser.id]
+           WHERE user_id = $1 AND exposure_date = $2::date`,
+          [req.authUser.id, exposureDate]
         );
         const alreadyIssued = new Set(alreadyIssuedResult.rows.map(row => String(row.profile_user_id).toLowerCase()));
         const pageRows = result.rows.slice(0, parsedLimit);
@@ -1937,10 +1946,10 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
           if (usedBefore + newlyIssued >= FEMALE_FREE_DAILY_PROFILE_LIMIT) break;
           const exposure = await client.query(
             `INSERT INTO female_profile_exposures (user_id, profile_user_id, exposure_date)
-             VALUES ($1, $2, (statement_timestamp() AT TIME ZONE 'UTC')::date)
+             VALUES ($1, $2, $3::date)
              ON CONFLICT (user_id, exposure_date, profile_user_id) DO NOTHING
              RETURNING profile_user_id`,
-            [req.authUser.id, profile.id]
+            [req.authUser.id, profile.id, exposureDate]
           );
           if (exposure.rowCount) {
             selectedRows.push(profile);
