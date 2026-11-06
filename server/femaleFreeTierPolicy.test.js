@@ -53,7 +53,7 @@ test('daily exposure reservations pin one UTC date across every statement in a t
   const searchEnd = source.indexOf('\nfunction isUuid', searchStart);
   assert.ok(searchStart >= 0 && searchEnd > searchStart, 'profile search route exists');
   const search = source.slice(searchStart, searchEnd);
-  assert.equal((search.match(/clock_timestamp\\(\\)/g) || []).length, 2,
+  assert.equal((search.match(/clock_timestamp\(\)/g) || []).length, 2,
     'Discovery captures the preview date and rechecks it after account locks');
   const previewDateCapture = search.indexOf('const previewDateResult = await client.query(');
   const previewQuery = search.indexOf('const preview = await client.query(searchSql, [...searchParams, previewDate])');
@@ -64,11 +64,11 @@ test('daily exposure reservations pin one UTC date across every statement in a t
   assert.ok(previewDateCapture >= 0 && previewQuery > previewDateCapture);
   assert.ok(accountLocks > previewQuery && lockedDateCapture > accountLocks);
   assert.ok(reservationStart > lockedDateCapture && reservationEnd > reservationStart);
-  assert.doesNotMatch(search.slice(reservationStart, reservationEnd), /statement_timestamp\\(\\)/,
+  assert.doesNotMatch(search.slice(reservationStart, reservationEnd), /statement_timestamp\(\)/,
     'profile exposure reservations must use the post-lock UTC date');
-  assert.match(search, /exposure_date < \\$2::date/);
-  assert.match(search, /exposure_date = \\$2::date/);
-  assert.match(search, /VALUES \\(\\$1, \\$2, \\$3::date\\)/);
+  assert.match(search, /exposure_date < \$2::date/);
+  assert.match(search, /exposure_date = \$2::date/);
+  assert.match(search, /VALUES \(\$1, \$2, \$3::date\)/);
 });
 
 test('profile pass and undo handlers acquire account locks before row locks and use one transaction', async () => {
