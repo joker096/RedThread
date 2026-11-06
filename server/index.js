@@ -814,7 +814,9 @@ async function createNotification(userId, type, metadata = {}, dedupeKey = null,
 }
 
 async function reserveFemaleProfileExposure(client, user, profileId) {
-  if (user?.gender !== 'female' || hasFemalePremiumAccess(user)) return { allowed: true, used: null };
+  if (user?.gender !== 'female' || hasFemalePremiumAccess(user)) {
+    return { allowed: true, used: null, exposureDate: null };
+  }
   // Capture the UTC calendar date once after the caller has acquired the
   // account-safety lock. Every statement in this reservation must use the
   // same date even if the transaction crosses midnight.
@@ -854,7 +856,7 @@ async function reserveFemaleProfileExposure(client, user, profileId) {
      RETURNING profile_user_id`,
     [user.id, profileId, exposureDate]
   );
-  return { allowed: true, used: used + inserted.rowCount };
+  return { allowed: true, used: used + inserted.rowCount, exposureDate };
 }
 
 function requirePaidFeatures(req, res, next) {
@@ -1943,6 +1945,7 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
       client = await pool.connect();
       let attempt = 0;
       while (true) {
+      hasMoreIssuedCandidates = false;
       await client.query('BEGIN');
       // Capture the ordering date before preview. A lock wait across UTC
       // midnight invalidates the preview candidate set and requires a retry.
@@ -2054,6 +2057,22 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
         };
       }
       result.dailyQuota = dailyQuota;
+      if (actorUser.gender === 'female' && !hasFemalePremiumAccess(actorUser)) {
+        // A long final query or reservation loop can itself cross UTC midnight
+        // after the post-lock date capture. Never return cards recorded against
+        // yesterday's quota date after the new UTC day has begun.
+        const finalDateResult = await client.query(
+          "SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date"
+        );
+        if (String(finalDateResult.rows[0].exposure_date) !== String(exposureDate)) {
+          await client.query('ROLLBACK');
+          if (attempt >= 2) {
+            throw new Error('Discovery UTC date changed repeatedly before commit');
+          }
+          attempt += 1;
+          continue;
+        }
+      }
       await client.query('COMMIT');
       break;
       }
@@ -2732,6 +2751,15 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
         dailyQuota: { limit: FEMALE_FREE_DAILY_PROFILE_LIMIT, used: exposure.used, remaining: 0, timezone: 'UTC' }
       });
     }
+    if (exposure.exposureDate) {
+      const finalDateResult = await client.query(
+        "SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date"
+      );
+      if (String(finalDateResult.rows[0].exposure_date) !== String(exposure.exposureDate)) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'quota_day_changed_retry' });
+      }
+    }
     await client.query('COMMIT');
     return res.json({
       profile: profileResult.rows[0],
@@ -3204,15 +3232,6 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'profile_not_available' });
     }
-    const exposure = await reserveFemaleProfileExposure(client, actor.rows[0], profileResult.rows[0].id);
-    if (!exposure.allowed) {
-      await client.query('ROLLBACK');
-      return res.status(429).json({
-        error: 'daily_profile_limit_reached',
-        dailyQuota: { limit: FEMALE_FREE_DAILY_PROFILE_LIMIT, used: exposure.used, remaining: 0, timezone: 'UTC' }
-      });
-    }
-
     if (action.actionType === 'like') {
       const removed = await client.query(
         `DELETE FROM likes l
@@ -3252,6 +3271,26 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
     } else {
       await client.query('ROLLBACK');
       return res.status(500).json({ error: 'unknown_discovery_action' });
+    }
+
+    // Reserve only after the undo mutation is ready to commit, minimizing the
+    // gap between recording the new UTC-day exposure and returning the card.
+    const exposure = await reserveFemaleProfileExposure(client, actor.rows[0], profileResult.rows[0].id);
+    if (!exposure.allowed) {
+      await client.query('ROLLBACK');
+      return res.status(429).json({
+        error: 'daily_profile_limit_reached',
+        dailyQuota: { limit: FEMALE_FREE_DAILY_PROFILE_LIMIT, used: exposure.used, remaining: 0, timezone: 'UTC' }
+      });
+    }
+    if (exposure.exposureDate) {
+      const finalDateResult = await client.query(
+        "SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date"
+      );
+      if (String(finalDateResult.rows[0].exposure_date) !== String(exposure.exposureDate)) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'quota_day_changed_retry' });
+      }
     }
 
     await client.query('COMMIT');
