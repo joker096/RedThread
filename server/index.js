@@ -1879,11 +1879,24 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
          AND ($11::boolean IS NULL OR p.has_children = $11)
          AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, p.birth_date))::int BETWEEN COALESCE($7::int, 18) AND COALESCE($8::int, 120)
          AND ($9::int = 0 OR (candidate_assessment.answers IS NOT NULL AND my_assessment.answers IS NOT NULL AND (CASE WHEN candidate_assessment.answers->>'financialModel' = my_assessment.answers->>'financialModel' THEN 1 ELSE 0 END + CASE WHEN candidate_assessment.answers->>'lifestyleExpectation' = my_assessment.answers->>'lifestyleExpectation' THEN 1 ELSE 0 END + CASE WHEN candidate_assessment.answers->>'gifts' = my_assessment.answers->>'gifts' THEN 1 ELSE 0 END) * 100.0 / 3 >= ($9 - 0.5)))
-       ORDER BY "compatibilityScore" DESC NULLS LAST, p.updated_at DESC, p.user_id
+       ORDER BY CASE WHEN EXISTS (
+         SELECT 1
+         FROM female_profile_exposures issued
+         JOIN users quota_actor ON quota_actor.id = issued.user_id
+         WHERE issued.user_id = $1
+           AND issued.profile_user_id = p.user_id
+           AND issued.exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date
+           AND quota_actor.status = 'active'
+           AND quota_actor.premium_lifetime IS NOT TRUE
+           AND COALESCE(quota_actor.premium_until <= statement_timestamp(), TRUE)
+           AND COALESCE(quota_actor.female_trial_ends_at <= statement_timestamp(), TRUE)
+       ) THEN 0 ELSE 1 END,
+         "compatibilityScore" DESC NULLS LAST, p.updated_at DESC, p.user_id
        LIMIT $5 OFFSET $6`;
     const searchParams = [req.authUser.id, country, city, intent, parsedLimit + 1, parsedOffset, minAge, maxAge, minFinancialAlignment, familyFormat, childrenFilter === null ? null : childrenFilter === 'true'];
     let client;
     let result;
+    let hasMoreIssuedCandidates = false;
     try {
       client = await pool.connect();
       await client.query('BEGIN');
@@ -1938,6 +1951,8 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
           [req.authUser.id, exposureDate]
         );
         const alreadyIssued = new Set(alreadyIssuedResult.rows.map(row => String(row.profile_user_id).toLowerCase()));
+        hasMoreIssuedCandidates = result.rows.length > parsedLimit &&
+          alreadyIssued.has(String(result.rows[parsedLimit].id).toLowerCase());
         const pageRows = result.rows.slice(0, parsedLimit);
         const selectedRows = [];
         let newlyIssued = 0;
@@ -1947,7 +1962,7 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
             selectedRows.push(profile);
             continue;
           }
-          if (usedBefore + newlyIssued >= FEMALE_FREE_DAILY_PROFILE_LIMIT) break;
+          if (usedBefore + newlyIssued >= FEMALE_FREE_DAILY_PROFILE_LIMIT) continue;
           const exposure = await client.query(
             `INSERT INTO female_profile_exposures (user_id, profile_user_id, exposure_date)
              VALUES ($1, $2, $3::date)
@@ -1978,7 +1993,7 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
       client?.release();
     }
     const hasMore = result.dailyQuota
-      ? result.dailyQuota.remaining > 0 && result.hasMoreCandidates
+      ? (result.dailyQuota.remaining > 0 && result.hasMoreCandidates) || hasMoreIssuedCandidates
       : result.rows.length > parsedLimit;
     const profiles = result.rows.slice(0, parsedLimit).map(profile => {
       const { assessment_answers: candidateAnswers, my_assessment_answers: myAnswers, ...publicProfile } = profile;
