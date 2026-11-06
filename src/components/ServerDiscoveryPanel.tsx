@@ -359,6 +359,11 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         if (actionEpoch === sessionEpoch.current) setNotice(t('profileNotIssuedToday'));
         return;
       }
+      if (response.status === 409 && data?.error === 'quota_policy_changed_retry') {
+        await search();
+        if (actionEpoch === sessionEpoch.current) setNotice(t('discoveryQuotaChanged'));
+        return;
+      }
       const weeklyQuotaExhausted = response.status === 429 && isFemaleWeeklyMatchQuotaExhausted(data?.quota);
       if (weeklyQuotaExhausted) {
         const nextMatchAvailableAt = typeof data?.quota?.nextAvailableAt === 'string' && Number.isFinite(Date.parse(data.quota.nextAvailableAt))
@@ -409,6 +414,11 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       if (response.status === 403 && data?.error === 'profile_not_issued_today') {
         await search();
         if (actionEpoch === sessionEpoch.current) setNotice(t('profileNotIssuedToday'));
+        return;
+      }
+      if (response.status === 409 && data?.error === 'quota_policy_changed_retry') {
+        await search();
+        if (actionEpoch === sessionEpoch.current) setNotice(t('discoveryQuotaChanged'));
         return;
       }
       if (!response.ok) throw new Error(t('passError'));
