@@ -3393,6 +3393,20 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'match_not_found' });
     }
+    // Blocking either participant must stop new messages as well as history reads.
+    // Both account-safety locks are already held, so this check is serialized
+    // with block/unblock operations and cannot race a newly committed block.
+    const block = await client.query(
+      `SELECT 1 FROM user_blocks
+       WHERE (blocker_id = $1 AND blocked_id = $2)
+          OR (blocker_id = $2 AND blocked_id = $1)
+       LIMIT 1`,
+      [req.authUser.id, recipientId]
+    );
+    if (block.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'match_not_found' });
+    }
     const screening = await screenTextPrivate(body, 'message');
     const result = await client.query(
       `INSERT INTO messages (match_id, sender_id, body) VALUES ($1, $2, $3)
