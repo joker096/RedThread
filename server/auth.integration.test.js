@@ -2362,11 +2362,11 @@ test('auth API supports registration, session lookup, logout and login', {
       [registered.user.id, concurrentQuotaMaleIds]
     );
     await identityGateDb.query(
-      'INSERT INTO likes (sender_id, target_id) VALUES ($1, $3), ($2, $3)',
+      'INSERT INTO likes (sender_id, target_id) VALUES ($3, $1), ($3, $2)',
       [...concurrentQuotaMaleIds, registered.user.id]
     );
     const concurrentReciprocalPreconditions = await identityGateDb.query(
-      'SELECT sender_id FROM likes WHERE target_id = $1 AND sender_id = ANY($2::uuid[])',
+      'SELECT target_id FROM likes WHERE sender_id = $1 AND target_id = ANY($2::uuid[])',
       [registered.user.id, concurrentQuotaMaleIds]
     );
     assert.equal(concurrentReciprocalPreconditions.rowCount, 2,
@@ -2404,12 +2404,12 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       assert.equal(persistedCompetingMatches.rowCount, 1,
         "only one match row may be created for the woman's final weekly slot");
-      const persistedFemaleFinalLikes = await identityGateDb.query(
-        'SELECT target_id FROM likes WHERE sender_id = $1 AND target_id = ANY($2::uuid[])',
+      const persistedMaleFinalLikes = await identityGateDb.query(
+        'SELECT sender_id FROM likes WHERE target_id = $1 AND sender_id = ANY($2::uuid[])',
         [registered.user.id, concurrentQuotaMaleIds]
       );
-      assert.equal(persistedFemaleFinalLikes.rowCount, 1,
-        'the losing pair must not retain a female-originated reciprocal like');
+      assert.equal(persistedMaleFinalLikes.rowCount, 1,
+        'only the winning male-originated final like may be persisted');
       const weeklyQuotaAfterRace = await identityGateDb.query(
         `SELECT COUNT(*)::int AS count FROM matches
          WHERE (user_a_id = $1 OR user_b_id = $1)
