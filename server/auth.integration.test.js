@@ -5196,8 +5196,19 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       assert.equal(l3RevocationPlan.rows[0].status, 'cancelled',
         'revoking the active L3 approval must cancel the mutual date plan');
+      // Re-authenticate after the explicit L3 decision revocation. The session
+      // used for the earlier eligibility checks may have been invalidated by
+      // the safety transition; withdrawal must remain reachable to an active
+      // account through a fresh authenticated session.
+      await identityGateDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'auth:%'");
+      const l3WithdrawalLogin = await request('/api/auth/login', {
+        method: 'POST', body: JSON.stringify({ email: maleEmail, password })
+      });
+      assert.equal(l3WithdrawalLogin.status, 200, 'an active account must be able to re-authenticate after L3 approval revocation');
+      const l3WithdrawalCookie = l3WithdrawalLogin.headers.get('set-cookie')?.split(';')[0];
+      assert.ok(l3WithdrawalCookie?.startsWith('nit_session='));
       const l3ConsentWithdrawal = await request('/api/identity/l3/consent', {
-        method: 'DELETE', headers: { Cookie: maleCookie }
+        method: 'DELETE', headers: { Cookie: l3WithdrawalCookie }
       });
       assert.equal(l3ConsentWithdrawal.status, 200,
         'the authenticated consent-withdrawal workflow must retire submissions before recording withdrawal');
