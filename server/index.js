@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { queuePrivatePhotoPurges } from './photoPurge.js';
+import { cleanupPartnerServiceData, partnerRetentionOptions } from './partnerRetention.js';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -4274,9 +4275,9 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
     const row = inquiry.inquiry;
     if (row.deliveryStatus === 'sent') return res.json({ inquiryId: row.id, sent: true });
     if (row.deliveryStatus === 'sending') return res.status(202).json({ inquiryId: row.id, sent: false });
-    if (!emailDeliveryConfigured()) return res.status(503).json({ error: 'partner_contact_temporarily_unavailable', inquiryId: row.id });
+    if (!emailDeliveryConfigured()) return res.status(202).json({ inquiryId: row.id, sent: false, deliveryStatus: 'pending_email_configuration' });
     const claim = await pool.query(
-      "UPDATE partner_service_inquiries SET delivery_status = 'sending', delivery_attempts = delivery_attempts + 1, delivery_error = '', updated_at = NOW() WHERE id = $1 AND delivery_status = 'failed' RETURNING id",
+      "UPDATE partner_service_inquiries SET delivery_status = 'sending', delivery_attempts = delivery_attempts + 1, delivery_error = '', updated_at = NOW() WHERE id = $1 AND delivery_status IN ('pending', 'failed') RETURNING id",
       [row.id]
     );
     if (!claim.rowCount) return res.status(202).json({ inquiryId: row.id, sent: false });
@@ -6476,6 +6477,22 @@ if (process.env.IDENTITY_L3_ENABLED === 'true') {
 }
 if (process.env.IDENTITY_L3_TEMP_DIR) {
   await clearIdentityL3TemporaryFiles({ root: process.env.IDENTITY_L3_TEMP_DIR });
+}
+
+if (pool && process.env.NODE_ENV !== 'test') {
+  const runPartnerRetentionCleanup = async () => {
+    try {
+      const result = await cleanupPartnerServiceData(pool, partnerRetentionOptions());
+      if (result.inquiriesDeleted || result.applicationsDeleted) {
+        console.info('Partner retention cleanup completed:', result);
+      }
+    } catch (error) {
+      console.error('Partner retention cleanup failed:', error?.message || 'unknown error');
+    }
+  };
+  void runPartnerRetentionCleanup();
+  const partnerRetentionInterval = setInterval(() => void runPartnerRetentionCleanup(), 24 * 60 * 60 * 1000);
+  partnerRetentionInterval.unref();
 }
 
 const server = app.listen(port, '0.0.0.0', () => {
