@@ -2162,6 +2162,13 @@ test('date plan requires both participants and resets confirmations after a chan
   const createParticipant = async (userId: string) => {
     const context = await browser.newContext();
     await context.addCookies([{ name: 'vow-date-plan-e2e-user', value: userId, url: 'http://127.0.0.1:4173' }]);
+    await context.addInitScript(() => {
+      (window as any).__vowShareCalls = [];
+      Object.defineProperty(navigator, 'share', {
+        configurable: true,
+        value: async (payload: ShareData) => { (window as any).__vowShareCalls.push(payload); }
+      });
+    });
     const page = await context.newPage();
     await page.route('**/api/**', async route => {
       const url = new URL(route.request().url());
@@ -2284,6 +2291,7 @@ test('date plan requires both participants and resets confirmations after a chan
     await expect(participantA.page.getByRole('button', { name: /^I confirm this plan$|^Подтверждаю этот план$/i })).toBeVisible();
     await expect(participantA.page.getByRole('button', { name: /^Withdraw proposal$|^Отозвать предложение$/i })).toBeVisible();
     await expect(participantA.page.getByRole('button', { name: /^Decline proposal$|^Отклонить предложение$/i })).toHaveCount(0);
+    await expect(participantA.page.getByTestId('date-plan-share')).toHaveCount(0);
     participantA.page.on('dialog', dialog => dialog.accept());
     await participantA.page.getByRole('button', { name: /^Withdraw proposal$|^Отозвать предложение$/i }).click();
     await expect(participantA.page.getByText(/date plan was cancelled|план встречи отменён/i)).toBeVisible();
@@ -2298,6 +2306,7 @@ test('date plan requires both participants and resets confirmations after a chan
     await expect(participantB.page.getByText(/both people must confirm|one person has confirmed|waiting for both|ожидаем подтверждения обоих|один участник/i)).toBeVisible();
     await expect(participantB.page.getByRole('button', { name: /^Cancel date plan$|^Отменить план встречи$/i })).toBeVisible();
     await expect(participantB.page.getByRole('button', { name: /^Decline proposal$|^Отклонить предложение$/i })).toHaveCount(0);
+    await expect(participantB.page.getByTestId('date-plan-share')).toHaveCount(0);
     expect(currentPlan()?.status).toBe('proposed');
     expect(currentPlan()?.confirmedByAAt).toBeNull();
     expect(currentPlan()?.confirmedByBAt).not.toBeNull();
@@ -2305,6 +2314,16 @@ test('date plan requires both participants and resets confirmations after a chan
     await participantA.page.getByRole('button', { name: /^I confirm this plan$|^Подтверждаю этот план$/i }).click();
     await expect(participantA.page.getByText(/confirmed by both|подтверждён обоими участниками|подтвержден обоими участниками/i).first()).toBeVisible();
     expect(currentPlan()?.status).toBe('confirmed');
+    await expect(participantA.page.getByTestId('date-plan-share')).toBeVisible();
+    await expect(participantB.page.getByTestId('date-plan-share')).toBeVisible();
+    await participantA.page.getByTestId('date-plan-share').click();
+    await expect(participantA.page.getByText(/share menu was opened|открыто системное меню отправки/i)).toBeVisible();
+    const sharedPayload = await participantA.page.evaluate(() => (window as any).__vowShareCalls[0]);
+    expect(sharedPayload.title).toMatch(/confirmed date plan|подтверждённым планом встречи/i);
+    expect(sharedPayload.text).toContain('Central Public Cafe');
+    expect(sharedPayload.text).toContain('Asia/Tbilisi');
+    expect(sharedPayload.text).not.toContain(userAId);
+    expect(sharedPayload.text).not.toContain(userBId);
 
     await participantA.page.getByLabel(/venue|место встречи/i).fill('Riverside Public Cafe');
     // Changing the venue invalidates the previous public-place attestation.
@@ -2312,6 +2331,7 @@ test('date plan requires both participants and resets confirmations after a chan
     await participantA.page.getByRole('button', { name: /update proposal|изменить предложение/i }).click();
     await expect(participantA.page.getByText(/both people must confirm|waiting for both|оба участника должны подтвердить|ожидаем подтверждения обоих/i)).toBeVisible();
     expect(currentPlan()?.status).toBe('proposed');
+    await expect(participantA.page.getByTestId('date-plan-share')).toHaveCount(0);
     expect(currentPlan()?.confirmedByAAt).toBeNull();
     expect(currentPlan()?.confirmedByBAt).toBeNull();
   } finally {
