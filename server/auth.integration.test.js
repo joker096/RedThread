@@ -5180,12 +5180,34 @@ test('auth API supports registration, session lookup, logout and login', {
       [maleRegistered.user.id, l3DatePartnerUserId]
     );
     const l3DatePlanPath = `/api/matches/${l3DateMatch.rows[0].id}/date-plan`;
+    const l3DateEligibility = await identityGateDb.query(
+      `SELECT m.status AS match_status, ua.status AS user_a_status, ub.status AS user_b_status,
+         pa.gender AS user_a_gender, pb.gender AS user_b_gender,
+         EXISTS (SELECT 1 FROM identity_verifications iv WHERE iv.user_id = $2
+           AND iv.provider = 'didit' AND iv.status = 'verified'
+           AND iv.provider_environment = 'live' AND iv.provider_status = 'Approved'
+           AND iv.provider_session_id IS NOT NULL) AS male_l2,
+         identity_l3_has_active_approval($2) AS male_l3,
+         EXISTS (SELECT 1 FROM user_blocks b WHERE
+           (b.blocker_id = m.user_a_id AND b.blocked_id = m.user_b_id) OR
+           (b.blocker_id = m.user_b_id AND b.blocked_id = m.user_a_id)) AS blocked
+       FROM matches m JOIN users ua ON ua.id = m.user_a_id JOIN users ub ON ub.id = m.user_b_id
+       JOIN profiles pa ON pa.user_id = m.user_a_id JOIN profiles pb ON pb.user_id = m.user_b_id
+       WHERE m.id = $1`,
+      [l3DateMatch.rows[0].id, maleRegistered.user.id]
+    );
+    assert.equal(l3DateEligibility.rowCount, 1);
+    assert.equal(l3DateEligibility.rows[0].match_status, 'active');
+    assert.equal(l3DateEligibility.rows[0].male_l2, true, JSON.stringify(l3DateEligibility.rows[0]));
+    assert.equal(l3DateEligibility.rows[0].male_l3, true, JSON.stringify(l3DateEligibility.rows[0]));
+    assert.equal(l3DateEligibility.rows[0].blocked, false, JSON.stringify(l3DateEligibility.rows[0]));
     const l3RevocationProposal = await request(l3DatePlanPath, {
       method: 'POST', headers: { Cookie: l3DatePartnerCookie },
       body: JSON.stringify({ ...datePlanInput, venueName: 'L3 Revocation Safety Cafe' })
     });
-    assert.equal(l3RevocationProposal.status, 201);
-    const l3RevocationPlanId = (await l3RevocationProposal.json()).datePlan.id;
+    const l3RevocationProposalPayload = await l3RevocationProposal.json();
+    assert.equal(l3RevocationProposal.status, 201, JSON.stringify({ eligibility: l3DateEligibility.rows[0], response: l3RevocationProposalPayload }));
+    const l3RevocationPlanId = l3RevocationProposalPayload.datePlan.id;
 
     const l3ReadLock = await identityGateDb.connect();
     const l3RevokeClient = await identityGateDb.connect();
