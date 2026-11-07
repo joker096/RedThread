@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useLocale } from '../i18n/LocaleProvider.tsx';
 import {
   X, Scale, Camera, Video, Shirt, Music2, MapPin, ShieldCheck,
   FileCheck2, LockKeyhole, HeartHandshake, CalendarDays, BadgeCheck,
@@ -9,49 +10,22 @@ type ServiceCategory = 'all' | 'legal' | 'dress' | 'photo' | 'host' | 'venue' | 
 type PublishedPartner = { id: string; category: string; businessName: string; country: string; city: string; website: string; serviceDescription: string; priceFrom: string | number | null; priceCurrency: string; serviceLanguages: string[]; availabilityNote: string; publishedAt: string };
 type CountryCode = 'GE' | 'RU' | 'KZ' | 'AM';
 
-interface ProviderExample {
-  id: string;
-  name: string;
-  category: Exclude<ServiceCategory, 'all'>;
-  title: string;
-  description: string;
-  countries: CountryCode[];
-  price: string;
-  verificationLabel: string;
-}
-
-const providerExamples: ProviderExample[] = [
-  { id: 'legal-demo', name: 'Пример юридического партнёра', category: 'legal', title: 'Брачный договор и семейное право', description: 'Подбор юриста по выбранной стране и правовой юрисдикции пары.', countries: ['GE'], price: 'Цена после запроса', verificationLabel: 'Демо-карточка · документы не проверены' },
-  { id: 'photo-demo', name: 'Пример фотографа', category: 'photo', title: 'Свадебная фотосъёмка', description: 'Портфолио, стиль съёмки, длительность и состав пакета.', countries: ['GE', 'RU'], price: 'Цена после запроса', verificationLabel: 'Демо-карточка · не реальный исполнитель' },
-  { id: 'dress-demo', name: 'Пример салона аренды', category: 'dress', title: 'Свадебные платья в аренду', description: 'Размеры, примерки, залог, сроки аренды и условия возврата.', countries: ['GE'], price: 'Цена после запроса', verificationLabel: 'Демо-карточка · не реальный поставщик' },
-  { id: 'host-demo', name: 'Пример ведущего', category: 'host', title: 'Ведущий / тамада', description: 'Языки, стиль программы, длительность и отзывы после проверки.', countries: ['GE', 'RU', 'KZ'], price: 'Цена после запроса', verificationLabel: 'Демо-карточка · не реальный исполнитель' },
-  { id: 'venue-demo', name: 'Пример площадки', category: 'venue', title: 'Банкетные площадки', description: 'Вместимость, меню, дата, депозит и условия отмены.', countries: ['GE'], price: 'Цена после запроса', verificationLabel: 'Демо-карточка · не реальная площадка' },
-  { id: 'beauty-demo', name: 'Пример стилиста', category: 'beauty', title: 'Макияж и свадебная причёска', description: 'Портфолио, пробный образ, выезд и состав пакета.', countries: ['GE', 'RU'], price: 'Цена после запроса', verificationLabel: 'Демо-карточка · не реальный исполнитель' }
-];
-
-const categories: Array<{ id: ServiceCategory; label: string; icon: React.ElementType }> = [
-  { id: 'all', label: 'Все услуги', icon: HeartHandshake },
-  { id: 'legal', label: 'Юристы', icon: Scale },
-  { id: 'dress', label: 'Платья', icon: Shirt },
-  { id: 'photo', label: 'Фото / видео', icon: Camera },
-  { id: 'host', label: 'Ведущие', icon: Music2 },
-  { id: 'venue', label: 'Площадки', icon: MapPin },
-  { id: 'beauty', label: 'Образ', icon: SparklesIcon },
-  { id: 'cafe', label: 'Кафе', icon: Wallet },
-  { id: 'transport', label: 'Транспорт', icon: MapPin },
-  { id: 'other', label: 'Другое', icon: HeartHandshake }
+const categories: Array<{ id: ServiceCategory; ru: string; en: string; icon: React.ElementType }> = [
+  { id: 'all', ru: 'Все услуги', en: 'All services', icon: HeartHandshake },
+  { id: 'legal', ru: 'Юристы', en: 'Legal', icon: Scale },
+  { id: 'dress', ru: 'Платья', en: 'Dresses', icon: Shirt },
+  { id: 'photo', ru: 'Фото / видео', en: 'Photo / video', icon: Camera },
+  { id: 'host', ru: 'Ведущие', en: 'Hosts', icon: Music2 },
+  { id: 'venue', ru: 'Площадки', en: 'Venues', icon: MapPin },
+  { id: 'beauty', ru: 'Образ', en: 'Beauty', icon: SparklesIcon },
+  { id: 'cafe', ru: 'Кафе', en: 'Cafes', icon: Wallet },
+  { id: 'transport', ru: 'Транспорт', en: 'Transport', icon: MapPin },
+  { id: 'other', ru: 'Другое', en: 'Other', icon: HeartHandshake }
 ];
 
 function SparklesIcon(props: React.ComponentProps<'svg'>) {
   return <HeartHandshake {...props} />;
 }
-
-const countryNames: Record<CountryCode, string> = {
-  GE: 'Грузия',
-  RU: 'Россия',
-  KZ: 'Казахстан',
-  AM: 'Армения'
-};
 
 interface PartnerServicesMarketplaceProps {
   isOpen: boolean;
@@ -63,17 +37,12 @@ interface PartnerServicesMarketplaceProps {
 export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProps> = ({
   isOpen, onClose, matchId, partnerName
 }) => {
+  const { locale, formatNumber } = useLocale();
+  const tr = (ru: string, en: string) => locale === 'ru' ? ru : en;
+  const countryNames: Record<CountryCode, string> = { GE: tr('Грузия', 'Georgia'), RU: tr('Россия', 'Russia'), KZ: tr('Казахстан', 'Kazakhstan'), AM: tr('Армения', 'Armenia') };
   const [category, setCategory] = useState<ServiceCategory>('all');
   const [country, setCountry] = useState<CountryCode>('GE');
-  const [showProviderForm, setShowProviderForm] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const [providerFormError, setProviderFormError] = useState('');
-  const [providerType, setProviderType] = useState<'lawyer' | 'advocate' | 'wedding'>('lawyer');
-  const [providerCountry, setProviderCountry] = useState<CountryCode>('GE');
-  const [providerName, setProviderName] = useState('');
-  const [providerEmail, setProviderEmail] = useState('');
-  const [practice, setPractice] = useState('');
-  const [documentNote, setDocumentNote] = useState('');
+
   const [publishedPartners, setPublishedPartners] = useState<PublishedPartner[]>([]);
   const [partnersLoading, setPartnersLoading] = useState(false);
   const [partnersError, setPartnersError] = useState('');
@@ -109,7 +78,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
     fetch('/api/partner-services?' + params.toString(), { signal: controller.signal })
       .then(async response => {
         const data = await response.json().catch(() => null);
-        if (!response.ok) throw new Error('Не удалось загрузить каталог партнёров.');
+        if (!response.ok) throw new Error(tr('Не удалось загрузить каталог партнёров.', 'Could not load the partner directory.'));
         return Array.isArray(data?.providers) ? data.providers as PublishedPartner[] : [];
       })
       .then(providers => {
@@ -118,7 +87,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
       .catch(() => {
         if (!controller.signal.aborted) {
           setPublishedPartners([]);
-          setPartnersError('Каталог временно недоступен. Попробуйте обновить позже.');
+          setPartnersError(tr('Каталог временно недоступен. Попробуйте обновить позже.', 'The directory is temporarily unavailable. Please refresh later.'));
         }
       })
       .finally(() => {
@@ -195,45 +164,29 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
         })
       });
       const data = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(response.status === 401 ? 'Войдите в аккаунт, чтобы отправить запрос.' :
-        response.status === 503 || response.status === 502 ? 'Связь с поставщиком временно недоступна. Попробуйте позже.' :
-        'Не удалось отправить запрос. Проверьте данные и попробуйте ещё раз.');
+      if (!response.ok) throw new Error(response.status === 401 ? tr('Войдите в аккаунт, чтобы отправить запрос.', 'Sign in to send a request.') :
+        response.status === 503 || response.status === 502 ? tr('Связь с поставщиком временно недоступна. Попробуйте позже.', 'Provider contact is temporarily unavailable. Please try again later.') :
+        tr('Не удалось отправить запрос. Проверьте данные и попробуйте ещё раз.', 'Could not submit the request. Check the details and try again.'));
       if (data?.sent) {
-        setInquiryStatus('Запрос отправлен поставщику. Его контактные данные не раскрывались.');
+        setInquiryStatus(tr('Запрос отправлен поставщику. Его контактные данные не раскрывались.', 'Your request was sent to the provider. Their private contact details were not disclosed.'));
         setInquiryProvider(null);
         setInquiryNote('');
         setServiceDate('');
         setShareContact(false);
         inquiryRequestKey.current = null;
       } else if (data?.deliveryStatus === 'pending_email_configuration') {
-        setInquiryStatus('Запрос сохранён. Отправка письма поставщику ожидает настройки почтового сервиса; данные не потеряны.');
+        setInquiryStatus(tr('Запрос сохранён. Отправка письма поставщику ожидает настройки почтового сервиса; данные не потеряны.', 'Your request is saved. Email delivery is waiting for mail-service configuration; your request has not been lost.'));
       } else {
-        setInquiryStatus('Запрос уже обрабатывается. Повторная отправка использует тот же запрос и не создаст дубликат.');
+        setInquiryStatus(tr('Запрос уже обрабатывается. Повторная отправка использует тот же запрос и не создаст дубликат.', 'Your request is already processing. Retrying will reuse it and will not create a duplicate.'));
       }
     } catch (error) {
-      setInquiryStatus(error instanceof Error ? error.message : 'Не удалось отправить запрос.');
+      setInquiryStatus(error instanceof Error ? error.message : tr('Не удалось отправить запрос.', 'Could not submit the request.'));
     } finally {
       setInquiryBusy(false);
     }
   };
 
   const isLegal = category === 'legal';
-  const handleSubmitProvider = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const name = providerName.trim();
-    const email = providerEmail.trim();
-    const details = practice.trim();
-    if (!name || !email || !details) {
-      setProviderFormError('Заполните имя или название, рабочий email и описание услуг без одних пробелов.');
-      return;
-    }
-    setProviderName(name);
-    setProviderEmail(email);
-    setPractice(details);
-    setProviderFormError('');
-    setSubmitted(true);
-  };
-
   return (
     <div className="vow-modal-backdrop fixed inset-0 z-[70] bg-stone-950/90 backdrop-blur-md overflow-y-auto p-2 sm:p-5" role="dialog" aria-modal="true" aria-labelledby="partner-services-title" aria-describedby="partner-services-description">
       <div ref={dialogRef} tabIndex={-1} className="max-w-5xl mx-auto my-2 sm:my-6 rounded-3xl border border-rose-900/40 bg-stone-900 shadow-2xl overflow-hidden">
@@ -256,57 +209,18 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
         </div>
 
         <div className="p-4 sm:p-6">
-          <div className="flex flex-col sm:flex-row gap-3 sm:items-end sm:justify-between mb-4">
-            <div>
-              <label className="block text-xs text-stone-400 mb-1.5" htmlFor="service-country">Страна, для которой ищете услуги</label>
-              <select id="service-country" name="service-country" value={country} onChange={e => setCountry(e.target.value as CountryCode)} className="w-full sm:w-64 rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:border-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">
-                {Object.entries(countryNames).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
-              </select>
-            </div>
-            <button type="button" aria-expanded={showProviderForm} aria-controls="partner-provider-form" onClick={() => { setShowProviderForm(v => !v); setSubmitted(false); setProviderFormError(''); }} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-rose-500/40 bg-rose-600/10 px-4 py-3 text-xs font-bold text-rose-200 hover:bg-rose-600/20 focus-visible:border-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">
-              <FileCheck2 className="w-4 h-4" /> Пример заявки (демо)
-            </button>
+          <div className="mb-4">
+            <label className="block text-xs text-stone-400 mb-1.5" htmlFor="service-country">{tr('Страна, для которой ищете услуги', 'Country where you need services')}</label>
+            <select id="service-country" name="service-country" value={country} onChange={e => setCountry(e.target.value as CountryCode)} className="w-full sm:w-64 rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:border-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">
+              {Object.entries(countryNames).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+            </select>
           </div>
-
-          <div role="group" aria-label="Фильтры категорий услуг" className="flex gap-2 overflow-x-auto pb-2 mb-5">
+          <div role="group" aria-label={tr('Фильтры категорий услуг', 'Service category filters')} className="mb-5 flex gap-2 overflow-x-auto pb-2">
             {categories.map(item => {
               const Icon = item.icon;
-              return <button key={item.id} type="button" aria-pressed={category === item.id} onClick={() => setCategory(item.id)} className={`shrink-0 inline-flex min-h-11 items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition-colors focus-visible:border-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 ${category === item.id ? 'border-rose-500 bg-rose-600 text-white' : 'border-white/10 bg-stone-950 text-stone-300 hover:border-rose-700'}`}><Icon className="w-3.5 h-3.5" />{item.label}</button>;
+              return <button key={item.id} type="button" aria-pressed={category === item.id} onClick={() => setCategory(item.id)} className={`shrink-0 inline-flex min-h-11 items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition-colors focus-visible:border-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 ${category === item.id ? 'border-rose-500 bg-rose-600 text-white' : 'border-white/10 bg-stone-950 text-stone-300 hover:border-rose-700'}`}><Icon className="h-3.5 w-3.5" />{locale === 'ru' ? item.ru : item.en}</button>;
             })}
           </div>
-
-          {showProviderForm && (
-            <form id="partner-provider-form" onSubmit={handleSubmitProvider} className="mb-6 rounded-2xl border border-rose-700/30 bg-stone-950/70 p-4 sm:p-5">
-              <h3 className="font-bold text-white mb-1">Демонстрация заявки поставщика</h3>
-              <p className="text-xs text-stone-400 mb-4">Эта форма работает только локально и ничего не отправляет. Для реальной заявки откройте экран подбора и выберите «Для бизнеса: стать партнёром». Не вводите паспортные данные и не прикрепляйте документы здесь.</p>
-              {providerFormError && <p role="alert" className="mb-3 rounded-xl border border-rose-700/40 bg-rose-950/30 p-3 text-xs text-rose-200">{providerFormError}</p>}
-              {submitted ? (
-                <div role="status" aria-live="polite" className="rounded-xl border border-emerald-700/30 bg-emerald-950/30 p-4 text-sm text-emerald-200"><CheckCircle2 className="inline w-4 h-4 mr-2" />Демо-заявка проверена локально. Она не отправлена и документы не проверялись.</div>
-              ) : (
-                <>
-                  <div className="grid sm:grid-cols-2 gap-3">
-                    <div><label htmlFor="provider-type" className="block text-xs text-stone-400 mb-1">Тип поставщика</label><select id="provider-type" name="provider-type" value={providerType} onChange={e => setProviderType(e.target.value as typeof providerType)} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white focus-visible:border-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"><option value="lawyer">Юрист по семейному праву</option><option value="advocate">Адвокат (если статус предусмотрен законом страны)</option><option value="wedding">Свадебные услуги</option></select></div>
-                    <div><label htmlFor="provider-country" className="block text-xs text-stone-400 mb-1">Страна допуска / работы</label><select id="provider-country" name="provider-country" value={providerCountry} onChange={e => setProviderCountry(e.target.value as CountryCode)} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white focus-visible:border-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">{Object.entries(countryNames).map(([code, name]) => <option key={code} value={code}>{name}</option>)}</select></div>
-                    <div><label htmlFor="provider-name" className="block text-xs text-stone-400 mb-1">Имя / название организации</label><input id="provider-name" name="provider-name" required maxLength={160} value={providerName} onChange={e => { setProviderName(e.target.value.slice(0, 160)); setProviderFormError(''); }} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white focus-visible:border-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" placeholder="Имя специалиста или компании" /></div>
-                    <div><label htmlFor="provider-email" className="block text-xs text-stone-400 mb-1">Рабочий email</label><input id="provider-email" name="provider-email" required type="email" maxLength={254} value={providerEmail} onChange={e => { setProviderEmail(e.target.value.slice(0, 254)); setProviderFormError(''); }} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white focus-visible:border-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" placeholder="name@example.com" /></div>
-                    <div className="sm:col-span-2"><label htmlFor="provider-practice" className="block text-xs text-stone-400 mb-1">{providerType === 'wedding' ? 'Услуги и регионы работы' : 'Специализация и правовая юрисдикция'}</label><input id="provider-practice" name="provider-practice" required maxLength={500} value={practice} onChange={e => { setPractice(e.target.value.slice(0, 500)); setProviderFormError(''); }} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white focus-visible:border-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" placeholder={providerType === 'wedding' ? 'Фото, видео, аренда платья, ведущий…' : 'Семейное право, брачные договоры, страна/регион…'} /></div>
-                    {providerType !== 'wedding' && <div className="sm:col-span-2 rounded-xl border border-amber-700/30 bg-amber-950/20 p-3">
-                      <p className="text-xs font-bold text-amber-200 flex items-center gap-2"><ShieldCheck className="w-4 h-4" /> Обязательная проверка юридического специалиста</p>
-                      <ul className="list-disc pl-5 mt-2 space-y-1 text-xs text-stone-300">
-                        <li>Удостоверение личности представителя и подтверждение личности организации.</li>
-                        <li>Диплом о юридическом образовании и проверка учебного заведения.</li>
-                        <li>Действующая лицензия, членство в палате/реестре или статус адвоката — если этого требует выбранная страна.</li>
-                        <li>Номер и ссылка на официальный реестр, специализация, страны и виды услуг, которые специалист вправе оказывать.</li>
-                      </ul>
-                      <label htmlFor="provider-document-note" className="block text-xs text-stone-400 mt-3 mb-1">Ссылка на официальный реестр / номер документа (не загружайте файл в демо)</label>
-                      <input id="provider-document-note" name="provider-document-note" maxLength={300} value={documentNote} onChange={e => setDocumentNote(e.target.value.slice(0, 300))} className="w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white focus-visible:border-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" placeholder="Реестр, номер лицензии или диплома" />
-                    </div>}
-                  </div>
-                  <button type="submit" className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl border border-transparent bg-rose-600 px-4 py-3 text-sm font-bold text-white hover:bg-rose-500 focus-visible:border-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"><FileCheck2 className="w-4 h-4" /> Проверить форму (демо)</button>
-                </>
-              )}
-            </form>
-          )}
 
           {category === 'legal' && (
             <div className="mb-5 rounded-2xl border border-sky-700/30 bg-sky-950/20 p-4">
@@ -330,14 +244,15 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
               {publishedPartners.map(provider => {
                 const matchedCategory = provider.category === 'photography' || provider.category === 'videography' ? 'photo' : provider.category;
                 const Icon = categories.find(item => item.id === matchedCategory)?.icon || HeartHandshake;
-                const categoryLabel = categories.find(item => item.id === matchedCategory)?.label || 'Услуги';
+                const categoryItem = categories.find(item => item.id === matchedCategory);
+                const categoryLabel = categoryItem ? (locale === 'ru' ? categoryItem.ru : categoryItem.en) : tr('Услуги', 'Services');
                 return <article key={provider.id} className="rounded-2xl border border-emerald-700/30 bg-stone-950/70 p-4">
                   <div className="flex items-start justify-between gap-2"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600/15 text-emerald-300"><Icon className="h-5 w-5" /></div><span className="rounded-full border border-emerald-700/40 bg-emerald-950/40 px-2 py-1 text-[9px] text-emerald-200">В каталоге Vow</span></div>
                   <p className="mt-3 text-[10px] uppercase tracking-wide text-stone-400">{categoryLabel} · {provider.city}, {provider.country}</p>
                   <h4 className="mt-1 font-bold text-white">{provider.businessName}</h4>
                   <p className="mt-3 whitespace-pre-wrap break-words text-xs leading-relaxed text-stone-300">{provider.serviceDescription}</p>
                   <div className="mt-3 space-y-1 text-xs text-stone-300">
-                    {provider.priceFrom !== null && provider.priceFrom !== undefined && <p><strong className="text-white">Ориентир:</strong> от {Number(provider.priceFrom).toLocaleString('ru-RU')} {provider.priceCurrency}</p>}
+                    {provider.priceFrom !== null && provider.priceFrom !== undefined && <p><strong className="text-white">Ориентир:</strong> от {formatNumber(Number(provider.priceFrom))} {provider.priceCurrency}</p>}
                     {provider.serviceLanguages?.length > 0 && <p><strong className="text-white">Языки:</strong> {provider.serviceLanguages.join(', ')}</p>}
                     {provider.availabilityNote && <p><strong className="text-white">Доступность:</strong> {provider.availabilityNote}</p>}
                   </div>
