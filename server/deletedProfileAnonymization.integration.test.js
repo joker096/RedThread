@@ -371,15 +371,13 @@ test('deleted-account L3 metadata cleanup commits after deferred purge evidence 
 );
   const firstSchemaMutation = migration.indexOf('CREATE TABLE IF NOT EXISTS private_photo_purge_queue');
   assert.notEqual(preflight, -1, 'migration must include the L3 evidence preflight');
-  assert.ok(preflight < firstSchemaMutation,
-    'preflight must run before any schema or data mutation');
+  assert.ok(preflight < firstSchemaMutation, 'preflight must run before any schema or data mutation');
   assert.match(migration, /JOIN identity_l3_media_access_events AS access_event/);
-  assert.match(migration, /account\.status = 'deleted'/);
-  assert.match(migration, /submission\.storage_object_key IS NULL/);
-  assert.match(migration, /136_adjustment_and_l3_access_evidence\.sql/);
+  assert.match(migration, /account\\.status = 'deleted'/);
+  assert.match(migration, /submission\\.storage_object_key IS NULL/);
+  assert.match(migration, /136_adjustment_and_l3_access_evidence\\.sql/);
   assert.match(migration, /apply migration 136, then rerun migrations/);
 });
-
 async function createUploadedL3Submission(client, userId, storageObjectKey) {
   await client.query(
     'INSERT INTO identity_l3_consents (user_id, consent_version, granted_at) VALUES ($1, 2, statement_timestamp())',
