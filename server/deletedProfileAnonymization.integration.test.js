@@ -250,3 +250,86 @@ test('account deletion scrubs profile personal data in the database', {
     await pool.end();
   }
 });
+
+
+test('deleted-account L3 metadata cleanup commits after deferred purge evidence validation', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const client = await pool.connect();
+  const email = `deleted-l3-commit-${randomUUID()}@example.invalid`;
+  let userId;
+  let submissionId;
+  try {
+    await client.query('BEGIN');
+    const user = await client.query(
+      "INSERT INTO users (email, password_hash, status) VALUES ($1, 'test-only-hash', 'active') RETURNING id",
+      [email]
+    );
+    userId = user.rows[0].id;
+    const submission = await client.query(
+      `INSERT INTO identity_l3_submissions (user_id, status, storage_object_key)
+       VALUES ($1, 'draft', 'identity-l3/deferred-commit-test') RETURNING id`,
+      [userId]
+    );
+    submissionId = submission.rows[0].id;
+    await client.query("UPDATE users SET status = 'deleted' WHERE id = $1", [userId]);
+    await client.query('COMMIT');
+
+    const job = await client.query(
+      'SELECT id FROM identity_l3_media_purge_jobs WHERE submission_id = $1 AND user_id = $2',
+      [submissionId, userId]
+    );
+    assert.equal(job.rowCount, 1, 'account tombstoning must create a durable L3 purge job');
+
+    const leaseToken = randomUUID();
+    await client.query('BEGIN');
+    await client.query(
+      `UPDATE identity_l3_media_purge_jobs
+       SET status = 'processing', attempts = 1, lease_token = $2,
+           lease_expires_at = statement_timestamp() + INTERVAL '1 minute'
+       WHERE id = $1`,
+      [job.rows[0].id, leaseToken]
+    );
+    await client.query(
+      "SELECT set_config('app.identity_l3_actor_user_id', '', TRUE), set_config('app.identity_l3_reason_code', 'media_purged', TRUE)"
+    );
+    await client.query(
+      `UPDATE identity_l3_submissions
+       SET storage_object_key = NULL, media_purged_at = statement_timestamp()
+       WHERE id = $1 AND user_id = $2`,
+      [submissionId, userId]
+    );
+    await client.query(
+      `UPDATE identity_l3_media_purge_jobs
+       SET status = 'completed', lease_token = NULL, lease_expires_at = NULL,
+           completed_at = statement_timestamp()
+       WHERE id = $1 AND lease_token = $2`,
+      [job.rows[0].id, leaseToken]
+    );
+    assert.equal(
+      await purgeDeletedAccountL3SubmissionMetadata(client, submissionId, userId),
+      1
+    );
+    await client.query('COMMIT');
+
+    const remaining = await client.query(
+      `SELECT
+         (SELECT COUNT(*)::int FROM identity_l3_submissions WHERE id = $1) AS submissions,
+         (SELECT COUNT(*)::int FROM identity_l3_media_purge_jobs WHERE id = $2) AS jobs`,
+      [submissionId, job.rows[0].id]
+    );
+    assert.deepEqual(remaining.rows[0], { submissions: 0, jobs: 0 },
+      'the worker must commit metadata cleanup after the deferred completed-job guard has fired');
+    await client.query('DELETE FROM users WHERE id = $1', [userId]);
+    userId = null;
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    if (userId) await client.query('DELETE FROM users WHERE id = $1', [userId]).catch(() => {});
+    client.release();
+    await pool.end();
+  }
+});
