@@ -9,6 +9,12 @@ The database trigger:
 - Moves in-flight L3 submissions to a terminal withdrawn/revoked state so the existing L3 media-purge trigger enqueues encrypted media for deletion. The L3 purge worker must complete the job; retain the object key until deletion is confirmed.
 - Makes the deleted-account tombstone terminal. It cannot be reactivated because its identity fields have intentionally been erased; a returning user must register a new account.
 
+## L3 audit evidence migration prerequisite
+
+Migration `134_deleted_profile_personal_data_purge.sql` checks for legacy deleted-account L3 submissions that have no remaining media object but still have media-access audit events. If such evidence exists and migration `136_adjustment_and_l3_access_evidence.sql` is not recorded as applied, migration 134 aborts before changing schema or data. Apply migration 136 through the approved deployment procedure, then rerun the migration runner. Do not manually insert a row into `schema_migrations` to bypass this check.
+
+A clean-database CI migration run does not prove that migration 136 has been applied to a deployed database containing historical L3 records. Verify the target database's migration journal before release.
+
 ## Important boundary
 
 The database trigger is a safety backstop, **not a replacement for the authenticated account-deletion workflow**. The HTTP workflow additionally cancels Paddle billing where required, revokes sessions, removes identity-verification and consent records, clears account preferences and interaction records, redacts the deleted user's messages, closes matches, and applies gift-payment safety reconciliation. Any future administrative/background deletion workflow must call the same deletion service or explicitly perform these additional steps. A direct SQL status update alone does not cancel an external Paddle subscription.
