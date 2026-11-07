@@ -17,9 +17,9 @@ import { consumeIdentityL3UploadCapability, IDENTITY_L3_CONSENT_NOTICE, IDENTITY
 import { assertIdentityL3StorageReady, assertIdentityL3TemporaryStorageReady, clearIdentityL3TemporaryFiles, deleteIdentityL3Object, IDENTITY_L3_MAX_MEDIA_BYTES, IdentityL3StorageError, openIdentityL3Stream, parseIdentityL3EncryptionKey, storeIdentityL3Stream } from './identityL3Storage.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
-import { createDiditSession, isDiditConfigured, isDiditStatus, projectDiditStatus, shouldApplyDiditStatusUpdate, verifyDiditWebhook, isDiditUuid } from './diditIdentity.js';
+import { createDiditSession, DiditSessionNotCreatedError, isDiditConfigured, isDiditStatus, projectDiditStatus, shouldApplyDiditStatusUpdate, verifyDiditWebhook, isDiditUuid } from './diditIdentity.js';
 import { canInteract as canIdentityInteract } from './identityAccessPolicy.js';
-import { DIDIT_FREE_MONTHLY_SESSION_LIMIT } from './diditQuota.js';
+import { DIDIT_FREE_MONTHLY_SESSION_LIMIT, releaseDiditSessionReservation } from './diditQuota.js';
 import express from 'express';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import { withPooledTransaction, rollbackPooledTransaction } from './withPooledTransaction.js';
@@ -2348,8 +2348,9 @@ app.post('/api/identity/didit/session', validateRequestOrigin, requireSession, p
   if (req.body?.consentVersion !== 'didit-kyc-v1') {
     return res.status(400).json({ error: 'identity_processing_consent_required' });
   }
+  let reservation;
   try {
-    const reservation = await withPooledTransaction(pool, async client => {
+    reservation = await withPooledTransaction(pool, async client => {
       await acquireGiftSafetyUserLocks(client, req.authUser.id);
       const account = await client.query(
         "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
@@ -2373,10 +2374,12 @@ app.post('/api/identity/didit/session', validateRequestOrigin, requireSession, p
       );
       if (activeReservation.rowCount) return { kind: 'in_progress' };
 
+      let quotaMonthStart = null;
       if (process.env.DIDIT_ENVIRONMENT === 'live') {
         const month = await client.query(
           "SELECT date_trunc('month', statement_timestamp() AT TIME ZONE 'UTC')::date AS month_start"
         );
+        quotaMonthStart = month.rows[0].month_start;
         const usage = await client.query(
           `INSERT INTO didit_monthly_quota_usage (month_start, reserved_count)
            VALUES ($1, 1)
@@ -2395,8 +2398,8 @@ app.post('/api/identity/didit/session', validateRequestOrigin, requireSession, p
         [req.authUser.id, 'didit-kyc-v1', process.env.DIDIT_ENVIRONMENT]
       );
       const created = await client.query(
-        "INSERT INTO identity_verification_session_reservations (user_id, environment, status) VALUES ($1, $2, 'reserved') RETURNING id",
-        [req.authUser.id, process.env.DIDIT_ENVIRONMENT]
+        "INSERT INTO identity_verification_session_reservations (user_id, environment, status, quota_month_start) VALUES ($1, $2, 'reserved', $3) RETURNING id",
+        [req.authUser.id, process.env.DIDIT_ENVIRONMENT, quotaMonthStart]
       );
       return { kind: 'reserved', id: created.rows[0].id };
     });
@@ -2436,6 +2439,21 @@ app.post('/api/identity/didit/session', validateRequestOrigin, requireSession, p
       environment: session.environment
     });
   } catch (error) {
+    if (error instanceof DiditSessionNotCreatedError && reservation?.id) {
+      // A typed preflight failure or definitive provider rejection proves that
+      // no provider session exists. Release only this still-unbound reservation.
+      try {
+        await withPooledTransaction(pool, async client => {
+          await acquireGiftSafetyUserLocks(client, req.authUser.id);
+          await releaseDiditSessionReservation(client, {
+            userId: req.authUser.id,
+            reservationId: reservation.id
+          });
+        });
+      } catch (releaseError) {
+        console.error('Didit rejected-session reservation cleanup failed:', releaseError?.code || 'unknown_error');
+      }
+    }
     console.error('Didit session request failed:', error?.message || 'unknown_error');
     return res.status(503).json({ error: 'didit_session_unavailable' });
   }

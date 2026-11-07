@@ -1,5 +1,22 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 const DIDIT_API_BASE = 'https://verification.didit.me';
+
+export class DiditSessionNotCreatedError extends Error {
+  constructor(code, status = null) {
+    super(code);
+    this.name = 'DiditSessionNotCreatedError';
+    this.status = status;
+  }
+}
+
+export class DiditSessionRejectedError extends DiditSessionNotCreatedError {
+  constructor(status) {
+    super('didit_session_rejected', status);
+    this.name = 'DiditSessionRejectedError';
+  }
+}
+
+const DEFINITIVE_DIDIT_REJECTION_STATUSES = new Set([400, 401, 403, 404, 405, 413, 415, 422, 429]);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DIDIT_STATUSES = new Set(['Not Started', 'In Progress', 'Approved', 'Declined', 'In Review', 'Awaiting User', 'Resubmitted', 'Expired', 'Abandoned', 'Kyc Expired']);
 export function isDiditConfigured(env = process.env) {
@@ -97,7 +114,7 @@ export async function createDiditSession({ userId, env = process.env, fetchImpl 
     const origin = new URL(callbackOrigin);
     if (!['http:', 'https:'].includes(origin.protocol) || (origin.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(origin.hostname)) || origin.username || origin.password) throw new Error('invalid_origin');
     callback = new URL('/?identityVerification=return', origin.origin).toString();
-  } catch { throw new TypeError('invalid_didit_callback_origin'); }
+  } catch { throw new DiditSessionNotCreatedError('invalid_didit_callback_origin'); }
   const body = JSON.stringify({ workflow_id: env.DIDIT_WORKFLOW_ID, vendor_data: userId, callback, language: 'ru' });
   let response;
   try {
@@ -106,7 +123,15 @@ export async function createDiditSession({ userId, env = process.env, fetchImpl 
       headers: { 'x-api-key': env.DIDIT_API_KEY, 'Content-Type': 'application/json' }, body
     });
   } catch { throw new Error('didit_session_request_failed'); }
-  if (!response.ok) throw new Error('didit_session_request_failed');
+  if (!response.ok) {
+    // Only known validation/authentication/rate-limit rejections prove that no
+    // provider session was created. 408, 409, unknown 4xx, 5xx and network
+    // failures remain ambiguous and must retain the local reservation.
+    if (DEFINITIVE_DIDIT_REJECTION_STATUSES.has(response.status)) {
+      throw new DiditSessionRejectedError(response.status);
+    }
+    throw new Error('didit_session_request_failed');
+  }
   let result;
   try { result = await response.json(); } catch { throw new Error('didit_session_response_invalid'); }
   if (typeof result?.session_id !== 'string' || !UUID_PATTERN.test(result.session_id) || result.workflow_id !== env.DIDIT_WORKFLOW_ID || typeof result.url !== 'string') throw new Error('didit_session_response_invalid');
