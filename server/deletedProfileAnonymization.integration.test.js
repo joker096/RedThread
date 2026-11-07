@@ -17,7 +17,7 @@ test('account erasure migration fails closed before cascading legacy L3 access e
   const firstSchemaMutation = migration.indexOf('CREATE TABLE IF NOT EXISTS private_photo_purge_queue');
   assert.notEqual(preflight, -1, 'migration must include the L3 evidence preflight');
   assert.ok(preflight < firstSchemaMutation, 'preflight must run before any schema or data mutation');
-  assert.match(migration, /JOIN identity_l3_media_access_events AS access_event/);
+  assert.match(migration, /FROM identity_l3_media_access_events AS access_event/);
   assert.ok(migration.includes("account.status = 'deleted'"));
   assert.ok(migration.includes('submission.storage_object_key IS NULL'));
   assert.ok(migration.includes('136_adjustment_and_l3_access_evidence.sql'));
