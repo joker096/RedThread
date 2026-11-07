@@ -17,14 +17,14 @@ export const PENDING_PARTNER_INQUIRIES_SQL = `
 
 
 export async function deliverPendingPartnerInquiries(pool, sendEmail, options = {}) {
-  if (!pool || typeof pool.connect !== 'function' || typeof pool.query !== 'function') {
-    throw new TypeError('A PostgreSQL pool is required.');
-  }
-  if (typeof sendEmail !== 'function') throw new TypeError('An email delivery function is required.');
   const limit = options.limit ?? 10;
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
     throw new RangeError('Partner inquiry batch limit must be a whole number between 1 and 100.');
   }
+  if (!pool || typeof pool.connect !== 'function' || typeof pool.query !== 'function') {
+    throw new TypeError('A PostgreSQL pool is required.');
+  }
+  if (typeof sendEmail !== 'function') throw new TypeError('An email delivery function is required.');
 
   const client = await pool.connect();
   let inquiries = [];
