@@ -71,6 +71,9 @@ type BillingStatus = {
 };
 
 type AccountAccessPanelProps = { onAuthenticated: () => void };
+type GoogleAuthAttemptResult = 'authenticated' | 'registration' | 'retry' | 'ignored';
+
+export const shouldRefreshGoogleButton = (result: GoogleAuthAttemptResult): boolean => result === 'retry';
 
 export const getLatestBirthDateInputValue = (now: Date = new Date()): string => {
   const latestBirthDate = new Date(now.getTime());
@@ -146,6 +149,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
   const [message, setMessage] = useState('');
   const [googleClientId, setGoogleClientId] = useState('');
   const [googleRegistrationTicket, setGoogleRegistrationTicket] = useState<string | null>(null);
+  const [googleButtonRevision, setGoogleButtonRevision] = useState(0);
   const googleButtonRef = useRef<HTMLDivElement | null>(null);
   const googleAuthInFlightRef = useRef(false);
   const [canResendVerification, setCanResendVerification] = useState(false);
@@ -206,8 +210,8 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
     return () => { cancelled = true; auxiliaryRequestIdRef.current += 1; };
   }, []);
 
-  const handleGoogleRegistrationTicket = useCallback(async (credential: string, nonce: string) => {
-    if (!credential || googleAuthInFlightRef.current) return;
+  const handleGoogleRegistrationTicket = useCallback(async (credential: string, nonce: string): Promise<GoogleAuthAttemptResult> => {
+    if (!credential || googleAuthInFlightRef.current) return 'ignored';
     googleAuthInFlightRef.current = true;
     let actionId = ++sessionActionIdRef.current;
     auxiliaryRequestIdRef.current += 1;
@@ -221,7 +225,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         body: JSON.stringify({ credential, nonce })
       });
       const data = await response.json().catch(() => null);
-      if (sessionActionIdRef.current !== actionId) return;
+      if (sessionActionIdRef.current !== actionId) return 'ignored';
       if (!response.ok) {
         if (data?.error === 'google_account_exists') throw new Error(t('authGoogleAccountExists'));
         throw new Error(t('authRequestFailed'));
@@ -235,7 +239,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         setDisplayName(typeof data.profile?.displayName === 'string' ? data.profile.displayName : '');
         setMode('register');
         setMessage(t('authGoogleFinishProfile'));
-        return;
+        return 'registration';
       }
       const normalizedUser = normalizeAccountUser(data?.user);
       if (!normalizedUser) throw new Error(t('authRequestFailed'));
@@ -244,12 +248,19 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       setUser(normalizedUser);
       window.dispatchEvent(new Event('vow:session-changed'));
       const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
-      if (sessionActionIdRef.current !== actionId) return;
+      if (sessionActionIdRef.current !== actionId) return 'ignored';
       setBillingStatus(isBillingStatus(billing) ? billing : null);
       setMessage(t('authSignedIn'));
       onAuthenticated();
+      return 'authenticated';
     } catch (error) {
-      if (sessionActionIdRef.current === actionId) setMessage(error instanceof Error ? error.message : t('authConnectionFailed'));
+      if (sessionActionIdRef.current !== actionId) return 'ignored';
+      setMessage(error instanceof Error ? error.message : t('authConnectionFailed'));
+      // A verified token consumes its one-time nonce even when the account is
+      // unavailable or already belongs to local email/password authentication.
+      // Re-render the GIS button with a fresh server challenge so retry works
+      // without requiring a page reload or toggling the auth mode.
+      return 'retry';
     } finally {
       googleAuthInFlightRef.current = false;
       if (sessionActionIdRef.current === actionId) setBusy(false);
@@ -287,7 +298,17 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       window.google.accounts.id.initialize({
         client_id: googleClientId,
         nonce: challenge.nonce,
-        callback: response => { if (response.credential) void handleGoogleRegistrationTicket(response.credential, challenge.nonce); }
+        callback: response => {
+          if (!response.credential) {
+            setGoogleButtonRevision(revision => revision + 1);
+            return;
+          }
+          void handleGoogleRegistrationTicket(response.credential, challenge.nonce).then(result => {
+            if (shouldRefreshGoogleButton(result) && !cancelled) {
+              setGoogleButtonRevision(revision => revision + 1);
+            }
+          });
+        }
       });
       window.google.accounts.id.renderButton(target, {
         theme: 'outline',
@@ -300,7 +321,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       if (!cancelled) setMessage(t('authConnectionFailed'));
     });
     return () => { cancelled = true; };
-  }, [googleClientId, mode, handleGoogleRegistrationTicket, t]);
+  }, [googleClientId, mode, googleButtonRevision, handleGoogleRegistrationTicket, t]);
 
   const submit = async () => {
     auxiliaryRequestIdRef.current += 1;
