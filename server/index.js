@@ -4284,7 +4284,7 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
       [row.id]
     );
     if (!claim.rowCount) return res.status(202).json({ inquiryId: row.id, sent: false });
-    const escapeHtml = value => String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+    const escapeHtml = value => String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', [String.fromCharCode(34)]: '&quot;', [String.fromCharCode(39)]: '&#39;' })[character]);
     const dateLine = serviceDate ? '<p><strong>Желаемая дата:</strong> ' + escapeHtml(serviceDate) + '</p>' : '';
     try {
       await sendConfiguredEmail({
