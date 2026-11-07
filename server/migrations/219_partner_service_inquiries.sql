@@ -9,8 +9,8 @@ CREATE TABLE IF NOT EXISTS partner_service_inquiries (
   service_date DATE,
   request_note VARCHAR(2000) NOT NULL,
   contact_consent_at TIMESTAMPTZ NOT NULL,
-  delivery_status TEXT NOT NULL DEFAULT 'failed'
-    CHECK (delivery_status IN ('sending', 'sent', 'failed')),
+  delivery_status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (delivery_status IN ('pending', 'sending', 'sent', 'failed')),
   delivery_attempts SMALLINT NOT NULL DEFAULT 0 CHECK (delivery_attempts >= 0),
   delivery_error VARCHAR(100) NOT NULL DEFAULT '',
   delivered_at TIMESTAMPTZ,
