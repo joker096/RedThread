@@ -1557,10 +1557,28 @@ test('auth API supports registration, session lookup, logout and login', {
       // disposable fixture accounts so account erasure scrubs profiles while
       // preserving order/event provenance.
       const giftFixtureUserIds = [giftSender.user.id, giftRecipient.user.id];
+      const screeningEvidenceBefore = await giftTestDb.query(
+        `SELECT id, user_ref, scope, flags, severity, engine_version, review_status
+         FROM user_safety_screenings
+         WHERE user_id = ANY($1::uuid[])
+         ORDER BY id`,
+        [giftFixtureUserIds]
+      );
+      assert.ok(screeningEvidenceBefore.rowCount > 0,
+        'registered fixture accounts must have screening evidence to retain');
       await giftTestDb.query(
         "UPDATE users SET status = 'deleted' WHERE id = ANY($1::uuid[])",
         [giftFixtureUserIds]
       );
+      const screeningEvidenceAfter = await giftTestDb.query(
+        `SELECT id, user_ref, scope, flags, severity, engine_version, review_status
+         FROM user_safety_screenings
+         WHERE user_id = ANY($1::uuid[])
+         ORDER BY id`,
+        [giftFixtureUserIds]
+      );
+      assert.deepEqual(screeningEvidenceAfter.rows, screeningEvidenceBefore.rows,
+        'account tombstoning must preserve immutable safety-screening evidence');
       await giftTestDb.end();
     }
 
@@ -4390,6 +4408,9 @@ test('auth API supports registration, session lookup, logout and login', {
           headers: { Cookie: secondCookie, 'Content-Type': 'image/png' },
           body: tinyPng
         });
+        // The shared test IP may have exhausted the independent message bucket
+        // before this queued stale-session request is issued.
+        await deletionSafetyDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'message:%'");
         staleMessagePromise = request(`/api/matches/${matchPayload.match.id}/messages`, {
           method: 'POST',
           headers: { Cookie: secondCookie },

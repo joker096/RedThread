@@ -302,7 +302,8 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       if (!response.ok) {
         const errors: Record<string, string> = {
           password_confirmation_required: t('authDeletePasswordRequired'),
-          password_confirmation_failed: t('authDeletePasswordIncorrect')
+          password_confirmation_failed: t('authDeletePasswordIncorrect'),
+          identity_l3_media_purge_unavailable: t('authDeleteL3PurgePending')
         };
         throw new Error(errors[data?.error] || t('authDeleteFailed'));
       }
