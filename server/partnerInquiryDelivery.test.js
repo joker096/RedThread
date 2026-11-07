@@ -8,7 +8,7 @@ function fakePool(rows = [], options = {}) {
   const client = {
     async query(sql, values) {
       calls.push({ sql, values, scope: 'client' });
-      if (sql.startsWith('SELECT inquiry.id')) return { rows };
+      if (sql.trimStart().startsWith('SELECT inquiry.id')) return { rows };
       if (options.failClaim && sql.startsWith('UPDATE partner_service_inquiries')) throw new Error('claim failed');
       return { rowCount: 1 };
     },
