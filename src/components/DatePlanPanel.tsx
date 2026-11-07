@@ -102,7 +102,13 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
                 <div className="mt-2 space-y-2">
                   <p className="text-xs text-amber-200">{otherConfirmed ? t('datePlanOneConfirmed') : t('datePlanWaitingBoth')}</p>
                   {!myConfirmed && <button type="button" disabled={saving} onClick={() => void submit('/confirm')} className="min-h-[48px] w-full rounded-lg bg-rose-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{t('datePlanConfirm')}</button>}
-                  <button type="button" disabled={saving} onClick={() => void submit('/decline')} className="min-h-[48px] w-full rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-stone-200 disabled:opacity-50">{t('datePlanDecline')}</button>
+                  {myConfirmed ? (
+                    <button type="button" disabled={saving} onClick={() => { if (window.confirm(t('datePlanCancelConfirm'))) void submit('/cancel'); }} className="min-h-[48px] w-full rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-stone-200 disabled:opacity-50">{t('datePlanCancel')}</button>
+                  ) : currentUserId === plan.proposedBy ? (
+                    <button type="button" disabled={saving} onClick={() => { if (window.confirm(t('datePlanWithdrawConfirm'))) void submit('/cancel'); }} className="min-h-[48px] w-full rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-stone-200 disabled:opacity-50">{t('datePlanWithdraw')}</button>
+                  ) : (
+                    <button type="button" disabled={saving} onClick={() => void submit('/decline')} className="min-h-[48px] w-full rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-stone-200 disabled:opacity-50">{t('datePlanDecline')}</button>
+                  )}
                 </div>
               )}
             </div>
