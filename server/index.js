@@ -3,7 +3,7 @@ import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { queuePrivatePhotoPurges } from './photoPurge.js';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { validateAdEventPayload, classifyDuplicateAdEvent, hasExplicitAdConsent, evaluateAdEventFrequency, isAdEventCollectionEnabled } from './adEvents.js';
 import { evaluateAdCampaignEligibility, isCampaignCountryAllowed, resolveProfileCountryCode } from './adCampaignRegistry.js';
 import { AD_EVENT_FREQUENCY_COUNTS_SQL } from './adEventFrequencyQuery.js';
@@ -51,6 +51,7 @@ const sessionDurationSeconds = 60 * 60 * 24 * 30;
 const sessionCookieName = 'nit_session';
 const emailVerificationRequired = process.env.EMAIL_VERIFICATION_REQUIRED === 'true' || (process.env.NODE_ENV === 'production' && process.env.EMAIL_VERIFICATION_REQUIRED !== 'false');
 const allowedOrigin = process.env.APP_ORIGIN || 'http://localhost:3000';
+const googleClientId = (process.env.GOOGLE_CLIENT_ID || '').trim();
 
 const pool = databaseUrl
   ? new Pool({
@@ -91,7 +92,7 @@ app.use((_req, res, next) => {
   res.setHeader('X-Frame-Options', 'DENY');
   // One-time verification/reset tokens can appear in the URL; never leak them in Referer headers.
   res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Opener-Policy', googleClientId ? 'same-origin-allow-popups' : 'same-origin');
   res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
   if (process.env.NODE_ENV === 'production') {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
@@ -662,7 +663,9 @@ const photoStorageDir = path.resolve(process.env.PHOTO_STORAGE_DIR || 'uploads/p
 const authLimiter = rateLimit({
   ...(pool ? { store: new PostgresRateLimitStore(pool, 'auth') } : {}),
   windowMs: 15 * 60 * 1000,
-  limit: 10,
+  limit: process.env.NODE_ENV === 'test' && /^\d+$/.test(process.env.AUTH_RATE_LIMIT || '')
+    ? Math.max(10, Math.min(Number.parseInt(process.env.AUTH_RATE_LIMIT, 10), 1000))
+    : 10,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'too_many_auth_attempts' }
@@ -961,8 +964,178 @@ app.get('/api/ready', async (_req, res) => {
   }
 });
 
+function createOpaqueToken() {
+  return randomBytes(32).toString('base64url');
+}
+
+let googleOAuthClient = null;
+
+async function verifyGoogleIdToken(credential, expectedNonce) {
+  const clientId = googleClientId;
+  if (!clientId) throw new Error('google_sign_in_not_configured');
+  if (typeof credential !== 'string' || credential.length < 100 || credential.length > 20_000) {
+    throw new Error('invalid_google_credential');
+  }
+  const { OAuth2Client } = await import('google-auth-library');
+  googleOAuthClient ||= new OAuth2Client(clientId);
+  const ticket = await googleOAuthClient.verifyIdToken({ idToken: credential, audience: clientId });
+  const payload = ticket.getPayload();
+  const email = normalizeEmail(payload?.email);
+  if (!payload || typeof payload.sub !== 'string' || !payload.sub || payload.sub.length > 255 ||
+      payload.email_verified !== true || !isValidEmail(email) ||
+      typeof expectedNonce !== 'string' || !expectedNonce || payload.nonce !== expectedNonce) {
+    throw new Error('invalid_google_identity');
+  }
+  return {
+    subject: payload.sub,
+    email,
+    displayName: typeof payload.name === 'string' ? payload.name.trim().slice(0, 80) : ''
+  };
+}
+
+app.get('/api/auth/google/config', (_req, res) => {
+  const clientId = googleClientId;
+  return res.json({ configured: Boolean(clientId), clientId: clientId || null });
+});
+
+// Google challenge rows contain only nonce hashes; abandoned registration tickets
+// also contain verified email/display-name data. Expire both continuously rather
+// than relying only on the next user opening the Google sign-in flow.
+const googleAuthArtifactCleanupInterval = setInterval(() => {
+  if (!pool) return;
+  Promise.all([
+    pool.query('DELETE FROM google_auth_challenges WHERE expires_at <= statement_timestamp() OR consumed_at IS NOT NULL'),
+    pool.query('DELETE FROM google_registration_tickets WHERE expires_at <= statement_timestamp() OR consumed_at IS NOT NULL')
+  ]).catch(error => {
+    console.error('Google auth artifact cleanup failed:', error?.message || 'unknown error');
+  });
+}, 15 * 60_000);
+googleAuthArtifactCleanupInterval.unref?.();
+
+app.post('/api/auth/google/challenge', validateRequestOrigin, authLimiter, requireDatabase, async (_req, res) => {
+  if (!googleClientId) return res.status(503).json({ error: 'google_sign_in_not_configured' });
+  const nonce = createOpaqueToken();
+  try {
+    await pool.query(
+      `DELETE FROM google_auth_challenges WHERE expires_at <= NOW() OR consumed_at IS NOT NULL`
+    );
+    await pool.query(
+      `DELETE FROM google_registration_tickets WHERE expires_at <= NOW() OR consumed_at IS NOT NULL`
+    );
+    await pool.query(
+      'INSERT INTO google_auth_challenges (nonce_hash, expires_at) VALUES ($1, NOW() + INTERVAL \'5 minutes\')',
+      [hashSessionToken(nonce)]
+    );
+    return res.json({ nonce, expiresInSeconds: 300 });
+  } catch (error) {
+    console.error('Google challenge creation failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'google_sign_in_unavailable' });
+  }
+});
+
+app.post('/api/auth/google', validateRequestOrigin, authLimiter, requireDatabase, async (req, res) => {
+  if (!googleClientId) return res.status(503).json({ error: 'google_sign_in_not_configured' });
+  const nonce = typeof req.body?.nonce === 'string' ? req.body.nonce : '';
+  if (nonce.length < 32 || nonce.length > 128) return res.status(401).json({ error: 'invalid_google_credential' });
+  let identity;
+  try {
+    identity = await verifyGoogleIdToken(req.body?.credential, nonce);
+  } catch (error) {
+    console.warn('Google credential rejected:', error?.message || 'invalid_credential');
+    return res.status(401).json({ error: 'invalid_google_credential' });
+  }
+
+  // Consume the challenge outside the account transaction so every verified
+  // attempt burns its nonce, including conflicts and inactive-account denials.
+  try {
+    const consumed = await pool.query(
+      `UPDATE google_auth_challenges SET consumed_at = NOW()
+       WHERE nonce_hash = $1 AND consumed_at IS NULL AND expires_at > NOW()
+       RETURNING id`,
+      [hashSessionToken(nonce)]
+    );
+    if (!consumed.rowCount) return res.status(401).json({ error: 'google_challenge_expired_or_used' });
+  } catch (error) {
+    console.error('Google challenge consumption failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'google_sign_in_unavailable' });
+  }
+
+  let client;
+  let discardClientError = null;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const identityOwner = await client.query(
+      `SELECT user_id FROM user_auth_identities
+       WHERE provider = 'google' AND provider_subject = $1 LIMIT 1`,
+      [identity.subject]
+    );
+    if (identityOwner.rows[0]) {
+      // Match password login and account deletion lock order. A Google login
+      // verified before deletion must not create a new session after deletion
+      // has already revoked the account's sessions.
+      await acquireGiftSafetyUserLocks(client, identityOwner.rows[0].user_id);
+      const currentIdentity = await client.query(
+        `SELECT u.id, u.email, u.status, u.email_verified_at,
+                p.display_name, p.gender, p.country, p.city, p.relationship_intent
+         FROM user_auth_identities i
+         JOIN users u ON u.id = i.user_id
+         LEFT JOIN profiles p ON p.user_id = u.id
+         WHERE i.provider = 'google' AND i.provider_subject = $1
+         FOR SHARE OF u`,
+        [identity.subject]
+      );
+      const user = currentIdentity.rows[0];
+      // A deletion may have removed the mapping while this request waited for
+      // the account lock. In that case the same verified Google subject may
+      // proceed through the normal new-registration ticket flow.
+      if (user) {
+        if (user.status !== 'active' || !user.display_name ||
+            (emailVerificationRequired && !user.email_verified_at)) {
+          await client.query('ROLLBACK');
+          return res.status(403).json({ error: 'account_unavailable' });
+        }
+        const token = await createSession(client, user.id);
+        await client.query('COMMIT');
+        writeSessionCookie(res, token);
+        return res.json({ user: publicUser(user) });
+      }
+    }
+
+    const existingEmail = await client.query('SELECT 1 FROM users WHERE email = $1 LIMIT 1', [identity.email]);
+    if (existingEmail.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'google_account_exists' });
+    }
+    const registrationTicket = createOpaqueToken();
+    await client.query(
+      `INSERT INTO google_registration_tickets
+       (ticket_hash, provider_subject, email, display_name, expires_at)
+       VALUES ($1, $2, $3, $4, NOW() + INTERVAL '10 minutes')`,
+      [hashSessionToken(registrationTicket), identity.subject, identity.email, identity.displayName]
+    );
+    await client.query('COMMIT');
+    return res.json({
+      registrationRequired: true,
+      registrationTicket,
+      profile: { email: identity.email, displayName: identity.displayName }
+    });
+  } catch (error) {
+    if (client) {
+      try { await client.query('ROLLBACK'); }
+      catch (rollbackError) { error.rollbackError = rollbackError; discardClientError = error; }
+    }
+    if (error?.code === '23505') return res.status(409).json({ error: 'google_account_exists' });
+    console.error('Google sign-in failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'google_sign_in_failed' });
+  } finally {
+    client?.release(discardClientError || undefined);
+  }
+});
+
 app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDatabase, async (req, res) => {
   const email = normalizeEmail(req.body?.email);
+  const googleRegistrationTicket = typeof req.body?.googleRegistrationTicket === 'string' ? req.body.googleRegistrationTicket : null;
   const password = req.body?.password;
   const displayName = typeof req.body?.displayName === 'string' ? req.body.displayName.trim() : '';
   const birthDate = req.body?.birthDate;
@@ -999,6 +1172,7 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
   if (!accountReuseDigest) return res.status(503).json({ error: 'account_reuse_protection_not_configured' });
 
   let client;
+  let googleIdentity = null;
   try {
     const passwordHash = await hashPassword(password);
     client = await pool.connect();
@@ -1030,15 +1204,51 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
         retryAfterSeconds
       });
     }
-    if (emailVerificationRequired && !emailDeliveryConfigured()) {
+
+    if (googleRegistrationTicket) {
+      if (googleRegistrationTicket.length < 32 || googleRegistrationTicket.length > 128) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'invalid_or_expired_google_registration' });
+      }
+      const ticketResult = await client.query(
+        `SELECT provider_subject, email FROM google_registration_tickets
+         WHERE ticket_hash = $1 AND consumed_at IS NULL AND expires_at > NOW()
+         FOR UPDATE`,
+        [hashSessionToken(googleRegistrationTicket)]
+      );
+      const registration = ticketResult.rows[0];
+      if (!registration || registration.email !== email) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'invalid_or_expired_google_registration' });
+      }
+      googleIdentity = { subject: registration.provider_subject, email: registration.email };
+      const consumedTicket = await client.query(
+        `DELETE FROM google_registration_tickets
+         WHERE ticket_hash = $1 AND consumed_at IS NULL AND expires_at > NOW()
+         RETURNING id`,
+        [hashSessionToken(googleRegistrationTicket)]
+      );
+      if (consumedTicket.rowCount !== 1) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'invalid_or_expired_google_registration' });
+      }
+    }
+    if (emailVerificationRequired && !googleIdentity && !emailDeliveryConfigured()) {
       await client.query('ROLLBACK');
       return res.status(503).json({ error: 'email_delivery_not_configured' });
     }
     const userResult = await client.query(
       'INSERT INTO users (email, password_hash, status, female_trial_ends_at) VALUES ($1, $2, $3, CASE WHEN $4 = \'female\' THEN NOW() + INTERVAL \'24 hours\' ELSE NULL END) RETURNING id, email',
-      [email, passwordHash, emailVerificationRequired ? 'pending' : 'active', gender]
+      [email, passwordHash, emailVerificationRequired && !googleIdentity ? 'pending' : 'active', gender]
     );
     const user = userResult.rows[0];
+    if (googleIdentity) {
+      await client.query('UPDATE users SET email_verified_at = NOW() WHERE id = $1', [user.id]);
+      await client.query(
+        "INSERT INTO user_auth_identities (user_id, provider, provider_subject) VALUES ($1, 'google', $2)",
+        [user.id, googleIdentity.subject]
+      );
+    }
     const profileResult = await client.query(
       `INSERT INTO profiles (
          user_id, display_name, birth_date, gender, country, city, relationship_intent,
@@ -1048,10 +1258,11 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
        RETURNING user_id AS id, display_name, gender, country, city, relationship_intent`,
       [user.id, displayName, birthDate, gender, country, city, relationshipIntent, familyFormat, hasChildren, wantsChildren, childrenLivingArrangement]
     );
-    const verificationToken = emailVerificationRequired
+    const needsEmailVerification = emailVerificationRequired && !googleIdentity;
+    const verificationToken = needsEmailVerification
       ? await createAccountActionToken(client, user.id, 'email_verification', 60)
       : null;
-    const token = emailVerificationRequired ? null : await createSession(client, user.id);
+    const token = needsEmailVerification ? null : await createSession(client, user.id);
 
     // The transaction can see its own user/profile rows; keep registration screening
     // under the same user safety lock used by gift acceptance.
@@ -1077,14 +1288,14 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
       }
     }
 
-    if (emailVerificationRequired) {
+    if (needsEmailVerification) {
       return res.status(201).json({ verificationRequired: true, message: 'Check your email to activate your account.' });
     }
     writeSessionCookie(res, token);
     return res.status(201).json({ user: publicUser({ ...profileResult.rows[0], email: user.email }) });
   } catch (error) {
     if (client && !await rollbackPooledTransaction(client)) client = null;
-    if (error?.code === '23505') return res.status(409).json({ error: 'email_already_registered' });
+    if (error?.code === '23505') return res.status(409).json({ error: googleIdentity ? 'google_account_exists' : 'email_already_registered' });
     console.error('Registration failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'registration_failed' });
   } finally {
