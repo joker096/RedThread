@@ -13,7 +13,7 @@ const PRIVATE_ADDRESS_PATTERNS = [
   new RegExp(LEFT_ADDRESS_BOUNDARY + STREET_PREFIX + '\\s+' + STREET_WORD + '(?:\\s+' + STREET_WORD + '){0,5}\\s*,?\\s*' + HOUSE_NUMBER + RIGHT_ADDRESS_BOUNDARY, 'iu'),
   new RegExp(LEFT_ADDRESS_BOUNDARY + HOUSE_NUMBER + '\\s+' + STREET_WORD + '(?:\\s+' + STREET_WORD + '){0,5}\\s+' + STREET_SUFFIX + RIGHT_ADDRESS_BOUNDARY, 'iu'),
   new RegExp(LEFT_ADDRESS_BOUNDARY + '(?:apt\\.?|apartment|flat|unit|suite|дом|д\\.?|квартира|кв\\.?|building|bldg\\.?|ბინა|ბინ\\.?|სახლი|სახლ\\.?|კორპუსი|კორპ\\.?)\\s*(?:№|#)?\\s*\\p{Nd}+' + RIGHT_ADDRESS_BOUNDARY, 'iu'),
-  /\b-?\d{1,2}\.\d{3,}\s*,\s*-?\d{1,3}\.\d{3,}\b/
+  /\b-?\p{Nd}{1,2}\.\p{Nd}{3,}\s*,\s*-?\p{Nd}{1,3}\.\p{Nd}{3,}\b/u
 ];
 
 export function normalizeDatePlanInput(body) {
@@ -29,7 +29,8 @@ export function normalizeDatePlanInput(body) {
     .replace(/[ \t]+/gu, ' ')
     .trim();
   if (venueName.length < 2 || venueName.length > 120) return null;
-  if (/(?:https?:\/\/|www\.|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\+?\p{Nd}[\p{Nd}\s().-]{7,}\p{Nd})/iu.test(venueName) || /^\p{Nd}{1,6}\s+\S+/u.test(venueName) || PRIVATE_ADDRESS_PATTERNS.some(pattern => pattern.test(venueName))) return null;
+  const addressCheckName = venueName.replace(/[\u200c\u200d]/gu, '');
+  if (/(?:https?:\/\/|www\.|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\+?\p{Nd}[\p{Nd}\s().-]{7,}\p{Nd})/iu.test(addressCheckName) || /^\p{Nd}{1,6}\s+\S+/u.test(addressCheckName) || PRIVATE_ADDRESS_PATTERNS.some(pattern => pattern.test(addressCheckName))) return null;
   const dateParts = startsAt.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/);
   if (!dateParts) return null;
   const [, year, month, day, hour, minute, second = '0'] = dateParts;
