@@ -5177,7 +5177,7 @@ test('auth API supports registration, session lookup, logout and login', {
       `INSERT INTO matches (user_a_id, user_b_id, status)
        VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid), 'active')
        RETURNING id`,
-      [maleRegistered.user.id, l3DatePartnerUserId]
+      [concurrentMale.user.id, l3DatePartnerUserId]
     );
     const l3DatePlanPath = `/api/matches/${l3DateMatch.rows[0].id}/date-plan`;
     const l3DateEligibility = await identityGateDb.query(
@@ -5194,10 +5194,12 @@ test('auth API supports registration, session lookup, logout and login', {
        FROM matches m JOIN users ua ON ua.id = m.user_a_id JOIN users ub ON ub.id = m.user_b_id
        JOIN profiles pa ON pa.user_id = m.user_a_id JOIN profiles pb ON pb.user_id = m.user_b_id
        WHERE m.id = $1`,
-      [l3DateMatch.rows[0].id, maleRegistered.user.id]
+      [l3DateMatch.rows[0].id, concurrentMale.user.id]
     );
     assert.equal(l3DateEligibility.rowCount, 1);
     assert.equal(l3DateEligibility.rows[0].match_status, 'active');
+    assert.equal(l3DateEligibility.rows[0].user_a_status, 'active', JSON.stringify(l3DateEligibility.rows[0]));
+    assert.equal(l3DateEligibility.rows[0].user_b_status, 'active', JSON.stringify(l3DateEligibility.rows[0]));
     assert.equal(l3DateEligibility.rows[0].male_l2, true, JSON.stringify(l3DateEligibility.rows[0]));
     assert.equal(l3DateEligibility.rows[0].male_l3, true, JSON.stringify(l3DateEligibility.rows[0]));
     assert.equal(l3DateEligibility.rows[0].blocked, false, JSON.stringify(l3DateEligibility.rows[0]));
@@ -5218,7 +5220,7 @@ test('auth API supports registration, session lookup, logout and login', {
       l3ReadTransactionOpen = true;
       const lockedDecision = await l3ReadLock.query(
         'SELECT status FROM identity_l3_current_decision($1)',
-        [maleRegistered.user.id]
+        [concurrentMale.user.id]
       );
       assert.deepEqual(lockedDecision.rows, [{ status: 'approved' }]);
       await l3RevokeClient.query('BEGIN');
@@ -5226,7 +5228,7 @@ test('auth API supports registration, session lookup, logout and login', {
       let revokeFinished = false;
       const revokeUpdate = l3RevokeClient.query(
         "UPDATE identity_l3_submissions SET status = 'revoked', revoked_at = NOW() WHERE id = $1",
-        [l3SubmissionId]
+        [concurrentMaleSubmissionId]
       ).then(() => { revokeFinished = true; });
       const completedBeforeUnlock = await Promise.race([
         revokeUpdate.then(() => true),
@@ -5242,7 +5244,7 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.equal(revokeFinished, true);
       const afterRevocation = await identityGateDb.query(
         'SELECT identity_l3_has_active_approval($1) AS active',
-        [maleRegistered.user.id]
+        [concurrentMale.user.id]
       );
       assert.equal(afterRevocation.rows[0].active, false,
         'the next authorization check must observe the committed revocation');
@@ -5258,7 +5260,7 @@ test('auth API supports registration, session lookup, logout and login', {
       // account through a fresh authenticated session.
       await identityGateDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'auth:%'");
       const l3WithdrawalLogin = await request('/api/auth/login', {
-        method: 'POST', body: JSON.stringify({ email: maleEmail, password })
+        method: 'POST', body: JSON.stringify({ email: concurrentMale.user.email, password })
       });
       assert.equal(l3WithdrawalLogin.status, 200, 'an active account must be able to re-authenticate after L3 approval revocation');
       const l3WithdrawalCookie = l3WithdrawalLogin.headers.get('set-cookie')?.split(';')[0];
