@@ -153,7 +153,7 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
               {plan.status === 'confirmed' ? (
                 <div>
                   <p role="status" className="mt-2 text-xs font-semibold text-emerald-300">{t('datePlanConfirmed')}</p>
-                  <button data-testid="date-plan-share" type="button" onClick={() => void shareConfirmedPlan()} aria-label={t('datePlanShareTitle')} className="mt-2 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-950/20 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-950/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">
+                  <button data-testid="date-plan-share" type="button" onClick={() => void shareConfirmedPlan()} aria-label={t('datePlanShareTitle')} style={{ minHeight: 48 }} className="mt-2 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-950/20 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-950/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">
                     <Share2 className="h-4 w-4" aria-hidden="true" />
                     {shareReadyPlan?.id === plan.id ? t('datePlanShareReadyButton') : t('datePlanShareButton')}
                   </button>
