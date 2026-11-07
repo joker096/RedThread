@@ -22,10 +22,20 @@ Vow использует Google Identity Services (GIS) только при за
 
 ## Настройка
 
-1. Создайте Web application OAuth client в Google Cloud Console.
-2. Добавьте точные Authorized JavaScript origins.
-3. Задайте GOOGLE_CLIENT_ID в окружении API и перезапустите сервис.
-4. Убедитесь, что HTTPS включён в production.
-5. Проверьте реальный вход и регистрацию с OAuth client в отдельном staging окружении до включения на production.
+### Локальная проверка без домена и хостинга
+
+Для разработки публичный домен, хостинг и HTTPS не нужны. Vow по умолчанию использует Vite на `http://localhost:3000`, API на порту `3001` и `APP_ORIGIN=http://localhost:3000`.
+
+1. Создайте в Google Cloud Console OAuth client типа **Web application**.
+2. В **Authorized JavaScript origins** добавьте ровно `http://localhost:3000`. Если открываете Vow на другом имени или порту, добавьте именно этот origin и установите такое же значение в `APP_ORIGIN` API.
+3. Скопируйте только Client ID в `GOOGLE_CLIENT_ID` локального API `.env`; не добавляйте client secret и не используйте префикс `VITE_`.
+4. Перезапустите API и откройте приложение именно через `http://localhost:3000`, затем проверьте popup-вход и регистрацию.
+5. Для GIS popup flow отдельный redirect URI не требуется. Google client ID публичен; секреты остаются только на сервере.
+
+### Перед публичным запуском
+
+1. Добавьте точные production HTTPS origins в Authorized JavaScript origins.
+2. Настройте HTTPS и отдельный staging OAuth client/окружение.
+3. Проверьте реальные токены и popup flow в staging до включения Google-входа на production.
 
 Не включайте Google-вход в production, пока не пройдены миграции 210 и 211, интеграционные тесты, CI и Browser E2E на одном и том же commit SHA. Политика конфиденциальности должна быть заполнена и юридически проверена до публичного запуска.
