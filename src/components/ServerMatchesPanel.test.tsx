@@ -116,3 +116,15 @@ test('preserves the server precision cursor separately from the display timestam
   assert.equal(message?.createdAt, '2026-11-05T08:00:00.000Z');
   assert.equal(message?.cursorCreatedAt, '2026-11-05T08:00:00.000123Z');
 });
+
+
+test('date-plan notification navigation is retained through unauthenticated or failed match-list loads', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('./ServerMatchesPanel.tsx', import.meta.url), 'utf8');
+  assert.match(source, /if \(!openMatchId \|\| matchesLoading \|\| !authenticated \|\| matchesFailed\) return/);
+  assert.ok(
+    source.indexOf('if (!openMatchId || matchesLoading || !authenticated || matchesFailed) return;') <
+      source.indexOf('onMatchOpenHandled?.();'),
+    'navigation must not be acknowledged before the authenticated match list succeeds'
+  );
+});

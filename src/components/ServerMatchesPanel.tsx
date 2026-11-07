@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
+import { DatePlanPanel } from './DatePlanPanel.tsx';
 
 type ServerMatch = {
   id: string;
@@ -12,7 +13,7 @@ type ServerMatch = {
   lastMessageAt: string | null;
 };
 type ServerMessage = { id: string; senderId: string; text: string; createdAt: string; cursorCreatedAt?: string };
-type Props = { onOpenAccount: () => void };
+type Props = { onOpenAccount: () => void; openMatchId?: string | null; onMatchOpenHandled?: () => void };
 const MESSAGE_PAGE_SIZE = 100;
 
 export const normalizeServerMatch = (value: unknown): ServerMatch | null => {
@@ -79,7 +80,7 @@ export const deduplicateById = <T extends { id: string }>(items: T[]): T[] => {
   });
 };
 
-export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
+export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount, openMatchId = null, onMatchOpenHandled }) => {
   const { t, formatDate } = useLocale();
   const [matches, setMatches] = useState<ServerMatch[]>([]);
   const [selected, setSelected] = useState<string>('');
@@ -352,6 +353,26 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
       void loadMessages(selected);
     }
   }, [selected, loadMessages]);
+
+  useEffect(() => {
+    // A notification is only a navigation hint; verify it against the authenticated match list.
+    // Keep it pending while unauthenticated or while a failed list request is being retried.
+    if (!openMatchId || matchesLoading || !authenticated || matchesFailed) return;
+    const target = matches.find(match => match.id === openMatchId);
+    if (target) {
+      setNotice('');
+      if (selected !== target.id) {
+        messageRequestId.current += 1;
+        setMessages([]);
+        setSelected(target.id);
+      } else {
+        void loadMessages(target.id);
+      }
+    } else {
+      setNotice(t('datePlanUnavailable'));
+    }
+    onMatchOpenHandled?.();
+  }, [openMatchId, matchesLoading, matches, authenticated, matchesFailed, selected, loadMessages, onMatchOpenHandled, t]);
 
   // Start each conversation at the latest message. Within a conversation,
   // preserve the reader's position when they have scrolled up through history.
@@ -644,6 +665,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
               <div data-testid="real-match-chat" className="vow-inbox-conversation">
                 {selectedMatch ? (
                   <>
+                    <DatePlanPanel key={selected} matchId={selected} currentUserId={currentUserId} />
                     <header className="vow-inbox-chat-header">
                       <button type="button" data-testid="server-match-back" ref={mobileBackButtonRef} disabled={busy} onClick={() => { messageRequestId.current += 1; setSelected(''); setMessages([]); setMessagesOffset(0); setMessagesHasMore(false); setOlderMessagesLoading(false); setOlderMessagesFailed(false); pendingScrollAdjustmentRef.current = null; setNotice(''); }} className="vow-inbox-back" aria-label={t('chatBackToList')}>←</button>
                       <span className="vow-inbox-avatar vow-inbox-avatar--header">{initials(selectedMatch.displayName)}</span>

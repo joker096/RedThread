@@ -24,6 +24,7 @@ import express from 'express';
 import { resolveTrustProxyHops } from './trustProxyConfig.js';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import { withPooledTransaction, rollbackPooledTransaction } from './withPooledTransaction.js';
+import { registerDatePlanRoutes } from './datePlans.js';
 import { normalizeMatchMessageHistoryOptions, matchMessageHistoryOrder, toChronologicalMessageHistory } from './matchMessageHistory.js';
 import { FEMALE_FREE_DAILY_PROFILE_LIMIT, canCreateFemaleFreeMatch, hasFemalePremiumAccess, remainingFemaleDailyProfiles } from './femaleFreeTierPolicy.js';
 import rateLimit from 'express-rate-limit';
@@ -3461,6 +3462,11 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
   } finally {
     client?.release();
   }
+});
+
+registerDatePlanRoutes(app, {
+  pool, requireSession, validateRequestOrigin, createNotification,
+  acquireGiftSafetyUserLocks, isUuid
 });
 
 app.get('/api/matches', requireSession, async (req, res) => {

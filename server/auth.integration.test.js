@@ -3396,6 +3396,239 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(femaleMessageToUnverifiedMale.status, 404,
       'women must not message male accounts without live L2 verification');
     await identityGateDb.query("UPDATE identity_verifications SET status = 'verified', provider_environment = 'live' WHERE user_id = $1", [maleRegistered.user.id]);
+    const datePlanPath = '/api/matches/' + matchPayload.match.id + '/date-plan';
+    const datePlanInput = {
+      venueName: 'Central Public Cafe',
+      startsAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      timeZone: 'Asia/Tbilisi',
+      isPublicVenue: true
+    };
+    // Date-plan consent and cancellation are safety functions, not paid features.
+    // Preserve and restore billing state so later integration checks remain isolated.
+    const femaleBillingBeforeDatePlan = await identityGateDb.query(
+      'SELECT female_trial_ends_at, premium_until, premium_lifetime FROM users WHERE id = $1',
+      [registered.user.id]
+    );
+    assert.equal(femaleBillingBeforeDatePlan.rowCount, 1);
+    await identityGateDb.query(
+      "UPDATE users SET female_trial_ends_at = NOW() - INTERVAL '1 day', premium_until = NULL, premium_lifetime = FALSE WHERE id = $1",
+      [registered.user.id]
+    );
+    const datePlanEligibility = await identityGateDb.query(
+      `SELECT m.status AS match_status, ua.status AS user_a_status, ub.status AS user_b_status,
+        pa.gender AS user_a_gender, pb.gender AS user_b_gender,
+        EXISTS (SELECT 1 FROM identity_verifications iv WHERE iv.user_id = male.id
+          AND iv.provider = 'didit' AND iv.status = 'verified' AND iv.provider_environment = 'live') AS male_l2,
+        identity_l3_has_active_approval(male.id) AS male_l3
+       FROM matches m
+       JOIN users ua ON ua.id = m.user_a_id
+       JOIN users ub ON ub.id = m.user_b_id
+       JOIN profiles pa ON pa.user_id = m.user_a_id
+       JOIN profiles pb ON pb.user_id = m.user_b_id
+       JOIN users male ON male.id = $2
+       WHERE m.id = $1 AND (m.user_a_id = $2 OR m.user_b_id = $2)`,
+      [matchPayload.match.id, maleRegistered.user.id]
+    );
+    assert.equal(datePlanEligibility.rowCount, 1, 'date plan fixture match must exist');
+    assert.equal(datePlanEligibility.rows[0].male_l2, true, 'the male fixture must have live L2 verification');
+    assert.equal(datePlanEligibility.rows[0].male_l3, true, 'the male fixture must have an active L3 approval');
+    const datePlanProposal = await request(datePlanPath, {
+      method: 'POST', headers: { Cookie: secondCookie }, body: JSON.stringify(datePlanInput)
+    });
+    const datePlanProposalPayload = await datePlanProposal.json();
+    assert.equal(datePlanProposal.status, 201,
+      'a participant may propose a future public meeting plan: ' + JSON.stringify(datePlanEligibility.rows[0]) +
+      '; API response: ' + JSON.stringify(datePlanProposalPayload));
+    const proposedDatePlan = datePlanProposalPayload.datePlan;
+    assert.equal(proposedDatePlan.status, 'proposed');
+    assert.equal(proposedDatePlan.confirmedByAAt, null);
+    assert.equal(proposedDatePlan.confirmedByBAt, null,
+      'the proposer must explicitly confirm rather than being treated as having consented');
+
+    const outsiderDatePlanRead = await request(datePlanPath, { headers: { Cookie: outsiderCookie } });
+    assert.equal(outsiderDatePlanRead.status, 404, 'a non-participant must not read a date plan');
+    const privateAddressProposal = await request(datePlanPath, {
+      method: 'POST', headers: { Cookie: secondCookie },
+      body: JSON.stringify({ ...datePlanInput, venueName: '123 Main Street' })
+    });
+    assert.equal(privateAddressProposal.status, 400, 'private street addresses must not be accepted as venue labels');
+
+    const simultaneousConfirmations = await Promise.all([
+      request(datePlanPath + '/confirm', { method: 'POST', headers: { Cookie: secondCookie } }),
+      request(datePlanPath + '/confirm', { method: 'POST', headers: { Cookie: maleCookie } })
+    ]);
+    assert.deepEqual(simultaneousConfirmations.map(response => response.status), [200, 200],
+      'both participants may confirm concurrently without losing either confirmation');
+    const confirmedDatePlanResponse = await request(datePlanPath, { headers: { Cookie: secondCookie } });
+    assert.equal(confirmedDatePlanResponse.status, 200);
+    const confirmedDatePlan = (await confirmedDatePlanResponse.json()).datePlan;
+    assert.equal(confirmedDatePlan.status, 'confirmed');
+    assert.ok(confirmedDatePlan.confirmedByAAt && confirmedDatePlan.confirmedByBAt,
+      'the plan becomes confirmed only after both independent confirmations');
+
+    const changedDatePlan = await request(datePlanPath, {
+      method: 'POST', headers: { Cookie: secondCookie },
+      body: JSON.stringify({ ...datePlanInput, venueName: 'Riverside Public Cafe' })
+    });
+    assert.equal(changedDatePlan.status, 201);
+    const resetDatePlan = (await changedDatePlan.json()).datePlan;
+    assert.equal(resetDatePlan.status, 'proposed');
+    assert.equal(resetDatePlan.confirmedByAAt, null);
+    assert.equal(resetDatePlan.confirmedByBAt, null,
+      'changing a confirmed proposal must revoke both previous confirmations');
+
+    const cancelDatePlan = await request(datePlanPath + '/cancel', {
+      method: 'POST', headers: { Cookie: secondCookie }
+    });
+    assert.equal(cancelDatePlan.status, 200);
+    const cancelledDatePlanRead = await request(datePlanPath, { headers: { Cookie: secondCookie } });
+    assert.equal((await cancelledDatePlanRead.json()).datePlan, null,
+      'a cancelled plan must no longer be exposed as active');
+
+    const secondDatePlanProposal = await request(datePlanPath, {
+      method: 'POST', headers: { Cookie: secondCookie },
+      body: JSON.stringify({ ...datePlanInput, venueName: 'City Public Park' })
+    });
+    assert.equal(secondDatePlanProposal.status, 201);
+    const declinedDatePlan = await request(datePlanPath + '/decline', {
+      method: 'POST', headers: { Cookie: maleCookie }
+    });
+    assert.equal(declinedDatePlan.status, 200);
+    const declinedDatePlanRead = await request(datePlanPath, { headers: { Cookie: secondCookie } });
+    assert.equal((await declinedDatePlanRead.json()).datePlan, null,
+      'a declined plan must no longer be exposed as active');
+    const datePlanNotifications = await request('/api/notifications', { headers: { Cookie: secondCookie } });
+    assert.equal(datePlanNotifications.status, 200);
+    assert.ok((await datePlanNotifications.json()).notifications.some(notification =>
+      notification.type === 'date_plan_declined'
+    ), 'the proposer must receive a notification when the other participant declines');
+
+    // A loss of L2 eligibility must cancel an existing plan in the same database transaction.
+    const l2SafetyProposal = await request(datePlanPath, {
+      method: 'POST', headers: { Cookie: secondCookie },
+      body: JSON.stringify({ ...datePlanInput, venueName: 'L2 Safety Test Cafe' })
+    });
+    assert.equal(l2SafetyProposal.status, 201);
+    const l2SafetyPlanId = (await l2SafetyProposal.json()).datePlan.id;
+    await identityGateDb.query(
+      "UPDATE identity_verifications SET status = 'pending' WHERE user_id = $1 AND provider = 'didit'",
+      [maleRegistered.user.id]
+    );
+    const l2SafetyCancelled = await identityGateDb.query(
+      'SELECT status, confirmed_by_a_at, confirmed_by_b_at FROM date_plans WHERE id = $1',
+      [l2SafetyPlanId]
+    );
+    assert.equal(l2SafetyCancelled.rows[0].status, 'cancelled',
+      'L2 loss must cancel a pending date plan rather than leave it to reappear after re-verification');
+    assert.equal(l2SafetyCancelled.rows[0].confirmed_by_a_at, null);
+    assert.equal(l2SafetyCancelled.rows[0].confirmed_by_b_at, null);
+    await identityGateDb.query(
+      "UPDATE identity_verifications SET status = 'verified', provider_environment = 'live' WHERE user_id = $1 AND provider = 'didit'",
+      [maleRegistered.user.id]
+    );
+
+    // Withdrawing the current L3 consent must cancel a plan even if the account stays active.
+    const l3SafetyProposal = await request(datePlanPath, {
+      method: 'POST', headers: { Cookie: secondCookie },
+      body: JSON.stringify({ ...datePlanInput, venueName: 'L3 Safety Test Cafe' })
+    });
+    assert.equal(l3SafetyProposal.status, 201);
+    const l3SafetyPlanId = (await l3SafetyProposal.json()).datePlan.id;
+    const currentApprovedSubmission = await identityGateDb.query(
+      "SELECT id FROM identity_l3_submissions WHERE user_id = $1 AND status = 'approved' ORDER BY approved_at DESC LIMIT 1",
+      [maleRegistered.user.id]
+    );
+    assert.equal(currentApprovedSubmission.rowCount, 1, 'the male test participant must have a current L3 approval');
+    await identityGateDb.query(
+      'UPDATE identity_l3_submissions SET updated_at = statement_timestamp() WHERE id = $1',
+      [currentApprovedSubmission.rows[0].id]
+    );
+    const planAfterNonDecisionUpdate = await identityGateDb.query(
+      'SELECT status FROM date_plans WHERE id = $1',
+      [l3SafetyPlanId]
+    );
+    assert.equal(planAfterNonDecisionUpdate.rows[0].status, 'proposed',
+      'non-decision metadata updates to an approved L3 submission must not cancel a valid date plan');
+    await identityGateDb.query(
+      'UPDATE identity_l3_consents SET withdrawn_at = statement_timestamp() WHERE user_id = $1 AND withdrawn_at IS NULL',
+      [maleRegistered.user.id]
+    );
+    const l3SafetyCancelled = await identityGateDb.query(
+      'SELECT status FROM date_plans WHERE id = $1',
+      [l3SafetyPlanId]
+    );
+    assert.equal(l3SafetyCancelled.rows[0].status, 'cancelled',
+      'L3 consent withdrawal must revoke prior date-plan confirmations');
+    await identityGateDb.query(
+      'UPDATE identity_l3_consents SET withdrawn_at = NULL WHERE user_id = $1',
+      [maleRegistered.user.id]
+    );
+
+    // Blocking a participant cancels the plan and notifies only the blocked person.
+    const blockSafetyProposal = await request(datePlanPath, {
+      method: 'POST', headers: { Cookie: secondCookie },
+      body: JSON.stringify({ ...datePlanInput, venueName: 'Block Safety Test Cafe' })
+    });
+    assert.equal(blockSafetyProposal.status, 201);
+    const blockSafetyPlanId = (await blockSafetyProposal.json()).datePlan.id;
+    await identityGateDb.query(
+      'INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2)',
+      [maleRegistered.user.id, registered.user.id]
+    );
+    const blockSafetyCancelled = await identityGateDb.query(
+      'SELECT status FROM date_plans WHERE id = $1',
+      [blockSafetyPlanId]
+    );
+    assert.equal(blockSafetyCancelled.rows[0].status, 'cancelled');
+    const blockSafetyNotifications = await identityGateDb.query(
+      "SELECT user_id FROM user_notifications WHERE type = 'date_plan_cancelled' AND metadata->>'datePlanId' = $1",
+      [blockSafetyPlanId]
+    );
+    assert.deepEqual(blockSafetyNotifications.rows.map(row => row.user_id), [registered.user.id],
+      'only the blocked participant receives the generic date-plan cancellation alert');
+    await identityGateDb.query(
+      'DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2',
+      [maleRegistered.user.id, registered.user.id]
+    );
+
+    // Closing a match cancels the plan and notifies both active participants.
+    const closeSafetyProposal = await request(datePlanPath, {
+      method: 'POST', headers: { Cookie: secondCookie },
+      body: JSON.stringify({ ...datePlanInput, venueName: 'Match Close Safety Cafe' })
+    });
+    assert.equal(closeSafetyProposal.status, 201);
+    const closeSafetyPlanId = (await closeSafetyProposal.json()).datePlan.id;
+    await identityGateDb.query(
+      "UPDATE matches SET status = 'closed' WHERE id = $1",
+      [matchPayload.match.id]
+    );
+    const closeSafetyCancelled = await identityGateDb.query(
+      'SELECT status FROM date_plans WHERE id = $1',
+      [closeSafetyPlanId]
+    );
+    assert.equal(closeSafetyCancelled.rows[0].status, 'cancelled');
+    const closeSafetyNotifications = await identityGateDb.query(
+      "SELECT user_id FROM user_notifications WHERE type = 'date_plan_cancelled' AND metadata->>'datePlanId' = $1 ORDER BY user_id",
+      [closeSafetyPlanId]
+    );
+    assert.deepEqual(closeSafetyNotifications.rows.map(row => row.user_id).sort(),
+      [registered.user.id, maleRegistered.user.id].sort(),
+      'both participants receive a generic alert when the match closes');
+    await identityGateDb.query(
+      "UPDATE matches SET status = 'active' WHERE id = $1",
+      [matchPayload.match.id]
+    );
+
+    const previousFemaleBilling = femaleBillingBeforeDatePlan.rows[0];
+    await identityGateDb.query(
+      `UPDATE users
+          SET female_trial_ends_at = $2, premium_until = $3, premium_lifetime = $4
+        WHERE id = $1`,
+      [registered.user.id, previousFemaleBilling.female_trial_ends_at,
+        previousFemaleBilling.premium_until, previousFemaleBilling.premium_lifetime]
+    );
+
+    await identityGateDb.query("UPDATE identity_verifications SET status = 'verified', provider_environment = 'live' WHERE user_id = $1", [maleRegistered.user.id]);
 
     const sendMessage = await request(`/api/matches/${matchPayload.match.id}/messages`, {
       method: 'POST',
