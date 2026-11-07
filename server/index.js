@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { queuePrivatePhotoPurges } from './photoPurge.js';
 import { cleanupPartnerServiceData, partnerRetentionOptions } from './partnerRetention.js';
+import { deliverPendingPartnerInquiries } from './partnerInquiryDelivery.js';
 import { normalizePartnerCountry, isPartnerServiceCategory, isPartnerServiceCurrency } from './partnerServicePolicy.js';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
@@ -6496,6 +6497,19 @@ if (pool && process.env.NODE_ENV !== 'test') {
   void runPartnerRetentionCleanup();
   const partnerRetentionInterval = setInterval(() => void runPartnerRetentionCleanup(), 24 * 60 * 60 * 1000);
   partnerRetentionInterval.unref();
+
+  const runPartnerInquiryDelivery = async () => {
+    if (!emailDeliveryConfigured()) return;
+    try {
+      const result = await deliverPendingPartnerInquiries(pool, sendConfiguredEmail, { limit: 10 });
+      if (result.claimed) console.info('Partner inquiry delivery batch completed:', result);
+    } catch (error) {
+      console.error('Partner inquiry delivery batch failed:', error?.message || 'unknown error');
+    }
+  };
+  void runPartnerInquiryDelivery();
+  const partnerInquiryDeliveryInterval = setInterval(() => void runPartnerInquiryDelivery(), 60 * 1000);
+  partnerInquiryDeliveryInterval.unref();
 }
 
 const server = app.listen(port, '0.0.0.0', () => {
