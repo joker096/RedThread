@@ -5193,7 +5193,7 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.equal(l3RevocationPlan.rows[0].status, 'cancelled',
         'revoking the active L3 approval must cancel the mutual date plan');
       const l3ConsentWithdrawal = await request('/api/identity/l3/consent', {
-        method: 'DELETE', headers: { Cookie: secondCookie }
+        method: 'DELETE', headers: { Cookie: maleCookie }
       });
       assert.equal(l3ConsentWithdrawal.status, 200,
         'the authenticated consent-withdrawal workflow must retire submissions before recording withdrawal');
