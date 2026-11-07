@@ -2052,6 +2052,7 @@ test('date-plan notification opens only its matching active chat', async ({ page
   const chatsButton = page.locator('[data-testid="nav-chats"]:visible, [data-testid="mobile-nav-chats"]:visible').first();
   await expect(chatsButton).toBeVisible();
   await chatsButton.click();
+  await expect(page.getByTestId('server-match-item')).toBeVisible();
   const openPlan = page.getByRole('button', { name: 'You received a date plan proposal.' });
   await expect(openPlan).toBeVisible();
   await openPlan.click();
@@ -2129,9 +2130,9 @@ test('switching chats cannot render a stale date plan from the previous match', 
   const chatsButton = page.locator('[data-testid="nav-chats"]:visible, [data-testid="mobile-nav-chats"]:visible').first();
   await expect(chatsButton).toBeVisible();
   await chatsButton.click();
-  await page.getByRole('button', { name: /Old Match/ }).click();
+  await page.getByTestId('server-match-item').filter({ hasText: 'Old Match' }).click();
   await oldRequestStarted;
-  await page.getByRole('button', { name: /New Match/ }).click();
+  await page.getByTestId('server-match-item').filter({ hasText: 'New Match' }).click();
   await expect(page.getByTestId('date-plan-panel')).toContainText('Current Public Cafe');
 
   releaseOldPlan();
@@ -2278,6 +2279,8 @@ test('date plan requires both participants and resets confirmations after a chan
     expect(currentPlan()?.status).toBe('confirmed');
 
     await participantA.page.getByLabel(/venue|место встречи/i).fill('Riverside Public Cafe');
+    // Changing the venue invalidates the previous public-place attestation.
+    await participantA.page.getByLabel(/public place|общественное место/i).check();
     await participantA.page.getByRole('button', { name: /update proposal|изменить предложение/i }).click();
     await expect(participantA.page.getByText(/both people must confirm|waiting for both|оба участника должны подтвердить|ожидаем подтверждения обоих/i)).toBeVisible();
     expect(currentPlan()?.status).toBe('proposed');
