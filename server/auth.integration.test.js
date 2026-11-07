@@ -2754,7 +2754,14 @@ test('auth API supports registration, session lookup, logout and login', {
 
     const femaleMatches = await request('/api/matches', { headers: { Cookie: secondCookie } });
     assert.equal(femaleMatches.status, 200);
-    assert.equal((await femaleMatches.json()).matches.some(match => match.id === matchPayload.match.id), true);
+    const femaleMatchesPayload = await femaleMatches.json();
+    assert.equal(femaleMatchesPayload.matches.some(match => match.id === matchPayload.match.id), true);
+    const visibleMatch = femaleMatchesPayload.matches.find(match => match.id === matchPayload.match.id);
+    assert.ok(visibleMatch);
+    for (const privateOrUnusedField of ['bio', 'gender', 'status', 'createdAt']) {
+      assert.equal(Object.hasOwn(visibleMatch, privateOrUnusedField), false,
+        `the inbox API must not expose unused profile or match field: ${privateOrUnusedField}`);
+    }
 
     const existingChatMessage = await request(`/api/matches/${matchPayload.match.id}/messages`, {
       method: 'POST',
@@ -2856,6 +2863,49 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(readMessages.status, 200);
     assert.equal((await readMessages.json()).messages.some(message => message.id === sentMessage.id), true);
+    
+    const latestHistoryResponse = await request(
+      `/api/matches/${matchPayload.match.id}/messages?limit=100&latest=true`,
+      { headers: { Cookie: secondCookie } }
+    );
+    assert.equal(latestHistoryResponse.status, 200);
+    const latestHistory = (await latestHistoryResponse.json()).messages;
+    const cursorMessage = latestHistory.find(message => message.id === sentMessage.id);
+    assert.ok(cursorMessage, 'latest history must include the newly sent message');
+    assert.match(cursorMessage.cursorCreatedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/,
+      'keyset cursors must preserve PostgreSQL microsecond precision');
+
+    const olderHistoryResponse = await request(
+      `/api/matches/${matchPayload.match.id}/messages?limit=100&latest=true&beforeCreatedAt=${encodeURIComponent(cursorMessage.cursorCreatedAt)}&beforeId=${encodeURIComponent(cursorMessage.id)}`,
+      { headers: { Cookie: secondCookie } }
+    );
+    assert.equal(olderHistoryResponse.status, 200);
+    assert.equal((await olderHistoryResponse.json()).messages.some(message => message.id === sentMessage.id), false,
+      'the exclusive keyset cursor must not repeat its boundary message');
+
+    const longMessageText = 'Буду рад обсудить планы на выходные и выбрать удобное место для встречи. '.repeat(8);
+    const longMessageResponse = await request(`/api/matches/${matchPayload.match.id}/messages`, {
+      method: 'POST', headers: { Cookie: maleCookie }, body: JSON.stringify({ text: longMessageText })
+    });
+    assert.equal(longMessageResponse.status, 201);
+    const longMessageMatchesResponse = await request('/api/matches', { headers: { Cookie: secondCookie } });
+    assert.equal(longMessageMatchesResponse.status, 200);
+    const longMessageMatch = (await longMessageMatchesResponse.json()).matches.find(match => match.id === matchPayload.match.id);
+    assert.ok(longMessageMatch);
+    assert.equal(longMessageMatch.lastMessage.length, 240);
+    const fullHistoryResponse = await request(
+      `/api/matches/${matchPayload.match.id}/messages?limit=100&latest=true`,
+      { headers: { Cookie: secondCookie } }
+    );
+    assert.equal(fullHistoryResponse.status, 200);
+    assert.equal((await fullHistoryResponse.json()).messages.some(message => message.text === longMessageText.trim()), true);
+
+    const malformedHistoryCursor = await request(
+      `/api/matches/${matchPayload.match.id}/messages?latest=true&beforeCreatedAt=${encodeURIComponent(cursorMessage.cursorCreatedAt)}`,
+      { headers: { Cookie: secondCookie } }
+    );
+    assert.equal(malformedHistoryCursor.status, 400);
+
 
     const femaleReplyAfterTrial = await request(`/api/matches/${matchPayload.match.id}/messages`, {
       method: 'POST',

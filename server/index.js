@@ -22,6 +22,7 @@ import { DIDIT_FREE_MONTHLY_SESSION_LIMIT } from './diditQuota.js';
 import express from 'express';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import { withPooledTransaction, rollbackPooledTransaction } from './withPooledTransaction.js';
+import { normalizeMatchMessageHistoryOptions, matchMessageHistoryOrder, toChronologicalMessageHistory } from './matchMessageHistory.js';
 import { FEMALE_FREE_DAILY_PROFILE_LIMIT, canCreateFemaleFreeMatch, hasFemalePremiumAccess, remainingFemaleDailyProfiles } from './femaleFreeTierPolicy.js';
 import rateLimit from 'express-rate-limit';
 import { PostgresRateLimitStore } from './postgresRateLimitStore.js';
@@ -3440,11 +3441,11 @@ app.get('/api/matches', requireSession, async (req, res) => {
       return res.status(401).json({ error: 'account_not_active' });
     }
     const result = await client.query(
-      `SELECT m.id, m.status, m.created_at AS "createdAt",
+      `SELECT m.id,
          other.user_id AS "partnerId", other.display_name AS "displayName",
          EXTRACT(YEAR FROM AGE(CURRENT_DATE, other.birth_date))::int AS age,
-         other.gender, other.country, other.city, other.bio,
-         latest.body AS "lastMessage", latest.created_at AS "lastMessageAt"
+         other.country, other.city,
+         LEFT(latest.body, 240) AS "lastMessage", latest.created_at AS "lastMessageAt"
        FROM matches m
        JOIN profiles other ON other.user_id = CASE WHEN m.user_a_id = $1 THEN m.user_b_id ELSE m.user_a_id END
        JOIN users me ON me.id = $1 AND me.status = 'active'
@@ -3483,8 +3484,12 @@ app.get('/api/matches', requireSession, async (req, res) => {
 
 app.get('/api/matches/:matchId/messages', requireSession, async (req, res) => {
   if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
-  const limit = Math.min(100, Math.max(1, Number.parseInt(String(req.query.limit ?? '50'), 10) || 50));
-  const offset = Math.min(5000, Math.max(0, Number.parseInt(String(req.query.offset ?? '0'), 10) || 0));
+  const { limit, offset, latest, beforeCreatedAt, beforeId, invalidCursor } = normalizeMatchMessageHistoryOptions(req.query);
+  if (invalidCursor) return res.status(400).json({ error: 'invalid_message_history_cursor' });
+  const order = matchMessageHistoryOrder(latest);
+  const hasCursor = latest && beforeCreatedAt !== null && beforeId !== null;
+  const cursorClause = hasCursor ? 'AND (created_at, id) < ($4::timestamptz, $5::uuid)' : '';
+  const queryOffset = hasCursor ? 0 : offset;
 
   let client;
   try {
@@ -3535,13 +3540,19 @@ app.get('/api/matches/:matchId/messages', requireSession, async (req, res) => {
     }
 
     const result = await client.query(
-      `SELECT id, sender_id AS "senderId", body AS text, created_at AS "createdAt"
-       FROM messages WHERE match_id = $1 AND deleted_at IS NULL
-       ORDER BY created_at ASC LIMIT $2 OFFSET $3`,
-      [req.params.matchId, limit, offset]
+      `SELECT id, sender_id AS "senderId", body AS text, created_at AS "createdAt",
+         to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "cursorCreatedAt"
+       FROM messages WHERE match_id = $1 AND deleted_at IS NULL ${cursorClause}
+       ORDER BY created_at ${order}, id ${order} LIMIT $2 OFFSET $3`,
+      hasCursor
+        ? [req.params.matchId, limit, queryOffset, beforeCreatedAt, beforeId]
+        : [req.params.matchId, limit, queryOffset]
     );
     await client.query('COMMIT');
-    return res.json({ messages: result.rows, pagination: { limit, offset } });
+    return res.json({
+      messages: toChronologicalMessageHistory(result.rows, latest),
+      pagination: { limit, offset, latest }
+    });
   } catch (error) {
     if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Message history failed:', error?.message || 'unknown error');

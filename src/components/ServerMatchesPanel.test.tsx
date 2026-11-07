@@ -106,3 +106,13 @@ test('treats empty and whitespace-only match message timestamps as absent', () =
     assert.equal(normalizeServerMatch({ ...valid, lastMessageAt })?.lastMessageAt, null);
   }
 });
+
+test('preserves the server precision cursor separately from the display timestamp', () => {
+  const message = normalizeServerMessage({
+    id: 'message-precision', senderId: 'user-1', text: 'Hello',
+    createdAt: '2026-11-05T08:00:00.000Z',
+    cursorCreatedAt: '2026-11-05T08:00:00.000123Z'
+  });
+  assert.equal(message?.createdAt, '2026-11-05T08:00:00.000Z');
+  assert.equal(message?.cursorCreatedAt, '2026-11-05T08:00:00.000123Z');
+});
