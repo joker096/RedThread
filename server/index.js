@@ -981,7 +981,7 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
     );
     const accountReuseRestriction = await client.query(
       `WITH policy_clock AS MATERIALIZED (
-         SELECT ${FEMALE_POLICY_CLOCK_SQL} AS policy_now
+         SELECT clock_timestamp() AS policy_now
        )
        SELECT restrictions.expires_at,
               GREATEST(1, CEIL(EXTRACT(EPOCH FROM (restrictions.expires_at - policy_clock.policy_now))))::int AS retry_after_seconds
