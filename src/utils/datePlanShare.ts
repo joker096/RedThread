@@ -14,7 +14,7 @@ export type DatePlanShareResult = 'shared' | 'copied' | 'cancelled' | 'unavailab
 
 const normalizeLine = (value: unknown, maxLength: number): string | null => {
   if (typeof value !== 'string') return null;
-  const normalized = value.replace(/[\\r\\n\\t]+/g, ' ').replace(/\\s{2,}/g, ' ').trim();
+  const normalized = value.replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
   return normalized && normalized.length <= maxLength ? normalized : null;
 };
 
@@ -28,7 +28,7 @@ export function buildDatePlanShareText(
   const prefix = normalizeLine(labels.prefix, 120);
   const reminder = normalizeLine(labels.reminder, 240);
   if (!venueName || !dateTime || !timeZone || !prefix || !reminder) return null;
-  return [prefix, venueName, dateTime + ' (' + timeZone + ')', reminder].join('\\n');
+  return [prefix, venueName, dateTime + ' (' + timeZone + ')', reminder].join('\n');
 }
 
 export async function shareDatePlanText(
