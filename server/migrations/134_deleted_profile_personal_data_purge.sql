@@ -33,10 +33,6 @@ CREATE TRIGGER profiles_require_gender_unless_deleted
   BEFORE INSERT OR UPDATE OF gender, user_id ON profiles
   FOR EACH ROW EXECUTE FUNCTION require_gender_for_non_deleted_profile();
 
-DELETE FROM user_safety_screenings AS s
-USING users AS u
-WHERE u.id = s.user_id AND u.status = 'deleted';
-
 -- Backfill credentials/contact data for tombstones created before this migration.
 UPDATE users
 SET email = 'deleted+' || id::text || '@deleted.invalid',
@@ -175,8 +171,6 @@ CREATE OR REPLACE FUNCTION scrub_deleted_account_data()
 RETURNS trigger LANGUAGE plpgsql AS $profile_scrub$
 BEGIN
   IF NEW.status = 'deleted' AND OLD.status IS DISTINCT FROM 'deleted' THEN
-    DELETE FROM user_safety_screenings WHERE user_id = NEW.id;
-
     -- A direct status transition must scrub account credentials/contact data
     -- just like the HTTP deletion route. Keep only the non-reversible tombstone
     -- email needed by the users.email NOT NULL/UNIQUE invariant.
@@ -252,7 +246,7 @@ CREATE TRIGGER users_scrub_deleted_account_data
   EXECUTE FUNCTION scrub_deleted_account_data();
 
 COMMENT ON FUNCTION scrub_deleted_account_data() IS
-  'Scrubs credentials, contact and profile data, removes photo metadata, queues private photo/L3 media purge, and removes transient safety screenings when an account is deleted.';
+  'Scrubs credentials, contact and profile data, removes photo metadata, queues private photo/L3 media purge, and retains immutable safety-screening evidence with its opaque owner snapshot.';
 
 -- A deleted account is a terminal tombstone. Reactivation would expose an
 -- intentionally scrubbed profile whose required identity fields no longer exist.

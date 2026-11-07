@@ -6,6 +6,40 @@ import { purgeDeletedAccountL3SubmissionMetadata } from './process-identity-l3-q
 
 const { Pool } = pg;
 
+async function createUploadedL3Submission(client, userId, storageObjectKey) {
+  await client.query(
+    'INSERT INTO identity_l3_consents (user_id, consent_version, granted_at) VALUES ($1, 2, statement_timestamp())',
+    [userId]
+  );
+  await client.query(
+    `INSERT INTO identity_l3_consent_events
+       (user_id, actor_user_id, event_type, consent_version, occurred_at)
+     SELECT user_id, user_id, 'granted', consent_version, granted_at
+     FROM identity_l3_consents
+     WHERE user_id = $1`,
+    [userId]
+  );
+  const draft = await client.query(
+    "INSERT INTO identity_l3_submissions (user_id, status) VALUES ($1, 'draft') RETURNING id",
+    [userId]
+  );
+  const submissionId = draft.rows[0].id;
+  await client.query(
+    "UPDATE identity_l3_submissions SET status = 'upload_authorized' WHERE id = $1",
+    [submissionId]
+  );
+  await client.query(
+    `UPDATE identity_l3_submissions
+     SET status = 'uploaded', storage_object_key = $2,
+         media_sha256 = repeat('a', 64), media_mime_type = 'video/mp4',
+         media_size_bytes = 1024, media_duration_seconds = 30,
+         uploaded_at = statement_timestamp()
+     WHERE id = $1`,
+    [submissionId, storageObjectKey]
+  );
+  return submissionId;
+}
+
 test('account deletion scrubs profile personal data in the database', {
   skip: !process.env.DATABASE_URL,
   timeout: 10_000
@@ -41,11 +75,7 @@ test('account deletion scrubs profile personal data in the database', {
        VALUES ($1, $2, 'image/jpeg', 128, 1, 1, 'pending')`,
       [userId, photoStoragePath]
     );
-    const l3Submission = await client.query(
-      `INSERT INTO identity_l3_submissions (user_id, status, storage_object_key)
-       VALUES ($1, 'draft', 'identity-l3/deleted-account-test') RETURNING id`,
-      [userId]
-    );
+    const l3SubmissionId = await createUploadedL3Submission(client, userId, 'identity-l3/deleted-account-test');
 
     await client.query(
       "INSERT INTO user_safety_screenings (user_id, scope, flags, severity, engine_version, review_status) VALUES ($1, 'profile', jsonb_build_array('profile_flag'), 'high', 'test-v1', 'pending')",
@@ -73,11 +103,14 @@ test('account deletion scrubs profile personal data in the database', {
 
     await client.query("UPDATE users SET status = 'deleted' WHERE id = $1", [userId]);
     const screenings = await client.query(
-      'SELECT COUNT(*)::int AS count FROM user_safety_screenings WHERE user_id = $1',
+      'SELECT user_id, user_ref, scope, flags, severity, engine_version FROM user_safety_screenings WHERE user_id = $1',
       [userId]
     );
-    assert.equal(screenings.rows[0].count, 0,
-      'account deletion must purge transient profile screening results');
+    assert.equal(screenings.rowCount, 1,
+      'account deletion must retain immutable safety-screening evidence');
+    assert.equal(screenings.rows[0].user_id, userId);
+    assert.equal(screenings.rows[0].user_ref, userId,
+      'the opaque owner snapshot must survive profile erasure');
     const photoAssets = await client.query(
       'SELECT COUNT(*)::int AS count FROM photo_assets WHERE user_id = $1',
       [userId]
@@ -92,7 +125,7 @@ test('account deletion scrubs profile personal data in the database', {
       'deleted-account transitions must durably queue private photo bytes for unlink');
     const l3 = await client.query(
       'SELECT status, storage_object_key FROM identity_l3_submissions WHERE id = $1',
-      [l3Submission.rows[0].id]
+      [l3SubmissionId]
     );
     assert.equal(l3.rows[0]?.status, 'withdrawn',
       'a deleted account must retire any in-flight L3 submission');
@@ -100,7 +133,7 @@ test('account deletion scrubs profile personal data in the database', {
       'the encrypted object key must remain until the purge worker confirms deletion');
     const l3Purge = await client.query(
       'SELECT COUNT(*)::int AS count FROM identity_l3_media_purge_jobs WHERE submission_id = $1',
-      [l3Submission.rows[0].id]
+      [l3SubmissionId]
     );
     assert.equal(l3Purge.rows[0].count, 1,
       'deleted-account transitions must enqueue L3 media purge');
@@ -127,7 +160,7 @@ test('account deletion scrubs profile personal data in the database', {
        SET status = 'processing', attempts = 1, lease_token = $2,
            lease_expires_at = statement_timestamp() + INTERVAL '1 minute'
        WHERE submission_id = $1`,
-      [l3Submission.rows[0].id, purgeLeaseToken]
+      [l3SubmissionId, purgeLeaseToken]
     );
     await client.query(
       "SELECT set_config('app.identity_l3_actor_user_id', '', TRUE), set_config('app.identity_l3_reason_code', 'media_purged', TRUE)"
@@ -136,33 +169,33 @@ test('account deletion scrubs profile personal data in the database', {
       `UPDATE identity_l3_submissions
        SET storage_object_key = NULL, media_purged_at = statement_timestamp()
        WHERE id = $1`,
-      [l3Submission.rows[0].id]
+      [l3SubmissionId]
     );
     await client.query(
       `UPDATE identity_l3_media_purge_jobs
        SET status = 'completed', lease_token = NULL, lease_expires_at = NULL,
            completed_at = statement_timestamp(), updated_at = statement_timestamp()
        WHERE submission_id = $1 AND lease_token = $2`,
-      [l3Submission.rows[0].id, purgeLeaseToken]
+      [l3SubmissionId, purgeLeaseToken]
     );
     assert.equal(
-      await purgeDeletedAccountL3SubmissionMetadata(client, l3Submission.rows[0].id, userId),
+      await purgeDeletedAccountL3SubmissionMetadata(client, l3SubmissionId, userId),
       1,
       'the worker must remove L3 metadata after confirmed physical media purge for a deleted account'
     );
     const purgedSubmission = await client.query(
       'SELECT id FROM identity_l3_submissions WHERE id = $1',
-      [l3Submission.rows[0].id]
+      [l3SubmissionId]
     );
     assert.equal(purgedSubmission.rowCount, 0);
     const purgedJob = await client.query(
       'SELECT id FROM identity_l3_media_purge_jobs WHERE submission_id = $1',
-      [l3Submission.rows[0].id]
+      [l3SubmissionId]
     );
     assert.equal(purgedJob.rowCount, 0);
     const purgedEvents = await client.query(
       'SELECT id FROM identity_l3_decision_events WHERE submission_id = $1',
-      [l3Submission.rows[0].id]
+      [l3SubmissionId]
     );
     assert.equal(purgedEvents.rowCount, 0,
       'L3 decision history for a deleted account must be removed only after media purge is confirmed');
@@ -268,12 +301,7 @@ test('deleted-account L3 metadata cleanup commits after deferred purge evidence 
       [email]
     );
     userId = user.rows[0].id;
-    const submission = await client.query(
-      `INSERT INTO identity_l3_submissions (user_id, status, storage_object_key)
-       VALUES ($1, 'draft', 'identity-l3/deferred-commit-test') RETURNING id`,
-      [userId]
-    );
-    submissionId = submission.rows[0].id;
+    submissionId = await createUploadedL3Submission(client, userId, 'identity-l3/deferred-commit-test');
     await client.query("UPDATE users SET status = 'deleted' WHERE id = $1", [userId]);
     await client.query('COMMIT');
 

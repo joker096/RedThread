@@ -1557,10 +1557,28 @@ test('auth API supports registration, session lookup, logout and login', {
       // disposable fixture accounts so account erasure scrubs profiles while
       // preserving order/event provenance.
       const giftFixtureUserIds = [giftSender.user.id, giftRecipient.user.id];
+      const screeningEvidenceBefore = await giftTestDb.query(
+        `SELECT id, user_ref, scope, flags, severity, engine_version, review_status
+         FROM user_safety_screenings
+         WHERE user_id = ANY($1::uuid[])
+         ORDER BY id`,
+        [giftFixtureUserIds]
+      );
+      assert.ok(screeningEvidenceBefore.rowCount > 0,
+        'registered fixture accounts must have screening evidence to retain');
       await giftTestDb.query(
         "UPDATE users SET status = 'deleted' WHERE id = ANY($1::uuid[])",
         [giftFixtureUserIds]
       );
+      const screeningEvidenceAfter = await giftTestDb.query(
+        `SELECT id, user_ref, scope, flags, severity, engine_version, review_status
+         FROM user_safety_screenings
+         WHERE user_id = ANY($1::uuid[])
+         ORDER BY id`,
+        [giftFixtureUserIds]
+      );
+      assert.deepEqual(screeningEvidenceAfter.rows, screeningEvidenceBefore.rows,
+        'account tombstoning must preserve immutable safety-screening evidence');
       await giftTestDb.end();
     }
 
