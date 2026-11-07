@@ -15,7 +15,7 @@ function retentionDays(value, fallback) {
 
 /**
  * Removes requester contact details and expired, unpublished partner applications.
- * Approved applications are never removed by this job because they may back live listings.
+ * Published approved applications are never removed. Unpublished approved applications expire after the inactive retention window.
  */
 export async function cleanupPartnerServiceData(pool, options = {}) {
   if (!pool || typeof pool.connect !== 'function') {
@@ -35,13 +35,15 @@ export async function cleanupPartnerServiceData(pool, options = {}) {
             SELECT id FROM partner_service_applications
             WHERE (status = 'rejected' AND updated_at < NOW() - make_interval(days => $2))
                OR (status IN ('pending', 'in_review') AND updated_at < NOW() - make_interval(days => $3))
+               OR (status = 'approved' AND published_at IS NULL AND updated_at < NOW() - make_interval(days => $3))
           )`,
       [inquiryDays, rejectedApplicationDays, inactiveApplicationDays]
     );
     const applications = await client.query(
       `DELETE FROM partner_service_applications
        WHERE (status = 'rejected' AND updated_at < NOW() - make_interval(days => $1))
-          OR (status IN ('pending', 'in_review') AND updated_at < NOW() - make_interval(days => $2))`,
+          OR (status IN ('pending', 'in_review') AND updated_at < NOW() - make_interval(days => $2))
+          OR (status = 'approved' AND published_at IS NULL AND updated_at < NOW() - make_interval(days => $2))`,
       [rejectedApplicationDays, inactiveApplicationDays]
     );
     await client.query('COMMIT');
