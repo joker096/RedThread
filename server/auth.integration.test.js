@@ -3630,9 +3630,12 @@ test('auth API supports registration, session lookup, logout and login', {
     );
 
     // Closing a match cancels the plan and notifies both active participants.
-    // The API rate-limit policy is tested separately; reset this isolated test
-    // server's date-plan bucket so this long lifecycle scenario does not consume
-    // more than the production 12-request window while testing cancellation.
+    // This integration test deliberately exercises more than 12 writes by one
+    // fixture account; reset only that account's bucket before the next scenario.
+    await identityGateDb.query(
+      'DELETE FROM api_rate_limit_counters WHERE key = $1',
+      [`date-plan:user:${registered.user.id}`]
+    );
     const closeSafetyProposal = await request(datePlanPath, {
       method: 'POST', headers: { Cookie: secondCookie },
       body: JSON.stringify({ ...datePlanInput, venueName: 'Match Close Safety Cafe' })
