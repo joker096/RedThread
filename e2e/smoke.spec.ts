@@ -2287,6 +2287,8 @@ test('date plan requires both participants and resets confirmations after a chan
     await expect(participantB.page.getByText('Central Public Cafe')).toBeVisible();
     await participantB.page.getByRole('button', { name: /^I confirm this plan$|^Подтверждаю этот план$/i }).click();
     await expect(participantB.page.getByText(/both people must confirm|one person has confirmed|waiting for both|ожидаем подтверждения обоих|один участник/i)).toBeVisible();
+    await expect(participantB.page.getByRole('button', { name: /^Cancel date plan$|^Отменить план встречи$/i })).toBeVisible();
+    await expect(participantB.page.getByRole('button', { name: /^Decline proposal$|^Отклонить предложение$/i })).toHaveCount(0);
     expect(currentPlan()?.status).toBe('proposed');
     expect(currentPlan()?.confirmedByAAt).toBeNull();
     expect(currentPlan()?.confirmedByBAt).not.toBeNull();
