@@ -3001,6 +3001,9 @@ test('auth API supports registration, session lookup, logout and login', {
 
     // Two different male accounts race to create a match with the same
     // free-tier woman when her final weekly match slot is available.
+    // This integration scenario exercises quota concurrency, not the auth
+    // limiter; clear only the isolated test server's persisted auth counters.
+    await identityGateDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'auth:%'");
     const concurrentMaleRegistration = await request('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify({
