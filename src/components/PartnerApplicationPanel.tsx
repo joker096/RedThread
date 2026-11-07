@@ -134,7 +134,7 @@ export const PartnerApplicationPanel: React.FC = () => {
           </label>
           <div className="grid gap-3 min-[420px]:grid-cols-2">
             <label className={labelClass}>{tr('Цена от (необязательно)', 'Starting price (optional)')}
-              <input type="number" min="0" max="10000000" step="0.01" inputMode="decimal" placeholder="{tr('Например, 150', 'For example, 150')}" value={application.priceFrom} onChange={event => update('priceFrom', event.target.value)} className={fieldClass} />
+              <input type="number" min="0" max="10000000" step="0.01" inputMode="decimal" placeholder={tr('Например, 150', 'For example, 150')} value={application.priceFrom} onChange={event => update('priceFrom', event.target.value)} className={fieldClass} />
             </label>
             <label className={labelClass}>{tr('Валюта цены', 'Price currency')}
               <select value={application.priceCurrency} onChange={event => update('priceCurrency', event.target.value)} className={fieldClass}>
@@ -142,11 +142,11 @@ export const PartnerApplicationPanel: React.FC = () => {
               </select>
             </label>
             <label className={labelClass}>{tr('Языки обслуживания (через запятую)', 'Service languages (comma-separated)')}
-              <input maxLength={500} aria-describedby="partner-languages-count" placeholder="{tr('Русский, English', 'English, Russian')}" value={application.serviceLanguages} onChange={event => update('serviceLanguages', event.target.value)} className={fieldClass} />
+              <input maxLength={500} aria-describedby="partner-languages-count" placeholder={tr('Русский, English', 'English, Russian')} value={application.serviceLanguages} onChange={event => update('serviceLanguages', event.target.value)} className={fieldClass} />
               <span id="partner-languages-count" className="mt-1 block text-right text-[11px] text-stone-400" aria-live="polite">{application.serviceLanguages.length}/500</span>
             </label>
             <label className={labelClass}>{tr('Доступность / сезон (необязательно)', 'Availability / season (optional)')}
-              <input maxLength={500} aria-describedby="partner-availability-count" placeholder="{tr('Например: по предварительной записи', 'For example: by appointment')}" value={application.availabilityNote} onChange={event => update('availabilityNote', event.target.value)} className={fieldClass} />
+              <input maxLength={500} aria-describedby="partner-availability-count" placeholder={tr('Например: по предварительной записи', 'For example: by appointment')} value={application.availabilityNote} onChange={event => update('availabilityNote', event.target.value)} className={fieldClass} />
               <span id="partner-availability-count" className="mt-1 block text-right text-[11px] text-stone-400" aria-live="polite">{application.availabilityNote.length}/500</span>
             </label>
           </div>
