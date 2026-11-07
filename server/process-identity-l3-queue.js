@@ -65,6 +65,10 @@ async function releaseAccountLock(client, userId) {
 }
 
 export async function purgeDeletedAccountL3SubmissionMetadata(client, submissionId, userId) {
+  // Validate the deferred media-purge evidence while the completed job still
+  // exists. Deleting the submission cascades that job, so waiting until COMMIT
+  // would make the deferred trigger unable to verify the completed obligation.
+  await client.query('SET CONSTRAINTS identity_l3_submission_requires_completed_purge_job IMMEDIATE');
   const result = await client.query(
     `DELETE FROM identity_l3_submissions AS s
      USING users AS u
