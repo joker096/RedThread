@@ -352,12 +352,15 @@ export function registerDatePlanRoutes(app, deps) {
       const pair = await lockMatch(client, req.params.matchId, req.authUser.id);
       if (!pair) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'match_not_found' }); }
       const current = await client.query(
-        "SELECT id, proposed_by AS \"proposedBy\" FROM date_plans WHERE match_id = $1 AND status = 'proposed' FOR UPDATE",
+        "SELECT id, proposed_by AS \"proposedBy\", confirmed_by_a_at AS \"confirmedByAAt\", confirmed_by_b_at AS \"confirmedByBAt\" FROM date_plans WHERE match_id = $1 AND status = 'proposed' FOR UPDATE",
         [req.params.matchId]);
       if (!current.rowCount) { await client.query('ROLLBACK'); return res.status(409).json({ error: 'date_plan_not_proposed' }); }
-      if (current.rows[0].proposedBy === req.authUser.id) {
+      const actorConfirmed = pair.userAId === req.authUser.id
+        ? current.rows[0].confirmedByAAt
+        : current.rows[0].confirmedByBAt;
+      if (current.rows[0].proposedBy === req.authUser.id || actorConfirmed) {
         await client.query('ROLLBACK');
-        return res.status(409).json({ error: 'date_plan_proposer_cannot_decline' });
+        return res.status(409).json({ error: 'date_plan_cannot_decline' });
       }
       await client.query(
         "UPDATE date_plans SET status = 'declined', confirmed_by_a_at = NULL, confirmed_by_b_at = NULL, updated_at = NOW() WHERE id = $1",
