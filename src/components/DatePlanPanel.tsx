@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';\nimport { Share2 } from 'lucide-react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
-import { resolveUniqueLocalDateTime } from '../utils/zonedDateTime.ts';
+import { resolveUniqueLocalDateTime } from '../utils/zonedDateTime.ts';\nimport { buildDatePlanShareText, shareDatePlanText } from '../utils/datePlanShare.ts';
 
 type DatePlan = {
   id: string; proposedBy: string; venueName: string; startsAt: string; timeZone: string;
@@ -23,7 +23,7 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState('');\n  const [shareNotice, setShareNotice] = useState('');
   const refreshRequestId = useRef(0);
   const refresh = useCallback(async () => {
     const requestId = ++refreshRequestId.current;
@@ -80,6 +80,33 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
     } finally { setSaving(false); }
   };
 
+  const shareConfirmedPlan = async () => {
+    if (!plan || plan.status !== 'confirmed') return;
+    setShareNotice('');
+    const text = buildDatePlanShareText({
+      venueName: plan.venueName,
+      dateTime: formatDate(plan.startsAt, { dateStyle: 'medium', timeStyle: 'short', timeZone: plan.timeZone }),
+      timeZone: plan.timeZone
+    }, {
+      prefix: t('datePlanSharePrefix'),
+      reminder: t('datePlanShareReminder')
+    });
+    if (!text) {
+      setShareNotice(t('datePlanShareUnavailable'));
+      return;
+    }
+    const share = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
+      ? navigator.share.bind(navigator)
+      : undefined;
+    const writeText = typeof navigator !== 'undefined' && typeof navigator.clipboard?.writeText === 'function'
+      ? navigator.clipboard.writeText.bind(navigator.clipboard)
+      : undefined;
+    const result = await shareDatePlanText(text, t('datePlanShareTitle'), { share, writeText });
+    if (result === 'shared') setShareNotice(t('datePlanShared'));
+    else if (result === 'copied') setShareNotice(t('datePlanShareCopied'));
+    else if (result === 'unavailable') setShareNotice(t('datePlanShareUnavailable'));
+  };
+
   const myConfirmed = plan && (currentUserId === userAId ? plan.confirmedByAAt : currentUserId === userBId ? plan.confirmedByBAt : null);
   const otherConfirmed = plan && (currentUserId === userAId ? plan.confirmedByBAt : currentUserId === userBId ? plan.confirmedByAAt : null);
   const minDate = localDateTime(new Date(Date.now() + 30 * 60 * 1000));
@@ -96,6 +123,12 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
               {plan.status === 'confirmed' ? (
                 <div>
                   <p role="status" className="mt-2 text-xs font-semibold text-emerald-300">{t('datePlanConfirmed')}</p>
+                  <button data-testid="date-plan-share" type="button" onClick={() => void shareConfirmedPlan()} aria-label={t('datePlanShareTitle')} className="mt-2 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-950/20 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-950/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">
+                    <Share2 className="h-4 w-4" aria-hidden="true" />
+                    {t('datePlanShareButton')}
+                  </button>
+                  <p className="mt-2 text-[11px] leading-relaxed text-stone-400">{t('datePlanSharePrivacy')}</p>
+                  {shareNotice && <p role="status" aria-live="polite" aria-atomic="true" className="mt-2 text-xs text-emerald-200">{shareNotice}</p>}
                   <button type="button" disabled={saving} onClick={() => { if (window.confirm(t('datePlanCancelConfirm'))) void submit('/cancel'); }} className="mt-2 min-h-[48px] w-full rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-stone-200 disabled:opacity-50">{t('datePlanCancel')}</button>
                 </div>
               ) : (
