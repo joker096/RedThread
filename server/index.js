@@ -21,6 +21,7 @@ import { createDiditSession, DiditSessionNotCreatedError, isDiditConfigured, isD
 import { canInteract as canIdentityInteract } from './identityAccessPolicy.js';
 import { DIDIT_FREE_MONTHLY_SESSION_LIMIT, releaseDiditSessionReservation } from './diditQuota.js';
 import express from 'express';
+import { resolveTrustProxyHops } from './trustProxyConfig.js';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import { withPooledTransaction, rollbackPooledTransaction } from './withPooledTransaction.js';
 import { normalizeMatchMessageHistoryOptions, matchMessageHistoryOrder, toChronologicalMessageHistory } from './matchMessageHistory.js';
@@ -42,6 +43,8 @@ import {
 
 const { Pool } = pg;
 const app = express();
+// Trust only the explicitly configured number of proxy hops; never arbitrary forwarded headers.
+app.set('trust proxy', resolveTrustProxyHops(process.env.TRUST_PROXY_HOPS));
 const port = Number.parseInt(process.env.API_PORT || '3001', 10);
 const databaseUrl = process.env.DATABASE_URL;
 const sessionDurationSeconds = 60 * 60 * 24 * 30;
