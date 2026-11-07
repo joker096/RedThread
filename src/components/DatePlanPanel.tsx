@@ -1,6 +1,8 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';\nimport { Share2 } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Share2 } from 'lucide-react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
-import { resolveUniqueLocalDateTime } from '../utils/zonedDateTime.ts';\nimport { buildDatePlanShareText, shareDatePlanText } from '../utils/datePlanShare.ts';
+import { resolveUniqueLocalDateTime } from '../utils/zonedDateTime.ts';
+import { buildDatePlanShareText, shareDatePlanText } from '../utils/datePlanShare.ts';
 
 type DatePlan = {
   id: string; proposedBy: string; venueName: string; startsAt: string; timeZone: string;
@@ -23,7 +25,8 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');\n  const [shareNotice, setShareNotice] = useState('');
+  const [notice, setNotice] = useState('');
+  const [shareNotice, setShareNotice] = useState('');
   const refreshRequestId = useRef(0);
   const refresh = useCallback(async () => {
     const requestId = ++refreshRequestId.current;
