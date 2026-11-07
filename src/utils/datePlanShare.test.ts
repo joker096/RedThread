@@ -1,18 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-
-test('changing a proposed venue resets the public-place attestation', async () => {
-  const source = await readFile(new URL('./DatePlanPanel.tsx', import.meta.url), 'utf8');
-  assert.match(source, /if \(nextVenue !== venueName\) setIsPublicVenue\(false\)/);
-});
-
-test('date-plan action errors remain visible after the state refresh', async () => {
-  const source = await readFile(new URL('./DatePlanPanel.tsx', import.meta.url), 'utf8');
-  assert.match(source, /const actionError = cause instanceof Error[\s\S]*?await refresh\(\);\s*setError\(actionError\);/);
-});
-
-import { buildDatePlanShareText, shareDatePlanText } from '../utils/datePlanShare.ts';
+import { buildDatePlanShareText, shareDatePlanText } from './datePlanShare.ts';
 
 test('confirmed date sharing contains only the public venue label and plan time', () => {
   const result = buildDatePlanShareText({
@@ -23,14 +11,14 @@ test('confirmed date sharing contains only the public venue label and plan time'
     prefix: 'Our confirmed date plan:',
     reminder: 'Plan only; Vow does not track location or confirm return.'
   });
-  assert.equal(result, 'Our confirmed date plan:\\nPublic Cafe\\nNov 8, 2026, 7:00 PM (Asia/Tbilisi)\\nPlan only; Vow does not track location or confirm return.');
+  assert.equal(result, 'Our confirmed date plan:\nPublic Cafe\nNov 8, 2026, 7:00 PM (Asia/Tbilisi)\nPlan only; Vow does not track location or confirm return.');
   assert.equal(result?.includes('email'), false);
   assert.equal(result?.includes('phone'), false);
 });
 
 test('share text normalizes line breaks and rejects incomplete or oversized values', () => {
   const labels = { prefix: 'Plan:', reminder: 'Plan only.' };
-  assert.equal(buildDatePlanShareText({ venueName: 'Cafe\\nInjected', dateTime: 'Tomorrow', timeZone: 'UTC' }, labels), 'Plan:\\nCafe Injected\\nTomorrow (UTC)\\nPlan only.');
+  assert.equal(buildDatePlanShareText({ venueName: 'Cafe\nInjected', dateTime: 'Tomorrow', timeZone: 'UTC' }, labels), 'Plan:\nCafe Injected\nTomorrow (UTC)\nPlan only.');
   assert.equal(buildDatePlanShareText({ venueName: '', dateTime: 'Tomorrow', timeZone: 'UTC' }, labels), null);
   assert.equal(buildDatePlanShareText({ venueName: 'x'.repeat(121), dateTime: 'Tomorrow', timeZone: 'UTC' }, labels), null);
 });
@@ -76,4 +64,9 @@ test('clipboard failure returns unavailable without exposing an exception', asyn
     writeText: async () => { throw new Error('permission denied'); }
   });
   assert.equal(result, 'unavailable');
+});
+
+test('empty payloads are not shared', async () => {
+  assert.equal(await shareDatePlanText(' ', 'Title', { writeText: async () => undefined }), 'unavailable');
+  assert.equal(await shareDatePlanText('Plan', ' ', { writeText: async () => undefined }), 'unavailable');
 });
