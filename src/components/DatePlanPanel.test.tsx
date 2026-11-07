@@ -11,3 +11,8 @@ test('date-plan action errors remain visible after the state refresh', async () 
   const source = await readFile(new URL('./DatePlanPanel.tsx', import.meta.url), 'utf8');
   assert.match(source, /const actionError = cause instanceof Error[\s\S]*?await refresh\(\);\s*setError\(actionError\);/);
 });
+test('trusted-contact sharing is only rendered for a mutually confirmed plan', async () => {
+  const source = await readFile(new URL('./DatePlanPanel.tsx', import.meta.url), 'utf8');
+  assert.match(source, /plan\.status === 'confirmed' \? \([\s\S]*?data-testid="date-plan-share"/);
+  assert.match(source, /plan\.status === 'confirmed'[\s\S]*?shareConfirmedPlan/);
+});
