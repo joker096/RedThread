@@ -693,6 +693,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
           )}
         </>
       )}
+      {selectedMatch && <PartnerServicesMarketplace isOpen={showPartnerServices} onClose={() => setShowPartnerServices(false)} matchId={selectedMatch.id} partnerName={selectedMatch.displayName} />}
     </section>
   );
 };
