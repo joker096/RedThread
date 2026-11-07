@@ -81,7 +81,7 @@ export const deduplicateById = <T extends { id: string }>(items: T[]): T[] => {
 };
 
 export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
-  const { t, formatDate } = useLocale();
+  const { t, formatDate, locale } = useLocale();
   const [matches, setMatches] = useState<ServerMatch[]>([]);
   const [selected, setSelected] = useState<string>('');
   const [showPartnerServices, setShowPartnerServices] = useState(false);
@@ -674,7 +674,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                       </div>
                       {!messagesLoading && !messagesFailed && !messages.length && <p role="status" className="py-4 text-center text-xs text-stone-500">{t('noMessagesYet')}</p>}
                     </div>
-                    <button type="button" onClick={() => setShowPartnerServices(true)} aria-haspopup="dialog" className="mb-3 min-h-11 w-full rounded-xl border border-emerald-700/40 bg-emerald-950/20 px-3 py-2 text-xs font-semibold text-emerald-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">Услуги партнёров для вашей пары</button>
+                    <button type="button" onClick={() => setShowPartnerServices(true)} aria-haspopup="dialog" className="mb-3 min-h-11 w-full rounded-xl border border-emerald-700/40 bg-emerald-950/20 px-3 py-2 text-xs font-semibold text-emerald-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">{locale === 'ru' ? 'Услуги партнёров для вашей пары' : 'Partner services for your match'}</button>
                     <form className="vow-inbox-composer" onSubmit={event => { event.preventDefault(); void send(); }}>
                       <textarea dir="auto" aria-label={t('writeMessage')} value={draft} onChange={event => setDrafts(current => ({ ...current, [selected]: event.target.value }))} onKeyDown={event => { if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || busy || !draft.trim()) return; event.preventDefault(); void send(); }} disabled={busy} maxLength={4000} rows={2} placeholder={t('writeMessage')} />
                       <button data-testid="server-match-send" type="submit" disabled={busy || !draft.trim()}>{busy ? t('sendingMessage') : t('sendMessage')}</button>
