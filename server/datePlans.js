@@ -1,4 +1,4 @@
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { PostgresRateLimitStore } from './postgresRateLimitStore.js';
 import { rollbackPooledTransaction } from './withPooledTransaction.js';
 
@@ -48,7 +48,14 @@ export function registerDatePlanRoutes(app, deps) {
   const { pool, requireSession, validateRequestOrigin, createNotification, acquireGiftSafetyUserLocks, isUuid } = deps;
   const limiter = rateLimit({
     ...(pool ? { store: new PostgresRateLimitStore(pool, 'date-plan') } : {}),
-    windowMs: 15 * 60_000, limit: 12, standardHeaders: true, legacyHeaders: false,
+    windowMs: 15 * 60_000, limit: 12,
+    // Avoid one mobile-carrier/shared-Wi-Fi IP exhausting the quota for every
+    // participant. Authenticated requests get an account bucket; IPv6-safe IP
+    // fallback remains available for middleware paths without a session.
+    keyGenerator: req => req.authUser?.id
+      ? `user:${req.authUser.id}`
+      : `ip:${ipKeyGenerator(req.ip)}`,
+    standardHeaders: true, legacyHeaders: false,
     message: { error: 'date_plan_rate_limited' }
   });
 
@@ -217,7 +224,7 @@ export function registerDatePlanRoutes(app, deps) {
     } finally { client?.release(); }
   });
 
-  app.post('/api/matches/:matchId/date-plan', limiter, validateRequestOrigin, requireSession, async (req, res) => {
+  app.post('/api/matches/:matchId/date-plan', validateRequestOrigin, requireSession, limiter, async (req, res) => {
     if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
     const input = normalizeDatePlanInput(req.body);
     if (!input) return res.status(400).json({ error: 'invalid_date_plan' });
@@ -265,7 +272,7 @@ export function registerDatePlanRoutes(app, deps) {
     } finally { client?.release(); }
   });
 
-  app.post('/api/matches/:matchId/date-plan/confirm', limiter, validateRequestOrigin, requireSession, async (req, res) => {
+  app.post('/api/matches/:matchId/date-plan/confirm', validateRequestOrigin, requireSession, limiter, async (req, res) => {
     if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
     let client;
     try {
@@ -311,7 +318,7 @@ export function registerDatePlanRoutes(app, deps) {
     } finally { client?.release(); }
   });
 
-  app.post('/api/matches/:matchId/date-plan/cancel', limiter, validateRequestOrigin, requireSession, async (req, res) => {
+  app.post('/api/matches/:matchId/date-plan/cancel', validateRequestOrigin, requireSession, limiter, async (req, res) => {
     if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
     let client;
     try {
@@ -352,7 +359,7 @@ export function registerDatePlanRoutes(app, deps) {
     } finally { client?.release(); }
   });
 
-  app.post('/api/matches/:matchId/date-plan/decline', limiter, validateRequestOrigin, requireSession, async (req, res) => {
+  app.post('/api/matches/:matchId/date-plan/decline', validateRequestOrigin, requireSession, limiter, async (req, res) => {
     if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
     let client;
     try {
