@@ -274,14 +274,16 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount, openMatchId
   // Notification navigation is only a request to open an existing server match.
   // Never trust the notification alone: require the current authenticated match list.
   useEffect(() => {
-    if (!openMatchId || matchesLoading) return;
+    // Keep the navigation request pending until an authenticated match list
+    // loads successfully. A transient fetch failure must not consume the link.
+    if (!openMatchId || matchesLoading || !authenticated || matchesFailed) return;
     const target = matches.find(match => match.id === openMatchId);
     if (target) {
       messageRequestId.current += 1;
       setMessages([]);
       setNotice('');
       setSelected(target.id);
-    } else if (authenticated && !matchesFailed) {
+    } else {
       setNotice(t('datePlanUnavailable'));
     }
     onMatchOpenHandled?.();

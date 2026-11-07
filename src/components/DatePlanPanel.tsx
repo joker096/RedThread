@@ -74,8 +74,9 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
       else setNotice(t('datePlanSaved'));
       await refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('datePlanActionError'));
+      const actionError = cause instanceof Error ? cause.message : t('datePlanActionError');
       await refresh();
+      setError(actionError);
     } finally { setSaving(false); }
   };
 
@@ -119,7 +120,11 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
             });
           }}>
             <label className="block text-xs text-stone-300">{t('datePlanVenue')}
-              <input value={venueName} onChange={event => setVenueName(event.target.value)} minLength={2} maxLength={120} required placeholder={t('datePlanVenuePlaceholder')} style={{ minHeight: 48 }} className="mt-1 min-h-[48px] w-full rounded-lg border border-white/10 bg-stone-900 px-3 py-2 text-sm text-white" />
+              <input value={venueName} onChange={event => {
+                const nextVenue = event.target.value;
+                if (nextVenue !== venueName) setIsPublicVenue(false);
+                setVenueName(nextVenue);
+              }} minLength={2} maxLength={120} required placeholder={t('datePlanVenuePlaceholder')} style={{ minHeight: 48 }} className="mt-1 min-h-[48px] w-full rounded-lg border border-white/10 bg-stone-900 px-3 py-2 text-sm text-white" />
             </label>
             <label className="block text-xs text-stone-300">{t('datePlanDateTime')} ({Intl.DateTimeFormat().resolvedOptions().timeZone})
               <input type="datetime-local" value={startsAt} min={minDate} onChange={event => setStartsAt(event.target.value)} required style={{ minHeight: 48 }} className="mt-1 min-h-[48px] w-full rounded-lg border border-white/10 bg-stone-900 px-3 py-2 text-sm text-white" />
