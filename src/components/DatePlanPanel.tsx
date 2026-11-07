@@ -83,7 +83,7 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
   };
 
   const shareConfirmedPlan = async () => {
-    if (!plan || plan.status !== 'confirmed' || sharing) return;
+    if (!plan || plan.status !== 'confirmed' || saving || sharing) return;
     const shareText = buildDatePlanShareText(
       {
         place: plan.venueName,
@@ -133,7 +133,7 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
               {plan.status === 'confirmed' ? (
                 <div>
                   <p role="status" className="mt-2 text-xs font-semibold text-emerald-300">{t('datePlanConfirmed')}</p>
-                  <button data-testid="date-plan-share" type="button" disabled={sharing} onClick={() => void shareConfirmedPlan()} className="mt-2 min-h-[48px] w-full rounded-lg bg-rose-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{sharing ? t('giftOrdersWorking') : t('chatShareDateButton')}</button>
+                  <button data-testid="date-plan-share" type="button" disabled={saving || sharing} onClick={() => void shareConfirmedPlan()} className="mt-2 min-h-[48px] w-full rounded-lg bg-rose-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{sharing ? t('giftOrdersWorking') : t('chatShareDateButton')}</button>
                   <p className="mt-1 text-[11px] leading-relaxed text-stone-500">{t('chatShareDatePrivacy')}</p>
                   <button type="button" disabled={saving || sharing} onClick={() => { if (window.confirm(t('datePlanCancelConfirm'))) void submit('/cancel'); }} className="mt-2 min-h-[48px] w-full rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-stone-200 disabled:opacity-50">{t('datePlanCancel')}</button>
                 </div>
