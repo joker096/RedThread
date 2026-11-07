@@ -128,7 +128,9 @@ test('free-tier like and pass validate the same post-lock UTC date used by disco
       `${marker} captures the UTC date only after account locks are held`);
     assert.ok(issuedCheck > snapshotCapture,
       `${marker} validates exposure against the captured UTC date`);
-    assert.match(helper, /clock_timestamp\(\)/);
+    assert.match(helper, /FEMALE_POLICY_CLOCK_SQL/);
+    assert.match(source, /const FEMALE_POLICY_CLOCK_SQL = process\.env\.NODE_ENV === 'test'[\s\S]*clock_timestamp\(\)/, 
+      'production quota policy time must remain PostgreSQL wall-clock time');
     assert.match(helper, /AT TIME ZONE 'UTC'/);
     assert.equal(route.includes("statement_timestamp()"), false,
       `${marker} must not use transaction-start time for the exposure day`);
