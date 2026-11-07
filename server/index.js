@@ -92,7 +92,6 @@ app.use((_req, res, next) => {
   res.setHeader('X-Frame-Options', 'DENY');
   // One-time verification/reset tokens can appear in the URL; never leak them in Referer headers.
   res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('Cross-Origin-Opener-Policy', googleClientId ? 'same-origin-allow-popups' : 'same-origin');
   res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
   if (process.env.NODE_ENV === 'production') {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
