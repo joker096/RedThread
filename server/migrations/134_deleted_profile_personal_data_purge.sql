@@ -1,3 +1,30 @@
+-- A legacy database may already contain L3 media-access audit events for deleted
+-- accounts whose no-media submission rows this migration removes below. Before
+-- migration 136, the submission FK still cascades and would erase those events.
+-- Fail closed for that data-bearing case; the operator must apply migration 136
+-- first, then rerun the normal migrator. Fresh/empty databases remain bootstrapable.
+DO $l3_access_evidence_preflight$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM identity_l3_media_access_events AS access_event
+    JOIN identity_l3_submissions AS submission
+      ON submission.id = access_event.submission_id
+    JOIN users AS account ON account.id = submission.user_id
+    WHERE account.status = 'deleted'
+      AND submission.storage_object_key IS NULL
+  ) AND NOT EXISTS (
+    SELECT 1
+    FROM schema_migrations
+    WHERE name = '136_adjustment_and_l3_access_evidence.sql'
+  ) THEN
+    RAISE EXCEPTION
+      'account erasure migration requires 136_adjustment_and_l3_access_evidence.sql first to preserve existing L3 media-access evidence; apply migration 136, then rerun migrations'
+      USING ERRCODE = '55000';
+  END IF;
+END;
+$l3_access_evidence_preflight$;
+
 -- Remove profile-derived personal data whenever an account becomes a tombstone.
 -- The same durable queue is also created by the private-photo purge PR.
 -- Keep account erasure safe even when a future admin/background path marks a user deleted.
