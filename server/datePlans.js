@@ -1,4 +1,4 @@
-import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import rateLimit from 'express-rate-limit';
 import { PostgresRateLimitStore } from './postgresRateLimitStore.js';
 import { rollbackPooledTransaction } from './withPooledTransaction.js';
 
@@ -49,12 +49,9 @@ export function registerDatePlanRoutes(app, deps) {
   const limiter = rateLimit({
     ...(pool ? { store: new PostgresRateLimitStore(pool, 'date-plan') } : {}),
     windowMs: 15 * 60_000, limit: 12,
-    // Avoid one mobile-carrier/shared-Wi-Fi IP exhausting the quota for every
-    // participant. Authenticated requests get an account bucket; IPv6-safe IP
-    // fallback remains available for middleware paths without a session.
-    keyGenerator: req => req.authUser?.id
-      ? `user:${req.authUser.id}`
-      : `ip:${ipKeyGenerator(req.ip)}`,
+    // The limiter runs after requireSession, so each participant gets an
+    // independent bucket instead of sharing a mobile-carrier/Wi-Fi IP quota.
+    keyGenerator: req => `user:${req.authUser.id}`,
     standardHeaders: true, legacyHeaders: false,
     message: { error: 'date_plan_rate_limited' }
   });
