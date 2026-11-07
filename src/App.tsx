@@ -48,7 +48,7 @@ import { TrustCenterPanel } from './components/TrustCenterPanel.tsx';
 import { PartnerApplicationPanel } from './components/PartnerApplicationPanel.tsx';
 
 export default function App() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     try {
       return window.localStorage.getItem('vow-theme') === 'light' ? 'light' : 'dark';
@@ -754,7 +754,7 @@ export default function App() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <button type="button" data-testid="open-demo-preview" onClick={() => setDiscoveryMode('demo')} className="min-h-11 rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-stone-300">{t('openDemoPreview')}</button>
-                <button type="button" onClick={() => setPartnerApplicationOpen(value => !value)} aria-expanded={partnerApplicationOpen} aria-controls="partner-application-panel" className="min-h-11 rounded-xl border border-emerald-500/30 bg-emerald-950/30 px-3 py-2 text-xs font-semibold text-emerald-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">Для бизнеса: стать партнёром</button>
+                <button type="button" onClick={() => setPartnerApplicationOpen(value => !value)} aria-expanded={partnerApplicationOpen} aria-controls="partner-application-panel" className="min-h-11 rounded-xl border border-emerald-500/30 bg-emerald-950/30 px-3 py-2 text-xs font-semibold text-emerald-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">{locale === 'ru' ? 'Для бизнеса: стать партнёром' : 'For businesses: become a partner'}</button>
               </div>
             </div>
             {partnerApplicationOpen && <div id="partner-application-panel"><PartnerApplicationPanel /></div>}
