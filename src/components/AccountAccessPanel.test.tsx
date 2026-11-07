@@ -1,7 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getLatestBirthDateInputValue, isAccountUser, isBillingStatus, normalizeAccountUser } from './AccountAccessPanel.tsx';
+import { getLatestBirthDateInputValue, isAccountUser, isBillingStatus, normalizeAccountUser, shouldRefreshGoogleButton } from './AccountAccessPanel.tsx';
+
+test('Google GIS button refreshes its one-time challenge after failed attempts only', () => {
+  assert.equal(shouldRefreshGoogleButton('retry'), true);
+  assert.equal(shouldRefreshGoogleButton('authenticated'), false);
+  assert.equal(shouldRefreshGoogleButton('registration'), false);
+  assert.equal(shouldRefreshGoogleButton('ignored'), false);
+});
 
 const validUser = () => ({
   id: 'user-123',
