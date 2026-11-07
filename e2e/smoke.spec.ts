@@ -2317,6 +2317,9 @@ test('date plan requires both participants and resets confirmations after a chan
     const shareTarget = await shareButton.evaluate(element => element.getBoundingClientRect().height);
     expect(shareTarget).toBeGreaterThanOrEqual(44);
     await shareButton.press('Enter');
+    await expect(participantA.page.getByText(/plan is current|the plan is current|план актуален/i)).toBeVisible();
+    await expect(shareButton).toHaveText(/share verified plan|отправить проверенный план/i);
+    await shareButton.press('Enter');
     await expect(participantA.page.getByText(/date plan copied|план скопирован/i)).toBeVisible();
     const copiedPlan = await participantA.page.evaluate(() => navigator.clipboard.readText());
     expect(copiedPlan).toContain('Central Public Cafe');
