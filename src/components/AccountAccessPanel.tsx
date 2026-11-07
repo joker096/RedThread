@@ -299,6 +299,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         client_id: googleClientId,
         nonce: challenge.nonce,
         callback: response => {
+          if (cancelled) return;
           if (!response.credential) {
             setGoogleButtonRevision(revision => revision + 1);
             return;
