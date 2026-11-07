@@ -2255,6 +2255,48 @@ test('auth API supports registration, session lookup, logout and login', {
       );
     }
 
+    // Force the server transaction's policy clock into the next UTC day
+    // from a PostgreSQL trigger on the same connection/transaction. This
+    // exercises the real commit-boundary guard without waiting for midnight.
+    await identityGateDb.query(`
+      CREATE OR REPLACE FUNCTION vow_test_roll_female_policy_clock()
+      RETURNS trigger LANGUAGE plpgsql AS $vow$
+      BEGIN
+        PERFORM set_config(
+          'vow.test_policy_now',
+          (date_trunc('day', clock_timestamp() AT TIME ZONE 'UTC') + INTERVAL '1 day' + INTERVAL '1 second')::text || ' UTC',
+          true
+        );
+        RETURN NEW;
+      END;
+      $vow$;
+    `);
+    await identityGateDb.query(`
+      CREATE TRIGGER vow_test_roll_female_policy_clock
+      BEFORE INSERT ON likes
+      FOR EACH ROW
+      WHEN (NEW.sender_id = '${registered.user.id}'::uuid
+        AND NEW.target_id = '${maleRegistered.user.id}'::uuid)
+      EXECUTE FUNCTION vow_test_roll_female_policy_clock()
+    `);
+    try {
+      const likeAcrossUtcMidnight = await request(`/api/likes/${maleRegistered.user.id}`, {
+        method: 'POST', headers: { Cookie: secondCookie }
+      });
+      assert.equal(likeAcrossUtcMidnight.status, 409,
+        'a free-tier like whose transaction crosses UTC midnight must be rejected for a fresh Discovery issue');
+      assert.equal((await likeAcrossUtcMidnight.json()).error, 'quota_policy_changed_retry');
+      const midnightLike = await identityGateDb.query(
+        'SELECT 1 FROM likes WHERE sender_id = $1 AND target_id = $2',
+        [registered.user.id, maleRegistered.user.id]
+      );
+      assert.equal(midnightLike.rowCount, 0,
+        'the like must roll back when the policy UTC date changes before commit');
+    } finally {
+      await identityGateDb.query('DROP TRIGGER IF EXISTS vow_test_roll_female_policy_clock ON likes');
+      await identityGateDb.query('DROP FUNCTION IF EXISTS vow_test_roll_female_policy_clock()');
+    }
+
     const firstLike = await request(`/api/likes/${maleRegistered.user.id}`, {
       method: 'POST',
       headers: { Cookie: secondCookie }
