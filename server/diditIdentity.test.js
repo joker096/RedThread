@@ -91,3 +91,41 @@ test('Didit equal-second event ordering is deterministic and fail closed', async
   assert.equal(apply(current('Approved', 'verified'), incoming('In Review', 'pending')), false);
   assert.equal(apply(current('Expired', 'pending'), incoming('Approved', 'verified')), false);
 });
+
+
+test('only definitive Didit client rejections are safe to release a session reservation', async () => {
+  const { DiditSessionRejectedError } = await import('./diditIdentity.js');
+  const userId = '123e4567-e89b-42d3-a456-426614174010';
+  for (const status of [400, 401, 403, 404, 405, 413, 415, 422, 429]) {
+    await assert.rejects(
+      () => createDiditSession({ userId, env, fetchImpl: async () => ({ ok: false, status }) }),
+      error => error instanceof DiditSessionRejectedError && error.status === status
+    );
+  }
+  for (const status of [408, 409, 425, 500, 503]) {
+    await assert.rejects(
+      () => createDiditSession({ userId, env, fetchImpl: async () => ({ ok: false, status }) }),
+      error => !(error instanceof DiditSessionRejectedError) &&
+        error.message === 'didit_session_request_failed'
+    );
+  }
+  await assert.rejects(
+    () => createDiditSession({ userId, env, fetchImpl: async () => { throw new Error('network timeout'); } }),
+    error => !(error instanceof DiditSessionRejectedError) &&
+      error.message === 'didit_session_request_failed'
+  );
+});
+
+test('invalid local callback configuration is a typed preflight failure before contacting Didit', async () => {
+  const { DiditSessionNotCreatedError } = await import('./diditIdentity.js');
+  await assert.rejects(
+    () => createDiditSession({
+      userId: '123e4567-e89b-42d3-a456-426614174010',
+      env,
+      callbackOrigin: 'http://vow.example',
+      fetchImpl: async () => { throw new Error('must_not_call'); }
+    }),
+    error => error instanceof DiditSessionNotCreatedError &&
+      error.status === null && error.message === 'invalid_didit_callback_origin'
+  );
+});
