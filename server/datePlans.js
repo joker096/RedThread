@@ -311,10 +311,21 @@ export function registerDatePlanRoutes(app, deps) {
       const pair = await lockMatch(client, req.params.matchId, req.authUser.id);
       if (!pair) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'match_not_found' }); }
       const current = await client.query(
-        "SELECT id FROM date_plans WHERE match_id = $1 AND status IN ('proposed', 'confirmed') FOR UPDATE",
+        `SELECT id, status, proposed_by AS "proposedBy",
+           confirmed_by_a_at AS "confirmedByAAt", confirmed_by_b_at AS "confirmedByBAt"
+         FROM date_plans WHERE match_id = $1 AND status IN ('proposed', 'confirmed') FOR UPDATE`,
         [req.params.matchId]);
       if (!current.rowCount) { await client.query('ROLLBACK'); return res.status(409).json({ error: 'date_plan_not_available' }); }
-      const planId = current.rows[0].id;
+      const currentPlan = current.rows[0];
+      const actorConfirmed = pair.userAId === req.authUser.id
+        ? currentPlan.confirmedByAAt
+        : currentPlan.confirmedByBAt;
+      if (currentPlan.status === 'proposed' &&
+          currentPlan.proposedBy !== req.authUser.id && !actorConfirmed) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'date_plan_cannot_cancel_unconfirmed_recipient' });
+      }
+      const planId = currentPlan.id;
       await client.query(
         "UPDATE date_plans SET status = 'cancelled', confirmed_by_a_at = NULL, confirmed_by_b_at = NULL, updated_at = NOW() WHERE id = $1",
         [planId]);
