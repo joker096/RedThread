@@ -2033,16 +2033,19 @@ test('date-plan notification opens only its matching active chat', async ({ page
   await page.route('**/api/auth/me', route => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify({ user: { id: 'e2e-date-notification-user' } })
   }));
-  await page.route('**/api/matches', route => route.fulfill({
-    status: 200, contentType: 'application/json', body: JSON.stringify({ matches: [{
-      id: matchId, partnerId: 'e2e-date-notification-partner', displayName: 'Date Plan Match',
-      age: 31, country: 'Georgia', city: 'Tbilisi', lastMessage: null, lastMessageAt: null
-    }] })
-  }));
-  await page.route('**/api/matches/' + matchId + '/messages', route => route.fulfill({
+  await page.route('**/api/matches**', async route => {
+    if (new URL(route.request().url()).pathname !== '/api/matches') return route.continue();
+    await route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ matches: [{
+        id: matchId, partnerId: 'e2e-date-notification-partner', displayName: 'Date Plan Match',
+        age: 31, country: 'Georgia', city: 'Tbilisi', lastMessage: null, lastMessageAt: null
+      }] })
+    });
+  });
+  await page.route('**/api/matches/' + matchId + '/messages**', route => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify({ messages: [] })
   }));
-  await page.route('**/api/matches/' + matchId + '/date-plan', route => route.fulfill({
+  await page.route('**/api/matches/' + matchId + '/date-plan**', route => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify({
       datePlan: null, userAId: 'e2e-date-notification-user', userBId: 'e2e-date-notification-partner'
     })
@@ -2083,17 +2086,20 @@ test('switching chats cannot render a stale date plan from the previous match', 
     status: 200, contentType: 'application/json',
     body: JSON.stringify({ notifications: [], unreadCount: 0 })
   }));
-  await page.route('**/api/matches', route => route.fulfill({
+  await page.route('**/api/matches**', async route => {
+    if (new URL(route.request().url()).pathname !== '/api/matches') return route.continue();
+    await route.fulfill({
     status: 200, contentType: 'application/json',
     body: JSON.stringify({ matches: [
       { id: oldMatchId, partnerId: 'old-partner', displayName: 'Old Match', age: 30, country: 'Georgia', city: 'Tbilisi', lastMessage: null, lastMessageAt: null },
       { id: newMatchId, partnerId: 'new-partner', displayName: 'New Match', age: 31, country: 'Georgia', city: 'Tbilisi', lastMessage: null, lastMessageAt: null }
     ] })
-  }));
-  await page.route('**/api/matches/*/messages', route => route.fulfill({
+    });
+  });
+  await page.route('**/api/matches/*/messages**', route => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify({ messages: [] })
   }));
-  await page.route('**/api/matches/*/date-plan', async route => {
+  await page.route('**/api/matches/*/date-plan**', async route => {
     const pathname = new URL(route.request().url()).pathname;
     if (pathname.endsWith('/' + oldMatchId + '/date-plan')) {
       markOldRequestStarted();
