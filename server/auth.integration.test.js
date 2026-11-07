@@ -4390,6 +4390,9 @@ test('auth API supports registration, session lookup, logout and login', {
           headers: { Cookie: secondCookie, 'Content-Type': 'image/png' },
           body: tinyPng
         });
+        // The shared test IP may have exhausted the independent message bucket
+        // before this queued stale-session request is issued.
+        await deletionSafetyDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'message:%'");
         staleMessagePromise = request(`/api/matches/${matchPayload.match.id}/messages`, {
           method: 'POST',
           headers: { Cookie: secondCookie },
