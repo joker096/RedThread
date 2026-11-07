@@ -6,11 +6,12 @@ type AuditEntry={id:string;moderatorId:string|null;action:string;targetType:stri
 type PendingPhoto={id:string;userId:string;displayName:string;mimeType:string;width:number;height:number;createdAt:string};
 type PendingL3={submissionId:string;applicantReference:string;uploadedAt:string;mimeType:'video/mp4'|'video/webm';sizeBytes:number;durationSeconds:number;processingAttempts:number};
 type PartnerApplication={id:string;category:string;businessName:string;contactName:string;contactEmail:string;country:string;city:string;website:string;serviceDescription:string;priceFrom:number|string|null;priceCurrency:string;serviceLanguages:string[];availabilityNote:string;status:string;reviewNote:string;publishedAt:string|null};
+type PartnerInquiry={id:string;businessName:string;deliveryStatus:string;deliveryAttempts:number;deliveryError:string;createdAt:string;updatedAt:string;deliveredAt:string|null};
 
 export const ModeratorConsolePanel:React.FC=()=>{
  const {locale}=useLocale();const tr=(ru:string,en:string)=>locale==='ru'?ru:en;
  const [allowed,setAllowed]=useState(false),[ready,setReady]=useState(false),[busy,setBusy]=useState(false),[notice,setNotice]=useState('');
- const [screenings,setScreenings]=useState<Screening[]>([]),[reports,setReports]=useState<Report[]>([]),[audit,setAudit]=useState<AuditEntry[]>([]),[photos,setPhotos]=useState<PendingPhoto[]>([]),[l3Submissions,setL3Submissions]=useState<PendingL3[]>([]),[l3Enabled,setL3Enabled]=useState(false),[partnerApplications,setPartnerApplications]=useState<PartnerApplication[]>([]);
+ const [screenings,setScreenings]=useState<Screening[]>([]),[reports,setReports]=useState<Report[]>([]),[audit,setAudit]=useState<AuditEntry[]>([]),[photos,setPhotos]=useState<PendingPhoto[]>([]),[l3Submissions,setL3Submissions]=useState<PendingL3[]>([]),[l3Enabled,setL3Enabled]=useState(false),[partnerApplications,setPartnerApplications]=useState<PartnerApplication[]>([]),[partnerInquiries,setPartnerInquiries]=useState<PartnerInquiry[]>([]);
  const refreshRequestId=React.useRef(0);
  const sessionEpoch=React.useRef(0);
  const refresh=useCallback(async()=>{
@@ -24,14 +25,15 @@ export const ModeratorConsolePanel:React.FC=()=>{
     fetch('/api/admin/audit-log?limit=30',{credentials:'include'}),
     fetch('/api/admin/photos',{credentials:'include'}),
     fetch('/api/moderation/identity-l3/submissions',{credentials:'include'}),
-     fetch('/api/admin/partner-applications',{credentials:'include'})
+     fetch('/api/admin/partner-applications',{credentials:'include'}),
+     fetch('/api/admin/partner-service-inquiries',{credentials:'include'})
    ]);
    if(requestId!==refreshRequestId.current||actionEpoch!==sessionEpoch.current)return;
    if(responses.some(r=>r.status===401||r.status===403)){setAllowed(false);setReady(true);return;}
    const data=await Promise.all(responses.map(async (r,index)=>{const d=await r.json().catch(()=>null);if(index===4&&r.status===503&&d?.error==='l3_feature_disabled')return {submissions:[],disabled:true};if(!r.ok)throw new Error('Не удалось загрузить данные модерации.');return d||{};}));
    if(requestId!==refreshRequestId.current||actionEpoch!==sessionEpoch.current)return;
    const safeArray=<T,>(value: unknown): T[] => Array.isArray(value) ? value : [];
-   setScreenings(safeArray<Screening>(data[0]?.screenings));setReports(safeArray<Report>(data[1]?.reports));setAudit(safeArray<AuditEntry>(data[2]?.entries));setPhotos(safeArray<PendingPhoto>(data[3]?.photos));setL3Submissions(safeArray<PendingL3>(data[4]?.submissions));setL3Enabled(data[4]?.disabled!==true);setPartnerApplications(safeArray<PartnerApplication>(data[5]?.applications));setAllowed(true);setReady(true);setNotice('');
+   setScreenings(safeArray<Screening>(data[0]?.screenings));setReports(safeArray<Report>(data[1]?.reports));setAudit(safeArray<AuditEntry>(data[2]?.entries));setPhotos(safeArray<PendingPhoto>(data[3]?.photos));setL3Submissions(safeArray<PendingL3>(data[4]?.submissions));setL3Enabled(data[4]?.disabled!==true);setPartnerApplications(safeArray<PartnerApplication>(data[5]?.applications));setPartnerInquiries(safeArray<PartnerInquiry>(data[6]?.inquiries));setAllowed(true);setReady(true);setNotice('');
   }catch(e){if(requestId===refreshRequestId.current&&actionEpoch===sessionEpoch.current){setNotice(e instanceof Error?e.message:'Ошибка загрузки панели.');setReady(true);}}
   finally{if(requestId===refreshRequestId.current&&actionEpoch===sessionEpoch.current)setBusy(false);}
  },[]);
@@ -104,6 +106,21 @@ export const ModeratorConsolePanel:React.FC=()=>{
      {item.status==='approved'&&!item.publishedAt&&<button type="button" disabled={busy} onClick={()=>void act('/api/admin/partner-applications/'+encodeURIComponent(item.id)+'/publish')} className="min-h-11 rounded-lg bg-emerald-700 px-3 py-2 text-[10px] font-semibold text-white disabled:opacity-50">{tr('Опубликовать','Publish')}</button>}
      {item.status==='approved'&&item.publishedAt&&<button type="button" disabled={busy} onClick={()=>void act('/api/admin/partner-applications/'+encodeURIComponent(item.id)+'/unpublish')} className="min-h-11 rounded-lg border border-amber-500/30 px-3 py-2 text-[10px] text-amber-200 disabled:opacity-50">{tr('Снять с публикации','Unpublish')}</button>}
     </div>
+   </article>)}
+  </div>
+
+  <div className="mt-4 rounded-2xl border border-amber-700/30 bg-stone-950/60 p-3">
+   <h4 className="text-sm font-semibold text-white">{tr('Доставка запросов партнёрам','Partner inquiry delivery')} ({partnerInquiries.length})</h4>
+   {!partnerInquiries.length?<p className="mt-2 text-xs text-stone-500">{tr('Запросов пока нет.','No partner inquiries yet.')}</p>:partnerInquiries.map(item=><article key={item.id} className="mt-3 rounded-xl border border-white/10 p-3">
+    <p className="break-all font-mono text-[10px] text-stone-300">{item.id}</p>
+    <p className="mt-1 text-xs font-semibold text-white">{item.businessName}</p>
+    <p className="mt-1 text-[10px] text-stone-400">{tr('Статус','Status')}: {item.deliveryStatus} · {tr('попыток','attempts')}: {item.deliveryAttempts}</p>
+    {item.deliveryError&&<p className="mt-1 text-[10px] text-amber-200">{item.deliveryError}</p>}
+    <p className="mt-1 text-[10px] text-stone-500">{tr('Обновлено','Updated')}: {new Date(item.updatedAt).toLocaleString(locale)}</p>
+    {item.deliveryStatus==='sending'&&<div className="mt-2 flex flex-wrap gap-2">
+     <button type="button" disabled={busy} onClick={()=>{if(window.confirm(tr('Подтвердили в журнале Resend, что письмо принято? Только после проверки нажмите OK.','Have you verified in Resend logs that the email was accepted? Confirm only after checking.')))void act('/api/admin/partner-service-inquiries/'+encodeURIComponent(item.id)+'/reconcile',{decision:'sent',operatorNote:'Verified in Resend provider logs: message accepted.'});}} className="min-h-11 rounded-lg bg-emerald-800 px-3 py-2 text-[10px] font-semibold text-white disabled:opacity-50">{tr('Подтверждено: доставлено','Confirm delivered')}</button>
+     <button type="button" disabled={busy} onClick={()=>{if(window.confirm(tr('Подтвердили в журнале Resend, что письмо не было принято? Только после проверки нажмите OK.','Have you verified in Resend logs that the email was not accepted? Confirm only after checking.')))void act('/api/admin/partner-service-inquiries/'+encodeURIComponent(item.id)+'/reconcile',{decision:'failed',operatorNote:'Verified in Resend provider logs: message not accepted.'});}} className="min-h-11 rounded-lg border border-amber-500/30 px-3 py-2 text-[10px] text-amber-200 disabled:opacity-50">{tr('Подтверждено: не доставлено','Confirm not delivered')}</button>
+    </div>}
    </article>)}
   </div>
   <div className="mt-4 rounded-2xl border border-white/10 bg-stone-950/60 p-3"><h4 className="text-sm font-semibold text-white">Журнал действий ({audit.length})</h4>
