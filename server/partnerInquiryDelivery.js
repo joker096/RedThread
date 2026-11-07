@@ -1,5 +1,22 @@
 export async function deliverPendingPartnerInquiries(pool, sendEmail, options = {}) {
   if (!pool || typeof pool.connect !== 'function' || typeof pool.query !== 'function') {
+export const PENDING_PARTNER_INQUIRIES_SQL = `
+  SELECT inquiry.id, inquiry.requester_name AS "requesterName",
+         inquiry.requester_email AS "requesterEmail",
+         inquiry.service_date AS "serviceDate", inquiry.request_note AS "requestNote",
+         application.contact_email AS "contactEmail"
+  FROM partner_service_inquiries inquiry
+  JOIN partner_service_applications application
+    ON application.id = inquiry.application_id
+   AND application.status = 'approved'
+   AND application.published_at IS NOT NULL
+  WHERE inquiry.delivery_status = 'pending'
+  ORDER BY inquiry.created_at ASC
+  LIMIT $1
+  FOR UPDATE OF inquiry SKIP LOCKED
+  FOR SHARE OF application
+`;
+
     throw new TypeError('A PostgreSQL pool is required.');
   }
   if (typeof sendEmail !== 'function') throw new TypeError('An email delivery function is required.');
@@ -12,23 +29,7 @@ export async function deliverPendingPartnerInquiries(pool, sendEmail, options = 
   let inquiries = [];
   try {
     await client.query('BEGIN');
-    const selected = await client.query(
-      `SELECT inquiry.id, inquiry.requester_name AS "requesterName",
-              inquiry.requester_email AS "requesterEmail",
-              inquiry.service_date AS "serviceDate", inquiry.request_note AS "requestNote",
-              application.contact_email AS "contactEmail"
-       FROM partner_service_inquiries inquiry
-       JOIN partner_service_applications application
-         ON application.id = inquiry.application_id
-        AND application.status = 'approved'
-        AND application.published_at IS NOT NULL
-       WHERE inquiry.delivery_status = 'pending'
-       ORDER BY inquiry.created_at ASC
-       LIMIT $1
-       FOR UPDATE OF inquiry SKIP LOCKED
-       FOR SHARE OF application`,
-      [limit]
-    );
+    const selected = await client.query(PENDING_PARTNER_INQUIRIES_SQL, [limit]);
     inquiries = selected.rows;
     for (const inquiry of inquiries) {
       await client.query(
