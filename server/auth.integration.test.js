@@ -10,6 +10,85 @@ import { createAccountReuseDigest, hashSessionToken } from './security.js';
 
 const { Pool } = pg;
 
+async function preserveGiftOrderFixture(db, orderId) {
+  if (!orderId) return;
+  const closed = await db.query(
+    `UPDATE gift_delivery_orders
+     SET status = CASE
+       WHEN payment_status IN ('not_started', 'failed', 'voided') THEN 'cancelled'
+       ELSE 'blocked'
+     END,
+     address_vault_ref = NULL,
+     address_verified_at = NULL,
+     updated_at = NOW()
+     WHERE id = $1 AND status = 'awaiting_recipient_consent'
+     RETURNING status, payment_status`,
+    [orderId]
+  );
+  if (closed.rowCount !== 1) return;
+
+  const toStatus = closed.rows[0].status;
+  const eventType = toStatus === 'cancelled' ? 'cancelled' : 'safety_hold';
+  await db.query(
+    `INSERT INTO gift_delivery_order_events
+       (order_id, actor_type, event_type, from_status, to_status, metadata)
+     VALUES ($1, 'system', $2, 'awaiting_recipient_consent', $3, $4::jsonb)`,
+    [orderId, eventType, toStatus, JSON.stringify({ reason: 'test_fixture_cleanup' })]
+  );
+  if (toStatus === 'blocked') {
+    await db.query(
+      `INSERT INTO gift_payment_reconciliation_tasks (order_id, reason)
+       VALUES ($1, 'safety_hold')
+       ON CONFLICT (order_id, reason) DO NOTHING`,
+      [orderId]
+    );
+  }
+}
+
+async function resolveReportFixtureWithAudit(db, reportId) {
+  if (!reportId) return;
+  const client = await db.connect();
+  const moderatorId = randomUUID();
+  let createdModerator = false;
+  try {
+    await client.query('BEGIN');
+    const pending = await client.query(
+      "SELECT id, reported_user_id, category FROM user_reports WHERE id = $1 AND status IN ('open', 'reviewing') FOR UPDATE",
+      [reportId]
+    );
+    if (pending.rowCount === 1) {
+      await client.query(
+        "INSERT INTO users (id, email, password_hash, role, status) VALUES ($1, $2, 'test-only-hash', 'moderator', 'active')",
+        [moderatorId, `report-cleanup-moderator-${moderatorId}@example.invalid`]
+      );
+      createdModerator = true;
+      const resolved = await client.query(
+        "UPDATE user_reports SET status = 'resolved' WHERE id = $1 AND status IN ('open', 'reviewing') RETURNING id",
+        [reportId]
+      );
+      if (resolved.rowCount === 1) {
+        await client.query(
+          `INSERT INTO moderation_audit_log
+             (moderator_id, action, target_type, target_id, reason, details)
+           VALUES ($1, 'resolve', 'user_report', $2, 'test fixture cleanup',
+                   jsonb_build_object('newStatus', 'resolved', 'targetUserId', $3::text, 'category', $4::text))`,
+          [moderatorId, reportId, pending.rows[0].reported_user_id, pending.rows[0].category]
+        );
+      }
+    }
+    await client.query('COMMIT');
+    if (createdModerator) {
+      // The append-only actor snapshot preserves the UUID after the live FK is nulled.
+      await client.query('DELETE FROM users WHERE id = $1', [moderatorId]);
+    }
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function findFreePort() {
   const listener = createServer();
   await new Promise((resolve, reject) => {
@@ -43,8 +122,11 @@ test('auth API supports registration, session lookup, logout and login', {
       ACCOUNT_REUSE_HMAC_KEY: accountReuseTestKey,
       PG_STATEMENT_TIMEOUT_MS: '8000'
     },
-    stdio: 'ignore'
+    stdio: ['ignore', 'pipe', 'pipe']
   });
+  let apiLogs = '';
+  child.stdout.on('data', chunk => { apiLogs += chunk.toString(); });
+  child.stderr.on('data', chunk => { apiLogs += chunk.toString(); });
 
   async function request(path, options = {}) {
     return fetch(`${api}${path}`, {
@@ -115,7 +197,7 @@ test('auth API supports registration, session lookup, logout and login', {
     const notificationList = await request('/api/notifications', { headers: { Cookie: firstCookie } });
     assert.equal(notificationList.status, 200);
     assert.deepEqual((await notificationList.json()).notifications, []);
-    for (const adminPath of ['/api/admin/reports', '/api/admin/photos', '/api/admin/audit-log']) {
+    for (const adminPath of ['/api/admin/reports', '/api/admin/photos', '/api/admin/audit-log', '/api/admin/paddle-adjustment-reconciliation']) {
       const forbidden = await request(adminPath, { headers: { Cookie: firstCookie } });
       assert.equal(forbidden.status, 403);
     }
@@ -126,6 +208,203 @@ test('auth API supports registration, session lookup, logout and login', {
       body: JSON.stringify({ action: 'suspend_user', confirmed: true, reason: 'authorization regression test' })
     });
     assert.equal(forbiddenModerationAction.status, 403, 'ordinary users must not perform moderator actions');
+
+    const reconciliationEventId = `evt_${randomUUID().replaceAll('-', '').slice(0, 26)}`;
+    const verifiedAdjustmentEventId = `evt_${randomUUID().replaceAll('-', '').slice(0, 26)}`;
+    const reconciliationAdjustmentId = `adj_${randomUUID().replaceAll('-', '').slice(0, 26)}`;
+    const reconciliationTransactionId = `txn_${randomUUID().replaceAll('-', '').slice(0, 26)}`;
+    const reconciliationDb = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+    try {
+      await reconciliationDb.query(
+        "INSERT INTO paddle_webhook_events (event_id, event_type, processed_at) VALUES ($1, 'adjustment.created', statement_timestamp() - INTERVAL '1 minute')",
+        [reconciliationEventId]
+      );
+      await reconciliationDb.query(
+        "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'adjustment.updated')",
+        [verifiedAdjustmentEventId]
+      );
+      await reconciliationDb.query(
+        "INSERT INTO paddle_adjustment_reconciliation_cases (event_id, reason_code, provider_adjustment_id, provider_transaction_id) VALUES ($1, 'invalid_adjustment_payload', $2, $3)",
+        [reconciliationEventId, reconciliationAdjustmentId, reconciliationTransactionId]
+      );
+      await reconciliationDb.query(
+        "INSERT INTO paddle_adjustment_events (event_id, adjustment_id, transaction_id, action, adjustment_type, status, amount_minor_units, currency_code, occurred_at) VALUES ($1, $2, $3, 'refund', 'partial', 'pending_approval', 250, 'USD', statement_timestamp())",
+        [verifiedAdjustmentEventId, reconciliationAdjustmentId, reconciliationTransactionId]
+      );
+      const forbiddenResolution = await request(
+        `/api/admin/paddle-adjustment-reconciliation/${reconciliationEventId}/resolve`,
+        {
+          method: 'POST',
+          headers: { Cookie: firstCookie },
+          body: JSON.stringify({ resolutionNote: 'must be forbidden' })
+        }
+      );
+      assert.equal(forbiddenResolution.status, 403,
+        'ordinary users must not resolve Paddle reconciliation cases');
+
+      await reconciliationDb.query(
+        "UPDATE users SET role = 'moderator' WHERE id = $1",
+        [registered.user.id]
+      );
+      const queueResponse = await request('/api/admin/paddle-adjustment-reconciliation', {
+        headers: { Cookie: firstCookie }
+      });
+      assert.equal(queueResponse.status, 200);
+      const queue = await queueResponse.json();
+      assert.ok(queue.cases.some(item => item.eventId === reconciliationEventId),
+        'authorized moderators must be able to inspect the open reconciliation queue');
+
+      const invalidQueueCursor = await request(
+        '/api/admin/paddle-adjustment-reconciliation?afterCreatedAt=2026-11-03T00%3A00%3A00Z',
+        { headers: { Cookie: firstCookie } }
+      );
+      assert.equal(invalidQueueCursor.status, 400,
+        'queue pagination must reject incomplete cursors');
+
+      const firstQueuePageResponse = await request(
+        '/api/admin/paddle-adjustment-reconciliation?limit=1',
+        { headers: { Cookie: firstCookie } }
+      );
+      assert.equal(firstQueuePageResponse.status, 200);
+      const firstQueuePage = await firstQueuePageResponse.json();
+      assert.equal(firstQueuePage.cases.length, 1);
+      assert.ok(firstQueuePage.nextCursor?.eventId,
+        'a full page must expose a stable continuation cursor');
+      const cursorTimestamp = firstQueuePage.nextCursor.createdAt;
+      assert.equal(cursorTimestamp.at(-1), 'Z',
+        'queue cursor timestamps must be serialized in UTC');
+      assert.equal(cursorTimestamp.length - cursorTimestamp.indexOf('.') - 2, 6,
+        'queue cursor timestamps must preserve all six PostgreSQL fractional-second digits');
+      const nextQueuePageQuery = new URLSearchParams({
+        limit: '1',
+        afterCreatedAt: firstQueuePage.nextCursor.createdAt,
+        afterEventId: firstQueuePage.nextCursor.eventId
+      });
+      const nextQueuePageResponse = await request(
+        `/api/admin/paddle-adjustment-reconciliation?${nextQueuePageQuery.toString()}`,
+        { headers: { Cookie: firstCookie } }
+      );
+      assert.equal(nextQueuePageResponse.status, 200);
+      const nextQueuePage = await nextQueuePageResponse.json();
+      assert.ok(!nextQueuePage.cases.some(item => item.eventId === firstQueuePage.cases[0].eventId),
+        'keyset pagination must not repeat the previous page boundary');
+
+      const invalidResolution = await request(
+        `/api/admin/paddle-adjustment-reconciliation/${reconciliationEventId}/resolve`,
+        {
+          method: 'POST',
+          headers: { Cookie: firstCookie },
+          body: JSON.stringify({ resolutionNote: '   ' })
+        }
+      );
+      assert.equal(invalidResolution.status, 400,
+        'manual reconciliation requires a non-empty bounded resolution note');
+
+      const resolutionNote = 'Reviewed malformed provider adjustment; no entitlement change was made.';
+      const resolutionResponse = await request(
+        `/api/admin/paddle-adjustment-reconciliation/${reconciliationEventId}/resolve`,
+        {
+          method: 'POST',
+          headers: { Cookie: firstCookie },
+          body: JSON.stringify({ resolutionNote })
+        }
+      );
+      assert.equal(resolutionResponse.status, 200, apiLogs);
+      assert.deepEqual(await resolutionResponse.json(), {
+        eventId: reconciliationEventId,
+        status: 'resolved',
+        resolutionSource: 'manual_operator'
+      });
+
+      const unlinkedEventId = `evt_${randomUUID().replaceAll('-', '').slice(0, 26)}`;
+      await reconciliationDb.query(
+        "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'adjustment.created')",
+        [unlinkedEventId]
+      );
+      await reconciliationDb.query(
+        "INSERT INTO paddle_adjustment_reconciliation_cases (event_id, reason_code) VALUES ($1, 'transaction_owner_unlinked')",
+        [unlinkedEventId]
+      );
+      const unlinkedResolution = await request(
+        `/api/admin/paddle-adjustment-reconciliation/${unlinkedEventId}/resolve`,
+        {
+          method: 'POST',
+          headers: { Cookie: firstCookie },
+          body: JSON.stringify({ resolutionNote: 'reviewed; owner still unknown' })
+        }
+      );
+      assert.equal(unlinkedResolution.status, 409,
+        'a moderator note must not close an adjustment whose transaction owner is unresolved');
+      const unlinkedState = await reconciliationDb.query(
+        'SELECT status FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1',
+        [unlinkedEventId]
+      );
+      assert.deepEqual(unlinkedState.rows, [{ status: 'open' }]);
+
+      const lifecycleConflictEventId = `evt_${randomUUID().replaceAll('-', '').slice(0, 26)}`;
+      await reconciliationDb.query(
+        "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'transaction.completed')",
+        [lifecycleConflictEventId]
+      );
+      await reconciliationDb.query(
+        "INSERT INTO paddle_adjustment_reconciliation_cases (event_id, reason_code) VALUES ($1, 'provider_lifecycle_conflict')",
+        [lifecycleConflictEventId]
+      );
+      const lifecycleConflictResolution = await request(
+        `/api/admin/paddle-adjustment-reconciliation/${lifecycleConflictEventId}/resolve`,
+        {
+          method: 'POST',
+          headers: { Cookie: firstCookie },
+          body: JSON.stringify({ resolutionNote: 'transaction state requires verified provider reconciliation' })
+        }
+      );
+      assert.equal(lifecycleConflictResolution.status, 409,
+        'a transaction lifecycle conflict must not be closed by a generic moderator note');
+      const lifecycleConflictState = await reconciliationDb.query(
+        'SELECT status FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1',
+        [lifecycleConflictEventId]
+      );
+      assert.deepEqual(lifecycleConflictState.rows, [{ status: 'open' }]);
+
+      const duplicateResolution = await request(
+        `/api/admin/paddle-adjustment-reconciliation/${reconciliationEventId}/resolve`,
+        {
+          method: 'POST',
+          headers: { Cookie: firstCookie },
+          body: JSON.stringify({ resolutionNote })
+        }
+      );
+      assert.equal(duplicateResolution.status, 404,
+        'a resolved case cannot be manually resolved a second time');
+
+      const audit = await reconciliationDb.query(
+        `SELECT moderator_ref, action, details
+         FROM moderation_audit_log
+         WHERE action = 'paddle_adjustment_reconciliation_resolved'
+           AND moderator_id = $1
+           AND details->>'eventId' = $2`,
+        [registered.user.id, reconciliationEventId]
+      );
+      assert.equal(audit.rowCount, 1,
+        'manual case resolution and moderation audit must commit atomically');
+      assert.equal(audit.rows[0].moderator_ref, registered.user.id);
+      assert.equal(audit.rows[0].details.resolutionSource, 'manual_operator');
+      const resolvedCase = await reconciliationDb.query(
+        'SELECT status, resolution_source, resolved_by_ref FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1',
+        [reconciliationEventId]
+      );
+      assert.deepEqual(resolvedCase.rows, [{
+        status: 'resolved',
+        resolution_source: 'manual_operator',
+        resolved_by_ref: registered.user.id
+      }]);
+    } finally {
+      await reconciliationDb.query(
+        "UPDATE users SET role = 'member' WHERE id = $1",
+        [registered.user.id]
+      );
+      await reconciliationDb.end();
+    }
 
     const selfReport = await request('/api/reports', {
       method: 'POST',
@@ -394,6 +673,82 @@ test('auth API supports registration, session lookup, logout and login', {
     const secondMaleCookie = secondMaleRegistration.headers.get('set-cookie')?.split(';')[0];
     assert.ok(secondMaleCookie?.startsWith('nit_session='));
 
+    // Report review is a real audited state transition, not a status that can
+    // be reached only by direct SQL. Use two accounts that remain active for
+    // the rest of this integration test; the moderator actor is tombstoned
+    // later, exercising the retained moderator_ref snapshot.
+    const reportWorkflowDb = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      connectionTimeoutMillis: 5_000,
+      statement_timeout: 8_000,
+      query_timeout: 10_000
+    });
+    try {
+      const reportFixture = await reportWorkflowDb.query(
+        `INSERT INTO user_reports (reporter_id, reported_user_id, category, details)
+         VALUES ($1, $2, 'safety', 'integration report review workflow')
+         RETURNING id`,
+        [maleRegistered.user.id, secondMaleRegistered.user.id]
+      );
+      const reportId = reportFixture.rows[0].id;
+      await reportWorkflowDb.query(
+        "UPDATE users SET role = 'moderator' WHERE id = $1",
+        [registered.user.id]
+      );
+
+      const startReview = await request(`/api/admin/reports/${reportId}/action`, {
+        method: 'POST',
+        headers: { Cookie: secondCookie },
+        body: JSON.stringify({ action: 'review', reason: 'Moderator started review' })
+      });
+      assert.equal(startReview.status, 200, apiLogs);
+      assert.deepEqual(await startReview.json(), {
+        ok: true, action: 'review', accountSuspended: false
+      });
+
+      const duplicateReview = await request(`/api/admin/reports/${reportId}/action`, {
+        method: 'POST',
+        headers: { Cookie: secondCookie },
+        body: JSON.stringify({ action: 'review', reason: 'Duplicate review must not rewrite state' })
+      });
+      assert.equal(duplicateReview.status, 409,
+        'a report already in reviewing state must not be started a second time');
+
+      const finishReview = await request(`/api/admin/reports/${reportId}/action`, {
+        method: 'POST',
+        headers: { Cookie: secondCookie },
+        body: JSON.stringify({ action: 'resolve', reason: 'Moderator completed review' })
+      });
+      assert.equal(finishReview.status, 200, apiLogs);
+      assert.deepEqual(await finishReview.json(), {
+        ok: true, action: 'resolve', accountSuspended: false
+      });
+
+      const reportEvidence = await reportWorkflowDb.query(
+        `SELECT r.status, a.action, a.moderator_ref, a.details->>'newStatus' AS new_status
+         FROM user_reports r
+         JOIN moderation_audit_log a
+           ON a.target_type = 'user_report' AND a.target_id = r.id::text
+         WHERE r.id = $1
+         ORDER BY CASE a.action WHEN 'review' THEN 0 ELSE 1 END, a.id`,
+        [reportId]
+      );
+      assert.equal(reportEvidence.rows.length, 2);
+      assert.deepEqual(reportEvidence.rows.map(row => ({
+        action: row.action, newStatus: row.new_status, moderatorRef: row.moderator_ref
+      })), [
+        { action: 'review', newStatus: 'reviewing', moderatorRef: registered.user.id },
+        { action: 'resolve', newStatus: 'resolved', moderatorRef: registered.user.id }
+      ]);
+      assert.ok(reportEvidence.rows.every(row => row.status === 'resolved'));
+    } finally {
+      await reportWorkflowDb.query(
+        "UPDATE users SET role = 'member' WHERE id = $1",
+        [registered.user.id]
+      );
+      await reportWorkflowDb.end();
+    }
+
     // Exercise withdrawal against real PostgreSQL rows, not only the pure policy helper.
     // This integration case is skipped with the enclosing auth test when DATABASE_URL is absent.
     const giftTestDb = new Pool({
@@ -402,11 +757,40 @@ test('auth API supports registration, session lookup, logout and login', {
       statement_timeout: 8_000,
       query_timeout: 10_000
     });
+    async function registerGiftFixtureUser(gender, displayName) {
+      const email = `gift-${randomUUID()}@example.test`;
+      const response = await request('/api/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({
+          email,
+          password: 'Gift Fixture Password 2026!',
+          displayName,
+          birthDate: '1990-01-01',
+          gender,
+          country: 'Грузия',
+          city: 'Тбилиси',
+          relationshipIntent: 'family_without_marriage',
+          familyFormat: 'cohabitation',
+          hasChildren: false,
+          wantsChildren: 'yes',
+          childrenLivingArrangement: 'not_applicable'
+        })
+      });
+      assert.equal(response.status, 201);
+      const user = await response.json();
+      const cookie = response.headers.get('set-cookie')?.split(';')[0];
+      assert.ok(cookie?.startsWith('nit_session='));
+      return { user: user.user, cookie };
+    }
+
+    const giftSender = await registerGiftFixtureUser('male', 'Gift sender fixture');
+    const giftRecipient = await registerGiftFixtureUser('female', 'Gift recipient fixture');
+
     let giftOrderId;
     let giftMatchId;
     let giftMatchCreated = false;
     try {
-      const [userA, userB] = [registered.user.id, maleRegistered.user.id].sort();
+      const [userA, userB] = [giftRecipient.user.id, giftSender.user.id].sort();
       const match = await giftTestDb.query(
         `INSERT INTO matches (user_a_id, user_b_id, status)
          VALUES ($1, $2, 'active')
@@ -431,21 +815,21 @@ test('auth API supports registration, session lookup, logout and login', {
                  'address_verified', 'not_started', NOW(), 1, 'test-only-vault-reference',
                  NOW(), $4)
          RETURNING id, public_reference`,
-        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+        [giftMatchId, giftSender.user.id, giftRecipient.user.id, randomUUID()]
       );
       giftOrderId = giftOrder.rows[0].id;
       const giftReference = giftOrder.rows[0].public_reference;
 
       const crossAccountWithdrawal = await request(
         `/api/gifts/orders/${giftReference}/withdraw-consent`,
-        { method: 'POST', headers: { Cookie: maleCookie } }
+        { method: 'POST', headers: { Cookie: giftSender.cookie } }
       );
       assert.equal(crossAccountWithdrawal.status, 404,
         'a sender or unrelated account must not withdraw the recipient\'s consent');
 
       const successfulWithdrawal = await request(
         `/api/gifts/orders/${giftReference}/withdraw-consent`,
-        { method: 'POST', headers: { Cookie: secondCookie } }
+        { method: 'POST', headers: { Cookie: giftRecipient.cookie } }
       );
       assert.equal(successfulWithdrawal.status, 200);
       assert.deepEqual(await successfulWithdrawal.json(), {
@@ -478,7 +862,7 @@ test('auth API supports registration, session lookup, logout and login', {
 
       const repeatedWithdrawal = await request(
         `/api/gifts/orders/${giftReference}/withdraw-consent`,
-        { method: 'POST', headers: { Cookie: secondCookie } }
+        { method: 'POST', headers: { Cookie: giftRecipient.cookie } }
       );
       assert.equal(repeatedWithdrawal.status, 409,
         'a second withdrawal must not create another transition or audit event');
@@ -494,17 +878,17 @@ test('auth API supports registration, session lookup, logout and login', {
                  'address_verified', 'not_started', NOW(), 1, 'test-only-concurrent-vault-reference',
                  NOW(), $4)
          RETURNING id, public_reference`,
-        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+        [giftMatchId, giftSender.user.id, giftRecipient.user.id, randomUUID()]
       );
       const concurrentGiftOrderId = concurrentOrderResult.rows[0].id;
       const concurrentGiftReference = concurrentOrderResult.rows[0].public_reference;
       try {
         const concurrentResponses = await Promise.all([
           request(`/api/gifts/orders/${concurrentGiftReference}/withdraw-consent`, {
-            method: 'POST', headers: { Cookie: secondCookie }
+            method: 'POST', headers: { Cookie: giftRecipient.cookie }
           }),
           request(`/api/gifts/orders/${concurrentGiftReference}/withdraw-consent`, {
-            method: 'POST', headers: { Cookie: secondCookie }
+            method: 'POST', headers: { Cookie: giftRecipient.cookie }
           })
         ]);
         assert.deepEqual(
@@ -529,9 +913,7 @@ test('auth API supports registration, session lookup, logout and login', {
         assert.equal(concurrentAudit.rows[0].count, 1,
           'concurrent requests must not duplicate the audit event');
       } finally {
-        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [concurrentGiftOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [concurrentGiftOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [concurrentGiftOrderId]).catch(() => {});
+        await preserveGiftOrderFixture(giftTestDb, concurrentGiftOrderId);
       }
 
       // Turning off gift requests must atomically close all pending requests
@@ -543,13 +925,13 @@ test('auth API supports registration, session lookup, logout and login', {
          VALUES ($1, $2, $3, 'Pending preference test gift', 'chocolate', 1000, 'USD',
                  'awaiting_recipient_consent', 'not_started', $4)
          RETURNING id, public_reference`,
-        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+        [giftMatchId, giftSender.user.id, giftRecipient.user.id, randomUUID()]
       );
       const pendingPreferenceOrderId = pendingPreferenceOrder.rows[0].id;
       try {
         const disableGiftRequests = await request('/api/gifts/preferences', {
           method: 'PUT',
-          headers: { Cookie: secondCookie },
+          headers: { Cookie: giftRecipient.cookie },
           body: JSON.stringify({ requestsEnabled: false })
         });
         assert.equal(disableGiftRequests.status, 200);
@@ -565,20 +947,29 @@ test('auth API supports registration, session lookup, logout and login', {
           'opt-out must durably mark the old request as invalidated');
         const preferenceAudit = await giftTestDb.query(
           `SELECT actor_type, event_type, from_status, to_status
-           FROM gift_delivery_order_events WHERE order_id = $1`,
+           FROM gift_delivery_order_events WHERE order_id = $1
+           ORDER BY event_type`,
           [pendingPreferenceOrderId]
         );
-        assert.deepEqual(preferenceAudit.rows, [{
-          actor_type: 'recipient',
-          event_type: 'cancelled',
-          from_status: 'awaiting_recipient_consent',
-          to_status: 'cancelled'
-        }]);
+        assert.deepEqual(preferenceAudit.rows, [
+          {
+            actor_type: 'recipient',
+            event_type: 'cancelled',
+            from_status: 'awaiting_recipient_consent',
+            to_status: 'cancelled'
+          },
+          {
+            actor_type: 'recipient',
+            event_type: 'recipient_opted_out',
+            from_status: 'awaiting_recipient_consent',
+            to_status: 'awaiting_recipient_consent'
+          }
+        ]);
         const senderNotification = await giftTestDb.query(
           `SELECT type, metadata, dedupe_key
            FROM user_notifications
            WHERE user_id = $1 AND dedupe_key = $2`,
-          [maleRegistered.user.id, `gift_request_update:${pendingPreferenceOrder.rows[0].public_reference}:recipient_opted_out`]
+          [giftSender.user.id, `gift_request_update:${pendingPreferenceOrder.rows[0].public_reference}:recipient_opted_out`]
         );
         assert.equal(senderNotification.rowCount, 1,
           'the sender must be notified when recipient opt-out invalidates the request');
@@ -590,10 +981,8 @@ test('auth API supports registration, session lookup, logout and login', {
         await giftTestDb.query(
           'DELETE FROM user_notifications WHERE dedupe_key = $1',
           [`gift_request_update:${pendingPreferenceOrder.rows[0].public_reference}:recipient_opted_out`]
-        ).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [pendingPreferenceOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [pendingPreferenceOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [pendingPreferenceOrderId]).catch(() => {});
+        );
+        await preserveGiftOrderFixture(giftTestDb, pendingPreferenceOrderId);
       }
 
       // Race opt-out against recipient acceptance. The order lock serializes the
@@ -608,7 +997,7 @@ test('auth API supports registration, session lookup, logout and login', {
          VALUES ($1, $2, $3, 'Expired acceptance race test', 'chocolate', 1000, 'USD',
                  'awaiting_recipient_consent', 'not_started', $4)
          RETURNING id, public_reference`,
-        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+        [giftMatchId, giftSender.user.id, giftRecipient.user.id, randomUUID()]
       );
       const expiredAcceptanceOrderId = expiredAcceptanceResult.rows[0].id;
       const expiredAcceptanceReference = expiredAcceptanceResult.rows[0].public_reference;
@@ -621,7 +1010,7 @@ test('auth API supports registration, session lookup, logout and login', {
           `/api/gifts/orders/${expiredAcceptanceReference}/decision`,
           {
             method: 'POST',
-            headers: { Cookie: secondCookie },
+            headers: { Cookie: giftRecipient.cookie },
             body: JSON.stringify({ action: 'accept' })
           }
         );
@@ -647,10 +1036,17 @@ test('auth API supports registration, session lookup, logout and login', {
           from_status: 'awaiting_recipient_consent',
           to_status: 'expired'
         }], 'an expired request must record expiry, never an acceptance event');
+        let invalidOptOutError;
+        try {
+          await giftTestDb.query(
+            'UPDATE gift_delivery_orders SET recipient_requests_disabled_at = statement_timestamp() WHERE id = $1',
+            [expiredAcceptanceOrderId]
+          );
+        } catch (error) { invalidOptOutError = error; }
+        assert.equal(invalidOptOutError?.code, '23514',
+          'opt-out evidence must not be attached to an order that was already expired');
       } finally {
-        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [expiredAcceptanceOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [expiredAcceptanceOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [expiredAcceptanceOrderId]).catch(() => {});
+        await preserveGiftOrderFixture(giftTestDb, expiredAcceptanceOrderId);
       }
 
       // Active payment states must not be silently declined or cancelled.
@@ -663,7 +1059,7 @@ test('auth API supports registration, session lookup, logout and login', {
          VALUES ($1, $2, $3, 'Active payment guard test gift', 'chocolate', 1000, 'USD',
                  'awaiting_recipient_consent', 'authorized', $4)
          RETURNING id, public_reference`,
-        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+        [giftMatchId, giftSender.user.id, giftRecipient.user.id, randomUUID()]
       );
       const activePaymentOrderId = activePaymentOrder.rows[0].id;
       const activePaymentReference = activePaymentOrder.rows[0].public_reference;
@@ -680,7 +1076,7 @@ test('auth API supports registration, session lookup, logout and login', {
           `/api/gifts/orders/${activePaymentReference}/decision`,
           {
             method: 'POST',
-            headers: { Cookie: secondCookie },
+            headers: { Cookie: giftRecipient.cookie },
             body: JSON.stringify({ action: 'decline' })
           }
         );
@@ -726,7 +1122,7 @@ test('auth API supports registration, session lookup, logout and login', {
           `/api/gifts/orders/${activePaymentReference}/decision`,
           {
             method: 'POST',
-            headers: { Cookie: secondCookie },
+            headers: { Cookie: giftRecipient.cookie },
             body: JSON.stringify({ action: 'accept' })
           }
         );
@@ -751,7 +1147,7 @@ test('auth API supports registration, session lookup, logout and login', {
         );
         const catalogWithExpiredActivePayment = await request(
           `/api/gifts/catalog?matchId=${giftMatchId}`,
-          { headers: { Cookie: secondCookie } }
+          { headers: { Cookie: giftRecipient.cookie } }
         );
         assert.equal(catalogWithExpiredActivePayment.status, 409);
         assert.deepEqual(await catalogWithExpiredActivePayment.json(), {
@@ -771,7 +1167,7 @@ test('auth API supports registration, session lookup, logout and login', {
 
         const repeatedCatalogWithExpiredActivePayment = await request(
           `/api/gifts/catalog?matchId=${giftMatchId}`,
-          { headers: { Cookie: secondCookie } }
+          { headers: { Cookie: giftRecipient.cookie } }
         );
         assert.equal(repeatedCatalogWithExpiredActivePayment.status, 409);
         assert.deepEqual(await repeatedCatalogWithExpiredActivePayment.json(), {
@@ -796,7 +1192,7 @@ test('auth API supports registration, session lookup, logout and login', {
           `/api/gifts/orders/${activePaymentReference}/decision`,
           {
             method: 'POST',
-            headers: { Cookie: secondCookie },
+            headers: { Cookie: giftRecipient.cookie },
             body: JSON.stringify({ action: 'decline' })
           }
         );
@@ -815,7 +1211,7 @@ test('auth API supports registration, session lookup, logout and login', {
 
         const optOutWithActivePayment = await request('/api/gifts/preferences', {
           method: 'PUT',
-          headers: { Cookie: secondCookie },
+          headers: { Cookie: giftRecipient.cookie },
           body: JSON.stringify({ requestsEnabled: false })
         });
         assert.equal(optOutWithActivePayment.status, 200);
@@ -836,7 +1232,7 @@ test('auth API supports registration, session lookup, logout and login', {
           `/api/gifts/orders/${activePaymentReference}/decision`,
           {
             method: 'POST',
-            headers: { Cookie: secondCookie },
+            headers: { Cookie: giftRecipient.cookie },
             body: JSON.stringify({ action: 'accept' })
           }
         );
@@ -847,13 +1243,13 @@ test('auth API supports registration, session lookup, logout and login', {
         // order, even though its payment reconciliation is still pending.
         await giftTestDb.query(
           'UPDATE gift_receiving_preferences SET requests_enabled = TRUE WHERE user_id = $1',
-          [registered.user.id]
+          [giftRecipient.user.id]
         );
         const acceptAfterReEnable = await request(
           `/api/gifts/orders/${activePaymentReference}/decision`,
           {
             method: 'POST',
-            headers: { Cookie: secondCookie },
+            headers: { Cookie: giftRecipient.cookie },
             body: JSON.stringify({ action: 'accept' })
           }
         );
@@ -864,7 +1260,7 @@ test('auth API supports registration, session lookup, logout and login', {
         });
         await giftTestDb.query(
           'UPDATE gift_receiving_preferences SET requests_enabled = FALSE WHERE user_id = $1',
-          [registered.user.id]
+          [giftRecipient.user.id]
         );
 
         const activePaymentAudit = await giftTestDb.query(
@@ -877,8 +1273,9 @@ test('auth API supports registration, session lookup, logout and login', {
         assert.deepEqual(activePaymentAudit.rows, [
           { event_type: 'payment_reconciliation_required', reason: 'recipient_declined_active_payment' },
           { event_type: 'payment_reconciliation_required', reason: 'expired_active_payment' },
+          { event_type: 'recipient_opted_out', reason: 'recipient_opted_out' },
           { event_type: 'payment_reconciliation_required', reason: 'recipient_opted_out' }
-        ], 'each trigger cause must be audited while all causes share one reconciliation task');
+        ], 'recipient opt-out and payment reconciliation must each have distinct durable audit evidence while sharing one reconciliation task');
         const reconciliationTask = await giftTestDb.query(
           `SELECT reason, status, attempt_count
            FROM gift_payment_reconciliation_tasks
@@ -893,7 +1290,7 @@ test('auth API supports registration, session lookup, logout and login', {
         const activeSenderNotification = await giftTestDb.query(
           `SELECT type, metadata FROM user_notifications
            WHERE user_id = $1 AND dedupe_key = $2`,
-          [maleRegistered.user.id, `gift_request_update:${activePaymentReference}:recipient_opted_out`]
+          [giftSender.user.id, `gift_request_update:${activePaymentReference}:recipient_opted_out`]
         );
         assert.equal(activeSenderNotification.rowCount, 1,
           'sender must also be notified when the request awaits payment reconciliation');
@@ -905,10 +1302,8 @@ test('auth API supports registration, session lookup, logout and login', {
         await giftTestDb.query(
           'DELETE FROM user_notifications WHERE dedupe_key = $1',
           [`gift_request_update:${activePaymentReference}:recipient_opted_out`]
-        ).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [activePaymentOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [activePaymentOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [activePaymentOrderId]).catch(() => {});
+        );
+        await preserveGiftOrderFixture(giftTestDb, activePaymentOrderId);
       }
 
       // The schema intentionally permits only one pending gift per unordered
@@ -921,13 +1316,13 @@ test('auth API supports registration, session lookup, logout and login', {
          VALUES ($1, $2, $3, 'Inactive sibling test gift', 'chocolate', 1000, 'USD',
                  'awaiting_recipient_consent', 'not_started', $4)
          RETURNING id`,
-        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+        [giftMatchId, giftSender.user.id, giftRecipient.user.id, randomUUID()]
       );
       const inactiveSiblingOrderId = inactiveSiblingOrder.rows[0].id;
       try {
         const disableWithoutPayment = await request('/api/gifts/preferences', {
           method: 'PUT',
-          headers: { Cookie: secondCookie },
+          headers: { Cookie: giftRecipient.cookie },
           body: JSON.stringify({ requestsEnabled: false })
         });
         assert.equal(disableWithoutPayment.status, 200);
@@ -940,14 +1335,21 @@ test('auth API supports registration, session lookup, logout and login', {
           payment_status: 'not_started'
         }, 'opt-out must cancel a pending order whose payment has not started');
         const inactiveSiblingAudit = await giftTestDb.query(
-          'SELECT event_type, from_status, to_status FROM gift_delivery_order_events WHERE order_id = $1',
+          'SELECT event_type, from_status, to_status FROM gift_delivery_order_events WHERE order_id = $1 ORDER BY id',
           [inactiveSiblingOrderId]
         );
-        assert.deepEqual(inactiveSiblingAudit.rows, [{
-          event_type: 'cancelled',
-          from_status: 'awaiting_recipient_consent',
-          to_status: 'cancelled'
-        }]);
+        assert.deepEqual(inactiveSiblingAudit.rows, [
+          {
+            event_type: 'recipient_opted_out',
+            from_status: 'awaiting_recipient_consent',
+            to_status: 'awaiting_recipient_consent'
+          },
+          {
+            event_type: 'cancelled',
+            from_status: 'awaiting_recipient_consent',
+            to_status: 'cancelled'
+          }
+        ], 'recipient opt-out and order cancellation must remain distinct append-only events');
         const inactiveSiblingReconciliation = await giftTestDb.query(
           'SELECT reason FROM gift_payment_reconciliation_tasks WHERE order_id = $1',
           [inactiveSiblingOrderId]
@@ -955,14 +1357,12 @@ test('auth API supports registration, session lookup, logout and login', {
         assert.deepEqual(inactiveSiblingReconciliation.rows, [],
           'an order whose payment never started must not create provider reconciliation work');
       } finally {
-        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [inactiveSiblingOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [inactiveSiblingOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [inactiveSiblingOrderId]).catch(() => {});
+        await preserveGiftOrderFixture(giftTestDb, inactiveSiblingOrderId);
       }
 
       const reenableAfterActivePayment = await request('/api/gifts/preferences', {
         method: 'PUT',
-        headers: { Cookie: secondCookie },
+        headers: { Cookie: giftRecipient.cookie },
         body: JSON.stringify({ requestsEnabled: true })
       });
       assert.equal(reenableAfterActivePayment.status, 200);
@@ -974,7 +1374,7 @@ test('auth API supports registration, session lookup, logout and login', {
          VALUES ($1, $2, $3, 'Opt-out race test gift', 'chocolate', 1000, 'USD',
                  'awaiting_recipient_consent', 'not_started', $4)
          RETURNING id, public_reference`,
-        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+        [giftMatchId, giftSender.user.id, giftRecipient.user.id, randomUUID()]
       );
       const raceOrderId = raceOrderResult.rows[0].id;
       const raceReference = raceOrderResult.rows[0].public_reference;
@@ -982,12 +1382,12 @@ test('auth API supports registration, session lookup, logout and login', {
         const [raceDecision, raceOptOut] = await Promise.all([
           request(`/api/gifts/orders/${raceReference}/decision`, {
             method: 'POST',
-            headers: { Cookie: secondCookie },
+            headers: { Cookie: giftRecipient.cookie },
             body: JSON.stringify({ action: 'accept' })
           }),
           request('/api/gifts/preferences', {
             method: 'PUT',
-            headers: { Cookie: secondCookie },
+            headers: { Cookie: giftRecipient.cookie },
             body: JSON.stringify({ requestsEnabled: false })
           })
         ]);
@@ -1011,16 +1411,28 @@ test('auth API supports registration, session lookup, logout and login', {
            FROM gift_delivery_order_events WHERE order_id = $1 ORDER BY created_at, id`,
           [raceOrderId]
         );
-        assert.equal(raceAudit.rowCount, 1,
-          'the winning state transition must produce exactly one audit event');
-        assert.ok(
-          (raceState.rows[0].status === 'cancelled' && raceAudit.rows[0].event_type === 'cancelled') ||
-          (raceState.rows[0].status === 'recipient_accepted' && raceAudit.rows[0].event_type === 'accepted')
-        );
+        if (raceState.rows[0].status === 'cancelled') {
+          assert.deepEqual(raceAudit.rows, [
+            {
+              event_type: 'recipient_opted_out',
+              from_status: 'awaiting_recipient_consent',
+              to_status: 'awaiting_recipient_consent'
+            },
+            {
+              event_type: 'cancelled',
+              from_status: 'awaiting_recipient_consent',
+              to_status: 'cancelled'
+            }
+          ], 'an opt-out that wins must retain both the opt-out fact and the cancellation transition');
+        } else {
+          assert.deepEqual(raceAudit.rows, [{
+            event_type: 'accepted',
+            from_status: 'awaiting_recipient_consent',
+            to_status: 'recipient_accepted'
+          }], 'an acceptance that wins must remain a single accepted transition');
+        }
       } finally {
-        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [raceOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [raceOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [raceOrderId]).catch(() => {});
+        await preserveGiftOrderFixture(giftTestDb, raceOrderId);
       }
 
       // Disabling future requests must not silently withdraw consent already
@@ -1033,19 +1445,19 @@ test('auth API supports registration, session lookup, logout and login', {
          VALUES ($1, $2, $3, 'Accepted consent preservation test', 'chocolate', 1000, 'USD',
                  'recipient_accepted', 'not_started', NOW(), 1, $4)
          RETURNING id`,
-        [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+        [giftMatchId, giftSender.user.id, giftRecipient.user.id, randomUUID()]
       );
       const acceptedOrderId = acceptedOrderResult.rows[0].id;
       await giftTestDb.query(
         `INSERT INTO gift_delivery_order_events
            (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
          VALUES ($1, $2, 'recipient', 'accepted', 'awaiting_recipient_consent', 'recipient_accepted')`,
-        [acceptedOrderId, registered.user.id]
+        [acceptedOrderId, giftRecipient.user.id]
       );
       try {
         const disableFutureRequests = await request('/api/gifts/preferences', {
           method: 'PUT',
-          headers: { Cookie: secondCookie },
+          headers: { Cookie: giftRecipient.cookie },
           body: JSON.stringify({ requestsEnabled: false })
         });
         assert.equal(disableFutureRequests.status, 200);
@@ -1066,9 +1478,7 @@ test('auth API supports registration, session lookup, logout and login', {
           to_status: 'recipient_accepted'
         }], 'opting out of future requests must preserve the existing consent audit event without adding cancellation');
       } finally {
-        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [acceptedOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [acceptedOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [acceptedOrderId]).catch(() => {});
+        await preserveGiftOrderFixture(giftTestDb, acceptedOrderId);
       }
 
       // Race recipient acceptance against a safety block using the same pair lock.
@@ -1081,7 +1491,7 @@ test('auth API supports registration, session lookup, logout and login', {
            VALUES ($1, $2, $3, 'Safety race test gift', 'chocolate', 1000, 'USD',
                    'awaiting_recipient_consent', 'not_started', $4)
            RETURNING id, public_reference`,
-          [giftMatchId, maleRegistered.user.id, registered.user.id, randomUUID()]
+          [giftMatchId, giftSender.user.id, giftRecipient.user.id, randomUUID()]
         );
         const safetyRaceOrderId = safetyRaceOrder.rows[0].id;
         const safetyRaceReference = safetyRaceOrder.rows[0].public_reference;
@@ -1089,12 +1499,12 @@ test('auth API supports registration, session lookup, logout and login', {
           const [safetyRaceDecision, safetyRaceBlock] = await Promise.all([
             request(`/api/gifts/orders/${safetyRaceReference}/decision`, {
               method: 'POST',
-              headers: { Cookie: secondCookie },
+              headers: { Cookie: giftRecipient.cookie },
               body: JSON.stringify({ action: 'accept' })
             }),
-            request(`/api/blocks/${registered.user.id}`, {
+            request(`/api/blocks/${giftRecipient.user.id}`, {
               method: 'POST',
-              headers: { Cookie: maleCookie }
+              headers: { Cookie: giftSender.cookie }
             })
           ]);
           assert.ok([200, 409].includes(safetyRaceDecision.status),
@@ -1132,24 +1542,25 @@ test('auth API supports registration, session lookup, logout and login', {
             'audit events must describe the actual committed state transitions'
           );
         } finally {
-          await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [safetyRaceOrderId]).catch(() => {});
-          await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [safetyRaceOrderId]).catch(() => {});
-          await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [safetyRaceOrderId]).catch(() => {});
+          await preserveGiftOrderFixture(giftTestDb, safetyRaceOrderId);
           await giftTestDb.query(
             'DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2',
-            [maleRegistered.user.id, registered.user.id]
-          ).catch(() => {});
+            [giftSender.user.id, giftRecipient.user.id]
+          );
         }
       }
     } finally {
       if (giftOrderId) {
-        await giftTestDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [giftOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [giftOrderId]).catch(() => {});
-        await giftTestDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [giftOrderId]).catch(() => {});
+        await preserveGiftOrderFixture(giftTestDb, giftOrderId);
       }
-      if (giftMatchId && giftMatchCreated) {
-        await giftTestDb.query('DELETE FROM matches WHERE id = $1', [giftMatchId]).catch(() => {});
-      }
+      // Gift orders and their match remain as immutable evidence. Tombstone the
+      // disposable fixture accounts so account erasure scrubs profiles while
+      // preserving order/event provenance.
+      const giftFixtureUserIds = [giftSender.user.id, giftRecipient.user.id];
+      await giftTestDb.query(
+        "UPDATE users SET status = 'deleted' WHERE id = ANY($1::uuid[])",
+        [giftFixtureUserIds]
+      );
       await giftTestDb.end();
     }
 
@@ -1492,11 +1903,31 @@ test('auth API supports registration, session lookup, logout and login', {
       );
     }
 
-    await identityGateDb.query(
-      `INSERT INTO identity_l3_consents (user_id, consent_version, granted_at)
-       VALUES ($1, 2, statement_timestamp()), ($2, 1, statement_timestamp())`,
-      [maleRegistered.user.id, secondMaleRegistered.user.id]
-    );
+    const consentSetupClient = await identityGateDb.connect();
+    try {
+      await consentSetupClient.query('BEGIN');
+      const initialGrants = await consentSetupClient.query(
+        `INSERT INTO identity_l3_consents (user_id, consent_version, granted_at)
+         VALUES ($1, 2, statement_timestamp()), ($2, 1, statement_timestamp())
+         RETURNING user_id, consent_version, granted_at`,
+        [maleRegistered.user.id, secondMaleRegistered.user.id]
+      );
+      assert.equal(initialGrants.rowCount, 2, 'both L3 consent grants must be created');
+      await consentSetupClient.query(
+        `INSERT INTO identity_l3_consent_events
+           (user_id, actor_user_id, event_type, consent_version, occurred_at)
+         SELECT user_id, user_id, 'granted', consent_version, granted_at
+         FROM identity_l3_consents
+         WHERE user_id IN ($1, $2)`,
+        [maleRegistered.user.id, secondMaleRegistered.user.id]
+      );
+      await consentSetupClient.query('COMMIT');
+    } catch (error) {
+      await consentSetupClient.query('ROLLBACK');
+      throw error;
+    } finally {
+      consentSetupClient.release();
+    }
 
     const consentBefore = await request('/api/identity/l3/consent', {
       headers: { Cookie: secondMaleCookie }
@@ -1642,10 +2073,14 @@ test('auth API supports registration, session lookup, logout and login', {
       last_error_code: null
     }], 'an explicit retry must safely reset only a failed purge lease');
     const consentAudit = await identityGateDb.query(
-      'SELECT event_type FROM identity_l3_consent_events WHERE user_id = $1 ORDER BY occurred_at, id',
+      'SELECT event_type, consent_version FROM identity_l3_consent_events WHERE user_id = $1 ORDER BY occurred_at, id',
       [secondMaleRegistered.user.id]
     );
-    assert.deepEqual(consentAudit.rows.map(row => row.event_type), ['granted', 'withdrawn']);
+    assert.deepEqual(consentAudit.rows, [
+      { event_type: 'granted', consent_version: 1 },
+      { event_type: 'granted', consent_version: 2 },
+      { event_type: 'withdrawn', consent_version: 2 }
+    ]);
     const consentAfter = await request('/api/identity/l3/consent', {
       headers: { Cookie: secondMaleCookie }
     });
@@ -1784,19 +2219,54 @@ test('auth API supports registration, session lookup, logout and login', {
     );
     assert.deepEqual(revokedDecision.rows, [{ status: 'revoked', is_active: false }],
       'a newer revocation must invalidate an older unexpired approval');
-    const purgedRevokedMedia = await identityGateDb.query(
-      `UPDATE identity_l3_submissions
-       SET storage_object_key = NULL, media_purged_at = NOW()
-       WHERE id = $1
-       RETURNING status, storage_object_key, media_purged_at`,
-      [newerRevokedId]
-    );
+    const purgeClient = await identityGateDb.connect();
+    let purgedRevokedMedia;
+    try {
+      await purgeClient.query('BEGIN');
+      const purgeJob = await purgeClient.query(
+        'SELECT id FROM identity_l3_media_purge_jobs WHERE submission_id = $1 FOR UPDATE',
+        [newerRevokedId]
+      );
+      assert.equal(purgeJob.rowCount, 1, 'revoking retained L3 media must create a durable purge job');
+      const purgeLeaseToken = randomUUID();
+      await purgeClient.query(
+        `UPDATE identity_l3_media_purge_jobs
+         SET status = 'processing',
+             attempts = attempts + 1,
+             lease_token = $2,
+             lease_expires_at = statement_timestamp() + INTERVAL '2 minutes'
+         WHERE id = $1`,
+        [purgeJob.rows[0].id, purgeLeaseToken]
+      );
+      purgedRevokedMedia = await purgeClient.query(
+        `UPDATE identity_l3_submissions
+         SET storage_object_key = NULL, media_purged_at = statement_timestamp()
+         WHERE id = $1
+         RETURNING status, storage_object_key, media_purged_at`,
+        [newerRevokedId]
+      );
+      await purgeClient.query(
+        `UPDATE identity_l3_media_purge_jobs
+         SET status = 'completed',
+             completed_at = statement_timestamp(),
+             lease_token = NULL,
+             lease_expires_at = NULL
+         WHERE id = $1 AND status = 'processing' AND lease_token = $2`,
+        [purgeJob.rows[0].id, purgeLeaseToken]
+      );
+      await purgeClient.query('COMMIT');
+    } catch (error) {
+      await purgeClient.query('ROLLBACK');
+      throw error;
+    } finally {
+      purgeClient.release();
+    }
     assert.deepEqual(purgedRevokedMedia.rows.map(row => ({
       status: row.status,
       storage_object_key: row.storage_object_key,
       purged: Boolean(row.media_purged_at)
     })), [{ status: 'revoked', storage_object_key: null, purged: true }],
-    'a revoked decision must still allow the one-way physical-media purge');
+    'a revoked decision must still allow the one-way physical-media purge after its durable job completes');
     const revokedPurgeAudit = await identityGateDb.query(
       "SELECT event_type FROM identity_l3_decision_events WHERE submission_id = $1 AND event_type = 'media_purged'",
       [newerRevokedId]
@@ -1842,13 +2312,49 @@ test('auth API supports registration, session lookup, logout and login', {
     );
     assert.deepEqual(rejectedDecision.rows, [{ status: 'rejected', is_active: false }],
       'a newer rejected re-verification must also invalidate older approval history');
-    const purgedRejectedMedia = await identityGateDb.query(
-      `UPDATE identity_l3_submissions
-       SET storage_object_key = NULL, media_purged_at = NOW()
-       WHERE id = $1
-       RETURNING status, storage_object_key, media_purged_at`,
-      [rejectedReverificationId]
-    );
+    const rejectedPurgeClient = await identityGateDb.connect();
+    let purgedRejectedMedia;
+    try {
+      await rejectedPurgeClient.query('BEGIN');
+      const rejectedPurgeJob = await rejectedPurgeClient.query(
+        'SELECT id FROM identity_l3_media_purge_jobs WHERE submission_id = $1 FOR UPDATE',
+        [rejectedReverificationId]
+      );
+      assert.equal(rejectedPurgeJob.rowCount, 1,
+        'rejecting retained L3 media must create a durable purge job');
+      const rejectedPurgeLeaseToken = randomUUID();
+      await rejectedPurgeClient.query(
+        `UPDATE identity_l3_media_purge_jobs
+         SET status = 'processing',
+             attempts = attempts + 1,
+             lease_token = $2,
+             lease_expires_at = statement_timestamp() + INTERVAL '2 minutes'
+         WHERE id = $1`,
+        [rejectedPurgeJob.rows[0].id, rejectedPurgeLeaseToken]
+      );
+      purgedRejectedMedia = await rejectedPurgeClient.query(
+        `UPDATE identity_l3_submissions
+         SET storage_object_key = NULL, media_purged_at = statement_timestamp()
+         WHERE id = $1
+         RETURNING status, storage_object_key, media_purged_at`,
+        [rejectedReverificationId]
+      );
+      await rejectedPurgeClient.query(
+        `UPDATE identity_l3_media_purge_jobs
+         SET status = 'completed',
+             completed_at = statement_timestamp(),
+             lease_token = NULL,
+             lease_expires_at = NULL
+         WHERE id = $1 AND status = 'processing' AND lease_token = $2`,
+        [rejectedPurgeJob.rows[0].id, rejectedPurgeLeaseToken]
+      );
+      await rejectedPurgeClient.query('COMMIT');
+    } catch (error) {
+      await rejectedPurgeClient.query('ROLLBACK');
+      throw error;
+    } finally {
+      rejectedPurgeClient.release();
+    }
     assert.equal(purgedRejectedMedia.rows[0].status, 'rejected');
     assert.equal(purgedRejectedMedia.rows[0].storage_object_key, null);
     assert.ok(purgedRejectedMedia.rows[0].media_purged_at,
@@ -2495,6 +3001,9 @@ test('auth API supports registration, session lookup, logout and login', {
 
     // Two different male accounts race to create a match with the same
     // free-tier woman when her final weekly match slot is available.
+    // This integration scenario exercises quota concurrency, not the auth
+    // limiter; clear only the isolated test server's persisted auth counters.
+    await identityGateDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'auth:%'");
     const concurrentMaleRegistration = await request('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify({
@@ -2523,10 +3032,31 @@ test('auth API supports registration, session lookup, logout and login', {
        VALUES ($1, 'didit', $2, $3, 'verified', 'Approved', 'live')`,
       [concurrentMale.user.id, randomUUID(), randomUUID()]
     );
-    await identityGateDb.query(
-      'INSERT INTO identity_l3_consents (user_id, consent_version, granted_at) VALUES ($1, 2, statement_timestamp())',
-      [concurrentMale.user.id]
-    );
+    const concurrentMaleConsentClient = await identityGateDb.connect();
+    try {
+      await concurrentMaleConsentClient.query('BEGIN');
+      const concurrentMaleGrant = await concurrentMaleConsentClient.query(
+        `INSERT INTO identity_l3_consents (user_id, consent_version, granted_at)
+         VALUES ($1, 2, statement_timestamp())
+         RETURNING user_id, consent_version, granted_at`,
+        [concurrentMale.user.id]
+      );
+      assert.equal(concurrentMaleGrant.rowCount, 1, 'the concurrent male L3 consent grant must be created');
+      await concurrentMaleConsentClient.query(
+        `INSERT INTO identity_l3_consent_events
+           (user_id, actor_user_id, event_type, consent_version, occurred_at)
+         SELECT user_id, user_id, 'granted', consent_version, granted_at
+         FROM identity_l3_consents
+         WHERE user_id = $1`,
+        [concurrentMale.user.id]
+      );
+      await concurrentMaleConsentClient.query('COMMIT');
+    } catch (error) {
+      await concurrentMaleConsentClient.query('ROLLBACK');
+      throw error;
+    } finally {
+      concurrentMaleConsentClient.release();
+    }
     const concurrentMaleSubmissionId = randomUUID();
     await identityGateDb.query(
       'INSERT INTO identity_l3_submissions (id, user_id) VALUES ($1, $2)',
@@ -3245,9 +3775,7 @@ test('auth API supports registration, session lookup, logout and login', {
         }
       } finally {
         for (const order of neutralTerminalOrders) {
-          await giftSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [order.id]).catch(() => {});
-          await giftSafetyDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [order.id]).catch(() => {});
-          await giftSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [order.id]).catch(() => {});
+          await preserveGiftOrderFixture(giftSafetyDb, order.id);
         }
       }
 
@@ -3300,27 +3828,25 @@ test('auth API supports registration, session lookup, logout and login', {
           }
         ]);
       } finally {
-        await giftSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [dispatchedBlockSafetyOrderId]).catch(() => {});
-        await giftSafetyDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [dispatchedBlockSafetyOrderId]).catch(() => {});
-        await giftSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [dispatchedBlockSafetyOrderId]).catch(() => {});
+        await preserveGiftOrderFixture(giftSafetyDb, dispatchedBlockSafetyOrderId);
         // Isolate this block test from later account-deletion assertions that
         // intentionally exercise a separate safety action on the same fixture.
         await giftSafetyDb.query(
           'DELETE FROM user_blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1)',
           [registered.user.id, maleRegistered.user.id]
-        ).catch(() => {});
+        );
         await giftSafetyDb.query(
           "UPDATE matches SET status = 'active' WHERE id = $1",
           [matchPayload.match.id]
-        ).catch(() => {});
+        );
       }
 
     } finally {
-      if (reportId) await giftSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [reportId]).catch(() => {});
+      if (reportId) {
+        await resolveReportFixtureWithAudit(giftSafetyDb, reportId);
+      }
       for (const orderId of [blockSafetyOrderId, blockFailedDeliveryOrderId, authorizationPendingSafetyOrderId, reportSafetyOrderId, reportFailedDeliveryOrderId].filter(Boolean)) {
-        await giftSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [orderId]).catch(() => {});
-        await giftSafetyDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [orderId]).catch(() => {});
-        await giftSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [orderId]).catch(() => {});
+        await preserveGiftOrderFixture(giftSafetyDb, orderId);
       }
       await giftSafetyDb.end();
     }
@@ -3420,10 +3946,11 @@ test('auth API supports registration, session lookup, logout and login', {
     // identity video while the private-media purge has not been confirmed.
     const l3DeletionGuardDb = new Pool({ connectionString: process.env.DATABASE_URL });
     const l3DeletionGuardSubmissionId = randomUUID();
+    const l3DeletionGuardUser = await registerGiftFixtureUser('male', 'L3 deletion guard fixture');
     try {
       await l3DeletionGuardDb.query(
         'INSERT INTO identity_l3_submissions (id, user_id, status) VALUES ($1, $2, \'draft\')',
-        [l3DeletionGuardSubmissionId, registered.user.id]
+        [l3DeletionGuardSubmissionId, l3DeletionGuardUser.user.id]
       );
       await l3DeletionGuardDb.query(
         "UPDATE identity_l3_submissions SET status = 'upload_authorized' WHERE id = $1",
@@ -3440,8 +3967,8 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       const blockedL3AccountDeletion = await request('/api/account', {
         method: 'DELETE',
-        headers: { Cookie: secondCookie },
-        body: JSON.stringify({ password: activePassword })
+        headers: { Cookie: l3DeletionGuardUser.cookie },
+        body: JSON.stringify({ password: 'Gift Fixture Password 2026!' })
       });
       assert.equal(blockedL3AccountDeletion.status, 409);
       assert.deepEqual(await blockedL3AccountDeletion.json(),
@@ -3453,10 +3980,8 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.equal(retainedL3Reference.rowCount, 1,
         'account deletion must retain the object key until physical media purge is confirmed');
     } finally {
-      await l3DeletionGuardDb.query(
-        'DELETE FROM identity_l3_submissions WHERE id = $1',
-        [l3DeletionGuardSubmissionId]
-      ).catch(() => {});
+      // Retain the uploaded L3 submission and object reference as evidence.
+      // Its dedicated fixture account prevents contamination of shared auth users.
       await l3DeletionGuardDb.end();
     }
 
@@ -3524,14 +4049,15 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.deepEqual(moderationReconciliation.rows, [{ reason: 'safety_hold', status: 'pending' }],
         'moderation suspension must enqueue provider reconciliation without claiming the captured payment was refunded');
 
+      const deletedTargetFixture = await registerGiftFixtureUser('male', 'Deleted target fixture');
       const deletedTargetReport = await moderationSafetyDb.query(
         'INSERT INTO user_reports (reporter_id, reported_user_id, category, details) VALUES ($1, $2, $3, $4) RETURNING id',
-        [registered.user.id, maleRegistered.user.id, 'safety', 'Integration test: do not overwrite deleted account status']
+        [registered.user.id, deletedTargetFixture.user.id, 'safety', 'Integration test: do not overwrite deleted account status']
       );
       deletedTargetReportId = deletedTargetReport.rows[0].id;
       await moderationSafetyDb.query(
         "UPDATE users SET status = 'deleted', email = $2 WHERE id = $1",
-        [maleRegistered.user.id, 'deleted+' + maleRegistered.user.id + '@deleted.invalid']
+        [deletedTargetFixture.user.id, 'deleted+' + deletedTargetFixture.user.id + '@deleted.invalid']
       );
       const deletedTargetAction = await request('/api/admin/reports/' + deletedTargetReportId + '/action', {
         method: 'POST',
@@ -3542,7 +4068,7 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.equal((await deletedTargetAction.json()).accountSuspended, false);
       const deletedTargetStatus = await moderationSafetyDb.query(
         'SELECT status FROM users WHERE id = $1',
-        [maleRegistered.user.id]
+        [deletedTargetFixture.user.id]
       );
       assert.equal(deletedTargetStatus.rows[0].status, 'deleted',
         'a moderation action must not overwrite the terminal deleted account state');
@@ -3552,17 +4078,13 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       assert.equal(resolvedDeletedTargetReport.rows[0].status, 'resolved');
     } finally {
-      // Restore this shared integration fixture even if an assertion fails.
-      await moderationSafetyDb.query(
-        "UPDATE users SET status = 'active', email = $2 WHERE id = $1",
-        [maleRegistered.user.id, maleEmail]
-      ).catch(() => {});
-      if (deletedTargetReportId) await moderationSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [deletedTargetReportId]).catch(() => {});
-      if (moderationSafetyReportId) await moderationSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [moderationSafetyReportId]).catch(() => {});
+      // Reports are immutable evidence. Retain them and close only cases that
+      // are still actionable; the deleted-target fixture remains a tombstone.
+      for (const retainedReportId of [deletedTargetReportId, moderationSafetyReportId].filter(Boolean)) {
+        await resolveReportFixtureWithAudit(moderationSafetyDb, retainedReportId);
+      }
       if (moderationSafetyOrderId) {
-        await moderationSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [moderationSafetyOrderId]).catch(() => {});
-        await moderationSafetyDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [moderationSafetyOrderId]).catch(() => {});
-        await moderationSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [moderationSafetyOrderId]).catch(() => {});
+        await preserveGiftOrderFixture(moderationSafetyDb, moderationSafetyOrderId);
       }
       await moderationSafetyDb.end();
     }
@@ -3654,10 +4176,10 @@ test('auth API supports registration, session lookup, logout and login', {
         assert.deepEqual(dispatchedReportReconciliation.rows, [{ reason: 'safety_hold', status: 'pending' }],
           'a safety report after dispatch must enqueue reconciliation for the captured payment');
       } finally {
-        if (dispatchedReportId) await deletionSafetyDb.query('DELETE FROM user_reports WHERE id = $1', [dispatchedReportId]).catch(() => {});
-        await deletionSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [dispatchedReportSafetyOrderId]).catch(() => {});
-        await deletionSafetyDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [dispatchedReportSafetyOrderId]).catch(() => {});
-        await deletionSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [dispatchedReportSafetyOrderId]).catch(() => {});
+        if (dispatchedReportId) {
+          await resolveReportFixtureWithAudit(deletionSafetyDb, dispatchedReportId);
+        }
+        await preserveGiftOrderFixture(deletionSafetyDb, dispatchedReportSafetyOrderId);
       }
 
       const deletionSafetyOrder = await deletionSafetyDb.query(
@@ -4175,9 +4697,7 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.equal(dispatchedGift.rows[0].address_verified_at, null);
     } finally {
       for (const orderId of [deletionSafetyOrderId, pendingDeletionDecisionOrderId, dispatchedDeletionSafetyOrderId].filter(Boolean)) {
-        await deletionSafetyDb.query('DELETE FROM gift_delivery_order_events WHERE order_id = $1', [orderId]).catch(() => {});
-        await deletionSafetyDb.query('DELETE FROM gift_payment_reconciliation_tasks WHERE order_id = $1', [orderId]).catch(() => {});
-        await deletionSafetyDb.query('DELETE FROM gift_delivery_orders WHERE id = $1', [orderId]).catch(() => {});
+        await preserveGiftOrderFixture(deletionSafetyDb, orderId);
       }
       await deletionSafetyDb.end();
     }

@@ -13,10 +13,10 @@ import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLo
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { consumeIdentityL3UploadCapability, IDENTITY_L3_CONSENT_NOTICE, IDENTITY_L3_CONSENT_VERSION, IdentityL3UploadTokenError, issueIdentityL3UploadCapability } from './identityL3UploadTokens.js';
-import { assertIdentityL3StorageReady, clearIdentityL3TemporaryFiles, deleteIdentityL3Object, IDENTITY_L3_MAX_MEDIA_BYTES, IdentityL3StorageError, openIdentityL3Stream, parseIdentityL3EncryptionKey, storeIdentityL3Stream } from './identityL3Storage.js';
+import { assertIdentityL3StorageReady, assertIdentityL3TemporaryStorageReady, clearIdentityL3TemporaryFiles, deleteIdentityL3Object, IDENTITY_L3_MAX_MEDIA_BYTES, IdentityL3StorageError, openIdentityL3Stream, parseIdentityL3EncryptionKey, storeIdentityL3Stream } from './identityL3Storage.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
 import { moderateProfilePhoto } from './photoModeration.js';
-import { createDiditSession, isDiditConfigured, isDiditStatus, projectDiditStatus, verifyDiditWebhook, isDiditUuid } from './diditIdentity.js';
+import { createDiditSession, isDiditConfigured, isDiditStatus, projectDiditStatus, shouldApplyDiditStatusUpdate, verifyDiditWebhook, isDiditUuid } from './diditIdentity.js';
 import { canInteract as canIdentityInteract } from './identityAccessPolicy.js';
 import { DIDIT_FREE_MONTHLY_SESSION_LIMIT } from './diditQuota.js';
 import express from 'express';
@@ -117,7 +117,16 @@ app.post('/api/paddle/webhook', express.raw({ type: 'application/json', limit: '
 
   try {
     const { processPaddleEvent } = await import('./paddleBilling.js');
-    await processPaddleEvent(pool, event);
+    const result = await processPaddleEvent(pool, event);
+    const eventType = event.eventType || event.event_type;
+    if (result?.reconciliationRequired &&
+        ['adjustment.created', 'adjustment.updated'].includes(eventType)) {
+      // The immutable webhook/adjustment and reconciliation case are already
+      // committed. Log only the provider event ID; never log the raw payload.
+      console.warn('Paddle adjustment queued for manual reconciliation:', {
+        eventId: event.eventId || event.event_id
+      });
+    }
     return res.status(200).json({ received: true });
   } catch (error) {
     console.error('Paddle webhook processing failed:', error?.message || 'unknown error');
@@ -149,7 +158,7 @@ app.post('/api/didit/webhook', express.json({ limit: '256kb', strict: true }), a
   try {
     await withPooledTransaction(pool, async client => {
       const session = await client.query(
-        'SELECT user_id FROM identity_verifications WHERE provider = \'didit\' AND provider_environment = $2 AND provider_session_id = $1 FOR UPDATE',
+        'SELECT user_id, provider_status, status, provider_event_at FROM identity_verifications WHERE provider = \'didit\' AND provider_environment = $2 AND provider_session_id = $1 FOR UPDATE',
         [event.session_id, event.environment]
       );
       // Do not bind an account from vendor_data; only our persisted session mapping is authoritative.
@@ -159,9 +168,19 @@ app.post('/api/didit/webhook', express.json({ limit: '256kb', strict: true }), a
         [event.event_id, session.rows[0].user_id, event.session_id, eventTime]
       );
       if (!inserted.rowCount) return;
+      const projectedStatus = projectDiditStatus(event.status, event.environment, event.decision);
+      if (!shouldApplyDiditStatusUpdate({
+        providerStatus: session.rows[0].provider_status,
+        status: session.rows[0].status,
+        providerEventAt: session.rows[0].provider_event_at
+      }, {
+        providerStatus: event.status,
+        status: projectedStatus,
+        providerEventAt: eventTime
+      })) return;
       await client.query(
-        'UPDATE identity_verifications SET provider_status = $2, status = $3, provider_event_at = $4, updated_at = NOW() WHERE user_id = $1 AND provider_session_id = $5 AND provider_environment = $6 AND (provider_event_at IS NULL OR provider_event_at < $4)',
-        [session.rows[0].user_id, event.status, projectDiditStatus(event.status, event.environment, event.decision), eventTime, event.session_id, event.environment]
+        'UPDATE identity_verifications SET provider_status = $2, status = $3, provider_event_at = $4, updated_at = NOW() WHERE user_id = $1 AND provider_session_id = $5 AND provider_environment = $6 AND (provider_event_at IS NULL OR provider_event_at <= $4)',
+        [session.rows[0].user_id, event.status, projectedStatus, eventTime, event.session_id, event.environment]
       );
     });
     return res.status(200).json({ received: true });
@@ -541,7 +560,10 @@ app.post('/api/paddle/checkout/cancel', validateRequestOrigin, requireSession, a
       expectedAttemptId: attempt.attempt_id
     });
     if (providerTransaction.status !== 'canceled') {
-      const status = ['completed', 'paid'].includes(providerTransaction.status)
+      // A merely paid transaction is not yet provider-completed. Keep it in
+      // reconciliation so a delayed transaction.completed webhook can bind
+      // the exact attempt; never promote a paid response to completed locally.
+      const status = providerTransaction.status === 'completed'
         ? 'completed'
         : 'reconciliation_required';
       await client.query(
@@ -551,7 +573,9 @@ app.post('/api/paddle/checkout/cancel', validateRequestOrigin, requireSession, a
       );
       await client.query('COMMIT');
       return res.status(409).json({
-        error: status === 'completed' ? 'paddle_checkout_processing' : 'paddle_checkout_reconciliation_required'
+        error: ['completed', 'paid'].includes(providerTransaction.status)
+          ? 'paddle_checkout_processing'
+          : 'paddle_checkout_reconciliation_required'
       });
     }
     await client.query(
@@ -1605,11 +1629,20 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
                AND transaction_id = $2 AND status = 'pending'`,
             [req.authUser.id, checkoutAttempt.transaction_id, checkoutAttempt.attempt_id]
           );
-        } else if (['completed', 'paid'].includes(providerTransaction.status)) {
+        } else if (providerTransaction.status === 'paid') {
+          // Paid is not the same as completed. Wait for the authoritative
+          // transaction.completed webhook before allowing destructive deletion.
           await client.query(
-            `UPDATE paddle_checkout_attempts SET status = $2, updated_at = statement_timestamp()
-             WHERE user_id = $1 AND attempt_id IS NOT DISTINCT FROM $3::uuid AND status = 'pending'`,
-            [req.authUser.id, 'completed', checkoutAttempt.attempt_id]
+            `UPDATE paddle_checkout_attempts SET status = 'reconciliation_required', updated_at = statement_timestamp()
+             WHERE user_id = $1 AND attempt_id IS NOT DISTINCT FROM $2::uuid AND status = 'pending'`,
+            [req.authUser.id, checkoutAttempt.attempt_id]
+          );
+          return res.status(409).json({ error: 'paddle_checkout_processing' });
+        } else if (providerTransaction.status === 'completed') {
+          await client.query(
+            `UPDATE paddle_checkout_attempts SET status = 'completed', updated_at = statement_timestamp()
+             WHERE user_id = $1 AND attempt_id IS NOT DISTINCT FROM $2::uuid AND status = 'pending'`,
+            [req.authUser.id, checkoutAttempt.attempt_id]
           );
           // A completed recurring transaction is not safe to delete around until
           // subscription.created has linked its exact provider subscription ID.
@@ -2165,7 +2198,7 @@ app.post('/api/photos', validateRequestOrigin, requireSession, profileActionLimi
     try {
       await pool.query(
         'INSERT INTO moderation_audit_log (action,target_type,target_id,reason,details) VALUES ($1,$2,$3,$4,$5::jsonb)',
-        ['photo_ai_rejected', 'photo_upload', id, moderation.reason, JSON.stringify({ engine: moderation.engine, confidence: moderation.confidence, flags: moderation.flags })]
+        ['photo_ai_rejected', 'photo_upload', id, moderation.reason, JSON.stringify({ userId: req.authUser.id, engine: moderation.engine, confidence: moderation.confidence, flags: moderation.flags })]
       );
     } catch (error) {
       console.error('Photo moderation audit failed:', error?.message || 'unknown error');
@@ -2191,7 +2224,7 @@ app.post('/api/photos', validateRequestOrigin, requireSession, profileActionLimi
     await mkdir(photoStorageDir,{recursive:true,mode:0o700});
     await writeFile(filePath,clean.buffer,{flag:'wx',mode:0o600}); fileWritten=true;
     await client.query('INSERT INTO photo_assets (id,user_id,storage_path,mime_type,byte_size,width,height,review_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',[id,req.authUser.id,filePath,clean.mimeType,clean.buffer.length,clean.width,clean.height,moderation.status]);
-    if (moderation.status === 'approved') await client.query('INSERT INTO moderation_audit_log (action,target_type,target_id,reason,details) VALUES ($1,$2,$3,$4,$5::jsonb)', ['photo_ai_approved', 'photo', id, moderation.reason, JSON.stringify({ engine: moderation.engine, confidence: moderation.confidence, flags: moderation.flags })]);
+    if (moderation.status === 'approved') await client.query('INSERT INTO moderation_audit_log (action,target_type,target_id,reason,details) VALUES ($1,$2,$3,$4,$5::jsonb)', ['photo_ai_approved', 'photo', id, moderation.reason, JSON.stringify({ userId: req.authUser.id, engine: moderation.engine, confidence: moderation.confidence, flags: moderation.flags })]);
     await client.query("UPDATE profiles SET photo_urls=COALESCE(photo_urls,'{}') || ARRAY[$2]::text[],updated_at=statement_timestamp() WHERE user_id=$1",[req.authUser.id,photoUrl]);
     await client.query('COMMIT');
     return res.status(201).json({photoUrl,mimeType:clean.mimeType,width:clean.width,height:clean.height,reviewStatus:moderation.status,moderationEngine:moderation.engine});
@@ -3998,10 +4031,13 @@ app.get('/api/admin/reports', requireSession, async (req, res) => {
   try {
     const read = await withActiveModeratorRead(req.authUser.id, async client => {
       const result = await client.query(
-        `SELECT r.id, r.reporter_id AS "reporterId", r.reported_user_id AS "reportedUserId",
+        `SELECT r.id, r.reporter_ref AS "reporterId", r.reported_user_ref AS "reportedUserId",
+                r.reporter_id AS "reporterLiveUserId",
+                r.reported_user_id AS "reportedLiveUserId",
                 r.category, r.details, r.status, r.created_at AS "createdAt",
                 p.display_name AS "reportedDisplayName"
-         FROM user_reports r JOIN profiles p ON p.user_id = r.reported_user_id
+         FROM user_reports r
+         LEFT JOIN profiles p ON p.user_id = r.reported_user_id
          WHERE r.status IN ('open', 'reviewing')
          ORDER BY r.created_at ASC LIMIT $1`,
         [limit]
@@ -4096,6 +4132,221 @@ app.post('/api/admin/photos/:photoId/review', validateRequestOrigin, requireSess
   }
 });
 
+app.get('/api/admin/paddle-adjustment-reconciliation', requireSession, async (req, res) => {
+  const limit = Number.parseInt(String(req.query.limit ?? '50'), 10);
+  const afterCreatedAt = req.query.afterCreatedAt === undefined ? null : String(req.query.afterCreatedAt);
+  const afterEventId = req.query.afterEventId === undefined ? null : String(req.query.afterEventId);
+  const hasCursor = afterCreatedAt !== null || afterEventId !== null;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100 ||
+      (hasCursor && (!afterCreatedAt || !afterEventId ||
+        !Number.isFinite(Date.parse(afterCreatedAt)) ||
+        !/^evt_[a-z0-9]{26}$/i.test(afterEventId)))) {
+    return res.status(400).json({ error: 'invalid_pagination' });
+  }
+  try {
+    const read = await withActiveModeratorRead(req.authUser.id, async client => {
+      const result = await client.query(
+        `SELECT c.event_id AS "eventId", c.reason_code AS "reasonCode",
+                to_char(c.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "createdAt",
+                webhook.event_type AS "eventType",
+                COALESCE(e.adjustment_id, c.provider_adjustment_id) AS "adjustmentId",
+                COALESCE(e.transaction_id, c.provider_transaction_id) AS "transactionId",
+                c.provider_user_ref AS "providerUserRef", c.provider_plan AS "providerPlan",
+                c.provider_subscription_id AS "providerSubscriptionId",
+                e.action, e.status AS "adjustmentStatus",
+                e.amount_minor_units AS "amountMinorUnits",
+                e.currency_code AS "currencyCode", e.occurred_at AS "occurredAt"
+         FROM paddle_adjustment_reconciliation_cases AS c
+         JOIN paddle_webhook_events AS webhook USING (event_id)
+         LEFT JOIN paddle_adjustment_events AS e USING (event_id)
+         WHERE c.status = 'open'
+           AND ($2::timestamptz IS NULL OR (c.created_at, c.event_id) > ($2::timestamptz, $3::text))
+         ORDER BY c.created_at ASC, c.event_id ASC
+         LIMIT $1`,
+        [limit, afterCreatedAt, afterEventId]
+      );
+      return result.rows;
+    });
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    if (read.value.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    const lastCase = read.value.at(-1);
+    const nextCursor = read.value.length === limit && lastCase
+      ? { createdAt: lastCase.createdAt, eventId: lastCase.eventId }
+      : null;
+    return res.json({ cases: read.value, nextCursor });
+  } catch (error) {
+    console.error('Paddle adjustment reconciliation queue failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'paddle_adjustment_reconciliation_queue_failed' });
+  }
+});
+
+app.post('/api/admin/paddle-adjustment-reconciliation/:eventId/resolve',
+  validateRequestOrigin, requireSession, async (req, res) => {
+    const eventId = req.params.eventId;
+    const resolutionNote = typeof req.body?.resolutionNote === 'string'
+      ? req.body.resolutionNote.trim() : '';
+    const providerEvidenceReference = typeof req.body?.providerEvidenceReference === 'string'
+      ? req.body.providerEvidenceReference.trim() : '';
+    if (!/^evt_[a-z0-9]{26}$/i.test(eventId) ||
+        resolutionNote.length < 1 || resolutionNote.length > 500 ||
+        providerEvidenceReference.length > 200) {
+      return res.status(400).json({ error: 'invalid_adjustment_reconciliation_resolution' });
+    }
+
+    let client;
+    try {
+      client = await pool.connect();
+      await client.query('BEGIN');
+      await acquireGiftSafetyUserLocks(client, req.authUser.id);
+      const moderator = await client.query(
+        "SELECT id, role FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+        [req.authUser.id]
+      );
+      if (!moderator.rows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(401).json({ error: 'account_not_active' });
+      }
+      if (!['admin', 'moderator'].includes(moderator.rows[0].role)) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'moderator_access_required' });
+      }
+
+      const pending = await client.query(
+        `SELECT c.event_id, c.reason_code, webhook.event_type,
+                COALESCE(e.adjustment_id, c.provider_adjustment_id) AS adjustment_id,
+                COALESCE(e.transaction_id, c.provider_transaction_id) AS transaction_id,
+                e.event_id AS adjustment_ledger_event_id,
+                e.action AS adjustment_action, e.adjustment_type,
+                EXISTS (
+                  SELECT 1
+                  FROM paddle_adjustment_events AS verified_scope
+                  JOIN paddle_webhook_events AS verified_scope_webhook
+                    ON verified_scope_webhook.event_id = verified_scope.event_id
+                   AND verified_scope_webhook.event_type IN ('adjustment.created', 'adjustment.updated')
+                  WHERE verified_scope_webhook.processed_at > webhook.processed_at
+                    AND verified_scope.adjustment_id =
+                    COALESCE(e.adjustment_id, c.provider_adjustment_id)
+                    AND verified_scope.transaction_id =
+                      COALESCE(e.transaction_id, c.provider_transaction_id)
+                    AND verified_scope.action = 'refund'
+                    AND verified_scope.adjustment_type IN ('full', 'partial')
+                ) AS has_verified_refund_scope,
+                EXISTS (
+                  SELECT 1
+                  FROM paddle_adjustment_events AS verified_adjustment
+                  JOIN paddle_webhook_events AS verified_adjustment_webhook
+                    ON verified_adjustment_webhook.event_id = verified_adjustment.event_id
+                   AND verified_adjustment_webhook.event_type IN ('adjustment.created', 'adjustment.updated')
+                  WHERE verified_adjustment_webhook.processed_at > webhook.processed_at
+                    AND verified_adjustment.adjustment_id = c.provider_adjustment_id
+                    AND c.provider_adjustment_id IS NOT NULL
+                    AND (c.provider_transaction_id IS NULL
+                      OR verified_adjustment.transaction_id = c.provider_transaction_id)
+                    AND verified_adjustment.event_id <> c.event_id
+                    AND (verified_adjustment.action <> 'refund'
+                      OR verified_adjustment.adjustment_type IN ('full', 'partial'))
+                ) AS has_verified_adjustment_evidence,
+                c.provider_user_ref, c.provider_plan, c.provider_subscription_id
+         FROM paddle_adjustment_reconciliation_cases AS c
+         JOIN paddle_webhook_events AS webhook USING (event_id)
+         LEFT JOIN paddle_adjustment_events AS e USING (event_id)
+         WHERE c.event_id = $1 AND c.status = 'open'
+         FOR UPDATE OF c`,
+        [eventId]
+      );
+      if (!pending.rows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'open_adjustment_reconciliation_case_not_found' });
+      }
+      const subscriptionEvidenceCase = [
+        'invalid_subscription_timestamp', 'invalid_subscription_identity'
+      ].includes(pending.rows[0].reason_code) &&
+        ['subscription.created', 'subscription.updated', 'subscription.canceled'].includes(pending.rows[0].event_type);
+      const transactionLifecycleEvidenceCase =
+        pending.rows[0].reason_code === 'provider_lifecycle_conflict' &&
+        ['transaction.paid', 'transaction.completed', 'transaction.canceled', 'subscription.created'].includes(pending.rows[0].event_type) &&
+        typeof pending.rows[0].transaction_id === 'string' &&
+        /^txn_[A-Za-z0-9]+$/.test(pending.rows[0].transaction_id);
+      const requiresProviderEvidenceReference =
+        pending.rows[0].reason_code === 'provider_lifecycle_conflict';
+      if ((![
+        'invalid_adjustment_payload',
+        'provider_identity_conflict',
+        'provider_lifecycle_conflict'
+      ].includes(pending.rows[0].reason_code) && !subscriptionEvidenceCase) ||
+          (!subscriptionEvidenceCase && !transactionLifecycleEvidenceCase && ![
+            'adjustment.created', 'adjustment.updated',
+            'customer.created', 'customer.updated'
+          ].includes(pending.rows[0].event_type)) ||
+          (requiresProviderEvidenceReference &&
+            (providerEvidenceReference.length < 1 || providerEvidenceReference.length > 200)) ||
+          (pending.rows[0].adjustment_action === 'refund' &&
+            pending.rows[0].adjustment_type === null &&
+            pending.rows[0].has_verified_refund_scope !== true) ||
+          (pending.rows[0].reason_code === 'invalid_adjustment_payload' &&
+            ['adjustment.created', 'adjustment.updated'].includes(pending.rows[0].event_type) &&
+            pending.rows[0].adjustment_ledger_event_id == null &&
+            pending.rows[0].has_verified_adjustment_evidence !== true)) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: pending.rows[0].adjustment_action === 'refund' &&
+            pending.rows[0].adjustment_type === null &&
+            pending.rows[0].has_verified_refund_scope !== true
+            ? 'refund_scope_requires_provider_verified_reconciliation'
+            : pending.rows[0].reason_code === 'invalid_adjustment_payload' &&
+                ['adjustment.created', 'adjustment.updated'].includes(pending.rows[0].event_type) &&
+                pending.rows[0].adjustment_ledger_event_id == null &&
+                pending.rows[0].has_verified_adjustment_evidence !== true
+              ? 'adjustment_requires_later_provider_evidence'
+              : 'adjustment_case_requires_verified_transaction_or_entitlement_reconciliation'
+        });
+      }
+
+      const resolved = await client.query(
+        `UPDATE paddle_adjustment_reconciliation_cases
+         SET status = 'resolved',
+             resolution_note = $2,
+             resolution_source = 'manual_operator',
+             resolved_by_ref = $3,
+             resolved_at = statement_timestamp(),
+             updated_at = statement_timestamp()
+         WHERE event_id = $1 AND status = 'open'
+         RETURNING event_id`,
+        [eventId, resolutionNote, moderator.rows[0].id]
+      );
+      if (resolved.rowCount !== 1) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'adjustment_reconciliation_case_changed' });
+      }
+
+      await client.query(
+        `INSERT INTO moderation_audit_log
+           (moderator_id, action, target_type, target_id, reason, details)
+         VALUES ($1, 'paddle_adjustment_reconciliation_resolved',
+                 'paddle_adjustment_case', $2, $3, $4::jsonb)`,
+        [moderator.rows[0].id, eventId, resolutionNote, JSON.stringify({
+          eventId,
+          reasonCode: pending.rows[0].reason_code,
+          adjustmentId: pending.rows[0].adjustment_id,
+          transactionId: pending.rows[0].transaction_id,
+          providerUserRef: pending.rows[0].provider_user_ref,
+          providerPlan: pending.rows[0].provider_plan,
+          providerSubscriptionId: pending.rows[0].provider_subscription_id,
+          providerEvidenceReference: providerEvidenceReference || null,
+          resolutionSource: 'manual_operator'
+        })]
+      );
+      await client.query('COMMIT');
+      return res.json({ eventId, status: 'resolved', resolutionSource: 'manual_operator' });
+    } catch (error) {
+      if (client && !await rollbackPooledTransaction(client)) client = null;
+      console.error('Paddle adjustment reconciliation resolution failed:', error?.message || 'unknown error');
+      return res.status(500).json({ error: 'paddle_adjustment_reconciliation_resolution_failed' });
+    } finally {
+      client?.release();
+    }
+  });
+
 app.get('/api/admin/audit-log', requireSession, async (req, res) => {
   if (!['admin', 'moderator'].includes(req.authUser.role)) return res.status(403).json({ error: 'moderator_access_required' });
   const limit = Number.parseInt(String(req.query.limit ?? '50'), 10);
@@ -4128,7 +4379,7 @@ app.post('/api/admin/screenings/:screeningId/resolve', validateRequestOrigin, re
       "SELECT user_id FROM user_safety_screenings WHERE id = $1 AND review_status = 'pending'",
       [req.params.screeningId]
     );
-    if (!preview.rows[0]) {
+    if (!preview.rows[0]?.user_id) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'pending_screening_not_found' });
     }
@@ -4172,7 +4423,7 @@ app.post('/api/admin/screenings/:screeningId/resolve', validateRequestOrigin, re
     }
     await client.query(
       "INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, details) VALUES ($1, 'screening_cleared', 'safety_screening', $2, $3::jsonb)",
-      [req.authUser.id, req.params.screeningId, JSON.stringify({ userId: result.rows[0].userId })]
+      [req.authUser.id, req.params.screeningId, JSON.stringify({ userId: result.rows[0].userId, newStatus: result.rows[0].reviewStatus })]
     );
     await client.query('COMMIT');
     return res.json({ screening: result.rows[0] });
@@ -4190,7 +4441,7 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
   const reportId = req.params.reportId;
   const action = req.body?.action;
   const confirmed = req.body?.confirmed === true;
-  if (!isUuid(reportId) || !['resolve', 'dismiss', 'suspend_user'].includes(action)) {
+  if (!isUuid(reportId) || !['review', 'resolve', 'dismiss', 'suspend_user'].includes(action)) {
     return res.status(400).json({ error: 'invalid_moderation_action' });
   }
   if (action === 'suspend_user' && !confirmed) {
@@ -4202,7 +4453,7 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
     client = await pool.connect();
     await client.query('BEGIN');
     const preview = await client.query(
-      'SELECT id, reported_user_id FROM user_reports WHERE id = $1',
+      'SELECT id, reported_user_id, reported_user_ref FROM user_reports WHERE id = $1',
       [reportId]
     );
     const previewReport = preview.rows[0];
@@ -4210,7 +4461,7 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'open_report_not_found' });
     }
-    await acquireGiftSafetyUserLocks(client, req.authUser.id, previewReport.reported_user_id);
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, previewReport.reported_user_ref);
     const moderator = await client.query(
       "SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
       [req.authUser.id]
@@ -4224,17 +4475,25 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
       return res.status(403).json({ error: 'moderator_access_required' });
     }
     const reportResult = await client.query(
-      'SELECT id, reported_user_id, category, status FROM user_reports WHERE id = $1 FOR UPDATE',
+      'SELECT id, reported_user_id, reported_user_ref, category, status FROM user_reports WHERE id = $1 FOR UPDATE',
       [reportId]
     );
     const report = reportResult.rows[0];
     if (!report || report.status === 'resolved' || report.status === 'dismissed' ||
-        String(report.reported_user_id).toLowerCase() !== String(previewReport.reported_user_id).toLowerCase()) {
+        String(report.reported_user_ref).toLowerCase() !== String(previewReport.reported_user_ref).toLowerCase()) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'open_report_not_found' });
     }
+    if (action === 'review' && report.status !== 'open') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'report_not_open_for_review' });
+    }
     let accountSuspended = false;
     if (action === 'suspend_user') {
+      if (!report.reported_user_id) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'reported_user_account_unavailable' });
+      }
       if (!['children_misrepresentation', 'duplicate_profile', 'fake_profile', 'safety'].includes(report.category)) {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'category_not_eligible_for_suspension' });
@@ -4259,12 +4518,12 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
         accountSuspended = true;
       }
     }
-    const status = action === 'dismiss' ? 'dismissed' : 'resolved';
+    const status = action === 'review' ? 'reviewing' : action === 'dismiss' ? 'dismissed' : 'resolved';
     await client.query('UPDATE user_reports SET status = $2 WHERE id = $1', [reportId, status]);
     const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 500) : '';
     await client.query(
       'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, reason, details) VALUES ($1, $2, $3, $4, $5, $6::jsonb)',
-      [req.authUser.id, action, 'user_report', reportId, reason || null, JSON.stringify({ category: report.category, targetUserId: report.reported_user_id, newStatus: status })]
+      [req.authUser.id, action, 'user_report', reportId, reason || null, JSON.stringify({ category: report.category, targetUserId: report.reported_user_ref, newStatus: status })]
     );
     await client.query('COMMIT');
     return res.json({ ok: true, action, accountSuspended });
@@ -4446,7 +4705,9 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
     if (!validation.value.requestsEnabled) {
       await client.query(
         `SELECT id FROM gift_delivery_orders
-         WHERE recipient_id = $1 AND status = 'awaiting_recipient_consent'
+         WHERE recipient_id = $1
+           AND status = 'awaiting_recipient_consent'
+           AND recipient_requests_disabled_at IS NULL
          ORDER BY id
          FOR UPDATE`,
         [req.authUser.id]
@@ -4460,9 +4721,29 @@ app.put('/api/gifts/preferences', validateRequestOrigin, requireSession, profile
              updated_at = statement_timestamp()
          WHERE recipient_id = $1
            AND status = 'awaiting_recipient_consent'
+           AND recipient_requests_disabled_at IS NULL
          RETURNING id, sender_id, public_reference, payment_status`,
         [req.authUser.id]
       );
+      // Every invalidated request gets its own durable opt-out event, even
+      // when no provider payment reconciliation task is needed.
+      for (const order of invalidatedOrders.rows) {
+        await client.query(
+          `INSERT INTO gift_delivery_order_events
+             (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
+           SELECT id, $2, 'recipient', 'recipient_opted_out', status, status,
+                  jsonb_build_object('reason', 'recipient_opted_out')
+           FROM gift_delivery_orders
+           WHERE id = $1
+             AND NOT EXISTS (
+               SELECT 1 FROM gift_delivery_order_events e
+               WHERE e.order_id = gift_delivery_orders.id
+                 AND e.event_type = 'recipient_opted_out'
+                 AND e.metadata->>'reason' = 'recipient_opted_out'
+             )`,
+          [order.id, req.authUser.id]
+        );
+      }
       // Notify every affected sender, including requests awaiting payment
       // reconciliation. The generic notification exposes no address or contact data.
       for (const order of invalidatedOrders.rows) {
@@ -4664,8 +4945,8 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
               EXISTS (
                 SELECT 1 FROM user_reports r
                 WHERE r.status IN ('open', 'reviewing')
-                  AND ((r.reporter_id = o.sender_id AND r.reported_user_id = o.recipient_id)
-                    OR (r.reporter_id = o.recipient_id AND r.reported_user_id = o.sender_id))
+                  AND ((r.reporter_ref = o.sender_id AND r.reported_user_ref = o.recipient_id)
+                    OR (r.reporter_ref = o.recipient_id AND r.reported_user_ref = o.sender_id))
               ) AS has_open_report,
               EXISTS (
                 SELECT 1 FROM user_safety_screenings ss
@@ -4754,8 +5035,8 @@ app.post('/api/gifts/orders/:publicReference/decision', validateRequestOrigin, r
                 EXISTS (
                   SELECT 1 FROM user_reports r
                   WHERE r.status IN ('open', 'reviewing')
-                    AND ((r.reporter_id = $1 AND r.reported_user_id = $2)
-                      OR (r.reporter_id = $2 AND r.reported_user_id = $1))
+                    AND ((r.reporter_ref = $1 AND r.reported_user_ref = $2)
+                      OR (r.reporter_ref = $2 AND r.reported_user_ref = $1))
                 ) AS has_open_report,
                 EXISTS (
                   SELECT 1 FROM user_safety_screenings ss
@@ -5208,6 +5489,14 @@ app.post('/api/moderation/identity-l3/submissions/:submissionId/decision', valid
       await client.query('ROLLBACK');
       return res.status(409).json({ error: 'l3_submission_not_reviewable' });
     }
+    const mediaReview = await client.query(
+      'SELECT 1 FROM identity_l3_media_access_events WHERE submission_id = $1 AND moderator_user_id = $2 LIMIT 1',
+      [req.params.submissionId, req.authUser.id]
+    );
+    if (!mediaReview.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'l3_media_review_required' });
+    }
     await client.query(
       "SELECT set_config('app.identity_l3_actor_user_id', $1, true), set_config('app.identity_l3_reason_code', $2, true)",
       [req.authUser.id, reasonCode]
@@ -5464,8 +5753,8 @@ app.put('/api/identity/l3/consent', validateRequestOrigin, requireSession, ident
     );
     await client.query(
       `INSERT INTO identity_l3_consent_events
-         (user_id, actor_user_id, event_type, consent_version)
-       VALUES ($1, $1, 'granted', $2)`,
+         (user_id, actor_user_id, event_type, consent_version, occurred_at)
+       VALUES ($1, $1, 'granted', $2, statement_timestamp())`,
       [req.authUser.id, IDENTITY_L3_CONSENT_VERSION]
     );
     await client.query('COMMIT');
@@ -5509,8 +5798,8 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, id
       );
       await client.query(
         `INSERT INTO identity_l3_consent_events
-           (user_id, actor_user_id, event_type, consent_version)
-         VALUES ($1, $1, 'withdrawn', $2)`,
+           (user_id, actor_user_id, event_type, consent_version, occurred_at)
+         VALUES ($1, $1, 'withdrawn', $2, statement_timestamp())`,
         [req.authUser.id, consent.consent_version]
       );
     }
@@ -5554,29 +5843,26 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, id
       }
 
       if (submission.storage_object_key) {
-        const queued = await client.query(
-          `INSERT INTO identity_l3_media_purge_jobs (submission_id, user_id)
-           VALUES ($1, $2)
-           ON CONFLICT (submission_id) DO UPDATE SET
-             status = CASE WHEN identity_l3_media_purge_jobs.status = 'failed' THEN 'queued'
-                           ELSE identity_l3_media_purge_jobs.status END,
-             attempts = CASE WHEN identity_l3_media_purge_jobs.status = 'failed' THEN 0
-                             ELSE identity_l3_media_purge_jobs.attempts END,
-             next_attempt_at = CASE WHEN identity_l3_media_purge_jobs.status = 'failed'
-                                    THEN statement_timestamp()
-                                    ELSE identity_l3_media_purge_jobs.next_attempt_at END,
-             lease_token = CASE WHEN identity_l3_media_purge_jobs.status = 'failed' THEN NULL
-                                ELSE identity_l3_media_purge_jobs.lease_token END,
-             lease_expires_at = CASE WHEN identity_l3_media_purge_jobs.status = 'failed' THEN NULL
-                                     ELSE identity_l3_media_purge_jobs.lease_expires_at END,
-             last_error_code = CASE WHEN identity_l3_media_purge_jobs.status = 'failed' THEN NULL
-                                    ELSE identity_l3_media_purge_jobs.last_error_code END,
-             updated_at = statement_timestamp()
-           WHERE identity_l3_media_purge_jobs.status = 'failed'
+        // The terminal submission transition above is the sole INSERT path:
+        // its database trigger creates a durable queued job. Requeue only an
+        // existing failed job here; a direct INSERT/UPSERT would bypass the
+        // migration's guarded enqueue-source invariant.
+        const requeued = await client.query(
+          `UPDATE identity_l3_media_purge_jobs
+           SET status = 'queued',
+               attempts = 0,
+               next_attempt_at = statement_timestamp(),
+               lease_token = NULL,
+               lease_expires_at = NULL,
+               last_error_code = NULL,
+               updated_at = statement_timestamp()
+           WHERE submission_id = $1
+             AND user_id = $2
+             AND status = 'failed'
            RETURNING id`,
           [submission.id, req.authUser.id]
         );
-        queuedPurgeJobs += queued.rowCount;
+        queuedPurgeJobs += requeued.rowCount;
       }
     }
 
@@ -5869,6 +6155,13 @@ if (process.env.IDENTITY_L3_ENABLED === 'true') {
     root: process.env.IDENTITY_L3_STORAGE_DIR,
     tempRoot: process.env.IDENTITY_L3_TEMP_DIR,
     key: process.env.IDENTITY_L3_ENCRYPTION_KEY
+  });
+} else if (process.env.IDENTITY_L3_TEMP_DIR) {
+  // The scratch directory is cleared even while L3 is disabled. Validate both
+  // private roots and their real-path separation before any destructive cleanup.
+  await assertIdentityL3TemporaryStorageReady({
+    root: process.env.IDENTITY_L3_STORAGE_DIR,
+    tempRoot: process.env.IDENTITY_L3_TEMP_DIR
   });
 }
 if (process.env.IDENTITY_L3_TEMP_DIR) {

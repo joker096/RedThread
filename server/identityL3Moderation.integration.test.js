@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
-import { mkdtemp, chmod, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, chmod, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import pg from 'pg';
@@ -34,9 +34,9 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
   const applicantId = randomUUID();
   const moderatorId = randomUUID();
   const storageRoot = await mkdtemp(path.join(tmpdir(), 'vow-identity-l3-moderation-'));
+  const tempRoot = await mkdtemp(path.join(tmpdir(), 'vow-identity-l3-moderation-scratch-'));
   await chmod(storageRoot, 0o700);
-  const tempRoot = path.join(storageRoot, 'scratch');
-  await mkdir(tempRoot, { mode: 0o700 });
+  await chmod(tempRoot, 0o700);
   const encryptionKey = randomBytes(32).toString('hex');
   const applicantSession = createSessionToken();
   const moderatorSession = createSessionToken();
@@ -117,10 +117,35 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
        VALUES ($1, 'didit', $2, $3, 'verified', 'Approved', 'live')`,
       [applicantId, randomUUID(), randomUUID()]
     );
-    await pool.query(
-      `INSERT INTO identity_l3_consents (user_id, consent_version, granted_at)
-       VALUES ($1, 2, statement_timestamp())`,
-      [applicantId]
+    const consentGrantClient = await pool.connect();
+    try {
+      await consentGrantClient.query('BEGIN');
+      const grantedConsent = await consentGrantClient.query(
+        `INSERT INTO identity_l3_consents (user_id, consent_version, granted_at)
+         VALUES ($1, 2, statement_timestamp())
+         RETURNING user_id, consent_version, granted_at`,
+        [applicantId]
+      );
+      assert.equal(grantedConsent.rowCount, 1, 'the applicant consent grant must be created');
+      await consentGrantClient.query(
+        `INSERT INTO identity_l3_consent_events
+           (user_id, actor_user_id, event_type, consent_version, occurred_at)
+         SELECT user_id, user_id, 'granted', consent_version, granted_at
+         FROM identity_l3_consents
+         WHERE user_id = $1`,
+        [applicantId]
+      );
+      await consentGrantClient.query('COMMIT');
+    } catch (error) {
+      await consentGrantClient.query('ROLLBACK');
+      throw error;
+    } finally {
+      consentGrantClient.release();
+    }
+
+    await assert.rejects(
+      pool.query('DELETE FROM identity_l3_consents WHERE user_id = $1', [applicantId]),
+      error => error.code === '55000'
     );
 
     const port = await findFreePort();
@@ -182,12 +207,24 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     });
     assert.equal(queue.status, 200);
     const queuePayload = await queue.json();
+    const applicantQueue = queuePayload.submissions.filter(
+      item => item.applicantReference === applicantId
+    );
     assert.deepEqual(
-      queuePayload.submissions.filter(item => item.applicantReference === applicantId).map(item => item.submissionId),
-      [first.submissionId]
+      applicantQueue.map(item => item.submissionId),
+      [first.submissionId],
+      'the moderator queue must contain exactly this applicant\'s pending submission'
     );
     assert.equal(JSON.stringify(queuePayload).includes(storageRoot), false,
       'moderation queue must never expose private storage paths');
+
+    const decisionBeforeMediaReview = await request('/api/moderation/identity-l3/submissions/' + first.submissionId + '/decision', {
+      method: 'POST',
+      headers: { Cookie: moderatorCookie },
+      body: JSON.stringify({ decision: 'approved', reasonCode: 'video_matches_l2' })
+    });
+    assert.equal(decisionBeforeMediaReview.status, 409,
+      'a moderator must successfully open the authenticated video before issuing an L3 decision');
 
     const media = await request('/api/moderation/identity-l3/submissions/' + first.submissionId + '/media', {
       headers: { Cookie: moderatorCookie }
@@ -201,6 +238,14 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
       [first.submissionId]
     );
     assert.deepEqual(mediaAccessAudit.rows, [{ moderator_user_id: moderatorId, access_type: 'viewed' }]);
+
+    await assert.rejects(
+      pool.query(
+        'UPDATE identity_l3_consents SET withdrawn_at = statement_timestamp() WHERE user_id = $1',
+        [applicantId]
+      ),
+      error => error.code === '23514'
+    );
 
 
     const approved = await request('/api/moderation/identity-l3/submissions/' + first.submissionId + '/decision', {
@@ -253,10 +298,41 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
 
     // Simulate an account that has the old notice version: it cannot authorize
     // access after the version bump, but its original consent remains withdrawable.
-    await pool.query(
-      'UPDATE identity_l3_consents SET consent_version = 1 WHERE user_id = $1',
-      [applicantId]
+    await assert.rejects(
+      pool.query(
+        'UPDATE identity_l3_consents SET consent_version = 1, granted_at = statement_timestamp() WHERE user_id = $1',
+        [applicantId]
+      ),
+      error => error.code === '23514'
     );
+    const consentVersionClient = await pool.connect();
+    try {
+      await consentVersionClient.query('BEGIN');
+      const changedConsent = await consentVersionClient.query(
+        `UPDATE identity_l3_consents
+         SET consent_version = 1,
+             granted_at = statement_timestamp(),
+             updated_at = statement_timestamp()
+         WHERE user_id = $1
+         RETURNING user_id, consent_version, granted_at`,
+        [applicantId]
+      );
+      assert.equal(changedConsent.rowCount, 1, 'the consent version transition must update one row');
+      await consentVersionClient.query(
+        `INSERT INTO identity_l3_consent_events
+           (user_id, actor_user_id, event_type, consent_version, occurred_at)
+         SELECT user_id, user_id, 'granted', consent_version, granted_at
+         FROM identity_l3_consents
+         WHERE user_id = $1`,
+        [applicantId]
+      );
+      await consentVersionClient.query('COMMIT');
+    } catch (error) {
+      await consentVersionClient.query('ROLLBACK');
+      throw error;
+    } finally {
+      consentVersionClient.release();
+    }
     const staleConsentAccess = await pool.query(
       'SELECT identity_l3_has_active_approval($1) AS active',
       [applicantId]
@@ -334,6 +410,11 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
       queueAfterSecondUploadPayload.submissions.filter(item => item.applicantReference === applicantId).map(item => item.submissionId),
       [second.submissionId]
     );
+    const secondMedia = await request('/api/moderation/identity-l3/submissions/' + second.submissionId + '/media', {
+      headers: { Cookie: moderatorCookie }
+    });
+    assert.equal(secondMedia.status, 200);
+    assert.deepEqual(Buffer.from(await secondMedia.arrayBuffer()), secondVideo);
 
     const rejected = await request('/api/moderation/identity-l3/submissions/' + second.submissionId + '/decision', {
       method: 'POST',
@@ -348,6 +429,34 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     );
     assert.deepEqual(queued.rows, [{ status: 'queued' }],
       'rejected media must be queued for physical deletion automatically');
+    await assert.rejects(
+      pool.query(
+        `UPDATE identity_l3_submissions
+         SET storage_object_key = NULL, media_purged_at = statement_timestamp()
+         WHERE id = $1`,
+        [second.submissionId]
+      ),
+      error => error.code === '23514'
+    );
+    await assert.rejects(
+      pool.query(
+        `UPDATE identity_l3_media_purge_jobs
+         SET status = 'completed', completed_at = statement_timestamp()
+         WHERE submission_id = $1`,
+        [second.submissionId]
+      ),
+      error => error.code === '55000'
+    );
+    await assert.rejects(
+      pool.query('DELETE FROM identity_l3_submissions WHERE id = $1', [second.submissionId]),
+      error => error.code === '55000'
+    );
+    const retainedPurgeJob = await pool.query(
+      'SELECT status FROM identity_l3_media_purge_jobs WHERE submission_id = $1',
+      [second.submissionId]
+    );
+    assert.deepEqual(retainedPurgeJob.rows, [{ status: 'queued' }],
+      'deleting a submission with encrypted media must not cascade-delete its pending purge job');
 
     const purged = await runIdentityL3PurgeOnce(pool, { storageRoot, submissionId: second.submissionId });
     assert.equal(purged.status, 'completed', 'rejected-media purge must complete: ' + JSON.stringify(purged));
@@ -367,6 +476,22 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     );
     assert.equal(finalApproval.rows[0].active, false,
       'the latest rejected decision must supersede an earlier approval');
+
+    // Physical removal of a purged submission must not erase who viewed its
+    // encrypted video. The immutable UUID snapshots survive FK SET NULL.
+    await pool.query('DELETE FROM identity_l3_submissions WHERE id = $1', [first.submissionId]);
+    const retainedAccessAudit = await pool.query(
+      `SELECT submission_id, moderator_user_id, submission_ref, moderator_ref, access_type
+       FROM identity_l3_media_access_events WHERE submission_ref = $1`,
+      [first.submissionId]
+    );
+    assert.deepEqual(retainedAccessAudit.rows, [{
+      submission_id: null,
+      moderator_user_id: moderatorId,
+      submission_ref: first.submissionId,
+      moderator_ref: moderatorId,
+      access_type: 'viewed'
+    }], 'L3 access history must outlive the purged submission and video');
   } finally {
     if (child && child.exitCode === null) {
       child.kill('SIGTERM');
@@ -375,8 +500,16 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
         new Promise(resolve => setTimeout(resolve, 5_000))
       ]);
     }
-    await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [[applicantId, moderatorId]]).catch(() => {});
+    // Keep the test's identity and moderation evidence on the supported
+    // tombstone path; hard deletion is not a valid cleanup strategy.
+    await pool.query(
+      "UPDATE users SET status = 'deleted' WHERE id = ANY($1::uuid[])",
+      [[applicantId, moderatorId]]
+    );
     await pool.end();
-    await rm(storageRoot, { recursive: true, force: true });
+    await Promise.all([
+      rm(storageRoot, { recursive: true, force: true }),
+      rm(tempRoot, { recursive: true, force: true })
+    ]);
   }
 });

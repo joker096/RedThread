@@ -2,6 +2,30 @@ import { rollbackPooledTransaction } from './withPooledTransaction.js';
 
 const ACTIVE_PADDLE_SUBSCRIPTION_STATUSES = new Set(['active', 'trialing']);
 
+function isValidPaddleTimestamp(value) {
+  if (typeof value !== 'string') return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/.exec(value);
+  if (!match) return false;
+  const [, rawYear, rawMonth, rawDay, rawHour, rawMinute, rawSecond, rawOffsetHour, rawOffsetMinute] = match;
+  const year = Number(rawYear);
+  const month = Number(rawMonth);
+  const day = Number(rawDay);
+  const hour = Number(rawHour);
+  const minute = Number(rawMinute);
+  const second = Number(rawSecond);
+  const offsetHour = rawOffsetHour === undefined ? 0 : Number(rawOffsetHour);
+  const offsetMinute = rawOffsetMinute === undefined ? 0 : Number(rawOffsetMinute);
+  if (month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59 ||
+      offsetHour > 23 || offsetMinute > 59) return false;
+  const calendarDate = new Date(0);
+  calendarDate.setUTCFullYear(year, month - 1, day);
+  calendarDate.setUTCHours(0, 0, 0, 0);
+  if (calendarDate.getUTCFullYear() !== year ||
+      calendarDate.getUTCMonth() !== month - 1 ||
+      calendarDate.getUTCDate() !== day) return false;
+  return Number.isFinite(Date.parse(value));
+}
+
 export function normalizePaddleEvent(event) {
   if (!event || typeof event !== 'object') return null;
   const eventId = event.eventId || event.event_id;
@@ -68,6 +92,674 @@ async function markPaddleCheckoutAttemptForReconciliation(client, userId, plan, 
   return result.rowCount;
 }
 
+
+function parsePaddleMinorAmount(value) {
+  const raw = typeof value === 'string'
+    ? value
+    : Number.isSafeInteger(value) && value >= 0 ? String(value) : null;
+  if (!raw || !/^\d+$/.test(raw)) return null;
+  try {
+    return BigInt(raw) <= 9223372036854775807n ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function parsePaddleSignedMinorAmount(value) {
+  const raw = typeof value === 'string'
+    ? value
+    : Number.isSafeInteger(value) ? String(value) : null;
+  if (!raw || !/^-?\d+$/.test(raw)) return null;
+  try {
+    const parsed = BigInt(raw);
+    const safeLimit = BigInt(Number.MAX_SAFE_INTEGER);
+    return parsed >= -safeLimit && parsed <= safeLimit ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function paddleTransactionAmount(data) {
+  // Paddle details.totals.total is the amount after discounts and tax,
+  // before credits. Keep it separate from grand_total (net due after credits).
+  return data?.details?.totals?.total ?? null;
+}
+
+function paddleTransactionFinancialTotals(data) {
+  const totals = data?.details?.totals ?? {};
+  return {
+    amountMinorUnits: parsePaddleSignedMinorAmount(paddleTransactionAmount(data)),
+    grandTotalMinorUnits: parsePaddleSignedMinorAmount(totals.grandTotal ?? totals.grand_total),
+    creditMinorUnits: parsePaddleSignedMinorAmount(totals.credit),
+    balanceMinorUnits: parsePaddleSignedMinorAmount(totals.balance)
+  };
+}
+
+function paddleCurrencyCode(data) {
+  const value = data?.currencyCode ?? data?.currency_code;
+  return typeof value === 'string' && /^[A-Za-z]{3}$/.test(value)
+    ? value.toUpperCase() : null;
+}
+
+function inferPaddleTransactionPlan(data) {
+  const items = Array.isArray(data?.items) ? data.items : [];
+  const priceIds = items.map(item => item?.priceId || item?.price_id || item?.price?.id).filter(Boolean);
+  const configuredPlans = [
+    [process.env.PADDLE_PRICE_ID_LIFETIME, 'lifetime'],
+    [process.env.PADDLE_PRICE_ID_1MONTH, '1month'],
+    [process.env.PADDLE_PRICE_ID_3MONTHS, '3months']
+  ];
+  const matches = configuredPlans
+    .filter(([priceId]) => typeof priceId === 'string' && priceIds.includes(priceId))
+    .map(([, plan]) => plan);
+  return matches.length === 1 ? matches[0] : null;
+}
+
+async function isPaddleTransactionOwnerAmbiguous(client, transactionId) {
+  if (typeof transactionId !== 'string' || !/^txn_[A-Za-z0-9]+$/.test(transactionId)) return false;
+  const result = await client.query(
+    `SELECT COUNT(DISTINCT user_id) > 1 AS ambiguous
+     FROM (
+       SELECT user_id, transaction_id FROM paddle_checkout_attempts
+       UNION ALL
+       SELECT user_id, transaction_id FROM paddle_checkout_attempt_history
+       UNION ALL
+       SELECT user_id, transaction_id FROM paddle_transaction_events WHERE user_id IS NOT NULL
+     ) AS owners
+     WHERE transaction_id = $1`,
+    [transactionId]
+  );
+  return result.rows?.[0]?.ambiguous === true;
+}
+
+async function findPaddleTransactionOwner(client, {
+  attemptUserId = null, transactionId = null, subscriptionId = null, customerId = null
+} = {}) {
+  const validAttemptUserId = typeof attemptUserId === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(attemptUserId);
+  if (typeof transactionId === 'string' && /^txn_[A-Za-z0-9]+$/.test(transactionId)) {
+    // Transaction identity is globally unique across current and archived
+    // attempts. Never trust the just-claimed attempt owner without checking
+    // that an older archived attempt does not already claim this provider ID.
+    const attemptOwner = await client.query(
+      `SELECT DISTINCT user_id
+       FROM (
+         SELECT user_id, transaction_id FROM paddle_checkout_attempts
+         UNION ALL
+         SELECT user_id, transaction_id FROM paddle_checkout_attempt_history
+         UNION ALL
+         SELECT user_id, transaction_id FROM paddle_transaction_events WHERE user_id IS NOT NULL
+       ) AS attempts
+       WHERE transaction_id = $1
+       ORDER BY user_id
+       LIMIT 2`,
+      [transactionId]
+    );
+    if (attemptOwner.rowCount > 1) return null;
+    if (attemptOwner.rowCount === 1) {
+      const ownerId = attemptOwner.rows?.[0]?.user_id ?? null;
+      return validAttemptUserId && ownerId !== attemptUserId ? null : ownerId;
+    }
+    // A claimed attempt must be visible in the durable ledger. If it is not,
+    // fail closed instead of trusting webhook custom_data alone.
+    if (validAttemptUserId) return null;
+  } else if (validAttemptUserId) {
+    return null;
+  }
+  if (!subscriptionId && !customerId) return null;
+  const result = await client.query(
+    `SELECT id FROM users
+     WHERE ($1::text IS NOT NULL AND paddle_subscription_id = $1)
+        OR ($2::text IS NOT NULL AND paddle_customer_id = $2)
+     ORDER BY id
+     LIMIT 2`,
+    [subscriptionId, customerId]
+  );
+  return result.rowCount === 1 ? (result.rows?.[0]?.id ?? null) : null;
+}
+
+async function recordPaddleTransactionEvent(client, {
+  eventId, transactionId, userId = null, plan = null, status,
+  subscriptionId = null, customerId = null, occurredAt = null,
+  amountMinorUnits = null, grandTotalMinorUnits = null,
+  creditMinorUnits = null, balanceMinorUnits = null, currencyCode = null
+}) {
+  const providerTime = isValidPaddleTimestamp(occurredAt)
+    ? occurredAt : null;
+  await client.query(
+    `INSERT INTO paddle_transaction_events
+       (event_id, transaction_id, user_id, plan, status, amount_minor_units,
+        grand_total_minor_units, credit_minor_units, balance_minor_units, currency_code,
+        subscription_id, customer_id, occurred_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::timestamptz)
+     ON CONFLICT (event_id) DO NOTHING`,
+    [eventId, transactionId, userId, plan, status, amountMinorUnits,
+      grandTotalMinorUnits, creditMinorUnits, balanceMinorUnits, currencyCode,
+      subscriptionId, customerId, providerTime]
+  );
+}
+
+export async function getPaddleAdjustmentState(client, transactionId) {
+  const result = await client.query(
+    `WITH latest_per_adjustment AS (
+       -- Keep each adjustment/action lifecycle independent. Paddle emits a
+       -- separate chargeback_reverse adjustment when it successfully contests
+       -- a dispute; it may not emit adjustment.updated for the original
+       -- chargeback. Reconcile reversals one-to-one in provider chronology
+       -- and require the recovered amount and currency to match; fail closed
+       -- while any chargeback remains unmatched or only partially reversed.
+       SELECT DISTINCT ON (adjustment_id, action)
+         adjustment_id, action, adjustment_type, status, amount_minor_units,
+         currency_code, occurred_at, received_at, event_id
+       FROM paddle_adjustment_events
+       WHERE transaction_id = $1
+         -- A refund with no recognized scope is retained for review but must
+         -- not supersede a previously verified full/partial adjustment state.
+         AND NOT (action = 'refund' AND adjustment_type IS NULL)
+       ORDER BY adjustment_id, action, occurred_at DESC,
+         CASE status
+           WHEN 'pending_approval' THEN 0
+           WHEN 'approved' THEN 1
+           WHEN 'rejected' THEN 2
+           WHEN 'reversed' THEN 3
+         END DESC,
+         received_at DESC, event_id DESC
+     ),
+     chargebacks AS (
+       SELECT adjustment_id, amount_minor_units, currency_code, occurred_at,
+         ROW_NUMBER() OVER (PARTITION BY amount_minor_units, currency_code ORDER BY occurred_at, adjustment_id) AS sequence_number
+       FROM latest_per_adjustment
+       WHERE action = 'chargeback' AND status IN ('approved', 'reversed')
+     ),
+     chargeback_reversals AS (
+       SELECT adjustment_id, amount_minor_units, currency_code, occurred_at,
+         ROW_NUMBER() OVER (PARTITION BY amount_minor_units, currency_code ORDER BY occurred_at, adjustment_id) AS sequence_number
+       FROM latest_per_adjustment
+       WHERE action = 'chargeback_reverse' AND status = 'approved'
+     ),
+     chargeback_reconciliation AS (
+       SELECT
+         (SELECT COUNT(*) FROM chargebacks) AS chargeback_count,
+         (SELECT COUNT(*) FROM chargeback_reversals) AS reversal_count,
+         NOT EXISTS (
+           SELECT 1
+           FROM chargebacks AS chargeback
+           LEFT JOIN chargeback_reversals AS reversal
+             ON reversal.sequence_number = chargeback.sequence_number
+            AND chargeback.amount_minor_units IS NOT NULL
+            AND reversal.amount_minor_units IS NOT NULL
+            AND reversal.amount_minor_units = chargeback.amount_minor_units
+            AND chargeback.currency_code IS NOT NULL
+            AND reversal.currency_code IS NOT NULL
+            AND reversal.currency_code = chargeback.currency_code
+           WHERE reversal.adjustment_id IS NULL
+              OR reversal.occurred_at <= chargeback.occurred_at
+         ) AS all_chargebacks_paired
+     )
+     SELECT
+       EXISTS (
+         SELECT 1
+         FROM latest_per_adjustment AS latest
+         WHERE latest.action = 'refund'
+           AND latest.adjustment_type = 'full'
+           AND (
+             latest.status IN ('approved', 'reversed')
+             OR (
+               latest.status IN ('pending_approval', 'rejected')
+               AND EXISTS (
+                 SELECT 1 FROM paddle_adjustment_events AS prior
+                 WHERE prior.adjustment_id = latest.adjustment_id
+                   AND prior.transaction_id = $1
+                   AND prior.action = 'refund'
+                   AND prior.adjustment_type = 'full'
+                   AND prior.status = 'approved'
+                   AND prior.occurred_at <= latest.occurred_at
+               )
+             )
+           )
+       ) AS full_refund_active,
+       (
+         SELECT chargeback_count > 0
+           AND NOT (chargeback_count = reversal_count AND all_chargebacks_paired)
+         FROM chargeback_reconciliation
+       ) AS chargeback_active,
+       (
+         SELECT chargeback_count > 0
+           AND chargeback_count = reversal_count
+           AND all_chargebacks_paired
+         FROM chargeback_reconciliation
+       ) AS chargeback_reversed,
+       FALSE AS full_refund_reversed`,
+    [transactionId]
+  );
+  const fullRefundActive = result.rows[0]?.full_refund_active === true;
+  const chargebackActive = result.rows[0]?.chargeback_active === true;
+  return {
+    fullRefundActive,
+    chargebackActive,
+    chargebackReversed: result.rows[0]?.chargeback_reversed === true,
+    fullRefundReversed: result.rows[0]?.full_refund_reversed === true,
+    hasAdverseAdjustment: fullRefundActive || chargebackActive,
+    revokeReason: fullRefundActive ? 'paddle_full_refund'
+      : chargebackActive ? 'paddle_chargeback' : null
+  };
+}
+
+async function recordPaddleAdjustmentReconciliationCase(client, {
+  eventId, adjustmentId, transactionId, reasonCode
+}) {
+  const providerAdjustmentId = typeof adjustmentId === 'string' &&
+    /^adj_[A-Za-z0-9]+$/.test(adjustmentId) ? adjustmentId : null;
+  const providerTransactionId = typeof transactionId === 'string' &&
+    /^txn_[A-Za-z0-9]+$/.test(transactionId) ? transactionId : null;
+  await client.query(
+    `INSERT INTO paddle_adjustment_reconciliation_cases
+       (event_id, reason_code, provider_transaction_id, provider_adjustment_id)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (event_id) DO NOTHING`,
+    [eventId, reasonCode, providerTransactionId, providerAdjustmentId]
+  );
+}
+
+async function resolvePaddleAdjustmentReconciliationCases(client, transactionId, userId, resolutionNote) {
+  await client.query(
+    `UPDATE paddle_adjustment_reconciliation_cases AS cases
+     SET status = 'resolved',
+         resolution_note = $3,
+         resolution_source = 'automatic_provider_transaction_link',
+         resolved_by_ref = NULL,
+         resolved_at = statement_timestamp(),
+         updated_at = statement_timestamp()
+     FROM paddle_adjustment_events AS source
+     WHERE cases.event_id = source.event_id
+       AND source.transaction_id = $1
+       AND cases.status = 'open'
+       AND cases.reason_code = 'transaction_owner_unlinked'
+       AND (
+         SELECT COUNT(DISTINCT (user_id, plan))
+         FROM (
+           SELECT user_id, transaction_id, plan, status FROM paddle_checkout_attempts
+           UNION ALL
+           SELECT user_id, transaction_id, plan, status FROM paddle_checkout_attempt_history
+           UNION ALL
+           SELECT event.user_id, event.transaction_id, event.plan, 'linked'::text AS status
+           FROM paddle_transaction_events AS event
+           JOIN paddle_webhook_events AS webhook ON webhook.event_id = event.event_id
+           JOIN users AS owner ON owner.id = event.user_id
+           WHERE event.transaction_id = $1
+             AND (
+               (event.status = 'completed' AND webhook.event_type = 'transaction.completed')
+               OR (
+                 event.status = 'paid'
+                 AND webhook.event_type = 'subscription.created'
+                 AND event.subscription_id IS NOT NULL
+                 AND event.customer_id IS NOT NULL
+                 AND owner.paddle_subscription_id = event.subscription_id
+                 AND owner.paddle_customer_id = event.customer_id
+               )
+             )
+             AND event.user_id IS NOT NULL AND event.plan IS NOT NULL
+         ) AS attempts
+         WHERE attempts.transaction_id = $1
+           AND attempts.status IN ('linked', 'completed')
+       ) = 1
+       AND EXISTS (
+         SELECT 1 FROM paddle_checkout_attempts AS linked_attempt
+         WHERE linked_attempt.transaction_id = $1
+           AND linked_attempt.user_id = $2
+           AND linked_attempt.status IN ('linked', 'completed')
+         UNION ALL
+         SELECT 1 FROM paddle_checkout_attempt_history AS linked_history
+         WHERE linked_history.transaction_id = $1
+           AND linked_history.user_id = $2
+           AND linked_history.status IN ('linked', 'completed')
+         UNION ALL
+         SELECT 1
+         FROM paddle_transaction_events AS linked_transaction
+         JOIN paddle_webhook_events AS webhook ON webhook.event_id = linked_transaction.event_id
+         JOIN users AS owner ON owner.id = linked_transaction.user_id
+         WHERE linked_transaction.transaction_id = $1
+           AND linked_transaction.user_id = $2
+           AND linked_transaction.plan IN ('1month', '3months')
+           AND (
+             (linked_transaction.status = 'completed' AND webhook.event_type = 'transaction.completed')
+             OR (
+               linked_transaction.status = 'paid'
+               AND webhook.event_type = 'subscription.created'
+               AND linked_transaction.subscription_id IS NOT NULL
+               AND linked_transaction.customer_id IS NOT NULL
+               AND owner.paddle_subscription_id = linked_transaction.subscription_id
+               AND owner.paddle_customer_id = linked_transaction.customer_id
+             )
+           )
+       )`,
+    [transactionId, userId, resolutionNote]
+  );
+}
+
+async function resolveInvalidPaddleTransactionTimestampCases(client, transactionId, userId) {
+  if (typeof transactionId !== 'string' || !/^txn_[A-Za-z0-9]+$/.test(transactionId) ||
+      typeof userId !== 'string' ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) return 0;
+  const result = await client.query(
+    `UPDATE paddle_adjustment_reconciliation_cases AS cases
+     SET status = 'resolved',
+         resolution_note = 'superseded_by_verified_transaction_lifecycle_evidence',
+         resolution_source = 'automatic_provider_transaction_link',
+         resolved_by_ref = NULL,
+         resolved_at = statement_timestamp(),
+         updated_at = statement_timestamp()
+     FROM paddle_webhook_events AS original
+     WHERE cases.event_id = original.event_id
+       AND cases.status = 'open'
+       AND cases.reason_code = 'invalid_transaction_timestamp'
+       AND cases.provider_transaction_id = $1
+       AND original.event_type IN ('transaction.paid', 'transaction.completed', 'transaction.canceled')
+       AND EXISTS (
+         SELECT 1 FROM paddle_transaction_events AS evidence
+         JOIN paddle_webhook_events AS verified ON verified.event_id = evidence.event_id
+         WHERE evidence.transaction_id = $1 AND evidence.user_id = $2
+           AND evidence.status IN ('completed', 'canceled')
+           AND evidence.occurred_at IS NOT NULL
+           -- The malformed timestamp is not chronology evidence. A valid
+           -- canonical lifecycle event may have been delivered before or after it.
+           AND ((evidence.status = 'completed' AND verified.event_type = 'transaction.completed')
+             OR (evidence.status = 'canceled' AND verified.event_type = 'transaction.canceled'))
+           AND (
+             EXISTS (
+               SELECT 1 FROM paddle_checkout_attempts AS attempt
+               WHERE attempt.transaction_id = $1 AND attempt.user_id = $2
+                 AND attempt.plan IS NOT DISTINCT FROM evidence.plan
+                 AND attempt.status IN ('linked', 'completed', 'canceled')
+               UNION ALL
+               SELECT 1 FROM paddle_checkout_attempt_history AS archived
+               WHERE archived.transaction_id = $1 AND archived.user_id = $2
+                 AND archived.plan IS NOT DISTINCT FROM evidence.plan
+                 AND archived.status IN ('linked', 'completed', 'canceled')
+             )
+             OR EXISTS (
+               SELECT 1 FROM users AS owner WHERE owner.id = $2
+                 AND ((evidence.customer_id IS NOT NULL AND owner.paddle_customer_id = evidence.customer_id)
+                   OR (evidence.subscription_id IS NOT NULL AND owner.paddle_subscription_id = evidence.subscription_id))
+             )
+           )
+       )
+       AND (SELECT COUNT(DISTINCT owner.user_id) FROM (
+         SELECT user_id FROM paddle_checkout_attempts WHERE transaction_id = $1
+         UNION ALL SELECT user_id FROM paddle_checkout_attempt_history WHERE transaction_id = $1
+         UNION ALL SELECT user_id FROM paddle_transaction_events WHERE transaction_id = $1
+       ) AS owner WHERE owner.user_id IS NOT NULL) = 1`,
+    [transactionId, userId]
+  );
+  return result.rowCount;
+}
+
+async function recordPaddleProviderIdentityConflictCase(client, {
+  eventId, transactionId, userId, plan, reasonCode = 'provider_identity_conflict'
+}) {
+  const providerTransactionId = typeof transactionId === 'string' &&
+    /^txn_[A-Za-z0-9]+$/.test(transactionId) ? transactionId : null;
+  const providerUserRef = typeof userId === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)
+    ? userId : null;
+  const providerPlan = ['1month', '3months', 'lifetime'].includes(plan) ? plan : null;
+  const safeReasonCode = ['provider_identity_conflict', 'provider_lifecycle_conflict', 'invalid_transaction_timestamp'].includes(reasonCode)
+    ? reasonCode : 'provider_identity_conflict';
+  const reasonSql = safeReasonCode === 'provider_lifecycle_conflict'
+    ? "'provider_lifecycle_conflict'"
+    : safeReasonCode === 'invalid_transaction_timestamp'
+      ? "'invalid_transaction_timestamp'"
+      : "'provider_identity_conflict'";
+  await client.query(
+    `INSERT INTO paddle_adjustment_reconciliation_cases
+       (event_id, reason_code, provider_transaction_id, provider_user_ref, provider_plan)
+     VALUES ($1, ${reasonSql}, $2, $3, $4)
+     ON CONFLICT (event_id) DO NOTHING`,
+    [eventId, providerTransactionId, providerUserRef, providerPlan]
+  );
+}
+
+async function processPaddleAdjustment(client, { eventId, occurredAt, data }) {
+  const adjustmentId = data.id;
+  const transactionId = data.transactionId || data.transaction_id;
+  // Serialize valid events for this provider transaction. transaction.completed
+  // takes the same lock before it grants lifetime Premium, so an adjustment
+  // cannot be committed unseen while the purchase is being linked.
+  if (typeof transactionId === 'string' && /^txn_[A-Za-z0-9]+$/.test(transactionId)) {
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtextextended('paddle-transaction:' || $1::text, 0))",
+      [transactionId]
+    );
+  }
+  const action = String(data.action || '').toLowerCase();
+  const status = String(data.status || '').toLowerCase();
+  const validType = data.type === null || data.type === 'full' || data.type === 'partial';
+  const type = data.type === 'full' || data.type === 'partial' ? data.type : null;
+  // Refunds require an explicit full/partial classification. Preserve a
+  // malformed signed event in the ledger, but never infer a refund scope.
+  const invalidTypeMetadata = !validType || (action === 'refund' && type === null);
+  const validAdjustmentId = typeof adjustmentId === 'string' && /^adj_[A-Za-z0-9]+$/.test(adjustmentId);
+  const validTransactionId = typeof transactionId === 'string' && /^txn_[A-Za-z0-9]+$/.test(transactionId);
+  const validActions = new Set([
+    'credit', 'refund', 'chargeback', 'chargeback_reverse',
+    'chargeback_warning', 'chargeback_warning_reverse', 'credit_reverse'
+  ]);
+  const validStatuses = new Set(['pending_approval', 'approved', 'rejected', 'reversed']);
+  if (!validAdjustmentId || !validTransactionId || !validActions.has(action) || !validStatuses.has(status) ||
+      !isValidPaddleTimestamp(occurredAt)) {
+    await recordPaddleAdjustmentReconciliationCase(client, {
+      eventId, adjustmentId, transactionId,
+      reasonCode: 'invalid_adjustment_payload'
+    });
+    return { handled: true, reconciliationRequired: true };
+  }
+
+  const amountMinorUnits = parsePaddleMinorAmount(data?.totals?.total);
+  const currencyCode = paddleCurrencyCode(data);
+  const incompleteFinancialMetadata = amountMinorUnits === null || currencyCode === null;
+
+  await client.query(
+    `INSERT INTO paddle_adjustment_events
+       (event_id, adjustment_id, transaction_id, action, adjustment_type, status,
+        amount_minor_units, currency_code, occurred_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)
+     ON CONFLICT (event_id) DO NOTHING`,
+    [eventId, adjustmentId, transactionId, action, type, status,
+      amountMinorUnits, currencyCode, occurredAt]
+  );
+
+  if (invalidTypeMetadata || incompleteFinancialMetadata) {
+    // Type metadata does not affect chargeback/credit handling, and amount/
+    // currency fields do not affect entitlement state. Preserve signed action
+    // semantics while keeping incomplete financial metadata visible for review.
+    await recordPaddleAdjustmentReconciliationCase(client, {
+      eventId, adjustmentId, transactionId,
+      reasonCode: 'invalid_adjustment_payload'
+    });
+  }
+
+  if (action === 'refund' && type !== null &&
+      ['pending_approval', 'approved', 'rejected', 'reversed'].includes(status)) {
+    const conflictingFinalState = await client.query(
+      `SELECT (
+         (
+           $4::text = 'reversed'
+         )
+         OR (
+           $4::text IN ('pending_approval', 'approved', 'rejected')
+           AND EXISTS (
+             SELECT 1
+             FROM paddle_adjustment_events AS prior
+             WHERE prior.adjustment_id = $1
+               AND prior.transaction_id = $2
+               AND prior.action = 'refund'
+               AND prior.adjustment_type = $3
+               AND prior.status IN ('approved', 'rejected')
+               AND prior.status <> $4
+               AND prior.occurred_at <= $5::timestamptz
+           )
+         )
+       ) AS conflicting_final_state`,
+      [adjustmentId, transactionId, type, status, occurredAt]
+    );
+    if (conflictingFinalState.rows?.[0]?.conflicting_final_state === true) {
+      // Paddle describes approval/rejection as mutually exclusive final
+      // outcomes. Keep any earlier approval adverse and send contradictory
+      // final-state evidence to the moderator queue instead of restoring access.
+      await recordPaddleAdjustmentReconciliationCase(client, {
+        eventId, adjustmentId, transactionId,
+        reasonCode: 'provider_lifecycle_conflict'
+      });
+    }
+  }
+
+  const linked = await client.query(
+    `SELECT user_id, plan,
+       CASE WHEN bool_or(status = 'linked') THEN 'linked' ELSE 'completed' END AS status
+     FROM (
+       SELECT user_id, transaction_id, plan, status FROM paddle_checkout_attempts
+       UNION ALL
+       SELECT user_id, transaction_id, plan, status FROM paddle_checkout_attempt_history
+       UNION ALL
+       SELECT event.user_id, event.transaction_id, event.plan, 'linked'::text AS status
+       FROM paddle_transaction_events AS event
+       JOIN paddle_webhook_events AS webhook ON webhook.event_id = event.event_id
+       JOIN users AS owner ON owner.id = event.user_id
+       WHERE event.transaction_id = $1
+         AND event.plan IN ('1month', '3months')
+         AND (
+           (event.status = 'completed' AND webhook.event_type = 'transaction.completed')
+           OR (
+             event.status = 'paid'
+             AND webhook.event_type = 'subscription.created'
+             AND event.subscription_id IS NOT NULL
+             AND event.customer_id IS NOT NULL
+             AND owner.paddle_subscription_id = event.subscription_id
+             AND owner.paddle_customer_id = event.customer_id
+           )
+         )
+         AND event.user_id IS NOT NULL
+     ) AS attempts
+     WHERE transaction_id = $1 AND status IN ('linked', 'completed')
+     GROUP BY user_id, plan
+     LIMIT 2`,
+    [transactionId]
+  );
+  if (linked.rowCount !== 1) {
+    await recordPaddleAdjustmentReconciliationCase(client, {
+      eventId, adjustmentId, transactionId,
+      reasonCode: linked.rowCount > 1
+        ? 'transaction_owner_ambiguous'
+        : 'transaction_owner_unlinked'
+    });
+    return { handled: true, adjustmentRecorded: true, reconciliationRequired: true };
+  }
+
+  // Recurring Vow purchases are recorded for financial history, but lifetime
+  // entitlement logic must never be applied to them.
+  if (linked.rows[0].plan !== 'lifetime') {
+    return {
+      handled: true,
+      adjustmentRecorded: true,
+      entitlementChanged: false,
+      premiumRevoked: false
+    };
+  }
+  if (linked.rows[0].status !== 'linked') {
+    await recordPaddleAdjustmentReconciliationCase(client, {
+      eventId, adjustmentId, transactionId,
+      reasonCode: 'transaction_owner_unlinked'
+    });
+    return { handled: true, adjustmentRecorded: true, reconciliationRequired: true };
+  }
+
+  const userId = linked.rows[0].user_id;
+  await client.query(
+    "SELECT pg_advisory_xact_lock(hashtext('gift-safety-user:' || $1::uuid::text))",
+    [userId]
+  );
+  const userResult = await client.query(
+    'SELECT id, status, premium_lifetime FROM users WHERE id = $1 FOR UPDATE',
+    [userId]
+  );
+  const user = userResult.rows[0];
+  if (!user || user.status !== 'active') {
+    await recordPaddleAdjustmentReconciliationCase(client, {
+      eventId, adjustmentId, transactionId,
+      reasonCode: 'lifetime_account_inactive'
+    });
+    return { handled: true, adjustmentRecorded: true, reconciliationRequired: true };
+  }
+
+  // Backfill is deliberately limited to accounts that still have the lifetime
+  // entitlement. A missing provenance row must never be guessed or re-granted.
+  await client.query(
+    `INSERT INTO paddle_lifetime_entitlements (transaction_id, user_id, status)
+     SELECT $2, id, 'active' FROM users
+     WHERE id = $1 AND premium_lifetime IS TRUE
+     ON CONFLICT (transaction_id) DO NOTHING`,
+    [userId, transactionId]
+  );
+  const entitlementResult = await client.query(
+    'SELECT status, revoke_reason FROM paddle_lifetime_entitlements WHERE transaction_id = $1 AND user_id = $2 FOR UPDATE',
+    [transactionId, userId]
+  );
+  const entitlement = entitlementResult.rows[0];
+  if (!entitlement) {
+    await recordPaddleAdjustmentReconciliationCase(client, {
+      eventId, adjustmentId, transactionId,
+      reasonCode: 'lifetime_entitlement_missing'
+    });
+    return { handled: true, adjustmentRecorded: true, reconciliationRequired: true };
+  }
+
+  const adjustmentState = await getPaddleAdjustmentState(client, transactionId);
+  const hasAdverseAdjustment = adjustmentState.hasAdverseAdjustment;
+  const reversalMatchesRevocation =
+    entitlement.revoke_reason === 'paddle_chargeback' &&
+    ['chargeback_reverse', 'chargeback'].includes(action) &&
+    ((action === 'chargeback_reverse' && status === 'approved') ||
+     (action === 'chargeback' && ['approved', 'reversed'].includes(status))) &&
+    adjustmentState.chargebackReversed;
+
+  let nextStatus = entitlement.status;
+  let revokeReason = entitlement.revoke_reason;
+  if (hasAdverseAdjustment) {
+    nextStatus = 'revoked';
+    revokeReason = adjustmentState.revokeReason;
+  } else if (reversalMatchesRevocation && entitlement.status === 'revoked') {
+    nextStatus = 'active';
+    revokeReason = null;
+  }
+
+  if (nextStatus !== entitlement.status || revokeReason !== entitlement.revoke_reason) {
+    await client.query(
+      `UPDATE paddle_lifetime_entitlements
+       SET status = $3, revoke_reason = $4, updated_at = statement_timestamp()
+       WHERE transaction_id = $1 AND user_id = $2`,
+      [transactionId, userId, nextStatus, revokeReason]
+    );
+    // Recompute from all verified lifetime purchases so one refunded purchase
+    // cannot revoke a separate still-valid lifetime purchase for the same user.
+    await client.query(
+      `UPDATE users
+       SET premium_lifetime = EXISTS (
+         SELECT 1 FROM paddle_lifetime_entitlements
+         WHERE user_id = $1 AND status = 'active'
+       ), updated_at = statement_timestamp()
+       WHERE id = $1 AND status = 'active'`,
+      [userId]
+    );
+  }
+
+  return {
+    handled: true,
+    adjustmentRecorded: true,
+    entitlementChanged: nextStatus !== entitlement.status,
+    premiumRevoked: nextStatus === 'revoked'
+  };
+}
+
 export async function processPaddleEvent(pool, rawEvent) {
   const event = normalizePaddleEvent(rawEvent);
   if (!event) throw new Error('invalid_paddle_event');
@@ -90,15 +782,6 @@ export async function processPaddleEvent(pool, rawEvent) {
     // Keep the deduplication row outside a savepoint so invalid provider
     // payloads and identity conflicts can be acknowledged without endless retries.
     await client.query('SAVEPOINT paddle_event_effects');
-    // Lifecycle events need a valid source timestamp and subscription identity
-    // for ordering/ownership. Consume malformed signed events without changing
-    // entitlement rather than returning 500 forever to the provider.
-    if (subscriptionLifecycleEvent &&
-        (!occurredAt || !Number.isFinite(Date.parse(occurredAt)) ||
-         typeof data.id !== 'string' || !/^sub_[A-Za-z0-9]+$/.test(data.id))) {
-      await client.query('COMMIT');
-      return { duplicate: false, handled: true };
-    }
     const customData = data.customData || data.custom_data || {};
     const rawCustomUserId = typeof customData.userId === 'string' ? customData.userId
       : typeof customData.user_id === 'string' ? customData.user_id : null;
@@ -107,13 +790,19 @@ export async function processPaddleEvent(pool, rawEvent) {
     const customUserId = rawCustomUserId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawCustomUserId)
       ? rawCustomUserId
       : null;
+    const hasCamelCustomUserId = Object.prototype.hasOwnProperty.call(customData, 'userId');
+    const hasSnakeCustomUserId = Object.prototype.hasOwnProperty.call(customData, 'user_id');
+    const customUserIdMetadataConflict =
+      ((hasCamelCustomUserId || hasSnakeCustomUserId) && !customUserId) ||
+      (hasCamelCustomUserId && hasSnakeCustomUserId && customData.userId !== customData.user_id);
     const rawCheckoutAttemptId = typeof customData.checkoutAttemptId === 'string'
       ? customData.checkoutAttemptId : null;
     const checkoutAttemptId = rawCheckoutAttemptId &&
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawCheckoutAttemptId)
       ? rawCheckoutAttemptId : null;
     reconciliationContext = {
-      userId: customUserId,
+      // Never carry one side of contradictory owner aliases into later helpers.
+      userId: customUserIdMetadataConflict ? null : customUserId,
       plan: typeof customData.plan === 'string' ? customData.plan : null,
       attemptId: checkoutAttemptId
     };
@@ -121,19 +810,48 @@ export async function processPaddleEvent(pool, rawEvent) {
       ? data.id
       : typeof data.subscriptionId === 'string' ? data.subscriptionId
         : typeof data.subscription_id === 'string' ? data.subscription_id : null;
+    const adjustmentWebhookEvent = eventType === 'adjustment.created' || eventType === 'adjustment.updated';
+    // The transaction lock is always acquired before any user lock. A
+    // subscription.created event also writes paid transaction evidence, so it
+    // must lock its originating transaction here rather than later in the
+    // database trigger (which would invert the user -> transaction lock order).
+    const paddleTransactionIdForLock = ['transaction.paid', 'transaction.completed', 'transaction.canceled'].includes(eventType)
+      ? data.id
+      : eventType === 'subscription.created'
+        ? (typeof data.transactionId === 'string' ? data.transactionId
+          : typeof data.transaction_id === 'string' ? data.transaction_id : null)
+        : null;
+    if (typeof paddleTransactionIdForLock === 'string' &&
+        /^txn_[A-Za-z0-9]+$/.test(paddleTransactionIdForLock)) {
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended('paddle-transaction:' || $1::text, 0))",
+        [paddleTransactionIdForLock]
+      );
+    }
     // Serialize provider identity/entitlement writes with account deletion and
     // safety actions. Deletion holds this same advisory key across external
     // Paddle cancellation, so a late subscription.created event cannot attach
     // a renewing subscription after the account has been deleted.
-    let paddleIdentityUserId = customUserId;
-    if (!paddleIdentityUserId && subscriptionLifecycleEvent && subscriptionId) {
+    let existingSubscriptionOwnerUserId = null;
+    if (subscriptionLifecycleEvent && subscriptionId) {
       const existingOwner = await client.query(
         'SELECT id FROM users WHERE paddle_subscription_id = $1 LIMIT 1',
         [subscriptionId]
       );
-      paddleIdentityUserId = existingOwner.rows[0]?.id || null;
+      existingSubscriptionOwnerUserId = existingOwner.rows[0]?.id || null;
     }
-    if (paddleIdentityUserId) {
+    const subscriptionOwnerMetadataConflict = subscriptionLifecycleEvent && (
+      customUserIdMetadataConflict ||
+      Boolean(customUserId && existingSubscriptionOwnerUserId &&
+        customUserId !== existingSubscriptionOwnerUserId)
+    );
+    // If provider metadata conflicts with a retained subscription owner, lock
+    // the retained owner only for safe adverse lifecycle updates. Never lock or
+    // mutate an arbitrary account selected from contradictory custom_data.
+    let paddleIdentityUserId = subscriptionOwnerMetadataConflict || customUserIdMetadataConflict
+      ? existingSubscriptionOwnerUserId
+      : customUserId || existingSubscriptionOwnerUserId;
+    if (paddleIdentityUserId && !adjustmentWebhookEvent) {
       await client.query(
         "SELECT pg_advisory_xact_lock(hashtext('gift-safety-user:' || $1::uuid::text))",
         [paddleIdentityUserId]
@@ -147,20 +865,140 @@ export async function processPaddleEvent(pool, rawEvent) {
     const customerId = typeof data.customerId === 'string' ? data.customerId
       : typeof data.customer_id === 'string' ? data.customer_id
         : (eventType === 'customer.created' || eventType === 'customer.updated') && typeof data.id === 'string' ? data.id : null;
+    const ownerCheckTransactionId = ['transaction.completed', 'transaction.canceled'].includes(eventType)
+      ? data.id
+      : eventType === 'subscription.created'
+        ? (typeof data.transactionId === 'string' ? data.transactionId
+          : typeof data.transaction_id === 'string' ? data.transaction_id : null)
+        : null;
+    const ambiguousTransactionOwner = await isPaddleTransactionOwnerAmbiguous(client, ownerCheckTransactionId);
+    if (ambiguousTransactionOwner) reconciliationContext.userId = null;
+
+    // Only after validating checkout metadata, locking any uniquely known
+    // owner/transaction and checking ambiguity can a malformed subscription
+    // event be safely quarantined. For subscription.created, retain its exact
+    // transaction and mark only the matching server attempt for reconciliation.
+    if (subscriptionLifecycleEvent &&
+        (!isValidPaddleTimestamp(occurredAt) ||
+         typeof data.id !== 'string' || !/^sub_[A-Za-z0-9]+$/.test(data.id))) {
+      const validSubscriptionId = typeof data.id === 'string' && /^sub_[A-Za-z0-9]+$/.test(data.id)
+        ? data.id : null;
+      const rawSubscriptionTransactionId = eventType === 'subscription.created'
+        ? (typeof data.transactionId === 'string' ? data.transactionId
+          : typeof data.transaction_id === 'string' ? data.transaction_id : null)
+        : null;
+      const providerTransactionId = typeof rawSubscriptionTransactionId === 'string' &&
+        /^txn_[A-Za-z0-9]+$/.test(rawSubscriptionTransactionId)
+        ? rawSubscriptionTransactionId : null;
+      const providerOwnerIsUnambiguous = !customUserIdMetadataConflict &&
+        !subscriptionOwnerMetadataConflict && !ambiguousTransactionOwner;
+      const providerUserRef = providerOwnerIsUnambiguous ? customUserId : null;
+      const providerPlan = ['1month', '3months', 'lifetime'].includes(customData.plan)
+        ? customData.plan : null;
+      await client.query(
+        `INSERT INTO paddle_adjustment_reconciliation_cases
+           (event_id, reason_code, provider_subscription_id, provider_transaction_id,
+            provider_user_ref, provider_plan)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (event_id) DO NOTHING`,
+        [eventId, validSubscriptionId ? 'invalid_subscription_timestamp' : 'invalid_subscription_identity',
+          validSubscriptionId, providerTransactionId, providerUserRef, providerPlan]
+      );
+      if (eventType === 'subscription.created' && providerTransactionId && providerUserRef &&
+          providerOwnerIsUnambiguous) {
+        await markPaddleCheckoutAttemptForReconciliation(
+          client, providerUserRef, providerPlan, providerTransactionId, checkoutAttemptId
+        );
+      }
+      await client.query('COMMIT');
+      return { duplicate: false, handled: true, reconciliationRequired: true };
+    }
+
+    // Transaction lifecycle events are entitlement evidence too. Unlike
+    // subscription lifecycle events, they must not be allowed to grant or
+    // finalize access when their signed provider timestamp is absent/invalid.
+    // Preserve the event without assigning an owner and leave the exact checkout
+    // attempt in reconciliation rather than trusting local receipt time.
+    if (['transaction.paid', 'transaction.completed', 'transaction.canceled'].includes(eventType) &&
+        (!isValidPaddleTimestamp(occurredAt))) {
+      const transactionId = typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)
+        ? data.id : null;
+      if (transactionId) {
+        // The webhook deduplication row plus this reconciliation case preserve
+        // the signed event and transaction ID. Do not insert an un-timestamped
+        // completed/canceled status into the lifecycle ledger: later valid
+        // provider events must not be blocked by untrusted chronology.
+        await recordPaddleProviderIdentityConflictCase(client, {
+          eventId, transactionId, userId: null, plan: customData.plan,
+          reasonCode: 'invalid_transaction_timestamp'
+        });
+        const malformedTimestampPlanConflict =
+          Object.prototype.hasOwnProperty.call(customData, 'plan') &&
+          customData.plan !== inferPaddleTransactionPlan(data);
+        if (!customUserIdMetadataConflict && !ambiguousTransactionOwner) {
+          await markPaddleCheckoutAttemptForReconciliation(
+            client, customUserId, customData.plan, transactionId, checkoutAttemptId
+          );
+          if (!malformedTimestampPlanConflict) {
+            // The canonical transaction event may already have arrived before
+            // this malformed redelivery. Its timestamped immutable evidence is
+            // sufficient to close only this timestamp quarantine, never a true
+            // completed/canceled lifecycle conflict.
+            const verifiedOwner = await findPaddleTransactionOwner(client, {
+              attemptUserId: customUserId,
+              transactionId,
+              subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
+              customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null
+            });
+            if (verifiedOwner) {
+              await resolveInvalidPaddleTransactionTimestampCases(client, transactionId, verifiedOwner);
+            }
+          }
+        }
+      }
+      await client.query('COMMIT');
+      return { duplicate: false, handled: true, ...(transactionId ? { reconciliationRequired: true } : {}) };
+    }
+
     // Never persist a provider customer identifier that cannot be used by the
     // authenticated portal/cancellation flows. A signed but malformed event is
     // consumed without changing account identity, avoiding endless webhook retries.
     if ((eventType === 'subscription.created' && customerId === null) ||
-        (customerId !== null && !/^ctm_[A-Za-z0-9]+$/.test(customerId))) {
-      const malformedEventTransactionId = eventType === 'transaction.completed'
+        (customerId !== null && !/^ctm_[A-Za-z0-9]+$/.test(customerId) && !adjustmentWebhookEvent)) {
+      if (['transaction.paid', 'transaction.completed', 'transaction.canceled'].includes(eventType) &&
+          typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
+        await recordPaddleTransactionEvent(client, {
+          eventId, transactionId: data.id, userId: null,
+          plan: inferPaddleTransactionPlan(data),
+          status: eventType === 'transaction.completed' ? 'completed'
+            : eventType === 'transaction.paid' ? 'paid' : 'canceled',
+          subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
+          customerId: null,
+          occurredAt,
+          ...paddleTransactionFinancialTotals(data),
+          currencyCode: paddleCurrencyCode(data)
+        });
+      }
+      const malformedEventTransactionId = ['transaction.paid', 'transaction.completed', 'transaction.canceled'].includes(eventType)
         ? data.id
         : eventType === 'subscription.created'
           ? (typeof data.transactionId === 'string' ? data.transactionId
             : typeof data.transaction_id === 'string' ? data.transaction_id : null)
           : null;
-      await markPaddleCheckoutAttemptForReconciliation(
-        client, reconciliationContext.userId, reconciliationContext.plan, malformedEventTransactionId, reconciliationContext.attemptId
-      );
+      if (customUserIdMetadataConflict || subscriptionOwnerMetadataConflict || ambiguousTransactionOwner) {
+        await recordPaddleProviderIdentityConflictCase(client, {
+          eventId,
+          transactionId: typeof malformedEventTransactionId === 'string' &&
+            /^txn_[A-Za-z0-9]+$/.test(malformedEventTransactionId) ? malformedEventTransactionId : null,
+          userId: null,
+          plan: customData.plan
+        });
+      }
+      if (!customUserIdMetadataConflict && !subscriptionOwnerMetadataConflict && !ambiguousTransactionOwner) {
+        await markPaddleCheckoutAttemptForReconciliation(
+          client, reconciliationContext.userId, reconciliationContext.plan, malformedEventTransactionId, reconciliationContext.attemptId
+        );
+      }
       await client.query('COMMIT');
       return { duplicate: false, handled: true };
     }
@@ -170,7 +1008,7 @@ export async function processPaddleEvent(pool, rawEvent) {
       const rawPeriodEnd = data.currentBillingPeriod?.endsAt ?? data.current_billing_period?.ends_at ?? null;
       // Invalid/missing period ends must never grant Premium, but the lifecycle
       // status should still be persisted (especially cancellations) without a DB cast error.
-      const periodEnd = typeof rawPeriodEnd === 'string' && Number.isFinite(Date.parse(rawPeriodEnd))
+      const periodEnd = isValidPaddleTimestamp(rawPeriodEnd)
         ? rawPeriodEnd : null;
       const firstItem = Array.isArray(data.items) ? data.items[0] : null;
       const priceId = firstItem?.price?.id || firstItem?.priceId || firstItem?.price_id || null;
@@ -185,6 +1023,10 @@ export async function processPaddleEvent(pool, rawEvent) {
         && isPaddleSubscriptionEntitled(status, periodEnd);
       const checkoutPlan = priceId === process.env.PADDLE_PRICE_ID_1MONTH ? '1month'
         : priceId === process.env.PADDLE_PRICE_ID_3MONTHS ? '3months' : null;
+      const providerPlanMetadataConflict =
+        Object.prototype.hasOwnProperty.call(customData, 'plan') && customData.plan !== checkoutPlan;
+      const subscriptionIdentityConflict = subscriptionOwnerMetadataConflict ||
+        ambiguousTransactionOwner || providerPlanMetadataConflict;
       // A newly-created subscription is the event that grants recurring access.
       // Require a matching durable checkout attempt; custom_data and a known price
       // alone are not proof that this account initiated this Vow checkout.
@@ -198,8 +1040,34 @@ export async function processPaddleEvent(pool, rawEvent) {
         : typeof data.transaction_id === 'string' ? data.transaction_id : null;
       const validSubscriptionTransactionId = typeof subscriptionTransactionId === 'string'
         && /^txn_[A-Za-z0-9]+$/.test(subscriptionTransactionId);
+      if (subscriptionIdentityConflict) {
+        await recordPaddleProviderIdentityConflictCase(client, {
+          eventId,
+          transactionId: validSubscriptionTransactionId ? subscriptionTransactionId : null,
+          userId: customUserIdMetadataConflict || ambiguousTransactionOwner ? null : customUserId,
+          plan: customData.plan
+        });
+        // A subscription.created event can grant access, so any owner/plan
+        // contradiction blocks it completely. For existing subscriptions,
+        // still apply non-entitling states (past_due/paused/canceled) to the
+        // retained owner, but never extend access from contradictory metadata.
+        if (eventType === 'subscription.created' || active) {
+          if (eventType === 'subscription.created') {
+            if (!subscriptionOwnerMetadataConflict && !ambiguousTransactionOwner) {
+              await markPaddleCheckoutAttemptForReconciliation(
+                client, customUserId, customData.plan, subscriptionTransactionId, checkoutAttemptId
+              );
+            }
+          }
+          await client.query('COMMIT');
+          return { duplicate: false, handled: true };
+        }
+      }
+      const subscriptionUpdateUserId = subscriptionIdentityConflict ? null : customUserId;
+      const subscriptionUpdateCustomerId = subscriptionIdentityConflict ? null : customerId;
+      const subscriptionUpdatePriceId = subscriptionIdentityConflict ? null : priceId;
       let subscriptionAttemptClaim = { rowCount: 0, rows: [] };
-      if (eventType === 'subscription.created' && customUserId &&
+      if (eventType === 'subscription.created' && customUserId && !ambiguousTransactionOwner &&
           checkoutPlan && customData.plan === checkoutPlan && validSubscriptionTransactionId) {
         subscriptionAttemptClaim = await client.query(
           `UPDATE paddle_checkout_attempts
@@ -219,9 +1087,11 @@ export async function processPaddleEvent(pool, rawEvent) {
         // Persist the webhook event id, but do not grant an entitlement when no
         // server-created checkout attempt can be matched. If the originating
         // transaction is valid, mark only that exact/in-flight attempt for review.
-        await markPaddleCheckoutAttemptForReconciliation(
-          client, reconciliationContext.userId, customData.plan, subscriptionTransactionId, checkoutAttemptId
-        );
+        if (!subscriptionOwnerMetadataConflict && !ambiguousTransactionOwner) {
+          await markPaddleCheckoutAttemptForReconciliation(
+            client, reconciliationContext.userId, customData.plan, subscriptionTransactionId, checkoutAttemptId
+          );
+        }
         await client.query('COMMIT');
         return { duplicate: false, handled: true };
       }
@@ -276,9 +1146,26 @@ export async function processPaddleEvent(pool, rawEvent) {
           -- The source timestamp guard above prevents a delayed old lifecycle event from winning.
           -- A delayed or newly delivered subscription event must not revoke or replace lifetime Premium.
           AND premium_lifetime IS NOT TRUE`,
-        [customUserId, customerId, subscriptionId, status, priceId, active, active ? periodEnd : null, occurredAt, eventType === 'subscription.created', eventType === 'subscription.canceled']
+        [subscriptionUpdateUserId, subscriptionUpdateCustomerId, subscriptionId, status, subscriptionUpdatePriceId, active, active ? periodEnd : null, occurredAt, eventType === 'subscription.created', eventType === 'subscription.canceled']
       );
       if (eventType === 'subscription.created' && customUserId && checkoutPlan) {
+        if (subscriptionUpdate.rowCount > 0 && validSubscriptionTransactionId) {
+          // subscription.created is also authoritative provider evidence for a
+          // recurring checkout when it arrives before transaction.completed.
+          // Retain the exact originating transaction, owner, plan and subscription.
+          await recordPaddleTransactionEvent(client, {
+            eventId,
+            transactionId: subscriptionTransactionId,
+            userId: customUserId,
+            plan: checkoutPlan,
+            status: 'paid',
+            subscriptionId,
+            customerId,
+            occurredAt,
+            ...paddleTransactionFinancialTotals(data),
+            currencyCode: paddleCurrencyCode(data)
+          });
+        }
         await client.query(
           `UPDATE paddle_checkout_attempts
            SET status = $3, updated_at = NOW()
@@ -289,12 +1176,65 @@ export async function processPaddleEvent(pool, rawEvent) {
             checkoutAttemptId, subscriptionTransactionId]
         );
       }
+    } else if (eventType === 'adjustment.created' || eventType === 'adjustment.updated') {
+      const adjustmentResult = await processPaddleAdjustment(client, { eventId, occurredAt, data });
+      await client.query('COMMIT');
+      return { duplicate: false, ...adjustmentResult };
+    } else if (eventType === 'transaction.paid') {
+      // Paddle emits transaction.paid when payment is captured, before internal
+      // transaction processing completes. Retain the captured state but never
+      // grant access or finalize a checkout from this event alone.
+      if (typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
+        const transactionPlan = inferPaddleTransactionPlan(data);
+        let transactionOwnerUserId = await findPaddleTransactionOwner(client, {
+          transactionId: data.id,
+          subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
+          customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null
+        });
+        // A retained transaction link must not override contradictory signed
+        // checkout metadata. Preserve the provider event without attributing it
+        // to the old account; the conflict remains visible for reconciliation.
+        const providerOwnerConflict = customUserIdMetadataConflict || ambiguousTransactionOwner ||
+          Boolean(customUserId && transactionOwnerUserId && customUserId !== transactionOwnerUserId);
+        const providerPlanConflict = Object.prototype.hasOwnProperty.call(customData, 'plan') &&
+          customData.plan !== transactionPlan;
+        if (providerOwnerConflict || providerPlanConflict) {
+          // transaction.paid is only a capture snapshot. Defer opening the
+          // durable ownership-conflict case until transaction.completed, whose
+          // final provider evidence can be reconciled without leaving a
+          // permanently unresolvable case for an intermediate event.
+          transactionOwnerUserId = null;
+        }
+        await recordPaddleTransactionEvent(client, {
+          eventId,
+          transactionId: data.id,
+          userId: transactionOwnerUserId,
+          plan: transactionPlan,
+          status: 'paid',
+          subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
+          customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null,
+          occurredAt,
+          ...paddleTransactionFinancialTotals(data),
+          currencyCode: paddleCurrencyCode(data)
+        });
+      }
     } else if (eventType === 'transaction.completed') {
       // Provider payloads are external input even after signature verification.
       // Reject malformed identifiers before they reach database CHECK constraints,
       // otherwise one bad event can retry forever and poison webhook delivery.
       if (typeof data.id !== 'string' || !/^txn_[A-Za-z0-9]+$/.test(data.id) ||
           (subscriptionId !== null && !/^sub_[A-Za-z0-9]+$/.test(subscriptionId))) {
+        if (typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
+          await recordPaddleTransactionEvent(client, {
+            eventId, transactionId: data.id, userId: null,
+            plan: inferPaddleTransactionPlan(data), status: 'completed',
+            subscriptionId: null,
+            customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null,
+            occurredAt,
+            ...paddleTransactionFinancialTotals(data),
+            currencyCode: paddleCurrencyCode(data)
+          });
+        }
         await markPaddleCheckoutAttemptForReconciliation(
           client, reconciliationContext.userId, reconciliationContext.plan,
           typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id) ? data.id : null,
@@ -316,13 +1256,20 @@ export async function processPaddleEvent(pool, rawEvent) {
       const includesRecurringPrice = Boolean(expectedRecurringPriceId) && transactionItems.some(item =>
         (item?.priceId || item?.price_id || item?.price?.id) === expectedRecurringPriceId
       );
+      const transactionPlan = inferPaddleTransactionPlan(data);
       // A valid Paddle signature and matching price are not enough to grant an
       // entitlement: bind the provider transaction to this account's durable,
       // server-created checkout attempt first. Also accept a webhook that races
       // the checkout HTTP response while the attempt is still in "creating".
       const transactionPlanMatches =
-        (customData.plan === 'lifetime' && includesLifetimePrice) || includesRecurringPrice;
-      const attemptClaim = transactionPlanMatches && customUserId && data.id
+        (customData.plan === 'lifetime' && includesLifetimePrice && transactionPlan === 'lifetime') ||
+        (customData.plan === '1month' && includesRecurringPrice && transactionPlan === '1month') ||
+        (customData.plan === '3months' && includesRecurringPrice && transactionPlan === '3months');
+      // Contradictory owner aliases are ambiguous identity evidence. Do not
+      // claim even an otherwise matching checkout attempt: downstream entitlement
+      // writes are intentionally gated by this exact claim result.
+      const attemptClaim = !customUserIdMetadataConflict && !ambiguousTransactionOwner &&
+        transactionPlanMatches && customUserId && data.id
         ? await client.query(
           `UPDATE paddle_checkout_attempts
            SET transaction_id = $1, status = 'completed', updated_at = NOW()
@@ -338,7 +1285,56 @@ export async function processPaddleEvent(pool, rawEvent) {
         )
         : { rowCount: 0, rows: [] };
       const ownsCheckoutAttempt = attemptClaim.rowCount === 1;
-      if (!ownsCheckoutAttempt && typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
+      let transactionOwnerUserId = await findPaddleTransactionOwner(client, {
+        attemptUserId: ownsCheckoutAttempt ? customUserId : null,
+        transactionId: data.id,
+        subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
+        customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null
+      });
+      // Existing transaction evidence may identify an old account even when
+      // this webhook's signed checkout metadata names another account. Never
+      // let the old link win over contradictory provider context or plan.
+      const providerOwnerConflict = customUserIdMetadataConflict || ambiguousTransactionOwner ||
+        Boolean(customUserId && transactionOwnerUserId && customUserId !== transactionOwnerUserId);
+      const providerPlanConflict = Object.prototype.hasOwnProperty.call(customData, 'plan') &&
+        customData.plan !== transactionPlan;
+      if (providerOwnerConflict || providerPlanConflict) {
+        await recordPaddleProviderIdentityConflictCase(client, {
+          eventId, transactionId: data.id,
+          userId: customUserIdMetadataConflict || ambiguousTransactionOwner ? null : customUserId,
+          plan: customData.plan
+        });
+        transactionOwnerUserId = null;
+      }
+      // Migration 183 locks users before paddle_transaction_events. A lifetime
+      // or recurring completion writes the transaction ledger and then updates
+      // users, so acquire the compatible users table lock first to preserve
+      // that same order during an online migration.
+      await client.query('LOCK TABLE users IN ROW EXCLUSIVE MODE');
+      await recordPaddleTransactionEvent(client, {
+        eventId,
+        transactionId: data.id,
+        userId: transactionOwnerUserId,
+        plan: transactionPlan,
+        status: 'completed',
+        subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
+        customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null,
+        occurredAt,
+        ...paddleTransactionFinancialTotals(data),
+        currencyCode: paddleCurrencyCode(data)
+      });
+      if (transactionOwnerUserId && ['1month', '3months'].includes(transactionPlan)) {
+        // A recurring renewal can arrive after an adjustment webhook but does
+        // not have a checkout-attempt row. The immutable transaction ledger is
+        // sufficient to resolve that non-lifetime reconciliation case.
+        await resolvePaddleAdjustmentReconciliationCases(
+          client, data.id, transactionOwnerUserId,
+          'recurring_transaction_linked_to_vow_subscription'
+        );
+        await resolveInvalidPaddleTransactionTimestampCases(client, data.id, transactionOwnerUserId);
+      }
+      if (!ownsCheckoutAttempt && !providerOwnerConflict &&
+          typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
         // A completed transaction that cannot be tied to the exact server
         // attempt (including a plan/price mismatch) must remain visible for
         // manual reconciliation rather than silently leaving a pending lock.
@@ -371,6 +1367,50 @@ export async function processPaddleEvent(pool, rawEvent) {
           [customUserId, customerId, lifetimePriceId]
         );
         entitlementLinked = lifetimeUpdate.rowCount > 0;
+        if (entitlementLinked) {
+          const lifetimeSource = await client.query(
+            `INSERT INTO paddle_lifetime_entitlements (transaction_id, user_id, status)
+             VALUES ($1, $2, 'active')
+             ON CONFLICT (transaction_id) DO UPDATE
+             SET updated_at = paddle_lifetime_entitlements.updated_at
+             WHERE paddle_lifetime_entitlements.user_id = EXCLUDED.user_id
+               AND paddle_lifetime_entitlements.status = 'active'
+             RETURNING transaction_id`,
+            [data.id, customUserId]
+          );
+          if (lifetimeSource.rowCount !== 1) {
+            entitlementLinked = false;
+            await client.query(
+              `UPDATE users SET premium_lifetime = EXISTS (
+                 SELECT 1 FROM paddle_lifetime_entitlements
+                 WHERE user_id = $1 AND status = 'active'
+               ), updated_at = NOW()
+               WHERE id = $1 AND status = 'active'`,
+              [customUserId]
+            );
+          } else {
+            // An adjustment can arrive before transaction.completed. Reconcile
+            // the append-only event ledger before exposing the newly linked plan.
+            const priorAdjustmentState = await getPaddleAdjustmentState(client, data.id);
+            if (priorAdjustmentState.hasAdverseAdjustment) {
+              await client.query(
+                `UPDATE paddle_lifetime_entitlements
+                 SET status = 'revoked', revoke_reason = $2, updated_at = statement_timestamp()
+                 WHERE transaction_id = $1 AND user_id = $3 AND status = 'active'`,
+                [data.id, priorAdjustmentState.revokeReason, customUserId]
+              );
+              await client.query(
+                `UPDATE users
+                 SET premium_lifetime = EXISTS (
+                   SELECT 1 FROM paddle_lifetime_entitlements
+                   WHERE user_id = $1 AND status = 'active'
+                 ), updated_at = statement_timestamp()
+                 WHERE id = $1 AND status = 'active'`,
+                [customUserId]
+              );
+            }
+          }
+        }
       } else if (ownsCheckoutAttempt && includesRecurringPrice) {
         // Recurring subscriptions are provisioned only by verified subscription
         // lifecycle events, never by the checkout redirect or transaction alone.
@@ -406,6 +1446,12 @@ export async function processPaddleEvent(pool, rawEvent) {
              AND status = 'completed'`,
           [data.id, nextCheckoutStatus, customUserId, checkoutAttemptId]
         );
+        if (['linked', 'completed'].includes(nextCheckoutStatus)) {
+          await resolvePaddleAdjustmentReconciliationCases(
+            client, data.id, customUserId, 'transaction_completed_linked_to_vow_checkout'
+          );
+          await resolveInvalidPaddleTransactionTimestampCases(client, data.id, customUserId);
+        }
       }
     } else if (eventType === 'transaction.canceled') {
       if (typeof data.id === 'string' && /^txn_[A-Za-z0-9]+$/.test(data.id)) {
@@ -415,39 +1461,115 @@ export async function processPaddleEvent(pool, rawEvent) {
         // that race; otherwise the webhook would be consumed while the row is
         // still "creating", and the HTTP response could later resurrect it
         // as pending using its stale draft/ready response.
-        await client.query(
-          `UPDATE paddle_checkout_attempts
-           SET transaction_id = COALESCE(transaction_id, $1),
-               status = 'canceled', updated_at = NOW()
-           WHERE (
-             ($2::uuid IS NOT NULL AND user_id = $2::uuid
-               AND attempt_id = $3::uuid AND plan = $4)
-             OR ($3::uuid IS NULL AND transaction_id = $1)
-           )
-             AND (transaction_id IS NULL OR transaction_id = $1)
-             AND status IN ('creating', 'pending', 'reconciliation_required')`,
-          [data.id, reconciliationContext?.userId || null,
-            reconciliationContext?.attemptId || null, reconciliationContext?.plan || null]
-        );
+        const canceledTransactionPlan = inferPaddleTransactionPlan(data);
+        const canceledPlanConflict = Object.prototype.hasOwnProperty.call(customData, 'plan') &&
+          customData.plan !== canceledTransactionPlan;
+        // Resolve retained ownership before touching a checkout attempt. A
+        // contradictory custom_data owner must not cancel another account's
+        // attempt merely because its attempt ID was supplied in the payload.
+        let transactionOwnerUserId = await findPaddleTransactionOwner(client, {
+          transactionId: data.id,
+          subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
+          customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null
+        });
+        const canceledOwnerConflict = customUserIdMetadataConflict || ambiguousTransactionOwner || canceledPlanConflict ||
+          Boolean(customUserId && transactionOwnerUserId && customUserId !== transactionOwnerUserId);
+        const canceledAttempt = canceledOwnerConflict
+          ? { rows: [] }
+          : await client.query(
+            `UPDATE paddle_checkout_attempts
+             SET transaction_id = COALESCE(transaction_id, $1),
+                 status = 'canceled', updated_at = NOW()
+             WHERE (
+               ($2::uuid IS NOT NULL AND user_id = $2::uuid
+                 AND attempt_id = $3::uuid AND plan = $4)
+               OR ($3::uuid IS NULL AND transaction_id = $1)
+             )
+               AND (transaction_id IS NULL OR transaction_id = $1)
+               AND status IN ('creating', 'pending', 'reconciliation_required')
+             RETURNING user_id, plan`,
+            [data.id, reconciliationContext?.userId || null,
+              reconciliationContext?.attemptId || null, reconciliationContext?.plan || null]
+          );
+        const canceledAttemptRow = canceledAttempt.rows?.[0] ?? null;
+        if (!transactionOwnerUserId && canceledAttemptRow?.user_id) {
+          transactionOwnerUserId = canceledAttemptRow.user_id;
+        }
+        if (canceledOwnerConflict) {
+          await recordPaddleProviderIdentityConflictCase(client, {
+            eventId,
+            transactionId: data.id,
+            userId: customUserIdMetadataConflict || ambiguousTransactionOwner ? null : customUserId,
+            plan: customData.plan
+          });
+          transactionOwnerUserId = null;
+        }
+        await recordPaddleTransactionEvent(client, {
+          eventId,
+          transactionId: data.id,
+          userId: transactionOwnerUserId,
+          plan: canceledAttemptRow?.plan || canceledTransactionPlan,
+          status: 'canceled',
+          subscriptionId: subscriptionId && /^sub_[A-Za-z0-9]+$/.test(subscriptionId) ? subscriptionId : null,
+          customerId: customerId && /^ctm_[A-Za-z0-9]+$/.test(customerId) ? customerId : null,
+          occurredAt,
+          ...paddleTransactionFinancialTotals(data),
+          currencyCode: paddleCurrencyCode(data)
+        });
+        if (transactionOwnerUserId) {
+          await resolveInvalidPaddleTransactionTimestampCases(client, data.id, transactionOwnerUserId);
+        }
       }
     } else if (eventType === 'customer.created' || eventType === 'customer.updated') {
       const customerEmail = data.email;
-      if (customUserId && customerId && typeof customerEmail === 'string') {
-        await client.query(
+      if (customUserIdMetadataConflict) {
+        // Customer lifecycle events can bind an account identity too. Do not
+        // choose one of two contradictory custom_data owner aliases.
+        await recordPaddleProviderIdentityConflictCase(client, {
+          eventId,
+          transactionId: null,
+          userId: null,
+          plan: customData.plan
+        });
+      } else if (customUserId && customerId && typeof customerEmail === 'string') {
+        const customerIdentityUpdate = await client.query(
           `UPDATE users SET paddle_customer_id = COALESCE($2, paddle_customer_id), updated_at = NOW()
            WHERE id = $1::uuid AND users.status = 'active' AND lower(email) = lower($3)
              AND (paddle_customer_id IS NULL OR paddle_customer_id = $2)
              AND NOT EXISTS (
-               SELECT 1 FROM users AS other
-               WHERE other.paddle_customer_id = $2 AND other.id <> users.id
-             )`,
+               SELECT 1 FROM users AS other_user
+               WHERE other_user.paddle_customer_id = $2 AND other_user.id <> users.id
+             )
+           RETURNING id`,
           [customUserId, customerId, customerEmail]
         );
+        if (customerIdentityUpdate.rowCount !== 1) {
+          const identityConflict = await client.query(
+            `SELECT
+               EXISTS (
+                 SELECT 1 FROM users AS other_user
+                 WHERE other_user.paddle_customer_id = $1 AND other_user.id <> $2::uuid
+               ) AS customer_owned_by_other,
+               EXISTS (
+                 SELECT 1 FROM users AS owner
+                 WHERE owner.id = $2::uuid
+                   AND owner.paddle_customer_id IS NOT NULL
+                   AND owner.paddle_customer_id <> $1
+               ) AS account_customer_mismatch`,
+            [customerId, customUserId]
+          );
+          if (identityConflict.rows?.[0]?.customer_owned_by_other === true ||
+              identityConflict.rows?.[0]?.account_customer_mismatch === true) {
+            const conflict = new Error('Paddle customer identity conflicts with retained Vow account ownership');
+            conflict.code = '23505';
+            throw conflict;
+          }
+        }
       }
     }
 
     await client.query('COMMIT');
-    return { duplicate: false, handled: ['subscription.created', 'subscription.updated', 'subscription.canceled', 'transaction.completed', 'transaction.canceled', 'customer.created', 'customer.updated'].includes(eventType) };
+    return { duplicate: false, handled: ['subscription.created', 'subscription.updated', 'subscription.canceled', 'transaction.paid', 'transaction.completed', 'transaction.canceled', 'adjustment.created', 'adjustment.updated', 'customer.created', 'customer.updated'].includes(eventType) };
   } catch (error) {
     if (error?.code === '23505') {
       // A unique identity collision is a security conflict, not a transient
@@ -458,12 +1580,42 @@ export async function processPaddleEvent(pool, rawEvent) {
         // Reconcile only the checkout attempt tied to this provider transaction.
         // A subscription.updated/canceled identity conflict must never downgrade
         // unrelated or already-linked/canceled purchases for the same account.
-        const reconciliationTransactionId = eventType === 'transaction.completed'
+        const reconciliationTransactionId = ['transaction.paid', 'transaction.completed', 'transaction.canceled'].includes(eventType)
           ? data.id
-          : eventType === 'subscription.created'
+          : ['subscription.created', 'adjustment.created', 'adjustment.updated'].includes(eventType)
             ? (typeof data.transactionId === 'string' ? data.transactionId
               : typeof data.transaction_id === 'string' ? data.transaction_id : null)
             : null;
+        const providerIdentityConflict = [
+          'transaction.paid', 'transaction.completed', 'transaction.canceled',
+          'subscription.created', 'subscription.updated', 'subscription.canceled',
+          'customer.created', 'customer.updated',
+          'adjustment.created', 'adjustment.updated'
+        ].includes(eventType);
+        if (providerIdentityConflict) {
+          const reasonCode = String(error?.message || '').includes('completed/canceled state')
+            ? 'provider_lifecycle_conflict'
+            : 'provider_identity_conflict';
+          const providerTransactionId = typeof reconciliationTransactionId === 'string' &&
+            /^txn_[A-Za-z0-9]+$/.test(reconciliationTransactionId)
+            ? reconciliationTransactionId : null;
+          const providerAdjustmentId = eventType.startsWith('adjustment.') &&
+            typeof data.id === 'string' && /^adj_[A-Za-z0-9]+$/.test(data.id)
+            ? data.id : null;
+          const providerUserRef = typeof reconciliationContext?.userId === 'string' &&
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reconciliationContext.userId)
+            ? reconciliationContext.userId : null;
+          const providerPlan = ['1month', '3months', 'lifetime'].includes(reconciliationContext?.plan)
+            ? reconciliationContext.plan : null;
+          await client.query(
+            `INSERT INTO paddle_adjustment_reconciliation_cases
+               (event_id, reason_code, provider_transaction_id, provider_adjustment_id,
+                provider_user_ref, provider_plan)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (event_id) DO NOTHING`,
+            [eventId, reasonCode, providerTransactionId, providerAdjustmentId, providerUserRef, providerPlan]
+          );
+        }
         await markPaddleCheckoutAttemptForReconciliation(
           client, reconciliationContext?.userId, reconciliationContext?.plan, reconciliationTransactionId, reconciliationContext?.attemptId
         );
@@ -496,7 +1648,8 @@ function trustedPaddlePortalUrl(value) {
   if (typeof value !== 'string') return null;
   try {
     const parsed = new URL(value);
-    if (parsed.protocol !== 'https:' || parsed.hostname !== 'customer-portal.paddle.com' ||
+    if (parsed.protocol !== 'https:' ||
+        parsed.hostname !== 'sandbox-customer-portal.paddle.com' ||
         parsed.username || parsed.password || parsed.port) return null;
     return parsed.toString();
   } catch {
@@ -580,14 +1733,17 @@ export async function cancelPaddleSubscription({
     throw new Error('paddle_subscription_ownership_unconfirmed');
   }
   const providerStatus = String(lookupData.status || '').toLowerCase();
-  if (['canceled', 'completed'].includes(providerStatus)) {
+  if (providerStatus === 'canceled') {
     return {
       subscriptionId,
-      status: providerStatus,
+      status: 'canceled',
       customerId,
       updatedAt: typeof lookupData.updated_at === 'string' && Number.isFinite(Date.parse(lookupData.updated_at))
         ? lookupData.updated_at : null
     };
+  }
+  if (!['active', 'trialing', 'past_due', 'paused'].includes(providerStatus)) {
+    throw new Error('paddle_subscription_status_unrecognized');
   }
 
   const response = await fetchImpl(

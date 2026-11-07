@@ -45,7 +45,7 @@ test('L3 worker retries infrastructure failures but terminally rejects invalid o
   assert.equal(isPermanentIdentityL3ProcessingError(new Error('unknown failure')), false);
 });
 
-function fakeClient({ active = true, lockedRow = true, updateRowCount = 1 } = {}) {
+function fakeClient({ active = true, lockedRow = true, updateRowCount = 1, processingAttempts = 0, processingStatus = 'uploaded' } = {}) {
   const calls = [];
   return {
     calls,
@@ -61,10 +61,11 @@ function fakeClient({ active = true, lockedRow = true, updateRowCount = 1 } = {}
           rows: lockedRow ? [{
             id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
             user_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-            status: 'uploaded',
+            status: processingStatus,
             storage_object_key: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
             media_mime_type: 'video/mp4',
-            processing_attempts: 0
+            processing_attempts: processingAttempts,
+            processing_lease_expires_at: processingStatus === 'processing' ? new Date(0) : null
           }] : [],
           rowCount: lockedRow ? 1 : 0
         };
@@ -98,6 +99,26 @@ test('L3 worker releases the account lock and connection when the account is no 
   };
   assert.equal(await claimIdentityL3Submission(pool), null);
   assert.ok(client.calls.some(call => call.sql === 'ROLLBACK'));
+  assert.ok(client.calls.some(call => call.sql.includes('pg_advisory_unlock')));
+  assert.equal(client.released, true);
+});
+
+test('L3 worker terminalizes an expired final-attempt lease instead of stranding the submission', async () => {
+  const client = fakeClient({ processingAttempts: IDENTITY_L3_WORKER_MAX_ATTEMPTS, processingStatus: 'processing' });
+  const pool = {
+    async query() {
+      return { rows: [{ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', user_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }], rowCount: 1 };
+    },
+    async connect() { return client; }
+  };
+  assert.equal(await claimIdentityL3Submission(pool), null);
+  const terminalize = client.calls.find(call =>
+    call.sql.includes("SET status = 'failed'") &&
+    call.sql.includes('l3_processing_worker_lease_expired_max_attempts')
+  );
+  assert.ok(terminalize, 'an expired fifth processing lease must become a terminal failed submission');
+  assert.equal(terminalize.params[2], IDENTITY_L3_WORKER_MAX_ATTEMPTS);
+  assert.ok(client.calls.some(call => call.sql === 'COMMIT'));
   assert.ok(client.calls.some(call => call.sql.includes('pg_advisory_unlock')));
   assert.equal(client.released, true);
 });
@@ -254,7 +275,7 @@ test('L3 worker schedules infrastructure retries but terminally fails malware de
   assert.match(failedUpdate.sql, /THEN 'failed'/);
 });
 
-function fakePurgePool({ job = true } = {}) {
+function fakePurgePool({ job = true, attempts = 0, jobStatus = 'queued' } = {}) {
   const calls = [];
   let released = false;
   const client = {
@@ -263,13 +284,14 @@ function fakePurgePool({ job = true } = {}) {
     async query(sql, params = []) {
       const statement = String(sql);
       calls.push({ sql: statement, params });
-      if (statement.includes('SELECT j.id, j.submission_id, j.user_id, j.attempts')) {
+      if (statement.includes('SELECT j.id, j.submission_id, j.user_id, j.attempts, j.status')) {
         return {
           rows: job ? [{
             id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
             submission_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
             user_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-            attempts: 0,
+            attempts,
+            status: jobStatus,
             submission_status: 'withdrawn',
             storage_object_key: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
             media_purged_at: null
@@ -313,6 +335,34 @@ test('L3 purge retries use bounded exponential delays', () => {
   for (const attempt of [0, 6, 1.5, '1']) {
     assert.throws(() => identityL3PurgeRetryDelayMs(attempt), RangeError);
   }
+});
+
+test('L3 purge worker marks an expired fifth lease failed so it can be manually requeued', async () => {
+  const { pool, client } = fakePurgePool({
+    attempts: IDENTITY_L3_PURGE_MAX_ATTEMPTS,
+    jobStatus: 'processing'
+  });
+  const deleted = [];
+  const result = await runIdentityL3PurgeOnce(pool, {
+    storageRoot: '/private/l3',
+    deleteObject: async input => { deleted.push(input); return true; }
+  });
+  assert.deepEqual(result, {
+    processed: true,
+    purgeJobId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    status: 'failed',
+    errorCode: 'l3_purge_worker_lease_expired_max_attempts'
+  });
+  assert.deepEqual(deleted, [], 'an expired final lease must be terminalized before attempting a sixth delete');
+  const terminalize = client.calls.find(call =>
+    call.sql.includes("SET status = 'failed'") &&
+    call.sql.includes('l3_purge_worker_lease_expired_max_attempts')
+  );
+  assert.ok(terminalize);
+  assert.equal(terminalize.params[1], IDENTITY_L3_PURGE_MAX_ATTEMPTS);
+  assert.ok(client.calls.some(call => call.sql === 'COMMIT'));
+  assert.ok(client.calls.some(call => call.sql.includes('pg_advisory_unlock')));
+  assert.equal(client.released, true);
 });
 
 test('L3 purge worker deletes encrypted media under the account lock and clears the DB key only after unlink', async () => {

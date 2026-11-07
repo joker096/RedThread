@@ -43,6 +43,7 @@ async function ensurePrivateRoot(root) {
   const components = absoluteRoot.slice(parsedRoot.root.length).split(path.sep).filter(Boolean);
   let currentPath = parsedRoot.root;
   let stat;
+  const currentUid = typeof process.getuid === 'function' ? process.getuid() : null;
 
   // Walk and inspect every component before descending into it. Recursive mkdir()
   // would follow an existing symlinked parent and create directories outside the
@@ -71,6 +72,25 @@ async function ensurePrivateRoot(root) {
     if (!stat.isDirectory() || stat.isSymbolicLink()) {
       throw new IdentityL3StorageError('l3_storage_root_unsafe');
     }
+    // A private final directory is still replaceable if an untrusted principal
+    // can rename it through a writable ancestor. Permit sticky shared parents
+    // such as /tmp, where the child owner is protected from other users.
+    if (currentPath !== absoluteRoot) {
+      const writableByGroupOrOther = (stat.mode & 0o022) !== 0;
+      // Directory owners can chmod their own directories even when the
+      // owner-write bit is currently clear. Never trust an ancestor owned by
+      // another UID: it can be made replaceable after startup validation.
+      const ownedByUntrustedPrincipal = currentUid !== null &&
+        stat.uid !== 0 && stat.uid !== currentUid;
+      if (writableByGroupOrOther || ownedByUntrustedPrincipal) {
+        const stickyParent = (stat.mode & 0o1000) !== 0;
+        const trustedStickyOwner = stat.uid === 0 ||
+          (currentUid !== null && stat.uid === currentUid);
+        if (!stickyParent || !trustedStickyOwner) {
+          throw new IdentityL3StorageError('l3_storage_root_unsafe');
+        }
+      }
+    }
   }
 
   // Re-check canonical resolution after creation; the configured path must not
@@ -86,7 +106,6 @@ async function ensurePrivateRoot(root) {
   }
 
   stat = await lstat(absoluteRoot);
-  const currentUid = typeof process.getuid === 'function' ? process.getuid() : null;
   if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0 ||
       (currentUid !== null && stat.uid !== currentUid)) {
     // Never silently chmod/chown an operator-managed mount. Fail closed if
@@ -126,12 +145,41 @@ export async function assertIdentityL3StorageRootReady({
   return true;
 }
 
+function assertIdentityL3StorageRootsAreDisjoint(root, tempRoot) {
+  if (typeof root !== 'string' || !root.trim() ||
+      typeof tempRoot !== 'string' || !tempRoot.trim()) {
+    throw new IdentityL3StorageError('l3_storage_root_missing');
+  }
+  const encryptedPath = path.resolve(root);
+  const scratchPath = path.resolve(tempRoot);
+  const contains = (parent, child) => {
+    const relative = path.relative(parent, child);
+    return relative === '' ||
+      (relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative));
+  };
+  if (contains(encryptedPath, scratchPath) || contains(scratchPath, encryptedPath)) {
+    throw new IdentityL3StorageError('l3_storage_roots_must_be_disjoint');
+  }
+}
+
+export async function assertIdentityL3TemporaryStorageReady({ root, tempRoot }) {
+  // This guard is also required when L3 is disabled: startup still clears the
+  // scratch directory, so a bad path must never point at encrypted media.
+  assertIdentityL3StorageRootsAreDisjoint(root, tempRoot);
+  await ensurePrivateRoot(root);
+  await ensurePrivateRoot(tempRoot);
+  return true;
+}
+
 export async function assertIdentityL3StorageReady({
   root,
   tempRoot,
   key,
   requireMount = process.env.IDENTITY_L3_REQUIRE_MOUNT === 'true'
 }) {
+  // Startup cleanup recursively removes entries in the scratch directory. It
+  // must never be able to target the encrypted-media root or one of its parents.
+  assertIdentityL3StorageRootsAreDisjoint(root, tempRoot);
   parseIdentityL3EncryptionKey(key);
   await assertIdentityL3StorageRootReady({ root, requireMount });
   const scratchDirectory = await ensurePrivateRoot(tempRoot);

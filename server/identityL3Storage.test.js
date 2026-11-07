@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, chown, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import {
   assertIdentityL3StorageReady,
+  assertIdentityL3TemporaryStorageReady,
   clearIdentityL3TemporaryFiles,
   deleteIdentityL3Object,
   IdentityL3StorageError,
@@ -47,6 +48,61 @@ test('L3 storage readiness validates key and both private mount permissions', as
   });
 });
 
+test('L3-disabled startup cleanup guard rejects scratch aliases before deleting encrypted media', async () => {
+  await withStorage(async root => {
+    const encryptedRoot = path.join(root, 'encrypted');
+    const scratchRoot = path.join(root, 'scratch');
+    await mkdir(encryptedRoot, { mode: 0o700 });
+    await mkdir(scratchRoot, { mode: 0o700 });
+    const encryptedObject = path.join(encryptedRoot, 'retained-encrypted-object');
+    await writeFile(encryptedObject, 'encrypted-evidence');
+    assert.equal(await assertIdentityL3TemporaryStorageReady({
+      root: encryptedRoot, tempRoot: scratchRoot
+    }), true, 'separate private roots remain safe to clean while L3 is disabled');
+
+    for (const tempRoot of [encryptedRoot, path.join(encryptedRoot, 'nested'), root]) {
+      await assert.rejects(
+        assertIdentityL3TemporaryStorageReady({ root: encryptedRoot, tempRoot }),
+        error => error instanceof IdentityL3StorageError &&
+          error.code === 'l3_storage_roots_must_be_disjoint'
+      );
+    }
+
+    const symlinkAlias = path.join(root, 'scratch-alias');
+    await symlink(encryptedRoot, symlinkAlias);
+    await assert.rejects(
+      assertIdentityL3TemporaryStorageReady({ root: encryptedRoot, tempRoot: symlinkAlias }),
+      error => error instanceof IdentityL3StorageError &&
+        error.code === 'l3_storage_root_unsafe'
+    );
+
+    assert.equal(await readFile(encryptedObject, 'utf8'), 'encrypted-evidence',
+      'an invalid disabled-feature scratch path must not permit encrypted media deletion');
+  });
+});
+
+test('L3 storage readiness rejects overlapping encrypted and scratch roots', async () => {
+  await withStorage(async root => {
+    const encryptedRoot = path.join(root, 'encrypted');
+    const scratchRoot = path.join(root, 'scratch');
+    await mkdir(encryptedRoot, { mode: 0o700 });
+    await mkdir(scratchRoot, { mode: 0o700 });
+    for (const tempRoot of [
+      encryptedRoot,
+      path.join(encryptedRoot, 'nested-scratch'),
+      path.dirname(encryptedRoot)
+    ]) {
+      await assert.rejects(
+        assertIdentityL3StorageReady({ root: encryptedRoot, tempRoot, key }),
+        error => error instanceof IdentityL3StorageError &&
+          error.code === 'l3_storage_roots_must_be_disjoint'
+      );
+    }
+    assert.deepEqual(await readdir(encryptedRoot), [],
+      'readiness must reject overlapping roots before cleanup can touch encrypted media');
+  });
+});
+
 if (process.platform === 'linux') {
   test('L3 production readiness rejects ordinary directories when mountpoints are required', async () => {
     await withStorage(async root => {
@@ -63,6 +119,78 @@ if (process.platform === 'linux') {
     });
   });
 }
+
+test('L3 storage rejects replaceable writable parents but permits sticky shared parents', async () => {
+  await withStorage(async root => {
+    const unsafeParent = path.join(root, 'unsafe-parent');
+    const scratchRoot = path.join(root, 'scratch');
+    await mkdir(unsafeParent, { mode: 0o700 });
+    await chmod(unsafeParent, 0o770);
+    await mkdir(path.join(unsafeParent, 'encrypted'), { mode: 0o700 });
+    await mkdir(scratchRoot, { mode: 0o700 });
+    await assert.rejects(
+      assertIdentityL3StorageReady({
+        root: path.join(unsafeParent, 'encrypted'), tempRoot: scratchRoot, key
+      }),
+      error => error instanceof IdentityL3StorageError &&
+        error.code === 'l3_storage_root_unsafe'
+    );
+
+    const stickyParent = path.join(root, 'sticky-parent');
+    await mkdir(stickyParent, { mode: 0o700 });
+    await chmod(stickyParent, 0o1770);
+    const stickyEncryptedRoot = path.join(stickyParent, 'encrypted');
+    const stickyScratchRoot = path.join(root, 'sticky-scratch');
+    await mkdir(stickyEncryptedRoot, { mode: 0o700 });
+    await mkdir(stickyScratchRoot, { mode: 0o700 });
+    assert.equal(await assertIdentityL3StorageReady({
+      root: stickyEncryptedRoot, tempRoot: stickyScratchRoot, key
+    }), true, 'sticky shared parents protect child ownership from rename attacks');
+  });
+});
+
+test('L3 storage rejects owner-writable ancestors owned by another principal', async t => {
+  if (typeof process.getuid !== 'function' || process.getuid() !== 0) {
+    t.skip('requires root to create a foreign-owned writable ancestor');
+    return;
+  }
+  await withStorage(async root => {
+    const foreignParent = path.join(root, 'foreign-owner-parent');
+    const encryptedRoot = path.join(foreignParent, 'encrypted');
+    const scratchRoot = path.join(root, 'foreign-owner-scratch');
+    await mkdir(foreignParent, { mode: 0o700 });
+    await chown(foreignParent, 65534, 65534);
+    await chmod(foreignParent, 0o755);
+    await mkdir(encryptedRoot, { mode: 0o700 });
+    await mkdir(scratchRoot, { mode: 0o700 });
+
+    await assert.rejects(
+      assertIdentityL3StorageReady({ root: encryptedRoot, tempRoot: scratchRoot, key }),
+      error => error instanceof IdentityL3StorageError &&
+        error.code === 'l3_storage_root_unsafe'
+    );
+
+    // A foreign directory owner can chmod the directory later even if its
+    // current mode has no owner-write bit; validation must reject ownership,
+    // not merely the permissions visible at startup.
+    const readOnlyForeignParent = path.join(root, 'foreign-owner-readonly-parent');
+    const readOnlyEncryptedRoot = path.join(readOnlyForeignParent, 'encrypted');
+    const readOnlyScratchRoot = path.join(root, 'foreign-owner-readonly-scratch');
+    await mkdir(readOnlyForeignParent, { mode: 0o700 });
+    await chown(readOnlyForeignParent, 65534, 65534);
+    await chmod(readOnlyForeignParent, 0o555);
+    await mkdir(readOnlyEncryptedRoot, { mode: 0o700 });
+    await mkdir(readOnlyScratchRoot, { mode: 0o700 });
+
+    await assert.rejects(
+      assertIdentityL3StorageReady({
+        root: readOnlyEncryptedRoot, tempRoot: readOnlyScratchRoot, key
+      }),
+      error => error instanceof IdentityL3StorageError &&
+        error.code === 'l3_storage_root_unsafe'
+    );
+  });
+});
 
 test('L3 storage rejects a symlink in any parent component of the private root', async () => {
   await withStorage(async root => {

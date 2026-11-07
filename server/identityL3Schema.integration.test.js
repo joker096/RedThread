@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
+import { randomUUID } from 'node:crypto';
 
 const { Pool } = pg;
 
@@ -33,11 +34,203 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       assert.ok(consentColumnNames.has('consent_version'));
       assert.ok(consentColumnNames.has('granted_at'));
       assert.ok(consentColumnNames.has('withdrawn_at'));
+      assert.ok(consentColumnNames.has('granted_txid'));
+      assert.ok(consentColumnNames.has('withdrawn_txid'));
+      const consentEventColumns = await client.query(
+        `SELECT column_name, data_type, column_default
+         FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'identity_l3_consent_events'`
+      );
+      const consentEventColumn = consentEventColumns.rows.find(row => row.column_name === 'recorded_txid');
+      assert.equal(consentEventColumn?.data_type, 'bigint',
+        'consent audit events must record the transaction that inserted them');
+      assert.match(consentEventColumn?.column_default || '', /txid_current\(\)/);
+      const consentTxidTrigger = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'identity_l3_consent_events'::regclass AND NOT tgisinternal`
+      );
+      assert.ok(consentTxidTrigger.rows.some(row =>
+        row.tgname === 'identity_l3_consent_events_transaction_id'
+      ), 'callers must not be able to forge the transaction ID on a consent audit event');
+
+      // A previously committed, future-dated audit row must not authorize a
+      // later consent-state mutation. Matching audit evidence must be written
+      // in the same database transaction as the state transition.
+      const consentProbeUserId = randomUUID();
+      await client.query(
+        "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
+        [consentProbeUserId, `consent-audit-txid-${consentProbeUserId}@example.invalid`]
+      );
+      await client.query('BEGIN');
+      await client.query('SAVEPOINT reject_initially_withdrawn_consent');
+      await assert.rejects(
+        client.query(
+          `INSERT INTO identity_l3_consents
+             (user_id, consent_version, granted_at, withdrawn_at)
+           VALUES ($1, 2, statement_timestamp() - INTERVAL '1 minute', statement_timestamp())`,
+          [consentProbeUserId]
+        ),
+        error => error.code === '23514'
+      );
+      await client.query('ROLLBACK TO SAVEPOINT reject_initially_withdrawn_consent');
+      await client.query('RELEASE SAVEPOINT reject_initially_withdrawn_consent');
+      await client.query('SAVEPOINT reject_pre_purged_l3_submission');
+      await assert.rejects(
+        client.query(
+          `INSERT INTO identity_l3_submissions (user_id, status, media_purged_at)
+           VALUES ($1, 'draft', statement_timestamp())`,
+          [consentProbeUserId]
+        ),
+        error => error.code === '23514'
+      );
+      await client.query('ROLLBACK TO SAVEPOINT reject_pre_purged_l3_submission');
+      await client.query('RELEASE SAVEPOINT reject_pre_purged_l3_submission');
+      await client.query('COMMIT');
+
+      await client.query('BEGIN');
+      const initialConsentGrant = await client.query(
+        `INSERT INTO identity_l3_consents (user_id, consent_version, granted_at)
+         VALUES ($1, 2, statement_timestamp())
+         RETURNING user_id, consent_version, granted_at`,
+        [consentProbeUserId]
+      );
+      assert.equal(initialConsentGrant.rowCount, 1, 'the consent probe grant must be created');
+      await client.query(
+        `INSERT INTO identity_l3_consent_events
+           (user_id, actor_user_id, event_type, consent_version, occurred_at)
+         SELECT user_id, user_id, 'granted', consent_version, granted_at
+         FROM identity_l3_consents
+         WHERE user_id = $1`,
+        [consentProbeUserId]
+      );
+      await client.query('COMMIT');
+
+      // A standalone event cannot be appended later just because the current
+      // consent row happens to have the same owner/version.
+      await client.query('BEGIN');
+      await assert.rejects(
+        client.query(
+          `INSERT INTO identity_l3_consent_events
+             (user_id, actor_user_id, event_type, consent_version, occurred_at)
+           SELECT user_id, user_id, 'granted', consent_version, statement_timestamp()
+           FROM identity_l3_consents WHERE user_id = $1`,
+          [consentProbeUserId]
+        ),
+        error => error.code === '23514'
+      );
+      await client.query('ROLLBACK');
+
+      // A real new grant transition and its event share one transaction. The
+      // database overwrites a caller-supplied event transaction ID.
+      await client.query('BEGIN');
+      await client.query(
+        'UPDATE identity_l3_consents SET granted_at = statement_timestamp() WHERE user_id = $1',
+        [consentProbeUserId]
+      );
+      const forgedTxidGrantEvent = await client.query(
+        `INSERT INTO identity_l3_consent_events
+           (user_id, actor_user_id, event_type, consent_version, occurred_at, recorded_txid)
+         SELECT user_id, user_id, 'granted', consent_version, statement_timestamp(), 1::bigint
+         FROM identity_l3_consents WHERE user_id = $1
+         RETURNING recorded_txid, txid_current() AS current_txid`,
+        [consentProbeUserId]
+      );
+      assert.equal(forgedTxidGrantEvent.rows[0].recorded_txid,
+        forgedTxidGrantEvent.rows[0].current_txid,
+        'the database must overwrite a caller-supplied transaction ID');
+      await client.query('COMMIT');
+
+      // A future-dated standalone withdrawal event must not be appendable.
+      await client.query('BEGIN');
+      await assert.rejects(
+        client.query(
+          `INSERT INTO identity_l3_consent_events
+             (user_id, actor_user_id, event_type, consent_version, occurred_at)
+           SELECT user_id, user_id, 'withdrawn', consent_version,
+                  statement_timestamp() + INTERVAL '1 day'
+           FROM identity_l3_consents WHERE user_id = $1`,
+          [consentProbeUserId]
+        ),
+        error => error.code === '23514'
+      );
+      await client.query('ROLLBACK');
+
+      // A state transition without its matching event must fail at commit.
+      await client.query('BEGIN');
+      await client.query(
+        'UPDATE identity_l3_consents SET withdrawn_at = statement_timestamp() WHERE user_id = $1',
+        [consentProbeUserId]
+      );
+      await assert.rejects(
+        client.query('COMMIT'),
+        error => error.code === '23514'
+      );
+      await client.query('ROLLBACK');
+
+      // Even in the transition transaction, a future occurrence timestamp is
+      // rejected before it can be retained as consent audit evidence.
+      await client.query('BEGIN');
+      await client.query(
+        'UPDATE identity_l3_consents SET withdrawn_at = statement_timestamp() WHERE user_id = $1',
+        [consentProbeUserId]
+      );
+      await client.query('SAVEPOINT reject_future_withdrawal_event');
+      await assert.rejects(
+        client.query(
+          `INSERT INTO identity_l3_consent_events
+             (user_id, actor_user_id, event_type, consent_version, occurred_at)
+           SELECT user_id, user_id, 'withdrawn', consent_version,
+                  statement_timestamp() + INTERVAL '1 day'
+           FROM identity_l3_consents WHERE user_id = $1`,
+          [consentProbeUserId]
+        ),
+        error => error.code === '23514'
+      );
+      await client.query('ROLLBACK TO SAVEPOINT reject_future_withdrawal_event');
+      await client.query('RELEASE SAVEPOINT reject_future_withdrawal_event');
+      await client.query('ROLLBACK');
+      await client.query("UPDATE users SET status = 'deleted' WHERE id = $1", [consentProbeUserId]);
+      await client.query('DELETE FROM users WHERE id = $1', [consentProbeUserId]);
       const consentAuditTrigger = await client.query(
         `SELECT tgname FROM pg_trigger
          WHERE tgrelid = 'identity_l3_consent_events'::regclass AND NOT tgisinternal`
       );
       assert.ok(consentAuditTrigger.rows.some(row => row.tgname === 'identity_l3_consent_events_append_only'));
+      assert.ok(consentAuditTrigger.rows.some(row =>
+        row.tgname === 'identity_l3_consent_events_source_guard'
+      ), 'consent events must be emitted only by a matching current-state transition');
+      const consentStateTriggers = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'identity_l3_consents'::regclass AND NOT tgisinternal`
+      );
+      assert.ok(consentStateTriggers.rows.some(row =>
+        row.tgname === 'identity_l3_consents_active_delete_guard'
+      ), 'active consent state must be deleted only by account-erasure cleanup');
+      assert.ok(consentStateTriggers.rows.some(row =>
+        row.tgname === 'identity_l3_consents_no_truncate'
+      ), 'current L3 consent state must not be truncated');
+      assert.ok(consentStateTriggers.rows.some(row =>
+        row.tgname === 'identity_l3_consent_withdrawal_requires_purge'
+      ), 'withdrawing consent must revoke active submissions and preserve purge obligations');
+      assert.ok(consentStateTriggers.rows.some(row =>
+        row.tgname === 'identity_l3_consents_state_guard'
+      ), 'consent ownership and state transitions must be immutable outside grant/withdrawal');
+      assert.ok(consentStateTriggers.rows.some(row =>
+        row.tgname === 'identity_l3_consents_insert_guard'
+      ), 'a new consent row must begin as a grant, never as an unlogged withdrawal');
+      assert.ok(consentStateTriggers.rows.some(row =>
+        row.tgname === 'identity_l3_consents_transition_txid'
+      ), 'grant and withdrawal provenance must be stamped by the database transaction');
+      assert.ok(consentStateTriggers.rows.some(row =>
+        row.tgname === 'identity_l3_consents_require_audit_event'
+      ), 'every grant, notice update and withdrawal must have a matching immutable event');
+      const consentTruncateGuard = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'identity_l3_consent_events'::regclass AND NOT tgisinternal`
+      );
+      assert.ok(consentTruncateGuard.rows.some(row =>
+        row.tgname === 'identity_l3_consent_events_no_truncate'
+      ), 'consent audit history must also be protected from TRUNCATE');
       const consentAuditGuard = await client.query(
         `SELECT pg_get_functiondef('prevent_identity_l3_consent_event_mutation()'::regprocedure) AS definition`
       );
@@ -49,6 +242,16 @@ test('L3 schema persists metadata only and protects workflow decisions', {
         `SELECT to_regclass('public.identity_l3_media_access_events') AS access_events`
       );
       assert.equal(mediaAccessAudit.rows[0].access_events, 'identity_l3_media_access_events');
+      await assert.rejects(
+        client.query(`INSERT INTO identity_l3_media_access_events
+          (submission_ref, moderator_ref, access_type)
+         VALUES (
+           'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+           'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+           'viewed'
+         )`),
+        error => error.code === '23502'
+      );
       const mediaAccessTrigger = await client.query(
         `SELECT tgname FROM pg_trigger
          WHERE tgrelid = 'identity_l3_media_access_events'::regclass AND NOT tgisinternal`
@@ -60,6 +263,51 @@ test('L3 schema persists metadata only and protects workflow decisions', {
         "SELECT to_regclass('public.identity_l3_media_purge_jobs') AS purge_jobs"
       );
       assert.equal(purgeQueueTable.rows[0].purge_jobs, 'identity_l3_media_purge_jobs');
+      const purgeQueueTriggerNames = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'identity_l3_media_purge_jobs'::regclass AND NOT tgisinternal`
+      );
+      assert.ok(purgeQueueTriggerNames.rows.some(row =>
+        row.tgname === 'identity_l3_media_purge_jobs_no_delete'
+      ), 'pending and failed media purge work must not be deleted');
+      assert.ok(purgeQueueTriggerNames.rows.some(row =>
+        row.tgname === 'identity_l3_media_purge_jobs_no_truncate'
+      ), 'media purge queue must not be truncated');
+      assert.ok(purgeQueueTriggerNames.rows.some(row =>
+        row.tgname === 'identity_l3_media_purge_job_completion_guard'
+      ), 'purge jobs may complete only after their submission object key is cleared');
+      assert.ok(purgeQueueTriggerNames.rows.some(row =>
+        row.tgname === 'identity_l3_media_purge_jobs_enqueue_source_guard'
+      ), 'purge jobs must be created only by a guarded terminal submission transition');
+      await assert.rejects(
+        client.query(
+          `INSERT INTO identity_l3_media_purge_jobs
+             (submission_id, user_id, status, attempts, completed_at)
+           VALUES (
+             'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+             'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+             'completed', 0, statement_timestamp()
+           )`
+        ),
+        error => error.code === '55000'
+      );
+      const submissionPurgeCompletionGuard = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'identity_l3_submissions'::regclass AND NOT tgisinternal`
+      );
+      assert.ok(submissionPurgeCompletionGuard.rows.some(row =>
+        row.tgname === 'identity_l3_submission_requires_completed_purge_job'
+      ), 'media_purged_at must be paired with a completed purge job');
+      const submissionDeleteTriggers = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'identity_l3_submissions'::regclass AND NOT tgisinternal`
+      );
+      assert.ok(submissionDeleteTriggers.rows.some(row =>
+        row.tgname === 'identity_l3_submissions_retain_live_media'
+      ), 'a submission with a live encrypted object must not be deleted');
+      assert.ok(submissionDeleteTriggers.rows.some(row =>
+        row.tgname === 'identity_l3_submissions_no_truncate'
+      ), 'L3 submission rows must not be truncated around the purge workflow');
       const purgeEnqueueTrigger = await client.query(
         `SELECT tgname FROM pg_trigger
          WHERE tgrelid = 'identity_l3_submissions'::regclass AND NOT tgisinternal`
@@ -154,6 +402,7 @@ test('L3 schema persists metadata only and protects workflow decisions', {
          WHERE tgrelid = 'identity_l3_submissions'::regclass AND NOT tgisinternal`
       );
       assert.ok(triggerNames.rows.some(row => row.tgname === 'identity_l3_submission_transition_guard'));
+      assert.ok(triggerNames.rows.some(row => row.tgname === 'identity_l3_submission_initial_state_guard'));
       assert.ok(triggerNames.rows.some(row => row.tgname === 'identity_l3_submission_event_recorder'));
       const eventRecorder = await client.query(
         `SELECT pg_get_functiondef('record_identity_l3_submission_event()'::regprocedure) AS definition`
@@ -169,6 +418,24 @@ test('L3 schema persists metadata only and protects workflow decisions', {
          WHERE tgrelid = 'identity_l3_decision_events'::regclass AND NOT tgisinternal`
       );
       assert.ok(eventTrigger.rows.some(row => row.tgname === 'identity_l3_decision_events_append_only'));
+      const decisionEventTruncateGuard = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'identity_l3_decision_events'::regclass AND NOT tgisinternal`
+      );
+      assert.ok(decisionEventTruncateGuard.rows.some(row =>
+        row.tgname === 'identity_l3_decision_events_no_truncate'
+      ), 'L3 decision history must also be protected from TRUNCATE');
+      const decisionEventInsertGuard = await client.query(
+        `SELECT tgname FROM pg_trigger
+         WHERE tgrelid = 'identity_l3_decision_events'::regclass AND NOT tgisinternal`
+      );
+      assert.ok(decisionEventInsertGuard.rows.some(row =>
+        row.tgname === 'identity_l3_decision_events_source_insert_guard'
+      ), 'decision events must be emitted only by the guarded submission transition trigger');
+      const decisionEventSourceFunction = await client.query(
+        `SELECT pg_get_functiondef('require_identity_l3_decision_event_source()'::regprocedure) AS definition`
+      );
+      assert.match(decisionEventSourceFunction.rows[0].definition, /pg_trigger_depth\(\) <= 1/);
       const eventForeignKeys = await client.query(
         `SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
          WHERE conrelid = 'identity_l3_decision_events'::regclass AND contype = 'f'`
@@ -236,7 +503,8 @@ test('L3 schema persists metadata only and protects workflow decisions', {
         /media_duration_seconds >= 30/.test(row.definition) &&
         /media_duration_seconds <= 60/.test(row.definition)
       );
-      assert.ok(validatedDurationConstraint);
+      assert.ok(validatedDurationConstraint,
+        'the review-state duration constraint must require an explicit validated duration');
       assert.match(validatedDurationConstraint.definition, /media_duration_seconds IS NOT NULL/);
       assert.match(validatedDurationConstraint.definition, /media_duration_seconds >= 30/);
       assert.match(validatedDurationConstraint.definition, /media_duration_seconds <= 60/);

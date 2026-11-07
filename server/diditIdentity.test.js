@@ -79,3 +79,15 @@ test('session creation keeps API key server-side and validates the hosted URL', 
       session_id: '123e4567-e89b-42d3-a456-426614174011', workflow_id: env.DIDIT_WORKFLOW_ID,
       url: 'https://evil.example/steal', status: 'Not Started' }) }) }), /didit_session_response_invalid/);
 });
+
+test('Didit equal-second event ordering is deterministic and fail closed', async () => {
+  const { shouldApplyDiditStatusUpdate: apply } = await import('./diditIdentity.js');
+  const time = new Date('2026-11-05T12:00:00Z');
+  const current = (providerStatus, status) => ({ providerStatus, status, providerEventAt: time });
+  const incoming = (providerStatus, status) => ({ providerStatus, status, providerEventAt: new Date(time) });
+  assert.equal(apply(current('Approved', 'verified'), incoming('Declined', 'rejected')), true);
+  assert.equal(apply(current('Declined', 'rejected'), incoming('Approved', 'verified')), false);
+  assert.equal(apply(current('In Review', 'pending'), incoming('Approved', 'verified')), true);
+  assert.equal(apply(current('Approved', 'verified'), incoming('In Review', 'pending')), false);
+  assert.equal(apply(current('Expired', 'pending'), incoming('Approved', 'verified')), false);
+});

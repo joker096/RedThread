@@ -332,7 +332,8 @@ async function seedFixture(pool) {
     matchB: randomUUID(),
     catalogItem: randomUUID(),
     deliveryPartner: randomUUID(),
-    supplierKey: `test-supplier-${randomUUID().replaceAll('-', '')}`
+    supplierKey: `test-supplier-${randomUUID().replaceAll('-', '')}`,
+    cityKey: `giftcity-${randomUUID().slice(0, 8)}`
   };
   const userIds = [ids.sender, ids.recipientA, ids.recipientB, ids.moderator];
   const matchIds = [ids.matchA, ids.matchB];
@@ -355,8 +356,8 @@ async function seedFixture(pool) {
       await client.query(
         `INSERT INTO profiles
            (user_id, display_name, birth_date, gender, country, city, children_disclosure_confirmed_at)
-         VALUES ($1, $2, DATE '1990-01-01', $3, 'Georgia', 'Tbilisi', NOW())`,
-        [userId, displayName, gender]
+         VALUES ($1, $2, DATE '1990-01-01', $3, 'Georgia', $4, NOW())`,
+        [userId, displayName, gender, ids.cityKey]
       );
     }
 
@@ -399,8 +400,15 @@ async function seedFixture(pool) {
     );
 
     await client.query(
-      `INSERT INTO identity_l3_consents (user_id, consent_version, granted_at)
-       VALUES ($1, 2, statement_timestamp())`,
+      `WITH granted AS (
+         INSERT INTO identity_l3_consents (user_id, consent_version, granted_at)
+         VALUES ($1, 2, statement_timestamp())
+         RETURNING user_id, consent_version, granted_at
+       )
+       INSERT INTO identity_l3_consent_events
+         (user_id, actor_user_id, event_type, consent_version, occurred_at)
+       SELECT user_id, user_id, 'granted', consent_version, granted_at
+       FROM granted`,
       [ids.sender]
     );
 
@@ -419,8 +427,8 @@ async function seedFixture(pool) {
     await client.query(
       `INSERT INTO gift_delivery_partner_coverage
          (partner_id, country_code, city_key, active, verified_at, delivery_fee_minor_units, delivery_fee_currency)
-       VALUES ($1, 'GE', 'Tbilisi', TRUE, NOW(), 300, 'GEL')`,
-      [ids.deliveryPartner]
+       VALUES ($1, 'GE', $2, TRUE, NOW(), 300, 'GEL')`,
+      [ids.deliveryPartner, ids.cityKey]
     );
     await client.query(
       `INSERT INTO gift_catalog_items
@@ -471,39 +479,19 @@ async function runRequest(pool, input) {
 
 async function cleanupFixture(pool, fixture) {
   const { ids, userIds, matchIds } = fixture;
-  await pool.query(
-    `DELETE FROM gift_payment_reconciliation_tasks
-     WHERE order_id IN (
-       SELECT id FROM gift_delivery_orders
-       WHERE sender_id = ANY($1::uuid[]) OR recipient_id = ANY($1::uuid[])
-     )`,
-    [userIds]
-  );
-  await pool.query(
-    `DELETE FROM gift_delivery_order_events
-     WHERE order_id IN (
-       SELECT id FROM gift_delivery_orders
-       WHERE sender_id = ANY($1::uuid[]) OR recipient_id = ANY($1::uuid[])
-     )`,
-    [userIds]
-  );
-  await pool.query(
-    'DELETE FROM gift_delivery_orders WHERE sender_id = ANY($1::uuid[]) OR recipient_id = ANY($1::uuid[])',
-    [userIds]
-  );
+  // Gift orders, their event history and reconciliation tasks are retained as
+  // financial/safety evidence. Keep their match/account tombstones too; all
+  // fixture IDs are random and all business queries are scoped to those IDs.
   await pool.query('DELETE FROM messages WHERE match_id = ANY($1::uuid[])', [matchIds]);
-  await pool.query('DELETE FROM matches WHERE id = ANY($1::uuid[])', [matchIds]);
   await pool.query('DELETE FROM gift_receiving_preferences WHERE user_id = ANY($1::uuid[])', [userIds]);
   await pool.query(
     'DELETE FROM user_identity_verifications WHERE user_id = ANY($1::uuid[]) OR reviewed_by = ANY($1::uuid[])',
     [userIds]
   );
   await pool.query('DELETE FROM gift_catalog_items WHERE id = $1', [ids.catalogItem]);
-  await pool.query('DELETE FROM gift_delivery_partner_coverage WHERE partner_id = $1', [ids.deliveryPartner]);
-  await pool.query('DELETE FROM gift_delivery_partners WHERE id = $1', [ids.deliveryPartner]);
-  await pool.query('DELETE FROM gift_suppliers WHERE supplier_key = $1', [ids.supplierKey]);
+  // Retain partner, coverage and supplier rows while immutable gift orders may reference them.
   await pool.query('DELETE FROM profiles WHERE user_id = ANY($1::uuid[])', [userIds]);
-  await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [userIds]);
+  await pool.query("UPDATE users SET status = 'deleted' WHERE id = ANY($1::uuid[])", [userIds]);
 }
 
 test('gift catalog only returns reviewed items and omits recipient location metadata', {
@@ -515,8 +503,14 @@ test('gift catalog only returns reviewed items and omits recipient location meta
   try {
     fixture = await seedFixture(pool);
     // Region matching should tolerate harmless ASCII casing and repeated/outer spaces.
-    await pool.query("UPDATE profiles SET city = '  tBiLiSi   ' WHERE user_id = $1", [fixture.ids.recipientA]);
-    await pool.query("UPDATE gift_delivery_partner_coverage SET city_key = 'Tbilisi  ' WHERE partner_id = $1", [fixture.ids.deliveryPartner]);
+    await pool.query(
+      'UPDATE profiles SET city = $2 WHERE user_id = $1',
+      [fixture.ids.recipientA, `  ${fixture.ids.cityKey.toUpperCase()}   `]
+    );
+    await pool.query(
+      'UPDATE gift_delivery_partner_coverage SET city_key = $2 WHERE partner_id = $1',
+      [fixture.ids.deliveryPartner, `${fixture.ids.cityKey.toLowerCase()}  `]
+    );
     const client = await pool.connect();
     try {
       await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
@@ -982,15 +976,25 @@ test('idempotent replay fails closed when a stored BIGINT total is not safely re
       catalogItemId: ids.catalogItem,
       idempotencyKey: 'unsafe-total-replay-' + randomUUID()
     };
-    const first = await runRequest(pool, input);
-    assert.equal(first.status, 201);
+    const unsafeOrder = await pool.query(
+      `INSERT INTO gift_delivery_orders
+         (match_id, sender_id, recipient_id, catalog_item_id,
+          product_name_snapshot, product_category,
+          item_price_minor_units, delivery_fee_minor_units, delivery_fee_currency,
+          total_minor_units, currency, delivery_partner_id,
+          status, payment_status, idempotency_key)
+       VALUES ($1, $2, $3, $4, 'Test chocolate', 'chocolate',
+               9007199254740992::bigint, 0, 'GEL',
+               9007199254740992::bigint, 'GEL', $5,
+               'awaiting_recipient_consent', 'not_started', $6)
+       RETURNING id`,
+      [ids.matchA, ids.sender, ids.recipientA, ids.catalogItem, ids.deliveryPartner, input.idempotencyKey]
+    );
     await pool.query(
-      `UPDATE gift_delivery_orders
-       SET item_price_minor_units = 9007199254740992::bigint,
-           delivery_fee_minor_units = 0,
-           total_minor_units = 9007199254740992::bigint
-       WHERE public_reference = $1`,
-      [first.body.order.id]
+      `INSERT INTO gift_delivery_order_events
+         (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
+       VALUES ($1, $2, 'sender', 'request_created', NULL, 'awaiting_recipient_consent', '{}'::jsonb)`,
+      [unsafeOrder.rows[0].id, ids.sender]
     );
 
     const replay = await runRequest(pool, input);
@@ -1073,6 +1077,30 @@ test('gift request opt-out permanently invalidates pending requests even after r
       [ids.recipientA]
     );
     await pool.query(
+      `INSERT INTO gift_delivery_order_events
+         (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
+       SELECT id, $1, 'recipient', 'recipient_opted_out', status, status,
+              jsonb_build_object('reason', 'recipient_opted_out')
+       FROM gift_delivery_orders
+       WHERE recipient_id = $1 AND status = 'awaiting_recipient_consent'
+         AND NOT EXISTS (
+           SELECT 1 FROM gift_delivery_order_events e
+           WHERE e.order_id = gift_delivery_orders.id
+             AND e.event_type = 'recipient_opted_out'
+             AND e.metadata->>'reason' = 'recipient_opted_out'
+         )`,
+      [ids.recipientA]
+    );
+    let optoutTimestampError;
+    try {
+      await pool.query(
+        'UPDATE gift_delivery_orders SET recipient_requests_disabled_at = NULL WHERE recipient_id = $1',
+        [ids.recipientA]
+      );
+    } catch (error) { optoutTimestampError = error; }
+    assert.equal(optoutTimestampError?.code, '55000',
+      'a recipient opt-out timestamp cannot be cleared to revive an old request');
+    await pool.query(
       'UPDATE gift_receiving_preferences SET requests_enabled = FALSE WHERE user_id = $1',
       [ids.recipientA]
     );
@@ -1095,6 +1123,48 @@ test('gift request opt-out permanently invalidates pending requests even after r
     assert.equal(stored.rows[0].status, 'awaiting_recipient_consent');
     assert.equal(stored.rows[0].payment_status, 'not_started');
     assert.ok(stored.rows[0].recipient_requests_disabled_at);
+    const optOutEvents = await pool.query(
+      `SELECT event_type, from_status, to_status, metadata
+       FROM gift_delivery_order_events
+       WHERE order_id = (SELECT id FROM gift_delivery_orders WHERE sender_id = $1 AND idempotency_key = $2)
+         AND event_type = 'recipient_opted_out'`,
+      [ids.sender, input.idempotencyKey]
+    );
+    assert.deepEqual(optOutEvents.rows, [{
+      event_type: 'recipient_opted_out',
+      from_status: 'awaiting_recipient_consent',
+      to_status: 'awaiting_recipient_consent',
+      metadata: { reason: 'recipient_opted_out' }
+    }], 'opt-out must remain in the append-only event trail even when no payment task is needed');
+
+    const partnerEvidence = await pool.query(
+      `SELECT gift_order.delivery_partner_ref, gift_order.delivery_partner_key_snapshot,
+              gift_order.delivery_partner_name_snapshot, partner.partner_key, partner.display_name
+       FROM gift_delivery_orders AS gift_order
+       JOIN gift_delivery_partners AS partner ON partner.id = gift_order.delivery_partner_id
+       WHERE gift_order.sender_id = $1 AND gift_order.idempotency_key = $2`,
+      [ids.sender, input.idempotencyKey]
+    );
+    assert.equal(partnerEvidence.rowCount, 1);
+    assert.equal(partnerEvidence.rows[0].delivery_partner_ref, ids.deliveryPartner);
+    assert.equal(partnerEvidence.rows[0].delivery_partner_key_snapshot, partnerEvidence.rows[0].partner_key);
+    assert.equal(partnerEvidence.rows[0].delivery_partner_name_snapshot, partnerEvidence.rows[0].display_name);
+
+    await pool.query('DELETE FROM gift_delivery_partners WHERE id = $1', [ids.deliveryPartner]);
+    const partnerAfterDelete = await pool.query(
+      `SELECT delivery_partner_id, delivery_partner_ref,
+              delivery_partner_key_snapshot, delivery_partner_name_snapshot
+       FROM gift_delivery_orders
+       WHERE sender_id = $1 AND idempotency_key = $2`,
+      [ids.sender, input.idempotencyKey]
+    );
+    assert.equal(partnerAfterDelete.rows[0].delivery_partner_id, null);
+    assert.equal(partnerAfterDelete.rows[0].delivery_partner_ref, ids.deliveryPartner);
+    assert.equal(partnerAfterDelete.rows[0].delivery_partner_key_snapshot,
+      partnerEvidence.rows[0].partner_key);
+    assert.equal(partnerAfterDelete.rows[0].delivery_partner_name_snapshot,
+      partnerEvidence.rows[0].display_name,
+      'partner name and stable key must survive live partner deletion');
   } finally {
     if (fixture) await cleanupFixture(pool, fixture);
     await pool.end();
