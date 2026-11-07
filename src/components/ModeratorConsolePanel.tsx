@@ -4,10 +4,11 @@ type Report={id:string;reporterId:string;reportedUserId:string;reportedDisplayNa
 type AuditEntry={id:string;moderatorId:string|null;action:string;targetType:string;targetId:string;reason:string|null;details:unknown;createdAt:string};
 type PendingPhoto={id:string;userId:string;displayName:string;mimeType:string;width:number;height:number;createdAt:string};
 type PendingL3={submissionId:string;applicantReference:string;uploadedAt:string;mimeType:'video/mp4'|'video/webm';sizeBytes:number;durationSeconds:number;processingAttempts:number};
+type PartnerApplication={id:string;category:string;businessName:string;contactName:string;contactEmail:string;country:string;city:string;website:string;serviceDescription:string;priceFrom:number|string|null;priceCurrency:string;serviceLanguages:string[];availabilityNote:string;status:string;reviewNote:string;publishedAt:string|null};
 
 export const ModeratorConsolePanel:React.FC=()=>{
  const [allowed,setAllowed]=useState(false),[ready,setReady]=useState(false),[busy,setBusy]=useState(false),[notice,setNotice]=useState('');
- const [screenings,setScreenings]=useState<Screening[]>([]),[reports,setReports]=useState<Report[]>([]),[audit,setAudit]=useState<AuditEntry[]>([]),[photos,setPhotos]=useState<PendingPhoto[]>([]),[l3Submissions,setL3Submissions]=useState<PendingL3[]>([]),[l3Enabled,setL3Enabled]=useState(false);
+ const [screenings,setScreenings]=useState<Screening[]>([]),[reports,setReports]=useState<Report[]>([]),[audit,setAudit]=useState<AuditEntry[]>([]),[photos,setPhotos]=useState<PendingPhoto[]>([]),[l3Submissions,setL3Submissions]=useState<PendingL3[]>([]),[l3Enabled,setL3Enabled]=useState(false),[partnerApplications,setPartnerApplications]=useState<PartnerApplication[]>([]);
  const refreshRequestId=React.useRef(0);
  const sessionEpoch=React.useRef(0);
  const refresh=useCallback(async()=>{
@@ -20,14 +21,15 @@ export const ModeratorConsolePanel:React.FC=()=>{
     fetch('/api/admin/reports',{credentials:'include'}),
     fetch('/api/admin/audit-log?limit=30',{credentials:'include'}),
     fetch('/api/admin/photos',{credentials:'include'}),
-    fetch('/api/moderation/identity-l3/submissions',{credentials:'include'})
+    fetch('/api/moderation/identity-l3/submissions',{credentials:'include'}),
+     fetch('/api/admin/partner-applications',{credentials:'include'})
    ]);
    if(requestId!==refreshRequestId.current||actionEpoch!==sessionEpoch.current)return;
    if(responses.some(r=>r.status===401||r.status===403)){setAllowed(false);setReady(true);return;}
    const data=await Promise.all(responses.map(async (r,index)=>{const d=await r.json().catch(()=>null);if(index===4&&r.status===503&&d?.error==='l3_feature_disabled')return {submissions:[],disabled:true};if(!r.ok)throw new Error('Не удалось загрузить данные модерации.');return d||{};}));
    if(requestId!==refreshRequestId.current||actionEpoch!==sessionEpoch.current)return;
    const safeArray=<T,>(value: unknown): T[] => Array.isArray(value) ? value : [];
-   setScreenings(safeArray<Screening>(data[0]?.screenings));setReports(safeArray<Report>(data[1]?.reports));setAudit(safeArray<AuditEntry>(data[2]?.entries));setPhotos(safeArray<PendingPhoto>(data[3]?.photos));setL3Submissions(safeArray<PendingL3>(data[4]?.submissions));setL3Enabled(data[4]?.disabled!==true);setAllowed(true);setReady(true);setNotice('');
+   setScreenings(safeArray<Screening>(data[0]?.screenings));setReports(safeArray<Report>(data[1]?.reports));setAudit(safeArray<AuditEntry>(data[2]?.entries));setPhotos(safeArray<PendingPhoto>(data[3]?.photos));setL3Submissions(safeArray<PendingL3>(data[4]?.submissions));setL3Enabled(data[4]?.disabled!==true);setPartnerApplications(safeArray<PartnerApplication>(data[5]?.applications));setAllowed(true);setReady(true);setNotice('');
   }catch(e){if(requestId===refreshRequestId.current&&actionEpoch===sessionEpoch.current){setNotice(e instanceof Error?e.message:'Ошибка загрузки панели.');setReady(true);}}
   finally{if(requestId===refreshRequestId.current&&actionEpoch===sessionEpoch.current)setBusy(false);}
  },[]);
@@ -84,6 +86,23 @@ export const ModeratorConsolePanel:React.FC=()=>{
    <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-3"><h4 className="text-sm font-semibold text-white">Жалобы ({reports.length})</h4>
     {!reports.length?<p className="mt-2 text-xs text-stone-500">Открытых жалоб нет.</p>:reports.map(x=><div key={x.id} className="mt-2 rounded-xl border border-white/10 p-3"><p className="text-xs font-semibold text-stone-200">{x.category} · {x.reportedDisplayName}</p><p className="mt-1 whitespace-pre-wrap break-words text-[10px] text-stone-400">{x.details||'Описание не указано'}</p><div className="mt-2 flex flex-wrap gap-2"><button type="button" disabled={busy} onClick={()=>void act('/api/admin/reports/'+encodeURIComponent(x.id)+'/action',{action:'resolve'})} className="inline-flex min-h-11 items-center justify-center rounded-lg bg-emerald-800 px-3 py-2 text-[10px] font-semibold text-white disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400">Решена</button><button type="button" disabled={busy} onClick={()=>void act('/api/admin/reports/'+encodeURIComponent(x.id)+'/action',{action:'dismiss'})} className="inline-flex min-h-11 items-center justify-center rounded-lg border border-white/10 px-3 py-2 text-[10px] text-stone-200 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400">Отклонить</button><button type="button" disabled={busy} onClick={()=>{if(window.confirm('Подтверждаете приостановку аккаунта по этой жалобе?'))void act('/api/admin/reports/'+encodeURIComponent(x.id)+'/action',{action:'suspend_user',confirmed:true});}} className="inline-flex min-h-11 items-center justify-center rounded-lg border border-red-500/30 px-3 py-2 text-[10px] text-red-200 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400">Приостановить аккаунт</button></div></div>)}
    </div>
+  </div>
+
+  <div className="mt-4 rounded-2xl border border-emerald-700/30 bg-stone-950/60 p-3">
+   <h4 className="text-sm font-semibold text-white">Заявки партнёров ({partnerApplications.length})</h4>
+   {!partnerApplications.length?<p className="mt-2 text-xs text-stone-500">Ожидающих и опубликованных заявок нет.</p>:partnerApplications.map(item=><article key={item.id} className="mt-3 rounded-xl border border-white/10 p-3">
+    <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-sm font-semibold text-white">{item.businessName}</p><p className="mt-1 text-[10px] text-stone-400">{item.category} · {item.city}, {item.country} · {item.status}{item.publishedAt?' · опубликовано':''}</p></div><span className="text-[10px] text-stone-500">{item.priceFrom!==null?'от '+item.priceFrom+' '+item.priceCurrency:'Цена не указана'}</span></div>
+    <p className="mt-2 break-words text-xs text-stone-300">{item.serviceDescription}</p>
+    <p className="mt-2 break-all text-[10px] text-stone-400">{item.contactName} · {item.contactEmail}{item.website?' · '+item.website:''}</p>
+    {item.reviewNote&&<p className="mt-2 text-[10px] text-amber-200">Заметка: {item.reviewNote}</p>}
+    <div className="mt-3 flex flex-wrap gap-2">
+     {item.status==='pending'&&<button type="button" disabled={busy} onClick={()=>void act('/api/admin/partner-applications/'+encodeURIComponent(item.id)+'/review',{decision:'in_review'})} className="min-h-11 rounded-lg border border-white/10 px-3 py-2 text-[10px] text-stone-200 disabled:opacity-50">Взять в работу</button>}
+     {(item.status==='pending'||item.status==='in_review')&&<button type="button" disabled={busy} onClick={()=>void act('/api/admin/partner-applications/'+encodeURIComponent(item.id)+'/review',{decision:'approved'})} className="min-h-11 rounded-lg bg-emerald-800 px-3 py-2 text-[10px] font-semibold text-white disabled:opacity-50">Одобрить</button>}
+     {(item.status==='pending'||item.status==='in_review')&&<button type="button" disabled={busy} onClick={()=>void act('/api/admin/partner-applications/'+encodeURIComponent(item.id)+'/review',{decision:'rejected',reviewNote:'Не прошла модерацию'})} className="min-h-11 rounded-lg border border-red-500/30 px-3 py-2 text-[10px] text-red-200 disabled:opacity-50">Отклонить</button>}
+     {item.status==='approved'&&!item.publishedAt&&<button type="button" disabled={busy} onClick={()=>void act('/api/admin/partner-applications/'+encodeURIComponent(item.id)+'/publish')} className="min-h-11 rounded-lg bg-emerald-700 px-3 py-2 text-[10px] font-semibold text-white disabled:opacity-50">Опубликовать</button>}
+     {item.status==='approved'&&item.publishedAt&&<button type="button" disabled={busy} onClick={()=>void act('/api/admin/partner-applications/'+encodeURIComponent(item.id)+'/unpublish')} className="min-h-11 rounded-lg border border-amber-500/30 px-3 py-2 text-[10px] text-amber-200 disabled:opacity-50">Снять с публикации</button>}
+    </div>
+   </article>)}
   </div>
   <div className="mt-4 rounded-2xl border border-white/10 bg-stone-950/60 p-3"><h4 className="text-sm font-semibold text-white">Журнал действий ({audit.length})</h4>
    {!audit.length?<p className="mt-2 text-xs text-stone-500">Записей пока нет.</p>:<div className="mt-2 space-y-2">{audit.map(x=><div key={x.id} className="rounded-xl border border-white/5 p-2"><p className="text-xs text-stone-200">{x.action} · {x.targetType}</p><p className="mt-1 break-all text-[10px] text-stone-500">{x.targetId} · {new Date(x.createdAt).toLocaleString()}</p>{x.reason&&<p className="mt-1 text-[10px] text-stone-400">{x.reason}</p>}</div>)}</div>}
