@@ -100,6 +100,10 @@ BEGIN
          AND NEW.provider_subscription_id IS NULL
        )
        OR (
+         NEW.reason_code = 'invalid_subscription_identity'
+         AND NEW.provider_subscription_id IS NULL
+       )
+       OR (
          NEW.reason_code = 'provider_lifecycle_conflict'
          AND NEW.provider_transaction_id IS NULL
        )
