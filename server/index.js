@@ -4322,6 +4322,50 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
   }
 });
 
+
+app.get('/api/admin/partner-service-inquiries', requireSession, requireDatabase, async (req, res) => {
+  const read = await withActiveModeratorRead(req.authUser.id, client => client.query(
+    'SELECT inquiry.id, application.business_name AS "businessName", inquiry.delivery_status AS "deliveryStatus", inquiry.delivery_attempts AS "deliveryAttempts", inquiry.delivery_error AS "deliveryError", inquiry.created_at AS "createdAt", inquiry.updated_at AS "updatedAt", inquiry.delivered_at AS "deliveredAt" ' +
+    'FROM partner_service_inquiries inquiry JOIN partner_service_applications application ON application.id = inquiry.application_id ' +
+    'ORDER BY inquiry.updated_at DESC LIMIT 100'
+  ));
+  if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+  if (read.value?.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+  return res.json({ inquiries: read.value.rows });
+});
+
+app.post('/api/admin/partner-service-inquiries/:inquiryId/reconcile', validateRequestOrigin, requireSession, requireDatabase, async (req, res) => {
+  const id = req.params.inquiryId;
+  const decision = req.body?.decision;
+  const note = typeof req.body?.operatorNote === 'string' ? req.body.operatorNote.trim() : '';
+  if (!isUuid(id) || !['sent', 'failed'].includes(decision) || note.length < 10 || note.length > 500) {
+    return res.status(400).json({ error: 'invalid_partner_inquiry_reconciliation' });
+  }
+  try {
+    const result = await withPooledTransaction(pool, async client => {
+      const moderator = await client.query("SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE", [req.authUser.id]);
+      if (!['admin', 'moderator'].includes(moderator.rows[0]?.role)) return { forbidden: true };
+      const nextStatus = decision;
+      const changed = await client.query(
+        "UPDATE partner_service_inquiries SET delivery_status = $2, delivered_at = CASE WHEN $2 = 'sent' THEN COALESCE(delivered_at, NOW()) ELSE NULL END, delivery_error = CASE WHEN $2 = 'sent' THEN '' ELSE 'operator_reconciled_failed' END, updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending' RETURNING id, delivery_status AS \"deliveryStatus\"",
+        [id, nextStatus]
+      );
+      if (!changed.rows[0]) return { missing: true };
+      await client.query(
+        'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, reason, details) VALUES ($1,$2,$3,$4,$5,$6::jsonb)',
+        [req.authUser.id, 'partner_inquiry_reconciled', 'partner_service_inquiry', id, note, JSON.stringify({ decision: nextStatus })]
+      );
+      return { inquiry: changed.rows[0] };
+    });
+    if (result.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    if (result.missing) return res.status(409).json({ error: 'partner_inquiry_not_awaiting_reconciliation' });
+    return res.json({ inquiry: result.inquiry });
+  } catch (error) {
+    console.error('Partner inquiry reconciliation failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_inquiry_reconciliation_failed' });
+  }
+});
+
 app.get('/api/admin/screenings', requireSession, async (req, res) => {
   try {
     const read = await withActiveModeratorRead(req.authUser.id, async client => {
