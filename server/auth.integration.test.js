@@ -3486,6 +3486,7 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal((await cancelledDatePlanRead.json()).datePlan, null,
       'a cancelled plan must no longer be exposed as active');
 
+    await identityGateDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'date-plan:%'");
     const secondDatePlanProposal = await request(datePlanPath, {
       method: 'POST', headers: { Cookie: secondCookie },
       body: JSON.stringify({ ...datePlanInput, venueName: 'City Public Park' })
@@ -3501,10 +3502,29 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(recipientCannotCancel.status, 409,
       'an unconfirmed recipient must decline rather than silently cancelling the proposal');
-    const proposalAfterInvalidActions = await request(datePlanPath, {
+    const recipientFirstConfirmation = await request(datePlanPath + '/confirm', {
+      method: 'POST', headers: { Cookie: maleCookie }
+    });
+    assert.equal(recipientFirstConfirmation.status, 200);
+    const confirmedRecipientCannotDecline = await request(datePlanPath + '/decline', {
+      method: 'POST', headers: { Cookie: maleCookie }
+    });
+    assert.equal(confirmedRecipientCannotDecline.status, 409,
+      'a participant who has confirmed must cancel the plan rather than record a decline');
+    const confirmedRecipientCanCancel = await request(datePlanPath + '/cancel', {
+      method: 'POST', headers: { Cookie: maleCookie }
+    });
+    assert.equal(confirmedRecipientCanCancel.status, 200,
+      'a participant who has confirmed may cancel the pending plan');
+    const cancelledByRecipientRead = await request(datePlanPath, {
       headers: { Cookie: secondCookie }
     });
-    assert.equal((await proposalAfterInvalidActions.json()).datePlan.status, 'proposed');
+    assert.equal((await cancelledByRecipientRead.json()).datePlan, null);
+    const declinedProposal = await request(datePlanPath, {
+      method: 'POST', headers: { Cookie: secondCookie },
+      body: JSON.stringify({ ...datePlanInput, venueName: 'City Public Park Again' })
+    });
+    assert.equal(declinedProposal.status, 201);
     const declinedDatePlan = await request(datePlanPath + '/decline', {
       method: 'POST', headers: { Cookie: maleCookie }
     });
