@@ -2184,6 +2184,14 @@ test('date plan requires both participants and resets confirmations after a chan
         };
         await route.fulfill({ status: 201, json: { datePlan: plan } }); return;
       }
+      if (url.pathname === '/api/matches/' + matchId + '/date-plan/cancel' && method === 'POST') {
+        plan = null;
+        await route.fulfill({ json: { cancelled: true } }); return;
+      }
+      if (url.pathname === '/api/matches/' + matchId + '/date-plan/decline' && method === 'POST') {
+        plan = null;
+        await route.fulfill({ json: { declined: true } }); return;
+      }
       if (url.pathname === '/api/matches/' + matchId + '/date-plan/confirm' && method === 'POST') {
         if (!plan || plan.status !== 'proposed') {
           await route.fulfill({ status: 409, json: { error: 'date_plan_not_proposed' } }); return;
@@ -2265,8 +2273,17 @@ test('date plan requires both participants and resets confirmations after a chan
     await expect(participantA.page.getByText(/both people must confirm|waiting for both|оба участника должны подтвердить|ожидаем подтверждения обоих/i)).toBeVisible();
     await expect(participantA.page.getByTestId('date-plan-time')).toContainText('Asia/Tbilisi');
     await expect(participantA.page.getByRole('button', { name: /^I confirm this plan$|^Подтверждаю этот план$/i })).toBeVisible();
+    await expect(participantA.page.getByRole('button', { name: /^Withdraw proposal$|^Отозвать предложение$/i })).toBeVisible();
+    await expect(participantA.page.getByRole('button', { name: /^Decline proposal$|^Отклонить предложение$/i })).toHaveCount(0);
+    participantA.page.on('dialog', dialog => dialog.accept());
+    await participantA.page.getByRole('button', { name: /^Withdraw proposal$|^Отозвать предложение$/i }).click();
+    await expect(participantA.page.getByText(/date plan was cancelled|план встречи отменён/i)).toBeVisible();
 
+    await participantA.page.getByRole('button', { name: /propose date plan|предложить план встречи/i }).click();
+    await expect(participantA.page.getByText(/both people must confirm|waiting for both|оба участника должны подтвердить|ожидаем подтверждения обоих/i)).toBeVisible();
     await participantB.page.getByTestId('date-plan-refresh').click();
+    await expect(participantB.page.getByRole('button', { name: /^Decline proposal$|^Отклонить предложение$/i })).toBeVisible();
+    await expect(participantB.page.getByRole('button', { name: /^Withdraw proposal$|^Отозвать предложение$/i })).toHaveCount(0);
     await expect(participantB.page.getByText('Central Public Cafe')).toBeVisible();
     await participantB.page.getByRole('button', { name: /^I confirm this plan$|^Подтверждаю этот план$/i }).click();
     await expect(participantB.page.getByText(/both people must confirm|one person has confirmed|waiting for both|ожидаем подтверждения обоих|один участник/i)).toBeVisible();
