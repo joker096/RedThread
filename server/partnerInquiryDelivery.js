@@ -1,5 +1,3 @@
-export async function deliverPendingPartnerInquiries(pool, sendEmail, options = {}) {
-  if (!pool || typeof pool.connect !== 'function' || typeof pool.query !== 'function') {
 export const PENDING_PARTNER_INQUIRIES_SQL = `
   SELECT inquiry.id, inquiry.requester_name AS "requesterName",
          inquiry.requester_email AS "requesterEmail",
@@ -17,6 +15,9 @@ export const PENDING_PARTNER_INQUIRIES_SQL = `
   FOR SHARE OF application
 `;
 
+
+export async function deliverPendingPartnerInquiries(pool, sendEmail, options = {}) {
+  if (!pool || typeof pool.connect !== 'function' || typeof pool.query !== 'function') {
     throw new TypeError('A PostgreSQL pool is required.');
   }
   if (typeof sendEmail !== 'function') throw new TypeError('An email delivery function is required.');
