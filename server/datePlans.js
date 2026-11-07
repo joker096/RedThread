@@ -5,23 +5,31 @@ import { rollbackPooledTransaction } from './withPooledTransaction.js';
 const STREET_SUFFIX = '(?:street|st\\.?|avenue|ave\\.?|road|rd\\.?|lane|ln\\.?|drive|dr\\.?|boulevard|blvd\\.?|way|улица|ул\\.?|проспект|пр-т|переулок|пер\\.?|набережная|шоссе|ქუჩა|გამზირი)';
 const STREET_PREFIX = '(?:улица|ул\\.?|проспект|пр-т|переулок|пер\\.?|набережная|шоссе|ქუჩა|გამზირი)';
 const STREET_WORD = '[\\p{L}\\p{M}][\\p{L}\\p{M}\\u2019’\\x27.-]*';
-const HOUSE_NUMBER = '(?:№|#)?\\s*\\d+[a-zа-я]?(?:[-/]\\d+[a-zа-я]?)?';
+const HOUSE_NUMBER = '(?:№|#)?\\s*\\p{Nd}+[a-zа-я]?(?:[-/]\\p{Nd}+[a-zа-я]?)?';
 const LEFT_ADDRESS_BOUNDARY = '(?:^|[^\\p{L}\\p{M}\\p{N}])';
 const RIGHT_ADDRESS_BOUNDARY = '(?=$|[^\\p{L}\\p{M}\\p{N}])';
 const PRIVATE_ADDRESS_PATTERNS = [
   new RegExp(LEFT_ADDRESS_BOUNDARY + STREET_WORD + '(?:\\s+' + STREET_WORD + '){0,5}\\s+' + STREET_SUFFIX + '\\s*,?\\s*' + HOUSE_NUMBER + RIGHT_ADDRESS_BOUNDARY, 'iu'),
   new RegExp(LEFT_ADDRESS_BOUNDARY + STREET_PREFIX + '\\s+' + STREET_WORD + '(?:\\s+' + STREET_WORD + '){0,5}\\s*,?\\s*' + HOUSE_NUMBER + RIGHT_ADDRESS_BOUNDARY, 'iu'),
   new RegExp(LEFT_ADDRESS_BOUNDARY + HOUSE_NUMBER + '\\s+' + STREET_WORD + '(?:\\s+' + STREET_WORD + '){0,5}\\s+' + STREET_SUFFIX + RIGHT_ADDRESS_BOUNDARY, 'iu'),
-  new RegExp(LEFT_ADDRESS_BOUNDARY + '(?:apt\\.?|apartment|flat|unit|suite|дом|д\\.?|квартира|кв\\.?|building|bldg\\.?)\\s*(?:№|#)?\\s*\\d+' + RIGHT_ADDRESS_BOUNDARY, 'iu'),
+  new RegExp(LEFT_ADDRESS_BOUNDARY + '(?:apt\\.?|apartment|flat|unit|suite|дом|д\\.?|квартира|кв\\.?|building|bldg\\.?|ბინა|ბინ\\.?|სახლი|სახლ\\.?|კორპუსი|კორპ\\.?)\\s*(?:№|#)?\\s*\\p{Nd}+' + RIGHT_ADDRESS_BOUNDARY, 'iu'),
   /\b-?\d{1,2}\.\d{3,}\s*,\s*-?\d{1,3}\.\d{3,}\b/
 ];
 
 export function normalizeDatePlanInput(body) {
-  const venueName = typeof body?.venueName === 'string' ? body.venueName.trim() : '';
+  const rawVenueName = typeof body?.venueName === 'string' ? body.venueName : '';
   const startsAt = typeof body?.startsAt === 'string' ? body.startsAt : '';
   const timeZone = typeof body?.timeZone === 'string' ? body.timeZone.trim() : '';
-  if (venueName.length < 2 || venueName.length > 120 || /[\u0000-\u001f\u007f]/.test(venueName) || body?.isPublicVenue !== true) return null;
-  if (/(?:https?:\/\/|www\.|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\+?\d[\d\s().-]{7,}\d)/i.test(venueName) || /^\d{1,6}\s+\S+/.test(venueName) || PRIVATE_ADDRESS_PATTERNS.some(pattern => pattern.test(venueName))) return null;
+  if (/[\u0000-\u001f\u007f-\u009f]/u.test(rawVenueName) || body?.isPublicVenue !== true) return null;
+  // Normalize compatibility characters and strip invisible direction/zero-width
+  // controls before address/contact heuristics so they cannot be bypassed with
+  // embedded formatting characters.
+  const venueName = rawVenueName.normalize('NFKC')
+    .replace(/[\u200b\u200e\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff]/gu, '')
+    .replace(/[ \t]+/gu, ' ')
+    .trim();
+  if (venueName.length < 2 || venueName.length > 120) return null;
+  if (/(?:https?:\/\/|www\.|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\+?\p{Nd}[\p{Nd}\s().-]{7,}\p{Nd})/iu.test(venueName) || /^\p{Nd}{1,6}\s+\S+/u.test(venueName) || PRIVATE_ADDRESS_PATTERNS.some(pattern => pattern.test(venueName))) return null;
   const dateParts = startsAt.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/);
   if (!dateParts) return null;
   const [, year, month, day, hour, minute, second = '0'] = dateParts;
