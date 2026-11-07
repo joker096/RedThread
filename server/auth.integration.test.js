@@ -211,10 +211,18 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(inquiryNoOrigin.status, 403, 'partner inquiry mutation must require a trusted Origin');
 
+    const adminInquiryQueueUnauthenticated = await request('/api/admin/partner-service-inquiries');
+    assert.equal(adminInquiryQueueUnauthenticated.status, 401, 'partner delivery status must be moderator-only');
+
     const adminPartnerNoOrigin = await request('/api/admin/partner-applications/' + randomUUID() + '/publish', {
       method: 'POST', headers: { Origin: '' }, body: JSON.stringify({})
     });
     assert.equal(adminPartnerNoOrigin.status, 403, 'partner moderation mutation must reject missing Origin before authentication');
+    const inquiryReconcileNoOrigin = await request('/api/admin/partner-service-inquiries/' + randomUUID() + '/reconcile', {
+      method: 'POST', headers: { Origin: '' },
+      body: JSON.stringify({ decision: 'sent', operatorNote: 'Verified against provider logs' })
+    });
+    assert.equal(inquiryReconcileNoOrigin.status, 403, 'inquiry reconciliation must reject missing Origin before authentication');
 
 
     const email = `test-${randomUUID()}@example.test`;
