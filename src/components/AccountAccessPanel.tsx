@@ -15,24 +15,42 @@ declare global {
   }
 }
 
+let googleIdentityServicesPromise: Promise<void> | null = null;
+
 function loadGoogleIdentityServices(): Promise<void> {
   if (window.google?.accounts?.id) return Promise.resolve();
-  return new Promise((resolve, reject) => {
+  if (googleIdentityServicesPromise) return googleIdentityServicesPromise;
+
+  googleIdentityServicesPromise = new Promise((resolve, reject) => {
     let script = document.querySelector<HTMLScriptElement>('script[data-google-identity]');
-    const onLoad = () => window.google?.accounts?.id ? resolve() : reject(new Error('Google Identity Services did not initialize.'));
+    const fail = (error: Error) => {
+      script?.remove();
+      googleIdentityServicesPromise = null;
+      reject(error);
+    };
+    const onLoad = () => {
+      if (window.google?.accounts?.id) {
+        if (script) script.dataset.googleIdentityLoaded = 'true';
+        resolve();
+      } else {
+        fail(new Error('Google Identity Services did not initialize.'));
+      }
+    };
+    if (script?.dataset.googleIdentityLoaded === 'true') {
+      fail(new Error('Google Identity Services did not initialize.'));
+      return;
+    }
     if (!script) {
       script = document.createElement('script');
       script.src = 'https://accounts.google.com/gsi/client';
       script.async = true;
       script.dataset.googleIdentity = 'true';
-      script.addEventListener('load', onLoad, { once: true });
-      script.addEventListener('error', () => reject(new Error('Google Identity Services could not load.')), { once: true });
       document.head.appendChild(script);
-      return;
     }
     script.addEventListener('load', onLoad, { once: true });
-    script.addEventListener('error', () => reject(new Error('Google Identity Services could not load.')), { once: true });
+    script.addEventListener('error', () => fail(new Error('Google Identity Services could not load.')), { once: true });
   });
+  return googleIdentityServicesPromise;
 }
 
 type AccountUser = {
@@ -264,6 +282,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         body: JSON.stringify({})
       });
       const challenge = await challengeResponse.json().catch(() => null);
+      if (cancelled) return;
       if (!challengeResponse.ok || typeof challenge?.nonce !== 'string') throw new Error(t('authRequestFailed'));
       window.google.accounts.id.initialize({
         client_id: googleClientId,
