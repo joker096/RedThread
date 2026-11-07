@@ -3491,6 +3491,15 @@ test('auth API supports registration, session lookup, logout and login', {
       body: JSON.stringify({ ...datePlanInput, venueName: 'City Public Park' })
     });
     assert.equal(secondDatePlanProposal.status, 201);
+    const proposerCannotDecline = await request(datePlanPath + '/decline', {
+      method: 'POST', headers: { Cookie: secondCookie }
+    });
+    assert.equal(proposerCannotDecline.status, 409,
+      'the proposer must withdraw their own proposal instead of recording a false recipient decline');
+    const proposalAfterInvalidDecline = await request(datePlanPath, {
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal((await proposalAfterInvalidDecline.json()).datePlan.status, 'proposed');
     const declinedDatePlan = await request(datePlanPath + '/decline', {
       method: 'POST', headers: { Cookie: maleCookie }
     });
