@@ -22,11 +22,13 @@ import { DIDIT_FREE_MONTHLY_SESSION_LIMIT } from './diditQuota.js';
 import express from 'express';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import { withPooledTransaction, rollbackPooledTransaction } from './withPooledTransaction.js';
+import { FEMALE_FREE_DAILY_PROFILE_LIMIT, canCreateFemaleFreeMatch, hasFemalePremiumAccess, remainingFemaleDailyProfiles } from './femaleFreeTierPolicy.js';
 import rateLimit from 'express-rate-limit';
 import { PostgresRateLimitStore } from './postgresRateLimitStore.js';
 import pg from 'pg';
 import { isValidAssessment, financialAlignment, ASSESSMENT_VERSION } from './relationshipAssessment.js';
 import {
+  createAccountReuseDigest,
   createSessionToken,
   hashPassword,
   hashSessionToken,
@@ -811,6 +813,84 @@ async function createNotification(userId, type, metadata = {}, dedupeKey = null,
   );
 }
 
+const FEMALE_POLICY_CLOCK_SQL = process.env.NODE_ENV === 'test'
+  ? "COALESCE(NULLIF(current_setting('vow.test_policy_now', true), '')::timestamptz, clock_timestamp())"
+  : 'clock_timestamp()';
+
+async function reserveFemaleProfileExposure(client, user, profileId) {
+  if (user?.gender !== 'female') {
+    return { allowed: true, used: null, exposureDate: null, quotaApplied: false };
+  }
+  // Capture entitlement time and UTC day from one PostgreSQL wall-clock
+  // instant after the caller has acquired the account-safety lock.
+  const policyClock = await client.query(
+    `SELECT policy_now, (policy_now AT TIME ZONE 'UTC')::date AS exposure_date
+     FROM (SELECT ${FEMALE_POLICY_CLOCK_SQL} AS policy_now) AS policy_clock`
+  );
+  const policyNow = new Date(policyClock.rows[0].policy_now).getTime();
+  if (hasFemalePremiumAccess(user, policyNow)) {
+    return { allowed: true, used: null, exposureDate: null, quotaApplied: false };
+  }
+  const exposureDate = policyClock.rows[0].exposure_date;
+  await client.query(
+    `DELETE FROM female_profile_exposures
+     WHERE user_id = $1 AND exposure_date < $2::date`,
+    [user.id, exposureDate]
+  );
+  const existing = await client.query(
+    `SELECT 1 FROM female_profile_exposures
+     WHERE user_id = $1 AND profile_user_id = $2 AND exposure_date = $3::date`,
+    [user.id, profileId, exposureDate]
+  );
+  if (existing.rowCount) {
+    const usage = await client.query(
+      `SELECT COUNT(*)::int AS used FROM female_profile_exposures
+       WHERE user_id = $1 AND exposure_date = $2::date`,
+      [user.id, exposureDate]
+    );
+    return { allowed: true, used: Number(usage.rows[0]?.used || 0), exposureDate, quotaApplied: true };
+  }
+  const usage = await client.query(
+    `SELECT COUNT(*)::int AS used FROM female_profile_exposures
+     WHERE user_id = $1 AND exposure_date = $2::date`,
+    [user.id, exposureDate]
+  );
+  const used = Number(usage.rows[0]?.used || 0);
+  if (used >= FEMALE_FREE_DAILY_PROFILE_LIMIT) return { allowed: false, used, exposureDate, quotaApplied: true };
+  const inserted = await client.query(
+    `INSERT INTO female_profile_exposures (user_id, profile_user_id, exposure_date)
+     VALUES ($1, $2, $3::date)
+     ON CONFLICT (user_id, exposure_date, profile_user_id) DO NOTHING
+     RETURNING profile_user_id`,
+    [user.id, profileId, exposureDate]
+  );
+  return { allowed: true, used: used + inserted.rowCount, exposureDate, quotaApplied: true };
+}
+
+async function captureFemaleExposurePolicy(client, user) {
+  if (user?.gender !== 'female') return { isFreeTier: false, exposureDate: null };
+  const clock = await client.query(
+    `SELECT policy_now, (policy_now AT TIME ZONE 'UTC')::date AS exposure_date
+     FROM (SELECT ${FEMALE_POLICY_CLOCK_SQL} AS policy_now) AS policy_clock`
+  );
+  const isFreeTier = !hasFemalePremiumAccess(user, new Date(clock.rows[0].policy_now).getTime());
+  return {
+    isFreeTier,
+    exposureDate: isFreeTier ? clock.rows[0].exposure_date : null
+  };
+}
+
+async function femaleExposurePolicyChangedAtCommit(client, user, snapshot) {
+  if (user?.gender !== 'female') return false;
+  const clock = await client.query(
+    `SELECT policy_now, (policy_now AT TIME ZONE 'UTC')::date AS exposure_date
+     FROM (SELECT ${FEMALE_POLICY_CLOCK_SQL} AS policy_now) AS policy_clock`
+  );
+  const isFreeTier = !hasFemalePremiumAccess(user, new Date(clock.rows[0].policy_now).getTime());
+  return isFreeTier !== snapshot.isFreeTier ||
+    (isFreeTier && String(clock.rows[0].exposure_date) !== String(snapshot.exposureDate));
+}
+
 function requirePaidFeatures(req, res, next) {
   // Men retain the current free access model. Safety, account settings, and reports are never paywalled.
   if (req.authUser.gender !== 'female' || req.authUser.premium_lifetime === true) return next();
@@ -886,11 +966,41 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
   if (!['yes', 'no', 'discuss', 'unsure'].includes(wantsChildren)) return res.status(400).json({ error: 'invalid_wants_children' });
   if (!['with_me', 'shared_custody', 'with_other_parent', 'not_applicable', 'prefer_to_discuss'].includes(childrenLivingArrangement)) return res.status(400).json({ error: 'invalid_children_living_arrangement' });
 
+  const accountReuseDigest = createAccountReuseDigest(email, process.env.ACCOUNT_REUSE_HMAC_KEY);
+  if (!accountReuseDigest) return res.status(503).json({ error: 'account_reuse_protection_not_configured' });
+
   let client;
   try {
     const passwordHash = await hashPassword(password);
     client = await pool.connect();
     await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`account-reuse:${accountReuseDigest}`]);
+    await client.query(
+      'DELETE FROM account_reuse_restrictions WHERE email_hmac = $1 AND expires_at <= clock_timestamp()',
+      [accountReuseDigest]
+    );
+    const accountReuseRestriction = await client.query(
+      `WITH policy_clock AS MATERIALIZED (
+         SELECT clock_timestamp() AS policy_now
+       )
+       SELECT restrictions.expires_at,
+              GREATEST(1, CEIL(EXTRACT(EPOCH FROM (restrictions.expires_at - policy_clock.policy_now))))::int AS retry_after_seconds
+       FROM account_reuse_restrictions AS restrictions
+       CROSS JOIN policy_clock
+       WHERE restrictions.email_hmac = $1 AND restrictions.expires_at > policy_clock.policy_now`,
+      [accountReuseDigest]
+    );
+    if (accountReuseRestriction.rowCount) {
+      const retryAt = new Date(accountReuseRestriction.rows[0].expires_at);
+      const retryAfterSeconds = Math.max(1, Number(accountReuseRestriction.rows[0].retry_after_seconds) || 1);
+      await client.query('ROLLBACK');
+      res.setHeader('Retry-After', String(retryAfterSeconds));
+      return res.status(429).json({
+        error: 'account_recreation_restricted',
+        retryAt: retryAt.toISOString(),
+        retryAfterSeconds
+      });
+    }
     if (emailVerificationRequired && !emailDeliveryConfigured()) {
       await client.query('ROLLBACK');
       return res.status(503).json({ error: 'email_delivery_not_configured' });
@@ -1417,7 +1527,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     safetyLockAcquired = true;
 
     const account = await client.query(
-      `SELECT u.password_hash
+      `SELECT u.password_hash, u.email
        FROM users u
        JOIN sessions s ON s.user_id = u.id
        WHERE u.id = $1 AND u.status = 'active'
@@ -1427,6 +1537,10 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     if (!account.rows[0] || typeof account.rows[0].password_hash !== 'string' ||
         !(await verifyPassword(password, account.rows[0].password_hash))) {
       return res.status(401).json({ error: 'password_confirmation_failed' });
+    }
+    const accountReuseDigest = createAccountReuseDigest(account.rows[0].email, process.env.ACCOUNT_REUSE_HMAC_KEY);
+    if (!accountReuseDigest) {
+      return res.status(503).json({ error: 'account_reuse_protection_not_configured' });
     }
 
     // Check this before any external Paddle cancellation side effect. The
@@ -1572,6 +1686,10 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     }
 
     await client.query('BEGIN');
+    // Serialize deletion with registration for the same normalized email. This
+    // prevents a concurrent registration from slipping between the tombstone
+    // check and the account anonymization commit.
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`account-reuse:${accountReuseDigest}`]);
     // The session-level account-safety lock acquired before Paddle calls is
     // still held by this connection, excluding concurrent account mutations.
     const l3Media = await client.query(
@@ -1597,6 +1715,10 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     await client.query('DELETE FROM identity_verifications WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM likes WHERE sender_id = $1 OR target_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM profile_passes WHERE passer_id = $1 OR passed_user_id = $1', [req.authUser.id]);
+    // Remove the deleted account's own discovery history. Keep same-day rows
+    // owned by other women: deleting a viewed profile must not refund their
+    // already-consumed daily slots. Those short-lived rows expire at UTC cleanup.
+    await client.query('DELETE FROM female_profile_exposures WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM profile_preferences WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM user_notifications WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM account_action_tokens WHERE user_id = $1', [req.authUser.id]);
@@ -1635,6 +1757,16 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     await client.query(
       "UPDATE matches SET status = 'closed' WHERE user_a_id = $1 OR user_b_id = $1",
       [req.authUser.id]
+    );
+    // Start the full 90-day period at the end of deletion, not before the
+    // potentially long cleanup work above. The per-email transaction lock has
+    // remained held since BEGIN, so registration cannot slip into this gap.
+    await client.query(
+      `INSERT INTO account_reuse_restrictions (email_hmac, expires_at)
+       VALUES ($1, clock_timestamp() + INTERVAL '90 days')
+       ON CONFLICT (email_hmac) DO UPDATE
+       SET expires_at = GREATEST(account_reuse_restrictions.expires_at, EXCLUDED.expires_at)`,
+      [accountReuseDigest]
     );
     await client.query('COMMIT');
     await Promise.all(privatePhotoPaths.map(filePath => unlink(filePath).catch(() => {})));
@@ -1721,7 +1853,7 @@ app.get('/api/billing/status', requireSession, async (req, res) => {
   }
 });
 
-app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req, res) => {
+app.get('/api/profiles/search', requireSession, async (req, res) => {
   const cleanFilter = (value, maxLength) => {
     if (typeof value !== 'string') return null;
     const trimmed = value.trim();
@@ -1830,51 +1962,178 @@ app.get('/api/profiles/search', requireSession, requirePaidFeatures, async (req,
          AND ($11::boolean IS NULL OR p.has_children = $11)
          AND EXTRACT(YEAR FROM AGE(CURRENT_DATE, p.birth_date))::int BETWEEN COALESCE($7::int, 18) AND COALESCE($8::int, 120)
          AND ($9::int = 0 OR (candidate_assessment.answers IS NOT NULL AND my_assessment.answers IS NOT NULL AND (CASE WHEN candidate_assessment.answers->>'financialModel' = my_assessment.answers->>'financialModel' THEN 1 ELSE 0 END + CASE WHEN candidate_assessment.answers->>'lifestyleExpectation' = my_assessment.answers->>'lifestyleExpectation' THEN 1 ELSE 0 END + CASE WHEN candidate_assessment.answers->>'gifts' = my_assessment.answers->>'gifts' THEN 1 ELSE 0 END) * 100.0 / 3 >= ($9 - 0.5)))
-       ORDER BY "compatibilityScore" DESC NULLS LAST, p.updated_at DESC, p.user_id
+       ORDER BY CASE WHEN EXISTS (
+         SELECT 1
+         FROM female_profile_exposures issued
+         JOIN users quota_actor ON quota_actor.id = issued.user_id
+         WHERE issued.user_id = $1
+           AND issued.profile_user_id = p.user_id
+           AND issued.exposure_date = $12::date
+           AND quota_actor.status = 'active'
+           AND quota_actor.premium_lifetime IS NOT TRUE
+           AND COALESCE(quota_actor.premium_until <= statement_timestamp(), TRUE)
+           AND COALESCE(quota_actor.female_trial_ends_at <= statement_timestamp(), TRUE)
+       ) THEN 0 ELSE 1 END,
+         "compatibilityScore" DESC NULLS LAST, p.updated_at DESC, p.user_id
        LIMIT $5 OFFSET $6`;
     const searchParams = [req.authUser.id, country, city, intent, parsedLimit + 1, parsedOffset, minAge, maxAge, minFinancialAlignment, familyFormat, childrenFilter === null ? null : childrenFilter === 'true'];
     let client;
     let result;
+    let hasMoreIssuedCandidates = false;
     try {
       client = await pool.connect();
+      let attempt = 0;
+      while (true) {
+      hasMoreIssuedCandidates = false;
       await client.query('BEGIN');
+      // Capture the ordering date before preview. A lock wait across UTC
+      // midnight invalidates the preview candidate set and requires a retry.
+      const previewDateResult = await client.query(
+        `SELECT (${FEMALE_POLICY_CLOCK_SQL} AT TIME ZONE 'UTC')::date AS exposure_date`
+      );
+      const previewDate = previewDateResult.rows[0].exposure_date;
       // Preview the exact page, then lock the requester and every candidate in
       // one globally sorted set. Re-run the query after locks so a concurrent
       // deletion, profile change, like/pass or block cannot leak stale results.
-      const preview = await client.query(searchSql, searchParams);
+      const preview = await client.query(searchSql, [...searchParams, previewDate]);
       const candidateIds = preview.rows.map(profile => profile.id);
       await acquireGiftSafetyUserLocks(client, req.authUser.id, ...candidateIds);
       const actor = await client.query(
-        "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+        "SELECT u.id, p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.id = $1 AND u.status = 'active' FOR SHARE OF u, p",
         [req.authUser.id]
       );
       if (!actor.rowCount) {
         await client.query('ROLLBACK');
         return res.status(401).json({ error: 'account_not_active' });
       }
+      const actorUser = actor.rows[0];
+      const lockedDateResult = await client.query(
+        `SELECT policy_now, (policy_now AT TIME ZONE 'UTC')::date AS exposure_date
+         FROM (SELECT ${FEMALE_POLICY_CLOCK_SQL} AS policy_now) AS policy_clock`
+      );
+      const lockedExposureDate = lockedDateResult.rows[0].exposure_date;
+      const actorIsFreeTierAtLock = actorUser.gender === 'female' &&
+        !hasFemalePremiumAccess(actorUser, new Date(lockedDateResult.rows[0].policy_now).getTime());
+      if (actorIsFreeTierAtLock && String(lockedExposureDate) !== String(previewDate)) {
+        await client.query('ROLLBACK');
+        if (attempt >= 2) {
+          throw new Error('Discovery UTC date changed repeatedly while acquiring account locks');
+        }
+        attempt += 1;
+        continue;
+      }
+      const lockedPreview = await client.query(searchSql, [...searchParams, previewDate]);
+      const lockedCandidateIds = lockedPreview.rows.map(profile => String(profile.id).toLowerCase());
+      const previewCandidateIds = candidateIds.map(profileId => String(profileId).toLowerCase());
+      if (lockedCandidateIds.length !== previewCandidateIds.length ||
+          lockedCandidateIds.some((profileId, index) => profileId !== previewCandidateIds[index])) {
+        await client.query('ROLLBACK');
+        if (attempt >= 2) {
+          throw new Error('Discovery candidate page changed repeatedly while acquiring account locks');
+        }
+        attempt += 1;
+        continue;
+      }
       const finalSql = searchSql.replace(
         '       ORDER BY',
-        '         AND p.user_id = ANY($12::uuid[])\n       ORDER BY'
+        '         AND p.user_id = ANY($13::uuid[])\n       ORDER BY'
       );
-      const lockedSearchParams = [...searchParams];
+      const lockedSearchParams = [...searchParams, previewDate];
       lockedSearchParams[5] = 0; // candidateIds already represent the requested page after OFFSET.
       result = await client.query(finalSql, [...lockedSearchParams, candidateIds]);
+      result.hasMoreCandidates = result.rows.length > parsedLimit;
+      const exposureDate = lockedExposureDate;
+      let dailyQuota = null;
+      if (actorIsFreeTierAtLock) {
+        await client.query(
+          `DELETE FROM female_profile_exposures
+           WHERE user_id = $1 AND exposure_date < $2::date`,
+          [req.authUser.id, exposureDate]
+        );
+        const usage = await client.query(
+          `SELECT COUNT(*)::int AS used
+           FROM female_profile_exposures
+           WHERE user_id = $1 AND exposure_date = $2::date`,
+          [req.authUser.id, exposureDate]
+        );
+        const usedBefore = Number(usage.rows[0]?.used || 0);
+        const alreadyIssuedResult = await client.query(
+          `SELECT profile_user_id
+           FROM female_profile_exposures
+           WHERE user_id = $1 AND exposure_date = $2::date`,
+          [req.authUser.id, exposureDate]
+        );
+        const alreadyIssued = new Set(alreadyIssuedResult.rows.map(row => String(row.profile_user_id).toLowerCase()));
+        hasMoreIssuedCandidates = result.rows.length > parsedLimit &&
+          alreadyIssued.has(String(result.rows[parsedLimit].id).toLowerCase());
+        const pageRows = result.rows.slice(0, parsedLimit);
+        const selectedRows = [];
+        let newlyIssued = 0;
+        for (const profile of pageRows) {
+          const profileId = String(profile.id).toLowerCase();
+          if (alreadyIssued.has(profileId)) {
+            selectedRows.push(profile);
+            continue;
+          }
+          if (usedBefore + newlyIssued >= FEMALE_FREE_DAILY_PROFILE_LIMIT) continue;
+          const exposure = await client.query(
+            `INSERT INTO female_profile_exposures (user_id, profile_user_id, exposure_date)
+             VALUES ($1, $2, $3::date)
+             ON CONFLICT (user_id, exposure_date, profile_user_id) DO NOTHING
+             RETURNING profile_user_id`,
+            [req.authUser.id, profile.id, exposureDate]
+          );
+          if (exposure.rowCount) {
+            selectedRows.push(profile);
+            newlyIssued += 1;
+            alreadyIssued.add(profileId);
+          }
+        }
+        result.rows = selectedRows;
+        dailyQuota = {
+          limit: FEMALE_FREE_DAILY_PROFILE_LIMIT,
+          used: usedBefore + newlyIssued,
+          remaining: remainingFemaleDailyProfiles(usedBefore + newlyIssued),
+          timezone: 'UTC'
+        };
+      }
+      result.dailyQuota = dailyQuota;
+      const finalPolicyClock = await client.query(
+        `SELECT policy_now, (policy_now AT TIME ZONE 'UTC')::date AS exposure_date
+         FROM (SELECT ${FEMALE_POLICY_CLOCK_SQL} AS policy_now) AS policy_clock`
+      );
+      const actorIsFreeTierAtCommit = actorUser.gender === 'female' &&
+        !hasFemalePremiumAccess(actorUser, new Date(finalPolicyClock.rows[0].policy_now).getTime());
+      if (actorIsFreeTierAtCommit !== actorIsFreeTierAtLock ||
+          (actorIsFreeTierAtCommit && String(finalPolicyClock.rows[0].exposure_date) !== String(exposureDate))) {
+        await client.query('ROLLBACK');
+        if (attempt >= 2) {
+          throw new Error('Discovery quota date or entitlement changed repeatedly before commit');
+        }
+        attempt += 1;
+        continue;
+      }
       await client.query('COMMIT');
+      break;
+      }
     } catch (error) {
       if (client && !await rollbackPooledTransaction(client)) client = null;
       throw error;
     } finally {
       client?.release();
     }
-    const hasMore = result.rows.length > parsedLimit;
-    const profiles = (hasMore ? result.rows.slice(0, parsedLimit) : result.rows).map(profile => {
+    const hasMore = result.dailyQuota
+      ? (result.dailyQuota.remaining > 0 && result.hasMoreCandidates) || hasMoreIssuedCandidates
+      : result.rows.length > parsedLimit;
+    const profiles = result.rows.slice(0, parsedLimit).map(profile => {
       const { assessment_answers: candidateAnswers, my_assessment_answers: myAnswers, ...publicProfile } = profile;
       const alignment = candidateAnswers && myAnswers ? financialAlignment(myAnswers, candidateAnswers).score : null;
       return { ...publicProfile, financialAlignment: alignment };
     });
     return res.json({
       profiles,
-      pagination: { limit: parsedLimit, offset: parsedOffset, hasMore }
+      pagination: { limit: parsedLimit, offset: parsedOffset, hasMore },
+      ...(result.dailyQuota ? { dailyQuota: result.dailyQuota } : {})
     });
   } catch (error) {
     console.error('Profile search failed:', error?.message || 'unknown error');
@@ -2378,32 +2637,35 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
   }
 });
 
-app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requireSession, async (req, res) => {
   let client;
   try {
     client = await pool.connect();
     await client.query('BEGIN');
-    const actorIdentity = await client.query(
-      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment,
+    const actorIdentityPreflight = await client.query(
+      `SELECT p.user_id AS id, p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime,
+              iv.status AS identity_status, iv.provider_environment AS identity_environment,
               l3.status AS l3_status, l3.expires_at AS l3_expires_at
-       FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id
+       LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
        LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
-       WHERE p.user_id = $1 FOR SHARE OF p`,
+       WHERE p.user_id = $1 `,
       [req.authUser.id]
     );
-    const identityActor = actorIdentity.rows[0];
+    const identityActor = actorIdentityPreflight.rows[0];
     if (!identityActor || !canIdentityInteract({
       gender: identityActor.gender, status: identityActor.identity_status, environment: identityActor.identity_environment, l3Status: identityActor.l3_status, l3ExpiresAt: identityActor.l3_expires_at
     })) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
     }
-    await client.query('BEGIN');
     const requestedTargetId = req.body?.targetId ?? null;
     if (requestedTargetId !== null && !isUuid(requestedTargetId)) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'invalid_pass_target' });
     }
+
     const preview = await client.query(
       `SELECT pp.passed_user_id AS id
        FROM profile_passes pp
@@ -2432,8 +2694,28 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
       return res.status(404).json({ error: 'no_recent_pass_to_undo' });
     }
     await acquireGiftSafetyUserLocks(client, req.authUser.id, previewTargetId);
+    const actorIdentity = await client.query(
+      `SELECT p.user_id AS id, p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime,
+              iv.status AS identity_status, iv.provider_environment AS identity_environment,
+              l3.status AS l3_status, l3.expires_at AS l3_expires_at
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id
+       LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
+       WHERE p.user_id = $1 FOR SHARE OF p`,
+      [req.authUser.id]
+    );
+    const lockedIdentityActor = actorIdentity.rows[0];
+    if (!lockedIdentityActor || !canIdentityInteract({
+      gender: lockedIdentityActor.gender, status: lockedIdentityActor.identity_status, environment: lockedIdentityActor.identity_environment, l3Status: lockedIdentityActor.l3_status, l3ExpiresAt: lockedIdentityActor.l3_expires_at
+    })) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
+    }
     const actor = await client.query(
-      "SELECT u.id, p.gender FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.id = $1 AND u.status = 'active' FOR SHARE OF u, p",
+      `SELECT u.id, p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime
+       FROM users u JOIN profiles p ON p.user_id = u.id
+       WHERE u.id = $1 AND u.status = 'active' FOR SHARE OF u, p`,
       [req.authUser.id]
     );
     if (!actor.rows[0]) {
@@ -2485,6 +2767,11 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
        WHERE p.user_id = $1 AND u.status = 'active' AND p.is_visible = TRUE
          AND p.birth_date IS NOT NULL
          AND p.children_disclosure_confirmed_at IS NOT NULL AND p.has_children IS NOT NULL
+         AND (p.gender <> 'male' OR EXISTS (
+           SELECT 1 FROM identity_verifications iv
+           WHERE iv.user_id = p.user_id AND iv.provider = 'didit'
+             AND iv.status = 'verified' AND iv.provider_environment = 'live'
+         ) AND identity_l3_has_active_approval(p.user_id))
          AND NOT EXISTS (
            SELECT 1 FROM user_blocks b
            WHERE (b.blocker_id = $2 AND b.blocked_id = p.user_id)
@@ -2492,9 +2779,41 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
          )`,
       [passedId, req.authUser.id]
     );
+    if (!profileResult.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'profile_not_available' });
+    }
+    const exposure = await reserveFemaleProfileExposure(client, actor.rows[0], profileResult.rows[0].id);
+    if (!exposure.allowed) {
+      await client.query('ROLLBACK');
+      return res.status(429).json({
+        error: 'daily_profile_limit_reached',
+        dailyQuota: { limit: FEMALE_FREE_DAILY_PROFILE_LIMIT, used: exposure.used, remaining: 0, timezone: 'UTC' }
+      });
+    }
+    if (actor.rows[0].gender === 'female') {
+      const finalPolicyClock = await client.query(
+        `SELECT policy_now, (policy_now AT TIME ZONE 'UTC')::date AS exposure_date
+         FROM (SELECT ${FEMALE_POLICY_CLOCK_SQL} AS policy_now) AS policy_clock`
+      );
+      const quotaRequiredAtCommit = actor.rows[0].gender === 'female' &&
+        !hasFemalePremiumAccess(actor.rows[0], new Date(finalPolicyClock.rows[0].policy_now).getTime());
+      if (quotaRequiredAtCommit !== exposure.quotaApplied ||
+          (quotaRequiredAtCommit && String(finalPolicyClock.rows[0].exposure_date) !== String(exposure.exposureDate))) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'quota_policy_changed_retry' });
+      }
+    }
     await client.query('COMMIT');
-    if (!profileResult.rows[0]) return res.status(404).json({ error: 'profile_not_available' });
-    return res.json({ profile: profileResult.rows[0] });
+    return res.json({
+      profile: profileResult.rows[0],
+      dailyQuota: exposure.used === null ? null : {
+        limit: FEMALE_FREE_DAILY_PROFILE_LIMIT,
+        used: exposure.used,
+        remaining: remainingFemaleDailyProfiles(exposure.used),
+        timezone: 'UTC'
+      }
+    });
   } catch (error) {
     if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Undo profile pass failed:', error?.message || 'unknown error');
@@ -2504,17 +2823,21 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
   }
 });
 
-app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, async (req, res) => {
   const targetId = req.params.targetId;
   if (!isUuid(targetId) || targetId === req.authUser.id) return res.status(400).json({ error: 'invalid_pass_target' });
   let client;
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
     const actorIdentity = await client.query(
-      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment,
+      `SELECT p.user_id AS id, p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime,
+              iv.status AS identity_status, iv.provider_environment AS identity_environment,
               l3.status AS l3_status, l3.expires_at AS l3_expires_at
-       FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id
+       LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
        LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
        WHERE p.user_id = $1 FOR SHARE OF p`,
       [req.authUser.id]
@@ -2526,8 +2849,18 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
     }
-    await client.query('BEGIN');
-    await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
+
+    const currentActorResult = await client.query(
+      `SELECT u.id, p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime
+       FROM users u JOIN profiles p ON p.user_id = u.id
+       WHERE u.id = $1 AND u.status = 'active' FOR SHARE OF u, p`,
+      [req.authUser.id]
+    );
+    const currentActor = currentActorResult.rows[0];
+    if (!currentActor) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
     const target = await client.query(
       `SELECT p.gender
        FROM profiles p
@@ -2559,10 +2892,27 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'target_not_available' });
     }
+    const exposurePolicy = await captureFemaleExposurePolicy(client, currentActor);
+    if (exposurePolicy.isFreeTier) {
+      const issued = await client.query(
+        `SELECT 1 FROM female_profile_exposures
+         WHERE user_id = $1 AND profile_user_id = $2
+           AND exposure_date = $3::date`,
+        [req.authUser.id, targetId, exposurePolicy.exposureDate]
+      );
+      if (!issued.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'profile_not_issued_today' });
+      }
+    }
     await client.query(
       'INSERT INTO profile_passes (passer_id, passed_user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
       [req.authUser.id, targetId]
     );
+    if (await femaleExposurePolicyChangedAtCommit(client, currentActor, exposurePolicy)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'quota_policy_changed_retry' });
+    }
     await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
@@ -2573,7 +2923,7 @@ app.post('/api/passes/:targetId', profileActionLimiter, validateRequestOrigin, r
     client?.release();
   }
 });
-app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, async (req, res) => {
   const targetId = req.params.targetId;
   if (!isUuid(targetId)) return res.status(400).json({ error: 'invalid_target_id' });
   if (targetId === req.authUser.id) return res.status(400).json({ error: 'cannot_like_self' });
@@ -2584,11 +2934,14 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
     await client.query('BEGIN');
     await acquireGiftSafetyUserLocks(client, req.authUser.id, targetId);
     const actorIdentity = await client.query(
-      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment,
+      `SELECT p.user_id AS id, p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime,
+              iv.status AS identity_status, iv.provider_environment AS identity_environment,
               l3.status AS l3_status, l3.expires_at AS l3_expires_at
-       FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id
+       LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
        LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
-       WHERE p.user_id = $1 FOR SHARE OF p`,
+       WHERE p.user_id = $1 FOR SHARE OF p, u`,
       [req.authUser.id]
     );
     const actor = actorIdentity.rows[0];
@@ -2629,36 +2982,151 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'target_not_available' });
     }
+    const exposurePolicy = await captureFemaleExposurePolicy(client, actor);
+    if (exposurePolicy.isFreeTier) {
+      const issued = await client.query(
+        `SELECT 1 FROM female_profile_exposures
+         WHERE user_id = $1 AND profile_user_id = $2
+           AND exposure_date = $3::date`,
+        [req.authUser.id, targetId, exposurePolicy.exposureDate]
+      );
+      if (!issued.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'profile_not_issued_today' });
+      }
+    }
 
-    await client.query(
-      'INSERT INTO likes (sender_id, target_id) VALUES ($1, $2) ON CONFLICT (sender_id, target_id) DO NOTHING',
-      [req.authUser.id, targetId]
-    );
     const reciprocal = await client.query(
       'SELECT 1 FROM likes WHERE sender_id = $1 AND target_id = $2 LIMIT 1',
       [targetId, req.authUser.id]
     );
     if (reciprocal.rowCount === 0) {
+      await client.query(
+        'INSERT INTO likes (sender_id, target_id) VALUES ($1, $2) ON CONFLICT (sender_id, target_id) DO NOTHING',
+        [req.authUser.id, targetId]
+      );
+      if (await femaleExposurePolicyChangedAtCommit(client, actor, exposurePolicy)) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'quota_policy_changed_retry' });
+      }
       await client.query('COMMIT');
       return res.status(201).json({ liked: true, matched: false, match: null });
     }
 
-    await client.query(
-      `INSERT INTO matches (user_a_id, user_b_id)
-       VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid))
-       ON CONFLICT (user_a_id, user_b_id) DO NOTHING`,
-      [req.authUser.id, targetId]
-    );
-    const matchResult = await client.query(
+    const existingMatchResult = await client.query(
       `SELECT id, status, created_at AS "createdAt" FROM matches
-       WHERE user_a_id = LEAST($1::uuid, $2::uuid) AND user_b_id = GREATEST($1::uuid, $2::uuid)`,
+       WHERE user_a_id = LEAST($1::uuid, $2::uuid) AND user_b_id = GREATEST($1::uuid, $2::uuid)
+       LIMIT 1`,
       [req.authUser.id, targetId]
     );
-    const match = matchResult.rows[0];
+    let match = existingMatchResult.rows[0] || null;
+    let femaleUserIdForQuota = null;
+    let femaleAccountForQuota = null;
+    let femaleWasPremiumAtQuotaCheck = false;
+    let newlyCreatedMatchId = null;
+    if (!match) {
+      femaleUserIdForQuota = actor.gender === 'female' ? req.authUser.id : targetId;
+      const femaleAccountResult = await client.query(
+        `SELECT p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime
+         FROM users u JOIN profiles p ON p.user_id = u.id
+         WHERE u.id = $1 AND u.status = 'active' FOR SHARE OF u, p`,
+        [femaleUserIdForQuota]
+      );
+      femaleAccountForQuota = femaleAccountResult.rows[0];
+      // Use one PostgreSQL wall-clock instant for both entitlement expiry and
+      // the rolling seven-day window; the application host clock may differ.
+      const quotaNowResult = await client.query('SELECT clock_timestamp() AS quota_now');
+      const quotaNow = new Date(quotaNowResult.rows[0].quota_now).getTime();
+      femaleWasPremiumAtQuotaCheck = femaleAccountForQuota?.gender === 'female' &&
+        hasFemalePremiumAccess(femaleAccountForQuota, quotaNow);
+      if (femaleAccountForQuota?.gender === 'female' && !femaleWasPremiumAtQuotaCheck) {
+        const recentMatches = await client.query(
+          `SELECT COUNT(*)::int AS count, MAX(created_at) + INTERVAL '7 days' AS next_available_at
+           FROM matches
+           WHERE (user_a_id = $1 OR user_b_id = $1)
+             AND created_at > $2::timestamptz - INTERVAL '7 days'`,
+          [femaleUserIdForQuota, quotaNowResult.rows[0].quota_now]
+        );
+        if (!canCreateFemaleFreeMatch(recentMatches.rows[0]?.count)) {
+          await client.query('COMMIT');
+          return res.status(429).json({
+            error: 'weekly_match_limit_reached',
+            liked: false,
+            matched: false,
+            match: null,
+            quota: {
+              type: 'weekly_matches', limit: 1, windowDays: 7, exhausted: true,
+              nextAvailableAt: recentMatches.rows[0]?.next_available_at || null
+            }
+          });
+        }
+      }
+    }
+    await client.query(
+      'INSERT INTO likes (sender_id, target_id) VALUES ($1, $2) ON CONFLICT (sender_id, target_id) DO NOTHING',
+      [req.authUser.id, targetId]
+    );
+    if (!match) {
+      const createdMatch = await client.query(
+        `INSERT INTO matches (user_a_id, user_b_id, created_at)
+         VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid), clock_timestamp())
+         ON CONFLICT (user_a_id, user_b_id) DO NOTHING
+         RETURNING id, status, created_at AS "createdAt"`,
+        [req.authUser.id, targetId]
+      );
+      newlyCreatedMatchId = createdMatch.rows[0]?.id || null;
+      match = createdMatch.rows[0] || (await client.query(
+        `SELECT id, status, created_at AS "createdAt" FROM matches
+         WHERE user_a_id = LEAST($1::uuid, $2::uuid) AND user_b_id = GREATEST($1::uuid, $2::uuid)`,
+        [req.authUser.id, targetId]
+      )).rows[0] || null;
+    }
     if (match?.status === 'active') {
       // Notifications commit with the match while both account safety locks are held.
       await createNotification(req.authUser.id, 'new_match', { matchId: match.id }, 'match:' + match.id, client);
       await createNotification(targetId, 'new_match', { matchId: match.id }, 'match:' + match.id, client);
+    }
+    // A Trial/Premium period can expire naturally while this transaction is
+    // running; row locks cannot prevent a timestamp from passing. Recheck at
+    // the commit boundary and, if access expired, count prior matches while
+    // excluding the match just inserted by this transaction.
+    if (femaleWasPremiumAtQuotaCheck && femaleAccountForQuota?.gender === 'female') {
+      const finalQuotaClock = await client.query('SELECT clock_timestamp() AS quota_now');
+      if (!hasFemalePremiumAccess(
+        femaleAccountForQuota,
+        new Date(finalQuotaClock.rows[0].quota_now).getTime()
+      )) {
+        const recentMatchesAtCommit = await client.query(
+          `SELECT COUNT(*)::int AS count,
+                  MAX(created_at) + INTERVAL '7 days' AS next_available_at
+           FROM matches
+           WHERE (user_a_id = $1 OR user_b_id = $1)
+             AND created_at > $2::timestamptz - INTERVAL '7 days'
+             AND ($3::uuid IS NULL OR id <> $3::uuid)`,
+          [
+            femaleUserIdForQuota,
+            finalQuotaClock.rows[0].quota_now,
+            newlyCreatedMatchId
+          ]
+        );
+        if (!canCreateFemaleFreeMatch(recentMatchesAtCommit.rows[0]?.count)) {
+          await client.query('ROLLBACK');
+          return res.status(429).json({
+            error: 'weekly_match_limit_reached',
+            liked: false,
+            matched: false,
+            match: null,
+            quota: {
+              type: 'weekly_matches', limit: 1, windowDays: 7, exhausted: true,
+              nextAvailableAt: recentMatchesAtCommit.rows[0]?.next_available_at || null
+            }
+          });
+        }
+      }
+    }
+    if (await femaleExposurePolicyChangedAtCommit(client, actor, exposurePolicy)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'quota_policy_changed_retry' });
     }
     await client.query('COMMIT');
     return res.status(201).json({
@@ -2675,7 +3143,7 @@ app.post('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, re
   }
 });
 
-app.delete('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+app.delete('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, requireSession, async (req, res) => {
   const targetId = req.params.targetId;
   if (!isUuid(targetId) || targetId === req.authUser.id) return res.status(400).json({ error: 'invalid_target_id' });
   let client;
@@ -2727,27 +3195,30 @@ app.delete('/api/likes/:targetId', profileActionLimiter, validateRequestOrigin, 
   }
 });
 
-app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, requireSession, async (req, res) => {
   let client;
   try {
     client = await pool.connect();
     await client.query('BEGIN');
-    const actorIdentity = await client.query(
-      `SELECT p.gender, iv.status AS identity_status, iv.provider_environment AS identity_environment,
+    const actorIdentityPreflight = await client.query(
+      `SELECT p.user_id AS id, p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime,
+              iv.status AS identity_status, iv.provider_environment AS identity_environment,
               l3.status AS l3_status, l3.expires_at AS l3_expires_at
-       FROM profiles p LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id
+       LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
        LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
-       WHERE p.user_id = $1 FOR SHARE OF p`,
+       WHERE p.user_id = $1 `,
       [req.authUser.id]
     );
-    const identityActor = actorIdentity.rows[0];
+    const identityActor = actorIdentityPreflight.rows[0];
     if (!identityActor || !canIdentityInteract({
       gender: identityActor.gender, status: identityActor.identity_status, environment: identityActor.identity_environment, l3Status: identityActor.l3_status, l3ExpiresAt: identityActor.l3_expires_at
     })) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
     }
-    await client.query('BEGIN');
+
     const preview = await client.query(
       `SELECT action_type AS "actionType", target_id AS id
        FROM (
@@ -2767,8 +3238,29 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
       return res.status(404).json({ error: 'no_discovery_action_to_undo' });
     }
     await acquireGiftSafetyUserLocks(client, req.authUser.id, previewAction.id);
+    const actorIdentity = await client.query(
+      `SELECT p.user_id AS id, p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime,
+              iv.status AS identity_status, iv.provider_environment AS identity_environment,
+              l3.status AS l3_status, l3.expires_at AS l3_expires_at
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id
+       LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
+       WHERE p.user_id = $1 FOR SHARE OF p`,
+      [req.authUser.id]
+    );
+    const lockedIdentityActor = actorIdentity.rows[0];
+    if (!lockedIdentityActor || !canIdentityInteract({
+      gender: lockedIdentityActor.gender, status: lockedIdentityActor.identity_status, environment: lockedIdentityActor.identity_environment, l3Status: lockedIdentityActor.l3_status, l3ExpiresAt: lockedIdentityActor.l3_expires_at
+    })) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
+    }
+
     const actor = await client.query(
-      "SELECT u.id, p.gender FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.id = $1 AND u.status = 'active' FOR SHARE OF u, p",
+      `SELECT u.id, p.gender, u.female_trial_ends_at, u.premium_until, u.premium_lifetime
+       FROM users u JOIN profiles p ON p.user_id = u.id
+       WHERE u.id = $1 AND u.status = 'active' FOR SHARE OF u, p`,
       [req.authUser.id]
     );
     if (!actor.rows[0]) {
@@ -2831,7 +3323,6 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'profile_not_available' });
     }
-
     if (action.actionType === 'like') {
       const removed = await client.query(
         `DELETE FROM likes l
@@ -2873,8 +3364,41 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
       return res.status(500).json({ error: 'unknown_discovery_action' });
     }
 
+    // Reserve only after the undo mutation is ready to commit, minimizing the
+    // gap between recording the new UTC-day exposure and returning the card.
+    const exposure = await reserveFemaleProfileExposure(client, actor.rows[0], profileResult.rows[0].id);
+    if (!exposure.allowed) {
+      await client.query('ROLLBACK');
+      return res.status(429).json({
+        error: 'daily_profile_limit_reached',
+        dailyQuota: { limit: FEMALE_FREE_DAILY_PROFILE_LIMIT, used: exposure.used, remaining: 0, timezone: 'UTC' }
+      });
+    }
+    if (actor.rows[0].gender === 'female') {
+      const finalPolicyClock = await client.query(
+        `SELECT policy_now, (policy_now AT TIME ZONE 'UTC')::date AS exposure_date
+         FROM (SELECT ${FEMALE_POLICY_CLOCK_SQL} AS policy_now) AS policy_clock`
+      );
+      const quotaRequiredAtCommit = actor.rows[0].gender === 'female' &&
+        !hasFemalePremiumAccess(actor.rows[0], new Date(finalPolicyClock.rows[0].policy_now).getTime());
+      if (quotaRequiredAtCommit !== exposure.quotaApplied ||
+          (quotaRequiredAtCommit && String(finalPolicyClock.rows[0].exposure_date) !== String(exposure.exposureDate))) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'quota_policy_changed_retry' });
+      }
+    }
+
     await client.query('COMMIT');
-    return res.json({ type: action.actionType, profile: profileResult.rows[0] });
+    return res.json({
+      type: action.actionType,
+      profile: profileResult.rows[0],
+      dailyQuota: exposure.used === null ? null : {
+        limit: FEMALE_FREE_DAILY_PROFILE_LIMIT,
+        used: exposure.used,
+        remaining: remainingFemaleDailyProfiles(exposure.used),
+        timezone: 'UTC'
+      }
+    });
   } catch (error) {
     if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Discovery undo failed:', error?.message || 'unknown error');
@@ -2884,7 +3408,7 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
   }
 });
 
-app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) => {
+app.get('/api/matches', requireSession, async (req, res) => {
   let client;
   try {
     client = await pool.connect();
@@ -2957,7 +3481,7 @@ app.get('/api/matches', requireSession, requirePaidFeatures, async (req, res) =>
   }
 });
 
-app.get('/api/matches/:matchId/messages', requireSession, requirePaidFeatures, async (req, res) => {
+app.get('/api/matches/:matchId/messages', requireSession, async (req, res) => {
   if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
   const limit = Math.min(100, Math.max(1, Number.parseInt(String(req.query.limit ?? '50'), 10) || 50));
   const offset = Math.min(5000, Math.max(0, Number.parseInt(String(req.query.offset ?? '0'), 10) || 0));
@@ -3092,6 +3616,20 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
       [req.params.matchId, req.authUser.id, recipientId]
     );
     if (access.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'match_not_found' });
+    }
+    // Blocking either participant must stop new messages as well as history reads.
+    // Both account-safety locks are already held, so this check is serialized
+    // with block/unblock operations and cannot race a newly committed block.
+    const block = await client.query(
+      `SELECT 1 FROM user_blocks
+       WHERE (blocker_id = $1 AND blocked_id = $2)
+          OR (blocker_id = $2 AND blocked_id = $1)
+       LIMIT 1`,
+      [req.authUser.id, recipientId]
+    );
+    if (block.rowCount) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'match_not_found' });
     }

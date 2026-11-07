@@ -714,6 +714,60 @@ test('server discovery filters stay collapsed until requested and close after se
   await expect(page.locator('#server-discovery-filters')).toHaveCount(0);
 });
 
+test('server discovery refreshes its free daily quota automatically at UTC midnight', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-11-06T23:59:30.000Z') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  let searchRequests = 0;
+  let utcDayHasRolledOver = false;
+  await page.route('**/api/profiles/search**', async route => {
+    searchRequests += 1;
+    const used = utcDayHasRolledOver ? 0 : 3;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        profiles: [],
+        dailyQuota: { limit: 3, used, remaining: 3 - used, timezone: 'UTC' }
+      })
+    });
+  });
+
+  await page.goto('/');
+  await page.getByTestId('server-discovery-search').click();
+  await expect.poll(() => searchRequests).toBeGreaterThan(0);
+  await expect(page.getByRole('status').filter({ hasText: 'Free discovery:' }))
+    .toContainText('3/3 profiles issued today');
+
+  utcDayHasRolledOver = true;
+  await page.clock.runFor(31_000);
+  await expect.poll(() => searchRequests).toBeGreaterThan(1);
+  await expect(page.getByRole('status').filter({ hasText: 'Free discovery:' }))
+    .toContainText('0/3 profiles issued today');
+});
+
+test('server discovery shows the server-confirmed free daily quota and UTC reset', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let searchRequests = 0;
+  await page.route('**/api/profiles/search**', async route => {
+    searchRequests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        profiles: [],
+        dailyQuota: { limit: 3, used: 3, remaining: 0, timezone: 'UTC' }
+      })
+    });
+  });
+
+  await page.goto('/');
+  await page.getByTestId('server-discovery-search').click();
+  await expect.poll(() => searchRequests).toBeGreaterThan(0);
+  const quotaStatus = page.getByText(/Free discovery: 3\/3 profiles issued today \(UTC\)\. 0 remaining\./i).locator('..');
+  await expect(quotaStatus).toBeVisible();
+  await expect(quotaStatus).toContainText(/resets at 00:00 UTC/i);
+});
+
 test('server discovery swipe mode collapses and restores profile photos vertically', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/profiles/search**', async route => {

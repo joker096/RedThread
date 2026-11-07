@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getLatestBirthDateInputValue, isAccountUser, isBillingStatus, normalizeAccountUser } from './AccountAccessPanel.tsx';
@@ -187,4 +188,19 @@ test('normalizes whitespace in validated account identity and location fields', 
 test('normalization rejects invalid account payloads', () => {
   assert.equal(normalizeAccountUser({ ...validUser(), email: '   ' }), null);
   assert.equal(normalizeAccountUser(null), null);
+});
+
+
+test('registration explains the 90-day account recreation restriction and retry date', async () => {
+  const source = await readFile(new URL('./AccountAccessPanel.tsx', import.meta.url), 'utf8');
+  assert.match(source, /data\?\.error === 'account_recreation_restricted'/);
+  assert.match(source, /authAccountRecreationRestrictedAt/);
+  assert.match(source, /formatDate\(new Date\(data\.retryAt\)/);
+  assert.match(source, /timeStyle: 'short'/, 'the retry message must include the exact local time, not only the calendar date');
+});
+
+
+test('account deletion confirmation discloses the 90-day same-email restriction', async () => {
+  const source = await readFile(new URL('./AccountAccessPanel.tsx', import.meta.url), 'utf8');
+  assert.match(source, /authDeleteConfirm.*authDeleteCooldownNotice/s);
 });

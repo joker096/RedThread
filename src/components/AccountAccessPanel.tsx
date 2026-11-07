@@ -185,6 +185,14 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
           children_status_required: t('authChildrenStatusRequired'),
           invalid_family_format: t('authFamilyFormatRequired')
         };
+        if (data?.error === 'account_recreation_restricted') {
+          const retryAt = typeof data?.retryAt === 'string' && Number.isFinite(Date.parse(data.retryAt))
+            ? formatDate(new Date(data.retryAt), { dateStyle: 'medium', timeStyle: 'short' })
+            : null;
+          throw new Error(retryAt
+            ? t('authAccountRecreationRestrictedAt').replace('{date}', retryAt)
+            : t('authAccountRecreationRestricted'));
+        }
         if (data?.error === 'email_verification_required' || data?.error === 'verification_email_delivery_failed') setCanResendVerification(true);
         throw new Error(errors[data?.error] || t('authRequestFailed'));
       }
@@ -276,7 +284,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       setDeleteNotice(t('authDeletePasswordRequired'));
       return;
     }
-    const confirmed = window.confirm(t('authDeleteConfirm'));
+    const confirmed = window.confirm(`${t('authDeleteConfirm')}\n\n${t('authDeleteCooldownNotice')}`);
     if (!confirmed) return;
     auxiliaryRequestIdRef.current += 1;
     const actionId = ++sessionActionIdRef.current;

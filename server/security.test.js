@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  createAccountReuseDigest,
   createSessionToken,
   hashPassword,
   hashSessionToken,
@@ -69,4 +70,16 @@ test('session tokens are opaque and stored hashes are not the raw token', () => 
   assert.equal(digest.length, 64);
   assert.notEqual(digest, token);
   assert.notEqual(hashSessionToken(createSessionToken()), digest);
+});
+
+
+test('account reuse digest is keyed, normalized, and fails closed without a strong stable key', () => {
+  const key = 'a'.repeat(64);
+  const digest = createAccountReuseDigest('  User@Example.COM ', key);
+  assert.match(digest, /^[a-f0-9]{64}$/);
+  assert.equal(digest, createAccountReuseDigest('user@example.com', key));
+  assert.notEqual(digest, createAccountReuseDigest('user@example.com', 'b'.repeat(64)));
+  assert.equal(createAccountReuseDigest('user@example.com', ''), null);
+  assert.equal(createAccountReuseDigest('user@example.com', 'short'), null);
+  assert.equal(createAccountReuseDigest('', key), null);
 });
