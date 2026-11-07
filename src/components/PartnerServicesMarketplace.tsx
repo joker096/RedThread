@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 import {
-  X, Scale, Camera, Video, Shirt, Music2, MapPin, ShieldCheck,
-  FileCheck2, LockKeyhole, HeartHandshake, CalendarDays, BadgeCheck,
-  ChevronRight, Info, Upload, Wallet, CheckCircle2, AlertTriangle
+  X, Scale, Camera, Shirt, Music2, MapPin,
+  FileCheck2, LockKeyhole, HeartHandshake, BadgeCheck,
+  ChevronRight, Wallet, AlertTriangle
 } from 'lucide-react';
 
 type ServiceCategory = 'all' | 'legal' | 'dress' | 'photo' | 'host' | 'venue' | 'beauty' | 'cafe' | 'transport' | 'other';
@@ -94,7 +94,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
         if (!controller.signal.aborted) setPartnersLoading(false);
       });
     return () => controller.abort();
-  }, [isOpen, country, category]);
+  }, [isOpen, country, category, locale]);
 
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -197,10 +197,10 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
               <div>
                 <p className="text-[10px] uppercase tracking-[0.18em] text-rose-300 font-bold">{tr('Следующий этап для пары', 'The next step for your match')}</p>
                 <h2 id="partner-services-title" className="text-xl sm:text-2xl font-black text-white">{tr('Планирование свадьбы и юридические услуги', 'Wedding planning and legal services')}</h2>
-                <p id="partner-services-description" className="text-xs sm:text-sm text-stone-300 mt-1">Услуги для вас и {partnerName}. {tr('Запрос отправляется только выбранному поставщику.', 'Requests go only to the provider you choose.')}</p>
+                <p id="partner-services-description" className="text-xs sm:text-sm text-stone-300 mt-1">{tr('Услуги для вас и ' + partnerName + '. Запрос отправляется только выбранному поставщику.', 'Services for you and ' + partnerName + '. Requests go only to the provider you choose.')}</p>
               </div>
             </div>
-            <button type="button" onClick={onClose} className="flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-transparent bg-white/5 text-stone-300 hover:text-white focus-visible:border-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" aria-label="Закрыть"><X className="w-5 h-5" /></button>
+            <button type="button" onClick={onClose} className="flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-transparent bg-white/5 text-stone-300 hover:text-white focus-visible:border-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" aria-label={tr('Закрыть', 'Close')}><X className="w-5 h-5" /></button>
           </div>
           <div className="mt-4 flex gap-2 rounded-xl border border-emerald-700/30 bg-emerald-950/30 p-3 text-xs text-emerald-100">
             <LockKeyhole className="w-4 h-4 shrink-0 mt-0.5" />
@@ -236,7 +236,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
           <section aria-labelledby="published-partners-title" className="mb-6">
             <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
               <div><h3 id="published-partners-title" className="text-base font-bold text-white">{tr('Партнёры Vow', 'Vow partners')}</h3><p className="mt-1 text-xs text-stone-400">{tr('Опубликованные карточки', 'Published listings')} · {countryNames[country]}</p></div>
-              <p role="status" aria-live="polite" aria-atomic="true" className="text-xs text-stone-400">{partnersLoading ? '{tr('Загружаем каталог…', 'Loading directory…')}' : `${publishedPartners.length} партнёров`}</p>
+              <p role="status" aria-live="polite" aria-atomic="true" className="text-xs text-stone-400">{partnersLoading ? tr('Загружаем каталог…', 'Loading directory…') : formatNumber(publishedPartners.length) + ' ' + tr('партнёров', 'partners')}</p>
             </div>
             {partnersError && <p role="alert" className="mb-3 rounded-xl border border-amber-700/30 bg-amber-950/20 p-3 text-xs text-amber-100">{partnersError}</p>}
             {!partnersLoading && !partnersError && publishedPartners.length === 0 && <p role="status" className="mb-3 rounded-xl border border-white/10 bg-stone-950/50 p-4 text-sm text-stone-400">{tr('Опубликованных партнёров для выбранного фильтра пока нет.', 'No published partners match these filters yet.')}</p>}
@@ -252,7 +252,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                   <h4 className="mt-1 font-bold text-white">{provider.businessName}</h4>
                   <p className="mt-3 whitespace-pre-wrap break-words text-xs leading-relaxed text-stone-300">{provider.serviceDescription}</p>
                   <div className="mt-3 space-y-1 text-xs text-stone-300">
-                    {provider.priceFrom !== null && provider.priceFrom !== undefined && <p><strong className="text-white">{tr('Ориентир:', 'From:')}</strong> от {formatNumber(Number(provider.priceFrom))} {provider.priceCurrency}</p>}
+                    {provider.priceFrom !== null && provider.priceFrom !== undefined && <p><strong className="text-white">{tr('Ориентир:', 'Starting price:')}</strong> {tr('от', 'from')} {formatNumber(Number(provider.priceFrom))} {provider.priceCurrency}</p>}
                     {provider.serviceLanguages?.length > 0 && <p><strong className="text-white">{tr('Языки:', 'Languages:')}</strong> {provider.serviceLanguages.join(', ')}</p>}
                     {provider.availabilityNote && <p><strong className="text-white">{tr('Доступность:', 'Availability:')}</strong> {provider.availabilityNote}</p>}
                   </div>
@@ -269,14 +269,14 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
           {inquiryProvider && <form onSubmit={submitInquiry} className="mt-4 space-y-3 rounded-2xl border border-emerald-700/30 bg-stone-950/70 p-4">
             <div><h3 className="font-bold text-white">{tr('Запрос для ' + inquiryProvider.businessName, 'Request for ' + inquiryProvider.businessName)}</h3><p className="mt-1 text-xs text-stone-300">{tr('Опишите, что вам нужно. Не указывайте паспортные, платёжные или другие чувствительные данные.', 'Describe what you need. Do not include identity, payment or other sensitive information.')}</p></div>
             <label className="block text-xs font-semibold text-stone-200">{tr('Сообщение поставщику', 'Message to provider')}
-              <textarea required minLength={20} maxLength={2000} aria-describedby="partner-inquiry-note-count" value={inquiryNote} onChange={event => { inquiryRequestKey.current = null; setInquiryNote(event.target.value); }} rows={4} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300" placeholder="{tr('Например: хотим узнать цену и свободные даты для фотосъёмки.', 'For example: we would like to know the price and available dates for a photo session.')}" />
+              <textarea required minLength={20} maxLength={2000} aria-describedby="partner-inquiry-note-count" value={inquiryNote} onChange={event => { inquiryRequestKey.current = null; setInquiryNote(event.target.value); }} rows={4} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300" placeholder={tr('Например: хотим узнать цену и свободные даты для фотосъёмки.', 'For example: we would like to know the price and available dates for a photo session.')} />
               <span id="partner-inquiry-note-count" className="mt-1 block text-right text-[11px] font-normal text-stone-400">{inquiryNote.length}/2000</span>
             </label>
             <label className="block text-xs font-semibold text-stone-200">{tr('Желаемая дата (необязательно)', 'Preferred date (optional)')}
               <input type="date" value={serviceDate} onChange={event => { inquiryRequestKey.current = null; setServiceDate(event.target.value); }} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-900 px-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300" />
             </label>
             <label className="flex items-start gap-2 text-xs leading-relaxed text-stone-200"><input required type="checkbox" checked={shareContact} onChange={event => setShareContact(event.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-500" /><span>{tr('Я согласен(на) передать поставщику моё имя, email, желаемую дату и сообщение для ответа на запрос. Имя, контакты и переписка второго участника не передаются.', 'I consent to sharing my name, email, preferred date and message with this provider so they can respond. The other match participant\'s name, contact details and messages will not be shared.')}</span></label>
-            <div className="flex flex-wrap gap-2"><button type="submit" disabled={inquiryBusy || !shareContact || inquiryNote.trim().length < 20} className="min-h-11 rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{inquiryBusy ? '{tr('Отправляем…', 'Sending…')}' : '{tr('Отправить запрос', 'Send request')}'}</button><button type="button" onClick={() => setInquiryProvider(null)} disabled={inquiryBusy} className="min-h-11 rounded-lg border border-white/15 px-4 py-2 text-xs text-stone-200">{tr('Отмена', 'Cancel')}</button></div>
+            <div className="flex flex-wrap gap-2"><button type="submit" disabled={inquiryBusy || !shareContact || inquiryNote.trim().length < 20} className="min-h-11 rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{inquiryBusy ? tr('Отправляем…', 'Sending…') : tr('Отправить запрос', 'Send request')}</button><button type="button" onClick={() => setInquiryProvider(null)} disabled={inquiryBusy} className="min-h-11 rounded-lg border border-white/15 px-4 py-2 text-xs text-stone-200">{tr('Отмена', 'Cancel')}</button></div>
           </form>}
           <div className="mt-5 grid md:grid-cols-2 gap-3">
             <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-4">
