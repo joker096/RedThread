@@ -1461,6 +1461,9 @@ test('mobile photo toggle keeps a 44px minimum touch target when expanded and co
 test('mobile photo toggle and verification badge keep separate touch areas', async ({ page }) => {
   for (const viewport of [{ width: 320, height: 720 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'share', { configurable: true, value: undefined });
+    });
     await page.goto('/');
     await page.getByTestId('open-demo-preview').click();
 
@@ -2008,6 +2011,335 @@ test('gift request notification opens the chats request list without exposing re
   await expect(ordersPanel).toBeVisible();
   await page.getByRole('button', { name: 'Review gift' }).click();
   await expect.poll(async () => (await ordersPanel.boundingBox())?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(250);
+});
+
+
+test('date-plan notification opens only its matching active chat', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 });
+  const matchId = 'e2e-notification-date-match';
+  await page.route('**/api/notifications**', async route => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        notifications: [{
+          id: 'date-plan-notification-1',
+          type: 'date_plan_proposed',
+          createdAt: '2026-11-03T10:00:00.000Z',
+          readAt: null,
+          metadata: { matchId, datePlanId: 'private-plan-id', privateData: 'must-not-render' }
+        }],
+        unreadCount: 1
+      }) });
+      return;
+    }
+    await route.fulfill({ status: 204, body: '' });
+  });
+  await page.route('**/api/auth/me', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ user: { id: 'e2e-date-notification-user' } })
+  }));
+  await page.route('**/api/matches**', async route => {
+    if (new URL(route.request().url()).pathname !== '/api/matches') return route.continue();
+    await route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ matches: [{
+        id: matchId, partnerId: 'e2e-date-notification-partner', displayName: 'Date Plan Match',
+        age: 31, country: 'Georgia', city: 'Tbilisi', lastMessage: null, lastMessageAt: null
+      }] })
+    });
+  });
+  await page.route('**/api/matches/' + matchId + '/messages**', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ messages: [] })
+  }));
+  await page.route('**/api/matches/' + matchId + '/date-plan**', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({
+      datePlan: null, userAId: 'e2e-date-notification-user', userBId: 'e2e-date-notification-partner'
+    })
+  }));
+
+  await page.goto('/');
+  const chatsButton = page.locator('[data-testid="nav-chats"]:visible, [data-testid="mobile-nav-chats"]:visible').first();
+  await expect(chatsButton).toBeVisible();
+  await chatsButton.click();
+  await expect(page.getByTestId('server-match-item')).toBeVisible();
+  const openPlan = page.getByRole('button', { name: 'You received a date plan proposal.' });
+  await expect(openPlan).toBeVisible();
+  await openPlan.click();
+
+  await expect(page.getByTestId('server-match-item')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('date-plan-panel')).toBeVisible();
+  await expect(page.getByText('must-not-render')).toHaveCount(0);
+  const dimensions = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    document: document.documentElement.scrollWidth
+  }));
+  expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport + 1);
+});
+
+test('switching chats cannot render a stale date plan from the previous match', async ({ page }) => {
+  const oldMatchId = 'e2e-stale-date-plan-old-match';
+  const newMatchId = 'e2e-stale-date-plan-new-match';
+  let releaseOldPlan!: () => void;
+  let markOldRequestStarted!: () => void;
+  const oldPlanGate = new Promise<void>(resolve => { releaseOldPlan = resolve; });
+  const oldRequestStarted = new Promise<void>(resolve => { markOldRequestStarted = resolve; });
+
+  await page.route('**/api/auth/me', route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ user: { id: 'e2e-stale-date-plan-user' } })
+  }));
+  await page.route('**/api/notifications**', route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ notifications: [], unreadCount: 0 })
+  }));
+  await page.route('**/api/matches**', async route => {
+    if (new URL(route.request().url()).pathname !== '/api/matches') return route.continue();
+    await route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ matches: [
+      { id: oldMatchId, partnerId: 'old-partner', displayName: 'Old Match', age: 30, country: 'Georgia', city: 'Tbilisi', lastMessage: null, lastMessageAt: null },
+      { id: newMatchId, partnerId: 'new-partner', displayName: 'New Match', age: 31, country: 'Georgia', city: 'Tbilisi', lastMessage: null, lastMessageAt: null }
+    ] })
+    });
+  });
+  await page.route('**/api/matches/*/messages**', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ messages: [] })
+  }));
+  await page.route('**/api/matches/*/date-plan**', async route => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname.endsWith('/' + oldMatchId + '/date-plan')) {
+      markOldRequestStarted();
+      await oldPlanGate;
+      await route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({
+          datePlan: {
+            id: 'old-plan', proposedBy: 'e2e-stale-date-plan-user',
+            venueName: 'Stale Old Venue', startsAt: '2026-11-05T14:00:00.000Z',
+            timeZone: 'Asia/Tbilisi', status: 'proposed',
+            confirmedByAAt: null, confirmedByBAt: null
+          },
+          userAId: 'e2e-stale-date-plan-user', userBId: 'old-partner'
+        })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({
+        datePlan: {
+          id: 'new-plan', proposedBy: 'e2e-stale-date-plan-user',
+          venueName: 'Current Public Cafe', startsAt: '2026-11-06T14:00:00.000Z',
+          timeZone: 'Asia/Tbilisi', status: 'proposed',
+          confirmedByAAt: null, confirmedByBAt: null
+        },
+        userAId: 'e2e-stale-date-plan-user', userBId: 'new-partner'
+      })
+    });
+  });
+
+  await page.goto('/');
+  const chatsButton = page.locator('[data-testid="nav-chats"]:visible, [data-testid="mobile-nav-chats"]:visible').first();
+  await expect(chatsButton).toBeVisible();
+  await chatsButton.click();
+  await page.getByTestId('server-match-item').filter({ hasText: 'Old Match' }).click();
+  await oldRequestStarted;
+  // Mobile chat mode hides the conversation list until the user returns to it.
+  const backToConversations = page.getByRole('button', { name: /back to conversations|назад к перепискам/i });
+  if (await backToConversations.isVisible()) await backToConversations.click();
+  await page.getByTestId('server-match-item').filter({ hasText: 'New Match' }).click();
+  await expect(page.getByTestId('date-plan-panel')).toContainText('Current Public Cafe');
+
+  releaseOldPlan();
+  await expect(page.getByTestId('date-plan-panel')).toContainText('Current Public Cafe');
+  await expect(page.getByTestId('date-plan-panel')).not.toContainText('Stale Old Venue');
+});
+
+test('date plan requires both participants and resets confirmations after a change', async ({ browser }) => {
+  const matchId = 'e2e-date-plan-match';
+  const userAId = 'e2e-date-plan-user-a';
+  const userBId = 'e2e-date-plan-user-b';
+  let plan: null | {
+    id: string; proposedBy: string; venueName: string; startsAt: string; timeZone: string;
+    status: 'proposed' | 'confirmed'; confirmedByAAt: string | null; confirmedByBAt: string | null;
+  } = null;
+  let nextPlanId = 0;
+  const currentPlan = (): NonNullable<typeof plan> | null => plan;
+  const createParticipant = async (userId: string) => {
+    const context = await browser.newContext();
+    await context.addCookies([{ name: 'vow-date-plan-e2e-user', value: userId, url: 'http://127.0.0.1:4173' }]);
+    const page = await context.newPage();
+    await page.route('**/api/**', async route => {
+      const url = new URL(route.request().url());
+      const method = route.request().method();
+      const participant = route.request().headers()['cookie']?.includes(userAId) ? userAId : userBId;
+      if (url.pathname === '/api/auth/me') {
+        await route.fulfill({ json: { user: { id: participant } } }); return;
+      }
+      if (url.pathname === '/api/matches') {
+        await route.fulfill({ json: { matches: [{
+          id: matchId, partnerId: participant === userAId ? userBId : userAId,
+          displayName: 'Date Plan Test', age: 30, country: 'Georgia', city: 'Tbilisi',
+          lastMessage: null, lastMessageAt: null
+        }] } }); return;
+      }
+      if (url.pathname === '/api/matches/' + matchId + '/messages') {
+        await route.fulfill({ json: { messages: [] } }); return;
+      }
+      if (url.pathname === '/api/matches/' + matchId + '/date-plan' && method === 'GET') {
+        await route.fulfill({ json: { datePlan: plan, userAId, userBId, currentUserId: participant } }); return;
+      }
+      if (url.pathname === '/api/matches/' + matchId + '/date-plan' && method === 'POST') {
+        const body = route.request().postDataJSON();
+        nextPlanId += 1;
+        plan = {
+          id: 'e2e-plan-' + nextPlanId, proposedBy: participant,
+          venueName: body.venueName, startsAt: body.startsAt, timeZone: 'Asia/Tbilisi',
+          status: 'proposed', confirmedByAAt: null, confirmedByBAt: null
+        };
+        await route.fulfill({ status: 201, json: { datePlan: plan } }); return;
+      }
+      if (url.pathname === '/api/matches/' + matchId + '/date-plan/cancel' && method === 'POST') {
+        plan = null;
+        await route.fulfill({ json: { cancelled: true } }); return;
+      }
+      if (url.pathname === '/api/matches/' + matchId + '/date-plan/decline' && method === 'POST') {
+        plan = null;
+        await route.fulfill({ json: { declined: true } }); return;
+      }
+      if (url.pathname === '/api/matches/' + matchId + '/date-plan/confirm' && method === 'POST') {
+        if (!plan || plan.status !== 'proposed') {
+          await route.fulfill({ status: 409, json: { error: 'date_plan_not_proposed' } }); return;
+        }
+        const stamp = new Date().toISOString();
+        if (participant === userAId) plan.confirmedByAAt ||= stamp;
+        else plan.confirmedByBAt ||= stamp;
+        if (plan.confirmedByAAt && plan.confirmedByBAt) plan.status = 'confirmed';
+        await route.fulfill({ json: { datePlan: plan } }); return;
+      }
+      await route.fulfill({ status: 404, json: { error: 'e2e_unhandled_api_route' } });
+    });
+    await page.goto('/');
+    const chatsButton = page.locator('[data-testid="nav-chats"]:visible, [data-testid="mobile-nav-chats"]:visible').first();
+    await expect(chatsButton).toBeVisible();
+    await chatsButton.click();
+    await page.getByTestId('server-match-item').click();
+    await expect(page.getByTestId('date-plan-panel')).toBeVisible();
+    return { context, page };
+  };
+
+  const participantA = await createParticipant(userAId);
+  const participantB = await createParticipant(userBId);
+  try {
+    // Verify the real date-plan controls at common narrow phone widths, not only desktop.
+    for (const width of [320, 360, 390]) {
+      await participantA.page.setViewportSize({ width, height: 800 });
+      await expect(participantA.page.getByTestId('date-plan-panel')).toBeVisible();
+      const dimensions = await participantA.page.evaluate(() => {
+        const viewport = document.documentElement.clientWidth;
+        const offenders = Array.from(document.body.querySelectorAll<HTMLElement>('*'))
+          .map(element => {
+            const rect = element.getBoundingClientRect();
+            return {
+              tag: element.tagName.toLowerCase(),
+              testId: element.dataset.testid || '',
+              className: typeof element.className === 'string' ? element.className.slice(0, 100) : '',
+              text: (element.innerText || '').trim().slice(0, 60),
+              left: Math.round(rect.left),
+              right: Math.round(rect.right),
+              width: Math.round(rect.width)
+            };
+          })
+          .filter(element => element.width > 0 && (element.left < -1 || element.right > viewport + 1))
+          .sort((a, b) => b.right - a.right)
+          .slice(0, 12);
+        return {
+          viewport,
+          document: document.documentElement.scrollWidth,
+          panel: document.querySelector('[data-testid="date-plan-panel"]')?.getBoundingClientRect().width ?? 0,
+          offenders
+        };
+      });
+      expect(dimensions.document, `date-plan panel overflows at ${width}px: ${JSON.stringify(dimensions)}`).toBeLessThanOrEqual(dimensions.viewport + 1);
+      expect(dimensions.panel).toBeLessThanOrEqual(width + 1);
+      const proposeButton = participantA.page.getByRole('button', { name: /propose date plan|предложить план встречи/i });
+      await expect(proposeButton).toBeVisible();
+      const touchTarget = await proposeButton.evaluate(element => {
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return {
+          rectHeight: rect.height,
+          offsetHeight: (element as HTMLElement).offsetHeight,
+          minHeight: style.minHeight,
+          height: style.height,
+          transform: style.transform,
+          parentTransform: element.parentElement ? getComputedStyle(element.parentElement).transform : 'none'
+        };
+      });
+      expect(touchTarget.rectHeight, `date-plan action must expose a 44px touch target: ${JSON.stringify(touchTarget)}`).toBeGreaterThanOrEqual(44);
+    }
+    await participantA.page.setViewportSize({ width: 390, height: 844 });
+    await participantA.page.getByLabel(/venue|место встречи/i).fill('Central Public Cafe');
+    const tomorrow = new Date(Date.now() + 48 * 60 * 60 * 1000);
+    const dateValue = String(tomorrow.getFullYear()) + '-' + String(tomorrow.getMonth() + 1).padStart(2, '0') + '-' + String(tomorrow.getDate()).padStart(2, '0') + 'T18:30';
+    await participantA.page.getByLabel(/date and time|дата и время/i).fill(dateValue);
+    await participantA.page.getByLabel(/public place|общественное место/i).check();
+    await participantA.page.getByRole('button', { name: /propose date plan|предложить план встречи/i }).click();
+    await expect(participantA.page.getByText(/both people must confirm|waiting for both|оба участника должны подтвердить|ожидаем подтверждения обоих/i)).toBeVisible();
+    await expect(participantA.page.getByTestId('date-plan-time')).toContainText('Asia/Tbilisi');
+    await expect(participantA.page.getByRole('button', { name: /^I confirm this plan$|^Подтверждаю этот план$/i })).toBeVisible();
+    await expect(participantA.page.getByRole('button', { name: /^Withdraw proposal$|^Отозвать предложение$/i })).toBeVisible();
+    await expect(participantA.page.getByRole('button', { name: /^Decline proposal$|^Отклонить предложение$/i })).toHaveCount(0);
+    participantA.page.on('dialog', dialog => dialog.accept());
+    await participantA.page.getByRole('button', { name: /^Withdraw proposal$|^Отозвать предложение$/i }).click();
+    await expect(participantA.page.getByText(/date plan was cancelled|план встречи отменён/i)).toBeVisible();
+
+    await participantA.page.getByRole('button', { name: /propose date plan|предложить план встречи/i }).click();
+    await expect(participantA.page.getByText(/both people must confirm|waiting for both|оба участника должны подтвердить|ожидаем подтверждения обоих/i)).toBeVisible();
+    await participantB.page.getByTestId('date-plan-refresh').click();
+    await expect(participantB.page.getByRole('button', { name: /^Decline proposal$|^Отклонить предложение$/i })).toBeVisible();
+    await expect(participantB.page.getByRole('button', { name: /^Withdraw proposal$|^Отозвать предложение$/i })).toHaveCount(0);
+    await expect(participantB.page.getByText('Central Public Cafe')).toBeVisible();
+    await participantB.page.getByRole('button', { name: /^I confirm this plan$|^Подтверждаю этот план$/i }).click();
+    await expect(participantB.page.getByText(/both people must confirm|one person has confirmed|waiting for both|ожидаем подтверждения обоих|один участник/i)).toBeVisible();
+    await expect(participantB.page.getByRole('button', { name: /^Cancel date plan$|^Отменить план встречи$/i })).toBeVisible();
+    await expect(participantB.page.getByRole('button', { name: /^Decline proposal$|^Отклонить предложение$/i })).toHaveCount(0);
+    expect(currentPlan()?.status).toBe('proposed');
+    expect(currentPlan()?.confirmedByAAt).toBeNull();
+    expect(currentPlan()?.confirmedByBAt).not.toBeNull();
+
+    await participantA.page.getByRole('button', { name: /^I confirm this plan$|^Подтверждаю этот план$/i }).click();
+    await expect(participantA.page.getByText(/confirmed by both|подтверждён обоими участниками|подтвержден обоими участниками/i).first()).toBeVisible();
+    expect(currentPlan()?.status).toBe('confirmed');
+
+    await participantA.context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const shareButton = participantA.page.getByTestId('date-plan-share');
+    await expect(shareButton).toBeVisible();
+    await shareButton.focus();
+    await expect(shareButton).toBeFocused();
+    const shareTarget = await shareButton.evaluate(element => element.getBoundingClientRect().height);
+    expect(shareTarget).toBeGreaterThanOrEqual(44);
+    await shareButton.press('Enter');
+    await expect(participantA.page.getByText(/plan is current|the plan is current|план актуален/i)).toBeVisible();
+    await expect(shareButton).toHaveText(/share verified plan|отправить проверенный план/i);
+    await shareButton.press('Enter');
+    await expect(participantA.page.getByText(/date plan copied|план скопирован/i)).toBeVisible();
+    const copiedPlan = await participantA.page.evaluate(() => navigator.clipboard.readText());
+    expect(copiedPlan).toContain('Central Public Cafe');
+    expect(copiedPlan).toContain('Asia/Tbilisi');
+    expect(copiedPlan).toContain('Vow does not track');
+    expect(copiedPlan).not.toContain(userAId);
+    expect(copiedPlan).not.toContain(userBId);
+
+    await participantA.page.getByLabel(/venue|место встречи/i).fill('Riverside Public Cafe');
+    // Changing the venue invalidates the previous public-place attestation.
+    await participantA.page.getByLabel(/public place|общественное место/i).check();
+    await participantA.page.getByRole('button', { name: /update proposal|изменить предложение/i }).click();
+    await expect(participantA.page.getByText(/both people must confirm|waiting for both|оба участника должны подтвердить|ожидаем подтверждения обоих/i)).toBeVisible();
+    expect(currentPlan()?.status).toBe('proposed');
+    expect(currentPlan()?.confirmedByAAt).toBeNull();
+    expect(currentPlan()?.confirmedByBAt).toBeNull();
+  } finally {
+    await participantA.context.close();
+    await participantB.context.close();
+  }
 });
 
 test('real Vow inbox supports search, conversation filters and mobile chat navigation', async ({ page }) => {
