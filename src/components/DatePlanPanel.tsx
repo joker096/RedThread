@@ -28,6 +28,7 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
   const [notice, setNotice] = useState('');
   const [shareNotice, setShareNotice] = useState('');
   const [shareReadyPlan, setShareReadyPlan] = useState<DatePlan | null>(null);
+  const [shareReadyAt, setShareReadyAt] = useState(0);
   const [shareChecking, setShareChecking] = useState(false);
   const refreshRequestId = useRef(0);
   const refresh = useCallback(async () => {
@@ -43,7 +44,8 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
       const next = data?.datePlan;
       const nextPlan = next && typeof next.id === 'string' ? next as DatePlan : null;
       setPlan(nextPlan);
-      setShareReadyPlan(current => current && nextPlan?.id === current.id && nextPlan.status === 'confirmed' ? current : null);
+      setShareReadyPlan(null);
+      setShareReadyAt(0);
       setUserAId(typeof data?.userAId === 'string' ? data.userAId : '');
       setUserBId(typeof data?.userBId === 'string' ? data.userBId : '');
       if (next) {
@@ -93,23 +95,32 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
     // First tap revalidates the plan with the server. A second explicit tap
     // invokes navigator.share while the browser's transient user activation
     // is still available; awaiting fetch before navigator.share breaks this.
-    if (!shareReadyPlan || shareReadyPlan.id !== plan.id) {
+    if (!shareReadyPlan || shareReadyPlan.id !== plan.id || Date.now() - shareReadyAt > 10_000) {
       if (shareChecking || saving) return;
       setShareChecking(true);
       try {
         const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/date-plan`, { credentials: 'include' });
         const data = await response.json().catch(() => null);
         const latest = data?.datePlan as DatePlan | null | undefined;
-        if (!response.ok || !latest || latest.id !== plan.id || latest.status !== 'confirmed') {
+        if (!response.ok) {
           setShareReadyPlan(null);
+          setShareReadyAt(0);
+          setShareNotice(t('datePlanShareUnavailable'));
+          return;
+        }
+        if (!latest || latest.id !== plan.id || latest.status !== 'confirmed') {
+          setShareReadyPlan(null);
+          setShareReadyAt(0);
           setPlan(latest && typeof latest.id === 'string' ? latest : null);
           setShareNotice(t('datePlanShareStale'));
           return;
         }
         setShareReadyPlan(latest);
+        setShareReadyAt(Date.now());
         setShareNotice(t('datePlanShareReady'));
       } catch {
         setShareReadyPlan(null);
+        setShareReadyAt(0);
         setShareNotice(t('datePlanShareUnavailable'));
       } finally {
         setShareChecking(false);
@@ -118,6 +129,7 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
     }
     const confirmedPlan = shareReadyPlan;
     setShareReadyPlan(null);
+    setShareReadyAt(0);
     const text = buildDatePlanShareText({
       venueName: confirmedPlan.venueName,
       dateTime: formatDate(confirmedPlan.startsAt, { dateStyle: 'medium', timeStyle: 'short', timeZone: confirmedPlan.timeZone }),
