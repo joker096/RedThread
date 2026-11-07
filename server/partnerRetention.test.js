@@ -29,13 +29,17 @@ test('partner retention cleanup removes inquiries before stale applications in o
     'inquiries for expired unpublished applications must be removed before their application rows');
   assert.match(fake.calls[1].sql, /status = 'rejected'/);
   assert.match(fake.calls[1].sql, /status IN \('pending', 'in_review'\)/);
-  assert.doesNotMatch(fake.calls[1].sql, /status\s*=\s*'approved'/,
-    'inquiry cleanup must not cascade from approved applications');
+  assert.match(fake.calls[1].sql, /status = 'approved' AND published_at IS NULL/,
+    'inquiry cleanup may cascade only from stale approved applications that are no longer published');
+  assert.doesNotMatch(fake.calls[1].sql, /status = 'approved' AND published_at IS NOT NULL/,
+    'inquiry cleanup must preserve inquiries for published applications');
   assert.deepEqual(fake.calls[1].values, [180, 180, 365]);
   assert.match(fake.calls[2].sql, /status = 'rejected'/);
   assert.match(fake.calls[2].sql, /status IN \('pending', 'in_review'\)/);
-  assert.doesNotMatch(fake.calls[2].sql, /status\s*=\s*'approved'/,
-    'retention cleanup must never delete approved applications that may back published listings');
+  assert.match(fake.calls[2].sql, /status = 'approved' AND published_at IS NULL/,
+    'retention cleanup may delete stale approved applications only after unpublication');
+  assert.doesNotMatch(fake.calls[2].sql, /status = 'approved' AND published_at IS NOT NULL/,
+    'retention cleanup must never delete published approved listings');
   assert.deepEqual(fake.calls[2].values, [180, 365]);
   assert.equal(fake.calls[3].sql, 'COMMIT');
   assert.equal(fake.wasReleased(), true);
