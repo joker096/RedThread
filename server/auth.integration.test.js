@@ -6,7 +6,7 @@ import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { ASSESSMENT_OPTIONS } from './relationshipAssessment.js';
-import { hashSessionToken } from './security.js';
+import { createAccountReuseDigest, hashSessionToken } from './security.js';
 
 const { Pool } = pg;
 
@@ -30,12 +30,17 @@ test('auth API supports registration, session lookup, logout and login', {
   const port = await findFreePort();
   const origin = 'http://localhost:3000';
   const api = `http://127.0.0.1:${port}`;
+  const accountReuseTestKey = 'a'.repeat(64);
+  const serverDatabaseUrl = new URL(process.env.DATABASE_URL);
+  serverDatabaseUrl.searchParams.set('application_name', 'vow-auth-integration');
   const child = spawn(process.execPath, ['server/index.js'], {
     env: {
       ...process.env,
       API_PORT: String(port),
       APP_ORIGIN: origin,
       NODE_ENV: 'test',
+      DATABASE_URL: serverDatabaseUrl.toString(),
+      ACCOUNT_REUSE_HMAC_KEY: accountReuseTestKey,
       PG_STATEMENT_TIMEOUT_MS: '8000'
     },
     stdio: 'ignore'
@@ -54,6 +59,8 @@ test('auth API supports registration, session lookup, logout and login', {
   }
 
   let identityGateDb;
+  let quotaExhaustionMaleUserId = null;
+  let concurrentQuotaMaleUserId = null;
   try {
     let healthy = false;
     for (let attempt = 0; attempt < 80; attempt += 1) {
@@ -1467,6 +1474,17 @@ test('auth API supports registration, session lookup, logout and login', {
       statement_timeout: 8_000,
       query_timeout: 10_000
     });
+    const weeklyQuotaIndexes = await identityGateDb.query(
+      `SELECT indexname FROM pg_indexes
+       WHERE schemaname = current_schema() AND tablename = 'matches'
+         AND indexname = ANY($1::text[])`,
+      [['matches_user_a_created_at_idx', 'matches_user_b_created_at_idx']]
+    );
+    assert.deepEqual(
+      weeklyQuotaIndexes.rows.map(row => row.indexname).sort(),
+      ['matches_user_a_created_at_idx', 'matches_user_b_created_at_idx'],
+      'the rolling seven-day match quota must be indexed for both match participants'
+    );
     for (const userId of [maleRegistered.user.id, secondMaleRegistered.user.id]) {
       await identityGateDb.query(
         "INSERT INTO identity_verifications (user_id, provider, provider_session_id, workflow_id, status, provider_status, provider_environment) VALUES ($1, 'didit', $2, $3, 'verified', 'Approved', 'live')",
@@ -1943,6 +1961,8 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(secondSearchPage.status, 200);
     const firstPageData = await firstSearchPage.json();
     const secondPageData = await secondSearchPage.json();
+    assert.equal(firstPageData.dailyQuota ?? null, null,
+      'an active female trial must bypass the free daily profile quota');
     assert.equal(firstPageData.profiles.length, 1);
     assert.equal(secondPageData.profiles.length, 0,
       'the second page must not expose the L2-only male profile excluded by the active L3 visibility gate');
@@ -2031,6 +2051,252 @@ test('auth API supports registration, session lookup, logout and login', {
       'a male account without live L2 verification must not invoke discovery undo');
     await identityGateDb.query("UPDATE identity_verifications SET status = 'verified', provider_environment = 'live' WHERE user_id = $1", [maleRegistered.user.id]);
 
+    // Reset only the test database's profile-action limiter so this long
+    // integration scenario can exercise quota boundaries without a false 429.
+    await identityGateDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'profile:%'");
+    await identityGateDb.query(
+      "UPDATE users SET female_trial_ends_at = NOW() - INTERVAL '1 second' WHERE id = $1",
+      [registered.user.id]
+    );
+    const freeTierProfileSearch = await request('/api/profiles/search?minAge=36&maxAge=36&limit=1&offset=0', {
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(freeTierProfileSearch.status, 200);
+    const freeTierProfilePayload = await freeTierProfileSearch.json();
+    assert.ok(freeTierProfilePayload.dailyQuota);
+    assert.equal(freeTierProfilePayload.dailyQuota.limit, 3);
+    assert.ok(freeTierProfilePayload.profiles.some(profile => profile.id === maleRegistered.user.id),
+      'a free-tier woman can still receive eligible profiles within her daily allowance');
+    assert.equal(freeTierProfilePayload.dailyQuota.used, 1,
+      'the first search consumes one slot for its one actually issued profile');
+    const secondFreeTierPage = await request('/api/profiles/search?minAge=36&maxAge=36&limit=1&offset=1', {
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(secondFreeTierPage.status, 200);
+    const secondFreeTierPagePayload = await secondFreeTierPage.json();
+    assert.equal(secondFreeTierPagePayload.profiles.length, 0,
+      'pagination must advance past the first issued profile instead of repeating it');
+    assert.equal(secondFreeTierPagePayload.dailyQuota.used, 1,
+      'an empty next page must not consume another daily exposure slot');
+
+    // Fill the remaining two ledger slots with profiles that are no longer
+    // eligible for this search (one is outside the age filter, the other has
+    // no live L2 verification). Previously issued profiles still count for
+    // the UTC day even after they stop matching the current filters.
+    const quotaExhaustionMaleRegistration = await request('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: `quota-exhaustion-male-${randomUUID()}@example.test`,
+        password,
+        displayName: 'Анкета без проверки',
+        birthDate: '1990-08-20',
+        gender: 'male',
+        country: 'Грузия',
+        city: 'Тбилиси',
+        relationshipIntent: 'family_without_marriage',
+        familyFormat: 'cohabitation',
+        hasChildren: false,
+        wantsChildren: 'yes',
+        childrenLivingArrangement: 'not_applicable'
+      })
+    });
+    assert.equal(quotaExhaustionMaleRegistration.status, 201);
+    const quotaExhaustionMale = await quotaExhaustionMaleRegistration.json();
+    quotaExhaustionMaleUserId = quotaExhaustionMale.user.id;
+    const seededRemainingExposures = await identityGateDb.query(
+      `WITH utc_day AS MATERIALIZED (
+         SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date
+       )
+       INSERT INTO female_profile_exposures (user_id, profile_user_id, exposure_date)
+       SELECT $1::uuid, $2::uuid, exposure_date FROM utc_day
+       UNION ALL
+       SELECT $1::uuid, $3::uuid, exposure_date FROM utc_day
+       ON CONFLICT (user_id, exposure_date, profile_user_id) DO NOTHING
+       RETURNING profile_user_id`,
+      [registered.user.id, secondMaleRegistered.user.id, quotaExhaustionMale.user.id]
+    );
+    assert.equal(seededRemainingExposures.rowCount, 2);
+
+    const repeatedFreeTierSearch = await request('/api/profiles/search?minAge=36&maxAge=36&limit=3', {
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(repeatedFreeTierSearch.status, 200);
+    const repeatedFreeTierPayload = await repeatedFreeTierSearch.json();
+    assert.deepEqual(
+      repeatedFreeTierPayload.profiles.map(profile => profile.id),
+      freeTierProfilePayload.profiles.map(profile => profile.id),
+      'reloading the same page must return the same already-issued profiles'
+    );
+    assert.equal(repeatedFreeTierPayload.dailyQuota.used, 3,
+      'the daily quota remains exhausted when only previously issued profiles match the current filters');
+    assert.equal(repeatedFreeTierPayload.dailyQuota.remaining, 0);
+
+    await identityGateDb.query(
+      "UPDATE users SET premium_until = NOW() + INTERVAL '1 day' WHERE id = $1",
+      [registered.user.id]
+    );
+    const premiumDailyQuotaSearch = await request('/api/profiles/search?minAge=36&maxAge=36&limit=3', {
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(premiumDailyQuotaSearch.status, 200);
+    const premiumDailyQuotaPayload = await premiumDailyQuotaSearch.json();
+    assert.equal(premiumDailyQuotaPayload.dailyQuota ?? null, null,
+      'an active Lady Premium subscription must bypass the daily profile quota');
+    await identityGateDb.query(
+      'UPDATE users SET premium_until = NULL WHERE id = $1',
+      [registered.user.id]
+    );
+
+    // Concurrent requests for the same discovery page must serialize on the
+    // account-safety lock and reserve each profile exposure only once.
+    const parallelSearchResponses = await Promise.all([
+      request('/api/profiles/search?minAge=36&maxAge=36&limit=3', { headers: { Cookie: secondCookie } }),
+      request('/api/profiles/search?minAge=36&maxAge=36&limit=3', { headers: { Cookie: secondCookie } }),
+      request('/api/profiles/search?minAge=36&maxAge=36&limit=3', { headers: { Cookie: secondCookie } })
+    ]);
+    for (const response of parallelSearchResponses) assert.equal(response.status, 200);
+    const parallelSearchPayloads = await Promise.all(parallelSearchResponses.map(response => response.json()));
+    for (const payload of parallelSearchPayloads) {
+      assert.deepEqual(
+        payload.profiles.map(profile => profile.id),
+        freeTierProfilePayload.profiles.map(profile => profile.id),
+        'parallel reloads must return the same already-issued discovery profiles'
+      );
+      assert.equal(payload.dailyQuota.used, repeatedFreeTierPayload.dailyQuota.used,
+        'parallel reloads must not over-count or reserve duplicate daily profile exposures');
+      assert.equal(payload.dailyQuota.remaining, 0,
+        'parallel searches must not reopen an exhausted daily quota');
+    }
+
+    const persistedDailyExposures = await identityGateDb.query(
+      `SELECT COUNT(*)::int AS count
+       FROM female_profile_exposures
+       WHERE user_id = $1 AND exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date`,
+      [registered.user.id]
+    );
+    assert.equal(persistedDailyExposures.rows[0].count, repeatedFreeTierPayload.dailyQuota.used);
+
+    const femalePassIssuedProfile = await request(`/api/passes/${maleRegistered.user.id}`, {
+      method: 'POST', headers: { Cookie: secondCookie }
+    });
+    assert.equal(femalePassIssuedProfile.status, 204,
+      'free-tier women may pass a profile that was actually issued today');
+    const femaleUndoIssuedPass = await request('/api/passes/undo', {
+      method: 'POST', headers: { Cookie: secondCookie },
+      body: JSON.stringify({ targetId: maleRegistered.user.id })
+    });
+    assert.equal(femaleUndoIssuedPass.status, 200);
+    const femaleUndoIssuedPassPayload = await femaleUndoIssuedPass.json();
+    assert.equal(femaleUndoIssuedPassPayload.profile.id, maleRegistered.user.id);
+    assert.deepEqual(femaleUndoIssuedPassPayload.dailyQuota, repeatedFreeTierPayload.dailyQuota,
+      'undoing an already-issued pass does not consume another daily profile slot');
+
+    // Exercise entitlement expiry while the request is already inside its
+    // PostgreSQL transaction. The BEFORE INSERT trigger deliberately delays
+    // the write beyond the entitlement deadline; the commit-boundary policy
+    // check must reject the action and leave no like behind.
+    await identityGateDb.query(`
+      CREATE OR REPLACE FUNCTION vow_test_delay_female_like_insert()
+      RETURNS trigger LANGUAGE plpgsql AS $vow$
+      BEGIN
+        PERFORM pg_sleep(3);
+        RETURN NEW;
+      END;
+      $vow$;
+    `);
+    await identityGateDb.query(`
+      CREATE TRIGGER vow_test_delay_female_like_insert
+      BEFORE INSERT ON likes
+      FOR EACH ROW
+      WHEN (NEW.sender_id = '${registered.user.id}'::uuid
+        AND NEW.target_id = '${maleRegistered.user.id}'::uuid)
+      EXECUTE FUNCTION vow_test_delay_female_like_insert()
+    `);
+    try {
+      await identityGateDb.query(
+        "UPDATE users SET female_trial_ends_at = clock_timestamp() + INTERVAL '2 seconds', premium_until = NULL WHERE id = $1",
+        [registered.user.id]
+      );
+      const likeAfterTrialExpiry = await request(`/api/likes/${maleRegistered.user.id}`, {
+        method: 'POST', headers: { Cookie: secondCookie }
+      });
+      assert.equal(likeAfterTrialExpiry.status, 409,
+        'a like transaction that began during Trial must be rejected when Trial expires before commit');
+      assert.equal((await likeAfterTrialExpiry.json()).error, 'quota_policy_changed_retry');
+      const trialExpiryLike = await identityGateDb.query(
+        'SELECT 1 FROM likes WHERE sender_id = $1 AND target_id = $2',
+        [registered.user.id, maleRegistered.user.id]
+      );
+      assert.equal(trialExpiryLike.rowCount, 0,
+        'the delayed like must roll back after Trial expires');
+
+      await identityGateDb.query(
+        "UPDATE users SET female_trial_ends_at = clock_timestamp() - INTERVAL '1 second', premium_until = clock_timestamp() + INTERVAL '2 seconds' WHERE id = $1",
+        [registered.user.id]
+      );
+      const likeAfterPremiumExpiry = await request(`/api/likes/${maleRegistered.user.id}`, {
+        method: 'POST', headers: { Cookie: secondCookie }
+      });
+      assert.equal(likeAfterPremiumExpiry.status, 409,
+        'a like transaction that began during Lady Premium must be rejected when Premium expires before commit');
+      assert.equal((await likeAfterPremiumExpiry.json()).error, 'quota_policy_changed_retry');
+      const premiumExpiryLike = await identityGateDb.query(
+        'SELECT 1 FROM likes WHERE sender_id = $1 AND target_id = $2',
+        [registered.user.id, maleRegistered.user.id]
+      );
+      assert.equal(premiumExpiryLike.rowCount, 0,
+        'the delayed like must roll back after Lady Premium expires');
+    } finally {
+      await identityGateDb.query('DROP TRIGGER IF EXISTS vow_test_delay_female_like_insert ON likes');
+      await identityGateDb.query('DROP FUNCTION IF EXISTS vow_test_delay_female_like_insert()');
+      await identityGateDb.query(
+        "UPDATE users SET female_trial_ends_at = clock_timestamp() - INTERVAL '1 second', premium_until = NULL WHERE id = $1",
+        [registered.user.id]
+      );
+    }
+
+    // Force the server transaction's policy clock into the next UTC day
+    // from a PostgreSQL trigger on the same connection/transaction. This
+    // exercises the real commit-boundary guard without waiting for midnight.
+    await identityGateDb.query(`
+      CREATE OR REPLACE FUNCTION vow_test_roll_female_policy_clock()
+      RETURNS trigger LANGUAGE plpgsql AS $vow$
+      BEGIN
+        PERFORM set_config(
+          'vow.test_policy_now',
+          (date_trunc('day', clock_timestamp() AT TIME ZONE 'UTC') + INTERVAL '1 day' + INTERVAL '1 second')::text || ' UTC',
+          true
+        );
+        RETURN NEW;
+      END;
+      $vow$;
+    `);
+    await identityGateDb.query(`
+      CREATE TRIGGER vow_test_roll_female_policy_clock
+      BEFORE INSERT ON likes
+      FOR EACH ROW
+      WHEN (NEW.sender_id = '${registered.user.id}'::uuid
+        AND NEW.target_id = '${maleRegistered.user.id}'::uuid)
+      EXECUTE FUNCTION vow_test_roll_female_policy_clock()
+    `);
+    try {
+      const likeAcrossUtcMidnight = await request(`/api/likes/${maleRegistered.user.id}`, {
+        method: 'POST', headers: { Cookie: secondCookie }
+      });
+      assert.equal(likeAcrossUtcMidnight.status, 409,
+        'a free-tier like whose transaction crosses UTC midnight must be rejected for a fresh Discovery issue');
+      assert.equal((await likeAcrossUtcMidnight.json()).error, 'quota_policy_changed_retry');
+      const midnightLike = await identityGateDb.query(
+        'SELECT 1 FROM likes WHERE sender_id = $1 AND target_id = $2',
+        [registered.user.id, maleRegistered.user.id]
+      );
+      assert.equal(midnightLike.rowCount, 0,
+        'the like must roll back when the policy UTC date changes before commit');
+    } finally {
+      await identityGateDb.query('DROP TRIGGER IF EXISTS vow_test_roll_female_policy_clock ON likes');
+      await identityGateDb.query('DROP FUNCTION IF EXISTS vow_test_roll_female_policy_clock()');
+    }
+
     const firstLike = await request(`/api/likes/${maleRegistered.user.id}`, {
       method: 'POST',
       headers: { Cookie: secondCookie }
@@ -2072,6 +2338,20 @@ test('auth API supports registration, session lookup, logout and login', {
     const persistedLikeUndoPayload = await persistedLikeUndo.json();
     assert.equal(persistedLikeUndoPayload.type, 'like');
     assert.equal(persistedLikeUndoPayload.profile.id, maleRegistered.user.id);
+    assert.deepEqual(persistedLikeUndoPayload.dailyQuota, repeatedFreeTierPayload.dailyQuota,
+      'undoing an already-issued like preserves the idempotent daily exposure count');
+
+    const deletedViewedProfileId = quotaExhaustionMaleUserId;
+    await identityGateDb.query('DELETE FROM users WHERE id = $1', [deletedViewedProfileId]);
+    const retainedDeletedProfileExposure = await identityGateDb.query(
+      `SELECT COUNT(*)::int AS count
+       FROM female_profile_exposures
+       WHERE user_id = $1 AND profile_user_id = $2`,
+      [registered.user.id, deletedViewedProfileId]
+    );
+    assert.equal(retainedDeletedProfileExposure.rows[0].count, 1,
+      'hard deletion of a viewed profile must not refund another account daily exposure slot');
+    quotaExhaustionMaleUserId = null;
 
     const firstLikeThird = await request(`/api/likes/${maleRegistered.user.id}`, {
       method: 'POST',
@@ -2080,12 +2360,365 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(firstLikeThird.status, 201);
 
-    const reciprocalLike = await request(`/api/likes/${registered.user.id}`, {
-      method: 'POST',
-      headers: { Cookie: maleCookie }
+    // A recent match consumes the woman's rolling weekly allowance regardless
+    // of which participant sends the final reciprocal like.
+    const quotaSeedMatch = await identityGateDb.query(
+      `INSERT INTO matches (user_a_id, user_b_id)
+       VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid))
+       RETURNING id, created_at`,
+      [registered.user.id, secondMaleRegistered.user.id]
+    );
+    assert.equal(quotaSeedMatch.rowCount, 1);
+
+    await identityGateDb.query(
+      "UPDATE users SET female_trial_ends_at = NOW() + INTERVAL '1 day' WHERE id = $1",
+      [registered.user.id]
+    );
+    // A match created while the trial is active still occupies the rolling
+    // seven-day allowance immediately after the trial expires.
+    await identityGateDb.query(
+      'UPDATE matches SET created_at = statement_timestamp() WHERE id = $1',
+      [quotaSeedMatch.rows[0].id]
+    );
+    const trialMatchBypass = await request(`/api/likes/${registered.user.id}`, {
+      method: 'POST', headers: { Cookie: maleCookie }
     });
-    assert.equal(reciprocalLike.status, 201);
-    const matchPayload = await reciprocalLike.json();
+    assert.equal(trialMatchBypass.status, 201);
+    const trialMatchPayload = await trialMatchBypass.json();
+    assert.equal(trialMatchPayload.matched, true,
+      'an active female trial must bypass the weekly match quota');
+    assert.ok(trialMatchPayload.match.id);
+    await identityGateDb.query('DELETE FROM matches WHERE id = $1', [trialMatchPayload.match.id]);
+    await identityGateDb.query(
+      'DELETE FROM likes WHERE sender_id = $1 AND target_id = $2',
+      [maleRegistered.user.id, registered.user.id]
+    );
+    await identityGateDb.query(
+      "UPDATE users SET female_trial_ends_at = NOW() - INTERVAL '1 second' WHERE id = $1",
+      [registered.user.id]
+    );
+
+    await identityGateDb.query(
+      "UPDATE users SET premium_until = NOW() + INTERVAL '1 day' WHERE id = $1",
+      [registered.user.id]
+    );
+    // A match created while Lady Premium is active must still count after it expires.
+    await identityGateDb.query(
+      'UPDATE matches SET created_at = statement_timestamp() WHERE id = $1',
+      [quotaSeedMatch.rows[0].id]
+    );
+    const premiumMatchBypass = await request(`/api/likes/${registered.user.id}`, {
+      method: 'POST', headers: { Cookie: maleCookie }
+    });
+    assert.equal(premiumMatchBypass.status, 201);
+    const premiumMatchPayload = await premiumMatchBypass.json();
+    assert.equal(premiumMatchPayload.matched, true,
+      'an active Lady Premium subscription must bypass the weekly match quota');
+    assert.ok(premiumMatchPayload.match.id);
+    await identityGateDb.query('DELETE FROM matches WHERE id = $1', [premiumMatchPayload.match.id]);
+    await identityGateDb.query(
+      'DELETE FROM likes WHERE sender_id = $1 AND target_id = $2',
+      [maleRegistered.user.id, registered.user.id]
+    );
+    await identityGateDb.query(
+      "UPDATE users SET premium_until = NOW() - INTERVAL '1 second' WHERE id = $1",
+      [registered.user.id]
+    );
+
+    const maleFinalLikeAtQuota = await request(`/api/likes/${registered.user.id}`, {
+      method: 'POST', headers: { Cookie: maleCookie }
+    });
+    assert.equal(maleFinalLikeAtQuota.status, 429);
+    const maleQuotaPayload = await maleFinalLikeAtQuota.json();
+    assert.equal(maleQuotaPayload.error, 'weekly_match_limit_reached');
+    assert.equal(maleQuotaPayload.liked, false,
+      'the final like is not persisted while the weekly match quota is exhausted');
+    assert.equal(maleQuotaPayload.matched, false);
+    assert.equal(maleQuotaPayload.quota?.type, 'weekly_matches');
+    assert.equal(maleQuotaPayload.quota?.exhausted, true);
+    assert.ok(maleQuotaPayload.quota?.nextAvailableAt,
+      'the API reports when the counted matches leave the rolling seven-day window');
+    const expectedQuotaRelease = await identityGateDb.query(
+      `SELECT MAX(created_at) + INTERVAL '7 days' AS expected
+       FROM matches WHERE user_a_id = LEAST($1::uuid, $2::uuid)
+         AND user_b_id = GREATEST($1::uuid, $2::uuid)`,
+      [registered.user.id, secondMaleRegistered.user.id]
+    );
+    assert.equal(
+      Date.parse(maleQuotaPayload.quota.nextAvailableAt),
+      expectedQuotaRelease.rows[0].expected.getTime(),
+      'the retry time is seven days after the latest counted match, not the earliest one'
+    );
+    const maleLikeWasDeferred = await identityGateDb.query(
+      'SELECT 1 FROM likes WHERE sender_id = $1 AND target_id = $2',
+      [maleRegistered.user.id, registered.user.id]
+    );
+    assert.equal(maleLikeWasDeferred.rowCount, 0);
+    await identityGateDb.query('DELETE FROM matches WHERE id = $1', [quotaSeedMatch.rows[0].id]);
+
+    const maleRetryAfterQuota = await request(`/api/likes/${registered.user.id}`, {
+      method: 'POST', headers: { Cookie: maleCookie }
+    });
+    assert.equal(maleRetryAfterQuota.status, 201);
+    const maleInitiatedMatch = await maleRetryAfterQuota.json();
+    assert.equal(maleInitiatedMatch.matched, true);
+    assert.ok(maleInitiatedMatch.match.id);
+
+    // Repeat the same quota boundary with the woman sending the final like.
+    await identityGateDb.query('DELETE FROM matches WHERE id = $1', [maleInitiatedMatch.match.id]);
+    const secondQuotaSeedMatch = await identityGateDb.query(
+      `INSERT INTO matches (user_a_id, user_b_id)
+       VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid))
+       RETURNING id`,
+      [registered.user.id, secondMaleRegistered.user.id]
+    );
+    assert.equal(secondQuotaSeedMatch.rowCount, 1);
+    await identityGateDb.query('DELETE FROM likes WHERE sender_id = $1 AND target_id = $2',
+      [registered.user.id, maleRegistered.user.id]);
+    const femaleFinalLikeAtQuota = await request(`/api/likes/${maleRegistered.user.id}`, {
+      method: 'POST', headers: { Cookie: secondCookie }
+    });
+    assert.equal(femaleFinalLikeAtQuota.status, 429);
+    const femaleQuotaPayload = await femaleFinalLikeAtQuota.json();
+    assert.equal(femaleQuotaPayload.error, 'weekly_match_limit_reached');
+    assert.equal(femaleQuotaPayload.liked, false,
+      'the final like is not persisted when the woman is the participant sending it');
+    assert.equal(femaleQuotaPayload.matched, false);
+    assert.equal(femaleQuotaPayload.quota?.type, 'weekly_matches');
+    const femaleLikeWasDeferred = await identityGateDb.query(
+      'SELECT 1 FROM likes WHERE sender_id = $1 AND target_id = $2',
+      [registered.user.id, maleRegistered.user.id]
+    );
+    assert.equal(femaleLikeWasDeferred.rowCount, 0);
+    assert.equal(femaleQuotaPayload.quota?.exhausted, true);
+    await identityGateDb.query('DELETE FROM matches WHERE id = $1', [secondQuotaSeedMatch.rows[0].id]);
+
+    // Two different male accounts race to create a match with the same
+    // free-tier woman when her final weekly match slot is available.
+    const concurrentMaleRegistration = await request('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: `concurrent-quota-male-${randomUUID()}@example.test`,
+        password,
+        displayName: 'Третья проверенная анкета',
+        birthDate: '1992-04-12',
+        gender: 'male',
+        country: 'Грузия',
+        city: 'Тбилиси',
+        relationshipIntent: 'family_without_marriage',
+        familyFormat: 'cohabitation',
+        hasChildren: false,
+        wantsChildren: 'yes',
+        childrenLivingArrangement: 'not_applicable'
+      })
+    });
+    assert.equal(concurrentMaleRegistration.status, 201);
+    const concurrentMale = await concurrentMaleRegistration.json();
+    concurrentQuotaMaleUserId = concurrentMale.user.id;
+    const concurrentMaleCookie = concurrentMaleRegistration.headers.get('set-cookie')?.split(';')[0];
+    assert.ok(concurrentMaleCookie?.startsWith('nit_session='));
+    await identityGateDb.query(
+      `INSERT INTO identity_verifications
+         (user_id, provider, provider_session_id, workflow_id, status, provider_status, provider_environment)
+       VALUES ($1, 'didit', $2, $3, 'verified', 'Approved', 'live')`,
+      [concurrentMale.user.id, randomUUID(), randomUUID()]
+    );
+    await identityGateDb.query(
+      'INSERT INTO identity_l3_consents (user_id, consent_version, granted_at) VALUES ($1, 2, statement_timestamp())',
+      [concurrentMale.user.id]
+    );
+    const concurrentMaleSubmissionId = randomUUID();
+    await identityGateDb.query(
+      'INSERT INTO identity_l3_submissions (id, user_id) VALUES ($1, $2)',
+      [concurrentMaleSubmissionId, concurrentMale.user.id]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'upload_authorized' WHERE id = $1",
+      [concurrentMaleSubmissionId]
+    );
+    await identityGateDb.query(
+      `UPDATE identity_l3_submissions
+       SET status = 'uploaded', storage_object_key = $2, media_sha256 = repeat('c', 64),
+           media_mime_type = 'video/mp4', media_size_bytes = 1024,
+           media_duration_seconds = 30, uploaded_at = NOW()
+       WHERE id = $1`,
+      [concurrentMaleSubmissionId, `test-only/${concurrentMaleSubmissionId}`]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'processing' WHERE id = $1",
+      [concurrentMaleSubmissionId]
+    );
+    await identityGateDb.query(
+      "UPDATE identity_l3_submissions SET status = 'pending_review', processing_completed_at = NOW() WHERE id = $1",
+      [concurrentMaleSubmissionId]
+    );
+    await identityGateDb.query(
+      `UPDATE identity_l3_submissions
+       SET status = 'approved', reviewed_by = $2, reviewed_at = NOW(),
+           decision_reason_code = 'integration_test_concurrent_quota',
+           approved_at = NOW(), expires_at = NOW() + INTERVAL '6 months'
+       WHERE id = $1`,
+      [concurrentMaleSubmissionId, randomUUID()]
+    );
+    const concurrentMaleAccess = await request('/api/trust/summary', {
+      headers: { Cookie: concurrentMaleCookie }
+    });
+    assert.equal(concurrentMaleAccess.status, 200);
+    assert.equal((await concurrentMaleAccess.json()).identity.l3.status, 'approved',
+      'the second race participant must have a real active L3 approval');
+
+    const concurrentQuotaMaleIds = [maleRegistered.user.id, concurrentMale.user.id];
+    await identityGateDb.query(
+      `DELETE FROM matches
+       WHERE (user_a_id = $1 AND user_b_id = ANY($2::uuid[]))
+          OR (user_b_id = $1 AND user_a_id = ANY($2::uuid[]))`,
+      [registered.user.id, concurrentQuotaMaleIds]
+    );
+    await identityGateDb.query(
+      'DELETE FROM likes WHERE (sender_id = $1 AND target_id = ANY($2::uuid[])) OR (sender_id = ANY($2::uuid[]) AND target_id = $1)',
+      [registered.user.id, concurrentQuotaMaleIds]
+    );
+    await identityGateDb.query(
+      'INSERT INTO likes (sender_id, target_id) VALUES ($3, $1), ($3, $2)',
+      [...concurrentQuotaMaleIds, registered.user.id]
+    );
+    const concurrentReciprocalPreconditions = await identityGateDb.query(
+      'SELECT target_id FROM likes WHERE sender_id = $1 AND target_id = ANY($2::uuid[])',
+      [registered.user.id, concurrentQuotaMaleIds]
+    );
+    assert.equal(concurrentReciprocalPreconditions.rowCount, 2,
+      'both distinct male accounts must have a reciprocal like persisted before the race');
+    const weeklyMatchesBeforeRace = await identityGateDb.query(
+      `SELECT COUNT(*)::int AS count FROM matches
+       WHERE (user_a_id = $1 OR user_b_id = $1)
+         AND created_at >= statement_timestamp() - INTERVAL '7 days'`,
+      [registered.user.id]
+    );
+    assert.equal(weeklyMatchesBeforeRace.rows[0].count, 0,
+      'the test woman must have no recent match before racing for her final weekly slot');
+    try {
+      const competingFinalLikes = await Promise.all([
+        request(`/api/likes/${registered.user.id}`, {
+          method: 'POST', headers: { Cookie: maleCookie }
+        }),
+        request(`/api/likes/${registered.user.id}`, {
+          method: 'POST', headers: { Cookie: concurrentMaleCookie }
+        })
+      ]);
+      assert.deepEqual(competingFinalLikes.map(response => response.status).sort(), [201, 429],
+        'the winning match is created and the quota-rejected final like returns HTTP 429');
+      const competingPayloads = await Promise.all(competingFinalLikes.map(response => response.json()));
+      assert.equal(competingPayloads.filter(payload => payload.matched === true).length, 1,
+        `exactly one distinct pair may consume the final weekly match slot; responses: ${JSON.stringify(competingPayloads)}`);
+      const losingPayload = competingPayloads.find(payload => payload.quota?.type === 'weekly_matches');
+      assert.ok(losingPayload, 'the losing pair must receive the weekly quota response');
+      assert.equal(losingPayload.liked, false,
+        'the losing final reciprocal like must not be persisted');
+      const persistedCompetingMatches = await identityGateDb.query(
+        `SELECT user_a_id, user_b_id FROM matches
+         WHERE (user_a_id = $1 AND user_b_id = ANY($2::uuid[]))
+            OR (user_b_id = $1 AND user_a_id = ANY($2::uuid[]))`,
+        [registered.user.id, concurrentQuotaMaleIds]
+      );
+      assert.equal(persistedCompetingMatches.rowCount, 1,
+        "only one match row may be created for the woman's final weekly slot");
+      const persistedMaleFinalLikes = await identityGateDb.query(
+        'SELECT sender_id FROM likes WHERE target_id = $1 AND sender_id = ANY($2::uuid[])',
+        [registered.user.id, concurrentQuotaMaleIds]
+      );
+      assert.equal(persistedMaleFinalLikes.rowCount, 1,
+        'only the winning male-originated final like may be persisted');
+      const weeklyQuotaAfterRace = await identityGateDb.query(
+        `SELECT COUNT(*)::int AS count FROM matches
+         WHERE (user_a_id = $1 OR user_b_id = $1)
+           AND created_at >= statement_timestamp() - INTERVAL '7 days'`,
+        [registered.user.id]
+      );
+      assert.equal(weeklyQuotaAfterRace.rows[0].count, 1,
+        'the concurrent race must leave the woman with exactly one new match in the rolling window');
+    } finally {
+      await identityGateDb.query(
+        `DELETE FROM matches
+         WHERE (user_a_id = $1 AND user_b_id = ANY($2::uuid[]))
+            OR (user_b_id = $1 AND user_a_id = ANY($2::uuid[]))`,
+        [registered.user.id, concurrentQuotaMaleIds]
+      );
+      await identityGateDb.query(
+        'DELETE FROM likes WHERE (sender_id = $1 AND target_id = ANY($2::uuid[])) OR (sender_id = ANY($2::uuid[]) AND target_id = $1)',
+        [registered.user.id, concurrentQuotaMaleIds]
+      );
+    }
+
+    // Two identical reciprocal likes race for one pair. The account locks
+    // and unique match key must make the operation idempotent under concurrency.
+    // The second male fixture is intentionally L3-revoked earlier in this test,
+    // so it must not be used as a likeable target here.
+    const concurrentQuotaTargetId = maleRegistered.user.id;
+    await identityGateDb.query(
+      `DELETE FROM matches
+       WHERE user_a_id = LEAST($1::uuid, $2::uuid)
+         AND user_b_id = GREATEST($1::uuid, $2::uuid)`,
+      [registered.user.id, concurrentQuotaTargetId]
+    );
+    // Preserve (or restore) the male's reciprocal like: the following
+    // sequential retry assertion relies on it after this concurrency check.
+    await identityGateDb.query(
+      'DELETE FROM likes WHERE sender_id = $1 AND target_id = $2',
+      [registered.user.id, concurrentQuotaTargetId]
+    );
+    await identityGateDb.query(
+      'INSERT INTO likes (sender_id, target_id) VALUES ($1, $2) ON CONFLICT (sender_id, target_id) DO NOTHING',
+      [concurrentQuotaTargetId, registered.user.id]
+    );
+    try {
+      const concurrentFinalLikeResponses = await Promise.all([
+        request(`/api/likes/${concurrentQuotaTargetId}`, {
+          method: 'POST', headers: { Cookie: secondCookie }
+        }),
+        request(`/api/likes/${concurrentQuotaTargetId}`, {
+          method: 'POST', headers: { Cookie: secondCookie }
+        })
+      ]);
+      for (const response of concurrentFinalLikeResponses) assert.equal(response.status, 201);
+      const concurrentFinalLikePayloads = await Promise.all(
+        concurrentFinalLikeResponses.map(response => response.json())
+      );
+      assert.equal(
+        concurrentFinalLikePayloads.filter(payload => payload.matched === true).length,
+        2,
+        'both retries must observe the same successfully created mutual match'
+      );
+      assert.equal(
+        concurrentFinalLikePayloads[0].match.id,
+        concurrentFinalLikePayloads[1].match.id,
+        'concurrent duplicate likes must return the same match id'
+      );
+      const concurrentCreatedMatches = await identityGateDb.query(
+        `SELECT id FROM matches
+         WHERE user_a_id = LEAST($1::uuid, $2::uuid)
+           AND user_b_id = GREATEST($1::uuid, $2::uuid)`,
+        [registered.user.id, concurrentQuotaTargetId]
+      );
+      assert.equal(concurrentCreatedMatches.rowCount, 1,
+        'the database must contain exactly one match after concurrent duplicate likes');
+    } finally {
+      await identityGateDb.query(
+        `DELETE FROM matches
+         WHERE user_a_id = LEAST($1::uuid, $2::uuid)
+           AND user_b_id = GREATEST($1::uuid, $2::uuid)`,
+        [registered.user.id, concurrentQuotaTargetId]
+      );
+      await identityGateDb.query(
+        'DELETE FROM likes WHERE sender_id = $1 AND target_id = $2',
+        [registered.user.id, concurrentQuotaTargetId]
+      );
+    }
+
+    const femaleRetryAfterQuota = await request(`/api/likes/${maleRegistered.user.id}`, {
+      method: 'POST', headers: { Cookie: secondCookie }
+    });
+    assert.equal(femaleRetryAfterQuota.status, 201);
+    const matchPayload = await femaleRetryAfterQuota.json();
     assert.equal(matchPayload.matched, true);
     assert.ok(matchPayload.match.id);
 
@@ -2129,6 +2762,46 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.equal(Object.hasOwn(visibleMatch, privateOrUnusedField), false,
         `the inbox API must not expose unused profile or match field: ${privateOrUnusedField}`);
     }
+
+    const existingChatMessage = await request(`/api/matches/${matchPayload.match.id}/messages`, {
+      method: 'POST',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({ text: 'Продолжаем общение после достижения недельной квоты.' })
+    });
+    assert.equal(existingChatMessage.status, 201,
+      'the weekly match quota must not disable messaging in an already-created active chat');
+    const existingChatMessagePayload = await existingChatMessage.json();
+    assert.equal(existingChatMessagePayload.message.text,
+      'Продолжаем общение после достижения недельной квоты.');
+    const existingChatHistory = await request(`/api/matches/${matchPayload.match.id}/messages`, {
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(existingChatHistory.status, 200);
+    assert.ok((await existingChatHistory.json()).messages.some(message => message.id === existingChatMessagePayload.message.id),
+      'messages in an existing match remain readable after the weekly match quota is reached');
+
+    await identityGateDb.query(
+      'INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [registered.user.id, maleRegistered.user.id]
+    );
+    for (const [cookie, label] of [[secondCookie, 'blocker'], [maleCookie, 'blocked participant']]) {
+      const blockedChatMessage = await request(`/api/matches/${matchPayload.match.id}/messages`, {
+        method: 'POST',
+        headers: { Cookie: cookie },
+        body: JSON.stringify({ text: `Сообщение после блокировки: ${label}` })
+      });
+      assert.equal(blockedChatMessage.status, 404,
+        'neither participant may send a message after either side blocks the pair');
+    }
+    const blockedChatHistory = await request(`/api/matches/${matchPayload.match.id}/messages`, {
+      headers: { Cookie: secondCookie }
+    });
+    assert.equal(blockedChatHistory.status, 404,
+      'blocked conversations must remain unavailable for history reads');
+    await identityGateDb.query(
+      'DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2',
+      [registered.user.id, maleRegistered.user.id]
+    );
 
     const outsiderRegistration = await request('/api/auth/register', {
       method: 'POST',
@@ -2189,9 +2862,8 @@ test('auth API supports registration, session lookup, logout and login', {
       headers: { Cookie: secondCookie }
     });
     assert.equal(readMessages.status, 200);
-    const legacyHistory = (await readMessages.json()).messages;
-    assert.equal(legacyHistory.some(message => message.id === sentMessage.id), true);
-
+    assert.equal((await readMessages.json()).messages.some(message => message.id === sentMessage.id), true);
+    
     const latestHistoryResponse = await request(
       `/api/matches/${matchPayload.match.id}/messages?limit=100&latest=true`,
       { headers: { Cookie: secondCookie } }
@@ -2200,7 +2872,7 @@ test('auth API supports registration, session lookup, logout and login', {
     const latestHistory = (await latestHistoryResponse.json()).messages;
     const cursorMessage = latestHistory.find(message => message.id === sentMessage.id);
     assert.ok(cursorMessage, 'latest history must include the newly sent message');
-    assert.match(cursorMessage.cursorCreatedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/,
+    assert.match(cursorMessage.cursorCreatedAt, /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$/,
       'keyset cursors must preserve PostgreSQL microsecond precision');
 
     const olderHistoryResponse = await request(
@@ -2213,67 +2885,39 @@ test('auth API supports registration, session lookup, logout and login', {
 
     const longMessageText = 'Буду рад обсудить планы на выходные и выбрать удобное место для встречи. '.repeat(8);
     const longMessageResponse = await request(`/api/matches/${matchPayload.match.id}/messages`, {
-      method: 'POST',
-      headers: { Cookie: maleCookie },
-      body: JSON.stringify({ text: longMessageText })
+      method: 'POST', headers: { Cookie: maleCookie }, body: JSON.stringify({ text: longMessageText })
     });
     assert.equal(longMessageResponse.status, 201);
     const longMessageMatchesResponse = await request('/api/matches', { headers: { Cookie: secondCookie } });
     assert.equal(longMessageMatchesResponse.status, 200);
-    const longMessageMatch = (await longMessageMatchesResponse.json()).matches
-      .find(match => match.id === matchPayload.match.id);
+    const longMessageMatch = (await longMessageMatchesResponse.json()).matches.find(match => match.id === matchPayload.match.id);
     assert.ok(longMessageMatch);
-    assert.equal(longMessageMatch.lastMessage.length, 240,
-      'the inbox preview must be capped at 240 characters instead of returning the full private message');
+    assert.equal(longMessageMatch.lastMessage.length, 240);
     const fullHistoryResponse = await request(
       `/api/matches/${matchPayload.match.id}/messages?limit=100&latest=true`,
       { headers: { Cookie: secondCookie } }
     );
     assert.equal(fullHistoryResponse.status, 200);
-    assert.equal((await fullHistoryResponse.json()).messages
-      .some(message => message.text === longMessageText.trim()), true,
-      'the full message must remain available in the authorized conversation history');
+    assert.equal((await fullHistoryResponse.json()).messages.some(message => message.text === longMessageText.trim()), true);
 
     const malformedHistoryCursor = await request(
       `/api/matches/${matchPayload.match.id}/messages?latest=true&beforeCreatedAt=${encodeURIComponent(cursorMessage.cursorCreatedAt)}`,
       { headers: { Cookie: secondCookie } }
     );
-    assert.equal(malformedHistoryCursor.status, 400,
-      'a partial cursor must be rejected instead of silently returning the newest page');
+    assert.equal(malformedHistoryCursor.status, 400);
 
-    const originalFemaleEntitlement = await identityGateDb.query(
-      'SELECT female_trial_ends_at, premium_until, premium_lifetime FROM users WHERE id = $1',
-      [registered.user.id]
-    );
-    assert.equal(originalFemaleEntitlement.rowCount, 1);
-    try {
-      await identityGateDb.query(
-        `UPDATE users SET female_trial_ends_at = NOW() - INTERVAL '1 day',
-           premium_until = NULL, premium_lifetime = FALSE WHERE id = $1`,
-        [registered.user.id]
-      );
-      const expiredFemaleSend = await request(`/api/matches/${matchPayload.match.id}/messages`, {
-        method: 'POST',
-        headers: { Cookie: secondCookie },
-        body: JSON.stringify({ text: 'Обход ограничения подписки через прямой POST' })
-      });
-      assert.equal(expiredFemaleSend.status, 402,
-        'an expired free female account must not bypass the paid-feature gate by posting directly to the message API');
-      assert.equal((await expiredFemaleSend.json()).error, 'premium_required');
-    } finally {
-      const entitlement = originalFemaleEntitlement.rows[0];
-      await identityGateDb.query(
-        'UPDATE users SET female_trial_ends_at = $2, premium_until = $3, premium_lifetime = $4 WHERE id = $1',
-        [registered.user.id, entitlement.female_trial_ends_at, entitlement.premium_until, entitlement.premium_lifetime]
-      );
-    }
-    const activeTrialFemaleSend = await request(`/api/matches/${matchPayload.match.id}/messages`, {
+
+    const femaleReplyAfterTrial = await request(`/api/matches/${matchPayload.match.id}/messages`, {
       method: 'POST',
       headers: { Cookie: secondCookie },
-      body: JSON.stringify({ text: 'Спасибо, что написали. Буду рада продолжить знакомство.' })
+      body: JSON.stringify({ text: 'Спасибо за сообщение! Продолжим знакомство.' })
     });
-    assert.equal(activeTrialFemaleSend.status, 201,
-      'a female account with an active trial must retain authorized messaging access');
+    assert.equal(femaleReplyAfterTrial.status, 201,
+      'an expired female trial must not block sending messages in an already-created match');
+    await identityGateDb.query(
+      "UPDATE users SET female_trial_ends_at = NOW() + INTERVAL '1 day' WHERE id = $1",
+      [registered.user.id]
+    );
 
     const noSessionMessages = await request(`/api/matches/${matchPayload.match.id}/messages`);
     assert.equal(noSessionMessages.status, 401);
@@ -2681,12 +3325,29 @@ test('auth API supports registration, session lookup, logout and login', {
       await giftSafetyDb.end();
     }
 
+    const issuedExposureBeforeBlock = await identityGateDb.query(
+      `SELECT COUNT(*)::int AS count FROM female_profile_exposures
+       WHERE user_id = $1 AND profile_user_id = $2
+         AND exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date`,
+      [registered.user.id, maleRegistered.user.id]
+    );
+    assert.equal(issuedExposureBeforeBlock.rows[0].count, 1,
+      'the block scenario must target a profile already charged to the daily allowance');
+
     const block = await request(`/api/blocks/${maleRegistered.user.id}`, {
       method: 'POST',
       headers: { Cookie: secondCookie },
       body: JSON.stringify({})
     });
     assert.equal(block.status, 204);
+    const issuedExposureAfterBlock = await identityGateDb.query(
+      `SELECT COUNT(*)::int AS count FROM female_profile_exposures
+       WHERE user_id = $1 AND profile_user_id = $2
+         AND exposure_date = (statement_timestamp() AT TIME ZONE 'UTC')::date`,
+      [registered.user.id, maleRegistered.user.id]
+    );
+    assert.equal(issuedExposureAfterBlock.rows[0].count, 1,
+      'blocking an issued profile must not refund the consumed daily slot');
 
     const blockedList = await request('/api/blocks', { headers: { Cookie: secondCookie } });
     assert.equal(blockedList.status, 200);
@@ -3104,6 +3765,19 @@ test('auth API supports registration, session lookup, logout and login', {
         'SELECT COUNT(*)::int AS count FROM messages WHERE match_id = $1 AND sender_id = $2',
         [matchPayload.match.id, registered.user.id]
       );
+      // Soft deletion must purge exposure rows both owned by the account and
+      // rows that retain its UUID as the viewed profile.
+      await deletionSafetyDb.query(
+        `WITH utc_day AS MATERIALIZED (
+           SELECT (statement_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date
+         )
+         INSERT INTO female_profile_exposures (user_id, profile_user_id, exposure_date)
+         SELECT $1::uuid, $2::uuid, exposure_date FROM utc_day
+         UNION ALL
+         SELECT $3::uuid, $1::uuid, exposure_date FROM utc_day
+         ON CONFLICT (user_id, exposure_date, profile_user_id) DO NOTHING`,
+        [registered.user.id, maleRegistered.user.id, secondMaleRegistered.user.id]
+      );
       // Hold the same per-user safety lock so deletion is first in the
       // PostgreSQL advisory-lock queue, followed by already-authenticated
       // profile-update, photo-upload, message, assessment and login requests.
@@ -3298,6 +3972,18 @@ test('auth API supports registration, session lookup, logout and login', {
         staleGiftDecisionPromise
       ]);
       assert.equal(deleteAccount.status, 204);
+      const deletedAccountExposures = await deletionSafetyDb.query(
+        'SELECT COUNT(*)::int AS count FROM female_profile_exposures WHERE user_id = $1',
+        [registered.user.id]
+      );
+      assert.equal(deletedAccountExposures.rows[0].count, 0,
+        'account deletion must purge the deleted account own discovery history');
+      const otherUsersExposure = await deletionSafetyDb.query(
+        'SELECT COUNT(*)::int AS count FROM female_profile_exposures WHERE user_id = $1 AND profile_user_id = $2',
+        [secondMaleRegistered.user.id, registered.user.id]
+      );
+      assert.equal(otherUsersExposure.rows[0].count, 1,
+        'deleting a viewed profile must not refund another account daily quota before UTC expiry');
       assert.equal(staleGiftDecision.status, 401,
         'a decline authenticated before deletion must wait for the account safety lock and then be rejected');
       const deletedPendingDecisionOrder = await deletionSafetyDb.query(
@@ -3499,6 +4185,128 @@ test('auth API supports registration, session lookup, logout and login', {
     const deletedAccountMe = await request('/api/auth/me', { headers: { Cookie: secondCookie } });
     assert.equal(deletedAccountMe.status, 401);
 
+    // Account deletion must prevent a fresh account/trial on the same normalized
+    // email for 90 days, then permit registration after the exact expiry.
+    const reuseDigest = createAccountReuseDigest(email, accountReuseTestKey);
+    assert.match(reuseDigest, /^[a-f0-9]{64}$/);
+    const reuseRestriction = await identityGateDb.query(
+      'SELECT email_hmac, created_at, expires_at FROM account_reuse_restrictions WHERE email_hmac = $1',
+      [reuseDigest]
+    );
+    assert.equal(reuseRestriction.rowCount, 1,
+      'account deletion must persist one keyed email restriction');
+    assert.ok(reuseRestriction.rows[0].expires_at.getTime() > Date.now(),
+      'the account reuse restriction must still be active after deletion');
+    const reuseRestrictionDuration = reuseRestriction.rows[0].expires_at.getTime() -
+      reuseRestriction.rows[0].created_at.getTime();
+    assert.ok(reuseRestriction.rows[0].created_at.getTime() >= Date.now() - 2 * 60_000,
+      'the 90-day restriction must be created at the end of account deletion, not at transaction start');
+    assert.ok(reuseRestrictionDuration >= 90 * 24 * 60 * 60 * 1000 - 1_000 &&
+      reuseRestrictionDuration <= 90 * 24 * 60 * 60 * 1000 + 1_000,
+      'the restriction must retain the full 90-day interval from its creation timestamp');
+    assert.equal(JSON.stringify(reuseRestriction.rows[0]).includes(email), false,
+      'the restriction must not store the original email');
+
+    const registrationBodyAfterDeletion = {
+      email: email.toUpperCase(),
+      password,
+      displayName: 'Повторная регистрация',
+      birthDate: '1990-01-01',
+      gender: 'female',
+      country: 'Грузия',
+      city: 'Тбилиси',
+      relationshipIntent: 'family_without_marriage',
+      familyFormat: 'cohabitation',
+      hasChildren: false,
+      wantsChildren: 'yes',
+      childrenLivingArrangement: 'not_applicable'
+    };
+    await identityGateDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'auth:%'");
+    const blockedReRegistration = await request('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(registrationBodyAfterDeletion)
+    });
+    assert.equal(blockedReRegistration.status, 429);
+    const blockedReRegistrationPayload = await blockedReRegistration.json();
+    assert.equal(blockedReRegistrationPayload.error, 'account_recreation_restricted');
+    assert.ok(Date.parse(blockedReRegistrationPayload.retryAt) > Date.now());
+    assert.ok(Number(blockedReRegistration.headers.get('retry-after')) > 0);
+    assert.equal(Number(blockedReRegistration.headers.get('retry-after')),
+      blockedReRegistrationPayload.retryAfterSeconds,
+      'the HTTP Retry-After header and JSON response must use the same database-clock interval');
+
+    // Hold the same transaction advisory lock used by account deletion.
+    // Registration must wait, then observe the tombstone committed by deletion.
+    await identityGateDb.query('DELETE FROM account_reuse_restrictions WHERE email_hmac = $1', [reuseDigest]);
+    await identityGateDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'auth:%'");
+    const reuseLockClient = await identityGateDb.connect();
+    let reuseLockTransactionOpen = false;
+    try {
+      await reuseLockClient.query('BEGIN');
+      reuseLockTransactionOpen = true;
+      await reuseLockClient.query(
+        'SELECT pg_advisory_xact_lock(hashtext($1))',
+        [`account-reuse:${reuseDigest}`]
+      );
+      let concurrentRegistrationSettled = false;
+      const concurrentRegistration = request('/api/auth/register', {
+        method: 'POST',
+        body: JSON.stringify(registrationBodyAfterDeletion)
+      }).then(response => {
+        concurrentRegistrationSettled = true;
+        return response;
+      });
+      let advisoryWaitObserved = false;
+      for (let attempt = 0; attempt < 80; attempt += 1) {
+        const waiting = await identityGateDb.query(
+          `SELECT COUNT(*)::int AS count
+           FROM pg_stat_activity
+           WHERE application_name = 'vow-auth-integration'
+             AND wait_event_type = 'Lock' AND wait_event = 'advisory'
+             AND query ILIKE '%pg_advisory_xact_lock%'`
+        );
+        if (waiting.rows[0].count > 0) {
+          advisoryWaitObserved = true;
+          break;
+        }
+        if (concurrentRegistrationSettled) break;
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+      assert.equal(advisoryWaitObserved, true,
+        'registration must be observed waiting on PostgreSQL advisory lock before deletion commits');
+      assert.equal(concurrentRegistrationSettled, false,
+        'registration must remain pending while deletion holds the per-email advisory lock');
+      await reuseLockClient.query(
+        `INSERT INTO account_reuse_restrictions (email_hmac, expires_at)
+         VALUES ($1, clock_timestamp() + INTERVAL '90 days')`,
+        [reuseDigest]
+      );
+      await reuseLockClient.query('COMMIT');
+      reuseLockTransactionOpen = false;
+      const concurrentRegistrationResponse = await concurrentRegistration;
+      assert.equal(concurrentRegistrationResponse.status, 429,
+        'registration waiting behind deletion must observe the committed 90-day restriction');
+    } finally {
+      if (reuseLockTransactionOpen) await reuseLockClient.query('ROLLBACK').catch(() => {});
+      reuseLockClient.release();
+    }
+
+    await identityGateDb.query(
+      'UPDATE account_reuse_restrictions SET expires_at = clock_timestamp() - INTERVAL \'1 second\' WHERE email_hmac = $1',
+      [reuseDigest]
+    );
+    await identityGateDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'auth:%'");
+    const allowedReRegistration = await request('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(registrationBodyAfterDeletion)
+    });
+    assert.equal(allowedReRegistration.status, 201,
+      'registration must be allowed again after the 90-day restriction expires');
+    const allowedReRegistrationPayload = await allowedReRegistration.json();
+    assert.equal(allowedReRegistrationPayload.user.email, email);
+    await identityGateDb.query('DELETE FROM users WHERE id = $1', [allowedReRegistrationPayload.user.id]);
+    await identityGateDb.query('DELETE FROM account_reuse_restrictions WHERE email_hmac = $1', [reuseDigest]);
+
     const deletedAccountConsentUpdate = await request('/api/ads/consent', {
       method: 'PUT',
       headers: { Cookie: secondCookie },
@@ -3579,6 +4387,12 @@ test('auth API supports registration, session lookup, logout and login', {
     }
 
   } finally {
+    if (quotaExhaustionMaleUserId && identityGateDb) {
+      await identityGateDb.query('DELETE FROM users WHERE id = $1', [quotaExhaustionMaleUserId]).catch(() => {});
+    }
+    if (concurrentQuotaMaleUserId && identityGateDb) {
+      await identityGateDb.query('DELETE FROM users WHERE id = $1', [concurrentQuotaMaleUserId]).catch(() => {});
+    }
     await identityGateDb?.end().catch(() => {});
     if (child.exitCode === null && child.signalCode === null) {
       child.kill('SIGTERM');

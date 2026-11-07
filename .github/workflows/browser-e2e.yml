@@ -2,9 +2,9 @@ name: Browser E2E
 
 on:
   pull_request:
-    branches: [main, "feat/vow-messenger-inbox-redesign"]
+    branches: [main]
   push:
-    branches: [main, "feat/contextual-advertising-policy"]
+    branches: [main, "feat/**"]
 
 permissions:
   contents: read
@@ -16,7 +16,9 @@ concurrency:
 jobs:
   browser-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Chromium's apt dependencies can be slow on GitHub-hosted runners.
+    # Leave enough time for installation, migrations, build, and the E2E suite.
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16
@@ -39,6 +41,8 @@ jobs:
       NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22

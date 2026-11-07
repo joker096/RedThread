@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, "audit/**", "feat/contextual-advertising-policy"]
+    branches: [main, "audit/**", "feat/**"]
   pull_request:
-    branches: [main, "feat/vow-messenger-inbox-redesign"]
+    branches: [main]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -33,6 +33,8 @@ jobs:
       PGSSL: "false"
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22

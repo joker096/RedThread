@@ -25,6 +25,29 @@ type ServerProfile = {
 
 type ServerDiscoveryPanelProps = { onOpenAccount: () => void };
 
+export type FemaleDailyQuota = { limit: number; used: number; remaining: number; timezone: 'UTC' };
+
+export function millisecondsUntilNextUtcDay(now = Date.now()): number {
+  const current = new Date(now);
+  return Date.UTC(current.getUTCFullYear(), current.getUTCMonth(), current.getUTCDate() + 1) - now;
+}
+
+export function normalizeFemaleDailyQuota(value: unknown): FemaleDailyQuota | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const quota = value as Partial<FemaleDailyQuota>;
+  if (quota.limit !== 3 || !Number.isSafeInteger(quota.used) || (quota.used as number) < 0 ||
+      !Number.isSafeInteger(quota.remaining) || (quota.remaining as number) < 0 ||
+      (quota.remaining as number) > 3 || quota.remaining !== Math.max(0, 3 - (quota.used as number)) ||
+      quota.timezone !== 'UTC') return null;
+  return { limit: 3, used: quota.used as number, remaining: quota.remaining as number, timezone: 'UTC' };
+}
+
+export function isFemaleWeeklyMatchQuotaExhausted(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const quota = value as { type?: unknown; exhausted?: unknown };
+  return quota.type === 'weekly_matches' && quota.exhausted === true;
+}
+
 export const isSafeProfilePhotoUrl = (value: unknown): value is string =>
   typeof value === 'string' &&
   value.trim() === value &&
@@ -92,7 +115,7 @@ const normalizeServerProfile = (value: unknown): ServerProfile | null => {
 };
 
 export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOpenAccount }) => {
-  const { t, formatNumber } = useLocale();
+  const { t, formatNumber, formatDate } = useLocale();
   const [profiles, setProfiles] = useState<ServerProfile[]>([]);
   const [matchedProfile, setMatchedProfile] = useState<ServerProfile | null>(null);
   const matchReturnFocus = useRef<HTMLElement | null>(null);
@@ -109,6 +132,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [searchFailed, setSearchFailed] = useState(false);
+  const [dailyQuota, setDailyQuota] = useState<FemaleDailyQuota | null>(null);
   const [notice, setNotice] = useState('');
   const [likedIds, setLikedIds] = useState<string[]>([]);
   const [blockedIds, setBlockedIds] = useState<string[]>([]);
@@ -125,6 +149,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
   const lastSearchKey = useRef<string | null>(null);
+  const lastQuotaUtcDate = useRef(new Date().toISOString().slice(0, 10));
   const searchRequestId = useRef(0);
   const searchAbortController = useRef<AbortController | null>(null);
   const sessionEpoch = useRef(0);
@@ -203,6 +228,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       if (response.status === 401) {
         setAuthenticated(false);
         setProfiles([]);
+        setDailyQuota(null);
         return;
       }
       if (response.status === 402) {
@@ -211,6 +237,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         // newer search may happen while it resolves, so revalidate before UI writes.
         if (!isCurrentDiscoverySearchResponse(requestId, searchRequestId.current, actionEpoch, sessionEpoch.current)) return;
         setProfiles([]);
+        setDailyQuota(null);
         setAuthenticated(true);
         setNotice(data?.message || t('trialEndedSearch'));
         return;
@@ -218,6 +245,8 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       if (!response.ok) throw new Error(t('searchSetupError'));
       const data = await response.json();
       if (!isCurrentDiscoverySearchResponse(requestId, searchRequestId.current, actionEpoch, sessionEpoch.current)) return;
+      const nextDailyQuota = normalizeFemaleDailyQuota(data?.dailyQuota);
+      setDailyQuota(nextDailyQuota);
       const seenProfileIds = new Set<string>();
       const nextProfiles: ServerProfile[] = Array.isArray(data?.profiles)
         ? data.profiles
@@ -231,10 +260,13 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       setProfiles(nextProfiles);
       setAuthenticated(true);
       setSearchFailed(false);
-      setNotice(nextProfiles.length ? `${t('registeredProfiles')}: ${formatNumber(nextProfiles.length)}` : t('noProfilesForFilters'));
+      setNotice(nextProfiles.length
+        ? `${t('registeredProfiles')}: ${formatNumber(nextProfiles.length)}`
+        : nextDailyQuota?.remaining === 0 ? t('femaleDailyQuotaExhausted') : t('noProfilesForFilters'));
     } catch (error) {
       if (isCurrentDiscoverySearchResponse(requestId, searchRequestId.current, actionEpoch, sessionEpoch.current)) {
         setProfiles([]);
+        setDailyQuota(null);
         setSearchFailed(true);
         setNotice(error instanceof Error ? error.message : t('connectionError'));
       }
@@ -256,12 +288,39 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
   }, [search]);
 
   useEffect(() => {
+    let timeoutId: number | undefined;
+    const refreshIfUtcDayChanged = () => {
+      const currentUtcDate = new Date().toISOString().slice(0, 10);
+      if (lastQuotaUtcDate.current === currentUtcDate) return;
+      lastQuotaUtcDate.current = currentUtcDate;
+      void search();
+    };
+    const scheduleUtcResetRefresh = () => {
+      timeoutId = window.setTimeout(() => {
+        refreshIfUtcDayChanged();
+        scheduleUtcResetRefresh();
+      }, Math.max(1, millisecondsUntilNextUtcDay()) + 50);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refreshIfUtcDayChanged();
+    };
+    refreshIfUtcDayChanged();
+    scheduleUtcResetRefresh();
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [search]);
+
+  useEffect(() => {
     const refreshOnSession = () => {
       sessionEpoch.current += 1;
       searchRequestId.current += 1;
       lastSearchKey.current = null;
       setAuthenticated(null);
       setProfiles([]);
+      setDailyQuota(null);
       setLikedIds([]);
       setBlockedIds([]);
       setBlockedProfiles([]);
@@ -295,6 +354,26 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         return;
       }
       if (response.status === 402) throw new Error(data?.message || t('trialEndedLike'));
+      if (response.status === 403 && data?.error === 'profile_not_issued_today') {
+        await search();
+        if (actionEpoch === sessionEpoch.current) setNotice(t('profileNotIssuedToday'));
+        return;
+      }
+      if (response.status === 409 && data?.error === 'quota_policy_changed_retry') {
+        await search();
+        if (actionEpoch === sessionEpoch.current) setNotice(t('discoveryQuotaChanged'));
+        return;
+      }
+      const weeklyQuotaExhausted = response.status === 429 && isFemaleWeeklyMatchQuotaExhausted(data?.quota);
+      if (weeklyQuotaExhausted) {
+        const nextMatchAvailableAt = typeof data?.quota?.nextAvailableAt === 'string' && Number.isFinite(Date.parse(data.quota.nextAvailableAt))
+          ? formatDate(new Date(data.quota.nextAvailableAt), { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' })
+          : null;
+        setNotice(nextMatchAvailableAt
+          ? t('femaleWeeklyMatchQuotaReachedAt').replace('{date}', nextMatchAvailableAt)
+          : t('femaleWeeklyMatchQuotaReached'));
+        return;
+      }
       if (!response.ok) throw new Error(t('sendLikeError'));
       if (!data?.matched) setActionHistory(current => [...current, { type: 'like' as const, profile }].slice(-50));
       setLikedIds(current => current.includes(profile.id) ? current : [...current, profile.id]);
@@ -332,6 +411,16 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         return;
       }
       if (response.status === 402) throw new Error(data?.message || t('trialEndedPass'));
+      if (response.status === 403 && data?.error === 'profile_not_issued_today') {
+        await search();
+        if (actionEpoch === sessionEpoch.current) setNotice(t('profileNotIssuedToday'));
+        return;
+      }
+      if (response.status === 409 && data?.error === 'quota_policy_changed_retry') {
+        await search();
+        if (actionEpoch === sessionEpoch.current) setNotice(t('discoveryQuotaChanged'));
+        return;
+      }
       if (!response.ok) throw new Error(t('passError'));
       setActionHistory(current => [...current, { type: 'pass' as const, profile }].slice(-50));
       setProfiles(current => current.filter(item => item.id !== profile.id));
@@ -365,11 +454,11 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         if (response.status === 409) throw new Error(t('undoLikeMatchError'));
         if (!response.ok) throw new Error(t('undoLikeError'));
         setLikedIds(current => current.filter(id => id !== lastAction.profile.id));
-        setProfiles(current => current.some(item => item.id === lastAction.profile.id)
-          ? current
-          : [lastAction.profile, ...current]);
         setActionHistory(current => current.slice(0, -1));
-        setNotice(t('undoLikeSuccess').replace('{name}', lastAction.profile.displayName));
+        // Re-fetch instead of restoring the cached card: a like may be undone
+        // after UTC midnight, and free-tier exposure must be reserved for the
+        // day on which the profile is actually shown again.
+        await search();
         return;
       }
 
@@ -393,8 +482,20 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
       }
       if (response.status === 402) throw new Error(data?.message || t('premiumUndoRequired'));
       if (response.status === 404) throw new Error(t('undoUnavailable'));
+      if (response.status === 409 && data?.error === 'quota_policy_changed_retry') {
+        await search();
+        if (actionEpoch === sessionEpoch.current) setNotice(t('discoveryQuotaChanged'));
+        return;
+      }
       if (response.status === 409) throw new Error(t('undoMatchError'));
+      if (response.status === 429 && data?.error === 'daily_profile_limit_reached') {
+        const exhaustedQuota = normalizeFemaleDailyQuota(data?.dailyQuota);
+        if (exhaustedQuota) setDailyQuota(exhaustedQuota);
+        setNotice(t('femaleDailyQuotaExhausted'));
+        return;
+      }
       if (!response.ok) throw new Error(t('undoActionError'));
+      setDailyQuota(normalizeFemaleDailyQuota(data?.dailyQuota));
       const restoredProfile = normalizeServerProfile(data?.profile);
       if (
         !restoredProfile ||
@@ -544,6 +645,15 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
         <h3 className="mt-1 text-lg font-bold text-white">{t('serverProfilesTitle')}</h3>
         <p className="mt-1 text-xs leading-relaxed text-stone-400">{t('realProfilesNote')}</p>
       </div>
+      {dailyQuota && (
+        <div role="status" aria-live="polite" aria-atomic="true" className="mb-3 rounded-xl border border-emerald-500/20 bg-emerald-950/20 px-3 py-2.5 text-xs text-emerald-100">
+          <p>{t('femaleDailyQuotaStatus')
+            .replace('{used}', formatNumber(dailyQuota.used))
+            .replace('{limit}', formatNumber(dailyQuota.limit))
+            .replace('{remaining}', formatNumber(dailyQuota.remaining))}</p>
+          {dailyQuota.remaining === 0 && <p className="mt-1 text-emerald-200/80">{t('femaleDailyQuotaExhausted')}</p>}
+        </div>
+      )}
       {authenticated === false ? (
         <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-4">
           <p className="text-sm text-stone-200">{t('signInToSearch')}</p>
