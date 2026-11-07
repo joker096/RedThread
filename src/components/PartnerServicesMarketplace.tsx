@@ -7,7 +7,7 @@ import {
 
 type ServiceCategory = 'all' | 'legal' | 'dress' | 'photo' | 'host' | 'venue' | 'beauty' | 'cafe' | 'transport' | 'other';
 type PublishedPartner = { id: string; category: string; businessName: string; country: string; city: string; website: string; serviceDescription: string; priceFrom: string | number | null; priceCurrency: string; serviceLanguages: string[]; availabilityNote: string; publishedAt: string };
-type CountryCode = 'GE' | 'RU' | 'KZ' | 'AM' | 'OTHER';
+type CountryCode = 'GE' | 'RU' | 'KZ' | 'AM';
 
 interface ProviderExample {
   id: string;
@@ -50,8 +50,7 @@ const countryNames: Record<CountryCode, string> = {
   GE: 'Грузия',
   RU: 'Россия',
   KZ: 'Казахстан',
-  AM: 'Армения',
-  OTHER: 'Другая страна'
+  AM: 'Армения'
 };
 
 interface PartnerServicesMarketplaceProps {
