@@ -204,3 +204,12 @@ test('account deletion confirmation discloses the 90-day same-email restriction'
   const source = await readFile(new URL('./AccountAccessPanel.tsx', import.meta.url), 'utf8');
   assert.match(source, /authDeleteConfirm.*authDeleteCooldownNotice/s);
 });
+
+
+test('account deletion explains when L3 media must be securely purged first', async () => {
+  const component = await readFile(new URL('./AccountAccessPanel.tsx', import.meta.url), 'utf8');
+  const locale = await readFile(new URL('../i18n/LocaleProvider.tsx', import.meta.url), 'utf8');
+  assert.match(component, /identity_l3_media_purge_unavailable:\s*t\('authDeleteL3PurgePending'\)/);
+  assert.match(locale, /authDeleteL3PurgePending: 'Your account has not been deleted/);
+  assert.match(locale, /authDeleteL3PurgePending: 'Аккаунт не удалён/);
+});
