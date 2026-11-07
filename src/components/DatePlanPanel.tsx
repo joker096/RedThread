@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 import { resolveUniqueLocalDateTime } from '../utils/zonedDateTime.ts';
+import { buildDatePlanShareText, shareDatePlanText } from '../utils/datePlanShare.ts';
 
 type DatePlan = {
   id: string; proposedBy: string; venueName: string; startsAt: string; timeZone: string;
@@ -22,6 +23,7 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
   const [isPublicVenue, setIsPublicVenue] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const refreshRequestId = useRef(0);
@@ -80,6 +82,41 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
     } finally { setSaving(false); }
   };
 
+  const shareConfirmedPlan = async () => {
+    if (!plan || plan.status !== 'confirmed' || sharing) return;
+    const shareText = buildDatePlanShareText(
+      {
+        place: plan.venueName,
+        day: formatDate(plan.startsAt, { dateStyle: 'medium', timeZone: plan.timeZone }),
+        time: formatDate(plan.startsAt, { timeStyle: 'short', timeZone: plan.timeZone }) + ' (' + plan.timeZone + ')'
+      },
+      { prefix: t('chatShareDatePrefix'), reminder: t('chatShareDateReminder') }
+    );
+    if (!shareText) {
+      setError(t('chatDateShareUnavailable'));
+      return;
+    }
+    setSharing(true);
+    setError('');
+    setNotice('');
+    try {
+      const result = await shareDatePlanText(shareText, t('chatShareDateTitle'), {
+        share: typeof navigator.share === 'function'
+          ? payload => navigator.share(payload)
+          : undefined,
+        copy: typeof navigator.clipboard?.writeText === 'function'
+          ? value => navigator.clipboard.writeText(value)
+          : undefined
+      });
+      if (result === 'shared') setNotice(t('chatDateShared'));
+      else if (result === 'copied') setNotice(t('chatDatePlanCopied'));
+      else if (result === 'unavailable') setError(t('chatDateShareUnavailable'));
+      // A native-share AbortError is a user cancellation; do not copy or show an error.
+    } finally {
+      setSharing(false);
+    }
+  };
+
   const myConfirmed = plan && (currentUserId === userAId ? plan.confirmedByAAt : currentUserId === userBId ? plan.confirmedByBAt : null);
   const otherConfirmed = plan && (currentUserId === userAId ? plan.confirmedByBAt : currentUserId === userBId ? plan.confirmedByAAt : null);
   const minDate = localDateTime(new Date(Date.now() + 30 * 60 * 1000));
@@ -96,7 +133,9 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
               {plan.status === 'confirmed' ? (
                 <div>
                   <p role="status" className="mt-2 text-xs font-semibold text-emerald-300">{t('datePlanConfirmed')}</p>
-                  <button type="button" disabled={saving} onClick={() => { if (window.confirm(t('datePlanCancelConfirm'))) void submit('/cancel'); }} className="mt-2 min-h-[48px] w-full rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-stone-200 disabled:opacity-50">{t('datePlanCancel')}</button>
+                  <button data-testid="date-plan-share" type="button" disabled={sharing} onClick={() => void shareConfirmedPlan()} className="mt-2 min-h-[48px] w-full rounded-lg bg-rose-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{sharing ? t('giftOrdersWorking') : t('chatShareDateButton')}</button>
+                  <p className="mt-1 text-[11px] leading-relaxed text-stone-500">{t('chatShareDatePrivacy')}</p>
+                  <button type="button" disabled={saving || sharing} onClick={() => { if (window.confirm(t('datePlanCancelConfirm'))) void submit('/cancel'); }} className="mt-2 min-h-[48px] w-full rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-stone-200 disabled:opacity-50">{t('datePlanCancel')}</button>
                 </div>
               ) : (
                 <div className="mt-2 space-y-2">
