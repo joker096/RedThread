@@ -499,7 +499,9 @@ test('L3 schema persists metadata only and protects workflow decisions', {
       assert.ok(decisionConstraints.rows.some(row => /processing_completed_at/.test(row.definition)),
         'review decisions must not bypass completed media processing');
       const validatedDurationConstraint = decisionConstraints.rows.find(row =>
-        row.definition.includes('media_duration_seconds IS NOT NULL')
+        /media_duration_seconds IS NOT NULL/.test(row.definition) &&
+        /media_duration_seconds >= 30/.test(row.definition) &&
+        /media_duration_seconds <= 60/.test(row.definition)
       );
       assert.ok(validatedDurationConstraint,
         'the review-state duration constraint must require an explicit validated duration');

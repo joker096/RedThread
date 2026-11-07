@@ -714,6 +714,60 @@ test('server discovery filters stay collapsed until requested and close after se
   await expect(page.locator('#server-discovery-filters')).toHaveCount(0);
 });
 
+test('server discovery refreshes its free daily quota automatically at UTC midnight', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-11-06T23:59:30.000Z') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  let searchRequests = 0;
+  let utcDayHasRolledOver = false;
+  await page.route('**/api/profiles/search**', async route => {
+    searchRequests += 1;
+    const used = utcDayHasRolledOver ? 0 : 3;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        profiles: [],
+        dailyQuota: { limit: 3, used, remaining: 3 - used, timezone: 'UTC' }
+      })
+    });
+  });
+
+  await page.goto('/');
+  await page.getByTestId('server-discovery-search').click();
+  await expect.poll(() => searchRequests).toBeGreaterThan(0);
+  await expect(page.getByRole('status').filter({ hasText: 'Free discovery:' }))
+    .toContainText('3/3 profiles issued today');
+
+  utcDayHasRolledOver = true;
+  await page.clock.runFor(31_000);
+  await expect.poll(() => searchRequests).toBeGreaterThan(1);
+  await expect(page.getByRole('status').filter({ hasText: 'Free discovery:' }))
+    .toContainText('0/3 profiles issued today');
+});
+
+test('server discovery shows the server-confirmed free daily quota and UTC reset', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let searchRequests = 0;
+  await page.route('**/api/profiles/search**', async route => {
+    searchRequests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        profiles: [],
+        dailyQuota: { limit: 3, used: 3, remaining: 0, timezone: 'UTC' }
+      })
+    });
+  });
+
+  await page.goto('/');
+  await page.getByTestId('server-discovery-search').click();
+  await expect.poll(() => searchRequests).toBeGreaterThan(0);
+  const quotaStatus = page.getByText(/Free discovery: 3\/3 profiles issued today \(UTC\)\. 0 remaining\./i).locator('..');
+  await expect(quotaStatus).toBeVisible();
+  await expect(quotaStatus).toContainText(/resets at 00:00 UTC/i);
+});
+
 test('server discovery swipe mode collapses and restores profile photos vertically', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/profiles/search**', async route => {
@@ -1954,4 +2008,604 @@ test('gift request notification opens the chats request list without exposing re
   await expect(ordersPanel).toBeVisible();
   await page.getByRole('button', { name: 'Review gift' }).click();
   await expect.poll(async () => (await ordersPanel.boundingBox())?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(250);
+});
+
+test('real Vow inbox supports search, conversation filters and mobile chat navigation', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let latestMessageText = 'Давай продолжим знакомство';
+  let requestedLatestHistory = false;
+  await page.route('**/api/auth/me', async route => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ user: { id: 'e2e-current-user' } }) });
+  });
+  await page.route('**/api/matches**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/messages')) {
+      if (route.request().method() === 'GET') {
+        requestedLatestHistory = url.searchParams.get('limit') === '100' && url.searchParams.get('latest') === 'true';
+      }
+      if (route.request().method() === 'POST') {
+        const payload = route.request().postDataJSON() as { text?: string };
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({ message: { id: 'e2e-sent-message', senderId: 'e2e-current-user', text: payload.text || '', createdAt: new Date().toISOString() } })
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ messages: [{ id: 'e2e-incoming-message', senderId: 'e2e-partner-1', text: latestMessageText, createdAt: '2026-11-05T08:00:00.000Z' }] })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ matches: [
+        { id: 'e2e-match-1', partnerId: 'e2e-partner-1', displayName: 'Александра Петрова', age: 29, country: 'Грузия', city: 'Тбилиси', lastMessage: 'Давай продолжим знакомство', lastMessageAt: '2026-11-05T08:00:00.000Z' },
+        { id: 'e2e-match-2', partnerId: 'e2e-partner-2', displayName: 'Мария', age: 31, country: 'Грузия', city: 'Батуми', lastMessage: null, lastMessageAt: null }
+      ] })
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('[data-testid="nav-chats"]:visible').first().click();
+  await expect(page.getByTestId('server-matches-panel')).toBeVisible();
+  await expect(page.getByTestId('server-match-item')).toHaveCount(2);
+  await expect(page.getByTestId('server-match-quick-card')).toHaveCount(2);
+  await expect(page.locator('.vow-inbox-quickcard .vow-inbox-avatar').first()).toHaveText('АП');
+
+  const search = page.getByTestId('server-match-search');
+  await search.fill('Александра');
+  await expect(page.getByTestId('server-match-item')).toHaveCount(1);
+  await expect(page.getByTestId('server-match-item').first()).toContainText('Александра');
+
+  await search.fill('');
+  await page.getByTestId('server-match-filter-new').click();
+  await expect(page.getByTestId('server-match-item')).toHaveCount(1);
+  await expect(page.getByTestId('server-match-item').first()).toContainText('Мария');
+
+  await page.getByTestId('server-match-filter-messaged').click();
+  await expect(page.getByTestId('server-match-item')).toHaveCount(1);
+  await expect(page.getByTestId('server-match-item').first()).toContainText('Александра');
+
+  await page.getByTestId('server-match-item').first().click();
+  await expect(page.getByTestId('real-match-chat')).toBeVisible();
+  await expect(page.getByTestId('server-match-back')).toBeFocused();
+  await expect(page.getByTestId('server-match-back')).toBeVisible();
+  await expect(page.getByTestId('server-match-messages')).toContainText('Давай продолжим знакомство');
+  expect(requestedLatestHistory).toBe(true);
+
+  await page.getByRole('textbox', { name: /write a message|напишите сообщение/i }).fill('Предлагаю встретиться в субботу');
+  await page.getByTestId('server-match-send').click();
+  await expect(page.getByTestId('server-match-messages')).toContainText('Предлагаю встретиться в субботу');
+  latestMessageText = 'Новое сообщение после возвращения';
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByTestId('server-match-messages')).toContainText('Новое сообщение после возвращения');
+
+  await page.getByTestId('server-match-back').click();
+  // The inbox retains the user's active filter when returning from a conversation.
+  await expect(page.getByTestId('server-match-item')).toHaveCount(1);
+  await expect(page.getByTestId('server-match-item').first()).toBeFocused();
+  await page.getByTestId('server-match-filter-all').click();
+  await expect(page.getByTestId('server-match-item')).toHaveCount(2);
+  const dimensions = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, document: document.documentElement.scrollWidth }));
+  expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport + 1);
+});
+
+test('real Vow inbox keeps the list and selected conversation side by side on desktop', async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await page.route('**/api/matches**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/messages')) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ messages: [] }) });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ matches: [{ id: 'desktop-match', partnerId: 'desktop-partner', displayName: 'Елена', age: 30, country: 'Грузия', city: 'Тбилиси', lastMessage: 'Здравствуйте', lastMessageAt: '2026-11-05T08:00:00.000Z' }] })
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('[data-testid="nav-chats"]:visible').first().click();
+  await page.getByTestId('server-match-item').first().click();
+  await expect(page.getByTestId('real-match-chat')).toBeVisible();
+  await expect(page.getByTestId('server-match-item').first()).toBeVisible();
+  await expect(page.getByTestId('server-match-back')).toBeHidden();
+});
+
+
+test('expired chat session clears private drafts before the inbox is restored', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let sessionExpired = false;
+  let unauthorizedMessagesReads = 0;
+  let unauthorizedMatchesReads = 0;
+  await page.route('**/api/auth/me', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ user: { id: 'e2e-current-user' } })
+  }));
+  await page.route('**/api/matches**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/messages')) {
+      if (route.request().method() === 'GET' && sessionExpired) {
+        unauthorizedMessagesReads += 1;
+        await route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'unauthorized' }) });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ messages: [{ id: 'session-message', senderId: 'e2e-current-user', text: 'Привет', createdAt: '2026-11-05T08:00:00.000Z' }] })
+      });
+      return;
+    }
+    if (sessionExpired) {
+      unauthorizedMatchesReads += 1;
+      await route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'unauthorized' }) });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ matches: [{ id: 'session-match', partnerId: 'e2e-partner', displayName: 'Елена', age: 30, country: 'Грузия', city: 'Тбилиси', lastMessage: 'Привет', lastMessageAt: '2026-11-05T08:00:00.000Z' }] })
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('[data-testid="nav-chats"]:visible').first().click();
+  await page.getByTestId('server-match-item').click();
+  const composer = page.getByRole('textbox', { name: /write a message|напишите сообщение/i });
+  await expect(composer).toBeVisible();
+  await composer.fill('PRIVATE_UNSENT_DRAFT');
+
+  sessionExpired = true;
+  await page.getByTestId('server-match-refresh-messages').click();
+  await expect.poll(() => unauthorizedMessagesReads).toBeGreaterThan(0);
+  // Keep the session expired during a focus refresh too, so both the active
+  // conversation and inbox-list paths exercise their 401 invalidation handlers.
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect.poll(() => unauthorizedMatchesReads).toBeGreaterThan(0);
+  await expect(page.getByTestId('server-match-login-required')).toBeVisible();
+
+  // Simulate the session becoming valid again without remounting the inbox.
+  // A visibility/focus refresh must not resurrect the previous account's draft.
+  sessionExpired = false;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByTestId('server-match-item')).toBeVisible();
+  await page.getByTestId('server-match-item').click();
+  await expect(composer).toBeVisible();
+  await expect(composer).toHaveValue('');
+  await expect(page.getByText('PRIVATE_UNSENT_DRAFT')).toHaveCount(0);
+  await expect(page.locator('.vow-inbox-bubble.is-mine')).toContainText('Привет');
+});
+
+
+test('real Vow chat opens on the newest page and can prepend older messages', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const requestedCursors: Array<{ beforeCreatedAt: string | null; beforeId: string | null }> = [];
+  await page.route('**/api/auth/me', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ user: { id: 'e2e-current-user' } })
+  }));
+  await page.route('**/api/matches**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/messages')) {
+      const beforeCreatedAt = url.searchParams.get('beforeCreatedAt');
+      const beforeId = url.searchParams.get('beforeId');
+      requestedCursors.push({ beforeCreatedAt, beforeId });
+      const isOlderPage = Boolean(beforeCreatedAt && beforeId);
+      const first = isOlderPage ? 1 : 101;
+      const count = isOlderPage ? 23 : 100;
+      const messages = Array.from({ length: count }, (_, index) => ({
+        id: `00000000-0000-4000-8000-${String(first + index).padStart(12, '0')}`,
+        senderId: 'e2e-partner',
+        text: `Message ${first + index}`,
+        createdAt: new Date(Date.UTC(2026, 10, 5, 8, 0, first + index)).toISOString(),
+        cursorCreatedAt: new Date(Date.UTC(2026, 10, 5, 8, 0, first + index)).toISOString().replace('.000Z', '.000123Z')
+      }));
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ messages, pagination: { limit: 100, offset: isOlderPage ? 100 : 0, latest: true } })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ matches: [{ id: 'history-match', partnerId: 'e2e-partner', displayName: 'Елена', age: 30, country: 'Грузия', city: 'Тбилиси', lastMessage: 'Message 200', lastMessageAt: '2026-11-05T08:00:00.000Z' }] })
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('[data-testid="nav-chats"]:visible').first().click();
+  await page.getByTestId('server-match-item').click();
+  const log = page.getByTestId('server-match-messages');
+  await expect(log.locator('.vow-inbox-bubble')).toHaveCount(100);
+  await expect(log.locator('.vow-inbox-bubble').last()).toContainText('Message 200');
+  await expect(page.getByTestId('server-match-load-older')).toBeVisible();
+
+  await page.getByTestId('server-match-load-older').click();
+  await expect(log.locator('.vow-inbox-bubble')).toHaveCount(123);
+  await expect(log.locator('.vow-inbox-bubble').first()).toContainText('Message 1');
+  await expect(log.locator('.vow-inbox-bubble').last()).toContainText('Message 200');
+  await expect(page.getByTestId('server-match-load-older')).toHaveCount(0);
+  expect(requestedCursors).toHaveLength(2);
+  expect(requestedCursors[0]).toEqual({ beforeCreatedAt: null, beforeId: null });
+  expect(requestedCursors[1].beforeCreatedAt).toBe(new Date(Date.UTC(2026, 10, 5, 8, 0, 101)).toISOString().replace('.000Z', '.000123Z'));
+  expect(requestedCursors[1].beforeId).toBe('00000000-0000-4000-8000-000000000101');
+});
+
+
+
+test('refreshing latest history supersedes an in-flight older page without locking pagination', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let olderRequests = 0;
+  let releaseFirstOlder: (() => void) | undefined;
+  let finishFirstOlderStarted: (() => void) | undefined;
+  let finishFirstOlderResponse: (() => void) | undefined;
+  const firstOlderStarted = new Promise<void>(resolve => { finishFirstOlderStarted = resolve; });
+  const firstOlderFinished = new Promise<void>(resolve => { finishFirstOlderResponse = resolve; });
+  await page.route('**/api/auth/me', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ user: { id: 'e2e-current-user' } })
+  }));
+  await page.route('**/api/matches**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/messages')) {
+      const isOlderPage = url.searchParams.has('beforeCreatedAt') && url.searchParams.has('beforeId');
+      if (isOlderPage) {
+        olderRequests += 1;
+        if (olderRequests === 1) {
+          finishFirstOlderStarted?.();
+          await new Promise<void>(resolve => { releaseFirstOlder = resolve; });
+        }
+      }
+      const first = isOlderPage ? 1 : 101;
+      const count = isOlderPage ? 23 : 100;
+      const messages = Array.from({ length: count }, (_, index) => ({
+        id: `00000000-0000-4000-8000-${String(first + index).padStart(12, '0')}`,
+        senderId: 'e2e-partner',
+        text: `Message ${first + index}`,
+        createdAt: new Date(Date.UTC(2026, 10, 5, 8, 0, first + index)).toISOString()
+      }));
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ messages, pagination: { limit: 100, offset: isOlderPage ? 100 : 0, latest: true } })
+      });
+      if (isOlderPage && olderRequests === 1) {
+        finishFirstOlderResponse?.();
+      }
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ matches: [{ id: 'history-match', partnerId: 'e2e-partner', displayName: 'Елена', age: 30, country: 'Грузия', city: 'Тбилиси', lastMessage: 'Message 200', lastMessageAt: '2026-11-05T08:00:00.000Z' }] })
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('[data-testid="nav-chats"]:visible').first().click();
+  await page.getByTestId('server-match-item').click();
+  const log = page.getByTestId('server-match-messages');
+  await expect(log.locator('.vow-inbox-bubble')).toHaveCount(100);
+  await page.getByTestId('server-match-load-older').click();
+  await firstOlderStarted;
+
+  // A refresh invalidates the delayed prepend request and must clear its loading state.
+  await page.getByTestId('server-match-refresh-messages').click();
+  await expect(log.locator('.vow-inbox-bubble')).toHaveCount(100);
+  await expect(page.getByTestId('server-match-load-older')).toBeEnabled();
+
+  releaseFirstOlder?.();
+  await firstOlderFinished;
+  await page.getByTestId('server-match-load-older').click();
+  await expect(log.locator('.vow-inbox-bubble')).toHaveCount(123);
+  expect(olderRequests).toBe(2);
+});
+
+
+test('sending a message supersedes an in-flight older page without losing the sent message', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let olderRequests = 0;
+  let releaseOlder: (() => void) | undefined;
+  let signalOlderStarted: (() => void) | undefined;
+  let releaseSend: (() => void) | undefined;
+  let signalSendStarted: (() => void) | undefined;
+  const olderStarted = new Promise<void>(resolve => { signalOlderStarted = resolve; });
+  const olderResponseReleased = new Promise<void>(resolve => { releaseOlder = resolve; });
+  const sendStarted = new Promise<void>(resolve => { signalSendStarted = resolve; });
+  const sendResponseReleased = new Promise<void>(resolve => { releaseSend = resolve; });
+  let historyRequests = 0;
+
+  await page.route('**/api/auth/me', route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ user: { id: 'e2e-current-user' } })
+  }));
+  await page.route('**/api/matches**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/messages')) {
+      if (route.request().method() === 'POST') {
+        const payload = route.request().postDataJSON() as { text?: string };
+        signalSendStarted?.();
+        await sendResponseReleased;
+        await route.fulfill({
+          status: 201, contentType: 'application/json',
+          body: JSON.stringify({ message: {
+            id: '00000000-0000-4000-8000-000000000201',
+            senderId: 'e2e-current-user', text: payload.text || '',
+            createdAt: '2026-11-05T08:10:00.000Z'
+          } })
+        });
+        return;
+      }
+      historyRequests += 1;
+      const isOlderPage = url.searchParams.has('beforeCreatedAt') && url.searchParams.has('beforeId');
+      if (isOlderPage) {
+        olderRequests += 1;
+        if (olderRequests === 1) {
+          signalOlderStarted?.();
+          await olderResponseReleased;
+        }
+      }
+      const first = isOlderPage ? 78 : 101;
+      const count = isOlderPage ? 23 : 100;
+      const messages = Array.from({ length: count }, (_, index) => {
+        const sequence = first + index;
+        const createdAt = new Date(Date.UTC(2026, 10, 5, 8, 0, sequence)).toISOString();
+        return {
+          id: `00000000-0000-4000-8000-${String(sequence).padStart(12, '0')}`,
+          senderId: 'e2e-partner', text: `Message ${sequence}`, createdAt,
+          cursorCreatedAt: createdAt.replace('.000Z', '.000123Z')
+        };
+      });
+      await route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ messages, pagination: { limit: 100, offset: 0, latest: true } })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ matches: [{
+        id: 'send-race-match', partnerId: 'e2e-partner', displayName: 'Елена', age: 30,
+        country: 'Грузия', city: 'Тбилиси', lastMessage: 'Message 200',
+        lastMessageAt: '2026-11-05T08:00:00.000Z'
+      }] })
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('[data-testid="nav-chats"]:visible').first().click();
+  await page.getByTestId('server-match-item').click();
+  const log = page.getByTestId('server-match-messages');
+  await expect(log.locator('.vow-inbox-bubble')).toHaveCount(100);
+
+  await page.getByTestId('server-match-load-older').click();
+  await olderStarted;
+
+  await page.getByRole('textbox', { name: /write a message|напишите сообщение/i }).fill('Сообщение во время подгрузки истории');
+  await page.getByTestId('server-match-send').click();
+  await sendStarted;
+  const unexpectedHistoryRequest = page.waitForRequest(
+    request => request.method() === 'GET' && new URL(request.url()).pathname.endsWith('/messages'),
+    { timeout: 250 }
+  ).then(() => true).catch(() => false);
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  expect(await unexpectedHistoryRequest).toBe(false);
+  expect(historyRequests).toBe(2);
+  releaseSend?.();
+  await expect(log).toContainText('Сообщение во время подгрузки истории');
+  await expect(page.getByTestId('server-match-load-older')).toBeEnabled();
+
+  releaseOlder?.();
+  await expect(log.locator('.vow-inbox-bubble')).toHaveCount(101);
+  await expect(log).toContainText('Сообщение во время подгрузки истории');
+  expect(olderRequests).toBe(1);
+
+  await page.getByTestId('server-match-load-older').click();
+  await expect(log.locator('.vow-inbox-bubble')).toHaveCount(124);
+  await expect(log).toContainText('Сообщение во время подгрузки истории');
+  expect(olderRequests).toBe(2);
+});
+
+
+test('prepending older messages preserves the reader position after scrolling during the request', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  let releaseOlder: (() => void) | undefined;
+  let signalOlderStarted: (() => void) | undefined;
+  const olderStarted = new Promise<void>(resolve => { signalOlderStarted = resolve; });
+  const olderResponseReleased = new Promise<void>(resolve => { releaseOlder = resolve; });
+
+  await page.route('**/api/auth/me', route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ user: { id: 'e2e-current-user' } })
+  }));
+  await page.route('**/api/matches**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/messages')) {
+      const isOlderPage = url.searchParams.has('beforeCreatedAt') && url.searchParams.has('beforeId');
+      if (isOlderPage) {
+        signalOlderStarted?.();
+        await olderResponseReleased;
+      }
+      const first = isOlderPage ? 78 : 101;
+      const count = isOlderPage ? 23 : 100;
+      const messages = Array.from({ length: count }, (_, index) => {
+        const sequence = first + index;
+        const createdAt = new Date(Date.UTC(2026, 10, 5, 8, 0, sequence)).toISOString();
+        return {
+          id: `00000000-0000-4000-8000-${String(sequence).padStart(12, '0')}`,
+          senderId: 'e2e-partner', text: `Message ${sequence}`, createdAt,
+          cursorCreatedAt: createdAt.replace('.000Z', '.000123Z')
+        };
+      });
+      await route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ messages, pagination: { limit: 100, offset: 0, latest: true } })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ matches: [{
+        id: 'scroll-anchor-match', partnerId: 'e2e-partner', displayName: 'Елена', age: 30,
+        country: 'Грузия', city: 'Тбилиси', lastMessage: 'Message 200',
+        lastMessageAt: '2026-11-05T08:00:00.000Z'
+      }] })
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('[data-testid="nav-chats"]:visible').first().click();
+  await page.getByTestId('server-match-item').click();
+  const log = page.getByTestId('server-match-messages');
+  await expect(log.locator('.vow-inbox-bubble')).toHaveCount(100);
+
+  await page.getByTestId('server-match-load-older').click();
+  await olderStarted;
+
+  await log.evaluate(element => {
+    element.scrollTop = 70;
+    element.dispatchEvent(new Event('scroll'));
+  });
+  const anchorMessage = log.getByText('Message 103');
+  await expect(anchorMessage).toBeVisible();
+  const before = await anchorMessage.boundingBox();
+  expect(before).not.toBeNull();
+
+  releaseOlder?.();
+  await expect(log.locator('.vow-inbox-bubble')).toHaveCount(123);
+  const after = await anchorMessage.boundingBox();
+  expect(after).not.toBeNull();
+  expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0))).toBeLessThan(2);
+});
+
+test('real Vow inbox fits narrow phone widths in list and conversation views', async ({ page }) => {
+  await page.route('**/api/auth/me', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ user: { id: 'e2e-current-user' } })
+  }));
+  await page.route('**/api/matches**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/messages')) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ messages: [] }) });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ matches: [{ id: 'narrow-match', partnerId: 'narrow-partner', displayName: 'Елена Петрова', age: 30, country: 'Грузия', city: 'Тбилиси', lastMessage: null, lastMessageAt: null }] })
+    });
+  });
+
+  for (const width of [320, 360, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/');
+    await page.locator('[data-testid="nav-chats"]:visible').first().click();
+    await expect(page.getByTestId('server-match-item')).toBeVisible();
+    let dimensions = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      document: document.documentElement.scrollWidth,
+      body: document.body.scrollWidth
+    }));
+    expect(dimensions.document, `inbox list overflows at ${width}px: ${JSON.stringify(dimensions)}`).toBeLessThanOrEqual(dimensions.viewport + 1);
+    expect(dimensions.body).toBeLessThanOrEqual(dimensions.viewport + 1);
+
+    await page.getByTestId('server-match-item').click();
+    await expect(page.getByTestId('real-match-chat')).toBeVisible();
+    await expect(page.getByTestId('server-match-back')).toBeVisible();
+    await expect(page.getByRole('textbox', { name: /write a message|напишите сообщение/i })).toBeVisible();
+    dimensions = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      document: document.documentElement.scrollWidth,
+      body: document.body.scrollWidth
+    }));
+    expect(dimensions.document, `conversation overflows at ${width}px: ${JSON.stringify(dimensions)}`).toBeLessThanOrEqual(dimensions.viewport + 1);
+    expect(dimensions.body).toBeLessThanOrEqual(dimensions.viewport + 1);
+  }
+});
+
+test('reselecting the active desktop conversation preserves its loaded history', async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 900 });
+  let historyRequests = 0;
+  await page.route('**/api/auth/me', route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ user: { id: 'e2e-current-user' } })
+  }));
+  await page.route('**/api/matches**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/messages')) {
+      historyRequests += 1;
+      await route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ messages: [{
+          id: 'active-reselect-message', senderId: 'e2e-partner',
+          text: 'История должна остаться на месте',
+          createdAt: '2026-11-05T08:00:00.000Z'
+        }] })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ matches: [{
+        id: 'active-reselect-match', partnerId: 'e2e-partner',
+        displayName: 'Елена', age: 30, country: 'Грузия', city: 'Тбилиси',
+        lastMessage: 'История должна остаться на месте',
+        lastMessageAt: '2026-11-05T08:00:00.000Z'
+      }] })
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('[data-testid="nav-chats"]:visible').first().click();
+  const row = page.getByTestId('server-match-item');
+  await row.click();
+  const log = page.getByTestId('server-match-messages');
+  await expect(log).toContainText('История должна остаться на месте');
+  await expect.poll(() => historyRequests).toBe(1);
+
+  await row.click();
+  await expect(log).toContainText('История должна остаться на месте');
+  await expect.poll(() => historyRequests).toBe(1);
+  await expect(log.locator('.vow-inbox-bubble')).toHaveCount(1);
+});
+
+test('real inbox does not display prototype unread counts until demo conversations are explicitly shown', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/auth/me', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ user: { id: 'e2e-current-user' } })
+  }));
+  await page.route('**/api/matches**', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ matches: [] })
+  }));
+
+  await page.goto('/');
+  const chatNavigation = page.locator('[data-testid="nav-chats"]:visible').first();
+  // The real inbox has no server-side message receipt count. Do not leak the
+  // local prototype thread count into its navigation badge or accessible name.
+  await expect(chatNavigation.locator('.bg-amber-400')).toHaveCount(0);
+  await chatNavigation.click();
+  await expect(page.getByTestId('server-matches-panel')).toBeVisible();
+
+  await page.getByRole('button', { name: /show demo conversations|показать демо-переписки/i }).click();
+  await expect(page.locator('[data-testid="nav-chats"]:visible').first().locator('.bg-amber-400')).toBeVisible();
+
+  await page.getByRole('button', { name: /hide demo conversations|скрыть демо-переписки/i }).click();
+  await expect(page.locator('[data-testid="nav-chats"]:visible').first().locator('.bg-amber-400')).toHaveCount(0);
 });

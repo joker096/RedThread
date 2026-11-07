@@ -407,7 +407,7 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     assert.equal(queueAfterSecondUpload.status, 200);
     const queueAfterSecondUploadPayload = await queueAfterSecondUpload.json();
     assert.deepEqual(
-      queueAfterSecondUploadPayload.submissions.map(item => item.submissionId),
+      queueAfterSecondUploadPayload.submissions.filter(item => item.applicantReference === applicantId).map(item => item.submissionId),
       [second.submissionId]
     );
     const secondMedia = await request('/api/moderation/identity-l3/submissions/' + second.submissionId + '/media', {

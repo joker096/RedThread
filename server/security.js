@@ -1,4 +1,4 @@
-import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 
 const scrypt = promisify(scryptCallback);
@@ -25,6 +25,18 @@ export async function verifyPassword(password, encodedHash) {
 
 export function normalizeEmail(email) {
   return String(email ?? '').trim().toLocaleLowerCase('en-US');
+}
+
+/**
+ * Produce a keyed digest for short-lived account-reuse restrictions. The key
+ * must be a stable 32-byte secret (64 hex characters); do not rotate it without
+ * a deliberate migration because stored digests cannot be re-derived.
+ */
+export function createAccountReuseDigest(email, secret) {
+  if (typeof secret !== 'string' || !/^[a-f0-9]{64}$/i.test(secret)) return null;
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail || normalizedEmail.length > 254) return null;
+  return createHmac('sha256', Buffer.from(secret, 'hex')).update(normalizedEmail, 'utf8').digest('hex');
 }
 
 export function isValidEmail(email) {
