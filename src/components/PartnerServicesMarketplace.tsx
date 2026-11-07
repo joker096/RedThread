@@ -84,6 +84,14 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
   const [inquiryBusy, setInquiryBusy] = useState(false);
   const [inquiryStatus, setInquiryStatus] = useState('');
   const inquiryRequestKey = useRef<string | null>(null);
+  useEffect(() => {
+    inquiryRequestKey.current = null;
+    setInquiryProvider(null);
+    setInquiryNote('');
+    setServiceDate('');
+    setShareContact(false);
+    setInquiryStatus('');
+  }, [matchId]);
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
 
