@@ -41,8 +41,8 @@ test('daily exposure reservations pin one UTC date across every statement in a t
   const helperEnd = source.indexOf('\nasync function captureFemaleExposurePolicy', helperStart);
   assert.ok(helperStart >= 0 && helperEnd > helperStart, 'exposure reservation helper exists');
   const helper = source.slice(helperStart, helperEnd);
-  assert.equal((helper.match(/clock_timestamp\(\)/g) || []).length, 1,
-    'undo reservations capture the UTC date exactly once');
+  assert.equal((helper.match(/FEMALE_POLICY_CLOCK_SQL/g) || []).length, 1,
+    'undo reservations capture the UTC date exactly once through the policy clock');
   assert.doesNotMatch(helper, /statement_timestamp\(\)/,
     'undo reservations must not recalculate the date per statement');
   assert.match(helper, /exposure_date < \$2::date/);
@@ -55,7 +55,7 @@ test('daily exposure reservations pin one UTC date across every statement in a t
   const searchEnd = source.indexOf('\nfunction isUuid', searchStart);
   assert.ok(searchStart >= 0 && searchEnd > searchStart, 'profile search route exists');
   const search = source.slice(searchStart, searchEnd);
-  assert.equal((search.match(/clock_timestamp\(\)/g) || []).length, 3,
+  assert.equal((search.match(/FEMALE_POLICY_CLOCK_SQL/g) || []).length, 3,
     'Discovery captures the preview date, rechecks after locks, and validates again before commit');
   const previewDateCapture = search.indexOf('const previewDateResult = await client.query(');
   const previewQuery = search.indexOf('const preview = await client.query(searchSql, [...searchParams, previewDate])');
