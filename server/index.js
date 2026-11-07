@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { queuePrivatePhotoPurges } from './photoPurge.js';
 import { cleanupPartnerServiceData, partnerRetentionOptions } from './partnerRetention.js';
+import { normalizePartnerCountry, isPartnerServiceCategory, isPartnerServiceCurrency } from './partnerServicePolicy.js';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -4048,12 +4049,10 @@ app.post('/api/reports', reportLimiter, validateRequestOrigin, requireSession, a
 
 
 app.get('/api/partner-services', requireDatabase, async (req, res) => {
-  const country = typeof req.query.country === 'string' ? req.query.country.trim().toUpperCase() : '';
+  const rawCountry = typeof req.query.country === 'string' ? req.query.country : '';
+  const country = rawCountry ? normalizePartnerCountry(rawCountry) : '';
   const category = typeof req.query.category === 'string' ? req.query.category.trim() : '';
-  const validCountries = ['GE', 'RU', 'KZ', 'AM'];
-  const validCategories = ['cafe', 'photography', 'videography', 'photo', 'venue', 'beauty', 'legal', 'transport', 'dress', 'host', 'other'];
-  if ((req.query.country !== undefined && !validCountries.includes(country)) ||
-      (category && !validCategories.includes(category))) {
+  if ((rawCountry && !country) || (category && category !== 'photo' && !isPartnerServiceCategory(category))) {
     return res.status(400).json({ error: 'invalid_partner_service_filter' });
   }
   try {
@@ -4080,7 +4079,7 @@ app.post('/api/partner-applications', validateRequestOrigin, partnerApplicationL
   const businessName = typeof body.businessName === 'string' ? body.businessName.trim() : '';
   const contactName = typeof body.contactName === 'string' ? body.contactName.trim() : '';
   const contactEmail = normalizeEmail(body.contactEmail);
-  const country = typeof body.country === 'string' ? body.country.trim().toUpperCase() : '';
+  const country = normalizePartnerCountry(body.country);
   const city = typeof body.city === 'string' ? body.city.trim() : '';
   const website = typeof body.website === 'string' ? body.website.trim() : '';
   const serviceDescription = typeof body.serviceDescription === 'string' ? body.serviceDescription.trim() : '';
@@ -4089,9 +4088,8 @@ app.post('/api/partner-applications', validateRequestOrigin, partnerApplicationL
   const languageInput = typeof body.serviceLanguages === 'string' ? body.serviceLanguages : '';
   const serviceLanguages = languageInput.split(',').map(value => value.trim()).filter(Boolean);
   const availabilityNote = typeof body.availabilityNote === 'string' ? body.availabilityNote.trim() : '';
-  const categories = ['cafe', 'photography', 'videography', 'venue', 'beauty', 'legal', 'transport', 'dress', 'host', 'other'];
-  const countries = ['GE', 'RU', 'KZ', 'AM'];
-  const currencies = ['USD', 'GEL', 'EUR', 'RUB', 'KZT', 'AMD'];
+  const categoriesValid = isPartnerServiceCategory(category);
+  const currencyValid = isPartnerServiceCurrency(priceCurrency);
   let safeWebsite = '';
   if (website) {
     try {
@@ -4102,14 +4100,14 @@ app.post('/api/partner-applications', validateRequestOrigin, partnerApplicationL
       safeWebsite = parsed.toString();
     } catch { return res.status(400).json({ error: 'invalid_partner_application' }); }
   }
-  if (!categories.includes(category) || !countries.includes(country) ||
+  if (!categoriesValid || !country ||
       businessName.length < 2 || businessName.length > 160 ||
       contactName.length < 2 || contactName.length > 120 || !isValidEmail(contactEmail) ||
       city.length < 2 || city.length > 120 || website.length > 500 ||
       serviceDescription.length < 20 || serviceDescription.length > 2000 ||
       (priceFrom !== null && (!Number.isFinite(priceFrom) || priceFrom < 0 || priceFrom > 10000000 ||
         Math.abs(Math.round(priceFrom * 100) - priceFrom * 100) > 1e-7)) ||
-      !currencies.includes(priceCurrency) || languageInput.length > 500 || serviceLanguages.length > 10 ||
+      !currencyValid || languageInput.length > 500 || serviceLanguages.length > 10 ||
       serviceLanguages.some(value => value.length < 2 || value.length > 40) || availabilityNote.length > 500) {
     return res.status(400).json({ error: 'invalid_partner_application' });
   }
