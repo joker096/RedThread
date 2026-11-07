@@ -813,6 +813,10 @@ async function createNotification(userId, type, metadata = {}, dedupeKey = null,
   );
 }
 
+const FEMALE_POLICY_CLOCK_SQL = process.env.NODE_ENV === 'test'
+  ? "COALESCE(NULLIF(current_setting('vow.test_policy_now', true), '')::timestamptz, clock_timestamp())"
+  : 'clock_timestamp()';
+
 async function reserveFemaleProfileExposure(client, user, profileId) {
   if (user?.gender !== 'female') {
     return { allowed: true, used: null, exposureDate: null, quotaApplied: false };
@@ -821,7 +825,7 @@ async function reserveFemaleProfileExposure(client, user, profileId) {
   // instant after the caller has acquired the account-safety lock.
   const policyClock = await client.query(
     `SELECT policy_now, (policy_now AT TIME ZONE 'UTC')::date AS exposure_date
-     FROM (SELECT clock_timestamp() AS policy_now) AS policy_clock`
+     FROM (SELECT ${FEMALE_POLICY_CLOCK_SQL} AS policy_now) AS policy_clock`
   );
   const policyNow = new Date(policyClock.rows[0].policy_now).getTime();
   if (hasFemalePremiumAccess(user, policyNow)) {
@@ -867,7 +871,7 @@ async function captureFemaleExposurePolicy(client, user) {
   if (user?.gender !== 'female') return { isFreeTier: false, exposureDate: null };
   const clock = await client.query(
     `SELECT policy_now, (policy_now AT TIME ZONE 'UTC')::date AS exposure_date
-     FROM (SELECT clock_timestamp() AS policy_now) AS policy_clock`
+     FROM (SELECT ${FEMALE_POLICY_CLOCK_SQL} AS policy_now) AS policy_clock`
   );
   const isFreeTier = !hasFemalePremiumAccess(user, new Date(clock.rows[0].policy_now).getTime());
   return {
@@ -880,7 +884,7 @@ async function femaleExposurePolicyChangedAtCommit(client, user, snapshot) {
   if (user?.gender !== 'female') return false;
   const clock = await client.query(
     `SELECT policy_now, (policy_now AT TIME ZONE 'UTC')::date AS exposure_date
-     FROM (SELECT clock_timestamp() AS policy_now) AS policy_clock`
+     FROM (SELECT ${FEMALE_POLICY_CLOCK_SQL} AS policy_now) AS policy_clock`
   );
   const isFreeTier = !hasFemalePremiumAccess(user, new Date(clock.rows[0].policy_now).getTime());
   return isFreeTier !== snapshot.isFreeTier ||
@@ -977,7 +981,7 @@ app.post('/api/auth/register', authLimiter, validateRequestOrigin, requireDataba
     );
     const accountReuseRestriction = await client.query(
       `WITH policy_clock AS MATERIALIZED (
-         SELECT clock_timestamp() AS policy_now
+         SELECT ${FEMALE_POLICY_CLOCK_SQL} AS policy_now
        )
        SELECT restrictions.expires_at,
               GREATEST(1, CEIL(EXTRACT(EPOCH FROM (restrictions.expires_at - policy_clock.policy_now))))::int AS retry_after_seconds
@@ -1985,7 +1989,7 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
       // Capture the ordering date before preview. A lock wait across UTC
       // midnight invalidates the preview candidate set and requires a retry.
       const previewDateResult = await client.query(
-        "SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS exposure_date"
+        `SELECT (${FEMALE_POLICY_CLOCK_SQL} AT TIME ZONE 'UTC')::date AS exposure_date`
       );
       const previewDate = previewDateResult.rows[0].exposure_date;
       // Preview the exact page, then lock the requester and every candidate in
@@ -2005,7 +2009,7 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
       const actorUser = actor.rows[0];
       const lockedDateResult = await client.query(
         `SELECT policy_now, (policy_now AT TIME ZONE 'UTC')::date AS exposure_date
-         FROM (SELECT clock_timestamp() AS policy_now) AS policy_clock`
+         FROM (SELECT ${FEMALE_POLICY_CLOCK_SQL} AS policy_now) AS policy_clock`
       );
       const lockedExposureDate = lockedDateResult.rows[0].exposure_date;
       const actorIsFreeTierAtLock = actorUser.gender === 'female' &&
@@ -2096,7 +2100,7 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
       result.dailyQuota = dailyQuota;
       const finalPolicyClock = await client.query(
         `SELECT policy_now, (policy_now AT TIME ZONE 'UTC')::date AS exposure_date
-         FROM (SELECT clock_timestamp() AS policy_now) AS policy_clock`
+         FROM (SELECT ${FEMALE_POLICY_CLOCK_SQL} AS policy_now) AS policy_clock`
       );
       const actorIsFreeTierAtCommit = actorUser.gender === 'female' &&
         !hasFemalePremiumAccess(actorUser, new Date(finalPolicyClock.rows[0].policy_now).getTime());
@@ -2790,7 +2794,7 @@ app.post('/api/passes/undo', profileActionLimiter, validateRequestOrigin, requir
     if (actor.rows[0].gender === 'female') {
       const finalPolicyClock = await client.query(
         `SELECT policy_now, (policy_now AT TIME ZONE 'UTC')::date AS exposure_date
-         FROM (SELECT clock_timestamp() AS policy_now) AS policy_clock`
+         FROM (SELECT ${FEMALE_POLICY_CLOCK_SQL} AS policy_now) AS policy_clock`
       );
       const quotaRequiredAtCommit = actor.rows[0].gender === 'female' &&
         !hasFemalePremiumAccess(actor.rows[0], new Date(finalPolicyClock.rows[0].policy_now).getTime());
@@ -3373,7 +3377,7 @@ app.post('/api/discovery/undo', profileActionLimiter, validateRequestOrigin, req
     if (actor.rows[0].gender === 'female') {
       const finalPolicyClock = await client.query(
         `SELECT policy_now, (policy_now AT TIME ZONE 'UTC')::date AS exposure_date
-         FROM (SELECT clock_timestamp() AS policy_now) AS policy_clock`
+         FROM (SELECT ${FEMALE_POLICY_CLOCK_SQL} AS policy_now) AS policy_clock`
       );
       const quotaRequiredAtCommit = actor.rows[0].gender === 'female' &&
         !hasFemalePremiumAccess(actor.rows[0], new Date(finalPolicyClock.rows[0].policy_now).getTime());
