@@ -23,7 +23,7 @@ test('does not create a share message from incomplete or oversized plans', () =>
 
 test('normalizes line breaks in venue text before sharing', () => {
   const result = buildDatePlanShareText(
-    { place: 'Cafe\\nInjected line', day: 'Tomorrow', time: '19:00' },
+    { place: 'Cafe\nInjected line', day: 'Tomorrow', time: '19:00' },
     { prefix: 'Date plan:', reminder: 'Plan only.' }
   );
   assert.equal(result, 'Date plan:\nCafe Injected line\nTomorrow, 19:00\nPlan only.');
