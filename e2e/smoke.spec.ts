@@ -2138,6 +2138,9 @@ test('switching chats cannot render a stale date plan from the previous match', 
   await chatsButton.click();
   await page.getByTestId('server-match-item').filter({ hasText: 'Old Match' }).click();
   await oldRequestStarted;
+  // Mobile chat mode hides the conversation list until the user returns to it.
+  const backToConversations = page.getByRole('button', { name: /back to conversations|назад к перепискам/i });
+  if (await backToConversations.isVisible()) await backToConversations.click();
   await page.getByTestId('server-match-item').filter({ hasText: 'New Match' }).click();
   await expect(page.getByTestId('date-plan-panel')).toContainText('Current Public Cafe');
 
