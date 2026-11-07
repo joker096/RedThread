@@ -257,6 +257,8 @@ services:
     environment:
       NODE_ENV: production
       API_PORT: "3001"
+      # The API is reachable through the single Nginx web container in this Compose topology.
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
       DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
       PGSSL: ${PGSSL:-false}
       APP_ORIGIN: ${APP_ORIGIN:?Set APP_ORIGIN in .env}

@@ -26,6 +26,12 @@ Requirements: Docker Engine and the Docker Compose plugin.
 
 The first start builds the API and web image, waits for PostgreSQL health, applies migrations once through the one-shot `migrate` service, and then starts the API, web proxy, and both bounded hourly retention workers (`female-profile-exposure-retention` and `account-reuse-retention`). For local-only testing without a configured Resend sender, you may set `EMAIL_VERIFICATION_REQUIRED=false`; never disable verification on a public deployment. The database is not published to the host. The default web binding is loopback-only.
 
+## Proxy and client IP configuration
+
+The Compose topology places the API behind the Nginx `web` service and does not publish the API port. The Compose default is therefore `TRUST_PROXY_HOPS=1`, so Express rate limits use the visitor address forwarded by that one trusted proxy instead of treating every visitor as the Nginx container.
+
+For a different deployment, set `TRUST_PROXY_HOPS` to the exact number of trusted proxy hops between the API and the client (0–5). Each trusted proxy must overwrite or safely append the forwarding chain using the actual address it observed. If a load balancer sits in front of Nginx, account for both hops only when the load balancer sanitizes incoming forwarding headers. Never expose the API directly while trusting forwarded headers, and never set an unrestricted boolean trust-proxy value.
+
 ## Public hosting requirements
 
 Do not expose this Compose stack directly to the internet over plain HTTP. Put a maintained TLS reverse proxy/load balancer in front of the web service, bind the service only to a private interface, and set `APP_ORIGIN` and `APP_URL` to the exact public HTTPS origin. Configure forwarded-header trust only for the known proxy topology; do not blindly trust arbitrary client-supplied forwarding headers.
