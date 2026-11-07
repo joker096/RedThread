@@ -3496,10 +3496,15 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(proposerCannotDecline.status, 409,
       'the proposer must withdraw their own proposal instead of recording a false recipient decline');
-    const proposalAfterInvalidDecline = await request(datePlanPath, {
+    const recipientCannotCancel = await request(datePlanPath + '/cancel', {
+      method: 'POST', headers: { Cookie: maleCookie }
+    });
+    assert.equal(recipientCannotCancel.status, 409,
+      'an unconfirmed recipient must decline rather than silently cancelling the proposal');
+    const proposalAfterInvalidActions = await request(datePlanPath, {
       headers: { Cookie: secondCookie }
     });
-    assert.equal((await proposalAfterInvalidDecline.json()).datePlan.status, 'proposed');
+    assert.equal((await proposalAfterInvalidActions.json()).datePlan.status, 'proposed');
     const declinedDatePlan = await request(datePlanPath + '/decline', {
       method: 'POST', headers: { Cookie: maleCookie }
     });
