@@ -683,6 +683,14 @@ const identityL3Limiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'too_many_identity_l3_actions' }
 });
+const partnerApplicationLimiter = rateLimit({
+  ...(pool ? { store: new PostgresRateLimitStore(pool, 'partner-application') } : {}),
+  windowMs: 24 * 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too_many_partner_applications' }
+});
 const reportLimiter = rateLimit({
   ...(pool ? { store: new PostgresRateLimitStore(pool, 'report') } : {}),
   windowMs: 60 * 60 * 1000,
@@ -707,13 +715,14 @@ function emailDeliveryConfigured() {
     validPublicUrl;
 }
 
-async function sendConfiguredEmail({ to, subject, html }) {
+async function sendConfiguredEmail({ to, subject, html, idempotencyKey }) {
   if (!emailDeliveryConfigured()) throw new Error('email_delivery_not_configured');
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       Authorization: 'Bearer ' + process.env.RESEND_API_KEY,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {})
     },
     body: JSON.stringify({ from: process.env.EMAIL_FROM, to: [to], subject, html }),
     signal: AbortSignal.timeout(10_000)
@@ -4033,6 +4042,278 @@ app.post('/api/reports', reportLimiter, validateRequestOrigin, requireSession, a
     return res.status(500).json({ error: 'report_submission_failed' });
   } finally {
     client?.release();
+  }
+});
+
+
+app.get('/api/partner-services', requireDatabase, async (req, res) => {
+  const country = typeof req.query.country === 'string' ? req.query.country.trim().toUpperCase() : '';
+  const category = typeof req.query.category === 'string' ? req.query.category.trim() : '';
+  const validCountries = ['GE', 'RU', 'KZ', 'AM'];
+  const validCategories = ['cafe', 'photography', 'videography', 'photo', 'venue', 'beauty', 'legal', 'transport', 'dress', 'host', 'other'];
+  if ((req.query.country !== undefined && !validCountries.includes(country)) ||
+      (category && !validCategories.includes(category))) {
+    return res.status(400).json({ error: 'invalid_partner_service_filter' });
+  }
+  try {
+    const result = await pool.query(
+      'SELECT id, category, business_name AS "businessName", country, city, website, ' +
+      'service_description AS "serviceDescription", price_from AS "priceFrom", price_currency AS "priceCurrency", ' +
+      'service_languages AS "serviceLanguages", availability_note AS "availabilityNote", published_at AS "publishedAt" ' +
+      "FROM partner_service_applications WHERE status = 'approved' AND published_at IS NOT NULL " +
+      "AND ($1::text = '' OR country = $1) " +
+      "AND ($2::text = '' OR category = $2 OR ($2 = 'photo' AND category IN ('photography', 'videography'))) " +
+      'ORDER BY published_at DESC, business_name ASC LIMIT 100',
+      [country, category]
+    );
+    return res.json({ providers: result.rows });
+  } catch (error) {
+    console.error('Published partner directory failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_directory_unavailable' });
+  }
+});
+
+app.post('/api/partner-applications', validateRequestOrigin, partnerApplicationLimiter, requireDatabase, async (req, res) => {
+  const body = req.body || {};
+  const category = body.category;
+  const businessName = typeof body.businessName === 'string' ? body.businessName.trim() : '';
+  const contactName = typeof body.contactName === 'string' ? body.contactName.trim() : '';
+  const contactEmail = normalizeEmail(body.contactEmail);
+  const country = typeof body.country === 'string' ? body.country.trim().toUpperCase() : '';
+  const city = typeof body.city === 'string' ? body.city.trim() : '';
+  const website = typeof body.website === 'string' ? body.website.trim() : '';
+  const serviceDescription = typeof body.serviceDescription === 'string' ? body.serviceDescription.trim() : '';
+  const priceFrom = body.priceFrom === '' || body.priceFrom == null ? null : Number(body.priceFrom);
+  const priceCurrency = typeof body.priceCurrency === 'string' ? body.priceCurrency : 'USD';
+  const languageInput = typeof body.serviceLanguages === 'string' ? body.serviceLanguages : '';
+  const serviceLanguages = languageInput.split(',').map(value => value.trim()).filter(Boolean);
+  const availabilityNote = typeof body.availabilityNote === 'string' ? body.availabilityNote.trim() : '';
+  const categories = ['cafe', 'photography', 'videography', 'venue', 'beauty', 'legal', 'transport', 'dress', 'host', 'other'];
+  const countries = ['GE', 'RU', 'KZ', 'AM'];
+  const currencies = ['USD', 'GEL', 'EUR', 'RUB', 'KZT', 'AMD'];
+  let safeWebsite = '';
+  if (website) {
+    try {
+      const parsed = new URL(website);
+      if (parsed.protocol !== 'https:' || !parsed.hostname || parsed.username || parsed.password) {
+        return res.status(400).json({ error: 'invalid_partner_application' });
+      }
+      safeWebsite = parsed.toString();
+    } catch { return res.status(400).json({ error: 'invalid_partner_application' }); }
+  }
+  if (!categories.includes(category) || !countries.includes(country) ||
+      businessName.length < 2 || businessName.length > 160 ||
+      contactName.length < 2 || contactName.length > 120 || !isValidEmail(contactEmail) ||
+      city.length < 2 || city.length > 120 || website.length > 500 ||
+      serviceDescription.length < 20 || serviceDescription.length > 2000 ||
+      (priceFrom !== null && (!Number.isFinite(priceFrom) || priceFrom < 0 || priceFrom > 10000000 ||
+        Math.abs(Math.round(priceFrom * 100) - priceFrom * 100) > 1e-7)) ||
+      !currencies.includes(priceCurrency) || languageInput.length > 500 || serviceLanguages.length > 10 ||
+      serviceLanguages.some(value => value.length < 2 || value.length > 40) || availabilityNote.length > 500) {
+    return res.status(400).json({ error: 'invalid_partner_application' });
+  }
+  try {
+    const result = await pool.query(
+      'INSERT INTO partner_service_applications (category, business_name, contact_name, contact_email, country, city, website, service_description, price_from, price_currency, service_languages, availability_note) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id, status, created_at AS "createdAt"',
+      [category, businessName, contactName, contactEmail, country, city, safeWebsite, serviceDescription, priceFrom, priceCurrency, serviceLanguages, availabilityNote]
+    );
+    return res.status(201).json({ application: result.rows[0] });
+  } catch (error) {
+    console.error('Partner application submission failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_application_unavailable' });
+  }
+});
+
+app.get('/api/admin/partner-applications', requireSession, requireDatabase, async (req, res) => {
+  const read = await withActiveModeratorRead(req.authUser.id, client => client.query(
+    "SELECT id, category, business_name AS \"businessName\", contact_name AS \"contactName\", contact_email AS \"contactEmail\", country, city, website, service_description AS \"serviceDescription\", price_from AS \"priceFrom\", price_currency AS \"priceCurrency\", service_languages AS \"serviceLanguages\", availability_note AS \"availabilityNote\", status, review_note AS \"reviewNote\", published_at AS \"publishedAt\", created_at AS \"createdAt\" FROM partner_service_applications WHERE status IN ('pending','in_review','approved') ORDER BY created_at ASC LIMIT 100"
+  ));
+  if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+  if (read.value?.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+  return res.json({ applications: read.value.rows });
+});
+
+app.post('/api/admin/partner-applications/:applicationId/review', validateRequestOrigin, requireSession, requireDatabase, async (req, res) => {
+  const id = req.params.applicationId;
+  const decision = req.body?.decision;
+  const note = typeof req.body?.reviewNote === 'string' ? req.body.reviewNote.trim().slice(0, 1000) : '';
+  if (!isUuid(id) || !['in_review', 'approved', 'rejected'].includes(decision)) {
+    return res.status(400).json({ error: 'invalid_partner_application_review' });
+  }
+  try {
+    const result = await withPooledTransaction(pool, async client => {
+      const moderator = await client.query("SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE", [req.authUser.id]);
+      if (!['admin', 'moderator'].includes(moderator.rows[0]?.role)) return { forbidden: true };
+      const changed = await client.query(
+        "UPDATE partner_service_applications SET status = $2, reviewed_by = $3, reviewed_at = NOW(), review_note = $4, updated_at = NOW() WHERE id = $1 AND status IN ('pending','in_review') RETURNING id, status, category, business_name AS \"businessName\"",
+        [id, decision, req.authUser.id, note]
+      );
+      if (!changed.rows[0]) return { missing: true };
+      await client.query(
+        'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, reason, details) VALUES ($1,$2,$3,$4,$5,$6::jsonb)',
+        [req.authUser.id, 'partner_application_' + decision, 'partner_service_application', id, note || null, JSON.stringify({ category: changed.rows[0].category, businessName: changed.rows[0].businessName })]
+      );
+      return { application: changed.rows[0] };
+    });
+    if (result.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    if (result.missing) return res.status(404).json({ error: 'pending_partner_application_not_found' });
+    return res.json({ application: result.application });
+  } catch (error) {
+    console.error('Partner application review failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_application_review_failed' });
+  }
+});
+
+app.post('/api/admin/partner-applications/:applicationId/publish', validateRequestOrigin, requireSession, requireDatabase, async (req, res) => {
+  const id = req.params.applicationId;
+  if (!isUuid(id)) return res.status(400).json({ error: 'invalid_partner_application_id' });
+  try {
+    const result = await withPooledTransaction(pool, async client => {
+      const moderator = await client.query("SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE", [req.authUser.id]);
+      if (!['admin', 'moderator'].includes(moderator.rows[0]?.role)) return { forbidden: true };
+      const changed = await client.query(
+        "UPDATE partner_service_applications SET published_at = NOW(), published_by = $2, updated_at = NOW() WHERE id = $1 AND status = 'approved' AND published_at IS NULL RETURNING id, category, business_name AS \"businessName\", published_at AS \"publishedAt\"",
+        [id, req.authUser.id]
+      );
+      if (!changed.rows[0]) return { missing: true };
+      await client.query(
+        'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, details) VALUES ($1,$2,$3,$4,$5::jsonb)',
+        [req.authUser.id, 'partner_application_published', 'partner_service_application', id, JSON.stringify({ category: changed.rows[0].category, businessName: changed.rows[0].businessName })]
+      );
+      return { application: changed.rows[0] };
+    });
+    if (result.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    if (result.missing) return res.status(409).json({ error: 'approved_partner_application_not_publishable' });
+    return res.json({ application: result.application });
+  } catch (error) {
+    console.error('Partner application publication failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_application_publication_failed' });
+  }
+});
+
+app.post('/api/admin/partner-applications/:applicationId/unpublish', validateRequestOrigin, requireSession, requireDatabase, async (req, res) => {
+  const id = req.params.applicationId;
+  if (!isUuid(id)) return res.status(400).json({ error: 'invalid_partner_application_id' });
+  try {
+    const result = await withPooledTransaction(pool, async client => {
+      const moderator = await client.query("SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE", [req.authUser.id]);
+      if (!['admin', 'moderator'].includes(moderator.rows[0]?.role)) return { forbidden: true };
+      const changed = await client.query(
+        "UPDATE partner_service_applications SET published_at = NULL, published_by = NULL, updated_at = NOW() WHERE id = $1 AND status = 'approved' AND published_at IS NOT NULL RETURNING id, category, business_name AS \"businessName\"",
+        [id]
+      );
+      if (!changed.rows[0]) return { missing: true };
+      await client.query(
+        'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, details) VALUES ($1,$2,$3,$4,$5::jsonb)',
+        [req.authUser.id, 'partner_application_unpublished', 'partner_service_application', id, JSON.stringify({ category: changed.rows[0].category, businessName: changed.rows[0].businessName })]
+      );
+      return { application: changed.rows[0] };
+    });
+    if (result.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    if (result.missing) return res.status(409).json({ error: 'published_partner_application_not_found' });
+    return res.json({ application: result.application });
+  } catch (error) {
+    console.error('Partner application unpublication failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_application_unpublication_failed' });
+  }
+});
+
+app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession, requireDatabase, profileActionLimiter, async (req, res) => {
+  const body = req.body || {};
+  const applicationId = body.applicationId;
+  const matchId = body.matchId;
+  const requestKey = body.requestKey;
+  const note = typeof body.requestNote === 'string' ? body.requestNote.trim() : '';
+  const serviceDate = body.serviceDate === '' || body.serviceDate == null ? null : body.serviceDate;
+  if (!isUuid(applicationId) || !isUuid(matchId) || !isUuid(requestKey) || body.shareContact !== true ||
+      note.length < 20 || note.length > 2000 ||
+      (serviceDate !== null && (typeof serviceDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(serviceDate) ||
+       !Number.isFinite(Date.parse(serviceDate + 'T00:00:00Z')) ||
+       new Date(serviceDate + 'T00:00:00Z').toISOString().slice(0,10) !== serviceDate))) {
+    return res.status(400).json({ error: 'invalid_partner_service_inquiry' });
+  }
+  const requesterName = String(req.authUser.display_name || '').trim().slice(0, 80);
+  const requesterEmail = normalizeEmail(req.authUser.email);
+  if (!requesterName || !isValidEmail(requesterEmail)) return res.status(400).json({ error: 'verified_contact_required' });
+  let inquiry;
+  try {
+    inquiry = await withPooledTransaction(pool, async client => {
+      const match = await client.query(
+        "SELECT id FROM matches WHERE id = $1 AND status = 'active' AND (user_a_id = $2 OR user_b_id = $2) FOR SHARE",
+        [matchId, req.authUser.id]
+      );
+      if (!match.rowCount) return { missingMatch: true };
+      const provider = await client.query(
+        "SELECT id, business_name AS \"businessName\", contact_email AS \"contactEmail\" FROM partner_service_applications WHERE id = $1 AND status = 'approved' AND published_at IS NOT NULL FOR SHARE",
+        [applicationId]
+      );
+      if (!provider.rows[0]) return { missingProvider: true };
+      let row = await client.query(
+        'INSERT INTO partner_service_inquiries (application_id, match_id, requested_by, request_key, requester_name, requester_email, service_date, request_note, contact_consent_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW()) ON CONFLICT (requested_by, request_key) DO NOTHING RETURNING id, delivery_status AS "deliveryStatus"',
+        [applicationId, matchId, req.authUser.id, requestKey, requesterName, requesterEmail, serviceDate, note]
+      );
+      if (!row.rows[0]) {
+        row = await client.query(
+          'SELECT id, application_id AS "applicationId", match_id AS "matchId", service_date AS "serviceDate", request_note AS "requestNote", requester_name AS "requesterName", requester_email AS "requesterEmail", delivery_status AS "deliveryStatus" FROM partner_service_inquiries WHERE requested_by = $1 AND request_key = $2 FOR UPDATE',
+          [req.authUser.id, requestKey]
+        );
+        const existing = row.rows[0];
+        if (!existing || existing.applicationId !== applicationId || existing.matchId !== matchId ||
+            existing.requestNote !== note ||
+            (existing.serviceDate ? new Date(existing.serviceDate).toISOString().slice(0,10) : null) !== serviceDate) {
+          return { conflict: true };
+        }
+        return { inquiry: existing, provider: provider.rows[0], duplicate: true };
+      }
+      return { inquiry: row.rows[0], provider: provider.rows[0], duplicate: false };
+    });
+    if (inquiry.missingMatch) return res.status(404).json({ error: 'active_match_not_found' });
+    if (inquiry.missingProvider) return res.status(404).json({ error: 'published_partner_not_found' });
+    if (inquiry.conflict) return res.status(409).json({ error: 'inquiry_request_key_conflict' });
+    const row = inquiry.inquiry;
+    if (row.deliveryStatus === 'sent') return res.json({ inquiryId: row.id, sent: true });
+    if (row.deliveryStatus === 'sending') return res.status(202).json({ inquiryId: row.id, sent: false });
+    if (!emailDeliveryConfigured()) return res.status(503).json({ error: 'partner_contact_temporarily_unavailable', inquiryId: row.id });
+    const claim = await pool.query(
+      "UPDATE partner_service_inquiries SET delivery_status = 'sending', delivery_attempts = delivery_attempts + 1, delivery_error = '', updated_at = NOW() WHERE id = $1 AND delivery_status = 'failed' RETURNING id",
+      [row.id]
+    );
+    if (!claim.rowCount) return res.status(202).json({ inquiryId: row.id, sent: false });
+    const escapeHtml = value => String(value).replace(/[&<>\"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '\"':'&quot;', \"'\":'&#39;' })[ch]);
+    const dateLine = serviceDate ? '<p><strong>Желаемая дата:</strong> ' + escapeHtml(serviceDate) + '</p>' : '';
+    try {
+      await sendConfiguredEmail({
+        to: inquiry.provider.contactEmail,
+        idempotencyKey: 'partner-service-inquiry/' + row.id,
+        subject: 'Новый запрос по услуге в Vow',
+        html: '<h2>Запрос предложения</h2><p>Пользователь дал согласие передать поставщику своё имя, email и текст запроса.</p>' +
+          '<p><strong>Имя:</strong> ' + escapeHtml(requesterName) + '</p>' +
+          '<p><strong>Email:</strong> ' + escapeHtml(requesterEmail) + '</p>' + dateLine +
+          '<p><strong>Сообщение:</strong></p><p>' + escapeHtml(note).replace(/\\n/g, '<br>') + '</p>' +
+          '<p>Данные второго участника совпадения, переписка и результаты совместимости не передаются.</p>'
+      });
+    } catch (error) {
+      await pool.query(
+        "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'email_delivery_failed', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
+        [row.id]
+      ).catch(() => {});
+      console.warn('Partner service inquiry delivery failed:', error?.message || 'unknown error');
+      return res.status(502).json({ error: 'partner_contact_temporarily_unavailable', inquiryId: row.id });
+    }
+    try {
+      await pool.query(
+        "UPDATE partner_service_inquiries SET delivery_status = 'sent', delivered_at = NOW(), updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
+        [row.id]
+      );
+    } catch (error) {
+      console.error('Partner inquiry email was delivered but status could not be saved:', error?.message || 'unknown error');
+      return res.status(202).json({ inquiryId: row.id, sent: true, deliveryStatus: 'status_update_pending' });
+    }
+    return res.status(201).json({ inquiryId: row.id, sent: true });
+  } catch (error) {
+    console.error('Partner service inquiry failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_service_inquiry_failed' });
   }
 });
 
