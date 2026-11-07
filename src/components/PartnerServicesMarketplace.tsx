@@ -195,16 +195,16 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
             <div className="flex gap-3">
               <div className="w-12 h-12 rounded-2xl bg-rose-600/20 text-rose-300 flex items-center justify-center"><HeartHandshake className="w-6 h-6" /></div>
               <div>
-                <p className="text-[10px] uppercase tracking-[0.18em] text-rose-300 font-bold">Следующий этап для пары</p>
-                <h2 id="partner-services-title" className="text-xl sm:text-2xl font-black text-white">Планирование свадьбы и юридические услуги</h2>
-                <p id="partner-services-description" className="text-xs sm:text-sm text-stone-300 mt-1">Услуги для вас и {partnerName}. Запрос отправляется только выбранному поставщику.</p>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-rose-300 font-bold">{tr('Следующий этап для пары', 'The next step for your match')}</p>
+                <h2 id="partner-services-title" className="text-xl sm:text-2xl font-black text-white">{tr('Планирование свадьбы и юридические услуги', 'Wedding planning and legal services')}</h2>
+                <p id="partner-services-description" className="text-xs sm:text-sm text-stone-300 mt-1">Услуги для вас и {partnerName}. {tr('Запрос отправляется только выбранному поставщику.', 'Requests go only to the provider you choose.')}</p>
               </div>
             </div>
             <button type="button" onClick={onClose} className="flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-transparent bg-white/5 text-stone-300 hover:text-white focus-visible:border-rose-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" aria-label="Закрыть"><X className="w-5 h-5" /></button>
           </div>
           <div className="mt-4 flex gap-2 rounded-xl border border-emerald-700/30 bg-emerald-950/30 p-3 text-xs text-emerald-100">
             <LockKeyhole className="w-4 h-4 shrink-0 mt-0.5" />
-            <p>Раздел появляется только внутри взаимного совпадения после этапа совместимости. Здесь показываются только партнёры, которых модератор отдельно одобрил и опубликовал. Контактные email и внутренние заметки остаются закрытыми; цены и бронирование пока не подключены.</p>
+            <p>{tr('Раздел появляется только внутри взаимного совпадения после этапа совместимости. Здесь показываются только партнёры, которых модератор отдельно одобрил и опубликовал. Контактные email и внутренние заметки остаются закрытыми; цены и бронирование пока не подключены.', 'This section is available only inside a mutual match after compatibility. It shows partners separately approved and published by moderators. Contact emails and internal notes remain private; payments and bookings are not enabled.')}</p>
           </div>
         </div>
 
@@ -224,22 +224,22 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
 
           {category === 'legal' && (
             <div className="mb-5 rounded-2xl border border-sky-700/30 bg-sky-950/20 p-4">
-              <div className="flex gap-2 items-start"><Scale className="w-5 h-5 text-sky-300 shrink-0" /><div><h3 className="font-bold text-white">Брачный договор — по законам конкретной страны</h3><p className="text-xs text-stone-300 mt-1">Пара выбирает страну применимого права и место заключения брака. Сервис должен направлять запрос только специалистам, допущенным к соответствующей практике. Наличие диплома само по себе не подтверждает право оказывать регулируемые услуги.</p></div></div>
+              <div className="flex gap-2 items-start"><Scale className="w-5 h-5 text-sky-300 shrink-0" /><div><h3 className="font-bold text-white">{tr('Брачный договор — по законам конкретной страны', 'Marriage agreements follow the laws of the relevant country')}</h3><p className="text-xs text-stone-300 mt-1">{tr('Пара выбирает страну применимого права и место заключения брака. Сервис должен направлять запрос только специалистам, допущенным к соответствующей практике. Наличие диплома само по себе не подтверждает право оказывать регулируемые услуги.', 'The couple chooses the applicable legal jurisdiction and place of marriage. Requests must go only to specialists authorized to practise in that jurisdiction. A degree alone does not establish authorization to provide regulated services.')}</p></div></div>
               <div className="grid sm:grid-cols-3 gap-2 mt-3 text-[11px] text-stone-300">
-                <div className="rounded-xl bg-stone-950/70 p-3"><BadgeCheck className="w-4 h-4 text-emerald-300 mb-1" /><strong className="block text-white">Проверенный статус</strong>Ручная проверка по официальному реестру</div>
-                <div className="rounded-xl bg-stone-950/70 p-3"><FileCheck2 className="w-4 h-4 text-emerald-300 mb-1" /><strong className="block text-white">Правовая юрисдикция</strong>Страна, регион и виды документов</div>
-                <div className="rounded-xl bg-stone-950/70 p-3"><LockKeyhole className="w-4 h-4 text-emerald-300 mb-1" /><strong className="block text-white">Конфиденциальность</strong>Документы пары — только специалисту после согласия</div>
+                <div className="rounded-xl bg-stone-950/70 p-3"><BadgeCheck className="w-4 h-4 text-emerald-300 mb-1" /><strong className="block text-white">{tr('Проверенный статус', 'Verified status')}</strong>{tr('Ручная проверка по официальному реестру', 'Manually checked against an official register')}</div>
+                <div className="rounded-xl bg-stone-950/70 p-3"><FileCheck2 className="w-4 h-4 text-emerald-300 mb-1" /><strong className="block text-white">{tr('Правовая юрисдикция', 'Legal jurisdiction')}</strong>{tr('Страна, регион и виды документов', 'Country, region and document types')}</div>
+                <div className="rounded-xl bg-stone-950/70 p-3"><LockKeyhole className="w-4 h-4 text-emerald-300 mb-1" /><strong className="block text-white">{tr('Конфиденциальность', 'Privacy')}</strong>{tr('Документы пары — только специалисту после согласия', 'Couple documents go only to the specialist after consent')}</div>
               </div>
             </div>
           )}
 
           <section aria-labelledby="published-partners-title" className="mb-6">
             <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
-              <div><h3 id="published-partners-title" className="text-base font-bold text-white">Партнёры Vow</h3><p className="mt-1 text-xs text-stone-400">Опубликованные карточки · {countryNames[country]}</p></div>
-              <p role="status" aria-live="polite" aria-atomic="true" className="text-xs text-stone-400">{partnersLoading ? 'Загружаем каталог…' : `${publishedPartners.length} партнёров`}</p>
+              <div><h3 id="published-partners-title" className="text-base font-bold text-white">{tr('Партнёры Vow', 'Vow partners')}</h3><p className="mt-1 text-xs text-stone-400">{tr('Опубликованные карточки', 'Published listings')} · {countryNames[country]}</p></div>
+              <p role="status" aria-live="polite" aria-atomic="true" className="text-xs text-stone-400">{partnersLoading ? '{tr('Загружаем каталог…', 'Loading directory…')}' : `${publishedPartners.length} партнёров`}</p>
             </div>
             {partnersError && <p role="alert" className="mb-3 rounded-xl border border-amber-700/30 bg-amber-950/20 p-3 text-xs text-amber-100">{partnersError}</p>}
-            {!partnersLoading && !partnersError && publishedPartners.length === 0 && <p role="status" className="mb-3 rounded-xl border border-white/10 bg-stone-950/50 p-4 text-sm text-stone-400">Опубликованных партнёров для выбранного фильтра пока нет.</p>}
+            {!partnersLoading && !partnersError && publishedPartners.length === 0 && <p role="status" className="mb-3 rounded-xl border border-white/10 bg-stone-950/50 p-4 text-sm text-stone-400">{tr('Опубликованных партнёров для выбранного фильтра пока нет.', 'No published partners match these filters yet.')}</p>}
             {publishedPartners.length > 0 && <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {publishedPartners.map(provider => {
                 const matchedCategory = provider.category === 'photography' || provider.category === 'videography' ? 'photo' : provider.category;
@@ -247,18 +247,18 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                 const categoryItem = categories.find(item => item.id === matchedCategory);
                 const categoryLabel = categoryItem ? (locale === 'ru' ? categoryItem.ru : categoryItem.en) : tr('Услуги', 'Services');
                 return <article key={provider.id} className="rounded-2xl border border-emerald-700/30 bg-stone-950/70 p-4">
-                  <div className="flex items-start justify-between gap-2"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600/15 text-emerald-300"><Icon className="h-5 w-5" /></div><span className="rounded-full border border-emerald-700/40 bg-emerald-950/40 px-2 py-1 text-[9px] text-emerald-200">В каталоге Vow</span></div>
-                  <p className="mt-3 text-[10px] uppercase tracking-wide text-stone-400">{categoryLabel} · {provider.city}, {provider.country}</p>
+                  <div className="flex items-start justify-between gap-2"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600/15 text-emerald-300"><Icon className="h-5 w-5" /></div><span className="rounded-full border border-emerald-700/40 bg-emerald-950/40 px-2 py-1 text-[9px] text-emerald-200">{tr('В каталоге Vow', 'In the Vow directory')}</span></div>
+                  <p className="mt-3 text-[10px] uppercase tracking-wide text-stone-400">{categoryLabel} · {provider.city}, {countryNames[provider.country as CountryCode] || provider.country}</p>
                   <h4 className="mt-1 font-bold text-white">{provider.businessName}</h4>
                   <p className="mt-3 whitespace-pre-wrap break-words text-xs leading-relaxed text-stone-300">{provider.serviceDescription}</p>
                   <div className="mt-3 space-y-1 text-xs text-stone-300">
-                    {provider.priceFrom !== null && provider.priceFrom !== undefined && <p><strong className="text-white">Ориентир:</strong> от {formatNumber(Number(provider.priceFrom))} {provider.priceCurrency}</p>}
-                    {provider.serviceLanguages?.length > 0 && <p><strong className="text-white">Языки:</strong> {provider.serviceLanguages.join(', ')}</p>}
-                    {provider.availabilityNote && <p><strong className="text-white">Доступность:</strong> {provider.availabilityNote}</p>}
+                    {provider.priceFrom !== null && provider.priceFrom !== undefined && <p><strong className="text-white">{tr('Ориентир:', 'From:')}</strong> от {formatNumber(Number(provider.priceFrom))} {provider.priceCurrency}</p>}
+                    {provider.serviceLanguages?.length > 0 && <p><strong className="text-white">{tr('Языки:', 'Languages:')}</strong> {provider.serviceLanguages.join(', ')}</p>}
+                    {provider.availabilityNote && <p><strong className="text-white">{tr('Доступность:', 'Availability:')}</strong> {provider.availabilityNote}</p>}
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
-                    <button type="button" onClick={() => { inquiryRequestKey.current = null; setInquiryProvider(provider); setInquiryStatus(''); setShareContact(false); }} className="inline-flex min-h-11 items-center rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">Запросить предложение</button>
-                    {provider.website && <a href={provider.website} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center rounded-lg border border-emerald-700/40 px-3 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-950/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">Открыть сайт исполнителя <ChevronRight className="ml-1 h-3.5 w-3.5" /></a>}
+                    <button type="button" onClick={() => { inquiryRequestKey.current = null; setInquiryProvider(provider); setInquiryStatus(''); setShareContact(false); }} className="inline-flex min-h-11 items-center rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">{tr('Запросить предложение', 'Request a quote')}</button>
+                    {provider.website && <a href={provider.website} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center rounded-lg border border-emerald-700/40 px-3 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-950/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">{tr('Открыть сайт исполнителя', 'Open provider website')} <ChevronRight className="ml-1 h-3.5 w-3.5" /></a>}
                   </div>
                 </article>;
               })}
@@ -267,25 +267,25 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
 
           {inquiryStatus && <p role="status" aria-live="polite" className="mt-4 rounded-xl border border-emerald-700/30 bg-emerald-950/20 p-3 text-sm text-emerald-100">{inquiryStatus}</p>}
           {inquiryProvider && <form onSubmit={submitInquiry} className="mt-4 space-y-3 rounded-2xl border border-emerald-700/30 bg-stone-950/70 p-4">
-            <div><h3 className="font-bold text-white">Запрос для {inquiryProvider.businessName}</h3><p className="mt-1 text-xs text-stone-300">Опишите, что вам нужно. Не указывайте паспортные, платёжные или другие чувствительные данные.</p></div>
-            <label className="block text-xs font-semibold text-stone-200">Сообщение поставщику
-              <textarea required minLength={20} maxLength={2000} aria-describedby="partner-inquiry-note-count" value={inquiryNote} onChange={event => { inquiryRequestKey.current = null; setInquiryNote(event.target.value); }} rows={4} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300" placeholder="Например: хотим узнать цену и свободные даты для фотосъёмки." />
+            <div><h3 className="font-bold text-white">{tr('Запрос для ' + inquiryProvider.businessName, 'Request for ' + inquiryProvider.businessName)}</h3><p className="mt-1 text-xs text-stone-300">{tr('Опишите, что вам нужно. Не указывайте паспортные, платёжные или другие чувствительные данные.', 'Describe what you need. Do not include identity, payment or other sensitive information.')}</p></div>
+            <label className="block text-xs font-semibold text-stone-200">{tr('Сообщение поставщику', 'Message to provider')}
+              <textarea required minLength={20} maxLength={2000} aria-describedby="partner-inquiry-note-count" value={inquiryNote} onChange={event => { inquiryRequestKey.current = null; setInquiryNote(event.target.value); }} rows={4} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300" placeholder="{tr('Например: хотим узнать цену и свободные даты для фотосъёмки.', 'For example: we would like to know the price and available dates for a photo session.')}" />
               <span id="partner-inquiry-note-count" className="mt-1 block text-right text-[11px] font-normal text-stone-400">{inquiryNote.length}/2000</span>
             </label>
-            <label className="block text-xs font-semibold text-stone-200">Желаемая дата (необязательно)
+            <label className="block text-xs font-semibold text-stone-200">{tr('Желаемая дата (необязательно)', 'Preferred date (optional)')}
               <input type="date" value={serviceDate} onChange={event => { inquiryRequestKey.current = null; setServiceDate(event.target.value); }} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-900 px-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300" />
             </label>
-            <label className="flex items-start gap-2 text-xs leading-relaxed text-stone-200"><input required type="checkbox" checked={shareContact} onChange={event => setShareContact(event.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-500" /><span>Я согласен(на) передать поставщику моё имя, email, желаемую дату и сообщение для ответа на запрос. Имя, контакты и переписка второго участника не передаются.</span></label>
-            <div className="flex flex-wrap gap-2"><button type="submit" disabled={inquiryBusy || !shareContact || inquiryNote.trim().length < 20} className="min-h-11 rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{inquiryBusy ? 'Отправляем…' : 'Отправить запрос'}</button><button type="button" onClick={() => setInquiryProvider(null)} disabled={inquiryBusy} className="min-h-11 rounded-lg border border-white/15 px-4 py-2 text-xs text-stone-200">Отмена</button></div>
+            <label className="flex items-start gap-2 text-xs leading-relaxed text-stone-200"><input required type="checkbox" checked={shareContact} onChange={event => setShareContact(event.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-500" /><span>{tr('Я согласен(на) передать поставщику моё имя, email, желаемую дату и сообщение для ответа на запрос. Имя, контакты и переписка второго участника не передаются.', 'I consent to sharing my name, email, preferred date and message with this provider so they can respond. The other match participant\'s name, contact details and messages will not be shared.')}</span></label>
+            <div className="flex flex-wrap gap-2"><button type="submit" disabled={inquiryBusy || !shareContact || inquiryNote.trim().length < 20} className="min-h-11 rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{inquiryBusy ? '{tr('Отправляем…', 'Sending…')}' : '{tr('Отправить запрос', 'Send request')}'}</button><button type="button" onClick={() => setInquiryProvider(null)} disabled={inquiryBusy} className="min-h-11 rounded-lg border border-white/15 px-4 py-2 text-xs text-stone-200">{tr('Отмена', 'Cancel')}</button></div>
           </form>}
           <div className="mt-5 grid md:grid-cols-2 gap-3">
             <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-4">
-              <div className="flex items-center gap-2 text-white font-bold text-sm"><Wallet className="w-4 h-4 text-rose-300" /> Как сервис сможет зарабатывать</div>
-              <ul className="mt-2 list-disc pl-5 space-y-1 text-xs text-stone-300"><li>Платная подписка поставщика за профиль и инструменты заявок.</li><li>Комиссия с бронирования/заказа — только по договору и после подключения платежей.</li><li>Платное продвижение с явной маркировкой рекламы, без влияния на юридическую проверку.</li></ul>
+              <div className="flex items-center gap-2 text-white font-bold text-sm"><Wallet className="w-4 h-4 text-rose-300" /> {tr('Как сервис сможет зарабатывать', 'How the service can earn revenue')}</div>
+              <ul className="mt-2 list-disc pl-5 space-y-1 text-xs text-stone-300"><li>{tr('Платная подписка поставщика за профиль и инструменты заявок.', 'Provider subscriptions for profiles and inquiry tools.')}</li><li>{tr('Комиссия с бронирования/заказа — только по договору и после подключения платежей.', 'Booking/order commissions only under contract and after payments are enabled.')}</li><li>{tr('Платное продвижение с явной маркировкой рекламы, без влияния на юридическую проверку.', 'Paid promotion with clear ad labels and no influence on legal verification.')}</li></ul>
             </div>
             <div className="rounded-2xl border border-amber-700/30 bg-amber-950/20 p-4">
-              <div className="flex items-center gap-2 text-amber-200 font-bold text-sm"><AlertTriangle className="w-4 h-4" /> До запуска обязательно</div>
-              <p className="text-xs text-stone-300 mt-2">Проверка документов администратором, безопасное хранилище, журнал проверок, сроки повторной проверки, жалобы и блокировка профиля. Оплата, договоры и передача документов в этом прототипе не работают.</p>
+              <div className="flex items-center gap-2 text-amber-200 font-bold text-sm"><AlertTriangle className="w-4 h-4" /> {tr('До запуска обязательно', 'Required before launch')}</div>
+              <p className="text-xs text-stone-300 mt-2">{tr('Проверка документов администратором, безопасное хранилище, журнал проверок, сроки повторной проверки, жалобы и блокировка профиля. Оплата, договоры и передача документов в этом прототипе не работают.', 'Administrator document review, secure storage, review logs, re-verification deadlines, reporting and profile suspension. Payments, contracts and document transfer are not active in this prototype.')}</p>
             </div>
           </div>
         </div>
