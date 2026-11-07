@@ -143,6 +143,7 @@ test('auth API supports registration, session lookup, logout and login', {
   let identityGateDb;
   let quotaExhaustionMaleUserId = null;
   let concurrentQuotaMaleUserId = null;
+  let l3DatePartnerUserId = null;
   try {
     let healthy = false;
     for (let attempt = 0; attempt < 80; attempt += 1) {
@@ -5146,8 +5147,41 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(deletedAccountMessages.status, 401,
       'a deleted account must not retain access to previously authorized conversations');
 
-    const l3RevocationProposal = await request(datePlanPath, {
-      method: 'POST', headers: { Cookie: secondCookie },
+    // The original female fixture has already been deleted above. Use a new
+    // active participant so this L3 revocation test exercises a live match,
+    // rather than accidentally proposing through a tombstoned session.
+    await identityGateDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'auth:%'");
+    const l3DatePartnerRegistration = await request('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: `l3-date-partner-${randomUUID()}@example.test`,
+        password,
+        displayName: 'L3 date-plan partner',
+        birthDate: '1991-02-03',
+        gender: 'female',
+        country: 'Georgia',
+        city: 'Tbilisi',
+        relationshipIntent: 'family_without_marriage',
+        familyFormat: 'cohabitation',
+        hasChildren: false,
+        wantsChildren: 'discuss',
+        childrenLivingArrangement: 'not_applicable'
+      })
+    });
+    assert.equal(l3DatePartnerRegistration.status, 201, apiLogs);
+    const l3DatePartner = await l3DatePartnerRegistration.json();
+    l3DatePartnerUserId = l3DatePartner.user.id;
+    const l3DatePartnerCookie = l3DatePartnerRegistration.headers.get('set-cookie')?.split(';')[0];
+    assert.ok(l3DatePartnerCookie?.startsWith('nit_session='));
+    const l3DateMatch = await identityGateDb.query(
+      `INSERT INTO matches (user_a_id, user_b_id, status)
+       VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid), 'active')
+       RETURNING id`,
+      [maleRegistered.user.id, l3DatePartnerUserId]
+    );
+    const l3DatePlanPath = `/api/matches/${l3DateMatch.rows[0].id}/date-plan`;
+    const l3RevocationProposal = await request(l3DatePlanPath, {
+      method: 'POST', headers: { Cookie: l3DatePartnerCookie },
       body: JSON.stringify({ ...datePlanInput, venueName: 'L3 Revocation Safety Cafe' })
     });
     assert.equal(l3RevocationProposal.status, 201);
@@ -5220,6 +5254,9 @@ test('auth API supports registration, session lookup, logout and login', {
     }
 
   } finally {
+    if (l3DatePartnerUserId && identityGateDb) {
+      await identityGateDb.query('DELETE FROM users WHERE id = $1', [l3DatePartnerUserId]).catch(() => {});
+    }
     if (quotaExhaustionMaleUserId && identityGateDb) {
       await identityGateDb.query('DELETE FROM users WHERE id = $1', [quotaExhaustionMaleUserId]).catch(() => {});
     }
