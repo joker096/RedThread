@@ -3029,10 +3029,31 @@ test('auth API supports registration, session lookup, logout and login', {
        VALUES ($1, 'didit', $2, $3, 'verified', 'Approved', 'live')`,
       [concurrentMale.user.id, randomUUID(), randomUUID()]
     );
-    await identityGateDb.query(
-      'INSERT INTO identity_l3_consents (user_id, consent_version, granted_at) VALUES ($1, 2, statement_timestamp())',
-      [concurrentMale.user.id]
-    );
+    const concurrentMaleConsentClient = await identityGateDb.connect();
+    try {
+      await concurrentMaleConsentClient.query('BEGIN');
+      const concurrentMaleGrant = await concurrentMaleConsentClient.query(
+        `INSERT INTO identity_l3_consents (user_id, consent_version, granted_at)
+         VALUES ($1, 2, statement_timestamp())
+         RETURNING user_id, consent_version, granted_at`,
+        [concurrentMale.user.id]
+      );
+      assert.equal(concurrentMaleGrant.rowCount, 1, 'the concurrent male L3 consent grant must be created');
+      await concurrentMaleConsentClient.query(
+        `INSERT INTO identity_l3_consent_events
+           (user_id, actor_user_id, event_type, consent_version, occurred_at)
+         SELECT user_id, user_id, 'granted', consent_version, granted_at
+         FROM identity_l3_consents
+         WHERE user_id = $1`,
+        [concurrentMale.user.id]
+      );
+      await concurrentMaleConsentClient.query('COMMIT');
+    } catch (error) {
+      await concurrentMaleConsentClient.query('ROLLBACK');
+      throw error;
+    } finally {
+      concurrentMaleConsentClient.release();
+    }
     const concurrentMaleSubmissionId = randomUUID();
     await identityGateDb.query(
       'INSERT INTO identity_l3_submissions (id, user_id) VALUES ($1, $2)',
