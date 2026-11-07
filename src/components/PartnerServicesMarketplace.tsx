@@ -197,6 +197,8 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
         setServiceDate('');
         setShareContact(false);
         inquiryRequestKey.current = null;
+      } else if (data?.deliveryStatus === 'pending_email_configuration') {
+        setInquiryStatus('Запрос сохранён. Отправка письма поставщику ожидает настройки почтового сервиса; данные не потеряны.');
       } else {
         setInquiryStatus('Запрос уже обрабатывается. Повторная отправка использует тот же запрос и не создаст дубликат.');
       }
