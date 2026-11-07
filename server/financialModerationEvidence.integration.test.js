@@ -3722,3 +3722,77 @@ test('transaction lifecycle conflict cases require provider evidence reference f
     await pool.end();
   }
 });
+
+
+test('invalid subscription identity cases cannot be manually closed without a provider subscription ID', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const client = await pool.connect();
+  const moderatorId = randomUUID();
+  const eventId = `evt_${randomUUID().replace(/-/g, '').slice(0, 26)}`;
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      "INSERT INTO users (id, email, password_hash, role, status) VALUES ($1, $2, 'test-only-hash', 'moderator', 'active')",
+      [moderatorId, `subscription-identity-mod-${moderatorId}@example.invalid`]
+    );
+    await client.query(
+      "INSERT INTO paddle_webhook_events (event_id, event_type) VALUES ($1, 'subscription.updated')",
+      [eventId]
+    );
+    await client.query(
+      "INSERT INTO paddle_adjustment_reconciliation_cases (event_id, reason_code) VALUES ($1, 'invalid_subscription_identity')",
+      [eventId]
+    );
+    await client.query('SAVEPOINT reject_unidentified_subscription_closure');
+    const note = 'Provider subscription identity is absent and cannot be verified';
+    await client.query(
+      `UPDATE paddle_adjustment_reconciliation_cases
+       SET status = 'resolved', resolution_note = $2,
+           resolution_source = 'manual_operator', resolved_by_ref = $3,
+           resolved_at = statement_timestamp(), updated_at = statement_timestamp()
+       WHERE event_id = $1`,
+      [eventId, note, moderatorId]
+    );
+    await client.query(
+      `INSERT INTO moderation_audit_log
+       (moderator_id, action, target_type, target_id, reason, details)
+       VALUES ($1, 'paddle_adjustment_reconciliation_resolved',
+               'paddle_adjustment_case', $2, $3,
+               jsonb_build_object(
+                 'eventId', $2::text,
+                 'reasonCode', 'invalid_subscription_identity',
+                 'adjustmentId', NULL,
+                 'transactionId', NULL,
+                 'providerUserRef', NULL,
+                 'providerPlan', NULL,
+                 'providerSubscriptionId', NULL,
+                 'resolutionSource', 'manual_operator'
+               ))`,
+      [moderatorId, eventId, note]
+    );
+    let missingIdentityError;
+    try {
+      await client.query('SET CONSTRAINTS paddle_adjustment_reconciliation_manual_audit_guard IMMEDIATE');
+    } catch (error) { missingIdentityError = error; }
+    assert.equal(missingIdentityError?.code, '23514',
+      'an audit note cannot substitute for a verifiable provider subscription ID');
+    await client.query('ROLLBACK TO SAVEPOINT reject_unidentified_subscription_closure');
+    await client.query('RELEASE SAVEPOINT reject_unidentified_subscription_closure');
+    await client.query('SET CONSTRAINTS paddle_adjustment_reconciliation_manual_audit_guard DEFERRED');
+    const retained = await client.query(
+      'SELECT status, provider_subscription_id FROM paddle_adjustment_reconciliation_cases WHERE event_id = $1',
+      [eventId]
+    );
+    assert.deepEqual(retained.rows, [{ status: 'open', provider_subscription_id: null }]);
+    await client.query('ROLLBACK');
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw error;
+  } finally {
+    client.release();
+    await pool.end();
+  }
+});
