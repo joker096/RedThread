@@ -29,6 +29,9 @@ test('rejects private-place attestations, missing fields and unsafe venue names'
   assert.equal(normalizeDatePlanInput(validInput({ venueName: 'улица Пушкина 10' })), null);
   assert.equal(normalizeDatePlanInput(validInput({ venueName: 'Rustaveli გამზირი 12' })), null);
   assert.equal(normalizeDatePlanInput(validInput({ venueName: 'Apartment 14, Rustaveli Ave' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ venueName: 'ბინა 12, რუსთაველის გამზირი' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ venueName: 'კორპუსი 3' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ venueName: 'Rustaveli\\u200b Avenue 12' })), null);
   assert.equal(normalizeDatePlanInput(validInput({ venueName: '41.7151, 44.8271' })), null);
   assert.equal(normalizeDatePlanInput(validInput({ venueName: '+1 (555) 123-4567' })), null);
   assert.equal(normalizeDatePlanInput(validInput({ venueName: 'https://example.com' })), null);
