@@ -1461,6 +1461,9 @@ test('mobile photo toggle keeps a 44px minimum touch target when expanded and co
 test('mobile photo toggle and verification badge keep separate touch areas', async ({ page }) => {
   for (const viewport of [{ width: 320, height: 720 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'share', { configurable: true, value: undefined });
+    });
     await page.goto('/');
     await page.getByTestId('open-demo-preview').click();
 
@@ -2305,6 +2308,22 @@ test('date plan requires both participants and resets confirmations after a chan
     await participantA.page.getByRole('button', { name: /^I confirm this plan$|^Подтверждаю этот план$/i }).click();
     await expect(participantA.page.getByText(/confirmed by both|подтверждён обоими участниками|подтвержден обоими участниками/i).first()).toBeVisible();
     expect(currentPlan()?.status).toBe('confirmed');
+
+    await participantA.context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const shareButton = participantA.page.getByTestId('date-plan-share');
+    await expect(shareButton).toBeVisible();
+    await shareButton.focus();
+    await expect(shareButton).toBeFocused();
+    const shareTarget = await shareButton.evaluate(element => element.getBoundingClientRect().height);
+    expect(shareTarget).toBeGreaterThanOrEqual(44);
+    await shareButton.press('Enter');
+    await expect(participantA.page.getByText(/date plan copied|план скопирован/i)).toBeVisible();
+    const copiedPlan = await participantA.page.evaluate(() => navigator.clipboard.readText());
+    expect(copiedPlan).toContain('Central Public Cafe');
+    expect(copiedPlan).toContain('Asia/Tbilisi');
+    expect(copiedPlan).toContain('Vow does not track');
+    expect(copiedPlan).not.toContain(userAId);
+    expect(copiedPlan).not.toContain(userBId);
 
     await participantA.page.getByLabel(/venue|место встречи/i).fill('Riverside Public Cafe');
     // Changing the venue invalidates the previous public-place attestation.
