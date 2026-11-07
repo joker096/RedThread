@@ -27,6 +27,7 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [shareNotice, setShareNotice] = useState('');
+  const [shareReadyPlan, setShareReadyPlan] = useState<DatePlan | null>(null);
   const refreshRequestId = useRef(0);
   const refresh = useCallback(async () => {
     const requestId = ++refreshRequestId.current;
@@ -39,7 +40,9 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
       if (requestId !== refreshRequestId.current) return;
       if (!response.ok) throw new Error(t('datePlanLoadError'));
       const next = data?.datePlan;
-      setPlan(next && typeof next.id === 'string' ? next : null);
+      const nextPlan = next && typeof next.id === 'string' ? next as DatePlan : null;
+      setPlan(nextPlan);
+      setShareReadyPlan(current => current && nextPlan?.id === current.id && nextPlan.status === 'confirmed' ? current : null);
       setUserAId(typeof data?.userAId === 'string' ? data.userAId : '');
       setUserBId(typeof data?.userBId === 'string' ? data.userBId : '');
       if (next) {
@@ -86,10 +89,34 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
   const shareConfirmedPlan = async () => {
     if (!plan || plan.status !== 'confirmed') return;
     setShareNotice('');
+    // First tap revalidates the plan with the server. A second explicit tap
+    // invokes navigator.share while the browser's transient user activation
+    // is still available; awaiting fetch before navigator.share breaks this.
+    if (!shareReadyPlan || shareReadyPlan.id !== plan.id) {
+      try {
+        const response = await fetch(`/api/matches/${encodeURIComponent(matchId)}/date-plan`, { credentials: 'include' });
+        const data = await response.json().catch(() => null);
+        const latest = data?.datePlan as DatePlan | null | undefined;
+        if (!response.ok || !latest || latest.id !== plan.id || latest.status !== 'confirmed') {
+          setShareReadyPlan(null);
+          setPlan(latest && typeof latest.id === 'string' ? latest : null);
+          setShareNotice(t('datePlanShareStale'));
+          return;
+        }
+        setShareReadyPlan(latest);
+        setShareNotice(t('datePlanShareReady'));
+      } catch {
+        setShareReadyPlan(null);
+        setShareNotice(t('datePlanShareUnavailable'));
+      }
+      return;
+    }
+    const confirmedPlan = shareReadyPlan;
+    setShareReadyPlan(null);
     const text = buildDatePlanShareText({
-      venueName: plan.venueName,
-      dateTime: formatDate(plan.startsAt, { dateStyle: 'medium', timeStyle: 'short', timeZone: plan.timeZone }),
-      timeZone: plan.timeZone
+      venueName: confirmedPlan.venueName,
+      dateTime: formatDate(confirmedPlan.startsAt, { dateStyle: 'medium', timeStyle: 'short', timeZone: confirmedPlan.timeZone }),
+      timeZone: confirmedPlan.timeZone
     }, {
       prefix: t('datePlanSharePrefix'),
       reminder: t('datePlanShareReminder')
@@ -128,7 +155,7 @@ export const DatePlanPanel: React.FC<Props> = ({ matchId, currentUserId }) => {
                   <p role="status" className="mt-2 text-xs font-semibold text-emerald-300">{t('datePlanConfirmed')}</p>
                   <button data-testid="date-plan-share" type="button" onClick={() => void shareConfirmedPlan()} aria-label={t('datePlanShareTitle')} className="mt-2 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-950/20 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-950/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">
                     <Share2 className="h-4 w-4" aria-hidden="true" />
-                    {t('datePlanShareButton')}
+                    {shareReadyPlan?.id === plan.id ? t('datePlanShareReadyButton') : t('datePlanShareButton')}
                   </button>
                   <p className="mt-2 text-[11px] leading-relaxed text-stone-400">{t('datePlanSharePrivacy')}</p>
                   {shareNotice && <p role="status" aria-live="polite" aria-atomic="true" className="mt-2 text-xs text-emerald-200">{shareNotice}</p>}
