@@ -4294,7 +4294,7 @@ test('auth API supports registration, session lookup, logout and login', {
       const deletionPhotoPath = '/tmp/vow-private-photo-purge-' + randomUUID() + '.jpg';
       await deletionSafetyDb.query(
         `INSERT INTO photo_assets (user_id, storage_path, mime_type, byte_size, width, height, review_status)
-         VALUES ($1, $2, 'image/jpeg', 128, 1, 1, 'approved')`,
+         VALUES ($1, $2, 'image/jpeg', 128, 1, 1, 'pending')`,
         [registered.user.id, deletionPhotoPath]
       );
       // Soft deletion must purge exposure rows both owned by the account and
