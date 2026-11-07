@@ -4238,6 +4238,8 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
   let inquiry;
   try {
     inquiry = await withPooledTransaction(pool, async client => {
+      const activeRequester = await client.query("SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE", [req.authUser.id]);
+      if (!activeRequester.rowCount) return { inactiveRequester: true };
       const match = await client.query(
         "SELECT id FROM matches WHERE id = $1 AND status = 'active' AND (user_a_id = $2 OR user_b_id = $2) FOR SHARE",
         [matchId, req.authUser.id]
@@ -4249,7 +4251,7 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
       );
       if (!provider.rows[0]) return { missingProvider: true };
       let row = await client.query(
-        'INSERT INTO partner_service_inquiries (application_id, match_id, requested_by, request_key, requester_name, requester_email, service_date, request_note, contact_consent_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW()) ON CONFLICT (requested_by, request_key) DO NOTHING RETURNING id, delivery_status AS "deliveryStatus"',
+        'INSERT INTO partner_service_inquiries (application_id, match_id, requested_by, request_key, requester_name, requester_email, service_date, request_note, contact_consent_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW()) ON CONFLICT (requested_by, request_key) DO NOTHING RETURNING id, requester_name AS "requesterName", requester_email AS "requesterEmail", delivery_status AS "deliveryStatus"',
         [applicationId, matchId, req.authUser.id, requestKey, requesterName, requesterEmail, serviceDate, note]
       );
       if (!row.rows[0]) {
@@ -4267,10 +4269,13 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
       }
       return { inquiry: row.rows[0], provider: provider.rows[0], duplicate: false };
     });
+    if (inquiry.inactiveRequester) return res.status(401).json({ error: 'account_not_active' });
     if (inquiry.missingMatch) return res.status(404).json({ error: 'active_match_not_found' });
     if (inquiry.missingProvider) return res.status(404).json({ error: 'published_partner_not_found' });
     if (inquiry.conflict) return res.status(409).json({ error: 'inquiry_request_key_conflict' });
     const row = inquiry.inquiry;
+    const deliveryName = row.requesterName || requesterName;
+    const deliveryEmail = row.requesterEmail || requesterEmail;
     if (row.deliveryStatus === 'sent') return res.json({ inquiryId: row.id, sent: true });
     if (row.deliveryStatus === 'sending') return res.status(202).json({ inquiryId: row.id, sent: false });
     if (!emailDeliveryConfigured()) return res.status(202).json({ inquiryId: row.id, sent: false, deliveryStatus: 'pending_email_configuration' });
@@ -4279,7 +4284,7 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
       [row.id]
     );
     if (!claim.rowCount) return res.status(202).json({ inquiryId: row.id, sent: false });
-    const escapeHtml = value => String(value).replace(/[&<>\"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '\"':'&quot;', \"'\":'&#39;' })[ch]);
+    const escapeHtml = value => String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
     const dateLine = serviceDate ? '<p><strong>Желаемая дата:</strong> ' + escapeHtml(serviceDate) + '</p>' : '';
     try {
       await sendConfiguredEmail({
@@ -4287,8 +4292,8 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
         idempotencyKey: 'partner-service-inquiry/' + row.id,
         subject: 'Новый запрос по услуге в Vow',
         html: '<h2>Запрос предложения</h2><p>Пользователь дал согласие передать поставщику своё имя, email и текст запроса.</p>' +
-          '<p><strong>Имя:</strong> ' + escapeHtml(requesterName) + '</p>' +
-          '<p><strong>Email:</strong> ' + escapeHtml(requesterEmail) + '</p>' + dateLine +
+          '<p><strong>Имя:</strong> ' + escapeHtml(deliveryName) + '</p>' +
+          '<p><strong>Email:</strong> ' + escapeHtml(deliveryEmail) + '</p>' + dateLine +
           '<p><strong>Сообщение:</strong></p><p>' + escapeHtml(note).replace(/\\n/g, '<br>') + '</p>' +
           '<p>Данные второго участника совпадения, переписка и результаты совместимости не передаются.</p>'
       });
