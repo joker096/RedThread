@@ -3549,20 +3549,24 @@ test('auth API supports registration, session lookup, logout and login', {
     );
     assert.equal(planAfterNonDecisionUpdate.rows[0].status, 'proposed',
       'non-decision metadata updates to an approved L3 submission must not cancel a valid date plan');
-    await identityGateDb.query(
-      'UPDATE identity_l3_consents SET withdrawn_at = statement_timestamp() WHERE user_id = $1 AND withdrawn_at IS NULL',
-      [maleRegistered.user.id]
+    await assert.rejects(
+      identityGateDb.query(
+        'UPDATE identity_l3_consents SET withdrawn_at = statement_timestamp() WHERE user_id = $1 AND withdrawn_at IS NULL',
+        [maleRegistered.user.id]
+      ),
+      error => error?.code === '23514',
+      'the database must not permit consent withdrawal while an active L3 submission remains'
     );
-    const l3SafetyCancelled = await identityGateDb.query(
+    const l3SafetyStillProposed = await identityGateDb.query(
       'SELECT status FROM date_plans WHERE id = $1',
       [l3SafetyPlanId]
     );
-    assert.equal(l3SafetyCancelled.rows[0].status, 'cancelled',
-      'L3 consent withdrawal must revoke prior date-plan confirmations');
-    await identityGateDb.query(
-      'UPDATE identity_l3_consents SET withdrawn_at = NULL WHERE user_id = $1',
-      [maleRegistered.user.id]
-    );
+    assert.equal(l3SafetyStillProposed.rows[0].status, 'proposed',
+      'a rejected direct consent update must not mutate the date plan');
+    const cancelL3SafetyPlan = await request(`${datePlanPath}/cancel`, {
+      method: 'POST', headers: { Cookie: secondCookie }
+    });
+    assert.equal(cancelL3SafetyPlan.status, 200);
 
     // Blocking a participant cancels the plan and notifies only the blocked person.
     const blockSafetyProposal = await request(datePlanPath, {
@@ -5138,6 +5142,13 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(deletedAccountMessages.status, 401,
       'a deleted account must not retain access to previously authorized conversations');
 
+    const l3RevocationProposal = await request(datePlanPath, {
+      method: 'POST', headers: { Cookie: secondCookie },
+      body: JSON.stringify({ ...datePlanInput, venueName: 'L3 Revocation Safety Cafe' })
+    });
+    assert.equal(l3RevocationProposal.status, 201);
+    const l3RevocationPlanId = (await l3RevocationProposal.json()).datePlan.id;
+
     const l3ReadLock = await identityGateDb.connect();
     const l3RevokeClient = await identityGateDb.connect();
     let l3ReadTransactionOpen = false;
@@ -5175,6 +5186,17 @@ test('auth API supports registration, session lookup, logout and login', {
       );
       assert.equal(afterRevocation.rows[0].active, false,
         'the next authorization check must observe the committed revocation');
+      const l3RevocationPlan = await identityGateDb.query(
+        'SELECT status FROM date_plans WHERE id = $1',
+        [l3RevocationPlanId]
+      );
+      assert.equal(l3RevocationPlan.rows[0].status, 'cancelled',
+        'revoking the active L3 approval must cancel the mutual date plan');
+      const l3ConsentWithdrawal = await request('/api/identity/l3/consent', {
+        method: 'DELETE', headers: { Cookie: secondCookie }
+      });
+      assert.equal(l3ConsentWithdrawal.status, 200,
+        'the authenticated consent-withdrawal workflow must retire submissions before recording withdrawal');
     } finally {
       if (l3ReadTransactionOpen) await l3ReadLock.query('ROLLBACK').catch(() => {});
       if (l3RevokeTransactionOpen) await l3RevokeClient.query('ROLLBACK').catch(() => {});
