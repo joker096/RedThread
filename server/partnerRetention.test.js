@@ -24,8 +24,10 @@ test('partner retention cleanup removes inquiries before stale applications in o
   assert.deepEqual(result, { inquiriesDeleted: 3, applicationsDeleted: 2 });
   assert.equal(fake.calls[0].sql, 'BEGIN');
   assert.match(fake.calls[1].sql, /DELETE FROM partner_service_inquiries/);
-  assert.match(fake.calls[1].sql, /delivery_status NOT IN \('sending', 'reconciliation_required'\)/,
-    'active and unresolved deliveries must remain available for moderator reconciliation');
+  assert.match(fake.calls[1].sql, /delivery_status IN \\('sent', 'failed', 'cancelled'\\)/,
+    'only terminal inquiries may be deleted by retention');
+  assert.doesNotMatch(fake.calls[1].sql, /delivery_status IN \\('pending', 'sending', 'reconciliation_required'\\)/,
+    'pending, sending and reconciliation-required inquiries must never be deleted by age');
   assert.match(fake.calls[1].sql, /make_interval\(days => \$1\)/);
   assert.match(fake.calls[1].sql, /application_id IN \([\s\S]*FROM partner_service_applications/,
     'inquiries for expired unpublished applications must be removed before their application rows');
@@ -36,8 +38,8 @@ test('partner retention cleanup removes inquiries before stale applications in o
   assert.doesNotMatch(fake.calls[1].sql, /status = 'approved' AND published_at IS NOT NULL/,
     'inquiry cleanup must preserve inquiries for published applications');
   assert.deepEqual(fake.calls[1].values, [180, 180, 365]);
-  assert.match(fake.calls[2].sql, /NOT EXISTS \([\s\S]*delivery_status IN \('sending', 'reconciliation_required'\)/,
-    'applications with active or unresolved deliveries must be retained');
+  assert.match(fake.calls[2].sql, /NOT EXISTS \\([\\s\\S]*delivery_status IN \\('pending', 'sending', 'reconciliation_required'\\)/,
+    'applications with pending, active or reconciliation-required deliveries must be retained');
   assert.match(fake.calls[2].sql, /status = 'rejected'/);
   assert.match(fake.calls[2].sql, /status IN \('pending', 'in_review'\)/);
   assert.match(fake.calls[2].sql, /status = 'approved' AND published_at IS NULL/,
