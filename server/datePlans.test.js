@@ -1,0 +1,52 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { normalizeDatePlanInput } from './datePlans.js';
+
+const validInput = (overrides = {}) => ({
+  venueName: 'Central Park Cafe',
+  startsAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+  timeZone: 'Asia/Tbilisi',
+  isPublicVenue: true,
+  ...overrides
+});
+
+test('accepts a bounded public venue proposal with explicit timezone and offset', () => {
+  const result = normalizeDatePlanInput(validInput());
+  assert.ok(result);
+  assert.equal(result.venueName, 'Central Park Cafe');
+  assert.equal(result.timeZone, 'Asia/Tbilisi');
+  assert.ok(result.startsAt instanceof Date);
+});
+
+test('rejects private-place attestations, missing fields and unsafe venue names', () => {
+  assert.equal(normalizeDatePlanInput(validInput({ isPublicVenue: false })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ venueName: 'x' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ venueName: 'Home\nAddress' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ venueName: '123 Main Street' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ venueName: 'Rustaveli Avenue 12' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ venueName: '12 Rustaveli Avenue' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ venueName: 'ул. Ленина, 5' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ venueName: 'улица Пушкина 10' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ venueName: 'Rustaveli გამზირი 12' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ venueName: 'Apartment 14, Rustaveli Ave' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ venueName: 'ბინა 12, რუსთაველის გამზირი' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ venueName: 'კორპუსი 3' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ venueName: 'Rustaveli\u200b Avenue 12' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ venueName: 'Rustaveli\u200d Avenue 12' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ venueName: '１２３ Main Street' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ venueName: '41.7151, 44.8271' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ venueName: '+1 (555) 123-4567' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ venueName: 'https://example.com' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ timeZone: '' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ timeZone: 'Not/A_Zone' })), null);
+});
+
+test('rejects ambiguous local datetimes without an explicit UTC offset', () => {
+  assert.equal(normalizeDatePlanInput(validInput({ startsAt: '2026-11-10T18:30' })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ startsAt: '2026-02-31T18:30:00Z' })), null);
+});
+
+test('rejects proposals that are too soon or more than 90 days away', () => {
+  assert.equal(normalizeDatePlanInput(validInput({ startsAt: new Date(Date.now() + 5 * 60_000).toISOString() })), null);
+  assert.equal(normalizeDatePlanInput(validInput({ startsAt: new Date(Date.now() + 91 * 86_400_000).toISOString() })), null);
+});
