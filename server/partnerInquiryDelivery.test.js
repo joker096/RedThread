@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CANCEL_PARTNER_INQUIRY_SQL, CLAIM_PARTNER_INQUIRY_SQL, REVALIDATE_PARTNER_INQUIRY_SQL, RECOVER_PARTNER_INQUIRY_SQL, deliverPendingPartnerInquiries } from './partnerInquiryDelivery.js';
+import { CANCEL_PARTNER_INQUIRY_SQL, CLAIM_PARTNER_INQUIRY_SQL, MY_PARTNER_INQUIRIES_SQL, REVALIDATE_PARTNER_INQUIRY_SQL, RECOVER_PARTNER_INQUIRY_SQL, deliverPendingPartnerInquiries } from './partnerInquiryDelivery.js';
 
 function fakePool(rows = [], options = {}) {
   const calls = [];
@@ -136,7 +136,7 @@ test('manual recovery only moves sending rows after an explicit operator action 
 });
 
 test('requester inquiry history exposes only the request owner and non-sensitive provider/status fields', () => {
-  assert.match(MY_PARTNER_INQUIRIES_SQL, /WHERE inquiry.requested_by = \\$1/);
+  assert.ok(MY_PARTNER_INQUIRIES_SQL.includes('WHERE inquiry.requested_by = $1'));
   assert.match(MY_PARTNER_INQUIRIES_SQL, /application.business_name AS "businessName"/);
   assert.match(MY_PARTNER_INQUIRIES_SQL, /delivery_status AS "deliveryStatus"/);
   assert.doesNotMatch(MY_PARTNER_INQUIRIES_SQL, /requester_email|requester_name|contact_email|request_note|review_note/);
