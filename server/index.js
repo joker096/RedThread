@@ -4639,7 +4639,12 @@ app.post('/api/admin/partner-service-inquiries/:inquiryId/reconcile', validateRe
   const id = req.params.inquiryId;
   const decision = req.body?.decision;
   const note = typeof req.body?.operatorNote === 'string' ? req.body.operatorNote.trim() : '';
-  if (!isUuid(id) || !['sent', 'failed'].includes(decision) || note.length < 10 || note.length > 500) {
+  const rawProviderMessageId = req.body?.providerMessageId;
+  const providerMessageId = typeof rawProviderMessageId === 'string' ? rawProviderMessageId.trim() : '';
+  if (!isUuid(id) || !['sent', 'failed'].includes(decision) || note.length < 10 || note.length > 500 ||
+      (rawProviderMessageId != null && typeof rawProviderMessageId !== 'string') ||
+      (decision === 'sent' && (providerMessageId.length < 1 || providerMessageId.length > 255)) ||
+      (decision === 'failed' && providerMessageId.length > 0)) {
     return res.status(400).json({ error: 'invalid_partner_inquiry_reconciliation' });
   }
   try {
@@ -4648,8 +4653,8 @@ app.post('/api/admin/partner-service-inquiries/:inquiryId/reconcile', validateRe
       if (!['admin', 'moderator'].includes(moderator.rows[0]?.role)) return { forbidden: true };
       const nextStatus = decision;
       const changed = await client.query(
-        "UPDATE partner_service_inquiries SET delivery_status = $2, delivered_at = CASE WHEN $2 = 'sent' THEN COALESCE(delivered_at, NOW()) ELSE NULL END, delivery_error = CASE WHEN $2 = 'sent' THEN '' ELSE 'operator_reconciled_failed' END, updated_at = NOW() WHERE id = $1 AND delivery_status = 'reconciliation_required' AND ($2 <> 'failed' OR provider_message_id IS NULL) RETURNING id, delivery_status AS \"deliveryStatus\", provider_message_id AS \"providerMessageId\"",
-        [id, nextStatus]
+        "UPDATE partner_service_inquiries SET provider_message_id = CASE WHEN $2 = 'sent' THEN COALESCE(provider_message_id, $3) ELSE provider_message_id END, delivery_status = $2, delivered_at = CASE WHEN $2 = 'sent' THEN COALESCE(delivered_at, NOW()) ELSE NULL END, delivery_error = CASE WHEN $2 = 'sent' THEN '' ELSE 'operator_reconciled_failed' END, updated_at = NOW() WHERE id = $1 AND delivery_status = 'reconciliation_required' AND ($2 <> 'failed' OR provider_message_id IS NULL) AND ($2 <> 'sent' OR ($3 IS NOT NULL AND (provider_message_id IS NULL OR provider_message_id = $3))) RETURNING id, delivery_status AS \"deliveryStatus\", provider_message_id AS \"providerMessageId\"",
+        [id, nextStatus, providerMessageId || null]
       );
       if (!changed.rows[0]) {
         const current = await client.query(
@@ -4658,6 +4663,10 @@ app.post('/api/admin/partner-service-inquiries/:inquiryId/reconcile', validateRe
         );
         if (decision === 'failed' && current.rows[0]?.deliveryStatus === 'reconciliation_required' && current.rows[0]?.providerMessageId) {
           return { providerAlreadyAccepted: true };
+        }
+        if (decision === 'sent' && current.rows[0]?.deliveryStatus === 'reconciliation_required' &&
+            current.rows[0]?.providerMessageId && current.rows[0].providerMessageId !== providerMessageId) {
+          return { providerMessageIdMismatch: true };
         }
         return { missing: true };
       }
@@ -4669,6 +4678,7 @@ app.post('/api/admin/partner-service-inquiries/:inquiryId/reconcile', validateRe
     });
     if (result.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
     if (result.providerAlreadyAccepted) return res.status(409).json({ error: 'provider_acceptance_recorded' });
+    if (result.providerMessageIdMismatch) return res.status(409).json({ error: 'provider_message_id_mismatch' });
     if (result.missing) return res.status(409).json({ error: 'partner_inquiry_not_awaiting_reconciliation' });
     return res.json({ inquiry: result.inquiry });
   } catch (error) {
