@@ -4473,12 +4473,24 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
         "SELECT id FROM matches WHERE id = $1 AND status = 'active' AND (user_a_id = $2 OR user_b_id = $2) FOR SHARE",
         [matchId, req.authUser.id]
       );
-      if (!match.rowCount) return { missingMatch: true };
+      if (!match.rowCount) {
+        if (existing) await client.query(
+          "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'match_inactive_before_delivery', updated_at = NOW() WHERE id = $1 AND delivery_status IN ('pending', 'failed')",
+          [existing.id]
+        );
+        return { missingMatch: true };
+      }
       const provider = await client.query(
         `SELECT id, business_name AS "businessName", contact_email AS "contactEmail" FROM partner_service_applications WHERE id = $1 AND status = 'approved' AND published_at IS NOT NULL FOR SHARE`,
         [applicationId]
       );
-      if (!provider.rows[0]) return { missingProvider: true };
+      if (!provider.rows[0]) {
+        if (existing) await client.query(
+          "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'provider_unpublished_before_delivery', updated_at = NOW() WHERE id = $1 AND delivery_status IN ('pending', 'failed')",
+          [existing.id]
+        );
+        return { missingProvider: true };
+      }
       if (existing) return { inquiry: existing, provider: provider.rows[0], duplicate: true };
 
       const inserted = await client.query(
@@ -4521,6 +4533,12 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
         return res.status(202).json({ inquiryId: row.id, sent: false, deliveryStatus: currentStatus });
       }
       if (!current.rows[0]) return res.status(404).json({ error: 'partner_inquiry_not_found' });
+      if (currentStatus === 'pending') {
+        await pool.query(
+          "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'eligibility_lost_before_delivery', updated_at = NOW() WHERE id = $1 AND requested_by = $2 AND delivery_status = 'pending'",
+          [row.id, req.authUser.id]
+        );
+      }
       return res.status(409).json({ error: 'partner_inquiry_no_longer_eligible' });
     }
     const escapeHtml = value => String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', [String.fromCharCode(34)]: '&quot;', [String.fromCharCode(39)]: '&#39;' })[character]);
