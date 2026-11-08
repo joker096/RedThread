@@ -4461,7 +4461,7 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
       if (existing && !matchesOriginalRequest(existing)) return { conflict: true };
       // Status lookups must remain idempotent even if the match is later closed
       // or the provider is unpublished. No contact data is returned to the user.
-      if (existing && ['sent', 'sending', 'reconciliation_required'].includes(existing.deliveryStatus)) {
+      if (existing && ['sent', 'sending', 'reconciliation_required', 'cancelled'].includes(existing.deliveryStatus)) {
         return { inquiry: existing, duplicate: true };
       }
 
@@ -4536,6 +4536,7 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
     if (row.deliveryStatus === 'sent') return res.json({ inquiryId: row.id, sent: true, deliveryStatus: 'sent' });
     if (row.deliveryStatus === 'sending') return res.status(202).json({ inquiryId: row.id, sent: false, deliveryStatus: 'sending' });
     if (row.deliveryStatus === 'reconciliation_required') return res.status(202).json({ inquiryId: row.id, sent: false, deliveryStatus: 'reconciliation_required' });
+    if (row.deliveryStatus === 'cancelled') return res.json({ inquiryId: row.id, sent: false, deliveryStatus: 'cancelled' });
     if (!emailDeliveryConfigured()) return res.status(202).json({ inquiryId: row.id, sent: false, deliveryStatus: 'pending_email_configuration' });
     const claim = await pool.query(CLAIM_PARTNER_INQUIRY_SQL, [row.id]);
     if (!claim.rowCount) {

@@ -52,6 +52,8 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
   const [shareContact, setShareContact] = useState(false);
   const [inquiryBusy, setInquiryBusy] = useState(false);
   const [inquiryLocked, setInquiryLocked] = useState(false);
+  const [inquiryId, setInquiryId] = useState<string | null>(null);
+  const [inquiryDeliveryStatus, setInquiryDeliveryStatus] = useState('');
   const [inquiryStatus, setInquiryStatus] = useState('');
   const inquiryRequestKey = useRef<string | null>(null);
   const inquiryMatchId = useRef<string | null>(null);
@@ -173,6 +175,8 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
         })
       });
       const data = await response.json().catch(() => null);
+      if (data?.inquiryId) setInquiryId(data.inquiryId);
+      if (data?.deliveryStatus) setInquiryDeliveryStatus(data.deliveryStatus);
       if (!response.ok) {
         const safeToEditAndStartANewRequest = response.status === 400 ||
           (response.status === 403 && data?.error === 'verified_contact_required') ||
@@ -184,6 +188,8 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
           inquiryRequestKey.current = null;
           inquiryMatchId.current = null;
           setInquiryLocked(false);
+          setInquiryId(null);
+          setInquiryDeliveryStatus('');
         }
         throw new Error(response.status === 401 ? tr('Войдите в аккаунт, чтобы отправить запрос.', 'Sign in to send a request.') :
           response.status === 403 && data?.error === 'verified_contact_required' ? tr('Подтвердите email в аккаунте, чтобы передать поставщику проверенный адрес.', 'Verify your account email before sharing it with a provider.') :
@@ -200,6 +206,19 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
         inquiryRequestKey.current = null;
         inquiryMatchId.current = null;
         setInquiryLocked(false);
+        setInquiryId(null);
+        setInquiryDeliveryStatus('');
+      } else if (data?.deliveryStatus === 'cancelled') {
+        setInquiryStatus(tr('Запрос отменён. Письмо поставщику не отправлялось.', 'The request was cancelled. No email was sent to the provider.'));
+        setInquiryProvider(null);
+        setInquiryNote('');
+        setServiceDate('');
+        setShareContact(false);
+        inquiryRequestKey.current = null;
+        inquiryMatchId.current = null;
+        setInquiryLocked(false);
+        setInquiryId(null);
+        setInquiryDeliveryStatus('');
       } else if (data?.deliveryStatus === 'reconciliation_required') {
         setInquiryStatus(tr('Результат передачи письма уточняется. Не отправляйте запрос повторно: он сохранён и передан на ручную сверку.', 'The email handoff outcome is being checked. Do not submit again: your request is saved and awaiting manual reconciliation.'));
       } else if (data?.deliveryStatus === 'sending') {
@@ -211,6 +230,41 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
       }
     } catch (error) {
       setInquiryStatus(error instanceof Error ? error.message : tr('Не удалось отправить запрос.', 'Could not submit the request.'));
+    } finally {
+      setInquiryBusy(false);
+    }
+  };
+
+  const cancelInquiry = async () => {
+    if (!inquiryId || !inquiryLocked || inquiryBusy || !['pending', 'pending_email_configuration', 'failed'].includes(inquiryDeliveryStatus)) return;
+    if (!window.confirm(tr('Отменить сохранённый запрос? Письмо ещё не принято почтовым сервисом.', 'Cancel the saved request? The email has not been accepted by the mail provider.'))) return;
+    setInquiryBusy(true);
+    try {
+      const response = await fetch('/api/partner-service-inquiries/' + encodeURIComponent(inquiryId) + '/cancel', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        if (data?.deliveryStatus) setInquiryDeliveryStatus(data.deliveryStatus);
+        throw new Error(response.status === 409
+          ? tr('Отмена уже невозможна: отправка началась или требует сверки. Проверьте статус запроса.', 'Cancellation is no longer possible: sending started or the outcome needs reconciliation. Check the request status.')
+          : tr('Не удалось отменить запрос. Попробуйте проверить его статус.', 'Could not cancel the request. Please check its status.'));
+      }
+      setInquiryStatus(tr('Запрос отменён. Письмо поставщику не отправлялось.', 'The request was cancelled. No email was sent to the provider.'));
+      setInquiryProvider(null);
+      setInquiryNote('');
+      setServiceDate('');
+      setShareContact(false);
+      inquiryRequestKey.current = null;
+      inquiryMatchId.current = null;
+      setInquiryId(null);
+      setInquiryDeliveryStatus('');
+      setInquiryLocked(false);
+    } catch (error) {
+      setInquiryStatus(error instanceof Error ? error.message : tr('Не удалось отменить запрос.', 'Could not cancel the request.'));
     } finally {
       setInquiryBusy(false);
     }
@@ -306,7 +360,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
               <input type="date" value={serviceDate} disabled={inquiryLocked} onChange={event => setServiceDate(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-900 px-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300" />
             </label>
             <label className="flex items-start gap-2 text-xs leading-relaxed text-stone-200"><input required type="checkbox" checked={shareContact} disabled={inquiryLocked} onChange={event => setShareContact(event.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-500" /><span>{tr('Я согласен(на) передать поставщику моё имя, email, желаемую дату и сообщение для ответа на запрос. Имя, контакты и переписка второго участника не передаются.', 'I consent to sharing my name, email, preferred date and message with this provider so they can respond. The other match participant\'s name, contact details and messages will not be shared.')}</span></label>
-            <div className="flex flex-wrap gap-2"><button type="submit" disabled={inquiryBusy || !shareContact || inquiryNote.trim().length < 20} className="min-h-11 rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{inquiryBusy ? tr('Отправляем…', 'Sending…') : inquiryLocked ? tr('Проверить статус / безопасно повторить', 'Check status / safely retry') : tr('Отправить запрос', 'Send request')}</button><button type="button" onClick={() => setInquiryProvider(null)} disabled={inquiryBusy || inquiryLocked} className="min-h-11 rounded-lg border border-white/15 px-4 py-2 text-xs text-stone-200">{tr('Отмена', 'Cancel')}</button></div>
+            <div className="flex flex-wrap gap-2"><button type="submit" disabled={inquiryBusy || !shareContact || inquiryNote.trim().length < 20} className="min-h-11 rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{inquiryBusy ? tr('Отправляем…', 'Sending…') : inquiryLocked ? tr('Проверить статус / безопасно повторить', 'Check status / safely retry') : tr('Отправить запрос', 'Send request')}</button>{inquiryLocked && inquiryId && ['pending', 'pending_email_configuration', 'failed'].includes(inquiryDeliveryStatus) && <button type="button" onClick={() => void cancelInquiry()} disabled={inquiryBusy} className="min-h-11 rounded-lg border border-rose-500/40 px-4 py-2 text-xs text-rose-200 disabled:opacity-50">{tr('Отменить сохранённый запрос', 'Cancel queued request')}</button>}<button type="button" onClick={() => setInquiryProvider(null)} disabled={inquiryBusy || inquiryLocked} className="min-h-11 rounded-lg border border-white/15 px-4 py-2 text-xs text-stone-200">{tr('Отмена', 'Cancel')}</button></div>
           </form>}
           <div className="mt-5 grid md:grid-cols-2 gap-3">
             <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-4">
