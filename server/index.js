@@ -698,6 +698,15 @@ const partnerApplicationLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'too_many_partner_applications' }
 });
+const partnerInquiryLimiter = rateLimit({
+  ...(pool ? { store: new PostgresRateLimitStore(pool, 'partner-inquiry') } : {}),
+  windowMs: 24 * 60 * 60 * 1000,
+  limit: 10,
+  keyGenerator: req => req.authUser?.id || req.ip,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too_many_partner_inquiries' }
+});
 const reportLimiter = rateLimit({
   ...(pool ? { store: new PostgresRateLimitStore(pool, 'report') } : {}),
   windowMs: 60 * 60 * 1000,
@@ -4412,7 +4421,7 @@ app.post('/api/admin/partner-applications/:applicationId/unpublish', validateReq
   }
 });
 
-app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession, requireDatabase, profileActionLimiter, async (req, res) => {
+app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession, requireDatabase, profileActionLimiter, partnerInquiryLimiter, async (req, res) => {
   const body = req.body || {};
   const applicationId = body.applicationId;
   const matchId = body.matchId;
