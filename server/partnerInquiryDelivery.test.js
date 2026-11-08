@@ -55,8 +55,8 @@ test('pending partner inquiries are claimed with row locks and sent with a stabl
   assert.deepEqual(result, { claimed: 1, sent: 1, failed: 0, reconciliationPending: 0 });
   assert.match(fake.calls[1].sql, /FOR UPDATE OF inquiry SKIP LOCKED/);
   assert.match(fake.calls[1].sql, /FOR SHARE OF application, active_match, requester/);
-  assert.match(fake.calls[1].sql, /inquiry.contact_consent_at IS NOT NULL/);
-  assert.match(fake.calls[1].sql, /inquiry.contact_consent_version = 'partner-inquiry-v1'/);
+  assert.doesNotMatch(fake.calls[1].sql, /application.status = 'approved'|active_match.status = 'active'|requester.status = 'active'|contact_consent_version/,
+    'the worker claims pending rows broadly, then makes the final eligibility decision under locks');
   const finalCheck = fake.calls.find(call => call.sql === REVALIDATE_PARTNER_INQUIRY_SQL)?.sql || '';
   assert.match(finalCheck, /JOIN matches active_match/);
   assert.match(finalCheck, /JOIN users requester/);
