@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { queuePrivatePhotoPurges } from './photoPurge.js';
 import { cleanupPartnerServiceData, partnerRetentionOptions } from './partnerRetention.js';
-import { deliverPendingPartnerInquiries, deliverClaimedPartnerInquiry } from './partnerInquiryDelivery.js';
+import { CLAIM_PARTNER_INQUIRY_SQL, deliverPendingPartnerInquiries, deliverClaimedPartnerInquiry } from './partnerInquiryDelivery.js';
 import { normalizePartnerCountry, isPartnerServiceCategory, isPartnerServiceCurrency } from './partnerServicePolicy.js';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
@@ -4497,11 +4497,20 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
     if (row.deliveryStatus === 'sending') return res.status(202).json({ inquiryId: row.id, sent: false, deliveryStatus: 'sending' });
     if (row.deliveryStatus === 'reconciliation_required') return res.status(202).json({ inquiryId: row.id, sent: false, deliveryStatus: 'reconciliation_required' });
     if (!emailDeliveryConfigured()) return res.status(202).json({ inquiryId: row.id, sent: false, deliveryStatus: 'pending_email_configuration' });
-    const claim = await pool.query(
-      "UPDATE partner_service_inquiries SET delivery_status = 'sending', delivery_attempts = delivery_attempts + 1, delivery_error = '', updated_at = NOW() WHERE id = $1 AND delivery_status IN ('pending', 'failed') RETURNING id",
-      [row.id]
-    );
-    if (!claim.rowCount) return res.status(202).json({ inquiryId: row.id, sent: false });
+    const claim = await pool.query(CLAIM_PARTNER_INQUIRY_SQL, [row.id]);
+    if (!claim.rowCount) {
+      const current = await pool.query(
+        'SELECT delivery_status AS "deliveryStatus" FROM partner_service_inquiries WHERE id = $1 AND requested_by = $2',
+        [row.id, req.authUser.id]
+      );
+      const currentStatus = current.rows[0]?.deliveryStatus;
+      if (currentStatus === 'sent') return res.json({ inquiryId: row.id, sent: true, deliveryStatus: 'sent' });
+      if (currentStatus === 'sending' || currentStatus === 'reconciliation_required') {
+        return res.status(202).json({ inquiryId: row.id, sent: false, deliveryStatus: currentStatus });
+      }
+      if (!current.rows[0]) return res.status(404).json({ error: 'partner_inquiry_not_found' });
+      return res.status(409).json({ error: 'partner_inquiry_no_longer_eligible' });
+    }
     const escapeHtml = value => String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', [String.fromCharCode(34)]: '&quot;', [String.fromCharCode(39)]: '&#39;' })[character]);
     const dateLine = serviceDate ? '<p><strong>Желаемая дата:</strong> ' + escapeHtml(serviceDate) + '</p>' : '';
     const delivery = await deliverClaimedPartnerInquiry(pool, sendConfiguredEmail, row.id, {

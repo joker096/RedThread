@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deliverPendingPartnerInquiries } from './partnerInquiryDelivery.js';
+import { CLAIM_PARTNER_INQUIRY_SQL, deliverPendingPartnerInquiries } from './partnerInquiryDelivery.js';
 
 function fakePool(rows = [], options = {}) {
   const calls = [];
@@ -99,6 +99,14 @@ test('worker does not count a provider acceptance as sent when the guarded statu
   const fake = fakePool([sample], { sentRowCount: 0 });
   const result = await deliverPendingPartnerInquiries(fake.pool, async () => {});
   assert.deepEqual(result, { claimed: 1, sent: 0, failed: 0, reconciliationPending: 1 });
+});
+
+test('synchronous claim query revalidates published provider, active match and verified requester at send time', () => {
+  assert.match(CLAIM_PARTNER_INQUIRY_SQL, /delivery_status IN \\('pending', 'failed'\\)/);
+  assert.match(CLAIM_PARTNER_INQUIRY_SQL, /application.status = 'approved'[\\s\\S]*application.published_at IS NOT NULL/);
+  assert.match(CLAIM_PARTNER_INQUIRY_SQL, /active_match.status = 'active'/);
+  assert.match(CLAIM_PARTNER_INQUIRY_SQL, /requester.status = 'active'[\\s\\S]*requester.email_verified_at IS NOT NULL/);
+  assert.match(CLAIM_PARTNER_INQUIRY_SQL, /LOWER\\(BTRIM\\(requester.email\\)\\) = inquiry.requester_email/);
 });
 
 test('worker claim query requires an active match and a still-verified requester email', async () => {

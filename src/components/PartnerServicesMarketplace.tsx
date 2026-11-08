@@ -176,7 +176,8 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
       if (!response.ok) {
         const safeToEditAndStartANewRequest = response.status === 400 ||
           (response.status === 403 && data?.error === 'verified_contact_required') ||
-          (response.status === 404 && ['active_match_not_found', 'published_partner_not_found'].includes(data?.error));
+          (response.status === 404 && ['active_match_not_found', 'published_partner_not_found', 'partner_inquiry_not_found'].includes(data?.error)) ||
+          (response.status === 409 && data?.error === 'partner_inquiry_no_longer_eligible');
         if (safeToEditAndStartANewRequest) {
           // These responses are returned before a new provider handoff can begin.
           // Clear the unused key so the user can correct the form or choose a new match.

@@ -25,6 +25,36 @@ export const PENDING_PARTNER_INQUIRIES_SQL = `
 `;
 
 
+export const CLAIM_PARTNER_INQUIRY_SQL = `
+  UPDATE partner_service_inquiries AS inquiry
+  SET delivery_status = 'sending',
+      delivery_attempts = delivery_attempts + 1,
+      delivery_error = '',
+      updated_at = NOW()
+  WHERE inquiry.id = $1
+    AND inquiry.delivery_status IN ('pending', 'failed')
+    AND EXISTS (
+      SELECT 1 FROM partner_service_applications application
+      WHERE application.id = inquiry.application_id
+        AND application.status = 'approved'
+        AND application.published_at IS NOT NULL
+    )
+    AND EXISTS (
+      SELECT 1 FROM matches active_match
+      WHERE active_match.id = inquiry.match_id
+        AND active_match.status = 'active'
+        AND (active_match.user_a_id = inquiry.requested_by OR active_match.user_b_id = inquiry.requested_by)
+    )
+    AND EXISTS (
+      SELECT 1 FROM users requester
+      WHERE requester.id = inquiry.requested_by
+        AND requester.status = 'active'
+        AND requester.email_verified_at IS NOT NULL
+        AND LOWER(BTRIM(requester.email)) = inquiry.requester_email
+    )
+  RETURNING inquiry.id
+`;
+
 export async function deliverPendingPartnerInquiries(pool, sendEmail, options = {}) {
   const limit = options.limit ?? 10;
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
