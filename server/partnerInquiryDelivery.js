@@ -1,6 +1,6 @@
 function requireProviderMessageId(providerResult) {
   const value = providerResult?.providerMessageId;
-  if (typeof value !== 'string' || value.trim().length < 1 || value.trim().length > 255 || /\\s/.test(value)) {
+  if (typeof value !== 'string' || value.trim().length < 1 || value.trim().length > 255 || /\s/.test(value)) {
     throw new Error('email_provider_message_id_missing_or_invalid');
   }
   return value.trim();
