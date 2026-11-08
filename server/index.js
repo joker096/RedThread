@@ -4517,7 +4517,7 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
 
 app.get('/api/admin/partner-service-inquiries', requireSession, requireDatabase, async (req, res) => {
   const read = await withActiveModeratorRead(req.authUser.id, client => client.query(
-    'SELECT inquiry.id, application.business_name AS "businessName", inquiry.delivery_status AS "deliveryStatus", inquiry.delivery_attempts AS "deliveryAttempts", inquiry.delivery_error AS "deliveryError", inquiry.provider_message_id AS "providerMessageId", inquiry.created_at AS "createdAt", inquiry.updated_at AS "updatedAt", inquiry.delivered_at AS "deliveredAt" ' +
+    'SELECT inquiry.id, application.business_name AS "businessName", application.contact_email AS "providerEmail", inquiry.delivery_status AS "deliveryStatus", inquiry.delivery_attempts AS "deliveryAttempts", inquiry.delivery_error AS "deliveryError", inquiry.provider_message_id AS "providerMessageId", inquiry.created_at AS "createdAt", inquiry.updated_at AS "updatedAt", inquiry.delivered_at AS "deliveredAt" ' +
     'FROM partner_service_inquiries inquiry JOIN partner_service_applications application ON application.id = inquiry.application_id ' +
     "ORDER BY CASE WHEN inquiry.delivery_status IN ('sending', 'reconciliation_required') THEN 0 ELSE 1 END, inquiry.updated_at DESC LIMIT 100"
   ));

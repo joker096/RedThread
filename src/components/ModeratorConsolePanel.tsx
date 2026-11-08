@@ -6,7 +6,7 @@ type AuditEntry={id:string;moderatorId:string|null;action:string;targetType:stri
 type PendingPhoto={id:string;userId:string;displayName:string;mimeType:string;width:number;height:number;createdAt:string};
 type PendingL3={submissionId:string;applicantReference:string;uploadedAt:string;mimeType:'video/mp4'|'video/webm';sizeBytes:number;durationSeconds:number;processingAttempts:number};
 type PartnerApplication={id:string;category:string;businessName:string;contactName:string;contactEmail:string;country:string;city:string;website:string;serviceDescription:string;priceFrom:number|string|null;priceCurrency:string;serviceLanguages:string[];availabilityNote:string;status:string;reviewNote:string;publishedAt:string|null};
-type PartnerInquiry={id:string;businessName:string;deliveryStatus:string;deliveryAttempts:number;deliveryError:string;providerMessageId:string|null;createdAt:string;updatedAt:string;deliveredAt:string|null};
+type PartnerInquiry={id:string;businessName:string;providerEmail:string;deliveryStatus:string;deliveryAttempts:number;deliveryError:string;providerMessageId:string|null;createdAt:string;updatedAt:string;deliveredAt:string|null};
 
 export const ModeratorConsolePanel:React.FC=()=>{
  const {locale}=useLocale();const tr=(ru:string,en:string)=>locale==='ru'?ru:en;
@@ -115,6 +115,7 @@ export const ModeratorConsolePanel:React.FC=()=>{
    {!partnerInquiries.length?<p className="mt-2 text-xs text-stone-500">{tr('Запросов пока нет.','No partner inquiries yet.')}</p>:partnerInquiries.map(item=><article key={item.id} className="mt-3 rounded-xl border border-white/10 p-3">
     <p className="break-all font-mono text-[10px] text-stone-300">{item.id}</p>
     <p className="mt-1 text-xs font-semibold text-white">{item.businessName}</p>
+    <p className="mt-1 break-all text-[10px] text-stone-400">{tr('Адрес поставщика','Provider recipient')}: {item.providerEmail}</p>
     <p className="mt-1 text-[10px] text-stone-400">{tr('Статус','Status')}: {item.deliveryStatus} · {tr('попыток','attempts')}: {item.deliveryAttempts}</p>
     {item.deliveryError&&<p className="mt-1 text-[10px] text-amber-200">{item.deliveryError}</p>}
     {item.providerMessageId&&<p className="mt-1 break-all font-mono text-[10px] text-emerald-200">{tr('ID письма Resend','Resend message ID')}: {item.providerMessageId}</p>}
