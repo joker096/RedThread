@@ -91,3 +91,32 @@ export async function deliverPendingPartnerInquiries(pool, sendEmail, options = 
   }
   return { claimed: inquiries.length, sent, failed, reconciliationPending };
 }
+
+/**
+ * Delivers an inquiry already claimed by the synchronous API route.
+ * Transport errors are ambiguous: never release the claim for an automatic retry.
+ */
+export async function deliverClaimedPartnerInquiry(pool, sendEmail, inquiryId, emailPayload) {
+  if (!pool || typeof pool.query !== 'function') throw new TypeError('A PostgreSQL pool is required.');
+  if (typeof sendEmail !== 'function') throw new TypeError('An email delivery function is required.');
+  if (typeof inquiryId !== 'string' || !inquiryId) throw new TypeError('An inquiry ID is required.');
+
+  try {
+    await sendEmail(emailPayload);
+  } catch {
+    return { sent: false, deliveryStatus: 'reconciliation_pending' };
+  }
+
+  try {
+    const updated = await pool.query(
+      "UPDATE partner_service_inquiries SET delivery_status = 'sent', delivered_at = NOW(), updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
+      [inquiryId]
+    );
+    if (updated.rowCount !== 1) {
+      return { sent: true, deliveryStatus: 'status_update_pending' };
+    }
+  } catch {
+    return { sent: true, deliveryStatus: 'status_update_pending' };
+  }
+  return { sent: true, deliveryStatus: 'sent' };
+}

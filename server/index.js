@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { queuePrivatePhotoPurges } from './photoPurge.js';
 import { cleanupPartnerServiceData, partnerRetentionOptions } from './partnerRetention.js';
-import { deliverPendingPartnerInquiries } from './partnerInquiryDelivery.js';
+import { deliverPendingPartnerInquiries, deliverClaimedPartnerInquiry } from './partnerInquiryDelivery.js';
 import { normalizePartnerCountry, isPartnerServiceCategory, isPartnerServiceCurrency } from './partnerServicePolicy.js';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
@@ -4489,36 +4489,23 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
     if (!claim.rowCount) return res.status(202).json({ inquiryId: row.id, sent: false });
     const escapeHtml = value => String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', [String.fromCharCode(34)]: '&quot;', [String.fromCharCode(39)]: '&#39;' })[character]);
     const dateLine = serviceDate ? '<p><strong>Желаемая дата:</strong> ' + escapeHtml(serviceDate) + '</p>' : '';
-    try {
-      await sendConfiguredEmail({
-        to: inquiry.provider.contactEmail,
-        idempotencyKey: 'partner-service-inquiry/' + row.id,
-        subject: 'Новый запрос по услуге в Vow',
-        html: '<h2>Запрос предложения</h2><p>Пользователь дал согласие передать поставщику своё имя, email и текст запроса.</p>' +
-          '<p><strong>Имя:</strong> ' + escapeHtml(deliveryName) + '</p>' +
-          '<p><strong>Email:</strong> ' + escapeHtml(deliveryEmail) + '</p>' + dateLine +
-          '<p><strong>Сообщение:</strong></p><p>' + escapeHtml(note).replace(/\\n/g, '<br>') + '</p>' +
-          '<p>Данные второго участника совпадения, переписка и результаты совместимости не передаются.</p>'
-      });
-    } catch (error) {
-      // A transport exception is ambiguous: the provider may have accepted the
-      // message before the response was lost. Keep "sending" for moderator
-      // reconciliation and never make this inquiry eligible for automatic retry.
-      console.warn('Partner service inquiry delivery outcome requires reconciliation:', error?.message || 'unknown error');
-      return res.status(202).json({
-        inquiryId: row.id,
-        sent: false,
-        deliveryStatus: 'reconciliation_pending'
-      });
+    const delivery = await deliverClaimedPartnerInquiry(pool, sendConfiguredEmail, row.id, {
+      to: inquiry.provider.contactEmail,
+      idempotencyKey: 'partner-service-inquiry/' + row.id,
+      subject: 'Новый запрос по услуге в Vow',
+      html: '<h2>Запрос предложения</h2><p>Пользователь дал согласие передать поставщику своё имя, email и текст запроса.</p>' +
+        '<p><strong>Имя:</strong> ' + escapeHtml(deliveryName) + '</p>' +
+        '<p><strong>Email:</strong> ' + escapeHtml(deliveryEmail) + '</p>' + dateLine +
+        '<p><strong>Сообщение:</strong></p><p>' + escapeHtml(note).replace(/\\n/g, '<br>') + '</p>' +
+        '<p>Данные второго участника совпадения, переписка и результаты совместимости не передаются.</p>'
+    });
+    if (delivery.deliveryStatus === 'reconciliation_pending') {
+      console.warn('Partner service inquiry delivery outcome requires reconciliation: provider response was ambiguous.');
+      return res.status(202).json({ inquiryId: row.id, sent: false, deliveryStatus: delivery.deliveryStatus });
     }
-    try {
-      await pool.query(
-        "UPDATE partner_service_inquiries SET delivery_status = 'sent', delivered_at = NOW(), updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
-        [row.id]
-      );
-    } catch (error) {
-      console.error('Partner inquiry email was delivered but status could not be saved:', error?.message || 'unknown error');
-      return res.status(202).json({ inquiryId: row.id, sent: true, deliveryStatus: 'status_update_pending' });
+    if (delivery.deliveryStatus === 'status_update_pending') {
+      console.error('Partner inquiry email was delivered but status could not be saved.');
+      return res.status(202).json({ inquiryId: row.id, sent: true, deliveryStatus: delivery.deliveryStatus });
     }
     return res.status(201).json({ inquiryId: row.id, sent: true });
   } catch (error) {

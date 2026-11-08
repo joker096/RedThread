@@ -83,3 +83,56 @@ test('invalid batch limits fail before connecting to the database', async () => 
   await assert.rejects(() => deliverPendingPartnerInquiries(pool, async () => {}, { limit: 0 }), RangeError);
   assert.equal(connections, 0);
 });
+
+
+test('synchronous API delivery keeps ambiguous provider outcomes in sending for reconciliation', async () => {
+  const calls = [];
+  const pool = {
+    async query(sql, values) {
+      calls.push({ sql, values });
+      return { rowCount: 1 };
+    }
+  };
+  const payload = {
+    to: sample.contactEmail,
+    idempotencyKey: 'partner-service-inquiry/' + sample.id,
+    subject: 'Новый запрос по услуге в Vow',
+    html: '<p>consented content</p>'
+  };
+  const result = await (await import('./partnerInquiryDelivery.js')).deliverClaimedPartnerInquiry(
+    pool,
+    async sent => {
+      assert.deepEqual(sent, payload);
+      throw new Error('connection reset after provider accepted the request');
+    },
+    sample.id,
+    payload
+  );
+  assert.deepEqual(result, { sent: false, deliveryStatus: 'reconciliation_pending' });
+  assert.equal(calls.length, 0, 'ambiguous provider response must not mark the inquiry failed or sent');
+});
+
+test('synchronous API delivery marks sent only after provider acceptance and database confirmation', async () => {
+  const calls = [];
+  const pool = {
+    async query(sql, values) {
+      calls.push({ sql, values });
+      return { rowCount: 1 };
+    }
+  };
+  const result = await (await import('./partnerInquiryDelivery.js')).deliverClaimedPartnerInquiry(
+    pool, async () => {}, sample.id, { idempotencyKey: 'partner-service-inquiry/' + sample.id }
+  );
+  assert.deepEqual(result, { sent: true, deliveryStatus: 'sent' });
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].sql, /delivery_status = 'sent'/);
+  assert.deepEqual(calls[0].values, [sample.id]);
+});
+
+test('synchronous API delivery retains reconciliation state if status persistence fails after provider acceptance', async () => {
+  const pool = { async query() { throw new Error('database connection lost'); } };
+  const result = await (await import('./partnerInquiryDelivery.js')).deliverClaimedPartnerInquiry(
+    pool, async () => {}, sample.id, {}
+  );
+  assert.deepEqual(result, { sent: true, deliveryStatus: 'status_update_pending' });
+});
