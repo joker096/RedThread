@@ -130,7 +130,7 @@ test('manual recovery only moves sending rows after an explicit operator action 
   assert.ok(RECOVER_PARTNER_INQUIRY_SQL.includes("delivery_status = 'sending'"));
   assert.ok(RECOVER_PARTNER_INQUIRY_SQL.includes("delivery_status = 'reconciliation_required'"));
   assert.ok(RECOVER_PARTNER_INQUIRY_SQL.includes("operator_confirmed_worker_terminated"));
-  assert.ok(RECOVER_PARTNER_INQUIRY_SQL.includes('provider_message_id = COALESCE'));
+  assert.ok(RECOVER_PARTNER_INQUIRY_SQL.includes('updated_at = NOW()'));
   assert.doesNotMatch(RECOVER_PARTNER_INQUIRY_SQL, /INTERVAL|updated_at\s*</i);
 });
 
