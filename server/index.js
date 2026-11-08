@@ -4542,7 +4542,7 @@ app.post('/api/admin/partner-service-inquiries/:inquiryId/reconcile', validateRe
       if (!['admin', 'moderator'].includes(moderator.rows[0]?.role)) return { forbidden: true };
       const nextStatus = decision;
       const changed = await client.query(
-        "UPDATE partner_service_inquiries SET delivery_status = $2, delivered_at = CASE WHEN $2 = 'sent' THEN COALESCE(delivered_at, NOW()) ELSE NULL END, delivery_error = CASE WHEN $2 = 'sent' THEN '' ELSE 'operator_reconciled_failed' END, updated_at = NOW() WHERE id = $1 AND delivery_status = 'reconciliation_required' RETURNING id, delivery_status AS \"deliveryStatus\"",
+        "UPDATE partner_service_inquiries SET delivery_status = $2, delivered_at = CASE WHEN $2 = 'sent' THEN COALESCE(delivered_at, NOW()) ELSE NULL END, delivery_error = CASE WHEN $2 = 'sent' THEN '' ELSE 'operator_reconciled_failed' END, updated_at = NOW() WHERE id = $1 AND (delivery_status = 'reconciliation_required' OR (delivery_status = 'sending' AND updated_at < NOW() - INTERVAL '2 minutes')) RETURNING id, delivery_status AS \"deliveryStatus\"",
         [id, nextStatus]
       );
       if (!changed.rows[0]) return { missing: true };
