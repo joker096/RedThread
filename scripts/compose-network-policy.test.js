@@ -96,6 +96,8 @@ test('Docker database network is isolated from the public web proxy container', 
   assert.match(api, /no-new-privileges:true/);
   assert.ok(api.includes('IDENTITY_L3_REQUIRE_MOUNT: "true"'));
   assert.ok(api.includes('IDENTITY_L3_TEMP_DIR: /run/identity-l3-tmp'));
+  assert.ok(api.includes('GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}'), 'Google client ID must reach only the API container');
+  assert.doesNotMatch(web, /^      GOOGLE_CLIENT_ID:/m, 'Google client ID must not be injected into the web container');
   assert.match(api, /tmpfs:\n      - \/run\/identity-l3-tmp:rw,noexec,nosuid,nodev,size=256m,mode=0700,uid=1000,gid=1000/,
     'moderator plaintext staging must use a bounded private tmpfs');
 
@@ -134,6 +136,9 @@ test('Docker database network is isolated from the public web proxy container', 
 
 test('Nginx streams L3 video uploads without plaintext disk buffering', async () => {
   const nginx = await readFile(new URL('../docker/nginx.conf', import.meta.url), 'utf8');
+  assert.match(nginx, /Cross-Origin-Opener-Policy.*same-origin-allow-popups/, 'GIS popup isolation must be configured on the static document response');
+  const vite = await readFile(new URL('../vite.config.ts', import.meta.url), 'utf8');
+  assert.match(vite, /Cross-Origin-Opener-Policy.*same-origin-allow-popups/, 'local development must use the same GIS popup policy');
   const uploadStart = nginx.indexOf('location = /api/identity/l3/upload {');
   assert.notEqual(uploadStart, -1, 'L3 upload must have a dedicated exact-match Nginx location');
   const uploadEnd = nginx.indexOf('\n    }', uploadStart);

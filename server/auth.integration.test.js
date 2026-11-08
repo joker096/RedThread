@@ -118,6 +118,8 @@ test('auth API supports registration, session lookup, logout and login', {
       API_PORT: String(port),
       APP_ORIGIN: origin,
       NODE_ENV: 'test',
+      GOOGLE_CLIENT_ID: '   ',
+      AUTH_RATE_LIMIT: '1000',
       DATABASE_URL: serverDatabaseUrl.toString(),
       ACCOUNT_REUSE_HMAC_KEY: accountReuseTestKey,
       PG_STATEMENT_TIMEOUT_MS: '8000'
@@ -159,6 +161,20 @@ test('auth API supports registration, session lookup, logout and login', {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     assert.equal(healthy, true, 'API should start and answer the health check');
+    
+    const googleConfig = await request('/api/auth/google/config');
+    assert.deepEqual(await googleConfig.json(), { configured: false, clientId: null });
+    const disabledGoogleChallenge = await request('/api/auth/google/challenge', { method: 'POST', body: JSON.stringify({}) });
+    assert.equal(disabledGoogleChallenge.status, 503, 'Google challenge issuance must fail closed when not configured');
+    const googleChallengeWithoutOrigin = await fetch(`${api}/api/auth/google/challenge`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({})
+    });
+    assert.equal(googleChallengeWithoutOrigin.status, 403, 'Google challenge issuance must enforce same-origin requests');
+    const disabledGoogleSignIn = await request('/api/auth/google', {
+      method: 'POST', body: JSON.stringify({ credential: 'untrusted-token', nonce: 'x'.repeat(43) })
+    });
+    assert.equal(disabledGoogleSignIn.status, 503, 'Google sign-in must fail closed when not configured');
+
 
     const email = `test-${randomUUID()}@example.test`;
     const password = 'Test Password 2026! Secure';
