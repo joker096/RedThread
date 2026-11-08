@@ -167,13 +167,17 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
       if (!response.ok) throw new Error(response.status === 401 ? tr('Войдите в аккаунт, чтобы отправить запрос.', 'Sign in to send a request.') :
         response.status === 503 || response.status === 502 ? tr('Связь с поставщиком временно недоступна. Попробуйте позже.', 'Provider contact is temporarily unavailable. Please try again later.') :
         tr('Не удалось отправить запрос. Проверьте данные и попробуйте ещё раз.', 'Could not submit the request. Check the details and try again.'));
-      if (data?.sent) {
-        setInquiryStatus(tr('Запрос отправлен поставщику. Его контактные данные не раскрывались.', 'Your request was sent to the provider. Their private contact details were not disclosed.'));
+      if (data?.sent === true && data?.deliveryStatus === 'sent') {
+        setInquiryStatus(tr('Поставщик принял запрос к обработке. Доставка письма в почтовый ящик не гарантируется.', 'The provider accepted the request for processing. Delivery to the recipient mailbox is not guaranteed.'));
         setInquiryProvider(null);
         setInquiryNote('');
         setServiceDate('');
         setShareContact(false);
         inquiryRequestKey.current = null;
+      } else if (data?.deliveryStatus === 'reconciliation_required') {
+        setInquiryStatus(tr('Результат передачи письма уточняется. Не отправляйте запрос повторно: он сохранён и передан на ручную сверку.', 'The email handoff outcome is being checked. Do not submit again: your request is saved and awaiting manual reconciliation.'));
+      } else if (data?.deliveryStatus === 'sending') {
+        setInquiryStatus(tr('Запрос уже обрабатывается. Не отправляйте его повторно — дождитесь обновления статуса.', 'Your request is still being processed. Do not submit it again; wait for a status update.'));
       } else if (data?.deliveryStatus === 'pending_email_configuration') {
         setInquiryStatus(tr('Запрос сохранён. Отправка письма поставщику ожидает настройки почтового сервиса; данные не потеряны.', 'Your request is saved. Email delivery is waiting for mail-service configuration; your request has not been lost.'));
       } else {

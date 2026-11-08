@@ -12,6 +12,7 @@ export const ModeratorConsolePanel:React.FC=()=>{
  const {locale}=useLocale();const tr=(ru:string,en:string)=>locale==='ru'?ru:en;
  const [allowed,setAllowed]=useState(false),[ready,setReady]=useState(false),[busy,setBusy]=useState(false),[notice,setNotice]=useState('');
  const [screenings,setScreenings]=useState<Screening[]>([]),[reports,setReports]=useState<Report[]>([]),[audit,setAudit]=useState<AuditEntry[]>([]),[photos,setPhotos]=useState<PendingPhoto[]>([]),[l3Submissions,setL3Submissions]=useState<PendingL3[]>([]),[l3Enabled,setL3Enabled]=useState(false),[partnerApplications,setPartnerApplications]=useState<PartnerApplication[]>([]),[partnerInquiries,setPartnerInquiries]=useState<PartnerInquiry[]>([]);
+ const [partnerInquiryNotes,setPartnerInquiryNotes]=useState<Record<string,string>>({});
  const refreshRequestId=React.useRef(0);
  const sessionEpoch=React.useRef(0);
  const refresh=useCallback(async()=>{
@@ -117,9 +118,15 @@ export const ModeratorConsolePanel:React.FC=()=>{
     <p className="mt-1 text-[10px] text-stone-400">{tr('Статус','Status')}: {item.deliveryStatus} · {tr('попыток','attempts')}: {item.deliveryAttempts}</p>
     {item.deliveryError&&<p className="mt-1 text-[10px] text-amber-200">{item.deliveryError}</p>}
     <p className="mt-1 text-[10px] text-stone-500">{tr('Обновлено','Updated')}: {new Date(item.updatedAt).toLocaleString(locale)}</p>
-    {item.deliveryStatus==='sending'&&<div className="mt-2 flex flex-wrap gap-2">
-     <button type="button" disabled={busy} onClick={()=>{if(window.confirm(tr('Подтвердили в журнале Resend, что письмо принято? Только после проверки нажмите OK.','Have you verified in Resend logs that the email was accepted? Confirm only after checking.')))void act('/api/admin/partner-service-inquiries/'+encodeURIComponent(item.id)+'/reconcile',{decision:'sent',operatorNote:'Verified in Resend provider logs: message accepted.'});}} className="min-h-11 rounded-lg bg-emerald-800 px-3 py-2 text-[10px] font-semibold text-white disabled:opacity-50">{tr('Подтверждено: доставлено','Confirm delivered')}</button>
-     <button type="button" disabled={busy} onClick={()=>{if(window.confirm(tr('Подтвердили в журнале Resend, что письмо не было принято? Только после проверки нажмите OK.','Have you verified in Resend logs that the email was not accepted? Confirm only after checking.')))void act('/api/admin/partner-service-inquiries/'+encodeURIComponent(item.id)+'/reconcile',{decision:'failed',operatorNote:'Verified in Resend provider logs: message not accepted.'});}} className="min-h-11 rounded-lg border border-amber-500/30 px-3 py-2 text-[10px] text-amber-200 disabled:opacity-50">{tr('Подтверждено: не доставлено','Confirm not delivered')}</button>
+    {item.deliveryStatus==='sending'&&<p className="mt-2 text-xs text-amber-200">{tr('Отправка ещё выполняется. Сверка временно недоступна, чтобы не допустить гонку с почтовым провайдером.','The provider call is still active. Reconciliation is disabled to avoid racing the email provider.')}</p>}
+    {item.deliveryStatus==='reconciliation_required'&&<div className="mt-2 space-y-2">
+     <label className="block text-xs text-stone-300">{tr('Основание сверки (укажите запись провайдера, ID письма и время проверки)','Reconciliation evidence (provider log entry, message ID and check time)')}
+      <textarea value={partnerInquiryNotes[item.id]||''} onChange={event=>setPartnerInquiryNotes(current=>({...current,[item.id]:event.target.value}))} maxLength={500} minLength={10} rows={2} className="mt-1 w-full rounded-lg border border-white/10 bg-stone-900 p-2 text-xs text-white" />
+     </label>
+     <div className="flex flex-wrap gap-2">
+      <button type="button" disabled={busy||(partnerInquiryNotes[item.id]||'').trim().length<10} onClick={()=>{if(window.confirm(tr('Сверка подтверждает принятие письма провайдером? Это не подтверждает доставку в почтовый ящик.','Do provider logs confirm acceptance? This does not confirm mailbox delivery.')))void act('/api/admin/partner-service-inquiries/'+encodeURIComponent(item.id)+'/reconcile',{decision:'sent',operatorNote:partnerInquiryNotes[item.id].trim()});}} className="min-h-11 rounded-lg bg-emerald-800 px-3 py-2 text-[10px] font-semibold text-white disabled:opacity-50">{tr('Провайдер принял письмо','Provider accepted email')}</button>
+      <button type="button" disabled={busy||(partnerInquiryNotes[item.id]||'').trim().length<10} onClick={()=>{if(window.confirm(tr('Проверка подтверждает, что провайдер не принимал письмо?','Do logs confirm the provider did not accept the email?')))void act('/api/admin/partner-service-inquiries/'+encodeURIComponent(item.id)+'/reconcile',{decision:'failed',operatorNote:partnerInquiryNotes[item.id].trim()});}} className="min-h-11 rounded-lg border border-amber-500/30 px-3 py-2 text-[10px] text-amber-200 disabled:opacity-50">{tr('Провайдер не принимал письмо','Provider did not accept email')}</button>
+     </div>
     </div>}
    </article>)}
   </div>

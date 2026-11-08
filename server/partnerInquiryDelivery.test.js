@@ -59,6 +59,8 @@ test('transport errors remain sending because provider acceptance is ambiguous',
   assert.deepEqual(result, { claimed: 1, sent: 0, failed: 0, reconciliationPending: 1 });
   assert.equal(fake.calls.some(call => call.sql.includes("delivery_status = 'failed'")), false,
     'a transport exception must never be treated as proof that the provider rejected the email');
+  assert.ok(fake.calls.some(call => call.sql.includes("delivery_status = 'reconciliation_required'")),
+    'the active sending state must end before moderator reconciliation is allowed');
   assert.equal(fake.calls.at(-1).sql, 'COMMIT',
     'the claim transaction commits before the external provider call');
 });
@@ -129,10 +131,24 @@ test('synchronous API delivery marks sent only after provider acceptance and dat
   assert.deepEqual(calls[0].values, [sample.id]);
 });
 
-test('synchronous API delivery retains reconciliation state if status persistence fails after provider acceptance', async () => {
-  const pool = { async query() { throw new Error('database connection lost'); } };
+test('synchronous API never reports sent when provider acceptance cannot be persisted', async () => {
+  let updates = 0;
+  const pool = { async query(sql) {
+    updates += 1;
+    if (updates === 1) throw new Error('database connection lost');
+    return { rowCount: 1 };
+  } };
   const result = await (await import('./partnerInquiryDelivery.js')).deliverClaimedPartnerInquiry(
     pool, async () => {}, sample.id, {}
   );
-  assert.deepEqual(result, { sent: true, deliveryStatus: 'status_update_pending' });
+  assert.deepEqual(result, { sent: false, providerAccepted: true, deliveryStatus: 'reconciliation_required' });
+  assert.equal(updates, 2, 'a failed sent-state write must attempt a fail-closed reconciliation transition');
+});
+
+test('synchronous API does not overwrite a row that is no longer actively sending', async () => {
+  const pool = { async query() { return { rowCount: 0 }; } };
+  const result = await (await import('./partnerInquiryDelivery.js')).deliverClaimedPartnerInquiry(
+    pool, async () => {}, sample.id, {}
+  );
+  assert.deepEqual(result, { sent: false, providerAccepted: true, deliveryStatus: 'reconciliation_required' });
 });

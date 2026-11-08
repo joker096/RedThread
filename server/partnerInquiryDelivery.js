@@ -72,20 +72,36 @@ export async function deliverPendingPartnerInquiries(pool, sendEmail, options = 
           '<p>Данные второго участника совпадения, переписка и результаты совместимости не передаются.</p>'
       });
     } catch {
-      // A thrown transport error does not prove the provider rejected the message:
-      // the provider may have accepted it before the response was lost. Keep the
-      // record in "sending" and require provider-log reconciliation; never retry blindly.
+      // The provider outcome is ambiguous. Move out of the active-send state before
+      // exposing the row to moderator reconciliation; never retry automatically.
+      try {
+        await pool.query(
+          "UPDATE partner_service_inquiries SET delivery_status = 'reconciliation_required', delivery_error = 'provider_outcome_ambiguous', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
+          [inquiry.id]
+        );
+      } catch { /* Leave sending fail-closed if the database is unavailable. */ }
       reconciliationPending += 1;
       continue;
     }
     try {
-      await pool.query(
-        "UPDATE partner_service_inquiries SET delivery_status = 'sent', delivered_at = NOW(), updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
+      const updated = await pool.query(
+        "UPDATE partner_service_inquiries SET delivery_status = 'sent', delivered_at = NOW(), delivery_error = '', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending' RETURNING id",
         [inquiry.id]
       );
+      if (updated.rowCount !== 1) {
+        reconciliationPending += 1;
+        continue;
+      }
       sent += 1;
     } catch {
-      // The provider accepted the email. Keep "sending" for manual reconciliation.
+      // Provider accepted the email, but persistence is uncertain. Best-effort
+      // transition prevents reconciliation from racing an active provider call.
+      try {
+        await pool.query(
+          "UPDATE partner_service_inquiries SET delivery_status = 'reconciliation_required', delivery_error = 'provider_accepted_status_unknown', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
+          [inquiry.id]
+        );
+      } catch { /* Leave sending fail-closed if the database is unavailable. */ }
       reconciliationPending += 1;
     }
   }
@@ -104,19 +120,31 @@ export async function deliverClaimedPartnerInquiry(pool, sendEmail, inquiryId, e
   try {
     await sendEmail(emailPayload);
   } catch {
-    return { sent: false, deliveryStatus: 'reconciliation_pending' };
+    try {
+      await pool.query(
+        "UPDATE partner_service_inquiries SET delivery_status = 'reconciliation_required', delivery_error = 'provider_outcome_ambiguous', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
+        [inquiryId]
+      );
+    } catch { /* Preserve the non-retryable sending state if persistence is unavailable. */ }
+    return { sent: false, providerAccepted: null, deliveryStatus: 'reconciliation_required' };
   }
 
   try {
     const updated = await pool.query(
-      "UPDATE partner_service_inquiries SET delivery_status = 'sent', delivered_at = NOW(), updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
+      "UPDATE partner_service_inquiries SET delivery_status = 'sent', delivered_at = NOW(), delivery_error = '', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending' RETURNING id",
       [inquiryId]
     );
     if (updated.rowCount !== 1) {
-      return { sent: true, deliveryStatus: 'status_update_pending' };
+      return { sent: false, providerAccepted: true, deliveryStatus: 'reconciliation_required' };
     }
   } catch {
-    return { sent: true, deliveryStatus: 'status_update_pending' };
+    try {
+      await pool.query(
+        "UPDATE partner_service_inquiries SET delivery_status = 'reconciliation_required', delivery_error = 'provider_accepted_status_unknown', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
+        [inquiryId]
+      );
+    } catch { /* Keep the claim fail-closed if the database is unavailable. */ }
+    return { sent: false, providerAccepted: true, deliveryStatus: 'reconciliation_required' };
   }
-  return { sent: true, deliveryStatus: 'sent' };
+  return { sent: true, providerAccepted: true, deliveryStatus: 'sent' };
 }

@@ -4479,8 +4479,9 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
     const row = inquiry.inquiry;
     const deliveryName = row.requesterName || requesterName;
     const deliveryEmail = row.requesterEmail || requesterEmail;
-    if (row.deliveryStatus === 'sent') return res.json({ inquiryId: row.id, sent: true });
-    if (row.deliveryStatus === 'sending') return res.status(202).json({ inquiryId: row.id, sent: false });
+    if (row.deliveryStatus === 'sent') return res.json({ inquiryId: row.id, sent: true, deliveryStatus: 'sent' });
+    if (row.deliveryStatus === 'sending') return res.status(202).json({ inquiryId: row.id, sent: false, deliveryStatus: 'sending' });
+    if (row.deliveryStatus === 'reconciliation_required') return res.status(202).json({ inquiryId: row.id, sent: false, deliveryStatus: 'reconciliation_required' });
     if (!emailDeliveryConfigured()) return res.status(202).json({ inquiryId: row.id, sent: false, deliveryStatus: 'pending_email_configuration' });
     const claim = await pool.query(
       "UPDATE partner_service_inquiries SET delivery_status = 'sending', delivery_attempts = delivery_attempts + 1, delivery_error = '', updated_at = NOW() WHERE id = $1 AND delivery_status IN ('pending', 'failed') RETURNING id",
@@ -4499,15 +4500,17 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
         '<p><strong>Сообщение:</strong></p><p>' + escapeHtml(note).replace(/\\n/g, '<br>') + '</p>' +
         '<p>Данные второго участника совпадения, переписка и результаты совместимости не передаются.</p>'
     });
-    if (delivery.deliveryStatus === 'reconciliation_pending') {
-      console.warn('Partner service inquiry delivery outcome requires reconciliation: provider response was ambiguous.');
-      return res.status(202).json({ inquiryId: row.id, sent: false, deliveryStatus: delivery.deliveryStatus });
+    if (delivery.deliveryStatus === 'reconciliation_required') {
+      console.warn('Partner service inquiry delivery outcome requires moderator reconciliation.', {
+        inquiryId: row.id, providerAccepted: delivery.providerAccepted
+      });
+      return res.status(202).json({
+        inquiryId: row.id, sent: false,
+        providerAccepted: delivery.providerAccepted,
+        deliveryStatus: 'reconciliation_required'
+      });
     }
-    if (delivery.deliveryStatus === 'status_update_pending') {
-      console.error('Partner inquiry email was delivered but status could not be saved.');
-      return res.status(202).json({ inquiryId: row.id, sent: true, deliveryStatus: delivery.deliveryStatus });
-    }
-    return res.status(201).json({ inquiryId: row.id, sent: true });
+    return res.status(201).json({ inquiryId: row.id, sent: true, deliveryStatus: 'sent' });
   } catch (error) {
     console.error('Partner service inquiry failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'partner_service_inquiry_failed' });
@@ -4539,7 +4542,7 @@ app.post('/api/admin/partner-service-inquiries/:inquiryId/reconcile', validateRe
       if (!['admin', 'moderator'].includes(moderator.rows[0]?.role)) return { forbidden: true };
       const nextStatus = decision;
       const changed = await client.query(
-        "UPDATE partner_service_inquiries SET delivery_status = $2, delivered_at = CASE WHEN $2 = 'sent' THEN COALESCE(delivered_at, NOW()) ELSE NULL END, delivery_error = CASE WHEN $2 = 'sent' THEN '' ELSE 'operator_reconciled_failed' END, updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending' RETURNING id, delivery_status AS \"deliveryStatus\"",
+        "UPDATE partner_service_inquiries SET delivery_status = $2, delivered_at = CASE WHEN $2 = 'sent' THEN COALESCE(delivered_at, NOW()) ELSE NULL END, delivery_error = CASE WHEN $2 = 'sent' THEN '' ELSE 'operator_reconciled_failed' END, updated_at = NOW() WHERE id = $1 AND delivery_status = 'reconciliation_required' RETURNING id, delivery_status AS \"deliveryStatus\"",
         [id, nextStatus]
       );
       if (!changed.rows[0]) return { missing: true };
