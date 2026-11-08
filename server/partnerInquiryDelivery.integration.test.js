@@ -41,6 +41,12 @@ test('pending inquiry claim query is valid against the migrated PostgreSQL schem
       "SELECT 1 FROM pg_trigger WHERE tgname = 'partner_service_inquiry_evidence_immutable' AND tgrelid = 'partner_service_inquiries'::regclass AND NOT tgisinternal"
     );
     assert.equal(evidenceTrigger.rowCount, 1, 'migration 225 must freeze the request, consent snapshot and accepted provider message ID');
+    const evidenceFunction = await pool.query(
+      "SELECT pg_get_functiondef('prevent_partner_service_inquiry_evidence_mutation()'::regprocedure) AS definition"
+    );
+    assert.match(evidenceFunction.rows[0]?.definition || '', /app\.partner_inquiry_account_erasure/);
+    assert.match(evidenceFunction.rows[0]?.definition || '', /deleted\+/,
+      'migration 226 must permit only the explicit account-erasure PII tombstone');
   } finally {
     await pool.end();
   }
