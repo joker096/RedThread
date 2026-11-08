@@ -17,6 +17,10 @@ test('pending inquiry claim query is valid against the migrated PostgreSQL schem
     assert.ok(claimPlan.rows.length > 0, 'PostgreSQL must plan the guarded synchronous inquiry claim query');
     const providerMessageColumn = await pool.query('SELECT provider_message_id, contact_consent_version FROM partner_service_inquiries LIMIT 0');
     assert.equal(providerMessageColumn.rowCount, 0, 'migrations 221 and 222 must add provider message and consent audit fields');
+    const providerStatusConstraint = await pool.query(
+      "SELECT 1 FROM pg_constraint WHERE conname = 'partner_service_inquiry_provider_message_status_valid' AND conrelid = 'partner_service_inquiries'::regclass"
+    );
+    assert.equal(providerStatusConstraint.rowCount, 1, 'migration 223 must prevent a provider-accepted message from being reconciled as not accepted');
   } finally {
     await pool.end();
   }
