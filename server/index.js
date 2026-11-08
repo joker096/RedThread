@@ -4587,6 +4587,33 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
 });
 
 
+app.post('/api/partner-service-inquiries/:inquiryId/cancel', validateRequestOrigin, requireSession, requireDatabase, profileActionLimiter, async (req, res) => {
+  const id = req.params.inquiryId;
+  if (!isUuid(id)) return res.status(400).json({ error: 'invalid_partner_inquiry_id' });
+  try {
+    const result = await withPooledTransaction(pool, async client => {
+      const changed = await client.query(
+        "UPDATE partner_service_inquiries SET delivery_status = 'cancelled', cancelled_at = NOW(), delivery_error = 'requester_withdrew_consent_before_provider_acceptance', updated_at = NOW() WHERE id = $1 AND requested_by = $2 AND delivery_status IN ('pending', 'failed') AND provider_message_id IS NULL RETURNING id",
+        [id, req.authUser.id]
+      );
+      if (changed.rows[0]) return { cancelled: true };
+      const current = await client.query(
+        'SELECT delivery_status AS "deliveryStatus" FROM partner_service_inquiries WHERE id = $1 AND requested_by = $2 FOR SHARE',
+        [id, req.authUser.id]
+      );
+      if (!current.rows[0]) return { missing: true };
+      if (current.rows[0].deliveryStatus === 'cancelled') return { cancelled: true };
+      return { cannotCancel: true, deliveryStatus: current.rows[0].deliveryStatus };
+    });
+    if (result.missing) return res.status(404).json({ error: 'partner_inquiry_not_found' });
+    if (result.cannotCancel) return res.status(409).json({ error: 'partner_inquiry_already_in_progress', deliveryStatus: result.deliveryStatus });
+    return res.json({ cancelled: true, deliveryStatus: 'cancelled' });
+  } catch (error) {
+    console.error('Partner inquiry cancellation failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_inquiry_cancellation_failed' });
+  }
+});
+
 app.get('/api/admin/partner-service-inquiries', requireSession, requireDatabase, async (req, res) => {
   const read = await withActiveModeratorRead(req.authUser.id, client => client.query(
     'SELECT inquiry.id, application.business_name AS "businessName", application.contact_email AS "providerEmail", inquiry.delivery_status AS "deliveryStatus", inquiry.delivery_attempts AS "deliveryAttempts", inquiry.delivery_error AS "deliveryError", inquiry.provider_message_id AS "providerMessageId", inquiry.contact_consent_version AS "contactConsentVersion", inquiry.created_at AS "createdAt", inquiry.updated_at AS "updatedAt", inquiry.delivered_at AS "deliveredAt" ' +
