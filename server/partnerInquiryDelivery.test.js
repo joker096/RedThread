@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CANCEL_PARTNER_INQUIRY_SQL, CLAIM_PARTNER_INQUIRY_SQL, deliverPendingPartnerInquiries } from './partnerInquiryDelivery.js';
+import { CANCEL_PARTNER_INQUIRY_SQL, CLAIM_PARTNER_INQUIRY_SQL, REVALIDATE_PARTNER_INQUIRY_SQL, deliverPendingPartnerInquiries } from './partnerInquiryDelivery.js';
 
 function fakePool(rows = [], options = {}) {
   const calls = [];
@@ -18,6 +18,10 @@ function fakePool(rows = [], options = {}) {
     async connect() { return client; },
     async query(sql, values) {
       calls.push({ sql, values, scope: 'pool' });
+      if (sql === REVALIDATE_PARTNER_INQUIRY_SQL) {
+        if (options.failEligibility) throw new Error('eligibility recheck failed');
+        return { rowCount: options.eligibleRowCount ?? 1 };
+      }
       if (options.failStatus && sql.includes("delivery_status = 'sent'")) throw new Error('status failed');
       if (options.sentRowCount === 0 && sql.includes("delivery_status = 'sent'")) return { rowCount: 0 };
       return { rowCount: 1 };
@@ -44,8 +48,12 @@ test('pending partner inquiries are claimed with row locks and sent with a stabl
   });
   assert.deepEqual(result, { claimed: 1, sent: 1, failed: 0, reconciliationPending: 0 });
   assert.match(fake.calls[1].sql, /FOR UPDATE OF inquiry SKIP LOCKED/);
-  assert.match(fake.calls[1].sql, /FOR SHARE OF application/);
-  assert.doesNotMatch(fake.calls[1].sql, /FOR SHARE OF active_match|FOR SHARE OF requester/);
+  assert.match(fake.calls[1].sql, /FOR SHARE OF application, active_match, requester/);
+  assert.match(fake.calls[1].sql, /inquiry.contact_consent_at IS NOT NULL/);
+  assert.match(fake.calls[1].sql, /inquiry.contact_consent_version = 'partner-inquiry-v1'/);
+  assert.match(fake.calls[4].sql, /JOIN matches active_match/);
+  assert.match(fake.calls[4].sql, /JOIN users requester/);
+  assert.match(fake.calls[4].sql, /contact_consent_version = 'partner-inquiry-v1'/);
   assert.match(fake.calls[1].sql, /JOIN matches active_match[\s\S]*active_match.status = 'active'/);
   assert.match(fake.calls[1].sql, /JOIN users requester[\s\S]*requester.status = 'active'[\s\S]*email_verified_at IS NOT NULL/);
   assert.match(fake.calls[1].sql, /LOWER\(BTRIM\(requester.email\)\) = inquiry.requester_email/);
@@ -59,6 +67,15 @@ test('pending partner inquiries are claimed with row locks and sent with a stabl
   assert.match(fake.calls.at(-1).sql, /delivery_status = 'sent'/);
   assert.match(fake.calls.at(-1).sql, /provider_message_id = \$2/);
   assert.deepEqual(fake.calls.at(-1).values, [sample.id, 'resend_msg_123']);
+});
+
+test('worker does not call the provider when eligibility or explicit consent was revoked after claiming', async () => {
+  const fake = fakePool([sample], { eligibleRowCount: 0 });
+  let sends = 0;
+  const result = await deliverPendingPartnerInquiries(fake.pool, async () => { sends += 1; });
+  assert.deepEqual(result, { claimed: 1, sent: 0, failed: 1, reconciliationPending: 0 });
+  assert.equal(sends, 0);
+  assert.ok(fake.calls.some(call => call.sql.includes('eligibility_lost_before_provider_call')));
 });
 
 test('transport errors remain sending because provider acceptance is ambiguous', async () => {
@@ -110,6 +127,10 @@ test('requester cancellation can only change an unaccepted pending or failed inq
 
 test('synchronous claim query revalidates published provider, active match and verified requester at send time', () => {
   assert.ok(CLAIM_PARTNER_INQUIRY_SQL.includes("delivery_status IN ('pending', 'failed')"));
+  assert.ok(CLAIM_PARTNER_INQUIRY_SQL.includes('inquiry.contact_consent_at IS NOT NULL'));
+  assert.ok(CLAIM_PARTNER_INQUIRY_SQL.includes("inquiry.contact_consent_version = 'partner-inquiry-v1'"));
+  assert.ok(REVALIDATE_PARTNER_INQUIRY_SQL.includes("inquiry.delivery_status = 'sending'"));
+  assert.ok(REVALIDATE_PARTNER_INQUIRY_SQL.includes("inquiry.contact_consent_version = 'partner-inquiry-v1'"));
   assert.ok(CLAIM_PARTNER_INQUIRY_SQL.includes("application.status = 'approved'"));
   assert.ok(CLAIM_PARTNER_INQUIRY_SQL.includes('application.published_at IS NOT NULL'));
   assert.ok(CLAIM_PARTNER_INQUIRY_SQL.includes("active_match.status = 'active'"));
