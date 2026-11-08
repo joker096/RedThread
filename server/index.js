@@ -4489,6 +4489,9 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
   let inquiry;
   try {
     inquiry = await withPooledTransaction(pool, async client => {
+      // Serialize inquiry creation with account deletion so a request cannot
+      // be inserted after the deletion transaction has already redacted history.
+      await acquireGiftSafetyUserLocks(client, req.authUser.id);
       const existingResult = await client.query(
         'SELECT id, application_id AS "applicationId", match_id AS "matchId", service_date AS "serviceDate", request_note AS "requestNote", requester_name AS "requesterName", requester_email AS "requesterEmail", delivery_status AS "deliveryStatus" FROM partner_service_inquiries WHERE requested_by = $1 AND request_key = $2 FOR UPDATE',
         [req.authUser.id, requestKey]
