@@ -129,7 +129,7 @@ test('synchronous API delivery marks sent only after provider acceptance and dat
   const result = await (await import('./partnerInquiryDelivery.js')).deliverClaimedPartnerInquiry(
     pool, async () => {}, sample.id, { idempotencyKey: 'partner-service-inquiry/' + sample.id }
   );
-  assert.deepEqual(result, { sent: true, deliveryStatus: 'sent' });
+  assert.deepEqual(result, { sent: true, providerAccepted: true, deliveryStatus: 'sent' });
   assert.equal(calls.length, 1);
   assert.match(calls[0].sql, /delivery_status = 'sent'/);
   assert.deepEqual(calls[0].values, [sample.id]);
