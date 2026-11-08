@@ -61,8 +61,10 @@ test('transport errors remain sending because provider acceptance is ambiguous',
     'a transport exception must never be treated as proof that the provider rejected the email');
   assert.ok(fake.calls.some(call => call.sql.includes("delivery_status = 'reconciliation_required'")),
     'the active sending state must end before moderator reconciliation is allowed');
-  assert.equal(fake.calls.at(-1).sql, 'COMMIT',
-    'the claim transaction commits before the external provider call');
+  const commitIndex = fake.calls.findIndex(call => call.sql === 'COMMIT');
+  const reconciliationIndex = fake.calls.findIndex(call => call.sql.includes("delivery_status = 'reconciliation_required'"));
+  assert.ok(commitIndex >= 0 && reconciliationIndex > commitIndex,
+    'the claim commits before provider I/O and only then becomes eligible for reconciliation');
 });
 
 test('database ambiguity after provider acceptance remains sending', async () => {
@@ -110,8 +112,10 @@ test('synchronous API delivery keeps ambiguous provider outcomes in sending for 
     sample.id,
     payload
   );
-  assert.deepEqual(result, { sent: false, deliveryStatus: 'reconciliation_pending' });
-  assert.equal(calls.length, 0, 'ambiguous provider response must not mark the inquiry failed or sent');
+  assert.deepEqual(result, { sent: false, providerAccepted: null, deliveryStatus: 'reconciliation_required' });
+  assert.equal(calls.length, 1, 'ambiguous provider response must transition out of active sending');
+  assert.match(calls[0].sql, /delivery_status = 'reconciliation_required'/,
+    'ambiguous provider response must not mark the inquiry failed or sent');
 });
 
 test('synchronous API delivery marks sent only after provider acceptance and database confirmation', async () => {
