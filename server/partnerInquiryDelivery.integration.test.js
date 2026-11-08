@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
-import { CANCEL_PARTNER_INQUIRY_SQL, CLAIM_PARTNER_INQUIRY_SQL, PENDING_PARTNER_INQUIRIES_SQL, REVALIDATE_PARTNER_INQUIRY_SQL } from './partnerInquiryDelivery.js';
+import { CANCEL_PARTNER_INQUIRY_SQL, CLAIM_PARTNER_INQUIRY_SQL, PENDING_PARTNER_INQUIRIES_SQL, REVALIDATE_PARTNER_INQUIRY_SQL, RECOVER_PARTNER_INQUIRY_SQL } from './partnerInquiryDelivery.js';
 
 const { Pool } = pg;
 
@@ -17,6 +17,8 @@ test('pending inquiry claim query is valid against the migrated PostgreSQL schem
     assert.ok(claimPlan.rows.length > 0, 'PostgreSQL must plan the guarded synchronous inquiry claim query');
     const eligibilityPlan = await pool.query('EXPLAIN ' + REVALIDATE_PARTNER_INQUIRY_SQL, ['00000000-0000-4000-8000-000000000001']);
     assert.ok(eligibilityPlan.rows.length > 0, 'PostgreSQL must plan the final pre-send eligibility and consent recheck');
+    const recoveryPlan = await pool.query('EXPLAIN ' + RECOVER_PARTNER_INQUIRY_SQL, ['00000000-0000-4000-8000-000000000001', null]);
+    assert.ok(recoveryPlan.rows.length > 0, 'PostgreSQL must plan explicit recovery without an age-based stale predicate');
     const cancelPlan = await pool.query('EXPLAIN ' + CANCEL_PARTNER_INQUIRY_SQL, ['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002']);
     assert.ok(cancelPlan.rows.length > 0, 'PostgreSQL must plan the requester withdrawal query');
     const providerMessageColumn = await pool.query('SELECT provider_message_id, contact_consent_version, cancelled_at FROM partner_service_inquiries LIMIT 0');
