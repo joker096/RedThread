@@ -161,6 +161,70 @@ test('auth API supports registration, session lookup, logout and login', {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     assert.equal(healthy, true, 'API should start and answer the health check');
+
+    const partnerApplication = {
+      category: 'photography',
+      businessName: 'Integration Test Studio',
+      contactName: 'Test Contact',
+      contactEmail: 'partner-' + randomUUID() + '@example.test',
+      country: 'GE',
+      city: 'Tbilisi',
+      website: 'https://example.test',
+      serviceDescription: 'Wedding and couple photography services for local clients.',
+      priceFrom: '0.29',
+      priceCurrency: 'GEL',
+      serviceLanguages: 'Georgian, Russian',
+      availabilityNote: 'By appointment'
+    };
+    const partnerNoOrigin = await request('/api/partner-applications', {
+      method: 'POST', headers: { Origin: '' }, body: JSON.stringify(partnerApplication)
+    });
+    assert.equal(partnerNoOrigin.status, 403, 'partner application mutation must require a trusted Origin');
+
+    const insecurePartnerWebsite = await request('/api/partner-applications', {
+      method: 'POST', body: JSON.stringify({ ...partnerApplication, website: 'http://example.test' })
+    });
+    assert.equal(insecurePartnerWebsite.status, 400, 'partner websites must use HTTPS');
+
+    const localizedCountry = await request('/api/partner-applications', {
+      method: 'POST', body: JSON.stringify({ ...partnerApplication, country: 'Грузия' })
+    });
+    assert.equal(localizedCountry.status, 400, 'partner applications must store ISO alpha-2 country codes');
+
+    const submittedPartnerResponse = await request('/api/partner-applications', {
+      method: 'POST', body: JSON.stringify(partnerApplication)
+    });
+    assert.equal(submittedPartnerResponse.status, 201, 'valid partner application should be accepted');
+    const submittedPartner = await submittedPartnerResponse.json();
+    assert.equal(submittedPartner.application.status, 'pending');
+    assert.equal('contactEmail' in submittedPartner.application, false, 'application response must not echo contact details');
+
+    const invalidCountryFilter = await request('/api/partner-services?country=Georgia');
+    assert.equal(invalidCountryFilter.status, 400, 'public partner directory must reject localized country names');
+    const publicDirectory = await request('/api/partner-services?country=GE&category=dress');
+    assert.equal(publicDirectory.status, 200, 'public directory must accept the supported dress category and ISO country');
+    const publicDirectoryPayload = await publicDirectory.json();
+    assert.equal(JSON.stringify(publicDirectoryPayload).includes(partnerApplication.contactEmail), false,
+      'public directory must never expose partner contact email');
+
+    const inquiryNoOrigin = await request('/api/partner-service-inquiries', {
+      method: 'POST', headers: { Origin: '' },
+      body: JSON.stringify({ applicationId: randomUUID(), matchId: randomUUID(), requestKey: randomUUID(), requestNote: 'Please send details about this service.', shareContact: true })
+    });
+    assert.equal(inquiryNoOrigin.status, 403, 'partner inquiry mutation must require a trusted Origin');
+
+    const adminInquiryQueueUnauthenticated = await request('/api/admin/partner-service-inquiries');
+    assert.equal(adminInquiryQueueUnauthenticated.status, 401, 'partner delivery status must be moderator-only');
+
+    const adminPartnerNoOrigin = await request('/api/admin/partner-applications/' + randomUUID() + '/publish', {
+      method: 'POST', headers: { Origin: '' }, body: JSON.stringify({})
+    });
+    assert.equal(adminPartnerNoOrigin.status, 403, 'partner moderation mutation must reject missing Origin before authentication');
+    const inquiryReconcileNoOrigin = await request('/api/admin/partner-service-inquiries/' + randomUUID() + '/reconcile', {
+      method: 'POST', headers: { Origin: '' },
+      body: JSON.stringify({ decision: 'sent', operatorNote: 'Verified against provider logs' })
+    });
+    assert.equal(inquiryReconcileNoOrigin.status, 403, 'inquiry reconciliation must reject missing Origin before authentication');
     
     const googleConfig = await request('/api/auth/google/config');
     assert.deepEqual(await googleConfig.json(), { configured: false, clientId: null });
@@ -4347,6 +4411,42 @@ test('auth API supports registration, session lookup, logout and login', {
       // Hold the same per-user safety lock so deletion is first in the
       // PostgreSQL advisory-lock queue, followed by already-authenticated
       // profile-update, photo-upload, message, assessment and login requests.
+      const partnerApplicationId = randomUUID();
+      await deletionSafetyDb.query(
+        `INSERT INTO partner_service_applications
+           (id, category, business_name, contact_name, contact_email, country, city,
+            service_description, status, published_at)
+         VALUES ($1, 'cafe', 'Account deletion test provider', 'Test contact',
+                 'provider@example.test', 'GE', 'Tbilisi',
+                 'Integration fixture for account erasure', 'approved', NOW())`,
+        [partnerApplicationId]
+      );
+      const pendingPartnerInquiryId = randomUUID();
+      await deletionSafetyDb.query(
+        `INSERT INTO partner_service_inquiries
+           (id, application_id, match_id, requested_by, request_key, requester_name,
+            requester_email, service_date, request_note, contact_consent_at,
+            contact_consent_version)
+         VALUES ($1, $2, $3, $4, $5, 'Requester Before Deletion', $6,
+                 CURRENT_DATE + 30, 'Please send us the available dates and starting price.',
+                 NOW(), 'partner-inquiry-v1')`,
+        [pendingPartnerInquiryId, partnerApplicationId, matchPayload.match.id,
+          registered.user.id, randomUUID(), registered.user.email.toLowerCase()]
+      );
+      const reconciliationPartnerInquiryId = randomUUID();
+      await deletionSafetyDb.query(
+        `INSERT INTO partner_service_inquiries
+           (id, application_id, match_id, requested_by, request_key, requester_name,
+            requester_email, request_note, contact_consent_at, contact_consent_version,
+            delivery_status, provider_message_id, delivery_error)
+         VALUES ($1, $2, $3, $4, $5, 'Requester Before Deletion', $6,
+                 'Please confirm the provider email acceptance result.', NOW(),
+                 'partner-inquiry-v1', 'reconciliation_required',
+                 'resend_msg_account_delete_fixture', 'provider_outcome_ambiguous')`,
+        [reconciliationPartnerInquiryId, partnerApplicationId, matchPayload.match.id,
+          registered.user.id, randomUUID(), registered.user.email.toLowerCase()]
+      );
+
       const raceLock = await deletionSafetyDb.connect();
       await raceLock.query('BEGIN');
       await raceLock.query(
@@ -4541,6 +4641,32 @@ test('auth API supports registration, session lookup, logout and login', {
         staleGiftDecisionPromise
       ]);
       assert.equal(deleteAccount.status, 204);
+      const erasedPartnerInquiries = await deletionSafetyDb.query(
+        `SELECT id, delivery_status, requester_name, requester_email, service_date,
+                request_note, contact_consent_version, provider_message_id, cancelled_at
+         FROM partner_service_inquiries
+         WHERE id = ANY($1::uuid[])
+         ORDER BY id`,
+        [[pendingPartnerInquiryId, reconciliationPartnerInquiryId]]
+      );
+      const erasedPendingInquiry = erasedPartnerInquiries.rows.find(row => row.id === pendingPartnerInquiryId);
+      assert.equal(erasedPendingInquiry.delivery_status, 'cancelled',
+        'account deletion must cancel a queued partner inquiry before it can be sent');
+      assert.equal(erasedPendingInquiry.cancelled_at !== null, true);
+      assert.equal(erasedPendingInquiry.requester_name, 'Удалённый пользователь');
+      assert.equal(erasedPendingInquiry.requester_email, 'deleted+' + registered.user.id + '@deleted.invalid');
+      assert.equal(erasedPendingInquiry.service_date, null);
+      assert.equal(erasedPendingInquiry.request_note, '[запрос удалён пользователем]');
+      assert.equal(erasedPendingInquiry.contact_consent_version, 'partner-inquiry-v1',
+        'the consent evidence version remains intact while requester PII is redacted');
+      const erasedReconciliationInquiry = erasedPartnerInquiries.rows.find(row => row.id === reconciliationPartnerInquiryId);
+      assert.equal(erasedReconciliationInquiry.delivery_status, 'reconciliation_required',
+        'account deletion must preserve an ambiguous provider outcome for reconciliation');
+      assert.equal(erasedReconciliationInquiry.provider_message_id, 'resend_msg_account_delete_fixture',
+        'account deletion must preserve provider acceptance evidence');
+      assert.equal(erasedReconciliationInquiry.requester_name, 'Удалённый пользователь');
+      assert.equal(erasedReconciliationInquiry.requester_email, 'deleted+' + registered.user.id + '@deleted.invalid');
+      assert.equal(erasedReconciliationInquiry.request_note, '[запрос удалён пользователем]');
       const deletedAccountExposures = await deletionSafetyDb.query(
         'SELECT COUNT(*)::int AS count FROM female_profile_exposures WHERE user_id = $1',
         [registered.user.id]

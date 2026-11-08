@@ -97,6 +97,9 @@ test('Docker database network is isolated from the public web proxy container', 
   assert.ok(api.includes('IDENTITY_L3_REQUIRE_MOUNT: "true"'));
   assert.ok(api.includes('IDENTITY_L3_TEMP_DIR: /run/identity-l3-tmp'));
   assert.ok(api.includes('GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}'), 'Google client ID must reach only the API container');
+  assert.ok(api.includes('PARTNER_INQUIRY_RETENTION_DAYS: ${PARTNER_INQUIRY_RETENTION_DAYS:-180}'));
+  assert.ok(api.includes('PARTNER_REJECTED_RETENTION_DAYS: ${PARTNER_REJECTED_RETENTION_DAYS:-180}'));
+  assert.ok(api.includes('PARTNER_INACTIVE_RETENTION_DAYS: ${PARTNER_INACTIVE_RETENTION_DAYS:-365}'));
   assert.doesNotMatch(web, /^      GOOGLE_CLIENT_ID:/m, 'Google client ID must not be injected into the web container');
   assert.match(api, /tmpfs:\n      - \/run\/identity-l3-tmp:rw,noexec,nosuid,nodev,size=256m,mode=0700,uid=1000,gid=1000/,
     'moderator plaintext staging must use a bounded private tmpfs');

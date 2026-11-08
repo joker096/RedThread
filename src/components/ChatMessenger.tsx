@@ -13,13 +13,10 @@ import {
   Video,
   ArrowLeft,
   Flame,
-  AlertCircle,
-  HeartHandshake,
-  LockKeyhole
+  AlertCircle
 } from 'lucide-react';
 import type { ChatThread, Message, UserProfile } from '../types/index.ts';
 import { checkAntiChitChatDeadline } from '../utils/compatibility.ts';
-import { PartnerServicesMarketplace } from './PartnerServicesMarketplace.tsx';
 import { useLocale } from '../i18n/LocaleProvider';
 
 interface ChatMessengerProps {
@@ -101,14 +98,12 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
   const [selectedDay, setSelectedDay] = useState('tomorrow');
   const [selectedTime, setSelectedTime] = useState('19:00');
   const [showDirectContactUnlocked, setShowDirectContactUnlocked] = useState(false);
-  const [showPartnerServices, setShowPartnerServices] = useState(false);
 
   // Reset thread-specific UI when switching conversations to avoid carrying
   // an invite or unlocked contact panel into a different chat.
   useEffect(() => {
     setShowInviteModal(false);
     setShowDirectContactUnlocked(false);
-    setShowPartnerServices(false);
     setSelectedPlace('cafe');
     setSelectedDay('tomorrow');
     setSelectedTime('19:00');
@@ -282,20 +277,7 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
             </div>
           </div>
 
-          {/* Partner services are only exposed inside an established mutual-match chat. */}
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowPartnerServices(true)}
-              aria-haspopup="dialog"
-              aria-expanded={showPartnerServices}
-              className="flex min-h-11 min-w-11 items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-emerald-600/30 bg-emerald-950/30 text-emerald-200 font-semibold text-xs hover:bg-emerald-900/40 transition-colors focus-visible:border-sky-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
-              title={t('chatPartnerServicesTitle')}
-            >
-              <HeartHandshake className="w-4 h-4" />
-              <span className="hidden lg:inline">{t('chatForCouple')}</span>
-              <span className="lg:hidden">{t('chatServices')}</span>
-            </button>
             <button type="button"
               onClick={() => setShowInviteModal(true)}
               aria-haspopup="dialog"
@@ -576,12 +558,6 @@ export const ChatMessenger: React.FC<ChatMessengerProps> = ({
         </div>
       )}
 
-      <PartnerServicesMarketplace
-        isOpen={showPartnerServices}
-        onClose={() => setShowPartnerServices(false)}
-        coupleNames={`Вы и ${activeThread.partnerProfile.name}`}
-        compatibilityScore={activeThread.compatibilityScore}
-      />
     </div>
   );
 };

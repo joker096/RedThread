@@ -1,6 +1,9 @@
 import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { queuePrivatePhotoPurges } from './photoPurge.js';
+import { cleanupPartnerServiceData, partnerRetentionOptions } from './partnerRetention.js';
+import { CANCEL_PARTNER_INQUIRY_SQL, CLAIM_PARTNER_INQUIRY_SQL, MY_PARTNER_INQUIRIES_SQL, RECOVER_PARTNER_INQUIRY_SQL, deliverPendingPartnerInquiries, deliverClaimedPartnerInquiry } from './partnerInquiryDelivery.js';
+import { normalizePartnerCountry, isPartnerServiceCategory, isPartnerServiceCurrency } from './partnerServicePolicy.js';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -23,6 +26,7 @@ import { DIDIT_FREE_MONTHLY_SESSION_LIMIT, releaseDiditSessionReservation } from
 import express from 'express';
 import { resolveTrustProxyHops } from './trustProxyConfig.js';
 import { verifyGoogleIdTokenClaims } from './googleIdToken.js';
+import { emailDeliveryConfigured } from './emailDeliveryConfig.js';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import { withPooledTransaction, rollbackPooledTransaction } from './withPooledTransaction.js';
 import { normalizeMatchMessageHistoryOptions, matchMessageHistoryOrder, toChronologicalMessageHistory } from './matchMessageHistory.js';
@@ -91,6 +95,8 @@ app.disable('x-powered-by');
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
+  // Preserve cross-origin isolation while allowing the Google GIS popup to communicate with its opener.
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
   // One-time verification/reset tokens can appear in the URL; never leak them in Referer headers.
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
@@ -686,6 +692,23 @@ const identityL3Limiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'too_many_identity_l3_actions' }
 });
+const partnerApplicationLimiter = rateLimit({
+  ...(pool ? { store: new PostgresRateLimitStore(pool, 'partner-application') } : {}),
+  windowMs: 24 * 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too_many_partner_applications' }
+});
+const partnerInquiryLimiter = rateLimit({
+  ...(pool ? { store: new PostgresRateLimitStore(pool, 'partner-inquiry') } : {}),
+  windowMs: 24 * 60 * 60 * 1000,
+  limit: 10,
+  keyGenerator: req => req.authUser.id,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too_many_partner_inquiries' }
+});
 const reportLimiter = rateLimit({
   ...(pool ? { store: new PostgresRateLimitStore(pool, 'report') } : {}),
   windowMs: 60 * 60 * 1000,
@@ -695,36 +718,27 @@ const reportLimiter = rateLimit({
   message: { error: 'too_many_reports' }
 });
 
-function emailDeliveryConfigured() {
-  const configuredUrl = process.env.APP_URL || process.env.APP_ORIGIN;
-  let validPublicUrl = false;
-  try {
-    const parsed = new URL(configuredUrl);
-    validPublicUrl = process.env.NODE_ENV === 'production'
-      ? parsed.protocol === 'https:' && !['localhost', '127.0.0.1', 'example.com'].includes(parsed.hostname)
-      : ['http:', 'https:'].includes(parsed.protocol);
-  } catch { validPublicUrl = false; }
-  return process.env.EMAIL_PROVIDER === 'resend' &&
-    Boolean(process.env.RESEND_API_KEY) &&
-    Boolean(process.env.EMAIL_FROM) &&
-    validPublicUrl;
-}
 
-async function sendConfiguredEmail({ to, subject, html }) {
+async function sendConfiguredEmail({ to, subject, html, idempotencyKey }) {
   if (!emailDeliveryConfigured()) throw new Error('email_delivery_not_configured');
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       Authorization: 'Bearer ' + process.env.RESEND_API_KEY,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {})
     },
     body: JSON.stringify({ from: process.env.EMAIL_FROM, to: [to], subject, html }),
     signal: AbortSignal.timeout(10_000)
   });
+  const result = await response.json().catch(() => null);
   if (!response.ok) {
     const status = response.status;
     throw new Error('email_provider_rejected_request_' + status);
   }
+  return {
+    providerMessageId: typeof result?.id === 'string' && result.id.length <= 255 ? result.id : null
+  };
 }
 
 async function createAccountActionToken(client, userId, purpose, lifetimeMinutes) {
@@ -1932,6 +1946,35 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`account-reuse:${accountReuseDigest}`]);
     // The session-level account-safety lock acquired before Paddle calls is
     // still held by this connection, excluding concurrent account mutations.
+    // Serialize partner-request erasure with any in-flight provider call.
+    // The UPDATE waits for the delivery transaction's inquiry row lock; pending,
+    // failed, or still-sending rows with no provider ID are cancelled only after
+    // that lock is acquired. Sent/ambiguous outcomes retain delivery evidence.
+    await client.query("SELECT set_config('app.partner_inquiry_account_erasure', 'on', true)");
+    await client.query(
+      `UPDATE partner_service_inquiries
+       SET requester_name = 'Удалённый пользователь',
+           requester_email = 'deleted+' || requested_by::text || '@deleted.invalid',
+           service_date = NULL,
+           request_note = '[запрос удалён пользователем]',
+           delivery_status = CASE
+             WHEN delivery_status IN ('pending', 'failed', 'sending') AND provider_message_id IS NULL THEN 'cancelled'
+             ELSE delivery_status
+           END,
+           cancelled_at = CASE
+             WHEN delivery_status IN ('pending', 'failed', 'sending') AND provider_message_id IS NULL
+               THEN COALESCE(cancelled_at, statement_timestamp())
+             ELSE cancelled_at
+           END,
+           delivery_error = CASE
+             WHEN delivery_status IN ('pending', 'failed', 'sending') AND provider_message_id IS NULL
+               THEN 'requester_account_deleted'
+             ELSE delivery_error
+           END,
+           updated_at = statement_timestamp()
+       WHERE requested_by = $1`,
+      [req.authUser.id]
+    );
     const l3Media = await client.query(
       'SELECT id FROM identity_l3_submissions WHERE user_id = $1 AND storage_object_key IS NOT NULL FOR UPDATE',
       [req.authUser.id]
@@ -4239,6 +4282,488 @@ app.post('/api/reports', reportLimiter, validateRequestOrigin, requireSession, a
   }
 });
 
+app.get('/api/partner-services', requireDatabase, async (req, res) => {
+  const rawCountry = typeof req.query.country === 'string' ? req.query.country : '';
+  const country = rawCountry ? normalizePartnerCountry(rawCountry) : '';
+  const category = typeof req.query.category === 'string' ? req.query.category.trim() : '';
+  if ((rawCountry && !country) || (category && category !== 'photo' && !isPartnerServiceCategory(category))) {
+    return res.status(400).json({ error: 'invalid_partner_service_filter' });
+  }
+  try {
+    const result = await pool.query(
+      'SELECT id, category, business_name AS "businessName", country, city, website, ' +
+      'service_description AS "serviceDescription", price_from AS "priceFrom", price_currency AS "priceCurrency", ' +
+      'service_languages AS "serviceLanguages", availability_note AS "availabilityNote", published_at AS "publishedAt" ' +
+      "FROM partner_service_applications WHERE status = 'approved' AND published_at IS NOT NULL " +
+      "AND ($1::text = '' OR country = $1) " +
+      "AND ($2::text = '' OR category = $2 OR ($2 = 'photo' AND category IN ('photography', 'videography'))) " +
+      'ORDER BY published_at DESC, business_name ASC LIMIT 100',
+      [country, category]
+    );
+    return res.json({ providers: result.rows });
+  } catch (error) {
+    console.error('Published partner directory failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_directory_unavailable' });
+  }
+});
+
+app.post('/api/partner-applications', validateRequestOrigin, partnerApplicationLimiter, requireDatabase, async (req, res) => {
+  const body = req.body || {};
+  const category = body.category;
+  const businessName = typeof body.businessName === 'string' ? body.businessName.trim() : '';
+  const contactName = typeof body.contactName === 'string' ? body.contactName.trim() : '';
+  const contactEmail = normalizeEmail(body.contactEmail);
+  const country = normalizePartnerCountry(body.country);
+  const city = typeof body.city === 'string' ? body.city.trim() : '';
+  const website = typeof body.website === 'string' ? body.website.trim() : '';
+  const serviceDescription = typeof body.serviceDescription === 'string' ? body.serviceDescription.trim() : '';
+  const priceFrom = body.priceFrom === '' || body.priceFrom == null ? null : Number(body.priceFrom);
+  const priceCurrency = typeof body.priceCurrency === 'string' ? body.priceCurrency : 'USD';
+  const languageInput = typeof body.serviceLanguages === 'string' ? body.serviceLanguages : '';
+  const serviceLanguages = languageInput.split(',').map(value => value.trim()).filter(Boolean);
+  const availabilityNote = typeof body.availabilityNote === 'string' ? body.availabilityNote.trim() : '';
+  const categoriesValid = isPartnerServiceCategory(category);
+  const currencyValid = isPartnerServiceCurrency(priceCurrency);
+  let safeWebsite = '';
+  if (website) {
+    try {
+      const parsed = new URL(website);
+      if (parsed.protocol !== 'https:' || !parsed.hostname || parsed.username || parsed.password) {
+        return res.status(400).json({ error: 'invalid_partner_application' });
+      }
+      safeWebsite = parsed.toString();
+    } catch { return res.status(400).json({ error: 'invalid_partner_application' }); }
+  }
+  if (!categoriesValid || !country ||
+      businessName.length < 2 || businessName.length > 160 ||
+      contactName.length < 2 || contactName.length > 120 || !isValidEmail(contactEmail) ||
+      city.length < 2 || city.length > 120 || website.length > 500 ||
+      serviceDescription.length < 20 || serviceDescription.length > 2000 ||
+      (priceFrom !== null && (!Number.isFinite(priceFrom) || priceFrom < 0 || priceFrom > 10000000 ||
+        Math.abs(Math.round(priceFrom * 100) - priceFrom * 100) > 1e-7)) ||
+      !currencyValid || languageInput.length > 500 || serviceLanguages.length > 10 ||
+      serviceLanguages.some(value => value.length < 2 || value.length > 40) || availabilityNote.length > 500) {
+    return res.status(400).json({ error: 'invalid_partner_application' });
+  }
+  try {
+    const result = await pool.query(
+      'INSERT INTO partner_service_applications (category, business_name, contact_name, contact_email, country, city, website, service_description, price_from, price_currency, service_languages, availability_note) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id, status, created_at AS "createdAt"',
+      [category, businessName, contactName, contactEmail, country, city, safeWebsite, serviceDescription, priceFrom, priceCurrency, serviceLanguages, availabilityNote]
+    );
+    return res.status(201).json({ application: result.rows[0] });
+  } catch (error) {
+    console.error('Partner application submission failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_application_unavailable' });
+  }
+});
+
+app.get('/api/admin/partner-applications', requireSession, requireDatabase, async (req, res) => {
+  const read = await withActiveModeratorRead(req.authUser.id, client => client.query(
+    "SELECT id, category, business_name AS \"businessName\", contact_name AS \"contactName\", contact_email AS \"contactEmail\", country, city, website, service_description AS \"serviceDescription\", price_from AS \"priceFrom\", price_currency AS \"priceCurrency\", service_languages AS \"serviceLanguages\", availability_note AS \"availabilityNote\", status, review_note AS \"reviewNote\", published_at AS \"publishedAt\", created_at AS \"createdAt\" FROM partner_service_applications WHERE status IN ('pending','in_review','approved') ORDER BY CASE WHEN status IN ('pending','in_review') THEN 0 WHEN published_at IS NULL THEN 1 ELSE 2 END, created_at ASC LIMIT 100"
+  ));
+  if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+  if (read.value?.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+  return res.json({ applications: read.value.rows });
+});
+
+app.post('/api/admin/partner-applications/:applicationId/review', validateRequestOrigin, requireSession, requireDatabase, async (req, res) => {
+  const id = req.params.applicationId;
+  const decision = req.body?.decision;
+  const note = typeof req.body?.reviewNote === 'string' ? req.body.reviewNote.trim().slice(0, 1000) : '';
+  if (!isUuid(id) || !['in_review', 'approved', 'rejected'].includes(decision)) {
+    return res.status(400).json({ error: 'invalid_partner_application_review' });
+  }
+  if (['approved', 'rejected'].includes(decision) && note.length < 20) {
+    return res.status(400).json({ error: 'partner_application_review_evidence_required' });
+  }
+  try {
+    const result = await withPooledTransaction(pool, async client => {
+      const moderator = await client.query("SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE", [req.authUser.id]);
+      if (!['admin', 'moderator'].includes(moderator.rows[0]?.role)) return { forbidden: true };
+      const changed = await client.query(
+        "UPDATE partner_service_applications SET status = $2, reviewed_by = $3, reviewed_at = NOW(), review_note = $4, updated_at = NOW() WHERE id = $1 AND status IN ('pending','in_review') RETURNING id, status, category, business_name AS \"businessName\"",
+        [id, decision, req.authUser.id, note]
+      );
+      if (!changed.rows[0]) return { missing: true };
+      await client.query(
+        'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, reason, details) VALUES ($1,$2,$3,$4,$5,$6::jsonb)',
+        [req.authUser.id, 'partner_application_' + decision, 'partner_service_application', id, note || null, JSON.stringify({ category: changed.rows[0].category, businessName: changed.rows[0].businessName })]
+      );
+      return { application: changed.rows[0] };
+    });
+    if (result.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    if (result.missing) return res.status(404).json({ error: 'pending_partner_application_not_found' });
+    return res.json({ application: result.application });
+  } catch (error) {
+    console.error('Partner application review failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_application_review_failed' });
+  }
+});
+
+app.post('/api/admin/partner-applications/:applicationId/publish', validateRequestOrigin, requireSession, requireDatabase, async (req, res) => {
+  const id = req.params.applicationId;
+  if (!isUuid(id)) return res.status(400).json({ error: 'invalid_partner_application_id' });
+  try {
+    const result = await withPooledTransaction(pool, async client => {
+      const moderator = await client.query("SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE", [req.authUser.id]);
+      if (!['admin', 'moderator'].includes(moderator.rows[0]?.role)) return { forbidden: true };
+      const changed = await client.query(
+        "UPDATE partner_service_applications SET published_at = NOW(), published_by = $2, updated_at = NOW() WHERE id = $1 AND status = 'approved' AND published_at IS NULL RETURNING id, category, business_name AS \"businessName\", published_at AS \"publishedAt\"",
+        [id, req.authUser.id]
+      );
+      if (!changed.rows[0]) return { missing: true };
+      await client.query(
+        'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, details) VALUES ($1,$2,$3,$4,$5::jsonb)',
+        [req.authUser.id, 'partner_application_published', 'partner_service_application', id, JSON.stringify({ category: changed.rows[0].category, businessName: changed.rows[0].businessName })]
+      );
+      return { application: changed.rows[0] };
+    });
+    if (result.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    if (result.missing) return res.status(409).json({ error: 'approved_partner_application_not_publishable' });
+    return res.json({ application: result.application });
+  } catch (error) {
+    console.error('Partner application publication failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_application_publication_failed' });
+  }
+});
+
+app.post('/api/admin/partner-applications/:applicationId/unpublish', validateRequestOrigin, requireSession, requireDatabase, async (req, res) => {
+  const id = req.params.applicationId;
+  if (!isUuid(id)) return res.status(400).json({ error: 'invalid_partner_application_id' });
+  try {
+    const result = await withPooledTransaction(pool, async client => {
+      const moderator = await client.query("SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE", [req.authUser.id]);
+      if (!['admin', 'moderator'].includes(moderator.rows[0]?.role)) return { forbidden: true };
+      const changed = await client.query(
+        "UPDATE partner_service_applications SET published_at = NULL, published_by = NULL, updated_at = NOW() WHERE id = $1 AND status = 'approved' AND published_at IS NOT NULL RETURNING id, category, business_name AS \"businessName\"",
+        [id]
+      );
+      if (!changed.rows[0]) return { missing: true };
+      const cancelledInquiries = await client.query(
+        "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'provider_unpublished_before_delivery', updated_at = NOW() WHERE application_id = $1 AND delivery_status = 'pending'",
+        [id]
+      );
+      await client.query(
+        'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, details) VALUES ($1,$2,$3,$4,$5::jsonb)',
+        [req.authUser.id, 'partner_application_unpublished', 'partner_service_application', id, JSON.stringify({ category: changed.rows[0].category, businessName: changed.rows[0].businessName, pendingInquiriesCancelled: cancelledInquiries.rowCount ?? 0 })]
+      );
+      return { application: changed.rows[0], pendingInquiriesCancelled: cancelledInquiries.rowCount ?? 0 };
+    });
+    if (result.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    if (result.missing) return res.status(409).json({ error: 'published_partner_application_not_found' });
+    return res.json({ application: result.application });
+  } catch (error) {
+    console.error('Partner application unpublication failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_application_unpublication_failed' });
+  }
+});
+
+app.get('/api/partner-service-inquiries/mine', requireSession, requireDatabase, async (req, res) => {
+  try {
+    const result = await pool.query(MY_PARTNER_INQUIRIES_SQL, [req.authUser.id]);
+    return res.json({ inquiries: result.rows });
+  } catch (error) {
+    console.error('Own partner inquiry history failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_inquiry_history_unavailable' });
+  }
+});
+
+app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession, requireDatabase, profileActionLimiter, partnerInquiryLimiter, async (req, res) => {
+  const body = req.body || {};
+  const applicationId = body.applicationId;
+  const matchId = body.matchId;
+  const requestKey = body.requestKey;
+  const note = typeof body.requestNote === 'string' ? body.requestNote.trim() : '';
+  const serviceDate = body.serviceDate === '' || body.serviceDate == null ? null : body.serviceDate;
+  if (!isUuid(applicationId) || !isUuid(matchId) || !isUuid(requestKey) || body.shareContact !== true ||
+      note.length < 20 || note.length > 2000 ||
+      (serviceDate !== null && (typeof serviceDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(serviceDate) ||
+       !Number.isFinite(Date.parse(serviceDate + 'T00:00:00Z')) ||
+       new Date(serviceDate + 'T00:00:00Z').toISOString().slice(0,10) !== serviceDate))) {
+    return res.status(400).json({ error: 'invalid_partner_service_inquiry' });
+  }
+  const requesterName = String(req.authUser.display_name || '').trim().slice(0, 80);
+  const requesterEmail = normalizeEmail(req.authUser.email);
+  if (!requesterName || !isValidEmail(requesterEmail)) return res.status(400).json({ error: 'verified_contact_required' });
+  let inquiry;
+  try {
+    inquiry = await withPooledTransaction(pool, async client => {
+      // Serialize inquiry creation with account deletion so a request cannot
+      // be inserted after the deletion transaction has already redacted history.
+      await acquireGiftSafetyUserLocks(client, req.authUser.id);
+      const existingResult = await client.query(
+        'SELECT id, application_id AS "applicationId", match_id AS "matchId", service_date AS "serviceDate", request_note AS "requestNote", requester_name AS "requesterName", requester_email AS "requesterEmail", delivery_status AS "deliveryStatus" FROM partner_service_inquiries WHERE requested_by = $1 AND request_key = $2 FOR UPDATE',
+        [req.authUser.id, requestKey]
+      );
+      let existing = existingResult.rows[0] || null;
+      const matchesOriginalRequest = row => row &&
+        row.applicationId === applicationId &&
+        row.matchId === matchId &&
+        row.requestNote === note &&
+        (row.serviceDate ? new Date(row.serviceDate).toISOString().slice(0, 10) : null) === serviceDate;
+      if (existing && !matchesOriginalRequest(existing)) return { conflict: true };
+      // Status lookups must remain idempotent even if the match is later closed
+      // or the provider is unpublished. No contact data is returned to the user.
+      if (existing && ['sent', 'sending', 'reconciliation_required', 'cancelled'].includes(existing.deliveryStatus)) {
+        return { inquiry: existing, duplicate: true };
+      }
+
+      const activeRequester = await client.query(
+        "SELECT id, status, email_verified_at, LOWER(BTRIM(email)) AS email FROM users WHERE id = $1 FOR SHARE",
+        [req.authUser.id]
+      );
+      const requester = activeRequester.rows[0];
+      if (!requester || requester.status !== 'active') {
+        if (existing) await client.query(
+          "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'requester_inactive_before_delivery', updated_at = NOW() WHERE id = $1 AND delivery_status IN ('pending', 'failed')",
+          [existing.id]
+        );
+        return { inactiveRequester: true };
+      }
+      if (!requester.email_verified_at || requester.email !== requesterEmail ||
+          (existing && existing.requesterEmail !== requesterEmail)) {
+        if (existing) await client.query(
+          "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'requester_contact_changed_before_delivery', updated_at = NOW() WHERE id = $1 AND delivery_status IN ('pending', 'failed')",
+          [existing.id]
+        );
+        return { unverifiedContact: true };
+      }
+      const match = await client.query(
+        "SELECT id FROM matches WHERE id = $1 AND status = 'active' AND (user_a_id = $2 OR user_b_id = $2) FOR SHARE",
+        [matchId, req.authUser.id]
+      );
+      if (!match.rowCount) {
+        if (existing) await client.query(
+          "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'match_inactive_before_delivery', updated_at = NOW() WHERE id = $1 AND delivery_status IN ('pending', 'failed')",
+          [existing.id]
+        );
+        return { missingMatch: true };
+      }
+      const provider = await client.query(
+        `SELECT id, business_name AS "businessName", contact_email AS "contactEmail" FROM partner_service_applications WHERE id = $1 AND status = 'approved' AND published_at IS NOT NULL FOR SHARE`,
+        [applicationId]
+      );
+      if (!provider.rows[0]) {
+        if (existing) await client.query(
+          "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'provider_unpublished_before_delivery', updated_at = NOW() WHERE id = $1 AND delivery_status IN ('pending', 'failed')",
+          [existing.id]
+        );
+        return { missingProvider: true };
+      }
+      if (existing) return { inquiry: existing, provider: provider.rows[0], duplicate: true };
+
+      const inserted = await client.query(
+        'INSERT INTO partner_service_inquiries (application_id, match_id, requested_by, request_key, requester_name, requester_email, service_date, request_note, contact_consent_at, contact_consent_version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW(),$9) ON CONFLICT (requested_by, request_key) DO NOTHING RETURNING id, application_id AS "applicationId", match_id AS "matchId", service_date AS "serviceDate", request_note AS "requestNote", requester_name AS "requesterName", requester_email AS "requesterEmail", delivery_status AS "deliveryStatus"',
+        [applicationId, matchId, req.authUser.id, requestKey, requesterName, requesterEmail, serviceDate, note, 'partner-inquiry-v1']
+      );
+      if (inserted.rows[0]) return { inquiry: inserted.rows[0], provider: provider.rows[0], duplicate: false };
+
+      // A concurrent retry may have inserted the same idempotency key after
+      // the first lookup. Re-read and compare the immutable request payload.
+      const concurrent = await client.query(
+        'SELECT id, application_id AS "applicationId", match_id AS "matchId", service_date AS "serviceDate", request_note AS "requestNote", requester_name AS "requesterName", requester_email AS "requesterEmail", delivery_status AS "deliveryStatus" FROM partner_service_inquiries WHERE requested_by = $1 AND request_key = $2 FOR UPDATE',
+        [req.authUser.id, requestKey]
+      );
+      existing = concurrent.rows[0] || null;
+      if (!matchesOriginalRequest(existing)) return { conflict: true };
+      return { inquiry: existing, provider: provider.rows[0], duplicate: true };
+    });
+    if (inquiry.inactiveRequester) return res.status(401).json({ error: 'account_not_active' });
+    if (inquiry.unverifiedContact) return res.status(403).json({ error: 'verified_contact_required' });
+    if (inquiry.missingMatch) return res.status(404).json({ error: 'active_match_not_found' });
+    if (inquiry.missingProvider) return res.status(404).json({ error: 'published_partner_not_found' });
+    if (inquiry.conflict) return res.status(409).json({ error: 'inquiry_request_key_conflict' });
+    const row = inquiry.inquiry;
+    const deliveryName = row.requesterName || requesterName;
+    const deliveryEmail = row.requesterEmail || requesterEmail;
+    if (row.deliveryStatus === 'sent') return res.json({ inquiryId: row.id, sent: true, deliveryStatus: 'sent' });
+    if (row.deliveryStatus === 'sending') return res.status(202).json({ inquiryId: row.id, sent: false, deliveryStatus: 'sending' });
+    if (row.deliveryStatus === 'reconciliation_required') return res.status(202).json({ inquiryId: row.id, sent: false, deliveryStatus: 'reconciliation_required' });
+    if (row.deliveryStatus === 'cancelled') return res.json({ inquiryId: row.id, sent: false, deliveryStatus: 'cancelled' });
+    if (!emailDeliveryConfigured()) return res.status(202).json({ inquiryId: row.id, sent: false, deliveryStatus: 'pending_email_configuration' });
+    const claim = await pool.query(CLAIM_PARTNER_INQUIRY_SQL, [row.id]);
+    if (!claim.rowCount) {
+      const current = await pool.query(
+        'SELECT delivery_status AS "deliveryStatus" FROM partner_service_inquiries WHERE id = $1 AND requested_by = $2',
+        [row.id, req.authUser.id]
+      );
+      const currentStatus = current.rows[0]?.deliveryStatus;
+      if (currentStatus === 'sent') return res.json({ inquiryId: row.id, sent: true, deliveryStatus: 'sent' });
+      if (currentStatus === 'sending' || currentStatus === 'reconciliation_required') {
+        return res.status(202).json({ inquiryId: row.id, sent: false, deliveryStatus: currentStatus });
+      }
+      if (currentStatus === 'cancelled') return res.json({ inquiryId: row.id, sent: false, deliveryStatus: 'cancelled' });
+      if (!current.rows[0]) return res.status(404).json({ error: 'partner_inquiry_not_found' });
+      if (currentStatus === 'pending') {
+        await pool.query(
+          "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'eligibility_lost_before_delivery', updated_at = NOW() WHERE id = $1 AND requested_by = $2 AND delivery_status = 'pending'",
+          [row.id, req.authUser.id]
+        );
+      }
+      return res.status(409).json({ error: 'partner_inquiry_no_longer_eligible' });
+    }
+    const escapeHtml = value => String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', [String.fromCharCode(34)]: '&quot;', [String.fromCharCode(39)]: '&#39;' })[character]);
+    const dateLine = serviceDate ? '<p><strong>Желаемая дата:</strong> ' + escapeHtml(serviceDate) + '</p>' : '';
+    const delivery = await deliverClaimedPartnerInquiry(pool, sendConfiguredEmail, row.id, {
+      to: inquiry.provider.contactEmail,
+      idempotencyKey: 'partner-service-inquiry/' + row.id,
+      subject: 'Новый запрос по услуге в Vow',
+      html: '<h2>Запрос предложения</h2><p>Пользователь дал согласие передать поставщику своё имя, email и текст запроса.</p>' +
+        '<p><strong>Имя:</strong> ' + escapeHtml(deliveryName) + '</p>' +
+        '<p><strong>Email:</strong> ' + escapeHtml(deliveryEmail) + '</p>' + dateLine +
+        '<p><strong>Сообщение:</strong></p><p>' + escapeHtml(note).replace(/\\n/g, '<br>') + '</p>' +
+        '<p>Данные второго участника совпадения, переписка и результаты совместимости не передаются.</p>'
+    });
+    if (delivery.deliveryStatus === 'failed') {
+      return res.status(409).json({
+        error: 'partner_inquiry_no_longer_eligible',
+        inquiryId: row.id,
+        sent: false,
+        deliveryStatus: 'failed'
+      });
+    }
+    if (delivery.deliveryStatus === 'reconciliation_required') {
+      console.warn('Partner service inquiry delivery outcome requires moderator reconciliation.', {
+        inquiryId: row.id, emailProviderAccepted: delivery.emailProviderAccepted
+      });
+      return res.status(202).json({
+        inquiryId: row.id, sent: false,
+        emailProviderAccepted: delivery.emailProviderAccepted,
+        deliveryStatus: 'reconciliation_required'
+      });
+    }
+    return res.status(201).json({ inquiryId: row.id, sent: true, deliveryStatus: 'sent' });
+  } catch (error) {
+    console.error('Partner service inquiry failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_service_inquiry_failed' });
+  }
+});
+
+
+app.post('/api/partner-service-inquiries/:inquiryId/cancel', validateRequestOrigin, requireSession, requireDatabase, profileActionLimiter, async (req, res) => {
+  const id = req.params.inquiryId;
+  if (!isUuid(id)) return res.status(400).json({ error: 'invalid_partner_inquiry_id' });
+  try {
+    const result = await withPooledTransaction(pool, async client => {
+      const changed = await client.query(
+        CANCEL_PARTNER_INQUIRY_SQL,
+        [id, req.authUser.id]
+      );
+      if (changed.rows[0]) return { cancelled: true };
+      const current = await client.query(
+        'SELECT delivery_status AS "deliveryStatus" FROM partner_service_inquiries WHERE id = $1 AND requested_by = $2 FOR SHARE',
+        [id, req.authUser.id]
+      );
+      if (!current.rows[0]) return { missing: true };
+      if (current.rows[0].deliveryStatus === 'cancelled') return { cancelled: true };
+      return { cannotCancel: true, deliveryStatus: current.rows[0].deliveryStatus };
+    });
+    if (result.missing) return res.status(404).json({ error: 'partner_inquiry_not_found' });
+    if (result.cannotCancel) return res.status(409).json({ error: 'partner_inquiry_already_in_progress', deliveryStatus: result.deliveryStatus });
+    return res.json({ cancelled: true, deliveryStatus: 'cancelled' });
+  } catch (error) {
+    console.error('Partner inquiry cancellation failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_inquiry_cancellation_failed' });
+  }
+});
+
+app.get('/api/admin/partner-service-inquiries', requireSession, requireDatabase, async (req, res) => {
+  const read = await withActiveModeratorRead(req.authUser.id, client => client.query(
+    'SELECT inquiry.id, application.business_name AS "businessName", application.contact_email AS "providerEmail", inquiry.delivery_status AS "deliveryStatus", inquiry.delivery_attempts AS "deliveryAttempts", inquiry.delivery_error AS "deliveryError", inquiry.provider_message_id AS "providerMessageId", inquiry.contact_consent_version AS "contactConsentVersion", inquiry.created_at AS "createdAt", inquiry.updated_at AS "updatedAt", inquiry.delivered_at AS "deliveredAt" ' +
+    'FROM partner_service_inquiries inquiry JOIN partner_service_applications application ON application.id = inquiry.application_id ' +
+    "ORDER BY CASE WHEN inquiry.delivery_status IN ('sending', 'reconciliation_required') THEN 0 ELSE 1 END, inquiry.updated_at DESC LIMIT 100"
+  ));
+  if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+  if (read.value?.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+  return res.json({ inquiries: read.value.rows });
+});
+
+app.post('/api/admin/partner-service-inquiries/:inquiryId/recover', validateRequestOrigin, requireSession, requireDatabase, async (req, res) => {
+  const id = req.params.inquiryId;
+  const workerTerminated = req.body?.workerTerminated === true;
+  const note = typeof req.body?.operatorNote === 'string' ? req.body.operatorNote.trim() : '';
+  if (!isUuid(id) || !workerTerminated || note.length < 20 || note.length > 500) {
+    return res.status(400).json({ error: 'invalid_partner_inquiry_recovery' });
+  }
+  try {
+    const result = await withPooledTransaction(pool, async client => {
+      const moderator = await client.query("SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE", [req.authUser.id]);
+      if (!['admin', 'moderator'].includes(moderator.rows[0]?.role)) return { forbidden: true };
+      // This UPDATE waits for any active provider-send transaction holding the
+      // inquiry row lock. It succeeds only if the row is still sending afterward.
+      const changed = await client.query(RECOVER_PARTNER_INQUIRY_SQL, [id]);
+      if (!changed.rows[0]) return { missing: true };
+      await client.query(
+        'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, reason, details) VALUES ($1,$2,$3,$4,$5,$6::jsonb)',
+        [req.authUser.id, 'partner_inquiry_recovered_after_worker_stop', 'partner_service_inquiry', id, note,
+          JSON.stringify({ workerTerminated: true })]
+      );
+      return { inquiry: changed.rows[0] };
+    });
+    if (result.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    if (result.missing) return res.status(409).json({ error: 'partner_inquiry_not_sending' });
+    return res.json({ inquiry: result.inquiry });
+  } catch (error) {
+    console.error('Partner inquiry recovery failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_inquiry_recovery_failed' });
+  }
+});
+
+
+app.post('/api/admin/partner-service-inquiries/:inquiryId/reconcile', validateRequestOrigin, requireSession, requireDatabase, async (req, res) => {
+  const id = req.params.inquiryId;
+  const decision = req.body?.decision;
+  const note = typeof req.body?.operatorNote === 'string' ? req.body.operatorNote.trim() : '';
+  const rawProviderMessageId = req.body?.providerMessageId;
+  const providerMessageId = typeof rawProviderMessageId === 'string' ? rawProviderMessageId.trim() : '';
+  if (!isUuid(id) || !['sent', 'failed'].includes(decision) || note.length < 10 || note.length > 500 ||
+      (rawProviderMessageId != null && typeof rawProviderMessageId !== 'string') ||
+      (decision === 'sent' && (providerMessageId.length < 1 || providerMessageId.length > 255 || /\s/.test(providerMessageId))) ||
+      (decision === 'failed' && providerMessageId.length > 0)) {
+    return res.status(400).json({ error: 'invalid_partner_inquiry_reconciliation' });
+  }
+  try {
+    const result = await withPooledTransaction(pool, async client => {
+      const moderator = await client.query("SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE", [req.authUser.id]);
+      if (!['admin', 'moderator'].includes(moderator.rows[0]?.role)) return { forbidden: true };
+      const nextStatus = decision;
+      const changed = await client.query(
+        "UPDATE partner_service_inquiries SET provider_message_id = CASE WHEN $2 = 'sent' THEN COALESCE(provider_message_id, $3) ELSE provider_message_id END, delivery_status = $2, delivered_at = CASE WHEN $2 = 'sent' THEN COALESCE(delivered_at, NOW()) ELSE NULL END, delivery_error = CASE WHEN $2 = 'sent' THEN '' ELSE 'operator_reconciled_failed' END, updated_at = NOW() WHERE id = $1 AND delivery_status = 'reconciliation_required' AND ($2 <> 'failed' OR provider_message_id IS NULL) AND ($2 <> 'sent' OR ($3 IS NOT NULL AND (provider_message_id IS NULL OR provider_message_id = $3))) RETURNING id, delivery_status AS \"deliveryStatus\", provider_message_id AS \"providerMessageId\"",
+        [id, nextStatus, providerMessageId || null]
+      );
+      if (!changed.rows[0]) {
+        const current = await client.query(
+          'SELECT delivery_status AS "deliveryStatus", provider_message_id AS "providerMessageId" FROM partner_service_inquiries WHERE id = $1 FOR SHARE',
+          [id]
+        );
+        if (decision === 'failed' && current.rows[0]?.deliveryStatus === 'reconciliation_required' && current.rows[0]?.providerMessageId) {
+          return { providerAlreadyAccepted: true };
+        }
+        if (decision === 'sent' && current.rows[0]?.deliveryStatus === 'reconciliation_required' &&
+            current.rows[0]?.providerMessageId && current.rows[0].providerMessageId !== providerMessageId) {
+          return { providerMessageIdMismatch: true };
+        }
+        return { missing: true };
+      }
+      await client.query(
+        'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, reason, details) VALUES ($1,$2,$3,$4,$5,$6::jsonb)',
+        [req.authUser.id, 'partner_inquiry_reconciled', 'partner_service_inquiry', id, note, JSON.stringify({ decision: nextStatus, providerMessageId: changed.rows[0].providerMessageId })]
+      );
+      return { inquiry: changed.rows[0] };
+    });
+    if (result.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    if (result.providerAlreadyAccepted) return res.status(409).json({ error: 'provider_acceptance_recorded' });
+    if (result.providerMessageIdMismatch) return res.status(409).json({ error: 'provider_message_id_mismatch' });
+    if (result.missing) return res.status(409).json({ error: 'partner_inquiry_not_awaiting_reconciliation' });
+    return res.json({ inquiry: result.inquiry });
+  } catch (error) {
+    console.error('Partner inquiry reconciliation failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_inquiry_reconciliation_failed' });
+  }
+});
+
+
 app.get('/api/admin/screenings', requireSession, async (req, res) => {
   try {
     const read = await withActiveModeratorRead(req.authUser.id, async client => {
@@ -6398,6 +6923,35 @@ if (process.env.IDENTITY_L3_ENABLED === 'true') {
 }
 if (process.env.IDENTITY_L3_TEMP_DIR) {
   await clearIdentityL3TemporaryFiles({ root: process.env.IDENTITY_L3_TEMP_DIR });
+}
+
+if (pool && process.env.NODE_ENV !== 'test') {
+  const runPartnerRetentionCleanup = async () => {
+    try {
+      const result = await cleanupPartnerServiceData(pool, partnerRetentionOptions());
+      if (result.inquiriesDeleted || result.applicationsDeleted) {
+        console.info('Partner retention cleanup completed:', result);
+      }
+    } catch (error) {
+      console.error('Partner retention cleanup failed:', error?.message || 'unknown error');
+    }
+  };
+  void runPartnerRetentionCleanup();
+  const partnerRetentionInterval = setInterval(() => void runPartnerRetentionCleanup(), 24 * 60 * 60 * 1000);
+  partnerRetentionInterval.unref();
+
+  const runPartnerInquiryDelivery = async () => {
+    if (!emailDeliveryConfigured()) return;
+    try {
+      const result = await deliverPendingPartnerInquiries(pool, sendConfiguredEmail, { limit: 10 });
+      if (result.claimed) console.info('Partner inquiry delivery batch completed:', result);
+    } catch (error) {
+      console.error('Partner inquiry delivery batch failed:', error?.message || 'unknown error');
+    }
+  };
+  void runPartnerInquiryDelivery();
+  const partnerInquiryDeliveryInterval = setInterval(() => void runPartnerInquiryDelivery(), 60 * 1000);
+  partnerInquiryDeliveryInterval.unref();
 }
 
 const server = app.listen(port, '0.0.0.0', () => {
