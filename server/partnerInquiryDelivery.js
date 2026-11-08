@@ -18,10 +18,12 @@ export const PENDING_PARTNER_INQUIRIES_SQL = `
    AND requester.email_verified_at IS NOT NULL
    AND LOWER(BTRIM(requester.email)) = inquiry.requester_email
   WHERE inquiry.delivery_status = 'pending'
+    AND inquiry.contact_consent_at IS NOT NULL
+    AND inquiry.contact_consent_version = 'partner-inquiry-v1'
   ORDER BY inquiry.created_at ASC
   LIMIT $1
   FOR UPDATE OF inquiry SKIP LOCKED
-  FOR SHARE OF application
+  FOR SHARE OF application, active_match, requester
 `;
 
 
@@ -46,6 +48,8 @@ export const CLAIM_PARTNER_INQUIRY_SQL = `
       updated_at = NOW()
   WHERE inquiry.id = $1
     AND inquiry.delivery_status IN ('pending', 'failed')
+    AND inquiry.contact_consent_at IS NOT NULL
+    AND inquiry.contact_consent_version = 'partner-inquiry-v1'
     AND EXISTS (
       SELECT 1 FROM partner_service_applications application
       WHERE application.id = inquiry.application_id
@@ -68,6 +72,28 @@ export const CLAIM_PARTNER_INQUIRY_SQL = `
   RETURNING inquiry.id
 `;
 
+export const REVALIDATE_PARTNER_INQUIRY_SQL = `
+  SELECT inquiry.id
+  FROM partner_service_inquiries inquiry
+  JOIN partner_service_applications application
+    ON application.id = inquiry.application_id
+   AND application.status = 'approved'
+   AND application.published_at IS NOT NULL
+  JOIN matches active_match
+    ON active_match.id = inquiry.match_id
+   AND active_match.status = 'active'
+   AND (active_match.user_a_id = inquiry.requested_by OR active_match.user_b_id = inquiry.requested_by)
+  JOIN users requester
+    ON requester.id = inquiry.requested_by
+   AND requester.status = 'active'
+   AND requester.email_verified_at IS NOT NULL
+   AND LOWER(BTRIM(requester.email)) = inquiry.requester_email
+  WHERE inquiry.id = $1
+    AND inquiry.delivery_status = 'sending'
+    AND inquiry.contact_consent_at IS NOT NULL
+    AND inquiry.contact_consent_version = 'partner-inquiry-v1'
+`;
+
 export async function deliverPendingPartnerInquiries(pool, sendEmail, options = {}) {
   const limit = options.limit ?? 10;
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
@@ -85,6 +111,36 @@ export async function deliverPendingPartnerInquiries(pool, sendEmail, options = 
     const selected = await client.query(PENDING_PARTNER_INQUIRIES_SQL, [limit]);
     inquiries = selected.rows;
     for (const inquiry of inquiries) {
+    let eligibility;
+    try {
+      eligibility = await pool.query(REVALIDATE_PARTNER_INQUIRY_SQL, [inquiry.id]);
+    } catch {
+      try {
+        const blocked = await pool.query(
+          "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'eligibility_recheck_failed_before_provider_call', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending' RETURNING id",
+          [inquiry.id]
+        );
+        if (blocked.rowCount === 1) failed += 1;
+        else reconciliationPending += 1;
+      } catch {
+        reconciliationPending += 1;
+      }
+      continue;
+    }
+    if (eligibility.rowCount !== 1) {
+      try {
+        const blocked = await pool.query(
+          "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'eligibility_lost_before_provider_call', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending' RETURNING id",
+          [inquiry.id]
+        );
+        if (blocked.rowCount === 1) failed += 1;
+        else reconciliationPending += 1;
+      } catch {
+        reconciliationPending += 1;
+      }
+      continue;
+    }
+
       await client.query(
         "UPDATE partner_service_inquiries SET delivery_status = 'sending', delivery_attempts = delivery_attempts + 1, delivery_error = '', updated_at = NOW() WHERE id = $1 AND delivery_status = 'pending'",
         [inquiry.id]
@@ -171,6 +227,28 @@ export async function deliverClaimedPartnerInquiry(pool, sendEmail, inquiryId, e
   if (!pool || typeof pool.query !== 'function') throw new TypeError('A PostgreSQL pool is required.');
   if (typeof sendEmail !== 'function') throw new TypeError('An email delivery function is required.');
   if (typeof inquiryId !== 'string' || !inquiryId) throw new TypeError('An inquiry ID is required.');
+
+  let eligibility;
+  try {
+    eligibility = await pool.query(REVALIDATE_PARTNER_INQUIRY_SQL, [inquiryId]);
+  } catch {
+    try {
+      await pool.query(
+        "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'eligibility_recheck_failed_before_provider_call', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
+        [inquiryId]
+      );
+    } catch { /* No provider call was made; preserve the claim if storage is unavailable. */ }
+    return { sent: false, emailProviderAccepted: false, deliveryStatus: 'failed' };
+  }
+  if (eligibility.rowCount !== 1) {
+    try {
+      await pool.query(
+        "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'eligibility_lost_before_provider_call', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
+        [inquiryId]
+      );
+    } catch { /* No provider call was made; preserve the claim if storage is unavailable. */ }
+    return { sent: false, emailProviderAccepted: false, deliveryStatus: 'failed' };
+  }
 
   let providerMessageId = null;
   try {
