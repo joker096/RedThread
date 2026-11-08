@@ -51,12 +51,19 @@ test('pending partner inquiries are claimed with row locks and sent with a stabl
   assert.match(fake.calls.at(-1).sql, /delivery_status = 'sent'/);
 });
 
-test('provider failure is persisted as failed, while database ambiguity remains sending', async () => {
+test('transport errors remain sending because provider acceptance is ambiguous', async () => {
   const fake = fakePool([sample]);
-  const result = await deliverPendingPartnerInquiries(fake.pool, async () => { throw new Error('provider unavailable'); });
-  assert.deepEqual(result, { claimed: 1, sent: 0, failed: 1, reconciliationPending: 0 });
-  assert.ok(fake.calls.some(call => call.sql.includes("delivery_status = 'failed'")));
+  const result = await deliverPendingPartnerInquiries(fake.pool, async () => {
+    throw new Error('connection reset after provider accepted request');
+  });
+  assert.deepEqual(result, { claimed: 1, sent: 0, failed: 0, reconciliationPending: 1 });
+  assert.equal(fake.calls.some(call => call.sql.includes("delivery_status = 'failed'")), false,
+    'a transport exception must never be treated as proof that the provider rejected the email');
+  assert.equal(fake.calls.at(-1).sql, 'COMMIT',
+    'the claim transaction commits before the external provider call');
+});
 
+test('database ambiguity after provider acceptance remains sending', async () => {
   const ambiguous = fakePool([sample], { failStatus: true });
   const second = await deliverPendingPartnerInquiries(ambiguous.pool, async () => {});
   assert.deepEqual(second, { claimed: 1, sent: 0, failed: 0, reconciliationPending: 1 });

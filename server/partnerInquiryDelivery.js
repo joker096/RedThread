@@ -72,15 +72,10 @@ export async function deliverPendingPartnerInquiries(pool, sendEmail, options = 
           '<p>Данные второго участника совпадения, переписка и результаты совместимости не передаются.</p>'
       });
     } catch {
-      try {
-        await pool.query(
-          "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'email_delivery_failed', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
-          [inquiry.id]
-        );
-        failed += 1;
-      } catch {
-        reconciliationPending += 1;
-      }
+      // A thrown transport error does not prove the provider rejected the message:
+      // the provider may have accepted it before the response was lost. Keep the
+      // record in "sending" and require provider-log reconciliation; never retry blindly.
+      reconciliationPending += 1;
       continue;
     }
     try {
@@ -90,8 +85,7 @@ export async function deliverPendingPartnerInquiries(pool, sendEmail, options = 
       );
       sent += 1;
     } catch {
-      // The provider accepted the email. Keep "sending" for manual reconciliation;
-      // changing it to failed could cause a duplicate delivery.
+      // The provider accepted the email. Keep "sending" for manual reconciliation.
       reconciliationPending += 1;
     }
   }
