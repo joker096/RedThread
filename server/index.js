@@ -4611,10 +4611,19 @@ app.post('/api/admin/partner-service-inquiries/:inquiryId/reconcile', validateRe
       if (!['admin', 'moderator'].includes(moderator.rows[0]?.role)) return { forbidden: true };
       const nextStatus = decision;
       const changed = await client.query(
-        "UPDATE partner_service_inquiries SET delivery_status = $2, delivered_at = CASE WHEN $2 = 'sent' THEN COALESCE(delivered_at, NOW()) ELSE NULL END, delivery_error = CASE WHEN $2 = 'sent' THEN '' ELSE 'operator_reconciled_failed' END, updated_at = NOW() WHERE id = $1 AND delivery_status = 'reconciliation_required' RETURNING id, delivery_status AS \"deliveryStatus\", provider_message_id AS \"providerMessageId\"",
+        "UPDATE partner_service_inquiries SET delivery_status = $2, delivered_at = CASE WHEN $2 = 'sent' THEN COALESCE(delivered_at, NOW()) ELSE NULL END, delivery_error = CASE WHEN $2 = 'sent' THEN '' ELSE 'operator_reconciled_failed' END, updated_at = NOW() WHERE id = $1 AND delivery_status = 'reconciliation_required' AND ($2 <> 'failed' OR provider_message_id IS NULL) RETURNING id, delivery_status AS \"deliveryStatus\", provider_message_id AS \"providerMessageId\"",
         [id, nextStatus]
       );
-      if (!changed.rows[0]) return { missing: true };
+      if (!changed.rows[0]) {
+        const current = await client.query(
+          'SELECT delivery_status AS "deliveryStatus", provider_message_id AS "providerMessageId" FROM partner_service_inquiries WHERE id = $1 FOR SHARE',
+          [id]
+        );
+        if (decision === 'failed' && current.rows[0]?.deliveryStatus === 'reconciliation_required' && current.rows[0]?.providerMessageId) {
+          return { providerAlreadyAccepted: true };
+        }
+        return { missing: true };
+      }
       await client.query(
         'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, reason, details) VALUES ($1,$2,$3,$4,$5,$6::jsonb)',
         [req.authUser.id, 'partner_inquiry_reconciled', 'partner_service_inquiry', id, note, JSON.stringify({ decision: nextStatus, providerMessageId: changed.rows[0].providerMessageId })]
@@ -4622,6 +4631,7 @@ app.post('/api/admin/partner-service-inquiries/:inquiryId/reconcile', validateRe
       return { inquiry: changed.rows[0] };
     });
     if (result.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    if (result.providerAlreadyAccepted) return res.status(409).json({ error: 'provider_acceptance_recorded' });
     if (result.missing) return res.status(409).json({ error: 'partner_inquiry_not_awaiting_reconciliation' });
     return res.json({ inquiry: result.inquiry });
   } catch (error) {
