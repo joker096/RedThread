@@ -22,10 +22,6 @@ function fakePool(rows = [], options = {}) {
         if (options.failEligibility) throw new Error('eligibility recheck failed');
         return { rowCount: options.eligibleRowCount ?? 1 };
       }
-      if (sql === REVALIDATE_PARTNER_INQUIRY_SQL) {
-        if (options.failEligibility) throw new Error('eligibility recheck failed');
-        return { rowCount: options.eligibleRowCount ?? 1 };
-      }
       if (options.failStatus && sql.includes("delivery_status = 'sent'")) throw new Error('status failed');
       if (options.sentRowCount === 0 && sql.includes("delivery_status = 'sent'")) return { rowCount: 0 };
       return { rowCount: 1 };
