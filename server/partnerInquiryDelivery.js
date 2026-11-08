@@ -100,7 +100,11 @@ export const REVALIDATE_PARTNER_INQUIRY_SQL = `
     AND inquiry.delivery_status = 'sending'
     AND inquiry.contact_consent_at IS NOT NULL
     AND inquiry.contact_consent_version = 'partner-inquiry-v1'
-  FOexport async function deliverClaimedPartnerInquiry(pool, sendEmail, inquiryId, emailPayload) {
+  FOR UPDATE OF inquiry
+  FOR SHARE OF application, active_match, requester
+`;
+
+export async function deliverClaimedPartnerInquiry(pool, sendEmail, inquiryId, emailPayload) {
   if (!pool || typeof pool.connect !== 'function' || typeof pool.query !== 'function') {
     throw new TypeError('A PostgreSQL pool is required.');
   }
