@@ -21,7 +21,7 @@ export const PENDING_PARTNER_INQUIRIES_SQL = `
   ORDER BY inquiry.created_at ASC
   LIMIT $1
   FOR UPDATE OF inquiry SKIP LOCKED
-  FOR SHARE OF application, active_match, requester
+  FOR SHARE OF application
 `;
 
 
