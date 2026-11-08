@@ -4639,12 +4639,7 @@ app.post('/api/admin/partner-service-inquiries/:inquiryId/recover', validateRequ
   const id = req.params.inquiryId;
   const workerTerminated = req.body?.workerTerminated === true;
   const note = typeof req.body?.operatorNote === 'string' ? req.body.operatorNote.trim() : '';
-  const rawProviderMessageId = req.body?.providerMessageId;
-  const providerMessageId = typeof rawProviderMessageId === 'string' ? rawProviderMessageId.trim() : '';
-  if (!isUuid(id) || !workerTerminated || note.length < 20 || note.length > 500 ||
-      (rawProviderMessageId != null && typeof rawProviderMessageId !== 'string') ||
-      (rawProviderMessageId != null && rawProviderMessageId.length > 0 && providerMessageId.length === 0) ||
-      providerMessageId.length > 255 || /\\s/.test(providerMessageId)) {
+  if (!isUuid(id) || !workerTerminated || note.length < 20 || note.length > 500) {
     return res.status(400).json({ error: 'invalid_partner_inquiry_recovery' });
   }
   try {
@@ -4653,27 +4648,16 @@ app.post('/api/admin/partner-service-inquiries/:inquiryId/recover', validateRequ
       if (!['admin', 'moderator'].includes(moderator.rows[0]?.role)) return { forbidden: true };
       // This UPDATE waits for any active provider-send transaction holding the
       // inquiry row lock. It succeeds only if the row is still sending afterward.
-      const changed = await client.query(RECOVER_PARTNER_INQUIRY_SQL, [id, providerMessageId || null]);
-      if (!changed.rows[0]) {
-        const current = await client.query(
-          'SELECT delivery_status AS "deliveryStatus", provider_message_id AS "providerMessageId" FROM partner_service_inquiries WHERE id = $1 FOR SHARE',
-          [id]
-        );
-        if (current.rows[0]?.deliveryStatus === 'sending' && current.rows[0]?.providerMessageId &&
-            providerMessageId && current.rows[0].providerMessageId !== providerMessageId) {
-          return { providerMessageIdMismatch: true };
-        }
-        return { missing: true };
-      }
+      const changed = await client.query(RECOVER_PARTNER_INQUIRY_SQL, [id]);
+      if (!changed.rows[0]) return { missing: true };
       await client.query(
         'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, reason, details) VALUES ($1,$2,$3,$4,$5,$6::jsonb)',
         [req.authUser.id, 'partner_inquiry_recovered_after_worker_stop', 'partner_service_inquiry', id, note,
-          JSON.stringify({ workerTerminated: true, providerMessageId: changed.rows[0].providerMessageId })]
+          JSON.stringify({ workerTerminated: true })]
       );
       return { inquiry: changed.rows[0] };
     });
     if (result.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
-    if (result.providerMessageIdMismatch) return res.status(409).json({ error: 'provider_message_id_mismatch' });
     if (result.missing) return res.status(409).json({ error: 'partner_inquiry_not_sending' });
     return res.json({ inquiry: result.inquiry });
   } catch (error) {
@@ -4681,6 +4665,7 @@ app.post('/api/admin/partner-service-inquiries/:inquiryId/recover', validateRequ
     return res.status(500).json({ error: 'partner_inquiry_recovery_failed' });
   }
 });
+
 
 app.post('/api/admin/partner-service-inquiries/:inquiryId/reconcile', validateRequestOrigin, requireSession, requireDatabase, async (req, res) => {
   const id = req.params.inquiryId;
