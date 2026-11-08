@@ -14,6 +14,7 @@ export const ModeratorConsolePanel:React.FC=()=>{
  const [screenings,setScreenings]=useState<Screening[]>([]),[reports,setReports]=useState<Report[]>([]),[audit,setAudit]=useState<AuditEntry[]>([]),[photos,setPhotos]=useState<PendingPhoto[]>([]),[l3Submissions,setL3Submissions]=useState<PendingL3[]>([]),[l3Enabled,setL3Enabled]=useState(false),[partnerApplications,setPartnerApplications]=useState<PartnerApplication[]>([]),[partnerInquiries,setPartnerInquiries]=useState<PartnerInquiry[]>([]);
  const [partnerInquiryNotes,setPartnerInquiryNotes]=useState<Record<string,string>>({});
  const [partnerInquiryProviderIds,setPartnerInquiryProviderIds]=useState<Record<string,string>>({});
+ const [partnerInquiryWorkerStopped,setPartnerInquiryWorkerStopped]=useState<Record<string,boolean>>({});
  const [partnerApplicationNotes,setPartnerApplicationNotes]=useState<Record<string,string>>({});
  const refreshRequestId=React.useRef(0);
  const sessionEpoch=React.useRef(0);
@@ -126,7 +127,20 @@ export const ModeratorConsolePanel:React.FC=()=>{
     {item.providerMessageId&&<><p className="mt-1 break-all font-mono text-[10px] text-emerald-200">{tr('ID письма Resend','Resend message ID')}: {item.providerMessageId}</p><p className="mt-1 text-[10px] text-emerald-200">{tr('Resend вернул ID принятого письма: нельзя отметить его как не принятое.','Resend returned an accepted message ID; this cannot be marked as not accepted.')}</p></>}
     {item.contactConsentVersion&&<p className="mt-1 text-[10px] text-stone-500">{tr('Версия согласия','Consent version')}: {item.contactConsentVersion}</p>}
     <p className="mt-1 text-[10px] text-stone-500">{tr('Обновлено','Updated')}: {new Date(item.updatedAt).toLocaleString(locale)}</p>
-    {item.deliveryStatus==='sending'&&<p className="mt-2 text-xs text-amber-200">{tr('Вызов почтового сервиса ещё не завершён. Сверка заблокирована, чтобы не допустить гонку с активной отправкой.','The email-provider call has not completed. Reconciliation is blocked to prevent a race with an active send.')}</p>}
+    {item.deliveryStatus==='sending'&&<div className="mt-2 space-y-2 rounded-lg border border-amber-500/20 p-3">
+     <p className="text-xs text-amber-200">{tr('Возраст записи не доказывает завершение отправки. Восстанавливайте её только после остановки всех экземпляров API/worker и проверки журнала Resend. Если вызов ещё активен, операция восстановления дождётся его блокировки и не изменит запись.','Record age does not prove the send has finished. Recover only after all API/worker instances are stopped and Resend logs are checked. If a call is still active, recovery waits for its row lock and will not change the record.')}</p>
+     <label className="flex items-start gap-2 text-xs text-stone-300">
+      <input type="checkbox" checked={Boolean(partnerInquiryWorkerStopped[item.id])} onChange={event=>setPartnerInquiryWorkerStopped(current=>({...current,[item.id]:event.target.checked}))} />
+      <span>{tr('Подтверждаю, что все отправители остановлены и активного сетевого вызова больше нет','I confirm all senders are stopped and no network call is still active')}</span>
+     </label>
+     <label className="block text-xs text-stone-300">{tr('Доказательства остановки worker и проверки журнала провайдера (20–500 символов)','Evidence of worker shutdown and provider-log check (20–500 characters)')}
+      <textarea value={partnerInquiryNotes[item.id]||''} onChange={event=>setPartnerInquiryNotes(current=>({...current,[item.id]:event.target.value}))} maxLength={500} minLength={20} rows={2} className="mt-1 w-full rounded-lg border border-white/10 bg-stone-900 p-2 text-xs text-white" />
+     </label>
+     <label className="block text-xs text-stone-300">{tr('ID письма провайдера, если найден','Provider message ID, if found')}
+      <input type="text" maxLength={255} value={partnerInquiryProviderIds[item.id]??item.providerMessageId??''} onChange={event=>setPartnerInquiryProviderIds(current=>({...current,[item.id]:event.target.value}))} className="mt-1 w-full rounded-lg border border-white/10 bg-stone-900 p-2 text-xs text-white" />
+     </label>
+     <button type="button" disabled={busy||!partnerInquiryWorkerStopped[item.id]||(partnerInquiryNotes[item.id]||'').trim().length<20||/\\s/.test((partnerInquiryProviderIds[item.id]??item.providerMessageId??'').trim())} onClick={()=>{if(window.confirm(tr('Подтвердить остановку всех отправителей и перевести запись на сверку? Активный provider call защищён блокировкой строки.','Confirm all senders are stopped and move this record to reconciliation? An active provider call is protected by a row lock.')))void act('/api/admin/partner-service-inquiries/'+encodeURIComponent(item.id)+'/recover',{workerTerminated:true,operatorNote:partnerInquiryNotes[item.id].trim(),providerMessageId:(partnerInquiryProviderIds[item.id]??item.providerMessageId??'').trim()||undefined});}} className="min-h-11 rounded-lg border border-amber-500/30 px-3 py-2 text-[10px] text-amber-100 disabled:opacity-50">{tr('Восстановить после остановки worker','Recover after worker shutdown')}</button>
+    </div>}
     {item.deliveryStatus==='reconciliation_required'&&<div className="mt-2 space-y-2">
      <label className="block text-xs text-stone-300">{tr('Основание сверки (запись провайдера и время проверки)','Reconciliation evidence (provider log entry and check time)')}
       <textarea value={partnerInquiryNotes[item.id]||''} onChange={event=>setPartnerInquiryNotes(current=>({...current,[item.id]:event.target.value}))} maxLength={500} minLength={10} rows={2} className="mt-1 w-full rounded-lg border border-white/10 bg-stone-900 p-2 text-xs text-white" />
