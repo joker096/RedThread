@@ -102,11 +102,13 @@ test('worker does not count a provider acceptance as sent when the guarded statu
 });
 
 test('synchronous claim query revalidates published provider, active match and verified requester at send time', () => {
-  assert.match(CLAIM_PARTNER_INQUIRY_SQL, /delivery_status IN \\('pending', 'failed'\\)/);
-  assert.match(CLAIM_PARTNER_INQUIRY_SQL, /application.status = 'approved'[\\s\\S]*application.published_at IS NOT NULL/);
-  assert.match(CLAIM_PARTNER_INQUIRY_SQL, /active_match.status = 'active'/);
-  assert.match(CLAIM_PARTNER_INQUIRY_SQL, /requester.status = 'active'[\\s\\S]*requester.email_verified_at IS NOT NULL/);
-  assert.match(CLAIM_PARTNER_INQUIRY_SQL, /LOWER\\(BTRIM\\(requester.email\\)\\) = inquiry.requester_email/);
+  assert.ok(CLAIM_PARTNER_INQUIRY_SQL.includes("delivery_status IN ('pending', 'failed')"));
+  assert.ok(CLAIM_PARTNER_INQUIRY_SQL.includes("application.status = 'approved'"));
+  assert.ok(CLAIM_PARTNER_INQUIRY_SQL.includes('application.published_at IS NOT NULL'));
+  assert.ok(CLAIM_PARTNER_INQUIRY_SQL.includes("active_match.status = 'active'"));
+  assert.ok(CLAIM_PARTNER_INQUIRY_SQL.includes("requester.status = 'active'"));
+  assert.ok(CLAIM_PARTNER_INQUIRY_SQL.includes('requester.email_verified_at IS NOT NULL'));
+  assert.ok(CLAIM_PARTNER_INQUIRY_SQL.includes('LOWER(BTRIM(requester.email)) = inquiry.requester_email'));
 });
 
 test('worker claim query requires an active match and a still-verified requester email', async () => {
