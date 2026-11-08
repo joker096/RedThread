@@ -718,8 +718,8 @@ function emailDeliveryConfigured() {
   const emailFrom = typeof process.env.EMAIL_FROM === 'string' ? process.env.EMAIL_FROM.trim() : '';
   const fromAddress = emailFrom.match(/<([^<>]+)>/)?.[1] || emailFrom;
   const validSender = isValidEmail(fromAddress) &&
-    !/@(?:example\\.com|example\\.test|invalid)$/i.test(fromAddress) &&
-    !/[\\r\\n]/.test(emailFrom);
+    !/@(?:example\.com|example\.test|invalid)$/i.test(fromAddress) &&
+    !/[\r\n]/.test(emailFrom);
   return process.env.EMAIL_PROVIDER === 'resend' &&
     Boolean(process.env.RESEND_API_KEY) &&
     validSender &&
