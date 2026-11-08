@@ -161,6 +161,70 @@ test('auth API supports registration, session lookup, logout and login', {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     assert.equal(healthy, true, 'API should start and answer the health check');
+
+    const partnerApplication = {
+      category: 'photography',
+      businessName: 'Integration Test Studio',
+      contactName: 'Test Contact',
+      contactEmail: 'partner-' + randomUUID() + '@example.test',
+      country: 'GE',
+      city: 'Tbilisi',
+      website: 'https://example.test',
+      serviceDescription: 'Wedding and couple photography services for local clients.',
+      priceFrom: '0.29',
+      priceCurrency: 'GEL',
+      serviceLanguages: 'Georgian, Russian',
+      availabilityNote: 'By appointment'
+    };
+    const partnerNoOrigin = await request('/api/partner-applications', {
+      method: 'POST', headers: { Origin: '' }, body: JSON.stringify(partnerApplication)
+    });
+    assert.equal(partnerNoOrigin.status, 403, 'partner application mutation must require a trusted Origin');
+
+    const insecurePartnerWebsite = await request('/api/partner-applications', {
+      method: 'POST', body: JSON.stringify({ ...partnerApplication, website: 'http://example.test' })
+    });
+    assert.equal(insecurePartnerWebsite.status, 400, 'partner websites must use HTTPS');
+
+    const localizedCountry = await request('/api/partner-applications', {
+      method: 'POST', body: JSON.stringify({ ...partnerApplication, country: 'Грузия' })
+    });
+    assert.equal(localizedCountry.status, 400, 'partner applications must store ISO alpha-2 country codes');
+
+    const submittedPartnerResponse = await request('/api/partner-applications', {
+      method: 'POST', body: JSON.stringify(partnerApplication)
+    });
+    assert.equal(submittedPartnerResponse.status, 201, 'valid partner application should be accepted');
+    const submittedPartner = await submittedPartnerResponse.json();
+    assert.equal(submittedPartner.application.status, 'pending');
+    assert.equal('contactEmail' in submittedPartner.application, false, 'application response must not echo contact details');
+
+    const invalidCountryFilter = await request('/api/partner-services?country=Georgia');
+    assert.equal(invalidCountryFilter.status, 400, 'public partner directory must reject localized country names');
+    const publicDirectory = await request('/api/partner-services?country=GE&category=dress');
+    assert.equal(publicDirectory.status, 200, 'public directory must accept the supported dress category and ISO country');
+    const publicDirectoryPayload = await publicDirectory.json();
+    assert.equal(JSON.stringify(publicDirectoryPayload).includes(partnerApplication.contactEmail), false,
+      'public directory must never expose partner contact email');
+
+    const inquiryNoOrigin = await request('/api/partner-service-inquiries', {
+      method: 'POST', headers: { Origin: '' },
+      body: JSON.stringify({ applicationId: randomUUID(), matchId: randomUUID(), requestKey: randomUUID(), requestNote: 'Please send details about this service.', shareContact: true })
+    });
+    assert.equal(inquiryNoOrigin.status, 403, 'partner inquiry mutation must require a trusted Origin');
+
+    const adminInquiryQueueUnauthenticated = await request('/api/admin/partner-service-inquiries');
+    assert.equal(adminInquiryQueueUnauthenticated.status, 401, 'partner delivery status must be moderator-only');
+
+    const adminPartnerNoOrigin = await request('/api/admin/partner-applications/' + randomUUID() + '/publish', {
+      method: 'POST', headers: { Origin: '' }, body: JSON.stringify({})
+    });
+    assert.equal(adminPartnerNoOrigin.status, 403, 'partner moderation mutation must reject missing Origin before authentication');
+    const inquiryReconcileNoOrigin = await request('/api/admin/partner-service-inquiries/' + randomUUID() + '/reconcile', {
+      method: 'POST', headers: { Origin: '' },
+      body: JSON.stringify({ decision: 'sent', operatorNote: 'Verified against provider logs' })
+    });
+    assert.equal(inquiryReconcileNoOrigin.status, 403, 'inquiry reconciliation must reject missing Origin before authentication');
     
     const googleConfig = await request('/api/auth/google/config');
     assert.deepEqual(await googleConfig.json(), { configured: false, clientId: null });
