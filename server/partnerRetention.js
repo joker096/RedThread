@@ -30,7 +30,7 @@ export async function cleanupPartnerServiceData(pool, options = {}) {
     await client.query('BEGIN');
     const inquiries = await client.query(
       `DELETE FROM partner_service_inquiries
-       WHERE delivery_status NOT IN ('sending', 'reconciliation_required')
+       WHERE delivery_status IN ('sent', 'failed', 'cancelled')
          AND (created_at < NOW() - make_interval(days => $1)
           OR application_id IN (
             SELECT id FROM partner_service_applications
@@ -45,7 +45,7 @@ export async function cleanupPartnerServiceData(pool, options = {}) {
        WHERE NOT EXISTS (
          SELECT 1 FROM partner_service_inquiries inquiry
          WHERE inquiry.application_id = partner_service_applications.id
-           AND inquiry.delivery_status IN ('sending', 'reconciliation_required')
+           AND inquiry.delivery_status IN ('pending', 'sending', 'reconciliation_required')
        )
          AND (
            (status = 'rejected' AND updated_at < NOW() - make_interval(days => $1))
