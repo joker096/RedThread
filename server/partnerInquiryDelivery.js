@@ -88,6 +88,12 @@ export const CLAIM_PARTNER_INQUIRY_SQL = `
   RETURNING inquiry.id
 `;
 
+export const PARTNER_INQUIRY_OWNER_SQL = `
+  SELECT requested_by AS "requestedBy"
+  FROM partner_service_inquiries
+  WHERE id = $1
+`;
+
 export const REVALIDATE_PARTNER_INQUIRY_SQL = `
   SELECT inquiry.id
   FROM partner_service_inquiries inquiry
@@ -138,6 +144,20 @@ export async function deliverClaimedPartnerInquiry(pool, sendEmail, inquiryId, e
     client = await pool.connect();
     await client.query('BEGIN');
     transactionOpen = true;
+
+    // Acquire the same per-requester advisory lock as account deletion before
+    // taking row locks. This prevents both post-erasure sends and lock-order
+    // deadlocks with the account-erasure transaction.
+    const owner = await client.query(PARTNER_INQUIRY_OWNER_SQL, [inquiryId]);
+    if (owner.rowCount !== 1 || !owner.rows?.[0]?.requestedBy) {
+      await client.query('COMMIT');
+      transactionOpen = false;
+      return { sent: false, emailProviderAccepted: false, deliveryStatus: 'failed' };
+    }
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext('gift-safety-user:' || $1::uuid::text))",
+      [owner.rows[0].requestedBy]
+    );
 
     // Hold locks on the inquiry, match, requester and provider until the
     // provider call has finished. Status changes cannot race the actual send.
