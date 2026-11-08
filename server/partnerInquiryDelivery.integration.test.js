@@ -37,6 +37,10 @@ test('pending inquiry claim query is valid against the migrated PostgreSQL schem
       "SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conname = 'partner_service_inquiries_delivery_status_check' AND conrelid = 'partner_service_inquiries'::regclass"
     );
     assert.match(statusConstraint.rows[0]?.definition || '', /cancelled/);
+    const evidenceTrigger = await pool.query(
+      "SELECT 1 FROM pg_trigger WHERE tgname = 'partner_service_inquiry_evidence_immutable' AND tgrelid = 'partner_service_inquiries'::regclass AND NOT tgisinternal"
+    );
+    assert.equal(evidenceTrigger.rowCount, 1, 'migration 225 must freeze the request, consent snapshot and accepted provider message ID');
   } finally {
     await pool.end();
   }
