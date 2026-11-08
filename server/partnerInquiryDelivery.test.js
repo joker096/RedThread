@@ -126,6 +126,14 @@ test('worker does not count a provider acceptance as sent when the guarded statu
   assert.deepEqual(result, { claimed: 1, sent: 0, failed: 0, reconciliationPending: 1 });
 });
 
+test('manual recovery only moves sending rows after an explicit operator action and has no age-based predicate', () => {
+  assert.ok(RECOVER_PARTNER_INQUIRY_SQL.includes("delivery_status = 'sending'"));
+  assert.ok(RECOVER_PARTNER_INQUIRY_SQL.includes("delivery_status = 'reconciliation_required'"));
+  assert.ok(RECOVER_PARTNER_INQUIRY_SQL.includes("operator_confirmed_worker_terminated"));
+  assert.ok(RECOVER_PARTNER_INQUIRY_SQL.includes('provider_message_id = COALESCE'));
+  assert.doesNotMatch(RECOVER_PARTNER_INQUIRY_SQL, /INTERVAL|updated_at\s*</i);
+});
+
 test('requester cancellation can only change an unaccepted pending or failed inquiry', () => {
   assert.ok(CANCEL_PARTNER_INQUIRY_SQL.includes("delivery_status IN ('pending', 'failed')"));
   assert.ok(CANCEL_PARTNER_INQUIRY_SQL.includes('provider_message_id IS NULL'));
