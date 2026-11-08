@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CANCEL_PARTNER_INQUIRY_SQL, CLAIM_PARTNER_INQUIRY_SQL, MY_PARTNER_INQUIRIES_SQL, REVALIDATE_PARTNER_INQUIRY_SQL, RECOVER_PARTNER_INQUIRY_SQL, deliverPendingPartnerInquiries } from './partnerInquiryDelivery.js';
+import { CANCEL_PARTNER_INQUIRY_SQL, CLAIM_PARTNER_INQUIRY_SQL, MY_PARTNER_INQUIRIES_SQL, PARTNER_INQUIRY_OWNER_SQL, REVALIDATE_PARTNER_INQUIRY_SQL, RECOVER_PARTNER_INQUIRY_SQL, deliverPendingPartnerInquiries } from './partnerInquiryDelivery.js';
 
 function fakePool(rows = [], options = {}) {
   const calls = [];
@@ -8,6 +8,7 @@ function fakePool(rows = [], options = {}) {
   const client = {
     async query(sql, values) {
       calls.push({ sql, values, scope: 'client' });
+      if (sql === PARTNER_INQUIRY_OWNER_SQL) return { rowCount: 1, rows: [{ requestedBy: sample.requestedBy }] };
       if (sql === REVALIDATE_PARTNER_INQUIRY_SQL) {
         if (options.failEligibility) throw new Error('eligibility recheck failed');
         return { rowCount: options.eligibleRowCount ?? 1 };
@@ -24,6 +25,7 @@ function fakePool(rows = [], options = {}) {
     async connect() { return client; },
     async query(sql, values) {
       calls.push({ sql, values, scope: 'pool' });
+      if (sql === PARTNER_INQUIRY_OWNER_SQL) return { rowCount: 1, rows: [{ requestedBy: sample.requestedBy }] };
       if (sql === REVALIDATE_PARTNER_INQUIRY_SQL) {
         if (options.failEligibility) throw new Error('eligibility recheck failed');
         return { rowCount: options.eligibleRowCount ?? 1 };
@@ -38,6 +40,7 @@ function fakePool(rows = [], options = {}) {
 
 const sample = {
   id: '00000000-0000-4000-8000-000000000001',
+  requestedBy: '00000000-0000-4000-8000-000000000002',
   requesterName: '<User>',
   requesterEmail: 'person@example.test',
   serviceDate: '2026-12-24',
@@ -196,6 +199,17 @@ test('invalid batch limits fail before connecting to the database', async () => 
   assert.equal(connections, 0);
 });
 
+
+test('provider delivery takes the requester safety lock before eligibility row locks', async () => {
+  const fake = fakePool([]);
+  await (await import('./partnerInquiryDelivery.js')).deliverClaimedPartnerInquiry(
+    fake.pool, async () => ({ providerMessageId: 'resend_msg_lock_order' }), sample.id, {}, sample.requestedBy
+  );
+  const ownerIndex = fake.calls.findIndex(call => call.sql === PARTNER_INQUIRY_OWNER_SQL);
+  const safetyLockIndex = fake.calls.findIndex(call => call.sql.includes('pg_advisory_xact_lock'));
+  const eligibilityIndex = fake.calls.findIndex(call => call.sql === REVALIDATE_PARTNER_INQUIRY_SQL);
+  assert.ok(ownerIndex >= 0 && safetyLockIndex > ownerIndex && eligibilityIndex > safetyLockIndex);
+});
 
 test('synchronous API moves ambiguous provider outcomes to reconciliation-required', async () => {
   const fake = fakePool([]);
