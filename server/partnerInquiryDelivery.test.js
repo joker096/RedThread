@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CANCEL_PARTNER_INQUIRY_SQL, CLAIM_PARTNER_INQUIRY_SQL, REVALIDATE_PARTNER_INQUIRY_SQL, deliverPendingPartnerInquiries } from './partnerInquiryDelivery.js';
+import { CANCEL_PARTNER_INQUIRY_SQL, CLAIM_PARTNER_INQUIRY_SQL, REVALIDATE_PARTNER_INQUIRY_SQL, RECOVER_PARTNER_INQUIRY_SQL, deliverPendingPartnerInquiries } from './partnerInquiryDelivery.js';
 
 function fakePool(rows = [], options = {}) {
   const calls = [];
@@ -8,6 +8,10 @@ function fakePool(rows = [], options = {}) {
   const client = {
     async query(sql, values) {
       calls.push({ sql, values, scope: 'client' });
+      if (sql === REVALIDATE_PARTNER_INQUIRY_SQL) {
+        if (options.failEligibility) throw new Error('eligibility recheck failed');
+        return { rowCount: options.eligibleRowCount ?? 1 };
+      }
       if (sql.trimStart().startsWith('SELECT inquiry.id')) return { rows };
       if (options.failClaim && sql.startsWith('UPDATE partner_service_inquiries')) throw new Error('claim failed');
       if (options.failStatus && sql.includes("delivery_status = 'sent'")) throw new Error('status failed');
