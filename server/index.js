@@ -4409,11 +4409,15 @@ app.post('/api/admin/partner-applications/:applicationId/unpublish', validateReq
         [id]
       );
       if (!changed.rows[0]) return { missing: true };
+      const cancelledInquiries = await client.query(
+        "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'provider_unpublished_before_delivery', updated_at = NOW() WHERE application_id = $1 AND delivery_status = 'pending'",
+        [id]
+      );
       await client.query(
         'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, details) VALUES ($1,$2,$3,$4,$5::jsonb)',
-        [req.authUser.id, 'partner_application_unpublished', 'partner_service_application', id, JSON.stringify({ category: changed.rows[0].category, businessName: changed.rows[0].businessName })]
+        [req.authUser.id, 'partner_application_unpublished', 'partner_service_application', id, JSON.stringify({ category: changed.rows[0].category, businessName: changed.rows[0].businessName, pendingInquiriesCancelled: cancelledInquiries.rowCount ?? 0 })]
       );
-      return { application: changed.rows[0] };
+      return { application: changed.rows[0], pendingInquiriesCancelled: cancelledInquiries.rowCount ?? 0 };
     });
     if (result.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
     if (result.missing) return res.status(409).json({ error: 'published_partner_application_not_found' });
