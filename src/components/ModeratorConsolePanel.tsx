@@ -118,8 +118,8 @@ export const ModeratorConsolePanel:React.FC=()=>{
     <p className="mt-1 text-[10px] text-stone-400">{tr('Статус','Status')}: {item.deliveryStatus} · {tr('попыток','attempts')}: {item.deliveryAttempts}</p>
     {item.deliveryError&&<p className="mt-1 text-[10px] text-amber-200">{item.deliveryError}</p>}
     <p className="mt-1 text-[10px] text-stone-500">{tr('Обновлено','Updated')}: {new Date(item.updatedAt).toLocaleString(locale)}</p>
-    {item.deliveryStatus==='sending'&&<p className="mt-2 text-xs text-amber-200">{tr(Date.now()-new Date(item.updatedAt).getTime()>120_000?'Отправка зависла более чем на 2 минуты. Обновите список и проверьте журнал провайдера перед сверкой.':'Отправка ещё выполняется. Сверка станет доступна только после 2 минут без обновления статуса.',Date.now()-new Date(item.updatedAt).getTime()>120_000?'The send has been idle for over 2 minutes. Refresh and inspect provider logs before reconciliation.':'The provider call is active. Reconciliation becomes available only after 2 minutes without a status update.')}</p>}
-    {(item.deliveryStatus==='reconciliation_required'||(item.deliveryStatus==='sending'&&Date.now()-new Date(item.updatedAt).getTime()>120_000))&&<div className="mt-2 space-y-2">
+    {item.deliveryStatus==='sending'&&<p className="mt-2 text-xs text-amber-200">{tr('Вызов почтового сервиса ещё не завершён. Сверка заблокирована, чтобы не допустить гонку с активной отправкой.','The email-provider call has not completed. Reconciliation is blocked to prevent a race with an active send.')}</p>}
+    {item.deliveryStatus==='reconciliation_required'&&<div className="mt-2 space-y-2">
      <label className="block text-xs text-stone-300">{tr('Основание сверки (укажите запись провайдера, ID письма и время проверки)','Reconciliation evidence (provider log entry, message ID and check time)')}
       <textarea value={partnerInquiryNotes[item.id]||''} onChange={event=>setPartnerInquiryNotes(current=>({...current,[item.id]:event.target.value}))} maxLength={500} minLength={10} rows={2} className="mt-1 w-full rounded-lg border border-white/10 bg-stone-900 p-2 text-xs text-white" />
      </label>

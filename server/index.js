@@ -4522,7 +4522,7 @@ app.get('/api/admin/partner-service-inquiries', requireSession, requireDatabase,
   const read = await withActiveModeratorRead(req.authUser.id, client => client.query(
     'SELECT inquiry.id, application.business_name AS "businessName", inquiry.delivery_status AS "deliveryStatus", inquiry.delivery_attempts AS "deliveryAttempts", inquiry.delivery_error AS "deliveryError", inquiry.created_at AS "createdAt", inquiry.updated_at AS "updatedAt", inquiry.delivered_at AS "deliveredAt" ' +
     'FROM partner_service_inquiries inquiry JOIN partner_service_applications application ON application.id = inquiry.application_id ' +
-    'ORDER BY inquiry.updated_at DESC LIMIT 100'
+    "ORDER BY CASE WHEN inquiry.delivery_status IN ('sending', 'reconciliation_required') THEN 0 ELSE 1 END, inquiry.updated_at DESC LIMIT 100"
   ));
   if (!read.active) return res.status(401).json({ error: 'account_not_active' });
   if (read.value?.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
@@ -4542,7 +4542,7 @@ app.post('/api/admin/partner-service-inquiries/:inquiryId/reconcile', validateRe
       if (!['admin', 'moderator'].includes(moderator.rows[0]?.role)) return { forbidden: true };
       const nextStatus = decision;
       const changed = await client.query(
-        "UPDATE partner_service_inquiries SET delivery_status = $2, delivered_at = CASE WHEN $2 = 'sent' THEN COALESCE(delivered_at, NOW()) ELSE NULL END, delivery_error = CASE WHEN $2 = 'sent' THEN '' ELSE 'operator_reconciled_failed' END, updated_at = NOW() WHERE id = $1 AND (delivery_status = 'reconciliation_required' OR (delivery_status = 'sending' AND updated_at < NOW() - INTERVAL '2 minutes')) RETURNING id, delivery_status AS \"deliveryStatus\"",
+        "UPDATE partner_service_inquiries SET delivery_status = $2, delivered_at = CASE WHEN $2 = 'sent' THEN COALESCE(delivered_at, NOW()) ELSE NULL END, delivery_error = CASE WHEN $2 = 'sent' THEN '' ELSE 'operator_reconciled_failed' END, updated_at = NOW() WHERE id = $1 AND (delivery_status = 'reconciliation_required' OR FALSE /* stale sending claims require all workers to be stopped before recovery */) RETURNING id, delivery_status AS \"deliveryStatus\"",
         [id, nextStatus]
       );
       if (!changed.rows[0]) return { missing: true };
