@@ -8,7 +8,7 @@ export function emailDeliveryConfigured(env = process.env) {
     const hostname = parsed.hostname.toLowerCase();
     validPublicUrl = env.NODE_ENV === 'production'
       ? parsed.protocol === 'https:' &&
-        !['localhost', '127.0.0.1', '::1', 'example.com'].includes(hostname) &&
+        !['localhost', '127.0.0.1', '::1', 'example.com', 'example.org', 'example.net'].includes(hostname) &&
         !hostname.endsWith('.localhost')
       : ['http:', 'https:'].includes(parsed.protocol);
   } catch {
@@ -20,7 +20,7 @@ export function emailDeliveryConfigured(env = process.env) {
   const fromAddress = senderMatch ? senderMatch[1] : emailFrom;
   const domain = fromAddress.split('@')[1]?.toLowerCase() || '';
   const validSender = EMAIL_PATTERN.test(fromAddress) &&
-    !['example.com', 'example.test', 'invalid'].includes(domain) &&
+    !['example.com', 'example.org', 'example.net', 'example.test', 'invalid'].includes(domain) &&
     !/[\r\n]/.test(emailFrom);
 
   return env.EMAIL_PROVIDER === 'resend' &&

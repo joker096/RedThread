@@ -7,7 +7,7 @@ const base = {
   APP_ORIGIN: 'http://localhost:3000',
   EMAIL_PROVIDER: 'resend',
   RESEND_API_KEY: 're_test_key',
-  EMAIL_FROM: 'Vow <noreply@verified-vow.example.org>'
+  EMAIL_FROM: 'Vow <noreply@vowmail.org>'
 };
 
 test('email delivery is enabled only with Resend, a real sender address and a valid app URL', () => {
@@ -15,12 +15,12 @@ test('email delivery is enabled only with Resend, a real sender address and a va
   assert.equal(emailDeliveryConfigured({
     ...base,
     NODE_ENV: 'production',
-    APP_URL: 'https://vow.example.org'
+    APP_URL: 'https://vowapp.org'
   }), true);
 });
 
 test('email delivery stays disabled when the sender is missing or a placeholder', () => {
-  for (const EMAIL_FROM of ['', 'noreply@example.com', 'Vow <noreply@example.test>', 'not-an-email']) {
+  for (const EMAIL_FROM of ['', 'noreply@example.com', 'noreply@example.org', 'Vow <noreply@example.test>', 'not-an-email']) {
     assert.equal(emailDeliveryConfigured({ ...base, EMAIL_FROM }), false);
   }
 });
