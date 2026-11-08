@@ -69,8 +69,9 @@ export async function deliverPendingPartnerInquiries(pool, sendEmail, options = 
     const dateLine = inquiry.serviceDate
       ? '<p><strong>Желаемая дата:</strong> ' + escapeHtml(inquiry.serviceDate) + '</p>'
       : '';
+    let providerMessageId = null;
     try {
-      await sendEmail({
+      const providerResult = await sendEmail({
         to: inquiry.contactEmail,
         idempotencyKey: 'partner-service-inquiry/' + inquiry.id,
         subject: 'Новый запрос по услуге в Vow',
@@ -80,6 +81,8 @@ export async function deliverPendingPartnerInquiries(pool, sendEmail, options = 
           '<p><strong>Сообщение:</strong></p><p>' + escapeHtml(inquiry.requestNote).replace(/\n/g, '<br>') + '</p>' +
           '<p>Данные второго участника совпадения, переписка и результаты совместимости не передаются.</p>'
       });
+      providerMessageId = typeof providerResult?.providerMessageId === 'string' &&
+        providerResult.providerMessageId.length <= 255 ? providerResult.providerMessageId : null;
     } catch {
       // The provider outcome is ambiguous. Move out of the active-send state before
       // exposing the row to moderator reconciliation; never retry automatically.
@@ -94,8 +97,8 @@ export async function deliverPendingPartnerInquiries(pool, sendEmail, options = 
     }
     try {
       const updated = await pool.query(
-        "UPDATE partner_service_inquiries SET delivery_status = 'sent', delivered_at = NOW(), delivery_error = '', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending' RETURNING id",
-        [inquiry.id]
+        "UPDATE partner_service_inquiries SET delivery_status = 'sent', delivered_at = NOW(), provider_message_id = $2, delivery_error = '', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending' RETURNING id",
+        [inquiry.id, providerMessageId]
       );
       if (updated.rowCount !== 1) {
         reconciliationPending += 1;
@@ -107,8 +110,8 @@ export async function deliverPendingPartnerInquiries(pool, sendEmail, options = 
       // transition prevents reconciliation from racing an active provider call.
       try {
         await pool.query(
-          "UPDATE partner_service_inquiries SET delivery_status = 'reconciliation_required', delivery_error = 'provider_accepted_status_unknown', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
-          [inquiry.id]
+          "UPDATE partner_service_inquiries SET delivery_status = 'reconciliation_required', provider_message_id = COALESCE(provider_message_id, $2), delivery_error = 'provider_accepted_status_unknown', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
+          [inquiry.id, providerMessageId]
         );
       } catch { /* Leave sending fail-closed if the database is unavailable. */ }
       reconciliationPending += 1;
@@ -126,8 +129,11 @@ export async function deliverClaimedPartnerInquiry(pool, sendEmail, inquiryId, e
   if (typeof sendEmail !== 'function') throw new TypeError('An email delivery function is required.');
   if (typeof inquiryId !== 'string' || !inquiryId) throw new TypeError('An inquiry ID is required.');
 
+  let providerMessageId = null;
   try {
-    await sendEmail(emailPayload);
+    const providerResult = await sendEmail(emailPayload);
+    providerMessageId = typeof providerResult?.providerMessageId === 'string' &&
+      providerResult.providerMessageId.length <= 255 ? providerResult.providerMessageId : null;
   } catch {
     try {
       await pool.query(
@@ -140,20 +146,20 @@ export async function deliverClaimedPartnerInquiry(pool, sendEmail, inquiryId, e
 
   try {
     const updated = await pool.query(
-      "UPDATE partner_service_inquiries SET delivery_status = 'sent', delivered_at = NOW(), delivery_error = '', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending' RETURNING id",
-      [inquiryId]
+      "UPDATE partner_service_inquiries SET delivery_status = 'sent', delivered_at = NOW(), provider_message_id = $2, delivery_error = '', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending' RETURNING id",
+      [inquiryId, providerMessageId]
     );
     if (updated.rowCount !== 1) {
-      return { sent: false, emailProviderAccepted: true, deliveryStatus: 'reconciliation_required' };
+      return { sent: false, emailProviderAccepted: true, providerMessageId, deliveryStatus: 'reconciliation_required' };
     }
   } catch {
     try {
       await pool.query(
-        "UPDATE partner_service_inquiries SET delivery_status = 'reconciliation_required', delivery_error = 'provider_accepted_status_unknown', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
-        [inquiryId]
+        "UPDATE partner_service_inquiries SET delivery_status = 'reconciliation_required', provider_message_id = COALESCE(provider_message_id, $2), delivery_error = 'provider_accepted_status_unknown', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
+        [inquiryId, providerMessageId]
       );
     } catch { /* Keep the claim fail-closed if the database is unavailable. */ }
-    return { sent: false, emailProviderAccepted: true, deliveryStatus: 'reconciliation_required' };
+    return { sent: false, emailProviderAccepted: true, providerMessageId, deliveryStatus: 'reconciliation_required' };
   }
-  return { sent: true, emailProviderAccepted: true, deliveryStatus: 'sent' };
+  return { sent: true, emailProviderAccepted: true, providerMessageId, deliveryStatus: 'sent' };
 }
