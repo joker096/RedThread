@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
-import { CANCEL_PARTNER_INQUIRY_SQL, CLAIM_PARTNER_INQUIRY_SQL, MY_PARTNER_INQUIRIES_SQL, PENDING_PARTNER_INQUIRIES_SQL, REVALIDATE_PARTNER_INQUIRY_SQL, RECOVER_PARTNER_INQUIRY_SQL } from './partnerInquiryDelivery.js';
+import { CANCEL_PARTNER_INQUIRY_SQL, CLAIM_PARTNER_INQUIRY_SQL, MY_PARTNER_INQUIRIES_SQL, PARTNER_INQUIRY_OWNER_SQL, PENDING_PARTNER_INQUIRIES_SQL, REVALIDATE_PARTNER_INQUIRY_SQL, RECOVER_PARTNER_INQUIRY_SQL } from './partnerInquiryDelivery.js';
 
 const { Pool } = pg;
 
@@ -15,6 +15,8 @@ test('pending inquiry claim query is valid against the migrated PostgreSQL schem
     assert.ok(result.rows.length > 0, 'PostgreSQL must plan the pending inquiry claim query');
     const claimPlan = await pool.query('EXPLAIN ' + CLAIM_PARTNER_INQUIRY_SQL, ['00000000-0000-4000-8000-000000000001']);
     assert.ok(claimPlan.rows.length > 0, 'PostgreSQL must plan the guarded synchronous inquiry claim query');
+    const ownerPlan = await pool.query('EXPLAIN ' + PARTNER_INQUIRY_OWNER_SQL, ['00000000-0000-4000-8000-000000000001']);
+    assert.ok(ownerPlan.rows.length > 0, 'PostgreSQL must plan the requester lookup used before the safety advisory lock');
     const eligibilityPlan = await pool.query('EXPLAIN ' + REVALIDATE_PARTNER_INQUIRY_SQL, ['00000000-0000-4000-8000-000000000001']);
     assert.ok(eligibilityPlan.rows.length > 0, 'PostgreSQL must plan the final pre-send eligibility and consent recheck');
     const recoveryPlan = await pool.query('EXPLAIN ' + RECOVER_PARTNER_INQUIRY_SQL, ['00000000-0000-4000-8000-000000000001']);
