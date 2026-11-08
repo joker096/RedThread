@@ -26,6 +26,7 @@ import { DIDIT_FREE_MONTHLY_SESSION_LIMIT, releaseDiditSessionReservation } from
 import express from 'express';
 import { resolveTrustProxyHops } from './trustProxyConfig.js';
 import { verifyGoogleIdTokenClaims } from './googleIdToken.js';
+import { emailDeliveryConfigured } from './emailDeliveryConfig.js';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import { withPooledTransaction, rollbackPooledTransaction } from './withPooledTransaction.js';
 import { normalizeMatchMessageHistoryOptions, matchMessageHistoryOrder, toChronologicalMessageHistory } from './matchMessageHistory.js';
@@ -706,25 +707,6 @@ const reportLimiter = rateLimit({
   message: { error: 'too_many_reports' }
 });
 
-function emailDeliveryConfigured() {
-  const configuredUrl = process.env.APP_URL || process.env.APP_ORIGIN;
-  let validPublicUrl = false;
-  try {
-    const parsed = new URL(configuredUrl);
-    validPublicUrl = process.env.NODE_ENV === 'production'
-      ? parsed.protocol === 'https:' && !['localhost', '127.0.0.1', 'example.com'].includes(parsed.hostname)
-      : ['http:', 'https:'].includes(parsed.protocol);
-  } catch { validPublicUrl = false; }
-  const emailFrom = typeof process.env.EMAIL_FROM === 'string' ? process.env.EMAIL_FROM.trim() : '';
-  const fromAddress = emailFrom.match(/<([^<>]+)>/)?.[1] || emailFrom;
-  const validSender = isValidEmail(fromAddress) &&
-    !/@(?:example\.com|example\.test|invalid)$/i.test(fromAddress) &&
-    !/[\r\n]/.test(emailFrom);
-  return process.env.EMAIL_PROVIDER === 'resend' &&
-    Boolean(process.env.RESEND_API_KEY) &&
-    validSender &&
-    validPublicUrl;
-}
 
 async function sendConfiguredEmail({ to, subject, html, idempotencyKey }) {
   if (!emailDeliveryConfigured()) throw new Error('email_delivery_not_configured');
