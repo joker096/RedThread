@@ -27,6 +27,22 @@ export const PENDING_PARTNER_INQUIRIES_SQL = `
 `;
 
 
+export const MY_PARTNER_INQUIRIES_SQL = `
+  SELECT inquiry.id, inquiry.application_id AS "applicationId",
+         inquiry.match_id AS "matchId",
+         application.business_name AS "businessName",
+         inquiry.delivery_status AS "deliveryStatus",
+         inquiry.service_date AS "serviceDate",
+         inquiry.created_at AS "createdAt",
+         inquiry.updated_at AS "updatedAt"
+  FROM partner_service_inquiries inquiry
+  JOIN partner_service_applications application
+    ON application.id = inquiry.application_id
+  WHERE inquiry.requested_by = $1
+  ORDER BY inquiry.created_at DESC
+  LIMIT 50
+`;
+
 export const CANCEL_PARTNER_INQUIRY_SQL = `
   UPDATE partner_service_inquiries
   SET delivery_status = 'cancelled',
