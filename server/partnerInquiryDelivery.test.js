@@ -83,6 +83,18 @@ test('database ambiguity after provider acceptance moves out of active sending',
   assert.deepEqual(second, { claimed: 1, sent: 0, failed: 0, reconciliationPending: 1 });
 });
 
+test('worker retains the provider message ID when sent-state persistence becomes ambiguous', async () => {
+  const fake = fakePool([sample], { failStatus: true });
+  const result = await deliverPendingPartnerInquiries(fake.pool, async () => ({
+    providerMessageId: 'resend_msg_worker_123'
+  }));
+  assert.deepEqual(result, { claimed: 1, sent: 0, failed: 0, reconciliationPending: 1 });
+  const recovery = fake.calls.at(-1);
+  assert.match(recovery.sql, /delivery_status = 'reconciliation_required'/);
+  assert.match(recovery.sql, /provider_message_id = COALESCE/);
+  assert.deepEqual(recovery.values, [sample.id, 'resend_msg_worker_123']);
+});
+
 test('worker does not count a provider acceptance as sent when the guarded status update changes no row', async () => {
   const fake = fakePool([sample], { sentRowCount: 0 });
   const result = await deliverPendingPartnerInquiries(fake.pool, async () => {});
@@ -165,7 +177,9 @@ test('synchronous API delivery marks sent only after provider acceptance and dat
 
 test('synchronous API never reports sent when provider acceptance cannot be persisted', async () => {
   let updates = 0;
-  const pool = { async query(sql) {
+  const calls = [];
+  const pool = { async query(sql, values) {
+    calls.push({ sql, values });
     updates += 1;
     if (updates === 1) throw new Error('database connection lost');
     return { rowCount: 1 };
@@ -175,6 +189,8 @@ test('synchronous API never reports sent when provider acceptance cannot be pers
   );
   assert.deepEqual(result, { sent: false, emailProviderAccepted: true, providerMessageId: 'resend_msg_ambiguous_123', deliveryStatus: 'reconciliation_required' });
   assert.equal(updates, 2, 'a failed sent-state write must attempt a fail-closed reconciliation transition');
+  assert.match(calls[1].sql, /provider_message_id = COALESCE/);
+  assert.deepEqual(calls[1].values, [sample.id, 'resend_msg_ambiguous_123']);
 });
 
 test('synchronous API does not overwrite a row that is no longer actively sending', async () => {
