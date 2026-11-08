@@ -110,7 +110,23 @@ export async function deliverPendingPartnerInquiries(pool, sendEmail, options = 
     await client.query('BEGIN');
     const selected = await client.query(PENDING_PARTNER_INQUIRIES_SQL, [limit]);
     inquiries = selected.rows;
-    for (const inquiry of inquiries) {
+    for (const inquiry of inquiries) {      await client.query(
+        "UPDATE partner_service_inquiries SET delivery_status = 'sending', delivery_attempts = delivery_attempts + 1, delivery_error = '', updated_at = NOW() WHERE id = $1 AND delivery_status = 'pending'",
+        [inquiry.id]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  let sent = 0;
+  let failed = 0;
+  let reconciliationPending = 0;
+  for (const inquiry of inquiries) {
     let eligibility;
     try {
       eligibility = await pool.query(REVALIDATE_PARTNER_INQUIRY_SQL, [inquiry.id]);
@@ -141,23 +157,7 @@ export async function deliverPendingPartnerInquiries(pool, sendEmail, options = 
       continue;
     }
 
-      await client.query(
-        "UPDATE partner_service_inquiries SET delivery_status = 'sending', delivery_attempts = delivery_attempts + 1, delivery_error = '', updated_at = NOW() WHERE id = $1 AND delivery_status = 'pending'",
-        [inquiry.id]
-      );
-    }
-    await client.query('COMMIT');
-  } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw error;
-  } finally {
-    client.release();
-  }
 
-  let sent = 0;
-  let failed = 0;
-  let reconciliationPending = 0;
-  for (const inquiry of inquiries) {
     const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({
       '&': '&amp;',
       '<': '&lt;',
