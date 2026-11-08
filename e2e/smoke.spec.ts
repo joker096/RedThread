@@ -2692,3 +2692,70 @@ test('partner inquiry retries keep the original idempotency key, payload and mat
   expect(inquiryRequests).toHaveLength(2);
   expect(inquiryRequests[1]).toEqual(firstRequest);
 });
+
+
+test('a requester can atomically withdraw a queued partner inquiry before provider acceptance', async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 900 });
+  const cancelRequests: Array<Record<string, unknown>> = [];
+  await page.route('**/api/auth/me', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ user: { id: 'e2e-current-user' } })
+  }));
+  await page.route('**/api/matches**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/messages')) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ messages: [] }) });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ matches: [
+        { id: 'e2e-match-one', partnerId: 'e2e-partner-one', displayName: 'Елена', age: 30, country: 'Грузия', city: 'Тбилиси', lastMessage: 'Привет', lastMessageAt: new Date().toISOString() }
+      ] })
+    });
+  });
+  await page.route('**/api/partner-services**', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ providers: [{
+      id: 'e2e-provider-one', category: 'photography', businessName: 'Vow Photo Studio',
+      country: 'GE', city: 'Tbilisi', website: '',
+      serviceDescription: 'Wedding photography and couple portraits.',
+      priceFrom: 100, priceCurrency: 'GEL', serviceLanguages: ['en'],
+      availabilityNote: '', publishedAt: new Date().toISOString()
+    }] })
+  }));
+  await page.route('**/api/partner-service-inquiries', route => route.fulfill({
+    status: 202,
+    contentType: 'application/json',
+    body: JSON.stringify({ inquiryId: 'e2e-inquiry-one', sent: false, deliveryStatus: 'pending_email_configuration' })
+  }));
+  await page.route('**/api/partner-service-inquiries/e2e-inquiry-one/cancel', async route => {
+    cancelRequests.push(route.request().postDataJSON() as Record<string, unknown>);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ cancelled: true, deliveryStatus: 'cancelled' })
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('[data-testid="nav-chats"]:visible').first().click();
+  await page.getByTestId('server-match-item').first().click();
+  await page.getByRole('button', { name: /partner services for your match/i }).click();
+  await page.getByRole('button', { name: /request a quote/i }).click();
+  await page.getByRole('textbox', { name: /message to provider/i }).fill('Please share your availability and quote for our event.');
+  await page.getByRole('checkbox').check();
+  await page.getByRole('button', { name: /send request/i }).click();
+
+  await expect(page.getByText(/waiting for mail-service configuration/i)).toBeVisible();
+  await expect(page.getByRole('button', { name: /cancel queued request/i })).toBeVisible();
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: /cancel queued request/i }).click();
+
+  await expect(page.getByText(/request was cancelled\. no email was sent/i)).toBeVisible();
+  expect(cancelRequests).toHaveLength(1);
+  await expect(page.getByRole('button', { name: /request a quote/i })).toBeEnabled();
+});
