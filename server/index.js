@@ -702,7 +702,7 @@ const partnerInquiryLimiter = rateLimit({
   ...(pool ? { store: new PostgresRateLimitStore(pool, 'partner-inquiry') } : {}),
   windowMs: 24 * 60 * 60 * 1000,
   limit: 10,
-  keyGenerator: req => req.authUser?.id || req.ip,
+  keyGenerator: req => req.authUser.id,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'too_many_partner_inquiries' }
