@@ -175,7 +175,7 @@ test('worker performs the active-match and verified-email checks in the final lo
   assert.match(eligibilitySql, /active_match.status = 'active'/);
   assert.match(eligibilitySql, /requester.status = 'active'/);
   assert.match(eligibilitySql, /requester.email_verified_at IS NOT NULL/);
-  assert.match(eligibilitySql, /LOWER\\(BTRIM\\(requester.email\\)\\) = inquiry.requester_email/);
+  assert.ok(eligibilitySql.includes('LOWER(BTRIM(requester.email)) = inquiry.requester_email'));
   assert.match(eligibilitySql, /contact_consent_version = 'partner-inquiry-v1'/);
   assert.match(eligibilitySql, /FOR UPDATE OF inquiry/);
   assert.match(eligibilitySql, /FOR SHARE OF application, active_match, requester/);
