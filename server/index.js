@@ -95,6 +95,8 @@ app.disable('x-powered-by');
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
+  // Preserve cross-origin isolation while allowing the Google GIS popup to communicate with its opener.
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
   // One-time verification/reset tokens can appear in the URL; never leak them in Referer headers.
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
