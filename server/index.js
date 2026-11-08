@@ -1946,6 +1946,35 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`account-reuse:${accountReuseDigest}`]);
     // The session-level account-safety lock acquired before Paddle calls is
     // still held by this connection, excluding concurrent account mutations.
+    // Serialize partner-request erasure with any in-flight provider call.
+    // The UPDATE waits for the delivery transaction's inquiry row lock; pending
+    // or failed requests are cancelled, while sent/ambiguous outcomes retain
+    // their delivery state and provider evidence but lose requester PII.
+    await client.query("SELECT set_config('app.partner_inquiry_account_erasure', 'on', true)");
+    await client.query(
+      `UPDATE partner_service_inquiries
+       SET requester_name = 'Удалённый пользователь',
+           requester_email = 'deleted+' || requested_by::text || '@deleted.invalid',
+           service_date = NULL,
+           request_note = '[запрос удалён пользователем]',
+           delivery_status = CASE
+             WHEN delivery_status IN ('pending', 'failed') AND provider_message_id IS NULL THEN 'cancelled'
+             ELSE delivery_status
+           END,
+           cancelled_at = CASE
+             WHEN delivery_status IN ('pending', 'failed') AND provider_message_id IS NULL
+               THEN COALESCE(cancelled_at, statement_timestamp())
+             ELSE cancelled_at
+           END,
+           delivery_error = CASE
+             WHEN delivery_status IN ('pending', 'failed') AND provider_message_id IS NULL
+               THEN 'requester_account_deleted'
+             ELSE delivery_error
+           END,
+           updated_at = statement_timestamp()
+       WHERE requested_by = $1`,
+      [req.authUser.id]
+    );
     const l3Media = await client.query(
       'SELECT id FROM identity_l3_submissions WHERE user_id = $1 AND storage_object_key IS NOT NULL FOR UPDATE',
       [req.authUser.id]
