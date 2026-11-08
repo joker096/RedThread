@@ -4539,13 +4539,13 @@ app.post('/api/admin/partner-service-inquiries/:inquiryId/reconcile', validateRe
       if (!['admin', 'moderator'].includes(moderator.rows[0]?.role)) return { forbidden: true };
       const nextStatus = decision;
       const changed = await client.query(
-        "UPDATE partner_service_inquiries SET delivery_status = $2, delivered_at = CASE WHEN $2 = 'sent' THEN COALESCE(delivered_at, NOW()) ELSE NULL END, delivery_error = CASE WHEN $2 = 'sent' THEN '' ELSE 'operator_reconciled_failed' END, updated_at = NOW() WHERE id = $1 AND delivery_status = 'reconciliation_required' RETURNING id, delivery_status AS \"deliveryStatus\"",
+        "UPDATE partner_service_inquiries SET delivery_status = $2, delivered_at = CASE WHEN $2 = 'sent' THEN COALESCE(delivered_at, NOW()) ELSE NULL END, delivery_error = CASE WHEN $2 = 'sent' THEN '' ELSE 'operator_reconciled_failed' END, updated_at = NOW() WHERE id = $1 AND delivery_status = 'reconciliation_required' RETURNING id, delivery_status AS \"deliveryStatus\", provider_message_id AS \"providerMessageId\"",
         [id, nextStatus]
       );
       if (!changed.rows[0]) return { missing: true };
       await client.query(
         'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, reason, details) VALUES ($1,$2,$3,$4,$5,$6::jsonb)',
-        [req.authUser.id, 'partner_inquiry_reconciled', 'partner_service_inquiry', id, note, JSON.stringify({ decision: nextStatus })]
+        [req.authUser.id, 'partner_inquiry_reconciled', 'partner_service_inquiry', id, note, JSON.stringify({ decision: nextStatus, providerMessageId: changed.rows[0].providerMessageId })]
       );
       return { inquiry: changed.rows[0] };
     });
