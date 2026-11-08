@@ -4466,9 +4466,21 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
         [req.authUser.id]
       );
       const requester = activeRequester.rows[0];
-      if (!requester || requester.status !== 'active') return { inactiveRequester: true };
+      if (!requester || requester.status !== 'active') {
+        if (existing) await client.query(
+          "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'requester_inactive_before_delivery', updated_at = NOW() WHERE id = $1 AND delivery_status IN ('pending', 'failed')",
+          [existing.id]
+        );
+        return { inactiveRequester: true };
+      }
       if (!requester.email_verified_at || requester.email !== requesterEmail ||
-          (existing && existing.requesterEmail !== requesterEmail)) return { unverifiedContact: true };
+          (existing && existing.requesterEmail !== requesterEmail)) {
+        if (existing) await client.query(
+          "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'requester_contact_changed_before_delivery', updated_at = NOW() WHERE id = $1 AND delivery_status IN ('pending', 'failed')",
+          [existing.id]
+        );
+        return { unverifiedContact: true };
+      }
       const match = await client.query(
         "SELECT id FROM matches WHERE id = $1 AND status = 'active' AND (user_a_id = $2 OR user_b_id = $2) FOR SHARE",
         [matchId, req.authUser.id]
