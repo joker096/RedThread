@@ -1,3 +1,11 @@
+function requireProviderMessageId(providerResult) {
+  const value = providerResult?.providerMessageId;
+  if (typeof value !== 'string' || value.trim().length < 1 || value.trim().length > 255) {
+    throw new Error('email_provider_message_id_missing_or_invalid');
+  }
+  return value.trim();
+}
+
 export const PENDING_PARTNER_INQUIRIES_SQL = `
   SELECT inquiry.id, inquiry.requester_name AS "requesterName",
          inquiry.requester_email AS "requesterEmail",
@@ -181,8 +189,7 @@ export async function deliverPendingPartnerInquiries(pool, sendEmail, options = 
           '<p><strong>Сообщение:</strong></p><p>' + escapeHtml(inquiry.requestNote).replace(/\n/g, '<br>') + '</p>' +
           '<p>Данные второго участника совпадения, переписка и результаты совместимости не передаются.</p>'
       });
-      providerMessageId = typeof providerResult?.providerMessageId === 'string' &&
-        providerResult.providerMessageId.length <= 255 ? providerResult.providerMessageId : null;
+      providerMessageId = requireProviderMessageId(providerResult);
     } catch {
       // The provider outcome is ambiguous. Move out of the active-send state before
       // exposing the row to moderator reconciliation; never retry automatically.
@@ -254,8 +261,7 @@ export async function deliverClaimedPartnerInquiry(pool, sendEmail, inquiryId, e
   let providerMessageId = null;
   try {
     const providerResult = await sendEmail(emailPayload);
-    providerMessageId = typeof providerResult?.providerMessageId === 'string' &&
-      providerResult.providerMessageId.length <= 255 ? providerResult.providerMessageId : null;
+    providerMessageId = requireProviderMessageId(providerResult);
   } catch {
     try {
       await pool.query(
