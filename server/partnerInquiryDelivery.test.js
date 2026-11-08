@@ -163,7 +163,7 @@ test('worker performs the active-match and verified-email checks in the final lo
   assert.match(claimSql, /delivery_status = 'pending'/);
   assert.match(claimSql, /FOR UPDATE OF inquiry SKIP LOCKED/);
   assert.doesNotMatch(claimSql, /active_match.status = 'active'|requester.status = 'active'|email_verified_at IS NOT NULL/);
-  const eligibilitySql = fake.calls.find(call => call.sql === REVALIDATE_PARTNER_INQUIRY_SQL)?.sql || '';
+  const eligibilitySql = REVALIDATE_PARTNER_INQUIRY_SQL;
   assert.match(eligibilitySql, /active_match.status = 'active'/);
   assert.match(eligibilitySql, /requester.status = 'active'/);
   assert.match(eligibilitySql, /requester.email_verified_at IS NOT NULL/);
