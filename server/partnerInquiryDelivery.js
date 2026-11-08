@@ -14,20 +14,12 @@ export const PENDING_PARTNER_INQUIRIES_SQL = `
   FROM partner_service_inquiries inquiry
   JOIN partner_service_applications application
     ON application.id = inquiry.application_id
-   AND application.status = 'approved'
-   AND application.published_at IS NOT NULL
   JOIN matches active_match
     ON active_match.id = inquiry.match_id
-   AND active_match.status = 'active'
    AND (active_match.user_a_id = inquiry.requested_by OR active_match.user_b_id = inquiry.requested_by)
   JOIN users requester
     ON requester.id = inquiry.requested_by
-   AND requester.status = 'active'
-   AND requester.email_verified_at IS NOT NULL
-   AND LOWER(BTRIM(requester.email)) = inquiry.requester_email
   WHERE inquiry.delivery_status = 'pending'
-    AND inquiry.contact_consent_at IS NOT NULL
-    AND inquiry.contact_consent_version = 'partner-inquiry-v1'
   ORDER BY inquiry.created_at ASC
   LIMIT $1
   FOR UPDATE OF inquiry SKIP LOCKED
