@@ -36,7 +36,7 @@ test('partner retention cleanup removes inquiries before stale applications in o
   assert.doesNotMatch(fake.calls[1].sql, /status = 'approved' AND published_at IS NOT NULL/,
     'inquiry cleanup must preserve inquiries for published applications');
   assert.deepEqual(fake.calls[1].values, [180, 180, 365]);
-  assert.match(fake.calls[2].sql, /NOT EXISTS \([\\s\\S]*delivery_status = 'sending'/,
+  assert.match(fake.calls[2].sql, /NOT EXISTS \([\s\S]*delivery_status = 'sending'/,
     'applications with an ambiguous in-flight delivery must be retained');
   assert.match(fake.calls[2].sql, /status = 'rejected'/);
   assert.match(fake.calls[2].sql, /status IN \('pending', 'in_review'\)/);
