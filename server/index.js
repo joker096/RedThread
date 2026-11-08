@@ -4501,12 +4501,15 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
           '<p>Данные второго участника совпадения, переписка и результаты совместимости не передаются.</p>'
       });
     } catch (error) {
-      await pool.query(
-        "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'email_delivery_failed', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
-        [row.id]
-      ).catch(() => {});
-      console.warn('Partner service inquiry delivery failed:', error?.message || 'unknown error');
-      return res.status(502).json({ error: 'partner_contact_temporarily_unavailable', inquiryId: row.id });
+      // A transport exception is ambiguous: the provider may have accepted the
+      // message before the response was lost. Keep "sending" for moderator
+      // reconciliation and never make this inquiry eligible for automatic retry.
+      console.warn('Partner service inquiry delivery outcome requires reconciliation:', error?.message || 'unknown error');
+      return res.status(202).json({
+        inquiryId: row.id,
+        sent: false,
+        deliveryStatus: 'reconciliation_pending'
+      });
     }
     try {
       await pool.query(
