@@ -38,10 +38,14 @@ const sample = {
 test('pending partner inquiries are claimed with row locks and sent with a stable idempotency key', async () => {
   const fake = fakePool([sample]);
   const emails = [];
-  const result = await deliverPendingPartnerInquiries(fake.pool, async payload => emails.push(payload));
+  const result = await deliverPendingPartnerInquiries(fake.pool, async payload => {
+    emails.push(payload);
+    return { providerMessageId: 'resend_msg_123' };
+  });
   assert.deepEqual(result, { claimed: 1, sent: 1, failed: 0, reconciliationPending: 0 });
   assert.match(fake.calls[1].sql, /FOR UPDATE OF inquiry SKIP LOCKED/);
-  assert.match(fake.calls[1].sql, /FOR SHARE OF application, active_match, requester/);
+  assert.match(fake.calls[1].sql, /FOR SHARE OF application/);
+  assert.doesNotMatch(fake.calls[1].sql, /FOR SHARE OF active_match|FOR SHARE OF requester/);
   assert.match(fake.calls[1].sql, /JOIN matches active_match[\s\S]*active_match.status = 'active'/);
   assert.match(fake.calls[1].sql, /JOIN users requester[\s\S]*requester.status = 'active'[\s\S]*email_verified_at IS NOT NULL/);
   assert.match(fake.calls[1].sql, /LOWER\(BTRIM\(requester.email\)\) = inquiry.requester_email/);
@@ -53,6 +57,8 @@ test('pending partner inquiries are claimed with row locks and sent with a stabl
   assert.match(emails[0].html, /&lt;User&gt;/);
   assert.match(emails[0].html, /person@example\.test/);
   assert.match(fake.calls.at(-1).sql, /delivery_status = 'sent'/);
+  assert.match(fake.calls.at(-1).sql, /provider_message_id = \$2/);
+  assert.deepEqual(fake.calls.at(-1).values, [sample.id, 'resend_msg_123']);
 });
 
 test('transport errors remain sending because provider acceptance is ambiguous', async () => {
@@ -149,12 +155,12 @@ test('synchronous API delivery marks sent only after provider acceptance and dat
     }
   };
   const result = await (await import('./partnerInquiryDelivery.js')).deliverClaimedPartnerInquiry(
-    pool, async () => {}, sample.id, { idempotencyKey: 'partner-service-inquiry/' + sample.id }
+    pool, async () => ({ providerMessageId: 'resend_msg_sync_123' }), sample.id, { idempotencyKey: 'partner-service-inquiry/' + sample.id }
   );
-  assert.deepEqual(result, { sent: true, emailProviderAccepted: true, deliveryStatus: 'sent' });
+  assert.deepEqual(result, { sent: true, emailProviderAccepted: true, providerMessageId: 'resend_msg_sync_123', deliveryStatus: 'sent' });
   assert.equal(calls.length, 1);
   assert.match(calls[0].sql, /delivery_status = 'sent'/);
-  assert.deepEqual(calls[0].values, [sample.id]);
+  assert.deepEqual(calls[0].values, [sample.id, 'resend_msg_sync_123']);
 });
 
 test('synchronous API never reports sent when provider acceptance cannot be persisted', async () => {
@@ -165,16 +171,16 @@ test('synchronous API never reports sent when provider acceptance cannot be pers
     return { rowCount: 1 };
   } };
   const result = await (await import('./partnerInquiryDelivery.js')).deliverClaimedPartnerInquiry(
-    pool, async () => {}, sample.id, {}
+    pool, async () => ({ providerMessageId: 'resend_msg_ambiguous_123' }), sample.id, {}
   );
-  assert.deepEqual(result, { sent: false, emailProviderAccepted: true, deliveryStatus: 'reconciliation_required' });
+  assert.deepEqual(result, { sent: false, emailProviderAccepted: true, providerMessageId: 'resend_msg_ambiguous_123', deliveryStatus: 'reconciliation_required' });
   assert.equal(updates, 2, 'a failed sent-state write must attempt a fail-closed reconciliation transition');
 });
 
 test('synchronous API does not overwrite a row that is no longer actively sending', async () => {
   const pool = { async query() { return { rowCount: 0 }; } };
   const result = await (await import('./partnerInquiryDelivery.js')).deliverClaimedPartnerInquiry(
-    pool, async () => {}, sample.id, {}
+    pool, async () => ({ providerMessageId: 'resend_msg_ambiguous_123' }), sample.id, {}
   );
-  assert.deepEqual(result, { sent: false, emailProviderAccepted: true, deliveryStatus: 'reconciliation_required' });
+  assert.deepEqual(result, { sent: false, emailProviderAccepted: true, providerMessageId: 'resend_msg_ambiguous_123', deliveryStatus: 'reconciliation_required' });
 });

@@ -13,6 +13,8 @@ test('pending inquiry claim query is valid against the migrated PostgreSQL schem
   try {
     const result = await pool.query('EXPLAIN ' + PENDING_PARTNER_INQUIRIES_SQL, [1]);
     assert.ok(result.rows.length > 0, 'PostgreSQL must plan the pending inquiry claim query');
+    const providerMessageColumn = await pool.query('SELECT provider_message_id FROM partner_service_inquiries LIMIT 0');
+    assert.equal(providerMessageColumn.rowCount, 0, 'migration 221 must add the provider message ID audit field');
   } finally {
     await pool.end();
   }
