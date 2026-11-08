@@ -9,6 +9,7 @@ import {
 type ServiceCategory = 'all' | 'legal' | 'dress' | 'photo' | 'host' | 'venue' | 'beauty' | 'cafe' | 'transport' | 'other';
 type PublishedPartner = { id: string; category: string; businessName: string; country: string; city: string; website: string; serviceDescription: string; priceFrom: string | number | null; priceCurrency: string; serviceLanguages: string[]; availabilityNote: string; publishedAt: string };
 type CountryCode = 'GE' | 'RU' | 'KZ' | 'AM';
+type OwnPartnerInquiry = { id: string; applicationId: string; matchId: string; businessName: string; deliveryStatus: string; serviceDate: string | null; createdAt: string; updatedAt: string };
 
 const categories: Array<{ id: ServiceCategory; ru: string; en: string; icon: React.ElementType }> = [
   { id: 'all', ru: 'Все услуги', en: 'All services', icon: HeartHandshake },
@@ -44,6 +45,8 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
   const [country, setCountry] = useState<CountryCode>('GE');
 
   const [publishedPartners, setPublishedPartners] = useState<PublishedPartner[]>([]);
+  const [myInquiries, setMyInquiries] = useState<OwnPartnerInquiry[]>([]);
+  const [myInquiriesError, setMyInquiriesError] = useState('');
   const [partnersLoading, setPartnersLoading] = useState(false);
   const [partnersError, setPartnersError] = useState('');
   const [inquiryProvider, setInquiryProvider] = useState<PublishedPartner | null>(null);
@@ -57,6 +60,27 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
   const [inquiryStatus, setInquiryStatus] = useState('');
   const inquiryRequestKey = useRef<string | null>(null);
   const inquiryMatchId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isOpen) return;
+    const controller = new AbortController();
+    fetch('/api/partner-service-inquiries/mine', { credentials: 'include', signal: controller.signal })
+      .then(async response => {
+        const data = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(tr('Не удалось загрузить ваши запросы.', 'Could not load your requests.'));
+        return Array.isArray(data?.inquiries) ? data.inquiries as OwnPartnerInquiry[] : [];
+      })
+      .then(rows => {
+        if (!controller.signal.aborted) {
+          setMyInquiries(rows);
+          setMyInquiriesError('');
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setMyInquiriesError(tr('История запросов временно недоступна.', 'Your request history is temporarily unavailable.'));
+      });
+    return () => controller.abort();
+  }, [isOpen, locale]);
+
   useEffect(() => {
     // A submitted request is immutable until the server confirms its outcome.
     // Keep its original match/key/payload if the selected match changes.
@@ -270,6 +294,42 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
     }
   };
 
+  const cancelSavedInquiry = async (id: string) => {
+    if (inquiryBusy) return;
+    if (!window.confirm(tr('Отменить сохранённый запрос? Письмо ещё не принято почтовым сервисом.', 'Cancel the saved request? The email has not been accepted by the mail provider.'))) return;
+    setInquiryBusy(true);
+    try {
+      const response = await fetch('/api/partner-service-inquiries/' + encodeURIComponent(id) + '/cancel', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(response.status === 409
+        ? tr('Отмена уже невозможна: отправка началась или требует сверки.', 'Cancellation is no longer possible: sending started or requires reconciliation.')
+        : tr('Не удалось отменить запрос. Обновите историю и попробуйте ещё раз.', 'Could not cancel the request. Refresh the history and try again.'));
+      setMyInquiries(current => current.map(item => item.id === id ? { ...item, deliveryStatus: 'cancelled' } : item));
+      if (inquiryId === id) {
+        setInquiryStatus(tr('Запрос отменён. Письмо поставщику не отправлялось.', 'The request was cancelled. No email was sent to the provider.'));
+        setInquiryId(null);
+        setInquiryDeliveryStatus('');
+        setInquiryLocked(false);
+        inquiryRequestKey.current = null;
+        inquiryMatchId.current = null;
+      }
+    } catch (error) {
+      setInquiryStatus(error instanceof Error ? error.message : tr('Не удалось отменить запрос.', 'Could not cancel the request.'));
+      const refreshResponse = await fetch('/api/partner-service-inquiries/mine', { credentials: 'include' }).catch(() => null);
+      if (refreshResponse?.ok) {
+        const data = await refreshResponse.json().catch(() => null);
+        if (Array.isArray(data?.inquiries)) setMyInquiries(data.inquiries);
+      }
+    } finally {
+      setInquiryBusy(false);
+    }
+  };
+
   const isLegal = category === 'legal';
   return (
     <div className="vow-modal-backdrop fixed inset-0 z-[70] bg-stone-950/90 backdrop-blur-md overflow-y-auto p-2 sm:p-5" role="dialog" aria-modal="true" aria-labelledby="partner-services-title" aria-describedby="partner-services-description">
@@ -347,6 +407,24 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                 </article>;
               })}
             </div>}
+          </section>
+
+          <section className="mt-5 rounded-2xl border border-white/10 bg-stone-950/60 p-4" aria-labelledby="my-partner-inquiries-title">
+            <div className="flex items-center justify-between gap-2">
+              <h3 id="my-partner-inquiries-title" className="text-sm font-bold text-white">{tr('Мои запросы поставщикам', 'My provider requests')}</h3>
+              <span className="text-[10px] text-stone-500">{myInquiries.length}</span>
+            </div>
+            {myInquiriesError && <p role="status" className="mt-2 text-xs text-amber-200">{myInquiriesError}</p>}
+            {!myInquiriesError && myInquiries.length === 0 && <p className="mt-2 text-xs text-stone-400">{tr('Сохранённых запросов пока нет.', 'You have no saved requests yet.')}</p>}
+            <div className="mt-2 space-y-2">
+              {myInquiries.map(item => <article key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/5 p-3">
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-semibold text-stone-100">{item.businessName}</p>
+                  <p className="mt-1 text-[10px] text-stone-400">{tr('Создан:', 'Created:')} {new Date(item.createdAt).toLocaleDateString(locale === 'ru' ? 'ru-RU' : 'en-US')} · {tr('Статус:', 'Status:')} {item.deliveryStatus === 'pending' ? tr('в очереди', 'queued') : item.deliveryStatus === 'sending' ? tr('отправляется', 'sending') : item.deliveryStatus === 'sent' ? tr('принято почтовым сервисом', 'accepted by mail provider') : item.deliveryStatus === 'failed' ? tr('не отправлено', 'not sent') : item.deliveryStatus === 'cancelled' ? tr('отменено', 'cancelled') : tr('требуется сверка', 'reconciliation required')}</p>
+                </div>
+                {['pending', 'failed'].includes(item.deliveryStatus) && <button type="button" onClick={() => void cancelSavedInquiry(item.id)} disabled={inquiryBusy} className="min-h-11 rounded-lg border border-rose-500/40 px-3 py-2 text-[10px] text-rose-200 disabled:opacity-50">{tr('Отозвать согласие / отменить', 'Withdraw consent / cancel')}</button>}
+              </article>)}
+            </div>
           </section>
 
           {inquiryStatus && <p role="status" aria-live="polite" className="mt-4 rounded-xl border border-emerald-700/30 bg-emerald-950/20 p-3 text-sm text-emerald-100">{inquiryStatus}</p>}
