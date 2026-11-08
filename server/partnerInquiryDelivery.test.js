@@ -135,6 +135,14 @@ test('manual recovery only moves sending rows after an explicit operator action 
   assert.doesNotMatch(RECOVER_PARTNER_INQUIRY_SQL, /INTERVAL|updated_at\s*</i);
 });
 
+test('requester inquiry history exposes only the request owner and non-sensitive provider/status fields', () => {
+  assert.match(MY_PARTNER_INQUIRIES_SQL, /WHERE inquiry.requested_by = \\$1/);
+  assert.match(MY_PARTNER_INQUIRIES_SQL, /application.business_name AS "businessName"/);
+  assert.match(MY_PARTNER_INQUIRIES_SQL, /delivery_status AS "deliveryStatus"/);
+  assert.doesNotMatch(MY_PARTNER_INQUIRIES_SQL, /requester_email|requester_name|contact_email|request_note|review_note/);
+  assert.match(MY_PARTNER_INQUIRIES_SQL, /LIMIT 50/);
+});
+
 test('requester cancellation can only change an unaccepted pending or failed inquiry', () => {
   assert.ok(CANCEL_PARTNER_INQUIRY_SQL.includes("delivery_status IN ('pending', 'failed')"));
   assert.ok(CANCEL_PARTNER_INQUIRY_SQL.includes('provider_message_id IS NULL'));
