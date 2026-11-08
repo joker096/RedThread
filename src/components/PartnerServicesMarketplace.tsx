@@ -173,10 +173,23 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
         })
       });
       const data = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(response.status === 401 ? tr('Войдите в аккаунт, чтобы отправить запрос.', 'Sign in to send a request.') :
-        response.status === 403 && data?.error === 'verified_contact_required' ? tr('Подтвердите email в аккаунте, чтобы передать поставщику проверенный адрес.', 'Verify your account email before sharing it with a provider.') :
-        response.status === 503 || response.status === 502 ? tr('Связь с поставщиком временно недоступна. Попробуйте позже.', 'Provider contact is temporarily unavailable. Please try again later.') :
-        tr('Не удалось отправить запрос. Проверьте данные и попробуйте ещё раз.', 'Could not submit the request. Check the details and try again.'));
+      if (!response.ok) {
+        const safeToEditAndStartANewRequest = response.status === 400 ||
+          (response.status === 403 && data?.error === 'verified_contact_required') ||
+          (response.status === 404 && ['active_match_not_found', 'published_partner_not_found'].includes(data?.error));
+        if (safeToEditAndStartANewRequest) {
+          // These responses are returned before a new provider handoff can begin.
+          // Clear the unused key so the user can correct the form or choose a new match.
+          inquiryRequestKey.current = null;
+          inquiryMatchId.current = null;
+          setInquiryLocked(false);
+        }
+        throw new Error(response.status === 401 ? tr('Войдите в аккаунт, чтобы отправить запрос.', 'Sign in to send a request.') :
+          response.status === 403 && data?.error === 'verified_contact_required' ? tr('Подтвердите email в аккаунте, чтобы передать поставщику проверенный адрес.', 'Verify your account email before sharing it with a provider.') :
+          response.status === 404 ? tr('Совпадение или карточка поставщика больше недоступны. Выберите актуальное совпадение или услугу.', 'The match or provider listing is no longer available. Choose an active match or listing.') :
+          response.status === 503 || response.status === 502 ? tr('Связь с поставщиком временно недоступна. Попробуйте позже.', 'Provider contact is temporarily unavailable. Please try again later.') :
+          tr('Не удалось отправить запрос. Проверьте данные и попробуйте ещё раз.', 'Could not submit the request. Check the details and try again.'));
+      }
       if (data?.sent === true && data?.deliveryStatus === 'sent') {
         setInquiryStatus(tr('Почтовый сервис принял письмо к обработке. Это не подтверждает доставку поставщику.', 'The email service accepted the message for processing. This does not confirm delivery to the service provider.'));
         setInquiryProvider(null);
