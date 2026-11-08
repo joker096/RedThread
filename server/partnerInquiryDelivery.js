@@ -100,7 +100,96 @@ export const REVALIDATE_PARTNER_INQUIRY_SQL = `
     AND inquiry.delivery_status = 'sending'
     AND inquiry.contact_consent_at IS NOT NULL
     AND inquiry.contact_consent_version = 'partner-inquiry-v1'
-`;
+  FOexport async function deliverClaimedPartnerInquiry(pool, sendEmail, inquiryId, emailPayload) {
+  if (!pool || typeof pool.connect !== 'function' || typeof pool.query !== 'function') {
+    throw new TypeError('A PostgreSQL pool is required.');
+  }
+  if (typeof sendEmail !== 'function') throw new TypeError('An email delivery function is required.');
+  if (typeof inquiryId !== 'string' || !inquiryId) throw new TypeError('An inquiry ID is required.');
+
+  let client;
+  let transactionOpen = false;
+  let providerCallStarted = false;
+  let providerAccepted = false;
+  let providerMessageId = null;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    transactionOpen = true;
+
+    // Hold locks on the inquiry, match, requester and provider until the
+    // provider call has finished. Status changes cannot race the actual send.
+    const eligibility = await client.query(REVALIDATE_PARTNER_INQUIRY_SQL, [inquiryId]);
+    if (eligibility.rowCount !== 1) {
+      await client.query(
+        "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'eligibility_lost_before_provider_call', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
+        [inquiryId]
+      );
+      await client.query('COMMIT');
+      transactionOpen = false;
+      return { sent: false, emailProviderAccepted: false, deliveryStatus: 'failed' };
+    }
+
+    providerCallStarted = true;
+    let providerResult;
+    try {
+      providerResult = await sendEmail(emailPayload);
+      providerMessageId = requireProviderMessageId(providerResult);
+      providerAccepted = true;
+    } catch {
+      await client.query(
+        "UPDATE partner_service_inquiries SET delivery_status = 'reconciliation_required', delivery_error = 'provider_outcome_ambiguous', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
+        [inquiryId]
+      );
+      await client.query('COMMIT');
+      transactionOpen = false;
+      return { sent: false, emailProviderAccepted: null, deliveryStatus: 'reconciliation_required' };
+    }
+
+    const updated = await client.query(
+      "UPDATE partner_service_inquiries SET delivery_status = 'sent', delivered_at = NOW(), provider_message_id = $2, delivery_error = '', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending' RETURNING id",
+      [inquiryId, providerMessageId]
+    );
+    if (updated.rowCount !== 1) throw new Error('partner_inquiry_sent_state_not_persisted');
+
+    await client.query('COMMIT');
+    transactionOpen = false;
+    return { sent: true, emailProviderAccepted: true, providerMessageId, deliveryStatus: 'sent' };
+  } catch {
+    if (client && transactionOpen) {
+      await client.query('ROLLBACK').catch(() => {});
+      transactionOpen = false;
+    }
+
+    if (providerCallStarted) {
+      try {
+        await pool.query(
+          "UPDATE partner_service_inquiries SET delivery_status = 'reconciliation_required', provider_message_id = COALESCE(provider_message_id, $2), delivery_error = 'provider_accepted_status_unknown', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
+          [inquiryId, providerAccepted ? providerMessageId : null]
+        );
+      } catch { /* Keep sending fail-closed if storage is unavailable. */ }
+      return {
+        sent: false,
+        emailProviderAccepted: providerAccepted ? true : null,
+        ...(providerMessageId ? { providerMessageId } : {}),
+        deliveryStatus: 'reconciliation_required'
+      };
+    }
+
+    try {
+      const blocked = await pool.query(
+        "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'eligibility_recheck_failed_before_provider_call', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending' RETURNING id",
+        [inquiryId]
+      );
+      if (blocked.rowCount === 1) {
+        return { sent: false, emailProviderAccepted: false, deliveryStatus: 'failed' };
+      }
+    } catch { /* If the database is unavailable, retain the non-retryable sending claim. */ }
+    return { sent: false, emailProviderAccepted: false, deliveryStatus: 'reconciliation_required' };
+  } finally {
+    client?.release();
+  }
+}
 
 export async function deliverPendingPartnerInquiries(pool, sendEmail, options = {}) {
   const limit = options.limit ?? 10;
@@ -136,37 +225,6 @@ export async function deliverPendingPartnerInquiries(pool, sendEmail, options = 
   let failed = 0;
   let reconciliationPending = 0;
   for (const inquiry of inquiries) {
-    let eligibility;
-    try {
-      eligibility = await pool.query(REVALIDATE_PARTNER_INQUIRY_SQL, [inquiry.id]);
-    } catch {
-      try {
-        const blocked = await pool.query(
-          "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'eligibility_recheck_failed_before_provider_call', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending' RETURNING id",
-          [inquiry.id]
-        );
-        if (blocked.rowCount === 1) failed += 1;
-        else reconciliationPending += 1;
-      } catch {
-        reconciliationPending += 1;
-      }
-      continue;
-    }
-    if (eligibility.rowCount !== 1) {
-      try {
-        const blocked = await pool.query(
-          "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'eligibility_lost_before_provider_call', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending' RETURNING id",
-          [inquiry.id]
-        );
-        if (blocked.rowCount === 1) failed += 1;
-        else reconciliationPending += 1;
-      } catch {
-        reconciliationPending += 1;
-      }
-      continue;
-    }
-
-
     const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({
       '&': '&amp;',
       '<': '&lt;',
@@ -177,117 +235,19 @@ export async function deliverPendingPartnerInquiries(pool, sendEmail, options = 
     const dateLine = inquiry.serviceDate
       ? '<p><strong>Желаемая дата:</strong> ' + escapeHtml(inquiry.serviceDate) + '</p>'
       : '';
-    let providerMessageId = null;
-    try {
-      const providerResult = await sendEmail({
-        to: inquiry.contactEmail,
-        idempotencyKey: 'partner-service-inquiry/' + inquiry.id,
-        subject: 'Новый запрос по услуге в Vow',
-        html: '<h2>Запрос предложения</h2><p>Пользователь дал согласие передать поставщику своё имя, email и текст запроса.</p>' +
-          '<p><strong>Имя:</strong> ' + escapeHtml(inquiry.requesterName) + '</p>' +
-          '<p><strong>Email:</strong> ' + escapeHtml(inquiry.requesterEmail) + '</p>' + dateLine +
-          '<p><strong>Сообщение:</strong></p><p>' + escapeHtml(inquiry.requestNote).replace(/\n/g, '<br>') + '</p>' +
-          '<p>Данные второго участника совпадения, переписка и результаты совместимости не передаются.</p>'
-      });
-      providerMessageId = requireProviderMessageId(providerResult);
-    } catch {
-      // The provider outcome is ambiguous. Move out of the active-send state before
-      // exposing the row to moderator reconciliation; never retry automatically.
-      try {
-        await pool.query(
-          "UPDATE partner_service_inquiries SET delivery_status = 'reconciliation_required', delivery_error = 'provider_outcome_ambiguous', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
-          [inquiry.id]
-        );
-      } catch { /* Leave sending fail-closed if the database is unavailable. */ }
-      reconciliationPending += 1;
-      continue;
-    }
-    try {
-      const updated = await pool.query(
-        "UPDATE partner_service_inquiries SET delivery_status = 'sent', delivered_at = NOW(), provider_message_id = $2, delivery_error = '', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending' RETURNING id",
-        [inquiry.id, providerMessageId]
-      );
-      if (updated.rowCount !== 1) {
-        reconciliationPending += 1;
-        continue;
-      }
-      sent += 1;
-    } catch {
-      // Provider accepted the email, but persistence is uncertain. Best-effort
-      // transition prevents reconciliation from racing an active provider call.
-      try {
-        await pool.query(
-          "UPDATE partner_service_inquiries SET delivery_status = 'reconciliation_required', provider_message_id = COALESCE(provider_message_id, $2), delivery_error = 'provider_accepted_status_unknown', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
-          [inquiry.id, providerMessageId]
-        );
-      } catch { /* Leave sending fail-closed if the database is unavailable. */ }
-      reconciliationPending += 1;
-    }
+    const result = await deliverClaimedPartnerInquiry(pool, sendEmail, inquiry.id, {
+      to: inquiry.contactEmail,
+      idempotencyKey: 'partner-service-inquiry/' + inquiry.id,
+      subject: 'Новый запрос по услуге в Vow',
+      html: '<h2>Запрос предложения</h2><p>Пользователь дал согласие передать поставщику своё имя, email и текст запроса.</p>' +
+        '<p><strong>Имя:</strong> ' + escapeHtml(inquiry.requesterName) + '</p>' +
+        '<p><strong>Email:</strong> ' + escapeHtml(inquiry.requesterEmail) + '</p>' + dateLine +
+        '<p><strong>Сообщение:</strong></p><p>' + escapeHtml(inquiry.requestNote).replace(/\n/g, '<br>') + '</p>' +
+        '<p>Данные второго участника совпадения, переписка и результаты совместимости не передаются.</p>'
+    });
+    if (result.deliveryStatus === 'sent') sent += 1;
+    else if (result.deliveryStatus === 'failed') failed += 1;
+    else reconciliationPending += 1;
   }
   return { claimed: inquiries.length, sent, failed, reconciliationPending };
-}
-
-/**
- * Delivers an inquiry already claimed by the synchronous API route.
- * Transport errors are ambiguous: never release the claim for an automatic retry.
- */
-export async function deliverClaimedPartnerInquiry(pool, sendEmail, inquiryId, emailPayload) {
-  if (!pool || typeof pool.query !== 'function') throw new TypeError('A PostgreSQL pool is required.');
-  if (typeof sendEmail !== 'function') throw new TypeError('An email delivery function is required.');
-  if (typeof inquiryId !== 'string' || !inquiryId) throw new TypeError('An inquiry ID is required.');
-
-  let eligibility;
-  try {
-    eligibility = await pool.query(REVALIDATE_PARTNER_INQUIRY_SQL, [inquiryId]);
-  } catch {
-    try {
-      await pool.query(
-        "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'eligibility_recheck_failed_before_provider_call', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
-        [inquiryId]
-      );
-    } catch { /* No provider call was made; preserve the claim if storage is unavailable. */ }
-    return { sent: false, emailProviderAccepted: false, deliveryStatus: 'failed' };
-  }
-  if (eligibility.rowCount !== 1) {
-    try {
-      await pool.query(
-        "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'eligibility_lost_before_provider_call', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
-        [inquiryId]
-      );
-    } catch { /* No provider call was made; preserve the claim if storage is unavailable. */ }
-    return { sent: false, emailProviderAccepted: false, deliveryStatus: 'failed' };
-  }
-
-  let providerMessageId = null;
-  try {
-    const providerResult = await sendEmail(emailPayload);
-    providerMessageId = requireProviderMessageId(providerResult);
-  } catch {
-    try {
-      await pool.query(
-        "UPDATE partner_service_inquiries SET delivery_status = 'reconciliation_required', delivery_error = 'provider_outcome_ambiguous', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
-        [inquiryId]
-      );
-    } catch { /* Preserve the non-retryable sending state if persistence is unavailable. */ }
-    return { sent: false, emailProviderAccepted: null, deliveryStatus: 'reconciliation_required' };
-  }
-
-  try {
-    const updated = await pool.query(
-      "UPDATE partner_service_inquiries SET delivery_status = 'sent', delivered_at = NOW(), provider_message_id = $2, delivery_error = '', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending' RETURNING id",
-      [inquiryId, providerMessageId]
-    );
-    if (updated.rowCount !== 1) {
-      return { sent: false, emailProviderAccepted: true, providerMessageId, deliveryStatus: 'reconciliation_required' };
-    }
-  } catch {
-    try {
-      await pool.query(
-        "UPDATE partner_service_inquiries SET delivery_status = 'reconciliation_required', provider_message_id = COALESCE(provider_message_id, $2), delivery_error = 'provider_accepted_status_unknown', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
-        [inquiryId, providerMessageId]
-      );
-    } catch { /* Keep the claim fail-closed if the database is unavailable. */ }
-    return { sent: false, emailProviderAccepted: true, providerMessageId, deliveryStatus: 'reconciliation_required' };
-  }
-  return { sent: true, emailProviderAccepted: true, providerMessageId, deliveryStatus: 'sent' };
 }
