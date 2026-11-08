@@ -6,7 +6,7 @@ type AuditEntry={id:string;moderatorId:string|null;action:string;targetType:stri
 type PendingPhoto={id:string;userId:string;displayName:string;mimeType:string;width:number;height:number;createdAt:string};
 type PendingL3={submissionId:string;applicantReference:string;uploadedAt:string;mimeType:'video/mp4'|'video/webm';sizeBytes:number;durationSeconds:number;processingAttempts:number};
 type PartnerApplication={id:string;category:string;businessName:string;contactName:string;contactEmail:string;country:string;city:string;website:string;serviceDescription:string;priceFrom:number|string|null;priceCurrency:string;serviceLanguages:string[];availabilityNote:string;status:string;reviewNote:string;publishedAt:string|null};
-type PartnerInquiry={id:string;businessName:string;providerEmail:string;deliveryStatus:string;deliveryAttempts:number;deliveryError:string;providerMessageId:string|null;createdAt:string;updatedAt:string;deliveredAt:string|null};
+type PartnerInquiry={id:string;businessName:string;providerEmail:string;deliveryStatus:string;deliveryAttempts:number;deliveryError:string;providerMessageId:string|null;contactConsentVersion:string|null;createdAt:string;updatedAt:string;deliveredAt:string|null};
 
 export const ModeratorConsolePanel:React.FC=()=>{
  const {locale}=useLocale();const tr=(ru:string,en:string)=>locale==='ru'?ru:en;
@@ -123,6 +123,7 @@ export const ModeratorConsolePanel:React.FC=()=>{
     <p className="mt-1 text-[10px] text-stone-400">{tr('Статус','Status')}: {item.deliveryStatus} · {tr('попыток','attempts')}: {item.deliveryAttempts}</p>
     {item.deliveryError&&<p className="mt-1 text-[10px] text-amber-200">{item.deliveryError}</p>}
     {item.providerMessageId&&<p className="mt-1 break-all font-mono text-[10px] text-emerald-200">{tr('ID письма Resend','Resend message ID')}: {item.providerMessageId}</p>}
+    {item.contactConsentVersion&&<p className="mt-1 text-[10px] text-stone-500">{tr('Версия согласия','Consent version')}: {item.contactConsentVersion}</p>}
     <p className="mt-1 text-[10px] text-stone-500">{tr('Обновлено','Updated')}: {new Date(item.updatedAt).toLocaleString(locale)}</p>
     {item.deliveryStatus==='sending'&&<p className="mt-2 text-xs text-amber-200">{tr('Вызов почтового сервиса ещё не завершён. Сверка заблокирована, чтобы не допустить гонку с активной отправкой.','The email-provider call has not completed. Reconciliation is blocked to prevent a race with an active send.')}</p>}
     {item.deliveryStatus==='reconciliation_required'&&<div className="mt-2 space-y-2">

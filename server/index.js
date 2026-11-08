@@ -4482,8 +4482,8 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
       if (existing) return { inquiry: existing, provider: provider.rows[0], duplicate: true };
 
       const inserted = await client.query(
-        'INSERT INTO partner_service_inquiries (application_id, match_id, requested_by, request_key, requester_name, requester_email, service_date, request_note, contact_consent_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW()) ON CONFLICT (requested_by, request_key) DO NOTHING RETURNING id, application_id AS "applicationId", match_id AS "matchId", service_date AS "serviceDate", request_note AS "requestNote", requester_name AS "requesterName", requester_email AS "requesterEmail", delivery_status AS "deliveryStatus"',
-        [applicationId, matchId, req.authUser.id, requestKey, requesterName, requesterEmail, serviceDate, note]
+        'INSERT INTO partner_service_inquiries (application_id, match_id, requested_by, request_key, requester_name, requester_email, service_date, request_note, contact_consent_at, contact_consent_version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW(),$9) ON CONFLICT (requested_by, request_key) DO NOTHING RETURNING id, application_id AS "applicationId", match_id AS "matchId", service_date AS "serviceDate", request_note AS "requestNote", requester_name AS "requesterName", requester_email AS "requesterEmail", delivery_status AS "deliveryStatus"',
+        [applicationId, matchId, req.authUser.id, requestKey, requesterName, requesterEmail, serviceDate, note, 'partner-inquiry-v1']
       );
       if (inserted.rows[0]) return { inquiry: inserted.rows[0], provider: provider.rows[0], duplicate: false };
 
@@ -4555,7 +4555,7 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
 
 app.get('/api/admin/partner-service-inquiries', requireSession, requireDatabase, async (req, res) => {
   const read = await withActiveModeratorRead(req.authUser.id, client => client.query(
-    'SELECT inquiry.id, application.business_name AS "businessName", application.contact_email AS "providerEmail", inquiry.delivery_status AS "deliveryStatus", inquiry.delivery_attempts AS "deliveryAttempts", inquiry.delivery_error AS "deliveryError", inquiry.provider_message_id AS "providerMessageId", inquiry.created_at AS "createdAt", inquiry.updated_at AS "updatedAt", inquiry.delivered_at AS "deliveredAt" ' +
+    'SELECT inquiry.id, application.business_name AS "businessName", application.contact_email AS "providerEmail", inquiry.delivery_status AS "deliveryStatus", inquiry.delivery_attempts AS "deliveryAttempts", inquiry.delivery_error AS "deliveryError", inquiry.provider_message_id AS "providerMessageId", inquiry.contact_consent_version AS "contactConsentVersion", inquiry.created_at AS "createdAt", inquiry.updated_at AS "updatedAt", inquiry.delivered_at AS "deliveredAt" ' +
     'FROM partner_service_inquiries inquiry JOIN partner_service_applications application ON application.id = inquiry.application_id ' +
     "ORDER BY CASE WHEN inquiry.delivery_status IN ('sending', 'reconciliation_required') THEN 0 ELSE 1 END, inquiry.updated_at DESC LIMIT 100"
   ));
