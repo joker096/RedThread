@@ -1947,9 +1947,9 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     // The session-level account-safety lock acquired before Paddle calls is
     // still held by this connection, excluding concurrent account mutations.
     // Serialize partner-request erasure with any in-flight provider call.
-    // The UPDATE waits for the delivery transaction's inquiry row lock; pending
-    // or failed requests are cancelled, while sent/ambiguous outcomes retain
-    // their delivery state and provider evidence but lose requester PII.
+    // The UPDATE waits for the delivery transaction's inquiry row lock; pending,
+    // failed, or still-sending rows with no provider ID are cancelled only after
+    // that lock is acquired. Sent/ambiguous outcomes retain delivery evidence.
     await client.query("SELECT set_config('app.partner_inquiry_account_erasure', 'on', true)");
     await client.query(
       `UPDATE partner_service_inquiries
@@ -1958,16 +1958,16 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
            service_date = NULL,
            request_note = '[запрос удалён пользователем]',
            delivery_status = CASE
-             WHEN delivery_status IN ('pending', 'failed') AND provider_message_id IS NULL THEN 'cancelled'
+             WHEN delivery_status IN ('pending', 'failed', 'sending') AND provider_message_id IS NULL THEN 'cancelled'
              ELSE delivery_status
            END,
            cancelled_at = CASE
-             WHEN delivery_status IN ('pending', 'failed') AND provider_message_id IS NULL
+             WHEN delivery_status IN ('pending', 'failed', 'sending') AND provider_message_id IS NULL
                THEN COALESCE(cancelled_at, statement_timestamp())
              ELSE cancelled_at
            END,
            delivery_error = CASE
-             WHEN delivery_status IN ('pending', 'failed') AND provider_message_id IS NULL
+             WHEN delivery_status IN ('pending', 'failed', 'sending') AND provider_message_id IS NULL
                THEN 'requester_account_deleted'
              ELSE delivery_error
            END,
