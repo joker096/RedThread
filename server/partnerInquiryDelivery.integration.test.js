@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
-import { CLAIM_PARTNER_INQUIRY_SQL, PENDING_PARTNER_INQUIRIES_SQL } from './partnerInquiryDelivery.js';
+import { CANCEL_PARTNER_INQUIRY_SQL, CLAIM_PARTNER_INQUIRY_SQL, PENDING_PARTNER_INQUIRIES_SQL } from './partnerInquiryDelivery.js';
 
 const { Pool } = pg;
 
@@ -15,12 +15,18 @@ test('pending inquiry claim query is valid against the migrated PostgreSQL schem
     assert.ok(result.rows.length > 0, 'PostgreSQL must plan the pending inquiry claim query');
     const claimPlan = await pool.query('EXPLAIN ' + CLAIM_PARTNER_INQUIRY_SQL, ['00000000-0000-4000-8000-000000000001']);
     assert.ok(claimPlan.rows.length > 0, 'PostgreSQL must plan the guarded synchronous inquiry claim query');
+    const cancelPlan = await pool.query('EXPLAIN ' + CANCEL_PARTNER_INQUIRY_SQL, ['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002']);
+    assert.ok(cancelPlan.rows.length > 0, 'PostgreSQL must plan the requester withdrawal query');
     const providerMessageColumn = await pool.query('SELECT provider_message_id, contact_consent_version, cancelled_at FROM partner_service_inquiries LIMIT 0');
-    assert.equal(providerMessageColumn.rowCount, 0, 'migrations 221 and 222 must add provider message and consent audit fields');
+    assert.equal(providerMessageColumn.rowCount, 0, 'migrations 221, 222 and 224 must add provider message, consent and withdrawal audit fields');
     const providerStatusConstraint = await pool.query(
       "SELECT 1 FROM pg_constraint WHERE conname = 'partner_service_inquiry_provider_message_status_valid' AND conrelid = 'partner_service_inquiries'::regclass"
     );
     assert.equal(providerStatusConstraint.rowCount, 1, 'migration 223 must prevent a provider-accepted message from being reconciled as not accepted');
+    const cancelledAtConstraint = await pool.query(
+      "SELECT 1 FROM pg_constraint WHERE conname = 'partner_service_inquiry_cancelled_at_valid' AND conrelid = 'partner_service_inquiries'::regclass"
+    );
+    assert.equal(cancelledAtConstraint.rowCount, 1, 'migration 224 must keep cancelled_at consistent with the cancelled state');
   } finally {
     await pool.end();
   }

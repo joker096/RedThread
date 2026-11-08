@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CLAIM_PARTNER_INQUIRY_SQL, deliverPendingPartnerInquiries } from './partnerInquiryDelivery.js';
+import { CANCEL_PARTNER_INQUIRY_SQL, CLAIM_PARTNER_INQUIRY_SQL, deliverPendingPartnerInquiries } from './partnerInquiryDelivery.js';
 
 function fakePool(rows = [], options = {}) {
   const calls = [];
@@ -99,6 +99,13 @@ test('worker does not count a provider acceptance as sent when the guarded statu
   const fake = fakePool([sample], { sentRowCount: 0 });
   const result = await deliverPendingPartnerInquiries(fake.pool, async () => {});
   assert.deepEqual(result, { claimed: 1, sent: 0, failed: 0, reconciliationPending: 1 });
+});
+
+test('requester cancellation can only change an unaccepted pending or failed inquiry', () => {
+  assert.ok(CANCEL_PARTNER_INQUIRY_SQL.includes("delivery_status IN ('pending', 'failed')"));
+  assert.ok(CANCEL_PARTNER_INQUIRY_SQL.includes('provider_message_id IS NULL'));
+  assert.ok(CANCEL_PARTNER_INQUIRY_SQL.includes("delivery_status = 'cancelled'"));
+  assert.ok(CANCEL_PARTNER_INQUIRY_SQL.includes('cancelled_at = NOW()'));
 });
 
 test('synchronous claim query revalidates published provider, active match and verified requester at send time', () => {

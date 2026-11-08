@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { queuePrivatePhotoPurges } from './photoPurge.js';
 import { cleanupPartnerServiceData, partnerRetentionOptions } from './partnerRetention.js';
-import { CLAIM_PARTNER_INQUIRY_SQL, deliverPendingPartnerInquiries, deliverClaimedPartnerInquiry } from './partnerInquiryDelivery.js';
+import { CANCEL_PARTNER_INQUIRY_SQL, CLAIM_PARTNER_INQUIRY_SQL, deliverPendingPartnerInquiries, deliverClaimedPartnerInquiry } from './partnerInquiryDelivery.js';
 import { normalizePartnerCountry, isPartnerServiceCategory, isPartnerServiceCurrency } from './partnerServicePolicy.js';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
@@ -4594,7 +4594,7 @@ app.post('/api/partner-service-inquiries/:inquiryId/cancel', validateRequestOrig
   try {
     const result = await withPooledTransaction(pool, async client => {
       const changed = await client.query(
-        "UPDATE partner_service_inquiries SET delivery_status = 'cancelled', cancelled_at = NOW(), delivery_error = 'requester_withdrew_consent_before_provider_acceptance', updated_at = NOW() WHERE id = $1 AND requested_by = $2 AND delivery_status IN ('pending', 'failed') AND provider_message_id IS NULL RETURNING id",
+        CANCEL_PARTNER_INQUIRY_SQL,
         [id, req.authUser.id]
       );
       if (changed.rows[0]) return { cancelled: true };

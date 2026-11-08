@@ -25,6 +25,19 @@ export const PENDING_PARTNER_INQUIRIES_SQL = `
 `;
 
 
+export const CANCEL_PARTNER_INQUIRY_SQL = `
+  UPDATE partner_service_inquiries
+  SET delivery_status = 'cancelled',
+      cancelled_at = NOW(),
+      delivery_error = 'requester_withdrew_consent_before_provider_acceptance',
+      updated_at = NOW()
+  WHERE id = $1
+    AND requested_by = $2
+    AND delivery_status IN ('pending', 'failed')
+    AND provider_message_id IS NULL
+  RETURNING id
+`;
+
 export const CLAIM_PARTNER_INQUIRY_SQL = `
   UPDATE partner_service_inquiries AS inquiry
   SET delivery_status = 'sending',
