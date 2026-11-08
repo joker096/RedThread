@@ -69,9 +69,10 @@ test('pending partner inquiries are claimed with row locks and sent with a stabl
   assert.equal(emails[0].idempotencyKey, 'partner-service-inquiry/' + sample.id);
   assert.match(emails[0].html, /&lt;User&gt;/);
   assert.match(emails[0].html, /person@example\.test/);
-  assert.match(fake.calls.at(-1).sql, /delivery_status = 'sent'/);
-  assert.match(fake.calls.at(-1).sql, /provider_message_id = \$2/);
-  assert.deepEqual(fake.calls.at(-1).values, [sample.id, 'resend_msg_123']);
+  const sentUpdate = fake.calls.find(call => call.sql.includes("delivery_status = 'sent'"));
+  assert.ok(sentUpdate);
+  assert.match(sentUpdate.sql, /provider_message_id = \$2/);
+  assert.deepEqual(sentUpdate.values, [sample.id, 'resend_msg_123']);
 });
 
 test('worker does not call the provider when eligibility or explicit consent was revoked after claiming', async () => {
