@@ -96,7 +96,9 @@ test('transport errors remain sending because provider acceptance is ambiguous',
 
 test('database ambiguity after provider acceptance moves out of active sending', async () => {
   const ambiguous = fakePool([sample], { failStatus: true });
-  const second = await deliverPendingPartnerInquiries(ambiguous.pool, async () => {});
+  const second = await deliverPendingPartnerInquiries(ambiguous.pool, async () => ({
+    providerMessageId: 'resend_msg_database_ambiguous_123'
+  }));
   assert.deepEqual(second, { claimed: 1, sent: 0, failed: 0, reconciliationPending: 1 });
 });
 
@@ -233,6 +235,28 @@ test('synchronous API never reports sent when provider acceptance cannot be pers
   assert.equal(calls[0].sql, REVALIDATE_PARTNER_INQUIRY_SQL);
   assert.match(calls[2].sql, /provider_message_id = COALESCE/);
   assert.deepEqual(calls[2].values, [sample.id, 'resend_msg_ambiguous_123']);
+});
+
+test('worker treats a successful provider response without a message ID as ambiguous', async () => {
+  const fake = fakePool([sample]);
+  const result = await deliverPendingPartnerInquiries(fake.pool, async () => ({ providerMessageId: '   ' }));
+  assert.deepEqual(result, { claimed: 1, sent: 0, failed: 0, reconciliationPending: 1 });
+  assert.ok(fake.calls.some(call => call.sql.includes("delivery_status = 'reconciliation_required'")));
+  assert.equal(fake.calls.some(call => call.sql.includes("delivery_status = 'sent'")), false);
+});
+
+test('synchronous API requires a provider message ID before recording acceptance', async () => {
+  const calls = [];
+  const pool = { async query(sql, values) {
+    calls.push({ sql, values });
+    return { rowCount: 1 };
+  } };
+  const result = await (await import('./partnerInquiryDelivery.js')).deliverClaimedPartnerInquiry(
+    pool, async () => ({ providerMessageId: '' }), sample.id, {}
+  );
+  assert.deepEqual(result, { sent: false, emailProviderAccepted: null, deliveryStatus: 'reconciliation_required' });
+  assert.equal(calls.some(call => call.sql.includes("delivery_status = 'sent'")), false);
+  assert.ok(calls.some(call => call.sql.includes("delivery_status = 'reconciliation_required'")));
 });
 
 test('synchronous API does not call the provider when eligibility is lost before the send', async () => {
