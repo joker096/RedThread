@@ -41,7 +41,10 @@ test('pending partner inquiries are claimed with row locks and sent with a stabl
   const result = await deliverPendingPartnerInquiries(fake.pool, async payload => emails.push(payload));
   assert.deepEqual(result, { claimed: 1, sent: 1, failed: 0, reconciliationPending: 0 });
   assert.match(fake.calls[1].sql, /FOR UPDATE OF inquiry SKIP LOCKED/);
-  assert.match(fake.calls[1].sql, /FOR SHARE OF application/);
+  assert.match(fake.calls[1].sql, /FOR SHARE OF application, active_match, requester/);
+  assert.match(fake.calls[1].sql, /JOIN matches active_match[\s\S]*active_match.status = 'active'/);
+  assert.match(fake.calls[1].sql, /JOIN users requester[\s\S]*requester.status = 'active'[\s\S]*email_verified_at IS NOT NULL/);
+  assert.match(fake.calls[1].sql, /LOWER\(BTRIM\(requester.email\)\) = inquiry.requester_email/);
   assert.match(fake.calls[1].sql, /delivery_status = 'pending'/);
   assert.equal(fake.calls[3].sql, 'COMMIT');
   assert.equal(fake.wasReleased(), true);
@@ -78,6 +81,18 @@ test('worker does not count a provider acceptance as sent when the guarded statu
   const fake = fakePool([sample], { sentRowCount: 0 });
   const result = await deliverPendingPartnerInquiries(fake.pool, async () => {});
   assert.deepEqual(result, { claimed: 1, sent: 0, failed: 0, reconciliationPending: 1 });
+});
+
+test('worker claim query requires an active match and a still-verified requester email', async () => {
+  const fake = fakePool([]);
+  await deliverPendingPartnerInquiries(fake.pool, async () => {});
+  const sql = fake.calls.find(call => call.sql.includes('SELECT inquiry.id'))?.sql || '';
+  assert.match(sql, /JOIN matches active_match/);
+  assert.match(sql, /active_match.status = 'active'/);
+  assert.match(sql, /JOIN users requester/);
+  assert.match(sql, /requester.status = 'active'/);
+  assert.match(sql, /requester.email_verified_at IS NOT NULL/);
+  assert.match(sql, /requester.email\)\) = inquiry.requester_email/);
 });
 
 test('empty queue does not call email provider', async () => {
