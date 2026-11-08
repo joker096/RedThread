@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { queuePrivatePhotoPurges } from './photoPurge.js';
 import { cleanupPartnerServiceData, partnerRetentionOptions } from './partnerRetention.js';
-import { CANCEL_PARTNER_INQUIRY_SQL, CLAIM_PARTNER_INQUIRY_SQL, deliverPendingPartnerInquiries, deliverClaimedPartnerInquiry } from './partnerInquiryDelivery.js';
+import { CANCEL_PARTNER_INQUIRY_SQL, CLAIM_PARTNER_INQUIRY_SQL, RECOVER_PARTNER_INQUIRY_SQL, deliverPendingPartnerInquiries, deliverClaimedPartnerInquiry } from './partnerInquiryDelivery.js';
 import { normalizePartnerCountry, isPartnerServiceCategory, isPartnerServiceCurrency } from './partnerServicePolicy.js';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
@@ -4633,6 +4633,53 @@ app.get('/api/admin/partner-service-inquiries', requireSession, requireDatabase,
   if (!read.active) return res.status(401).json({ error: 'account_not_active' });
   if (read.value?.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
   return res.json({ inquiries: read.value.rows });
+});
+
+app.post('/api/admin/partner-service-inquiries/:inquiryId/recover', validateRequestOrigin, requireSession, requireDatabase, async (req, res) => {
+  const id = req.params.inquiryId;
+  const workerTerminated = req.body?.workerTerminated === true;
+  const note = typeof req.body?.operatorNote === 'string' ? req.body.operatorNote.trim() : '';
+  const rawProviderMessageId = req.body?.providerMessageId;
+  const providerMessageId = typeof rawProviderMessageId === 'string' ? rawProviderMessageId.trim() : '';
+  if (!isUuid(id) || !workerTerminated || note.length < 20 || note.length > 500 ||
+      (rawProviderMessageId != null && typeof rawProviderMessageId !== 'string') ||
+      (rawProviderMessageId != null && rawProviderMessageId.length > 0 && providerMessageId.length === 0) ||
+      providerMessageId.length > 255 || /\\s/.test(providerMessageId)) {
+    return res.status(400).json({ error: 'invalid_partner_inquiry_recovery' });
+  }
+  try {
+    const result = await withPooledTransaction(pool, async client => {
+      const moderator = await client.query("SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE", [req.authUser.id]);
+      if (!['admin', 'moderator'].includes(moderator.rows[0]?.role)) return { forbidden: true };
+      // This UPDATE waits for any active provider-send transaction holding the
+      // inquiry row lock. It succeeds only if the row is still sending afterward.
+      const changed = await client.query(RECOVER_PARTNER_INQUIRY_SQL, [id, providerMessageId || null]);
+      if (!changed.rows[0]) {
+        const current = await client.query(
+          'SELECT delivery_status AS "deliveryStatus", provider_message_id AS "providerMessageId" FROM partner_service_inquiries WHERE id = $1 FOR SHARE',
+          [id]
+        );
+        if (current.rows[0]?.deliveryStatus === 'sending' && current.rows[0]?.providerMessageId &&
+            providerMessageId && current.rows[0].providerMessageId !== providerMessageId) {
+          return { providerMessageIdMismatch: true };
+        }
+        return { missing: true };
+      }
+      await client.query(
+        'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, reason, details) VALUES ($1,$2,$3,$4,$5,$6::jsonb)',
+        [req.authUser.id, 'partner_inquiry_recovered_after_worker_stop', 'partner_service_inquiry', id, note,
+          JSON.stringify({ workerTerminated: true, providerMessageId: changed.rows[0].providerMessageId })]
+      );
+      return { inquiry: changed.rows[0] };
+    });
+    if (result.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    if (result.providerMessageIdMismatch) return res.status(409).json({ error: 'provider_message_id_mismatch' });
+    if (result.missing) return res.status(409).json({ error: 'partner_inquiry_not_sending' });
+    return res.json({ inquiry: result.inquiry });
+  } catch (error) {
+    console.error('Partner inquiry recovery failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_inquiry_recovery_failed' });
+  }
 });
 
 app.post('/api/admin/partner-service-inquiries/:inquiryId/reconcile', validateRequestOrigin, requireSession, requireDatabase, async (req, res) => {
