@@ -4571,6 +4571,14 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
         '<p><strong>Сообщение:</strong></p><p>' + escapeHtml(note).replace(/\\n/g, '<br>') + '</p>' +
         '<p>Данные второго участника совпадения, переписка и результаты совместимости не передаются.</p>'
     });
+    if (delivery.deliveryStatus === 'failed') {
+      return res.status(409).json({
+        error: 'partner_inquiry_no_longer_eligible',
+        inquiryId: row.id,
+        sent: false,
+        deliveryStatus: 'failed'
+      });
+    }
     if (delivery.deliveryStatus === 'reconciliation_required') {
       console.warn('Partner service inquiry delivery outcome requires moderator reconciliation.', {
         inquiryId: row.id, emailProviderAccepted: delivery.emailProviderAccepted
