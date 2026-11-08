@@ -51,14 +51,20 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
   const [serviceDate, setServiceDate] = useState('');
   const [shareContact, setShareContact] = useState(false);
   const [inquiryBusy, setInquiryBusy] = useState(false);
+  const [inquiryLocked, setInquiryLocked] = useState(false);
   const [inquiryStatus, setInquiryStatus] = useState('');
   const inquiryRequestKey = useRef<string | null>(null);
+  const inquiryMatchId = useRef<string | null>(null);
   useEffect(() => {
-    inquiryRequestKey.current = null;
+    // A submitted request is immutable until the server confirms its outcome.
+    // Keep its original match/key/payload if the selected match changes.
+    if (inquiryRequestKey.current) return;
+    inquiryMatchId.current = null;
     setInquiryProvider(null);
     setInquiryNote('');
     setServiceDate('');
     setShareContact(false);
+    setInquiryLocked(false);
     setInquiryStatus('');
   }, [matchId]);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -148,7 +154,10 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
     event.preventDefault();
     if (!inquiryProvider || !shareContact || inquiryNote.trim().length < 20 || inquiryBusy) return;
     setInquiryBusy(true);
+    setInquiryLocked(true);
     setInquiryStatus('');
+    const requestKey = inquiryRequestKey.current || (inquiryRequestKey.current = crypto.randomUUID());
+    const submittedMatchId = inquiryMatchId.current || (inquiryMatchId.current = matchId);
     try {
       const response = await fetch('/api/partner-service-inquiries', {
         method: 'POST',
@@ -156,8 +165,8 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           applicationId: inquiryProvider.id,
-          matchId,
-          requestKey: inquiryRequestKey.current || (inquiryRequestKey.current = crypto.randomUUID()),
+          matchId: submittedMatchId,
+          requestKey,
           requestNote: inquiryNote.trim(),
           serviceDate: serviceDate || null,
           shareContact: true
@@ -174,6 +183,8 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
         setServiceDate('');
         setShareContact(false);
         inquiryRequestKey.current = null;
+        inquiryMatchId.current = null;
+        setInquiryLocked(false);
       } else if (data?.deliveryStatus === 'reconciliation_required') {
         setInquiryStatus(tr('Результат передачи письма уточняется. Не отправляйте запрос повторно: он сохранён и передан на ручную сверку.', 'The email handoff outcome is being checked. Do not submit again: your request is saved and awaiting manual reconciliation.'));
       } else if (data?.deliveryStatus === 'sending') {
@@ -261,7 +272,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
                     {provider.availabilityNote && <p><strong className="text-white">{tr('Доступность:', 'Availability:')}</strong> {provider.availabilityNote}</p>}
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
-                    <button type="button" onClick={() => { inquiryRequestKey.current = null; setInquiryProvider(provider); setInquiryStatus(''); setShareContact(false); }} className="inline-flex min-h-11 items-center rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">{tr('Запросить предложение', 'Request a quote')}</button>
+                    <button type="button" onClick={() => { if (inquiryLocked) return; inquiryRequestKey.current = null; inquiryMatchId.current = null; setInquiryProvider(provider); setInquiryStatus(''); setInquiryNote(''); setServiceDate(''); setShareContact(false); setInquiryLocked(false); }} disabled={inquiryLocked} className="inline-flex min-h-11 items-center rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">{tr('Запросить предложение', 'Request a quote')}</button>
                     {provider.website && <a href={provider.website} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center rounded-lg border border-emerald-700/40 px-3 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-950/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300">{tr('Открыть сайт исполнителя', 'Open provider website')} <ChevronRight className="ml-1 h-3.5 w-3.5" /></a>}
                   </div>
                 </article>;
@@ -273,14 +284,14 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
           {inquiryProvider && <form onSubmit={submitInquiry} className="mt-4 space-y-3 rounded-2xl border border-emerald-700/30 bg-stone-950/70 p-4">
             <div><h3 className="font-bold text-white">{tr('Запрос для ' + inquiryProvider.businessName, 'Request for ' + inquiryProvider.businessName)}</h3><p className="mt-1 text-xs text-stone-300">{tr('Опишите, что вам нужно. Не указывайте паспортные, платёжные или другие чувствительные данные.', 'Describe what you need. Do not include identity, payment or other sensitive information.')}</p></div>
             <label className="block text-xs font-semibold text-stone-200">{tr('Сообщение поставщику', 'Message to provider')}
-              <textarea required minLength={20} maxLength={2000} aria-describedby="partner-inquiry-note-count" value={inquiryNote} onChange={event => { inquiryRequestKey.current = null; setInquiryNote(event.target.value); }} rows={4} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300" placeholder={tr('Например: хотим узнать цену и свободные даты для фотосъёмки.', 'For example: we would like to know the price and available dates for a photo session.')} />
+              <textarea required minLength={20} maxLength={2000} aria-describedby="partner-inquiry-note-count" value={inquiryNote} disabled={inquiryLocked} onChange={event => setInquiryNote(event.target.value)} rows={4} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-900 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300" placeholder={tr('Например: хотим узнать цену и свободные даты для фотосъёмки.', 'For example: we would like to know the price and available dates for a photo session.')} />
               <span id="partner-inquiry-note-count" className="mt-1 block text-right text-[11px] font-normal text-stone-400">{inquiryNote.length}/2000</span>
             </label>
             <label className="block text-xs font-semibold text-stone-200">{tr('Желаемая дата (необязательно)', 'Preferred date (optional)')}
-              <input type="date" value={serviceDate} onChange={event => { inquiryRequestKey.current = null; setServiceDate(event.target.value); }} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-900 px-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300" />
+              <input type="date" value={serviceDate} disabled={inquiryLocked} onChange={event => setServiceDate(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-white/10 bg-stone-900 px-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300" />
             </label>
-            <label className="flex items-start gap-2 text-xs leading-relaxed text-stone-200"><input required type="checkbox" checked={shareContact} onChange={event => setShareContact(event.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-500" /><span>{tr('Я согласен(на) передать поставщику моё имя, email, желаемую дату и сообщение для ответа на запрос. Имя, контакты и переписка второго участника не передаются.', 'I consent to sharing my name, email, preferred date and message with this provider so they can respond. The other match participant\'s name, contact details and messages will not be shared.')}</span></label>
-            <div className="flex flex-wrap gap-2"><button type="submit" disabled={inquiryBusy || !shareContact || inquiryNote.trim().length < 20} className="min-h-11 rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{inquiryBusy ? tr('Отправляем…', 'Sending…') : tr('Отправить запрос', 'Send request')}</button><button type="button" onClick={() => setInquiryProvider(null)} disabled={inquiryBusy} className="min-h-11 rounded-lg border border-white/15 px-4 py-2 text-xs text-stone-200">{tr('Отмена', 'Cancel')}</button></div>
+            <label className="flex items-start gap-2 text-xs leading-relaxed text-stone-200"><input required type="checkbox" checked={shareContact} disabled={inquiryLocked} onChange={event => setShareContact(event.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-500" /><span>{tr('Я согласен(на) передать поставщику моё имя, email, желаемую дату и сообщение для ответа на запрос. Имя, контакты и переписка второго участника не передаются.', 'I consent to sharing my name, email, preferred date and message with this provider so they can respond. The other match participant\'s name, contact details and messages will not be shared.')}</span></label>
+            <div className="flex flex-wrap gap-2"><button type="submit" disabled={inquiryBusy || !shareContact || inquiryNote.trim().length < 20} className="min-h-11 rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{inquiryBusy ? tr('Отправляем…', 'Sending…') : inquiryLocked ? tr('Проверить статус / безопасно повторить', 'Check status / safely retry') : tr('Отправить запрос', 'Send request')}</button><button type="button" onClick={() => setInquiryProvider(null)} disabled={inquiryBusy || inquiryLocked} className="min-h-11 rounded-lg border border-white/15 px-4 py-2 text-xs text-stone-200">{tr('Отмена', 'Cancel')}</button></div>
           </form>}
           <div className="mt-5 grid md:grid-cols-2 gap-3">
             <div className="rounded-2xl border border-white/10 bg-stone-950/60 p-4">
