@@ -22,6 +22,7 @@ import { canInteract as canIdentityInteract } from './identityAccessPolicy.js';
 import { DIDIT_FREE_MONTHLY_SESSION_LIMIT, releaseDiditSessionReservation } from './diditQuota.js';
 import express from 'express';
 import { resolveTrustProxyHops } from './trustProxyConfig.js';
+import { verifyGoogleIdTokenClaims } from './googleIdToken.js';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import { withPooledTransaction, rollbackPooledTransaction } from './withPooledTransaction.js';
 import { normalizeMatchMessageHistoryOptions, matchMessageHistoryOrder, toChronologicalMessageHistory } from './matchMessageHistory.js';
@@ -972,24 +973,16 @@ let googleOAuthClient = null;
 async function verifyGoogleIdToken(credential, expectedNonce) {
   const clientId = googleClientId;
   if (!clientId) throw new Error('google_sign_in_not_configured');
-  if (typeof credential !== 'string' || credential.length < 100 || credential.length > 20_000) {
-    throw new Error('invalid_google_credential');
-  }
   const { OAuth2Client } = await import('google-auth-library');
   googleOAuthClient ||= new OAuth2Client(clientId);
-  const ticket = await googleOAuthClient.verifyIdToken({ idToken: credential, audience: clientId });
-  const payload = ticket.getPayload();
-  const email = normalizeEmail(payload?.email);
-  if (!payload || typeof payload.sub !== 'string' || !payload.sub || payload.sub.length > 255 ||
-      payload.email_verified !== true || !isValidEmail(email) ||
-      typeof expectedNonce !== 'string' || !expectedNonce || payload.nonce !== expectedNonce) {
-    throw new Error('invalid_google_identity');
-  }
-  return {
-    subject: payload.sub,
-    email,
-    displayName: typeof payload.name === 'string' ? payload.name.trim().slice(0, 80) : ''
-  };
+  return verifyGoogleIdTokenClaims({
+    credential,
+    expectedNonce,
+    clientId,
+    oauthClient: googleOAuthClient,
+    normalizeEmail,
+    isValidEmail
+  });
 }
 
 app.get('/api/auth/google/config', (_req, res) => {
