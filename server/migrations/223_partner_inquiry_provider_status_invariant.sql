@@ -1,4 +1,11 @@
-DO $$
+UPDATE partner_service_inquiries
+SET delivery_status = 'reconciliation_required',
+    delivery_error = 'provider_acceptance_recorded_before_status_invariant',
+    updated_at = NOW()
+WHERE provider_message_id IS NOT NULL
+  AND delivery_status = 'failed';
+
+DO $
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
