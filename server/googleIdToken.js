@@ -31,10 +31,16 @@ export async function verifyGoogleIdTokenClaims({
   const nowSeconds = Math.floor(now / 1000);
   const validAudience = payload?.aud === clientId ||
     (Array.isArray(payload?.aud) && payload.aud.includes(clientId));
+  // OpenID Connect requires an authorized party when an ID token has multiple
+  // audiences; when azp is present it must always identify this client.
+  const validAuthorizedParty = payload?.azp === undefined
+    ? !(Array.isArray(payload?.aud) && payload.aud.length > 1)
+    : payload.azp === clientId;
 
   if (!payload ||
       !GOOGLE_ISSUERS.has(payload.iss) ||
       !validAudience ||
+      !validAuthorizedParty ||
       !Number.isFinite(payload.exp) || payload.exp <= nowSeconds ||
       !Number.isFinite(payload.iat) || payload.iat > nowSeconds + 60 ||
       typeof payload.sub !== 'string' || payload.sub.length < 1 || payload.sub.length > 255 ||

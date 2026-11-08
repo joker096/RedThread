@@ -74,6 +74,8 @@ test('rejects Google verifier signature/verification failures', async () => {
 for (const [label, claims] of [
   ['issuer', { iss: 'https://attacker.example' }],
   ['audience', { aud: 'another-client.apps.googleusercontent.com' }],
+  ['missing authorized party for multiple audiences', { aud: [CLIENT_ID, 'another-client.apps.googleusercontent.com'] }],
+  ['mismatched authorized party', { azp: 'another-client.apps.googleusercontent.com' }],
   ['expired token', { exp: Math.floor(NOW / 1000) }],
   ['future issued-at', { iat: Math.floor(NOW / 1000) + 61 }],
   ['unverified email', { email_verified: false }],
@@ -107,7 +109,8 @@ test('rejects missing verifier configuration and invalid expected nonce', async 
 test('accepts the legacy Google issuer spelling and an audience array containing this client', async () => {
   const { identity } = await verify({
     iss: 'accounts.google.com',
-    aud: [CLIENT_ID, 'another-audience']
+    aud: [CLIENT_ID, 'another-audience'],
+    azp: CLIENT_ID
   });
   assert.equal(identity.subject, 'google-subject-123');
 });
