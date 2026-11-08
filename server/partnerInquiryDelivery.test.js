@@ -203,7 +203,7 @@ test('invalid batch limits fail before connecting to the database', async () => 
 test('provider delivery takes the requester safety lock before eligibility row locks', async () => {
   const fake = fakePool([]);
   await (await import('./partnerInquiryDelivery.js')).deliverClaimedPartnerInquiry(
-    fake.pool, async () => ({ providerMessageId: 'resend_msg_lock_order' }), sample.id, {}, sample.requestedBy
+    fake.pool, async () => ({ providerMessageId: 'resend_msg_lock_order' }), sample.id, {}
   );
   const ownerIndex = fake.calls.findIndex(call => call.sql === PARTNER_INQUIRY_OWNER_SQL);
   const safetyLockIndex = fake.calls.findIndex(call => call.sql.includes('pg_advisory_xact_lock'));
