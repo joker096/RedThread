@@ -104,6 +104,18 @@ export const REVALIDATE_PARTNER_INQUIRY_SQL = `
   FOR SHARE OF application, active_match, requester
 `;
 
+export const RECOVER_PARTNER_INQUIRY_SQL = `
+  UPDATE partner_service_inquiries
+  SET delivery_status = 'reconciliation_required',
+      provider_message_id = COALESCE(provider_message_id, $2),
+      delivery_error = 'operator_confirmed_worker_terminated',
+      updated_at = NOW()
+  WHERE id = $1
+    AND delivery_status = 'sending'
+    AND ($2 IS NULL OR provider_message_id IS NULL OR provider_message_id = $2)
+  RETURNING id, delivery_status AS "deliveryStatus", provider_message_id AS "providerMessageId"
+`;
+
 export async function deliverClaimedPartnerInquiry(pool, sendEmail, inquiryId, emailPayload) {
   if (!pool || typeof pool.connect !== 'function' || typeof pool.query !== 'function') {
     throw new TypeError('A PostgreSQL pool is required.');
@@ -125,13 +137,15 @@ export async function deliverClaimedPartnerInquiry(pool, sendEmail, inquiryId, e
     // provider call has finished. Status changes cannot race the actual send.
     const eligibility = await client.query(REVALIDATE_PARTNER_INQUIRY_SQL, [inquiryId]);
     if (eligibility.rowCount !== 1) {
-      await client.query(
-        "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'eligibility_lost_before_provider_call', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending'",
+      const blocked = await client.query(
+        "UPDATE partner_service_inquiries SET delivery_status = 'failed', delivery_error = 'eligibility_lost_before_provider_call', updated_at = NOW() WHERE id = $1 AND delivery_status = 'sending' RETURNING id",
         [inquiryId]
       );
       await client.query('COMMIT');
       transactionOpen = false;
-      return { sent: false, emailProviderAccepted: false, deliveryStatus: 'failed' };
+      return blocked.rowCount === 1
+        ? { sent: false, emailProviderAccepted: false, deliveryStatus: 'failed' }
+        : { sent: false, emailProviderAccepted: false, deliveryStatus: 'reconciliation_required' };
     }
 
     providerCallStarted = true;
