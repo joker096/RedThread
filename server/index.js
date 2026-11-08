@@ -4549,6 +4549,7 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
       if (currentStatus === 'sending' || currentStatus === 'reconciliation_required') {
         return res.status(202).json({ inquiryId: row.id, sent: false, deliveryStatus: currentStatus });
       }
+      if (currentStatus === 'cancelled') return res.json({ inquiryId: row.id, sent: false, deliveryStatus: 'cancelled' });
       if (!current.rows[0]) return res.status(404).json({ error: 'partner_inquiry_not_found' });
       if (currentStatus === 'pending') {
         await pool.query(

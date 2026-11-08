@@ -27,6 +27,10 @@ test('pending inquiry claim query is valid against the migrated PostgreSQL schem
       "SELECT 1 FROM pg_constraint WHERE conname = 'partner_service_inquiry_cancelled_at_valid' AND conrelid = 'partner_service_inquiries'::regclass"
     );
     assert.equal(cancelledAtConstraint.rowCount, 1, 'migration 224 must keep cancelled_at consistent with the cancelled state');
+    const statusConstraint = await pool.query(
+      "SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conname = 'partner_service_inquiries_delivery_status_check' AND conrelid = 'partner_service_inquiries'::regclass"
+    );
+    assert.match(statusConstraint.rows[0]?.definition || '', /cancelled/);
   } finally {
     await pool.end();
   }

@@ -120,7 +120,7 @@ export const ModeratorConsolePanel:React.FC=()=>{
     <p className="break-all font-mono text-[10px] text-stone-300">{item.id}</p>
     <p className="mt-1 text-xs font-semibold text-white">{item.businessName}</p>
     <p className="mt-1 break-all text-[10px] text-stone-400">{tr('Адрес поставщика','Provider recipient')}: {item.providerEmail}</p>
-    <p className="mt-1 text-[10px] text-stone-400">{tr('Статус','Status')}: {item.deliveryStatus} · {tr('попыток','attempts')}: {item.deliveryAttempts}</p>
+    <p className="mt-1 text-[10px] text-stone-400">{tr('Статус','Status')}: {item.deliveryStatus==='cancelled'?tr('Отменён пользователем','Cancelled by requester'):item.deliveryStatus} · {tr('попыток','attempts')}: {item.deliveryAttempts}</p>
     {item.deliveryError&&<p className="mt-1 text-[10px] text-amber-200">{item.deliveryError}</p>}
     {item.providerMessageId&&<><p className="mt-1 break-all font-mono text-[10px] text-emerald-200">{tr('ID письма Resend','Resend message ID')}: {item.providerMessageId}</p><p className="mt-1 text-[10px] text-emerald-200">{tr('Resend вернул ID принятого письма: нельзя отметить его как не принятое.','Resend returned an accepted message ID; this cannot be marked as not accepted.')}</p></>}
     {item.contactConsentVersion&&<p className="mt-1 text-[10px] text-stone-500">{tr('Версия согласия','Consent version')}: {item.contactConsentVersion}</p>}
