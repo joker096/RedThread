@@ -4432,41 +4432,58 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
   let inquiry;
   try {
     inquiry = await withPooledTransaction(pool, async client => {
+      const existingResult = await client.query(
+        'SELECT id, application_id AS "applicationId", match_id AS "matchId", service_date AS "serviceDate", request_note AS "requestNote", requester_name AS "requesterName", requester_email AS "requesterEmail", delivery_status AS "deliveryStatus" FROM partner_service_inquiries WHERE requested_by = $1 AND request_key = $2 FOR UPDATE',
+        [req.authUser.id, requestKey]
+      );
+      let existing = existingResult.rows[0] || null;
+      const matchesOriginalRequest = row => row &&
+        row.applicationId === applicationId &&
+        row.matchId === matchId &&
+        row.requestNote === note &&
+        (row.serviceDate ? new Date(row.serviceDate).toISOString().slice(0, 10) : null) === serviceDate;
+      if (existing && !matchesOriginalRequest(existing)) return { conflict: true };
+      // Status lookups must remain idempotent even if the match is later closed
+      // or the provider is unpublished. No contact data is returned to the user.
+      if (existing && ['sent', 'sending', 'reconciliation_required'].includes(existing.deliveryStatus)) {
+        return { inquiry: existing, duplicate: true };
+      }
+
       const activeRequester = await client.query(
         "SELECT id, status, email_verified_at, LOWER(BTRIM(email)) AS email FROM users WHERE id = $1 FOR SHARE",
         [req.authUser.id]
       );
       const requester = activeRequester.rows[0];
       if (!requester || requester.status !== 'active') return { inactiveRequester: true };
-      if (!requester.email_verified_at || requester.email !== requesterEmail) return { unverifiedContact: true };
+      if (!requester.email_verified_at || requester.email !== requesterEmail ||
+          (existing && existing.requesterEmail !== requesterEmail)) return { unverifiedContact: true };
       const match = await client.query(
         "SELECT id FROM matches WHERE id = $1 AND status = 'active' AND (user_a_id = $2 OR user_b_id = $2) FOR SHARE",
         [matchId, req.authUser.id]
       );
       if (!match.rowCount) return { missingMatch: true };
       const provider = await client.query(
-        "SELECT id, business_name AS \"businessName\", contact_email AS \"contactEmail\" FROM partner_service_applications WHERE id = $1 AND status = 'approved' AND published_at IS NOT NULL FOR SHARE",
+        "SELECT id, business_name AS "businessName", contact_email AS "contactEmail" FROM partner_service_applications WHERE id = $1 AND status = 'approved' AND published_at IS NOT NULL FOR SHARE",
         [applicationId]
       );
       if (!provider.rows[0]) return { missingProvider: true };
-      let row = await client.query(
-        'INSERT INTO partner_service_inquiries (application_id, match_id, requested_by, request_key, requester_name, requester_email, service_date, request_note, contact_consent_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW()) ON CONFLICT (requested_by, request_key) DO NOTHING RETURNING id, requester_name AS "requesterName", requester_email AS "requesterEmail", delivery_status AS "deliveryStatus"',
+      if (existing) return { inquiry: existing, provider: provider.rows[0], duplicate: true };
+
+      const inserted = await client.query(
+        'INSERT INTO partner_service_inquiries (application_id, match_id, requested_by, request_key, requester_name, requester_email, service_date, request_note, contact_consent_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW()) ON CONFLICT (requested_by, request_key) DO NOTHING RETURNING id, application_id AS "applicationId", match_id AS "matchId", service_date AS "serviceDate", request_note AS "requestNote", requester_name AS "requesterName", requester_email AS "requesterEmail", delivery_status AS "deliveryStatus"',
         [applicationId, matchId, req.authUser.id, requestKey, requesterName, requesterEmail, serviceDate, note]
       );
-      if (!row.rows[0]) {
-        row = await client.query(
-          'SELECT id, application_id AS "applicationId", match_id AS "matchId", service_date AS "serviceDate", request_note AS "requestNote", requester_name AS "requesterName", requester_email AS "requesterEmail", delivery_status AS "deliveryStatus" FROM partner_service_inquiries WHERE requested_by = $1 AND request_key = $2 FOR UPDATE',
-          [req.authUser.id, requestKey]
-        );
-        const existing = row.rows[0];
-        if (!existing || existing.applicationId !== applicationId || existing.matchId !== matchId ||
-            existing.requestNote !== note ||
-            (existing.serviceDate ? new Date(existing.serviceDate).toISOString().slice(0,10) : null) !== serviceDate) {
-          return { conflict: true };
-        }
-        return { inquiry: existing, provider: provider.rows[0], duplicate: true };
-      }
-      return { inquiry: row.rows[0], provider: provider.rows[0], duplicate: false };
+      if (inserted.rows[0]) return { inquiry: inserted.rows[0], provider: provider.rows[0], duplicate: false };
+
+      // A concurrent retry may have inserted the same idempotency key after
+      // the first lookup. Re-read and compare the immutable request payload.
+      const concurrent = await client.query(
+        'SELECT id, application_id AS "applicationId", match_id AS "matchId", service_date AS "serviceDate", request_note AS "requestNote", requester_name AS "requesterName", requester_email AS "requesterEmail", delivery_status AS "deliveryStatus" FROM partner_service_inquiries WHERE requested_by = $1 AND request_key = $2 FOR UPDATE',
+        [req.authUser.id, requestKey]
+      );
+      existing = concurrent.rows[0] || null;
+      if (!matchesOriginalRequest(existing)) return { conflict: true };
+      return { inquiry: existing, provider: provider.rows[0], duplicate: true };
     });
     if (inquiry.inactiveRequester) return res.status(401).json({ error: 'account_not_active' });
     if (inquiry.unverifiedContact) return res.status(403).json({ error: 'verified_contact_required' });
