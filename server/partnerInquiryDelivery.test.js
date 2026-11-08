@@ -19,6 +19,7 @@ function fakePool(rows = [], options = {}) {
     async query(sql, values) {
       calls.push({ sql, values, scope: 'pool' });
       if (options.failStatus && sql.includes("delivery_status = 'sent'")) throw new Error('status failed');
+      if (options.sentRowCount === 0 && sql.includes("delivery_status = 'sent'")) return { rowCount: 0 };
       return { rowCount: 1 };
     }
   };
@@ -67,10 +68,16 @@ test('transport errors remain sending because provider acceptance is ambiguous',
     'the claim commits before provider I/O and only then becomes eligible for reconciliation');
 });
 
-test('database ambiguity after provider acceptance remains sending', async () => {
+test('database ambiguity after provider acceptance moves out of active sending', async () => {
   const ambiguous = fakePool([sample], { failStatus: true });
   const second = await deliverPendingPartnerInquiries(ambiguous.pool, async () => {});
   assert.deepEqual(second, { claimed: 1, sent: 0, failed: 0, reconciliationPending: 1 });
+});
+
+test('worker does not count a provider acceptance as sent when the guarded status update changes no row', async () => {
+  const fake = fakePool([sample], { sentRowCount: 0 });
+  const result = await deliverPendingPartnerInquiries(fake.pool, async () => {});
+  assert.deepEqual(result, { claimed: 1, sent: 0, failed: 0, reconciliationPending: 1 });
 });
 
 test('empty queue does not call email provider', async () => {
@@ -89,7 +96,7 @@ test('invalid batch limits fail before connecting to the database', async () => 
 });
 
 
-test('synchronous API delivery keeps ambiguous provider outcomes in sending for reconciliation', async () => {
+test('synchronous API moves ambiguous provider outcomes to reconciliation-required', async () => {
   const calls = [];
   const pool = {
     async query(sql, values) {
