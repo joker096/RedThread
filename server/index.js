@@ -4463,7 +4463,7 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
       );
       if (!match.rowCount) return { missingMatch: true };
       const provider = await client.query(
-        "SELECT id, business_name AS "businessName", contact_email AS "contactEmail" FROM partner_service_applications WHERE id = $1 AND status = 'approved' AND published_at IS NOT NULL FOR SHARE",
+        'SELECT id, business_name AS "businessName", contact_email AS "contactEmail" FROM partner_service_applications WHERE id = $1 AND status = ''approved'' AND published_at IS NOT NULL FOR SHARE',
         [applicationId]
       );
       if (!provider.rows[0]) return { missingProvider: true };
