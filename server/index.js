@@ -4502,11 +4502,11 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
     });
     if (delivery.deliveryStatus === 'reconciliation_required') {
       console.warn('Partner service inquiry delivery outcome requires moderator reconciliation.', {
-        inquiryId: row.id, providerAccepted: delivery.providerAccepted
+        inquiryId: row.id, emailProviderAccepted: delivery.emailProviderAccepted
       });
       return res.status(202).json({
         inquiryId: row.id, sent: false,
-        providerAccepted: delivery.providerAccepted,
+        emailProviderAccepted: delivery.emailProviderAccepted,
         deliveryStatus: 'reconciliation_required'
       });
     }

@@ -119,7 +119,7 @@ test('synchronous API moves ambiguous provider outcomes to reconciliation-requir
     sample.id,
     payload
   );
-  assert.deepEqual(result, { sent: false, providerAccepted: null, deliveryStatus: 'reconciliation_required' });
+  assert.deepEqual(result, { sent: false, emailProviderAccepted: null, deliveryStatus: 'reconciliation_required' });
   assert.equal(calls.length, 1, 'ambiguous provider response must transition out of active sending');
   assert.match(calls[0].sql, /delivery_status = 'reconciliation_required'/,
     'ambiguous provider response must not mark the inquiry failed or sent');
@@ -136,7 +136,7 @@ test('synchronous API delivery marks sent only after provider acceptance and dat
   const result = await (await import('./partnerInquiryDelivery.js')).deliverClaimedPartnerInquiry(
     pool, async () => {}, sample.id, { idempotencyKey: 'partner-service-inquiry/' + sample.id }
   );
-  assert.deepEqual(result, { sent: true, providerAccepted: true, deliveryStatus: 'sent' });
+  assert.deepEqual(result, { sent: true, emailProviderAccepted: true, deliveryStatus: 'sent' });
   assert.equal(calls.length, 1);
   assert.match(calls[0].sql, /delivery_status = 'sent'/);
   assert.deepEqual(calls[0].values, [sample.id]);
@@ -152,7 +152,7 @@ test('synchronous API never reports sent when provider acceptance cannot be pers
   const result = await (await import('./partnerInquiryDelivery.js')).deliverClaimedPartnerInquiry(
     pool, async () => {}, sample.id, {}
   );
-  assert.deepEqual(result, { sent: false, providerAccepted: true, deliveryStatus: 'reconciliation_required' });
+  assert.deepEqual(result, { sent: false, emailProviderAccepted: true, deliveryStatus: 'reconciliation_required' });
   assert.equal(updates, 2, 'a failed sent-state write must attempt a fail-closed reconciliation transition');
 });
 
@@ -161,5 +161,5 @@ test('synchronous API does not overwrite a row that is no longer actively sendin
   const result = await (await import('./partnerInquiryDelivery.js')).deliverClaimedPartnerInquiry(
     pool, async () => {}, sample.id, {}
   );
-  assert.deepEqual(result, { sent: false, providerAccepted: true, deliveryStatus: 'reconciliation_required' });
+  assert.deepEqual(result, { sent: false, emailProviderAccepted: true, deliveryStatus: 'reconciliation_required' });
 });

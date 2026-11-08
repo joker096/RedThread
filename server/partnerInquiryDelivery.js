@@ -126,7 +126,7 @@ export async function deliverClaimedPartnerInquiry(pool, sendEmail, inquiryId, e
         [inquiryId]
       );
     } catch { /* Preserve the non-retryable sending state if persistence is unavailable. */ }
-    return { sent: false, providerAccepted: null, deliveryStatus: 'reconciliation_required' };
+    return { sent: false, emailProviderAccepted: null, deliveryStatus: 'reconciliation_required' };
   }
 
   try {
@@ -135,7 +135,7 @@ export async function deliverClaimedPartnerInquiry(pool, sendEmail, inquiryId, e
       [inquiryId]
     );
     if (updated.rowCount !== 1) {
-      return { sent: false, providerAccepted: true, deliveryStatus: 'reconciliation_required' };
+      return { sent: false, emailProviderAccepted: true, deliveryStatus: 'reconciliation_required' };
     }
   } catch {
     try {
@@ -144,7 +144,7 @@ export async function deliverClaimedPartnerInquiry(pool, sendEmail, inquiryId, e
         [inquiryId]
       );
     } catch { /* Keep the claim fail-closed if the database is unavailable. */ }
-    return { sent: false, providerAccepted: true, deliveryStatus: 'reconciliation_required' };
+    return { sent: false, emailProviderAccepted: true, deliveryStatus: 'reconciliation_required' };
   }
-  return { sent: true, providerAccepted: true, deliveryStatus: 'sent' };
+  return { sent: true, emailProviderAccepted: true, deliveryStatus: 'sent' };
 }

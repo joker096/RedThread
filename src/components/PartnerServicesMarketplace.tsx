@@ -168,7 +168,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
         response.status === 503 || response.status === 502 ? tr('Связь с поставщиком временно недоступна. Попробуйте позже.', 'Provider contact is temporarily unavailable. Please try again later.') :
         tr('Не удалось отправить запрос. Проверьте данные и попробуйте ещё раз.', 'Could not submit the request. Check the details and try again.'));
       if (data?.sent === true && data?.deliveryStatus === 'sent') {
-        setInquiryStatus(tr('Поставщик принял запрос к обработке. Доставка письма в почтовый ящик не гарантируется.', 'The provider accepted the request for processing. Delivery to the recipient mailbox is not guaranteed.'));
+        setInquiryStatus(tr('Почтовый сервис принял письмо к обработке. Это не подтверждает доставку поставщику.', 'The email service accepted the message for processing. This does not confirm delivery to the service provider.'));
         setInquiryProvider(null);
         setInquiryNote('');
         setServiceDate('');
