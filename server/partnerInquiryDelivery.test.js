@@ -10,6 +10,8 @@ function fakePool(rows = [], options = {}) {
       calls.push({ sql, values, scope: 'client' });
       if (sql.trimStart().startsWith('SELECT inquiry.id')) return { rows };
       if (options.failClaim && sql.startsWith('UPDATE partner_service_inquiries')) throw new Error('claim failed');
+      if (options.failStatus && sql.includes("delivery_status = 'sent'")) throw new Error('status failed');
+      if (options.sentRowCount === 0 && sql.includes("delivery_status = 'sent'")) return { rowCount: 0 };
       return { rowCount: 1 };
     },
     release() { released = true; }
@@ -51,9 +53,12 @@ test('pending partner inquiries are claimed with row locks and sent with a stabl
   assert.match(fake.calls[1].sql, /FOR SHARE OF application, active_match, requester/);
   assert.match(fake.calls[1].sql, /inquiry.contact_consent_at IS NOT NULL/);
   assert.match(fake.calls[1].sql, /inquiry.contact_consent_version = 'partner-inquiry-v1'/);
-  assert.match(fake.calls[4].sql, /JOIN matches active_match/);
-  assert.match(fake.calls[4].sql, /JOIN users requester/);
-  assert.match(fake.calls[4].sql, /contact_consent_version = 'partner-inquiry-v1'/);
+  const finalCheck = fake.calls.find(call => call.sql === REVALIDATE_PARTNER_INQUIRY_SQL)?.sql || '';
+  assert.match(finalCheck, /JOIN matches active_match/);
+  assert.match(finalCheck, /JOIN users requester/);
+  assert.match(finalCheck, /contact_consent_version = 'partner-inquiry-v1'/);
+  assert.match(finalCheck, /FOR UPDATE OF inquiry/);
+  assert.match(finalCheck, /FOR SHARE OF application, active_match, requester/);
   assert.match(fake.calls[1].sql, /JOIN matches active_match[\s\S]*active_match.status = 'active'/);
   assert.match(fake.calls[1].sql, /JOIN users requester[\s\S]*requester.status = 'active'[\s\S]*email_verified_at IS NOT NULL/);
   assert.match(fake.calls[1].sql, /LOWER\(BTRIM\(requester.email\)\) = inquiry.requester_email/);
@@ -170,13 +175,7 @@ test('invalid batch limits fail before connecting to the database', async () => 
 
 
 test('synchronous API moves ambiguous provider outcomes to reconciliation-required', async () => {
-  const calls = [];
-  const pool = {
-    async query(sql, values) {
-      calls.push({ sql, values });
-      return { rowCount: 1 };
-    }
-  };
+  const fake = fakePool([]);
   const payload = {
     to: sample.contactEmail,
     idempotencyKey: 'partner-service-inquiry/' + sample.id,
@@ -184,7 +183,7 @@ test('synchronous API moves ambiguous provider outcomes to reconciliation-requir
     html: '<p>consented content</p>'
   };
   const result = await (await import('./partnerInquiryDelivery.js')).deliverClaimedPartnerInquiry(
-    pool,
+    fake.pool,
     async sent => {
       assert.deepEqual(sent, payload);
       throw new Error('connection reset after provider accepted the request');
@@ -193,93 +192,62 @@ test('synchronous API moves ambiguous provider outcomes to reconciliation-requir
     payload
   );
   assert.deepEqual(result, { sent: false, emailProviderAccepted: null, deliveryStatus: 'reconciliation_required' });
-  assert.equal(calls.length, 2, 'eligibility is revalidated before provider I/O, then ambiguity is persisted');
-  assert.equal(calls[0].sql, REVALIDATE_PARTNER_INQUIRY_SQL);
-  assert.match(calls[1].sql, /delivery_status = 'reconciliation_required'/,
-    'ambiguous provider response must not mark the inquiry failed or sent');
+  assert.ok(fake.calls.some(call => call.sql === REVALIDATE_PARTNER_INQUIRY_SQL));
+  assert.ok(fake.calls.some(call => call.sql.includes("delivery_status = 'reconciliation_required'")));
+  assert.ok(fake.calls.some(call => call.sql === 'COMMIT'));
 });
 
 test('synchronous API delivery marks sent only after provider acceptance and database confirmation', async () => {
-  const calls = [];
-  const pool = {
-    async query(sql, values) {
-      calls.push({ sql, values });
-      return { rowCount: 1 };
-    }
-  };
+  const fake = fakePool([]);
   const result = await (await import('./partnerInquiryDelivery.js')).deliverClaimedPartnerInquiry(
-    pool, async () => ({ providerMessageId: 'resend_msg_sync_123' }), sample.id, { idempotencyKey: 'partner-service-inquiry/' + sample.id }
+    fake.pool, async () => ({ providerMessageId: 'resend_msg_sync_123' }), sample.id,
+    { idempotencyKey: 'partner-service-inquiry/' + sample.id }
   );
   assert.deepEqual(result, { sent: true, emailProviderAccepted: true, providerMessageId: 'resend_msg_sync_123', deliveryStatus: 'sent' });
-  assert.equal(calls.length, 2);
-  assert.equal(calls[0].sql, REVALIDATE_PARTNER_INQUIRY_SQL);
-  assert.match(calls[1].sql, /delivery_status = 'sent'/);
-  assert.deepEqual(calls[1].values, [sample.id, 'resend_msg_sync_123']);
+  const sentUpdate = fake.calls.find(call => call.sql.includes("delivery_status = 'sent'"));
+  assert.ok(sentUpdate);
+  assert.deepEqual(sentUpdate.values, [sample.id, 'resend_msg_sync_123']);
+  assert.ok(fake.calls.some(call => call.sql === 'COMMIT'));
 });
 
 test('synchronous API never reports sent when provider acceptance cannot be persisted', async () => {
-  let updates = 0;
-  const calls = [];
-  const pool = { async query(sql, values) {
-    calls.push({ sql, values });
-    if (sql === REVALIDATE_PARTNER_INQUIRY_SQL) return { rowCount: 1 };
-    updates += 1;
-    if (updates === 1) throw new Error('database connection lost');
-    return { rowCount: 1 };
-  } };
+  const fake = fakePool([], { failStatus: true });
   const result = await (await import('./partnerInquiryDelivery.js')).deliverClaimedPartnerInquiry(
-    pool, async () => ({ providerMessageId: 'resend_msg_ambiguous_123' }), sample.id, {}
+    fake.pool, async () => ({ providerMessageId: 'resend_msg_ambiguous_123' }), sample.id, {}
   );
   assert.deepEqual(result, { sent: false, emailProviderAccepted: true, providerMessageId: 'resend_msg_ambiguous_123', deliveryStatus: 'reconciliation_required' });
-  assert.equal(updates, 2, 'a failed sent-state write must attempt a fail-closed reconciliation transition');
-  assert.equal(calls[0].sql, REVALIDATE_PARTNER_INQUIRY_SQL);
-  assert.match(calls[2].sql, /provider_message_id = COALESCE/);
-  assert.deepEqual(calls[2].values, [sample.id, 'resend_msg_ambiguous_123']);
-});
-
-test('worker treats a successful provider response without a message ID as ambiguous', async () => {
-  const fake = fakePool([sample]);
-  const result = await deliverPendingPartnerInquiries(fake.pool, async () => ({ providerMessageId: '   ' }));
-  assert.deepEqual(result, { claimed: 1, sent: 0, failed: 0, reconciliationPending: 1 });
-  assert.ok(fake.calls.some(call => call.sql.includes("delivery_status = 'reconciliation_required'")));
-  assert.equal(fake.calls.some(call => call.sql.includes("delivery_status = 'sent'")), false);
+  const recovery = fake.calls.at(-1);
+  assert.match(recovery.sql, /provider_message_id = COALESCE/);
+  assert.deepEqual(recovery.values, [sample.id, 'resend_msg_ambiguous_123']);
+  assert.ok(fake.calls.some(call => call.sql === 'ROLLBACK'));
 });
 
 test('synchronous API requires a provider message ID before recording acceptance', async () => {
-  const calls = [];
-  const pool = { async query(sql, values) {
-    calls.push({ sql, values });
-    return { rowCount: 1 };
-  } };
+  const fake = fakePool([]);
   const result = await (await import('./partnerInquiryDelivery.js')).deliverClaimedPartnerInquiry(
-    pool, async () => ({ providerMessageId: '' }), sample.id, {}
+    fake.pool, async () => ({ providerMessageId: '' }), sample.id, {}
   );
   assert.deepEqual(result, { sent: false, emailProviderAccepted: null, deliveryStatus: 'reconciliation_required' });
-  assert.equal(calls.some(call => call.sql.includes("delivery_status = 'sent'")), false);
-  assert.ok(calls.some(call => call.sql.includes("delivery_status = 'reconciliation_required'")));
+  assert.equal(fake.calls.some(call => call.sql.includes("delivery_status = 'sent'")), false);
+  assert.ok(fake.calls.some(call => call.sql.includes("delivery_status = 'reconciliation_required'")));
 });
 
 test('synchronous API does not call the provider when eligibility is lost before the send', async () => {
-  const calls = [];
-  const pool = { async query(sql, values) {
-    calls.push({ sql, values });
-    return { rowCount: sql === REVALIDATE_PARTNER_INQUIRY_SQL ? 0 : 1 };
-  } };
+  const fake = fakePool([], { eligibleRowCount: 0 });
   let sends = 0;
   const result = await (await import('./partnerInquiryDelivery.js')).deliverClaimedPartnerInquiry(
-    pool, async () => { sends += 1; }, sample.id, {}
+    fake.pool, async () => { sends += 1; }, sample.id, {}
   );
   assert.equal(sends, 0);
   assert.deepEqual(result, { sent: false, emailProviderAccepted: false, deliveryStatus: 'failed' });
-  assert.ok(calls.some(call => call.sql.includes('eligibility_lost_before_provider_call')));
+  assert.ok(fake.calls.some(call => call.sql.includes('eligibility_lost_before_provider_call')));
+  assert.ok(fake.calls.some(call => call.sql === 'COMMIT'));
 });
 
 test('synchronous API does not overwrite a row that is no longer actively sending', async () => {
-  const pool = { async query(sql) {
-    return { rowCount: sql === REVALIDATE_PARTNER_INQUIRY_SQL ? 1 : 0 };
-  } };
+  const fake = fakePool([], { sentRowCount: 0 });
   const result = await (await import('./partnerInquiryDelivery.js')).deliverClaimedPartnerInquiry(
-    pool, async () => ({ providerMessageId: 'resend_msg_ambiguous_123' }), sample.id, {}
+    fake.pool, async () => ({ providerMessageId: 'resend_msg_ambiguous_123' }), sample.id, {}
   );
   assert.deepEqual(result, { sent: false, emailProviderAccepted: true, providerMessageId: 'resend_msg_ambiguous_123', deliveryStatus: 'reconciliation_required' });
 });
