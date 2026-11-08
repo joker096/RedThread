@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { queuePrivatePhotoPurges } from './photoPurge.js';
 import { cleanupPartnerServiceData, partnerRetentionOptions } from './partnerRetention.js';
-import { CANCEL_PARTNER_INQUIRY_SQL, CLAIM_PARTNER_INQUIRY_SQL, RECOVER_PARTNER_INQUIRY_SQL, deliverPendingPartnerInquiries, deliverClaimedPartnerInquiry } from './partnerInquiryDelivery.js';
+import { CANCEL_PARTNER_INQUIRY_SQL, CLAIM_PARTNER_INQUIRY_SQL, MY_PARTNER_INQUIRIES_SQL, RECOVER_PARTNER_INQUIRY_SQL, deliverPendingPartnerInquiries, deliverClaimedPartnerInquiry } from './partnerInquiryDelivery.js';
 import { normalizePartnerCountry, isPartnerServiceCategory, isPartnerServiceCurrency } from './partnerServicePolicy.js';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
@@ -4425,6 +4425,16 @@ app.post('/api/admin/partner-applications/:applicationId/unpublish', validateReq
   } catch (error) {
     console.error('Partner application unpublication failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'partner_application_unpublication_failed' });
+  }
+});
+
+app.get('/api/partner-service-inquiries/mine', requireSession, requireDatabase, async (req, res) => {
+  try {
+    const result = await pool.query(MY_PARTNER_INQUIRIES_SQL, [req.authUser.id]);
+    return res.json({ inquiries: result.rows });
+  } catch (error) {
+    console.error('Own partner inquiry history failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'partner_inquiry_history_unavailable' });
   }
 });
 
