@@ -2609,3 +2609,86 @@ test('real inbox does not display prototype unread counts until demo conversatio
   await page.getByRole('button', { name: /hide demo conversations|скрыть демо-переписки/i }).click();
   await expect(page.locator('[data-testid="nav-chats"]:visible').first().locator('.bg-amber-400')).toHaveCount(0);
 });
+
+
+test('partner inquiry retries keep the original idempotency key, payload and match after an uncertain result', async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 900 });
+  const inquiryRequests: Array<Record<string, unknown>> = [];
+  await page.route('**/api/auth/me', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ user: { id: 'e2e-current-user' } })
+  }));
+  await page.route('**/api/matches**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/messages')) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ messages: [] }) });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ matches: [
+        { id: 'e2e-match-one', partnerId: 'e2e-partner-one', displayName: 'Елена', age: 30, country: 'Грузия', city: 'Тбилиси', lastMessage: 'Привет', lastMessageAt: new Date().toISOString() },
+        { id: 'e2e-match-two', partnerId: 'e2e-partner-two', displayName: 'Анна', age: 29, country: 'Грузия', city: 'Батуми', lastMessage: 'Здравствуйте', lastMessageAt: new Date().toISOString() }
+      ] })
+    });
+  });
+  await page.route('**/api/partner-services**', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ providers: [{
+      id: 'e2e-provider-one',
+      category: 'photography',
+      businessName: 'Vow Photo Studio',
+      country: 'GE',
+      city: 'Tbilisi',
+      website: '',
+      serviceDescription: 'Wedding photography and couple portraits.',
+      priceFrom: 100,
+      priceCurrency: 'GEL',
+      serviceLanguages: ['en'],
+      availabilityNote: '',
+      publishedAt: new Date().toISOString()
+    }] })
+  }));
+  await page.route('**/api/partner-service-inquiries', async route => {
+    inquiryRequests.push(route.request().postDataJSON() as Record<string, unknown>);
+    const accepted = inquiryRequests.length > 1;
+    await route.fulfill({
+      status: accepted ? 200 : 202,
+      contentType: 'application/json',
+      body: JSON.stringify(accepted
+        ? { sent: true, emailProviderAccepted: true, deliveryStatus: 'sent' }
+        : { sent: false, emailProviderAccepted: true, deliveryStatus: 'reconciliation_required' })
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('[data-testid="nav-chats"]:visible').first().click();
+  await page.getByTestId('server-match-item').first().click();
+  await page.getByRole('button', { name: /partner services for your match/i }).click();
+  await expect(page.getByText('Vow Photo Studio')).toBeVisible();
+  await page.getByRole('button', { name: /request a quote/i }).click();
+
+  const note = 'Please share available dates and a quote for our event.';
+  await page.getByRole('textbox', { name: /message to provider/i }).fill(note);
+  await page.getByRole('checkbox').check();
+  await page.getByRole('button', { name: /send request/i }).click();
+
+  await expect(page.getByText(/awaiting manual reconciliation/i)).toBeVisible();
+  const firstRequest = inquiryRequests[0];
+  expect(firstRequest).toMatchObject({ matchId: 'e2e-match-one', requestNote: note, shareContact: true });
+  expect(typeof firstRequest.requestKey).toBe('string');
+  await expect(page.getByRole('textbox', { name: /message to provider/i })).toBeDisabled();
+
+  await page.getByRole('button', { name: /^close$/i }).click();
+  await page.getByTestId('server-match-item').nth(1).click();
+  await page.getByRole('button', { name: /partner services for your match/i }).click();
+  await expect(page.getByRole('button', { name: /check status \/ safely retry/i })).toBeVisible();
+  await page.getByRole('button', { name: /check status \/ safely retry/i }).click();
+
+  await expect(page.getByText(/email service accepted the message/i)).toBeVisible();
+  expect(inquiryRequests).toHaveLength(2);
+  expect(inquiryRequests[1]).toEqual(firstRequest);
+});
