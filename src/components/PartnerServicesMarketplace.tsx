@@ -174,6 +174,7 @@ export const PartnerServicesMarketplace: React.FC<PartnerServicesMarketplaceProp
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(response.status === 401 ? tr('Войдите в аккаунт, чтобы отправить запрос.', 'Sign in to send a request.') :
+        response.status === 403 && data?.error === 'verified_contact_required' ? tr('Подтвердите email в аккаунте, чтобы передать поставщику проверенный адрес.', 'Verify your account email before sharing it with a provider.') :
         response.status === 503 || response.status === 502 ? tr('Связь с поставщиком временно недоступна. Попробуйте позже.', 'Provider contact is temporarily unavailable. Please try again later.') :
         tr('Не удалось отправить запрос. Проверьте данные и попробуйте ещё раз.', 'Could not submit the request. Check the details and try again.'));
       if (data?.sent === true && data?.deliveryStatus === 'sent') {

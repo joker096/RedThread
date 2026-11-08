@@ -4442,10 +4442,12 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
   try {
     inquiry = await withPooledTransaction(pool, async client => {
       const activeRequester = await client.query(
-        "SELECT id FROM users WHERE id = $1 AND status = 'active' AND email_verified_at IS NOT NULL AND LOWER(BTRIM(email)) = $2 FOR SHARE",
-        [req.authUser.id, requesterEmail]
+        "SELECT id, status, email_verified_at, LOWER(BTRIM(email)) AS email FROM users WHERE id = $1 FOR SHARE",
+        [req.authUser.id]
       );
-      if (!activeRequester.rowCount) return { inactiveRequester: true };
+      const requester = activeRequester.rows[0];
+      if (!requester || requester.status !== 'active') return { inactiveRequester: true };
+      if (!requester.email_verified_at || requester.email !== requesterEmail) return { unverifiedContact: true };
       const match = await client.query(
         "SELECT id FROM matches WHERE id = $1 AND status = 'active' AND (user_a_id = $2 OR user_b_id = $2) FOR SHARE",
         [matchId, req.authUser.id]
@@ -4476,6 +4478,7 @@ app.post('/api/partner-service-inquiries', validateRequestOrigin, requireSession
       return { inquiry: row.rows[0], provider: provider.rows[0], duplicate: false };
     });
     if (inquiry.inactiveRequester) return res.status(401).json({ error: 'account_not_active' });
+    if (inquiry.unverifiedContact) return res.status(403).json({ error: 'verified_contact_required' });
     if (inquiry.missingMatch) return res.status(404).json({ error: 'active_match_not_found' });
     if (inquiry.missingProvider) return res.status(404).json({ error: 'published_partner_not_found' });
     if (inquiry.conflict) return res.status(409).json({ error: 'inquiry_request_key_conflict' });
