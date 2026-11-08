@@ -63,9 +63,6 @@ test('pending partner inquiries are claimed with row locks and sent with a stabl
   assert.match(finalCheck, /contact_consent_version = 'partner-inquiry-v1'/);
   assert.match(finalCheck, /FOR UPDATE OF inquiry/);
   assert.match(finalCheck, /FOR SHARE OF application, active_match, requester/);
-  assert.match(fake.calls[1].sql, /JOIN matches active_match[\s\S]*active_match.status = 'active'/);
-  assert.match(fake.calls[1].sql, /JOIN users requester[\s\S]*requester.status = 'active'[\s\S]*email_verified_at IS NOT NULL/);
-  assert.match(fake.calls[1].sql, /LOWER\(BTRIM\(requester.email\)\) = inquiry.requester_email/);
   assert.match(fake.calls[1].sql, /delivery_status = 'pending'/);
   assert.equal(fake.calls[3].sql, 'COMMIT');
   assert.equal(fake.wasReleased(), true);
@@ -159,16 +156,21 @@ test('synchronous claim query revalidates published provider, active match and v
   assert.ok(CLAIM_PARTNER_INQUIRY_SQL.includes('LOWER(BTRIM(requester.email)) = inquiry.requester_email'));
 });
 
-test('worker claim query requires an active match and a still-verified requester email', async () => {
+test('worker performs the active-match and verified-email checks in the final locked eligibility query', async () => {
   const fake = fakePool([]);
   await deliverPendingPartnerInquiries(fake.pool, async () => {});
-  const sql = fake.calls.find(call => call.sql.includes('SELECT inquiry.id'))?.sql || '';
-  assert.match(sql, /JOIN matches active_match/);
-  assert.match(sql, /active_match.status = 'active'/);
-  assert.match(sql, /JOIN users requester/);
-  assert.match(sql, /requester.status = 'active'/);
-  assert.match(sql, /requester.email_verified_at IS NOT NULL/);
-  assert.match(sql, /requester.email\)\) = inquiry.requester_email/);
+  const claimSql = fake.calls.find(call => call.sql.includes('SELECT inquiry.id'))?.sql || '';
+  assert.match(claimSql, /delivery_status = 'pending'/);
+  assert.match(claimSql, /FOR UPDATE OF inquiry SKIP LOCKED/);
+  assert.doesNotMatch(claimSql, /active_match.status = 'active'|requester.status = 'active'|email_verified_at IS NOT NULL/);
+  const eligibilitySql = fake.calls.find(call => call.sql === REVALIDATE_PARTNER_INQUIRY_SQL)?.sql || '';
+  assert.match(eligibilitySql, /active_match.status = 'active'/);
+  assert.match(eligibilitySql, /requester.status = 'active'/);
+  assert.match(eligibilitySql, /requester.email_verified_at IS NOT NULL/);
+  assert.match(eligibilitySql, /LOWER\\(BTRIM\\(requester.email\\)\\) = inquiry.requester_email/);
+  assert.match(eligibilitySql, /contact_consent_version = 'partner-inquiry-v1'/);
+  assert.match(eligibilitySql, /FOR UPDATE OF inquiry/);
+  assert.match(eligibilitySql, /FOR SHARE OF application, active_match, requester/);
 });
 
 test('empty queue does not call email provider', async () => {
