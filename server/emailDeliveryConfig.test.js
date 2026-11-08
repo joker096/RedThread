@@ -31,6 +31,11 @@ test('email delivery rejects sender header injection and missing provider creden
   assert.equal(emailDeliveryConfigured({ ...base, EMAIL_PROVIDER: 'smtp' }), false);
 });
 
+test('email delivery rejects placeholder application origins in every environment', () => {
+  assert.equal(emailDeliveryConfigured({ ...base, APP_URL: 'https://example.com' }), false);
+  assert.equal(emailDeliveryConfigured({ ...base, APP_URL: 'https://vow.example.org' }), false);
+});
+
 test('production email delivery requires a non-placeholder HTTPS application origin', () => {
   assert.equal(emailDeliveryConfigured({ ...base, NODE_ENV: 'production', APP_URL: 'http://vow.example.org' }), false);
   assert.equal(emailDeliveryConfigured({ ...base, NODE_ENV: 'production', APP_URL: 'https://example.com' }), false);

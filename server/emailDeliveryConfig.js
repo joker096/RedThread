@@ -6,13 +6,15 @@ export function emailDeliveryConfigured(env = process.env) {
   try {
     const parsed = new URL(configuredUrl);
     const hostname = parsed.hostname.toLowerCase();
+    const exampleHost = ['example.com', 'example.org', 'example.net'].includes(hostname) ||
+      hostname.endsWith('.example.com') || hostname.endsWith('.example.org') || hostname.endsWith('.example.net');
     const reservedHost = ['localhost', '127.0.0.1', '::1', '[::1]', 'example.com', 'example.org', 'example.net'].includes(hostname) ||
       hostname.endsWith('.localhost') || hostname.endsWith('.example.com') ||
       hostname.endsWith('.example.org') || hostname.endsWith('.example.net') ||
       hostname.endsWith('.test') || hostname.endsWith('.invalid');
     validPublicUrl = env.NODE_ENV === 'production'
       ? parsed.protocol === 'https:' && !reservedHost
-      : ['http:', 'https:'].includes(parsed.protocol);
+      : ['http:', 'https:'].includes(parsed.protocol) && !exampleHost;
   } catch {
     validPublicUrl = false;
   }
