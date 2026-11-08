@@ -107,12 +107,10 @@ export const REVALIDATE_PARTNER_INQUIRY_SQL = `
 export const RECOVER_PARTNER_INQUIRY_SQL = `
   UPDATE partner_service_inquiries
   SET delivery_status = 'reconciliation_required',
-      provider_message_id = COALESCE(provider_message_id, $2),
       delivery_error = 'operator_confirmed_worker_terminated',
       updated_at = NOW()
   WHERE id = $1
     AND delivery_status = 'sending'
-    AND ($2 IS NULL OR provider_message_id IS NULL OR provider_message_id = $2)
   RETURNING id, delivery_status AS "deliveryStatus", provider_message_id AS "providerMessageId"
 `;
 
