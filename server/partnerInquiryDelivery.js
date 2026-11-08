@@ -110,7 +110,8 @@ export async function deliverPendingPartnerInquiries(pool, sendEmail, options = 
     await client.query('BEGIN');
     const selected = await client.query(PENDING_PARTNER_INQUIRIES_SQL, [limit]);
     inquiries = selected.rows;
-    for (const inquiry of inquiries) {      await client.query(
+    for (const inquiry of inquiries) {
+      await client.query(
         "UPDATE partner_service_inquiries SET delivery_status = 'sending', delivery_attempts = delivery_attempts + 1, delivery_error = '', updated_at = NOW() WHERE id = $1 AND delivery_status = 'pending'",
         [inquiry.id]
       );
