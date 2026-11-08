@@ -4643,7 +4643,7 @@ app.post('/api/admin/partner-service-inquiries/:inquiryId/reconcile', validateRe
   const providerMessageId = typeof rawProviderMessageId === 'string' ? rawProviderMessageId.trim() : '';
   if (!isUuid(id) || !['sent', 'failed'].includes(decision) || note.length < 10 || note.length > 500 ||
       (rawProviderMessageId != null && typeof rawProviderMessageId !== 'string') ||
-      (decision === 'sent' && (providerMessageId.length < 1 || providerMessageId.length > 255)) ||
+      (decision === 'sent' && (providerMessageId.length < 1 || providerMessageId.length > 255 || /\\s/.test(providerMessageId))) ||
       (decision === 'failed' && providerMessageId.length > 0)) {
     return res.status(400).json({ error: 'invalid_partner_inquiry_reconciliation' });
   }
