@@ -4343,6 +4343,9 @@ app.post('/api/admin/partner-applications/:applicationId/review', validateReques
   if (!isUuid(id) || !['in_review', 'approved', 'rejected'].includes(decision)) {
     return res.status(400).json({ error: 'invalid_partner_application_review' });
   }
+  if (['approved', 'rejected'].includes(decision) && note.length < 20) {
+    return res.status(400).json({ error: 'partner_application_review_evidence_required' });
+  }
   try {
     const result = await withPooledTransaction(pool, async client => {
       const moderator = await client.query("SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE", [req.authUser.id]);
