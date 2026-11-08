@@ -2673,7 +2673,7 @@ test('partner inquiry retries keep the original idempotency key, payload and mat
 
   const note = 'Please share available dates and a quote for our event.';
   await page.getByRole('textbox', { name: /message to provider/i }).fill(note);
-  await page.getByRole('checkbox').check();
+  await page.getByRole('checkbox', { name: /I consent to sharing my name, email, preferred date and message with this provider/i }).check();
   await page.getByRole('button', { name: /send request/i }).click();
 
   await expect(page.getByText(/awaiting manual reconciliation/i)).toBeVisible();
@@ -2747,7 +2747,7 @@ test('a requester can atomically withdraw a queued partner inquiry before provid
   await page.getByRole('button', { name: /partner services for your match/i }).click();
   await page.getByRole('button', { name: /request a quote/i }).click();
   await page.getByRole('textbox', { name: /message to provider/i }).fill('Please share your availability and quote for our event.');
-  await page.getByRole('checkbox').check();
+  await page.getByRole('checkbox', { name: /I consent to sharing my name, email, preferred date and message with this provider/i }).check();
   await page.getByRole('button', { name: /send request/i }).click();
 
   await expect(page.getByText(/waiting for mail-service configuration/i)).toBeVisible();
