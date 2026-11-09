@@ -310,6 +310,175 @@ export function createMobileAuthRouter({
     }
   });
 
+  router.post('/email-verification/resend', authLimiter, async (req, res) => {
+    const email = normalizeEmail(req.body?.email);
+    const generic = { accepted: true, message: 'If the account needs verification, an email will be sent.' };
+    if (!isValidEmail(email) || !emailDeliveryConfigured()) return res.status(202).json(generic);
+    try {
+      const found = await pool.query(
+        `SELECT id FROM users
+         WHERE email = $1 AND status IN ('pending', 'active')
+           AND email_verified_at IS NULL LIMIT 1`,
+        [email]
+      );
+      const user = found.rows[0];
+      if (user) {
+        let client = await pool.connect();
+        let token;
+        try {
+          await client.query('BEGIN');
+          await acquireGiftSafetyUserLocks(client, user.id);
+          const current = await client.query(
+            `SELECT id, email FROM users
+             WHERE id = $1 AND email = $2 AND status IN ('pending', 'active')
+               AND email_verified_at IS NULL FOR SHARE`,
+            [user.id, email]
+          );
+          if (current.rows[0]) {
+            await client.query(
+              `UPDATE account_action_tokens SET consumed_at = NOW()
+               WHERE user_id = $1 AND purpose = 'email_verification' AND consumed_at IS NULL`,
+              [user.id]
+            );
+            token = await createAccountActionToken(client, user.id, 'email_verification', 60);
+          }
+          await client.query('COMMIT');
+        } catch (error) {
+          try { await client.query('ROLLBACK'); } catch {}
+          throw error;
+        } finally {
+          client.release();
+        }
+        if (token) {
+          await sendConfiguredEmail({
+            to: email,
+            subject: 'Verify your Vow account',
+            html: '<p>Confirm your email address:</p><p><a href="' +
+              accountActionUrl('verifyEmail', token) +
+              '">Verify email</a></p><p>This link expires in 60 minutes.</p>'
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Mobile email verification resend failed:', error?.message || 'unknown error');
+    }
+    return res.status(202).json(generic);
+  });
+
+  router.post('/password-reset/request', authLimiter, async (req, res) => {
+    const email = normalizeEmail(req.body?.email);
+    const generic = { accepted: true, message: 'If an eligible account exists, password reset instructions will be sent.' };
+    if (!isValidEmail(email) || !emailDeliveryConfigured()) return res.status(202).json(generic);
+    try {
+      const found = await pool.query(
+        "SELECT id FROM users WHERE email = $1 AND status = 'active' LIMIT 1",
+        [email]
+      );
+      const user = found.rows[0];
+      if (user) {
+        let client = await pool.connect();
+        let token;
+        try {
+          await client.query('BEGIN');
+          await acquireGiftSafetyUserLocks(client, user.id);
+          const current = await client.query(
+            "SELECT id, email FROM users WHERE id = $1 AND email = $2 AND status = 'active' FOR SHARE",
+            [user.id, email]
+          );
+          if (current.rows[0]) {
+            await client.query(
+              "UPDATE account_action_tokens SET consumed_at = NOW() WHERE user_id = $1 AND purpose = 'password_reset' AND consumed_at IS NULL",
+              [user.id]
+            );
+            token = await createAccountActionToken(client, user.id, 'password_reset', 30);
+          }
+          await client.query('COMMIT');
+        } catch (error) {
+          try { await client.query('ROLLBACK'); } catch {}
+          throw error;
+        } finally {
+          client.release();
+        }
+        if (token) {
+          await sendConfiguredEmail({
+            to: email,
+            subject: 'Reset your Vow password',
+            html: '<p>Use this link to choose a new password:</p><p><a href="' +
+              accountActionUrl('resetPassword', token) +
+              '">Reset password</a></p><p>This link expires in 30 minutes.</p>'
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Mobile password reset request failed:', error?.message || 'unknown error');
+    }
+    return res.status(202).json(generic);
+  });
+
+  router.post('/password-reset/complete', authLimiter, async (req, res) => {
+    const token = typeof req.body?.token === 'string' ? req.body.token : '';
+    const password = req.body?.password;
+    if (typeof password !== 'string' || password.length < 12 || password.length > 128) {
+      return res.status(400).json({ error: 'password_must_be_12_to_128_characters' });
+    }
+    if (token.length < 32 || token.length > 512) {
+      return res.status(400).json({ error: 'invalid_or_expired_token' });
+    }
+    let client;
+    try {
+      const passwordHash = await hashPassword(password);
+      client = await pool.connect();
+      await client.query('BEGIN');
+      const tokenHash = hashSessionToken(token);
+      const preview = await client.query(
+        `SELECT user_id FROM account_action_tokens
+         WHERE purpose = 'password_reset' AND token_hash = $1
+           AND consumed_at IS NULL AND expires_at > NOW()`,
+        [tokenHash]
+      );
+      const userId = preview.rows[0]?.user_id;
+      if (!userId) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'invalid_or_expired_token' });
+      }
+      await acquireGiftSafetyUserLocks(client, userId);
+      const action = await client.query(
+        `SELECT id FROM account_action_tokens
+         WHERE purpose = 'password_reset' AND token_hash = $1
+           AND user_id = $2 AND consumed_at IS NULL AND expires_at > NOW()
+         FOR UPDATE`,
+        [tokenHash, userId]
+      );
+      if (!action.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'invalid_or_expired_token' });
+      }
+      const updated = await client.query(
+        "UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 AND status = 'active' RETURNING id",
+        [passwordHash, userId]
+      );
+      if (!updated.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'invalid_or_expired_token' });
+      }
+      await client.query('UPDATE account_action_tokens SET consumed_at = NOW() WHERE id = $1', [action.rows[0].id]);
+      await client.query('DELETE FROM sessions WHERE user_id = $1', [userId]);
+      await client.query(
+        `UPDATE mobile_sessions SET revoked_at = NOW(), revoked_reason = 'password_reset'
+         WHERE user_id = $1 AND revoked_at IS NULL`,
+        [userId]
+      );
+      await client.query('COMMIT');
+      return res.json({ reset: true, message: 'Password changed. Sign in with your new password.' });
+    } catch (error) {
+      try { await client?.query('ROLLBACK'); } catch {}
+      console.error('Mobile password reset completion failed:', error?.message || 'unknown error');
+      return res.status(500).json({ error: 'password_reset_failed' });
+    } finally {
+      client?.release();
+    }
+  });
+
   router.post('/login', authLimiter, async (req, res) => {
     const email = normalizeEmail(req.body?.email);
     const password = req.body?.password;
