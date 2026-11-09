@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS mobile_push_tokens (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   session_id UUID NOT NULL REFERENCES mobile_sessions(id) ON DELETE CASCADE,
   platform TEXT NOT NULL CHECK (platform IN ('android', 'ios')),
+  locale TEXT NOT NULL DEFAULT 'en' CHECK (locale IN ('en', 'ru')),
   token_fingerprint CHAR(64) NOT NULL UNIQUE CHECK (token_fingerprint ~ '^[a-f0-9]{64}$'),
   token_ciphertext BYTEA NOT NULL CHECK (octet_length(token_ciphertext) BETWEEN 40 AND 8192),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
