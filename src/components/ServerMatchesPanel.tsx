@@ -10,10 +10,19 @@ type ServerMatch = {
   city: string;
   lastMessage: string | null;
   lastMessageAt: string | null;
+  chatStartedAt?: string;
 };
 type ServerMessage = { id: string; senderId: string; text: string; createdAt: string; cursorCreatedAt?: string };
 type Props = { onOpenAccount: () => void };
 const MESSAGE_PAGE_SIZE = 100;
+const CHAT_WINDOW_MS = 72 * 60 * 60 * 1000;
+
+export const getChatTimeRemaining = (chatStartedAt: string | null | undefined, now = Date.now()): number | null => {
+  if (typeof chatStartedAt !== 'string' || chatStartedAt.length > 100) return null;
+  const startedAt = Date.parse(chatStartedAt);
+  if (!Number.isFinite(startedAt)) return null;
+  return Math.max(0, startedAt + CHAT_WINDOW_MS - now);
+};
 
 export const normalizeServerMatch = (value: unknown): ServerMatch | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -38,7 +47,11 @@ export const normalizeServerMatch = (value: unknown): ServerMatch | null => {
     lastMessageAt: typeof match.lastMessageAt === 'string' && match.lastMessageAt.length <= 100 &&
       Number.isFinite(Date.parse(match.lastMessageAt))
       ? match.lastMessageAt
-      : null
+      : null,
+    ...(typeof match.chatStartedAt === 'string' && match.chatStartedAt.length <= 100 &&
+      Number.isFinite(Date.parse(match.chatStartedAt))
+      ? { chatStartedAt: match.chatStartedAt }
+      : {})
   };
 };
 
@@ -98,6 +111,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
+  const [clockNow, setClockNow] = useState(() => Date.now());
   const [searchQuery, setSearchQuery] = useState('');
   const [matchFilter, setMatchFilter] = useState<'all' | 'withMessages' | 'withoutMessages'>('all');
   const messageRequestId = useRef(0);
@@ -111,6 +125,11 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const mobileBackButtonRef = useRef<HTMLButtonElement | null>(null);
   const matchButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const lastSelectedMatchIdRef = useRef('');
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   // Drop every piece of account-scoped inbox state when the server rejects the session.
   // This also invalidates pending reads/sends so an old account cannot repopulate the UI.
@@ -573,6 +592,20 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     return true;
   });
   const selectedMatch = matches.find(match => match.id === selected) || null;
+  const chatTimeRemaining = selectedMatch?.chatStartedAt
+    ? getChatTimeRemaining(selectedMatch.chatStartedAt, clockNow)
+    : null;
+  const chatTimeLabel = chatTimeRemaining === null
+    ? ''
+    : chatTimeRemaining === 0
+      ? t('chat72HourExpired')
+      : String(Math.floor(chatTimeRemaining / 3_600_000)).padStart(2, '0') + ':' +
+        String(Math.floor((chatTimeRemaining % 3_600_000) / 60_000)).padStart(2, '0') + ':' +
+        String(Math.floor((chatTimeRemaining % 60_000) / 1000)).padStart(2, '0');
+  const setQuickInviteDraft = (placeKey: string) => {
+    if (!selected) return;
+    setDrafts(current => ({ ...current, [selected]: t('chatInviteDate') + ': ' + t(placeKey) }));
+  };
   const initials = (name: string) => name.trim().split(/\s+/u).slice(0, 2).map(part => Array.from(part)[0] || '').join('').toLocaleUpperCase();
 
   return (
@@ -653,6 +686,22 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                       </span>
                       <span className="vow-inbox-match-label">{t('matched')}</span>
                     </header>
+                    {selectedMatch.chatStartedAt && (
+                      <div data-testid="chat-72-hour-timer" role="status" aria-live="polite" className="mx-3 mt-3 rounded-xl border border-rose-400/20 bg-rose-950/20 px-3 py-2">
+                        <div className="flex items-center justify-between gap-3 text-xs">
+                          <span className="font-semibold text-rose-100">{t('chatDateCountdown')}</span>
+                          <time className="font-mono font-bold tabular-nums text-rose-200">{chatTimeLabel}</time>
+                        </div>
+                        <p className="mt-1 text-[11px] text-stone-300">{chatTimeRemaining === 0 ? t('chat72HourExpired') : t('chat72HourNotice')}</p>
+                      </div>
+                    )}
+                    <div data-testid="chat-quick-invites" className="mx-3 mt-2 flex flex-wrap gap-2" aria-label={t('chatInviteDate')}>
+                      {['chatPlaceCafe', 'chatPlacePark', 'chatPlaceDinner', 'chatPlaceTea'].map(placeKey => (
+                        <button key={placeKey} type="button" onClick={() => setQuickInviteDraft(placeKey)} disabled={busy} className="min-h-10 rounded-full border border-rose-300/25 bg-rose-500/10 px-3 py-2 text-[11px] font-semibold text-rose-100 hover:bg-rose-500/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">
+                          {t(placeKey)}
+                        </button>
+                      ))}
+                    </div>
                     {notice && !messagesFailed && <p role="status" aria-live="polite" className="px-4 pt-2 text-xs text-stone-300">{notice}</p>}
                     <div className="vow-inbox-message-area">
                       {messagesLoading && <p role="status" aria-live="polite" aria-atomic="true" className="py-3 text-xs text-stone-400">{t('loading')}</p>}
