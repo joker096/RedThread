@@ -56,17 +56,18 @@ function configureIosDeepLinks() {
   const plistPath = join('ios', 'App', 'App', 'Info.plist');
   if (!existsSync(plistPath)) throw new Error('ios_info_plist_missing_after_capacitor_add');
   let plist = readFileSync(plistPath, 'utf8');
-  if (/<string>vow<\\/string>/.test(plist)) return;
+  if (plist.includes('<string>vow</string>')) return;
   const urlType = '\n    <dict>\n' +
     '      <key>CFBundleURLName</key>\n' +
     '      <string>com.vow.app</string>\n' +
     '      <key>CFBundleURLSchemes</key>\n' +
     '      <array>\n        <string>vow</string>\n      </array>\n' +
     '    </dict>';
-  if (/<key>CFBundleURLTypes<\\/key>\\s*<array>/.test(plist)) {
-    plist = plist.replace(/(<key>CFBundleURLTypes<\\/key>\\s*<array>)/, '$1' + urlType);
+  const urlTypesPattern = new RegExp('<key>CFBundleURLTypes</key>\\\\s*<array>');
+  if (urlTypesPattern.test(plist)) {
+    plist = plist.replace(urlTypesPattern, match => match + urlType);
   } else {
-    const bundleIdentifier = /(<key>CFBundleIdentifier<\\/key>\\s*<string>[^<]*<\\/string>)/;
+    const bundleIdentifier = new RegExp('(<key>CFBundleIdentifier</key>\\\\s*<string>[^<]*</string>)');
     if (!bundleIdentifier.test(plist)) throw new Error('ios_bundle_identifier_entry_not_found');
     plist = plist.replace(bundleIdentifier, '$1\n    <key>CFBundleURLTypes</key>\n    <array>' + urlType + '\n    </array>');
   }
