@@ -261,7 +261,7 @@ export function createMobileAuthRouter({
             subject: 'Verify your Vow account',
             html: '<p>Welcome to Vow.</p><p>Confirm your email address to activate your account:</p><p><a href="' +
               accountActionUrl('verifyEmail', verificationToken) +
-              '">Verify email</a></p><p>Already have the Vow app? <a href="vow://auth/verify-email?token=' + encodeURIComponent(verificationToken) + '">Open in Vow</a>.</p><p>This link expires in 60 minutes. If you did not create this account, you can ignore this email.</p>'
+              '">Verify email</a></p><p>This link expires in 60 minutes. If you did not create this account, you can ignore this email.</p>'
           });
         } catch (mailError) {
           console.error('Mobile registration verification email failed:', mailError?.message || 'unknown error');
@@ -388,7 +388,7 @@ export function createMobileAuthRouter({
             subject: 'Verify your Vow account',
             html: '<p>Confirm your email address:</p><p><a href="' +
               accountActionUrl('verifyEmail', token) +
-              '">Verify email</a></p><p>Already have the Vow app? <a href="vow://auth/verify-email?token=' + encodeURIComponent(token) + '">Open in Vow</a>.</p><p>This link expires in 60 minutes.</p>'
+              '">Verify email</a></p><p>This link expires in 60 minutes.</p>'
           });
         }
       }
@@ -438,7 +438,7 @@ export function createMobileAuthRouter({
             subject: 'Reset your Vow password',
             html: '<p>Use this link to choose a new password:</p><p><a href="' +
               accountActionUrl('resetPassword', token) +
-              '">Reset password</a></p><p>Already have the Vow app? <a href="vow://auth/reset-password?token=' + encodeURIComponent(token) + '">Open in Vow</a>.</p><p>This link expires in 30 minutes.</p>'
+              '">Reset password</a></p><p>This link expires in 30 minutes.</p>'
           });
         }
       }
