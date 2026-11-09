@@ -49,7 +49,7 @@ function configureIos() {
   mkdirSync(dirname(entitlementsPath), { recursive: true });
   let entitlements = existsSync(entitlementsPath) ? readFileSync(entitlementsPath, 'utf8') : '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n</dict>\n</plist>\n';
   const value = environment === 'production' ? 'production' : 'development';
-  const keyPattern = /<key>aps-environment<\\/key>\\s*<string>[^<]*<\\/string>/;
+  const keyPattern = /<key>aps-environment<\/key>\s*<string>[^<]*<\/string>/;
   const entry = '<key>aps-environment</key>\n  <string>' + value + '</string>';
   if (keyPattern.test(entitlements)) entitlements = entitlements.replace(keyPattern, entry);
   else entitlements = entitlements.replace('</dict>', '  ' + entry + '\n</dict>');
