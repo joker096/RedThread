@@ -2602,7 +2602,7 @@ app.get('/api/photos/:photoId', requireSession, async (req,res) => {
   }
 });
 
-app.get('/api/matches/:matchId/compatibility', requireSession, async (req, res) => {
+app.get('/api/matches/:matchId/compatibility', requireSession, requirePaidFeatures, async (req, res) => {
   if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
   let client;
   try {
@@ -2641,19 +2641,24 @@ app.get('/api/matches/:matchId/compatibility', requireSession, async (req, res) 
       return res.status(404).json({ error: 'match_not_found' });
     }
     const row = match.rows[0];
-    if (!row.answersA || !row.answersB ||
-        row.versionA !== ASSESSMENT_VERSION || row.versionB !== ASSESSMENT_VERSION) {
+    const selfIsUserA = req.authUser.id === userAId;
+    const selfAnswers = selfIsUserA ? row.answersA : row.answersB;
+    const selfVersion = selfIsUserA ? row.versionA : row.versionB;
+    const partnerAnswers = selfIsUserA ? row.answersB : row.answersA;
+    const partnerVersion = selfIsUserA ? row.versionB : row.versionA;
+    if (!selfAnswers || !partnerAnswers ||
+        selfVersion !== ASSESSMENT_VERSION || partnerVersion !== ASSESSMENT_VERSION) {
       await client.query('COMMIT');
       return res.json({
         assessmentIncomplete: true,
         requiredVersion: ASSESSMENT_VERSION,
         missingForCurrentVersion: [
-          ...(!row.answersA || row.versionA !== ASSESSMENT_VERSION ? ['self'] : []),
-          ...(!row.answersB || row.versionB !== ASSESSMENT_VERSION ? ['partner'] : [])
+          ...(!selfAnswers || selfVersion !== ASSESSMENT_VERSION ? ['self'] : []),
+          ...(!partnerAnswers || partnerVersion !== ASSESSMENT_VERSION ? ['partner'] : [])
         ]
       });
     }
-    const explanation = buildAssessmentCompatibilityExplanation(row.answersA, row.answersB);
+    const explanation = buildAssessmentCompatibilityExplanation(selfAnswers, partnerAnswers);
     if (!explanation) {
       await client.query('COMMIT');
       return res.json({ assessmentIncomplete: true, requiredVersion: ASSESSMENT_VERSION });
