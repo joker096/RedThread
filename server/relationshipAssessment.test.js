@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ASSESSMENT_OPTIONS, assessmentCompatibility, assessmentCompatibilityBreakdown, financialAlignment, isValidAssessment, isValidDealbreakers } from './relationshipAssessment.js';
+import { ASSESSMENT_OPTIONS, assessmentCompatibility, assessmentCompatibilityBreakdown, explainAssessmentCompatibility, financialAlignment, isValidAssessment, isValidDealbreakers } from './relationshipAssessment.js';
 
 const answers = Object.fromEntries(Object.entries(ASSESSMENT_OPTIONS).map(([key, options]) => [key, options[0]]));
 
@@ -47,4 +47,25 @@ test('returns four transparent compatibility dimensions without exposing answer 
 test('compatibility breakdown rejects invalid persisted answers or dealbreakers', () => {
   assert.throws(() => assessmentCompatibilityBreakdown(answers, { ...answers, invalid: 'x' }), /invalid_assessment_compatibility_input/);
   assert.throws(() => assessmentCompatibilityBreakdown(answers, answers, ['not-a-field']), /invalid_assessment_compatibility_input/);
+});
+
+test('discovery compatibility explains four weighted dimensions without exposing answers or deal-breakers', () => {
+  const other = { ...answers, children: 'do_not_want', financialModel: 'provider_full', conflictStyle: 'avoid', relocation: 'international' };
+  const result = explainAssessmentCompatibility(answers, other);
+  assert.equal(result.version, 2);
+  assert.equal(result.score, assessmentCompatibility(answers, other).score);
+  assert.deepEqual(result.dimensions.map(item => item.key), ['family', 'budget', 'conflict', 'lifestyle']);
+  assert.deepEqual(result.dimensions.find(item => item.key === 'family').discussionPoints, ['children']);
+  assert.deepEqual(result.dimensions.find(item => item.key === 'budget').discussionPoints, ['financialModel']);
+  assert.deepEqual(result.dimensions.find(item => item.key === 'conflict').discussionPoints, ['conflictStyle']);
+  assert.deepEqual(result.dimensions.find(item => item.key === 'lifestyle').discussionPoints, ['relocation']);
+  assert.equal(result.dealbreakersHiddenUntilMatch, true);
+  assert.equal(JSON.stringify(result).includes('marriage_soon'), false);
+  assert.equal(JSON.stringify(result).includes('do_not_want'), false);
+  assert.equal(Object.hasOwn(result, 'dealbreakers'), false);
+});
+
+test('discovery compatibility refuses incomplete assessment answers', () => {
+  assert.equal(explainAssessmentCompatibility(answers, { children: 'want_soon' }), null);
+  assert.equal(explainAssessmentCompatibility(null, answers), null);
 });
