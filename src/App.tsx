@@ -843,6 +843,7 @@ export default function App() {
               onOpenBrandModal={() => setIsBrandModalOpen(true)}
               onToggleGender={handleToggleGender}
               allowDemoGenderSwitch={discoveryMode === 'demo'}
+                  showDemoPersonaControl={!nativeApp}
               onToggleDeviceFrame={setDeviceFrame}
               onOpenPremiumModal={() => { if (!nativeApp) setIsLadyPremiumOpen(true); }}
                   showPremiumAction={!nativeApp}
@@ -987,6 +988,7 @@ export default function App() {
                   onOpenBrandModal={() => {}}
                   onToggleGender={handleToggleGender}
                   allowDemoGenderSwitch={discoveryMode === 'demo'}
+                  showDemoPersonaControl={!nativeApp}
                   onToggleDeviceFrame={setDeviceFrame}
                   onOpenPremiumModal={() => { if (!nativeApp) setIsLadyPremiumOpen(true); }}
                   showPremiumAction={!nativeApp}
