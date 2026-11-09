@@ -51,3 +51,10 @@ export function ensureIosFilesystemPrivacyManifest(plist) {
   ].join('\n');
   return plist.slice(0, rootClose) + entry + plist.slice(rootClose);
 }
+
+
+export function createEmptyIosPrivacyManifest() {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict></dict></plist>
+`;
+}
