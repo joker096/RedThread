@@ -60,9 +60,11 @@ The API currently sends `Permissions-Policy: camera=(), microphone=(), geolocati
 - Implemented: Didit opens through the Capacitor native browser surface; the verified return callback refreshes Trust Center state. Existing server-side Didit webhook signature and status checks remain authoritative.
 - Still blocked for production: domain ownership/DNS, Android `assetlinks.json` with the final signing fingerprint, Apple `apple-app-site-association` with the final Team ID/bundle ID, final application identifier, and physical-device validation. Until those are completed, HTTPS app links are prepared but not production-verified.
 
-### 5. Billing and store policy
+### 5. Billing, provider eligibility and store policy
 
-The backend remains Paddle-only. Paddle checkout is hidden in native builds pending a reviewed Google Play / App Store compliant approach for digital subscriptions. Do not silently add Stripe or switch billing providers. Live billing remains disabled until the decision is made.
+The existing Paddle integration is Sandbox-only. Paddle's current Acceptable Use Policy lists dating services/applications, advertising/sponsorship, physical goods requiring delivery and digital marketplaces for third-party sellers as prohibited categories. These categories overlap Vow's Premium, advertising, gifts and partner-services plans. Keep Paddle Live disabled unless Paddle gives written approval explicitly covering Vow and the exact products.
+
+Paddle checkout is hidden in native builds. Separately, Google Play and Apple restrict external payment links for digital subscriptions to their applicable billing rules, programs, entitlements and supported storefronts. A Paddle hosted checkout URL alone does not establish store compliance. Do not add Stripe or switch providers silently. See `docs/PRODUCT_LAUNCH_READINESS.md` for the product-wide monetization decision gates.
 
 ### 6. Push notifications and app lifecycle
 
@@ -85,7 +87,7 @@ Vow is a mobile product, not a public website/web product. The production VPS sh
 ## Scope and safety boundaries
 
 - No public Vow website or web product is planned. Browser code remains a development and regression surface.
-- Keep this work on `feat/mobile-capacitor-foundation`; do not modify `main`, merge, or create a PR until the feature branch is fully audited and the user authorizes the next step.
+- Keep implementation changes on `feat/mobile-capacitor-foundation` / Draft PR #429 during this audit. Do not modify `main`, mark the PR ready, or merge without explicit user approval.
 - Successful CI or simulator packaging does not mean the app is production-ready.
 
 
