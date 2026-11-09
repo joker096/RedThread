@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ASSESSMENT_QUESTIONS, type AssessmentAnswers, validateAssessmentAnswers } from '../utils/relationshipAssessment.ts';
+import { ASSESSMENT_QUESTIONS, type AssessmentAnswers, validateAssessmentAnswers, validateDealbreakers } from '../utils/relationshipAssessment.ts';
 import { getLocalizedAssessmentQuestions } from '../utils/assessmentTranslations.ts';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 
@@ -9,6 +9,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
   const { t, locale } = useLocale();
   const questions = useMemo(() => getLocalizedAssessmentQuestions(locale), [locale]);
   const [answers, setAnswers] = useState<AssessmentAnswers>(emptyAnswers);
+  const [dealbreakers, setDealbreakers] = useState<string[]>([]);
   const [status, setStatus] = useState<'loading' | 'ready' | 'saving' | 'saved' | 'login' | 'error'>('loading');
   const [note, setNote] = useState('');
   const answersEditedRef = useRef(false);
@@ -42,6 +43,8 @@ export const RelationshipAssessmentPanel: React.FC = () => {
           // Do not let a slow initial load overwrite edits made while it was in flight.
           if (!answersEditedRef.current) {
             setAnswers(savedAnswers);
+            const savedDealbreakers: unknown = data?.assessment?.dealbreakers;
+            setDealbreakers(validateDealbreakers(savedDealbreakers) ? savedDealbreakers : []);
             setStatus('saved');
             setNote(t('loadedSavedAnswers'));
           } else {
@@ -77,7 +80,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
         method: 'PUT',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers })
+        body: JSON.stringify({ answers, dealbreakers })
       });
       if (response.status === 401) {
         setStatus('login');
@@ -110,6 +113,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
       <p className="mb-4 text-xs leading-relaxed text-stone-400">
         {t('valuesTestDescription')}
       </p>
+      <p className="mb-4 text-xs leading-relaxed text-stone-500">{t('dealbreakerHelp')}</p>
       <div className="space-y-4">
         {questions.map((question, index) => (
           <fieldset key={question.id} disabled={status === 'saving'} className="rounded-2xl border border-white/5 bg-stone-950/60 p-3 disabled:opacity-70">
@@ -135,6 +139,15 @@ export const RelationshipAssessmentPanel: React.FC = () => {
                 </label>
               ))}
             </div>
+            <label className="mt-3 flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-amber-400/20 bg-amber-950/10 px-3 py-2 text-xs text-amber-100">
+              <input type="checkbox" checked={dealbreakers.includes(question.id)} onChange={event => {
+                answersEditedRef.current = true;
+                setDealbreakers(current => event.target.checked
+                  ? [...current, question.id]
+                  : current.filter(id => id !== question.id));
+              }} className="min-h-5 min-w-5 accent-amber-400" />
+              <span>{t('markAsDealbreaker')}</span>
+            </label>
           </fieldset>
         ))}
       </div>
