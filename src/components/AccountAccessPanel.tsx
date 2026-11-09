@@ -551,7 +551,15 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       onAuthenticated();
     } catch (error) {
       if (sessionActionIdRef.current !== actionId) return;
-      setMessage(error instanceof Error ? error.message : t('authLogoutFailed'));
+      if (nativeApp) {
+        setUser(null);
+        window.dispatchEvent(new Event('vow:session-changed'));
+        setBillingStatus(null);
+        setMessage(t('authLogoutFailed'));
+        onAuthenticated();
+      } else {
+        setMessage(error instanceof Error ? error.message : t('authLogoutFailed'));
+      }
     } finally {
       if (sessionActionIdRef.current === actionId) setBusy(false);
     }
