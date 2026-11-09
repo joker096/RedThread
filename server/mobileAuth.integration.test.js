@@ -4,7 +4,7 @@ import { createServer } from 'node:net';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
-import { hashPassword } from './security.js';
+import { createSessionToken, hashPassword, hashSessionToken } from './security.js';
 
 const { Pool } = pg;
 
@@ -85,6 +85,9 @@ test('native mobile auth login, refresh rotation, replay revocation and device l
   }
 
   const activeTokens = [];
+  let registrationUserId = null;
+  const pendingUserId = randomUUID();
+  const pendingEmail = `mobile-pending-${pendingUserId}@example.invalid`;
   try {
     await db.query(
       "INSERT INTO users (id, email, password_hash, status, email_verified_at) VALUES ($1, $2, $3, 'active', NOW())",
@@ -150,13 +153,15 @@ test('native mobile auth login, refresh rotation, replay revocation and device l
     assert.equal(registration.status, 201, logs);
     const registered = await registration.json();
     assert.equal(registered.user.email, registrationEmail);
+    registrationUserId = registered.user.id;
     assert.match(registered.accessToken, /^vow_access_/);
     assert.match(registered.refreshToken, /^vow_refresh_/);
     assert.equal(registration.headers.get('set-cookie'), null,
       'native registration must not issue a browser cookie');
     const registeredMe = await request('/api/mobile/auth/me', { token: registered.accessToken });
     assert.equal(registeredMe.status, 200);
-    await db.query('DELETE FROM users WHERE id = $1', [registered.user.id]);
+    await db.query('DELETE FROM users WHERE id = $1', [registrationUserId]);
+    registrationUserId = null;
 
     const loginA = await request('/api/mobile/auth/login', {
       method: 'POST',
@@ -171,6 +176,36 @@ test('native mobile auth login, refresh rotation, replay revocation and device l
     assert.ok(pairA.accessTokenExpiresAt);
     assert.ok(pairA.refreshTokenExpiresAt);
     activeTokens.push(pairA.accessToken, pairA.refreshToken);
+
+    await db.query(
+      "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, $3, 'pending')",
+      [pendingUserId, pendingEmail, passwordHash]
+    );
+    await db.query(
+      "INSERT INTO profiles (user_id, display_name, gender, country, city) VALUES ($1, 'Pending Mobile User', 'male', 'Georgia', 'Tbilisi')",
+      [pendingUserId]
+    );
+    const verificationToken = createSessionToken();
+    await db.query(
+      "INSERT INTO account_action_tokens (user_id, purpose, token_hash, expires_at) VALUES ($1, 'email_verification', $2, NOW() + INTERVAL '5 minutes')",
+      [pendingUserId, hashSessionToken(verificationToken)]
+    );
+    const pendingLogin = await request('/api/mobile/auth/login', {
+      method: 'POST', body: { email: pendingEmail, password, ...deviceB }
+    });
+    assert.equal(pendingLogin.status, 403, 'pending email accounts cannot create mobile sessions');
+    const verified = await request('/api/mobile/auth/verify-email', {
+      method: 'POST', body: { token: verificationToken }
+    });
+    assert.equal(verified.status, 200);
+    assert.equal((await verified.json()).verified, true);
+    const verifiedLogin = await request('/api/mobile/auth/login', {
+      method: 'POST', body: { email: pendingEmail, password, ...deviceB }
+    });
+    assert.equal(verifiedLogin.status, 200, logs);
+    const verifiedPair = await verifiedLogin.json();
+    activeTokens.push(verifiedPair.accessToken, verifiedPair.refreshToken);
+    await db.query('DELETE FROM users WHERE id = $1', [pendingUserId]);
 
     const meA = await request('/api/mobile/auth/me', { token: pairA.accessToken });
     assert.equal(meA.status, 200);
@@ -265,7 +300,38 @@ test('native mobile auth login, refresh rotation, replay revocation and device l
     const concurrentRevoked = await request('/api/mobile/auth/me', { token: concurrentNewPair.accessToken });
     assert.equal(concurrentRevoked.status, 401,
       'the losing parallel refresh must trigger replay response and revoke the account sessions');
+
+    const loginForReset = await request('/api/mobile/auth/login', {
+      method: 'POST', body: { email, password, ...deviceA }
+    });
+    assert.equal(loginForReset.status, 200, logs);
+    const resetPair = await loginForReset.json();
+    activeTokens.push(resetPair.accessToken, resetPair.refreshToken);
+    const resetToken = createSessionToken();
+    await db.query(
+      "INSERT INTO account_action_tokens (user_id, purpose, token_hash, expires_at) VALUES ($1, 'password_reset', $2, NOW() + INTERVAL '5 minutes')",
+      [userId, hashSessionToken(resetToken)]
+    );
+    const reset = await request('/api/mobile/auth/password-reset/complete', {
+      method: 'POST',
+      body: { token: resetToken, password: 'New Native Password 2026! Secure' }
+    });
+    assert.equal(reset.status, 200, logs);
+    const revokedByReset = await request('/api/mobile/auth/me', { token: resetPair.accessToken });
+    assert.equal(revokedByReset.status, 401, 'password reset must revoke all mobile sessions');
+    const oldPasswordLogin = await request('/api/mobile/auth/login', {
+      method: 'POST', body: { email, password, ...deviceA }
+    });
+    assert.equal(oldPasswordLogin.status, 401);
+    const newPasswordLogin = await request('/api/mobile/auth/login', {
+      method: 'POST', body: { email, password: 'New Native Password 2026! Secure', ...deviceA }
+    });
+    assert.equal(newPasswordLogin.status, 200, logs);
+    const newPasswordPair = await newPasswordLogin.json();
+    activeTokens.push(newPasswordPair.accessToken, newPasswordPair.refreshToken);
   } finally {
+    if (registrationUserId) await db.query('DELETE FROM users WHERE id = $1', [registrationUserId]).catch(() => {});
+    await db.query('DELETE FROM users WHERE id = $1', [pendingUserId]).catch(() => {});
     await db.query('DELETE FROM users WHERE id = $1', [userId]).catch(() => {});
     child.kill('SIGTERM');
     await new Promise(resolve => {
