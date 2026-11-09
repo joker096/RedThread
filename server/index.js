@@ -22,6 +22,7 @@ import { canInteract as canIdentityInteract } from './identityAccessPolicy.js';
 import { DIDIT_FREE_MONTHLY_SESSION_LIMIT, releaseDiditSessionReservation } from './diditQuota.js';
 import express from 'express';
 import { resolveTrustProxyHops } from './trustProxyConfig.js';
+import { createMobileAuthRouter } from './mobileAuthRoutes.js';
 import { verifyGoogleIdTokenClaims } from './googleIdToken.js';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import { withPooledTransaction, rollbackPooledTransaction } from './withPooledTransaction.js';
@@ -694,6 +695,20 @@ const reportLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'too_many_reports' }
 });
+
+app.use('/api/mobile/auth', createMobileAuthRouter({
+  pool,
+  authLimiter,
+  requireDatabase,
+  acquireGiftSafetyUserLocks,
+  withActiveAccountRead,
+  emailVerificationRequired,
+  normalizeEmail,
+  isValidEmail,
+  verifyPassword,
+  hashPassword,
+  publicUser
+}));
 
 function emailDeliveryConfigured() {
   const configuredUrl = process.env.APP_URL || process.env.APP_ORIGIN;
