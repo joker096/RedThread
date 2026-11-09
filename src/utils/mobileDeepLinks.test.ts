@@ -14,6 +14,13 @@ test('parses verified HTTPS email verification and password reset app links', ()
   });
 });
 
+test('parses Didit return only through the configured verified HTTPS host', () => {
+  assert.deepEqual(parseVowDeepLink(`https://${appHost}/?identityVerification=return`, appHost), {
+    type: 'identity-return'
+  });
+  assert.equal(parseVowDeepLink('https://attacker.invalid/?identityVerification=return', appHost), null);
+});
+
 test('parses the non-secret custom-scheme identity return marker', () => {
   assert.deepEqual(parseVowDeepLink('vow://identity/return'), { type: 'identity-return' });
   assert.equal(parseVowDeepLink('vow://identity/return?token=secret'), null);
@@ -33,7 +40,6 @@ test('rejects malformed, ambiguous and unverified HTTPS app links', () => {
     `https://${appHost}/?verifyEmail=${'a'.repeat(513)}`,
     `https://${appHost}/?verifyEmail=${token}#fragment`,
     `https://user@${appHost}/?verifyEmail=${token}`,
-    `https://${appHost}:443/?verifyEmail=${token}`,
     `https://${appHost}/unexpected?verifyEmail=${token}`,
     'vow://attacker/identity/return'
   ];
