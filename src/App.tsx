@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocale } from './i18n/LocaleProvider.tsx';
 import { isCurrentSessionRequest } from './utils/sessionRequest.ts';
+import { isNativeVowApp } from './utils/apiClient.ts';
 import { 
   Heart, 
   MessageCircle, 
@@ -48,6 +49,7 @@ import { TrustCenterPanel } from './components/TrustCenterPanel.tsx';
 
 export default function App() {
   const { t } = useLocale();
+  const nativeApp = isNativeVowApp();
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     try {
       return window.localStorage.getItem('vow-theme') === 'light' ? 'light' : 'dark';
@@ -197,6 +199,12 @@ export default function App() {
   // Production accounts and cross-device sync must use an authenticated backend.
   const [isHydrated, setIsHydrated] = useState(false);
   useEffect(() => {
+    if (nativeApp) {
+      // Native builds must never restore or persist prototype accounts, chats, or demo metrics.
+      try { window.localStorage.removeItem('nit-demo-state-v1'); } catch { /* The server-backed app remains usable. */ }
+      setIsHydrated(true);
+      return;
+    }
     try {
       const raw = window.localStorage.getItem('nit-demo-state-v1');
       if (raw) {
@@ -226,10 +234,10 @@ export default function App() {
     } finally {
       setIsHydrated(true);
     }
-  }, []);
+  }, [nativeApp]);
 
   useEffect(() => {
-    if (!isHydrated) return;
+    if (!isHydrated || nativeApp) return;
     try {
       window.localStorage.setItem('nit-demo-state-v1', JSON.stringify({
         currentUser, currentGender, profiles, chatThreads, adStats,
@@ -240,7 +248,7 @@ export default function App() {
       // Storage can be disabled or full; the app remains usable for this session.
     }
   }, [
-    isHydrated, currentUser, currentGender, profiles, chatThreads, adStats,
+    nativeApp, isHydrated, currentUser, currentGender, profiles, chatThreads, adStats,
     currentBrandId, minCompatibility, onlyVerified, selectedCountry, selectedCity, intentFilter,
     superLikesCount, boostActive, activeTab, activeChatThreadId
   ]);
@@ -652,7 +660,7 @@ export default function App() {
             <GiftOrdersPanel />
             <GiftReceivingPreferencesPanel />
             <GiftCatalogPanel />
-            {!showDemoChats ? (
+            {!nativeApp && (!showDemoChats ? (
               <section className="mx-auto mt-4 w-full max-w-md rounded-2xl border border-white/10 bg-stone-900 p-4 text-left">
                 <h3 className="font-semibold text-white">{t('demoChatsHiddenTitle')}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-stone-300">{t('demoChatsHiddenDescription')}</p>
@@ -695,7 +703,7 @@ export default function App() {
                   onBackToList={() => setActiveChatThreadId(null)}
                 />
               </>
-            )}
+            ))}
           </>
         );
 
@@ -703,6 +711,7 @@ export default function App() {
         return <TrustCenterPanel />;
 
       case 'monetization':
+        if (nativeApp) return null;
         return (
           <div className="w-full max-w-md mx-auto p-2 text-left">
             <div className="p-5 rounded-3xl bg-stone-900 border border-white/10 shadow-2xl mb-4">
@@ -750,7 +759,7 @@ export default function App() {
                 <p className="text-sm font-semibold text-white">{t('serverProfilesNotice')}</p>
                 <p className="mt-1 text-xs text-stone-400">{t('serverProfilesDescription')}</p>
               </div>
-              <button type="button" data-testid="open-demo-preview" onClick={() => setDiscoveryMode('demo')} className="min-h-11 rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-stone-300">{t('openDemoPreview')}</button>
+              {!nativeApp && <button type="button" data-testid="open-demo-preview" onClick={() => setDiscoveryMode('demo')} className="min-h-11 rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-stone-300">{t('openDemoPreview')}</button>}
             </div>
             <ServerDiscoveryPanel onOpenAccount={() => setActiveTab('tests')} />
           </>
@@ -801,7 +810,7 @@ export default function App() {
     <div className="min-h-screen bg-stone-950 text-stone-100 flex flex-col items-center">
       <PWAInstallBanner />
       {/* Prototype disclosure: prevents mock data from being mistaken for verified production activity. */}
-      <div role="status" className="w-full border-b border-amber-500/20 bg-amber-950/70 px-3 py-2 text-center text-[11px] text-amber-100 flex flex-col sm:flex-row items-center justify-center gap-2">
+      {!nativeApp && <div role="status" className="w-full border-b border-amber-500/20 bg-amber-950/70 px-3 py-2 text-center text-[11px] text-amber-100 flex flex-col sm:flex-row items-center justify-center gap-2">
         <span>{t('prototypeNotice')}</span>
         <button
           type="button"
@@ -817,7 +826,7 @@ export default function App() {
         >
           {t('resetDemo')}
         </button>
-      </div>
+      </div>}
       {/* Device Mode Wrapper */}
       <div className="w-full flex flex-col items-center flex-1">
         {deviceFrame === 'responsive' ? (
@@ -835,7 +844,8 @@ export default function App() {
               onToggleGender={handleToggleGender}
               allowDemoGenderSwitch={discoveryMode === 'demo'}
               onToggleDeviceFrame={setDeviceFrame}
-              onOpenPremiumModal={() => setIsLadyPremiumOpen(true)}
+              onOpenPremiumModal={() => { if (!nativeApp) setIsLadyPremiumOpen(true); }}
+                  showPremiumAction={!nativeApp}
               onOpenBotScanner={() => {
                 setBotScanTargetProfile(profiles[0]);
                 setIsBotScannerOpen(true);
@@ -908,7 +918,7 @@ export default function App() {
                 <span className="text-[10px] leading-tight">{t('safetyShort')}</span>
               </button>
 
-              {currentGender === 'female' && (
+              {!nativeApp && currentGender === 'female' && (
                 <button
                   onClick={() => setIsLadyPremiumOpen(true)}
                   className="vow-motion-button flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 text-amber-400 transition-colors hover:bg-amber-400/10 hover:text-amber-300 font-bold"
@@ -978,7 +988,8 @@ export default function App() {
                   onToggleGender={handleToggleGender}
                   allowDemoGenderSwitch={discoveryMode === 'demo'}
                   onToggleDeviceFrame={setDeviceFrame}
-                  onOpenPremiumModal={() => setIsLadyPremiumOpen(true)}
+                  onOpenPremiumModal={() => { if (!nativeApp) setIsLadyPremiumOpen(true); }}
+                  showPremiumAction={!nativeApp}
                   onOpenBotScanner={() => {
                     setBotScanTargetProfile(profiles[0]);
                     setIsBotScannerOpen(true);
@@ -1051,7 +1062,7 @@ export default function App() {
                     <span className="text-[9px] leading-tight">{t('safetyShort')}</span>
                   </button>
 
-                  {currentGender === 'female' && (
+                  {!nativeApp && currentGender === 'female' && (
                     <button
                       onClick={() => setIsLadyPremiumOpen(true)}
                       className="vow-motion-button flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 text-amber-400 font-bold"
@@ -1088,10 +1099,10 @@ export default function App() {
       />
 
       {/* 2. Lady Premium Club Modal */}
-      <LadyPremiumModal
+      {!nativeApp && <LadyPremiumModal
         isOpen={isLadyPremiumOpen}
         onClose={() => setIsLadyPremiumOpen(false)}
-      />
+      />}
 
       {/* 3. Bot & Safety Scanner */}
       <BotSafetyScanner
@@ -1101,7 +1112,7 @@ export default function App() {
       />
 
       {/* 4. Ad Revenue Manager */}
-      <AdManagerModal
+      {!nativeApp && <AdManagerModal
         isOpen={isAdManagerOpen}
         onClose={() => setIsAdManagerOpen(false)}
         stats={adStats}
@@ -1109,7 +1120,7 @@ export default function App() {
         superLikesCount={superLikesCount}
         boostActive={boostActive}
         isDemoMode={discoveryMode === 'demo'}
-      />
+      />}
 
       {/* 5. Filter Drawer */}
       <FilterDrawer
