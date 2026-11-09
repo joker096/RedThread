@@ -4219,6 +4219,124 @@ app.get('/api/notifications', requireSession, async (req, res) => {
   }
 });
 
+app.get('/api/mobile/push/status', requireSession, async (req, res) => {
+  try {
+    const session = await pool.query(
+      `SELECT platform FROM mobile_sessions
+       WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL AND refresh_expires_at > NOW()
+       LIMIT 1`,
+      [req.authUser.session_id, req.authUser.id]
+    );
+    const platform = session.rows[0]?.platform || null;
+    if (!platform) return res.json({ available: false, registered: false, platform: null });
+    const key = parseMobilePushTokenEncryptionKey();
+    const available = Boolean(key && isMobilePushProviderConfigured(platform));
+    const registered = await pool.query(
+      'SELECT 1 FROM mobile_push_tokens WHERE session_id = $1 AND revoked_at IS NULL LIMIT 1',
+      [req.authUser.session_id]
+    );
+    return res.json({ available, registered: Boolean(registered.rowCount), platform });
+  } catch (error) {
+    console.error('Mobile push status failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'mobile_push_status_failed' });
+  }
+});
+
+app.put('/api/mobile/push-token', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+  const key = parseMobilePushTokenEncryptionKey();
+  if (!key) return res.status(503).json({ error: 'mobile_push_encryption_not_configured' });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const session = await client.query(
+      `SELECT id, platform FROM mobile_sessions
+       WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
+         AND access_expires_at > NOW() AND refresh_expires_at > NOW()
+       FOR UPDATE`,
+      [req.authUser.session_id, req.authUser.id]
+    );
+    const mobileSession = session.rows[0];
+    if (!mobileSession) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'native_mobile_session_required' });
+    }
+    if (!isMobilePushProviderConfigured(mobileSession.platform)) {
+      await client.query('ROLLBACK');
+      return res.status(503).json({ error: 'mobile_push_provider_not_configured' });
+    }
+    if (!validateMobilePushToken(token, mobileSession.platform)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'invalid_mobile_push_token' });
+    }
+    const fingerprint = fingerprintMobilePushToken(token, key);
+    const encrypted = encryptMobilePushToken(token, key);
+    const existing = await client.query(
+      'SELECT id, user_id AS "userId", session_id AS "sessionId", revoked_at AS "revokedAt" FROM mobile_push_tokens WHERE token_fingerprint = $1 FOR UPDATE',
+      [fingerprint]
+    );
+    const existingToken = existing.rows[0];
+    if (existingToken && existingToken.revokedAt === null &&
+        (existingToken.userId !== req.authUser.id || existingToken.sessionId !== mobileSession.id)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'mobile_push_token_already_registered' });
+    }
+    await client.query(
+      `UPDATE mobile_push_tokens
+       SET revoked_at = statement_timestamp(), revoked_reason = 'token_rotated',
+           updated_at = statement_timestamp()
+       WHERE session_id = $1 AND revoked_at IS NULL AND token_fingerprint <> $2`,
+      [mobileSession.id, fingerprint]
+    );
+    if (existingToken) {
+      await client.query(
+        `UPDATE mobile_push_tokens
+         SET user_id = $2, session_id = $3, platform = $4, token_ciphertext = $5,
+             updated_at = statement_timestamp(), last_registered_at = statement_timestamp(),
+             revoked_at = NULL, revoked_reason = NULL
+         WHERE id = $1`,
+        [existingToken.id, req.authUser.id, mobileSession.id, mobileSession.platform, encrypted]
+      );
+    } else {
+      await client.query(
+        `INSERT INTO mobile_push_tokens
+           (user_id, session_id, platform, token_fingerprint, token_ciphertext)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [req.authUser.id, mobileSession.id, mobileSession.platform, fingerprint, encrypted]
+      );
+    }
+    await client.query('COMMIT');
+    return res.json({ registered: true, platform: mobileSession.platform });
+  } catch (error) {
+    if (client && !await rollbackPooledTransaction(client)) client = null;
+    console.error('Mobile push token registration failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'mobile_push_registration_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.delete('/api/mobile/push-token', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  try {
+    await withPooledTransaction(pool, async client => {
+      await acquireGiftSafetyUserLocks(client, req.authUser.id);
+      await client.query(
+        `UPDATE mobile_push_tokens
+         SET revoked_at = statement_timestamp(), revoked_reason = 'permission_revoked',
+             updated_at = statement_timestamp()
+         WHERE session_id = $1 AND user_id = $2 AND revoked_at IS NULL`,
+        [req.authUser.session_id, req.authUser.id]
+      );
+    });
+    return res.status(204).end();
+  } catch (error) {
+    console.error('Mobile push token revocation failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'mobile_push_revocation_failed' });
+  }
+});
+
 app.post('/api/notifications/read-all', validateRequestOrigin, requireSession, async (req, res) => {
   let client;
   try {
