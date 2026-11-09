@@ -10,7 +10,9 @@ on:
       - "public/**"
       - "vite.config.ts"
       - "package.json"
+      - "package-lock.json"
       - "scripts/ensure-capacitor-platform.mjs"
+      - "scripts/capacitor-entitlements.mjs"
       - "docs/MOBILE_*.md"
       - ".github/workflows/mobile-build.yml"
   workflow_dispatch:
