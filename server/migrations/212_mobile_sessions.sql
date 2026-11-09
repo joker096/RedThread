@@ -22,6 +22,10 @@ CREATE INDEX IF NOT EXISTS mobile_sessions_user_active_idx
   ON mobile_sessions (user_id, last_seen_at DESC)
   WHERE revoked_at IS NULL;
 
+CREATE UNIQUE INDEX IF NOT EXISTS mobile_sessions_user_device_active_uidx
+  ON mobile_sessions (user_id, device_id)
+  WHERE revoked_at IS NULL;
+
 CREATE INDEX IF NOT EXISTS mobile_sessions_refresh_expiry_idx
   ON mobile_sessions (refresh_expires_at)
   WHERE revoked_at IS NULL;
