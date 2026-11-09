@@ -13,12 +13,14 @@ export const MobilePushSettingsPanel: FC = () => {
   const [notice, setNotice] = useState('');
   const listeners = useRef<PluginListenerHandle[]>([]);
   const mounted = useRef(true);
+  const optedIn = useRef(false);
 
   const refreshStatus = useCallback(async () => {
     if (!isNativeVowApp()) return;
     const response = await fetch('/api/mobile/push/status', { credentials: 'include' });
     if (!response.ok) throw new Error('push_status_failed');
     const next = await response.json() as PushStatus;
+    optedIn.current = next.registered === true;
     if (mounted.current) setStatus({
       available: next.available === true,
       registered: next.registered === true,
@@ -62,6 +64,7 @@ export const MobilePushSettingsPanel: FC = () => {
     const add = async () => {
       const handles = await Promise.all([
         PushNotifications.addListener('registration', event => {
+          if (!optedIn.current) return;
           void saveToken(event.value).catch(() => {
             if (mounted.current) setNotice(t('pushRegistrationError'));
           });
@@ -93,9 +96,11 @@ export const MobilePushSettingsPanel: FC = () => {
         if (!next?.available) return;
         const permission = await PushNotifications.checkPermissions();
         if (permission.receive === 'granted' && next.registered) {
+          optedIn.current = true;
           await preparePlatform(next.platform);
           await PushNotifications.register();
         } else if (permission.receive === 'denied' && next.registered) {
+          optedIn.current = false;
           await fetch('/api/mobile/push-token', { method: 'DELETE', credentials: 'include' });
           if (mounted.current) setStatus(current => ({ ...current, registered: false }));
         }
@@ -122,13 +127,16 @@ export const MobilePushSettingsPanel: FC = () => {
       let permission = await PushNotifications.checkPermissions();
       if (permission.receive !== 'granted') permission = await PushNotifications.requestPermissions();
       if (permission.receive !== 'granted') {
+        optedIn.current = false;
         setNotice(t('pushPermissionDenied'));
         return;
       }
       await preparePlatform(status.platform);
+      optedIn.current = true;
       setNotice(t('pushRegistrationPending'));
       await PushNotifications.register();
     } catch {
+      optedIn.current = false;
       setNotice(t('pushRegistrationError'));
     } finally {
       setBusy(false);
@@ -139,6 +147,7 @@ export const MobilePushSettingsPanel: FC = () => {
     if (busy) return;
     setBusy(true);
     setNotice('');
+    optedIn.current = false;
     try {
       const response = await fetch('/api/mobile/push-token', { method: 'DELETE', credentials: 'include' });
       if (!response.ok) throw new Error('push_revocation_failed');
@@ -147,6 +156,7 @@ export const MobilePushSettingsPanel: FC = () => {
       setNotice(t('pushDisabled'));
     } catch {
       setNotice(t('pushStatusUnavailable'));
+      try { const next = await refreshStatus(); optedIn.current = next?.registered === true; } catch { optedIn.current = false; }
     } finally {
       setBusy(false);
     }
