@@ -136,7 +136,7 @@ References:
 - CI and Browser E2E passed on the exact branch head checked during this audit.
 - Provides mutual-confirmation date plans and safety-driven cancellation. It does not implement venue verification, reservations, payments or live location.
 
-Do not merge these PRs into `main` without explicit approval. Before integration, re-check branch heads, changed files, migrations, PR comments and all CI/E2E runs against the exact current SHAs. When integrating branches, resolve migration ordering and shared `server/index.js`, `App.tsx`, `ServerMatchesPanel.tsx`, notification and translation conflicts before running the full suite again.
+Do not merge these PRs into `main` without explicit approval. Before integration, re-check branch heads, changed files, migrations, PR comments and all CI/E2E runs against the exact current SHAs. There is a concrete migration-prefix collision across the three feature branches: PR #429 adds `212_mobile_sessions.sql`; PR #417 adds `212_mutual_date_plans.sql` through `215_date_plan_safety_gate_cancellation.sql`; PR #428 adds partner migrations `216`–`226`. The migration journal stores full filenames, so identical prefixes do not collide as a primary key, but the numbering/order is ambiguous. For a combined release branch, preserve mobile as `212`, renumber date-plan migrations to `213`–`216`, and partner migrations to `217`–`227`; update all references and verify a clean-database migration run. Also resolve shared `server/index.js`, `App.tsx`, `ServerMatchesPanel.tsx`, notification and translation conflicts before running the full suite again.
 
 ## Production infrastructure and release gates
 
