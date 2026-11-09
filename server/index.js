@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { queuePrivatePhotoPurges } from './photoPurge.js';
 import { decryptVoiceIntro, encryptVoiceIntro, parseVoiceIntroEncryptionKey, persistVoiceIntroReview, queuePrivateVoiceIntroPurges, resolvePrivateVoiceIntroPath, validateVoiceIntro } from './voiceIntroStorage.js';
 import { pipeline } from 'node:stream/promises';
@@ -2604,6 +2604,7 @@ app.put('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession, p
         [req.authUser.id]
       );
       await mkdir(voiceIntroStorageDir, { recursive: true, mode: 0o700 });
+      await chmod(voiceIntroStorageDir, 0o700);
       await writeFile(filePath, encrypted, { flag: 'wx', mode: 0o600 });
       fileWritten = true;
       if (previous.rows[0]?.storage_path) {
@@ -2633,7 +2634,7 @@ app.put('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession, p
     }
   });
 
-app.get('/api/profiles/me/voice-intro', requireSession, async (req, res) => {
+app.get('/api/profiles/me/voice-intro', profileActionLimiter, requireSession, async (req, res) => {
   const key = parseVoiceIntroEncryptionKey();
   if (!key) return res.status(503).json({ error: 'voice_intro_encryption_not_configured' });
   let client;
@@ -4831,7 +4832,7 @@ app.post('/api/admin/photos/:photoId/review', validateRequestOrigin, requireSess
   }
 });
 
-app.get('/api/admin/voice-intros', requireSession, async (req, res) => {
+app.get('/api/admin/voice-intros', profileActionLimiter, requireSession, async (req, res) => {
   try {
     const read = await withActiveModeratorRead(req.authUser.id, async client => {
       const result = await client.query(
@@ -4855,7 +4856,7 @@ app.get('/api/admin/voice-intros', requireSession, async (req, res) => {
   }
 });
 
-app.get('/api/admin/voice-intros/:voiceIntroId/audio', requireSession, async (req, res) => {
+app.get('/api/admin/voice-intros/:voiceIntroId/audio', profileActionLimiter, requireSession, async (req, res) => {
   if (!isUuid(req.params.voiceIntroId)) return res.status(404).end();
   const key = parseVoiceIntroEncryptionKey();
   if (!key) return res.status(503).json({ error: 'voice_intro_encryption_not_configured' });
@@ -4919,7 +4920,7 @@ app.get('/api/admin/voice-intros/:voiceIntroId/audio', requireSession, async (re
   }
 });
 
-app.post('/api/admin/voice-intros/:voiceIntroId/review', validateRequestOrigin, requireSession, async (req, res) => {
+app.post('/api/admin/voice-intros/:voiceIntroId/review', validateRequestOrigin, profileActionLimiter, requireSession, async (req, res) => {
   if (!isUuid(req.params.voiceIntroId) || !['approve', 'reject'].includes(req.body?.decision)) {
     return res.status(400).json({ error: 'invalid_voice_intro_review' });
   }
