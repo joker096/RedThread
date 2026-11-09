@@ -21,6 +21,7 @@ test('parses Didit return only through the configured verified HTTPS host', () =
     type: 'identity-return'
   });
   assert.equal(parseVowDeepLink('https://attacker.invalid/?identityVerification=return', appHost), null);
+  assert.equal(parseVowDeepLink(`https://${appHost}/?identityVerification=return&verifyEmail=${token}`, appHost), null);
 });
 
 test('parses the non-secret custom-scheme identity return marker', () => {
