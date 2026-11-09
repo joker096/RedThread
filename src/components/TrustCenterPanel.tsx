@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { Browser } from '@capacitor/browser';
 
 type Photo = { status: 'pending' | 'approved' | 'rejected'; createdAt: string };
 type IdentityStatus = 'not_configured' | 'not_started' | 'pending' | 'verified' | 'rejected';
@@ -127,7 +129,11 @@ export const TrustCenterPanel: React.FC = () => {
         throw new Error('Получена недействительная ссылка проверки.');
       }
       setIdentityConsent(false);
-      window.location.assign(verificationUrl.toString());
+      if (Capacitor.isNativePlatform()) {
+        await Browser.open({ url: verificationUrl.toString(), toolbarColor: '#881337' });
+      } else {
+        window.location.assign(verificationUrl.toString());
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось начать проверку.');
     } finally { setStartingVerification(false); }
