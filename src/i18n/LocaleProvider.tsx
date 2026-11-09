@@ -58,6 +58,9 @@ const messages = {
   en: {
     collapsePhoto: 'Collapse photo', expandPhoto: 'Expand photo',
     brandTagline: 'Vow — serious relationships', unreadChats: 'unread chats', vipLabel: 'VIP', ladyVipLabel: 'Lady VIP',
+    chatWindowExpired: 'The 72-hour chat window has ended. You can still read this conversation.', chatWindowClosesAt: 'Chat closes at:', quickDateInvites: 'Quick date invitations',
+    inviteLabelCoffee: 'Coffee', inviteLabelPark: 'Walk in the park', inviteLabelDinner: 'Dinner', inviteLabelTea: 'Tea',
+    inviteCoffee: 'Would you like to meet for coffee in a public place?', invitePark: 'Would you like to take a walk together in a public park?', inviteDinner: 'Would you like to meet for dinner in a public place?', inviteTea: 'Would you like to meet for tea in a public place?',
     adConsentTitle: 'Advertising preferences',
     adConsentIntro: 'Choose whether Vow may show optional, relevant offers. All choices are optional and can be changed later.',
     adConsentPrivacy: 'Advertisers do not receive your private messages, match identity, compatibility answers, or exact meeting location. Saving these choices does not mean ads are currently being served.',
@@ -443,6 +446,9 @@ const messages = {
   ru: {
     collapsePhoto: 'Свернуть фото', expandPhoto: 'Развернуть фото',
     brandTagline: 'Vow — серьёзные отношения', unreadChats: 'непрочитанных чатов', vipLabel: 'VIP', ladyVipLabel: 'Lady VIP',
+    chatWindowExpired: '72-часовое окно чата завершилось. Историю переписки по-прежнему можно читать.', chatWindowClosesAt: 'Чат закроется:', quickDateInvites: 'Быстрые приглашения на встречу',
+    inviteLabelCoffee: 'Кофе', inviteLabelPark: 'Прогулка', inviteLabelDinner: 'Ужин', inviteLabelTea: 'Чай',
+    inviteCoffee: 'Хочешь встретиться на кофе в общественном месте?', invitePark: 'Хочешь прогуляться вместе в общественном парке?', inviteDinner: 'Хочешь встретиться на ужин в общественном месте?', inviteTea: 'Хочешь встретиться на чай в общественном месте?',
     adConsentTitle: 'Настройки рекламы',
     adConsentIntro: 'Выберите, может ли Vow показывать необязательные релевантные предложения. Все настройки добровольны, их можно изменить позже.',
     adConsentPrivacy: 'Рекламодатели не получают ваши личные сообщения, сведения о совпадениях, ответы о совместимости или точное место встречи. Сохранение настроек не означает, что реклама уже показывается.',
