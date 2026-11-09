@@ -98,3 +98,9 @@ Vow is a mobile product, not a public website/web product. The production VPS sh
 - Still blocked: domain ownership/DNS, Android `assetlinks.json` signing fingerprint, Apple Team ID and `apple-app-site-association`, final app identifier, and real-device verification. Do not mark Universal Links/App Links production-ready before these are published and tested.
 
 - Didit now opens in Capacitor's native browser surface. On iOS the presented browser is closed after the verified callback returns; on Android the app leaves the Custom Tab lifecycle alone.
+
+## Notifications and media follow-up
+
+- In-app notifications remain database-backed. Native app resume now triggers a refresh of notification rows/unread counts and Trust Center state; this is not remote push delivery.
+- Remote push is intentionally not enabled. Firebase/FCM, Apple APNs credentials, final application identifiers, encrypted token storage, provider workers and physical-device tests are prerequisites. See `docs/MOBILE_PUSH_READINESS.md`.
+- Native camera/microphone capture is intentionally not enabled. The global browser Permissions-Policy remains restrictive, and L3 remains disabled until production encrypted storage, key management, backup and purge monitoring are ready. A native recording implementation must include deterministic local-file cleanup and server-authoritative media validation. See `docs/MOBILE_MEDIA_READINESS.md`.
