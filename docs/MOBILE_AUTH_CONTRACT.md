@@ -1,20 +1,24 @@
 # Vow Native Authentication Contract
 
-Status: implemented on the dedicated mobile feature branch; CI and Browser E2E passed on commit 2695241.  
-Clients: official Android and iOS apps only.  
-Existing browser cookie authentication remains unchanged.
+Status: implemented on the dedicated mobile feature branch; regression checks are run against the exact branch HEAD.
+Clients: official Android and iOS apps only.
+Existing browser cookie authentication remains separate.
 
 ## Token model
 
 - Tokens are opaque random 256-bit values; the server stores only SHA-256 hashes.
 - Access token lifetime: 10 minutes.
 - Refresh token lifetime: 30 days, absolute; refreshing does not extend the absolute expiry.
-- The native app stores the refresh token in iOS Keychain / Android Keystore-backed secure storage. Access tokens remain in memory where practical.
-- The app never writes either token to localStorage, IndexedDB, logs, crash reports, analytics or deep-link URLs.
+- The native app stores the refresh token in iOS Keychain / Android Keystore-backed secure storage. Access tokens remain in memory.
+- The app does not write tokens to localStorage, IndexedDB, analytics or deep-link URLs.
 - Each installation has a random UUID device identifier and a bounded display name. Device metadata is informational, not proof of device integrity.
-- Tokens are scoped to one mobile session and cannot authenticate browser cookie routes by being copied into a cookie.
+- Tokens are scoped to one mobile session and do not authenticate browser cookie routes.
 
 ## Implemented endpoints
+
+### POST /api/mobile/auth/register
+
+Creates the account/profile under the existing account-reuse and safety rules. If email verification is required, no mobile session is issued until the account is verified.
 
 ### POST /api/mobile/auth/login
 
@@ -22,71 +26,72 @@ Input: email, password, platform (`android` or `ios`), deviceId (UUID), deviceNa
 
 Success: `{ user, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt }`.
 
-The handler reuses the existing password verification, account status, email-verification and account-safety locking rules. It creates only a mobile session and never sets the browser `nit_session` cookie.
+The handler reuses password verification, account status, email-verification and account-safety locking rules. It creates only a mobile session and never sets the browser `nit_session` cookie. A maximum of 10 active mobile sessions is enforced per account; a new login on the same installation replaces its prior session.
 
 ### POST /api/mobile/auth/refresh
 
-Input: refresh token in the Authorization Bearer header, plus the deviceId.
+Input: refresh token in the Authorization Bearer header, plus the device context.
 
-- Lock the matching session row inside a transaction.
-- Require the session to be active, unexpired and bound to the same deviceId.
+- Lock the account/session rows inside a transaction.
+- Require the session to be active, unexpired and bound to the same deviceId and platform.
 - Rotate the refresh token and access token atomically.
 - Append the consumed refresh-token hash to `mobile_refresh_token_history`.
 - A replayed consumed refresh token revokes all mobile sessions for that account with reason `refresh_reuse`, then returns 401.
-- Concurrent refresh requests must not both succeed; the second request must be treated as replay and revoke the affected account's mobile sessions.
+- Concurrent refresh requests cannot both succeed; the second request is treated as replay and revokes the account's mobile sessions.
 - Never return a replacement token unless the transaction commits.
 
 ### GET /api/mobile/auth/me
 
-Requires a valid access token. Reuses current active-account and email-verification policy and returns the same public user projection as `/api/auth/me`.
+Requires a valid access token. Reuses active-account and email-verification policy and returns the same public user projection as `/api/auth/me`.
 
 ### POST /api/mobile/auth/logout
 
-Requires a valid access token and device-bound session. Revokes only the current mobile session. The client deletes locally stored tokens even if the request fails.
+Requires a valid access token. Revokes only the current mobile session. The client deletes locally stored credentials even if the server request fails.
 
 ### POST /api/mobile/auth/logout-all
 
-Requires a valid access token. Revokes every mobile session for the current account. Password reset, account suspension/deletion and security response must also revoke mobile sessions.
+Requires a valid access token. Revokes every mobile session for the current account.
+
+### Email verification and password reset
+
+Native routes implement verification, verification resend, password-reset request and password-reset completion. Password reset revokes all browser and mobile sessions for the account.
 
 ## Origin / CSRF boundary
 
 - Keep `validateRequestOrigin` strict for cookie-authenticated browser requests.
-- Native endpoints must use an explicit mobile-client origin allowlist for requests that carry a browser Origin.
-- For requests without Origin, permit only native endpoints with the required token credential; never treat a custom User-Agent or a client-supplied platform string as authentication.
-- Do not add wildcard CORS. Do not let a bearer credential silently fall back to cookie authentication.
+- Native endpoints use an explicit mobile-origin allowlist when a browser Origin is present.
+- Dedicated native auth routes can receive Origin-less JSON requests because login/registration/recovery carry their own credentials or one-time tokens. A client-supplied platform string or User-Agent is never authentication.
+- Origin-less state-changing shared API requests require a valid native access bearer token. If an Origin is present, it must be the configured browser origin or an allowlisted native origin.
+- Do not add wildcard CORS or credentialed CORS. Do not let a bearer credential silently fall back to cookie authentication.
 - Browser routes that mutate state must continue to require the configured browser Origin even when a browser session cookie exists.
-- The refresh endpoint's bearer credential must be a refresh token, not an access token.
+- Refresh requires a refresh token; an access token is rejected.
 
-## Database model already added
+## Database model
 
 Migration `212_mobile_sessions.sql` creates:
 - `mobile_sessions`: one row per device session, token hashes, platform/device metadata, absolute expiry and revocation state.
 - `mobile_refresh_token_history`: append-only consumed refresh-token hashes used to detect replay.
 
-The history table rejects direct updates and deletes, while allowing FK-driven cleanup when the owning session/account is deleted. Token values are never persisted.
+The history table rejects direct updates and deletes while its owning session exists, while allowing FK-driven cleanup when the owning session/account is deleted. Token values are never persisted.
 
-## Required integration tests before native clients use these endpoints
+## Regression coverage
 
-1. Browser cookie login/session/logout remains unchanged.
-2. Mobile login rejects invalid credentials, unverified email and inactive accounts.
-3. Access token expiry and wrong token type are rejected.
-4. Refresh rotates both tokens atomically and old access/refresh credentials stop working.
-5. Parallel refresh replay revokes mobile sessions and cannot return two valid token pairs.
-6. Refresh token bound to a different device is rejected.
-7. Logout revokes only the current device; logout-all revokes every device.
-8. Password reset, account suspension and account deletion invalidate mobile sessions.
-9. Origin-less browser mutations and untrusted browser Origins remain rejected.
-10. Mobile refresh history cannot be edited; account deletion cascades cleanly.
+The integration suite covers:
+1. Browser cookie authentication in the existing auth integration suite.
+2. Mobile registration, email verification, login, invalid credentials and pending accounts.
+3. Access-token expiry and rejection of an access token as a refresh credential.
+4. Refresh rotation and invalidation of old access/refresh credentials.
+5. Parallel refresh replay: only one rotation can succeed and all account mobile sessions are then revoked.
+6. Device/platform mismatch and same-device session replacement.
+7. Logout current session and logout-all.
+8. Password reset and account suspension revocation; account deletion cascade is covered by the schema integration test.
+9. Origin-less browser mutation rejection, untrusted Origin rejection and allowed native bearer mutations.
+10. Refresh-history immutability and FK cascade cleanup.
 
-## Implementation notes
+## Client implementation
 
-- Native registration, login, email verification/resend and password-reset request/completion are implemented under `/api/mobile/auth`.
-- Native bearer access tokens are accepted by the shared `requireSession` middleware, so existing protected profile, discovery, match, notification, moderation and gift API routes can be reused without weakening browser cookie sessions.
-- State-changing shared API routes accept native bearer requests only when the token is valid and the optional Origin is on the explicit mobile allowlist. Browser cookie mutations still require the exact configured `APP_ORIGIN`.
-- CORS is allowlisted for `capacitor://localhost`, `https://localhost`, `http://localhost` and explicit `MOBILE_ALLOWED_ORIGINS` entries. Credentialed CORS is not enabled.
-- At most 10 active mobile sessions are allowed per account. A new login on an installation revokes its prior session, backed by a unique active-device index.
-- Password reset, moderator suspension and account deletion revoke mobile sessions.
-- The test suite exercises registration, verification, login, protected shared API access, CORS preflight, refresh rotation, replay and concurrent refresh, device mismatch, logout, logout-all, password reset and same-device replacement.
-- Refresh requests must be serialized in the client. A concurrent second refresh is treated as replay and revokes all sessions for the account by design.
-
-CI and Browser E2E both passed on the same commit `2695241ae58d6e072d446ccb4c103688b337883f`. This validates the server foundation; native app integration and physical-device tests remain outstanding.
+- `src/utils/apiClient.ts` centralizes native API URL handling and bearer transport.
+- Refresh credentials are persisted through the Capacitor secure-storage plugin; access tokens remain in memory.
+- Refresh is single-flight in the client. Do not run parallel refresh requests: the server deliberately treats reuse as a security event.
+- Browser requests continue through the existing cookie transport.
+- Google browser sign-in and Paddle checkout are hidden in native builds until native provider sign-in and a store-compliant billing design are ready.
