@@ -39,3 +39,47 @@ export function financialAlignment(first, second) {
   const aligned = keys.filter(key => first[key] === second[key]);
   return { score: Math.round(aligned.length / keys.length * 100), alignedCount: aligned.length, total: keys.length };
 }
+
+
+const COMPATIBILITY_DIMENSIONS = {
+  family: ['relationshipGoal', 'children', 'household', 'caregiving'],
+  budget: ['financialModel', 'lifestyleExpectation', 'gifts', 'debtTransparency'],
+  conflict: ['fidelity', 'conflictStyle', 'honesty', 'trustRepair', 'conflictSafety'],
+  lifestyle: ['substanceLifestyle', 'relocation']
+};
+
+const ASSESSMENT_WEIGHTS = {
+  relationshipGoal: 2, children: 2, financialModel: 3, lifestyleExpectation: 1,
+  gifts: 1, household: 1, fidelity: 2, conflictStyle: 1, honesty: 2,
+  trustRepair: 2, conflictSafety: 3, debtTransparency: 2,
+  substanceLifestyle: 1, relocation: 1, caregiving: 1
+};
+
+/**
+ * Explain compatibility without exposing either person's raw answers.
+ * Differences are conversation topics, not automatic deal-breakers: the
+ * assessment has no explicit non-negotiable/deal-breaker field.
+ */
+export function explainAssessmentCompatibility(first, second) {
+  if (!isValidAssessment(first) || !isValidAssessment(second)) return null;
+  const dimensions = Object.entries(COMPATIBILITY_DIMENSIONS).map(([key, fields]) => {
+    const aligned = fields.filter(field => first[field] === second[field]);
+    const differences = fields.filter(field => first[field] !== second[field]);
+    const totalWeight = fields.reduce((sum, field) => sum + ASSESSMENT_WEIGHTS[field], 0);
+    const alignedWeight = aligned.reduce((sum, field) => sum + ASSESSMENT_WEIGHTS[field], 0);
+    return {
+      key,
+      score: Math.round(alignedWeight / totalWeight * 100),
+      aligned,
+      discussionPoints: differences
+    };
+  });
+  const compatibility = assessmentCompatibility(first, second);
+  return {
+    version: ASSESSMENT_VERSION,
+    score: compatibility.score,
+    dimensions,
+    dealbreakers: [],
+    dealbreakersConfigured: false
+  };
+}
