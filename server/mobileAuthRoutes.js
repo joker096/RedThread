@@ -31,9 +31,18 @@ function validateMobileOrigin(req, res, next) {
     if (!MOBILE_ORIGINS.has(normalized)) {
       return res.status(403).json({ error: 'origin_not_allowed' });
     }
+    res.setHeader('Access-Control-Allow-Origin', normalized);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Max-Age', '600');
+  }
+  if (req.method === 'OPTIONS') {
+    if (!origin) return res.status(403).end();
+    return res.status(204).end();
   }
   // Origin-less native requests are accepted only on these dedicated JSON routes.
-  // No CORS allow-origin header is emitted; browser cookie routes remain unchanged.
+  // This router never enables credentialed CORS or cookie authentication.
   if (req.method !== 'GET' && !req.is('application/json')) {
     return res.status(415).json({ error: 'application_json_required' });
   }
