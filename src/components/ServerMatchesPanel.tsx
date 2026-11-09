@@ -10,6 +10,8 @@ type ServerMatch = {
   city: string;
   lastMessage: string | null;
   lastMessageAt: string | null;
+  chatExpiresAt: string | null;
+  chatExpired: boolean;
 };
 type ServerMessage = { id: string; senderId: string; text: string; createdAt: string; cursorCreatedAt?: string };
 type Props = { onOpenAccount: () => void };
@@ -38,7 +40,10 @@ export const normalizeServerMatch = (value: unknown): ServerMatch | null => {
     lastMessageAt: typeof match.lastMessageAt === 'string' && match.lastMessageAt.length <= 100 &&
       Number.isFinite(Date.parse(match.lastMessageAt))
       ? match.lastMessageAt
-      : null
+      : null,
+    chatExpiresAt: typeof match.chatExpiresAt === 'string' && match.chatExpiresAt.length <= 100 &&
+      Number.isFinite(Date.parse(match.chatExpiresAt)) ? match.chatExpiresAt : null,
+    chatExpired: match.chatExpired === true
   };
 };
 
@@ -98,6 +103,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
+  const [clockNow, setClockNow] = useState(Date.now());
   const [searchQuery, setSearchQuery] = useState('');
   const [matchFilter, setMatchFilter] = useState<'all' | 'withMessages' | 'withoutMessages'>('all');
   const messageRequestId = useRef(0);
@@ -245,6 +251,10 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   }, [t, clearSessionState]);
 
   useEffect(() => { void loadMatches(); }, [loadMatches]);
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
   // Refresh the inbox when the user returns to the app so new mutual matches appear
   // without requiring a manual refresh or a full page reload.
   useEffect(() => {
@@ -433,6 +443,11 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
         setNotice(t('loginToSeeMatches'));
         return;
       }
+      if (response.status === 410 && data?.error === 'chat_window_expired') {
+        setMatches(current => current.map(match => match.id === matchId ? { ...match, chatExpired: true } : match));
+        setNotice(t('chatWindowExpired'));
+        return;
+      }
       if (response.status === 404) {
         // A block or closed match invalidates this conversation even if it was already open.
         messageRequestId.current += 1;
@@ -573,6 +588,8 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     return true;
   });
   const selectedMatch = matches.find(match => match.id === selected) || null;
+  const selectedChatExpired = Boolean(selectedMatch && (selectedMatch.chatExpired ||
+    (selectedMatch.chatExpiresAt && Date.parse(selectedMatch.chatExpiresAt) <= clockNow)));
   const initials = (name: string) => name.trim().split(/\s+/u).slice(0, 2).map(part => Array.from(part)[0] || '').join('').toLocaleUpperCase();
 
   return (
@@ -654,6 +671,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                       <span className="vow-inbox-match-label">{t('matched')}</span>
                     </header>
                     {notice && !messagesFailed && <p role="status" aria-live="polite" className="px-4 pt-2 text-xs text-stone-300">{notice}</p>}
+                    {selectedMatch.chatExpiresAt && <p className="px-4 pt-2 text-xs text-stone-400">{selectedChatExpired ? t('chatWindowExpired') : `${t('chatWindowClosesAt')} ${formatDate(selectedMatch.chatExpiresAt, { dateStyle: 'medium', timeStyle: 'short' })}`}</p>}
                     <div className="vow-inbox-message-area">
                       {messagesLoading && <p role="status" aria-live="polite" aria-atomic="true" className="py-3 text-xs text-stone-400">{t('loading')}</p>}
                       {messagesFailed && <div role="alert" className="mb-2 rounded-xl border border-rose-500/20 bg-rose-950/20 p-3"><p className="text-xs text-stone-200">{notice || t('loadMessagesError')}</p><button type="button" onClick={() => void loadMessages(selected)} className="mt-2 min-h-11 rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-white">{t('retry')}</button></div>}
@@ -673,8 +691,15 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                       {!messagesLoading && !messagesFailed && !messages.length && <p role="status" className="py-4 text-center text-xs text-stone-500">{t('noMessagesYet')}</p>}
                     </div>
                     <form className="vow-inbox-composer" onSubmit={event => { event.preventDefault(); void send(); }}>
-                      <textarea dir="auto" aria-label={t('writeMessage')} value={draft} onChange={event => setDrafts(current => ({ ...current, [selected]: event.target.value }))} onKeyDown={event => { if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || busy || !draft.trim()) return; event.preventDefault(); void send(); }} disabled={busy} maxLength={4000} rows={2} placeholder={t('writeMessage')} />
-                      <button data-testid="server-match-send" type="submit" disabled={busy || !draft.trim()}>{busy ? t('sendingMessage') : t('sendMessage')}</button>
+                      {!selectedChatExpired && <div className="flex flex-wrap gap-2" role="group" aria-label={t('quickDateInvites')}>
+                        {(['coffee', 'park', 'dinner', 'tea'] as const).map(kind => {
+                          const labelKey = ({ coffee: 'inviteLabelCoffee', park: 'inviteLabelPark', dinner: 'inviteLabelDinner', tea: 'inviteLabelTea' } as const)[kind];
+                          const messageKey = ({ coffee: 'inviteCoffee', park: 'invitePark', dinner: 'inviteDinner', tea: 'inviteTea' } as const)[kind];
+                          return <button key={kind} type="button" className="rounded-full border border-rose-400/30 px-3 py-2 text-xs text-rose-100" disabled={busy} onClick={() => setDrafts(current => ({ ...current, [selected]: t(messageKey) }))}>{t(labelKey)}</button>;
+                        })}
+                      </div>}
+                      <textarea dir="auto" aria-label={t('writeMessage')} value={draft} onChange={event => setDrafts(current => ({ ...current, [selected]: event.target.value }))} onKeyDown={event => { if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || busy || !draft.trim()) return; event.preventDefault(); void send(); }} disabled={busy || selectedChatExpired} maxLength={4000} rows={2} placeholder={selectedChatExpired ? t('chatWindowExpired') : t('writeMessage')} />
+                      <button data-testid="server-match-send" type="submit" disabled={busy || selectedChatExpired || !draft.trim()}>{busy ? t('sendingMessage') : t('sendMessage')}</button>
                       <button type="button" data-testid="server-match-refresh-messages" onClick={() => { shouldAutoScrollMessagesRef.current = true; void loadMessages(selected); }} disabled={busy || messagesLoading}>{t('refreshMessages')}</button>
                     </form>
                   </>
