@@ -2600,7 +2600,7 @@ app.get('/api/photos/:photoId', requireSession, async (req,res) => {
   }
 });
 
-app.get('/api/assessment', requireSession, requirePaidFeatures, async (req, res) => {
+app.get('/api/assessment', requireSession, async (req, res) => {
   try {
     const read = await withActiveAccountRead(req.authUser.id, client => client.query('SELECT answers, dealbreakers, assessment_version AS "assessmentVersion", completed_at AS "completedAt", updated_at AS "updatedAt" FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]));
     if (!read.active) return res.status(401).json({ error: 'account_not_active' });
@@ -2611,7 +2611,7 @@ app.get('/api/assessment', requireSession, requirePaidFeatures, async (req, res)
   }
 });
 
-app.put('/api/assessment', validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+app.put('/api/assessment', validateRequestOrigin, requireSession, async (req, res) => {
   const answers = req.body?.answers;
   const hasDealbreakers = Boolean(req.body && Object.prototype.hasOwnProperty.call(req.body, 'dealbreakers'));
   const dealbreakers = hasDealbreakers ? req.body.dealbreakers : [];
