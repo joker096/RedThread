@@ -222,7 +222,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
     const unsubscribe = subscribeVowDeepLinks((link: VowDeepLink) => {
       if (link.type === 'identity-return') {
         window.dispatchEvent(new Event('vow:identity-return'));
-        setMessage('Возврат из проверки личности получен. Обновляем статус в Центре безопасности.');
+        setMessage(t('authDeepLinkIdentityReturn'));
         return;
       }
       if (link.type === 'reset-password') {
@@ -230,7 +230,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         setResetPassword('');
         setShowReset(true);
         setMode('login');
-        setMessage('Ссылка для сброса пароля получена. Задайте новый пароль.');
+        setMessage(t('authDeepLinkResetPassword'));
         return;
       }
       const requestId = ++auxiliaryRequestIdRef.current;
