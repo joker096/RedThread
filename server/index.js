@@ -3856,6 +3856,81 @@ app.get('/api/matches', requireSession, async (req, res) => {
   }
 });
 
+app.get('/api/matches/:matchId/compatibility', requireSession, async (req, res) => {
+  if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const preview = await client.query(
+      'SELECT user_a_id, user_b_id FROM matches WHERE id = $1 AND status = \'active\' AND (user_a_id = $2 OR user_b_id = $2) LIMIT 1',
+      [req.params.matchId, req.authUser.id]
+    );
+    if (!preview.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'match_not_found' });
+    }
+    const partnerId = preview.rows[0].user_a_id === req.authUser.id
+      ? preview.rows[0].user_b_id
+      : preview.rows[0].user_a_id;
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, partnerId);
+    const access = await client.query(
+      `SELECT m.user_a_id, m.user_b_id
+       FROM matches m
+       JOIN users me ON me.id = $2 AND me.status = 'active'
+       JOIN users partner ON partner.id = $3 AND partner.status = 'active'
+       JOIN profiles partner_profile ON partner_profile.user_id = partner.id
+       WHERE m.id = $1 AND m.status = 'active'
+         AND ((m.user_a_id = $2 AND m.user_b_id = $3) OR (m.user_a_id = $3 AND m.user_b_id = $2))
+         AND (partner_profile.gender <> 'male' OR (
+           EXISTS (
+             SELECT 1 FROM identity_verifications iv
+             WHERE iv.user_id = partner.id AND iv.provider = 'didit'
+               AND iv.status = 'verified' AND iv.provider_environment = 'live'
+           ) AND identity_l3_has_active_approval(partner.id)
+         ))
+         AND NOT EXISTS (
+           SELECT 1 FROM user_blocks b
+           WHERE (b.blocker_id = $2 AND b.blocked_id = $3)
+              OR (b.blocker_id = $3 AND b.blocked_id = $2)
+         )
+       FOR SHARE OF m, me, partner`,
+      [req.params.matchId, req.authUser.id, partnerId]
+    );
+    if (!access.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'match_not_found' });
+    }
+    const assessments = await client.query(
+      'SELECT user_id, answers, dealbreakers FROM relationship_assessments WHERE user_id = ANY($1::uuid[])',
+      [[req.authUser.id, partnerId]]
+    );
+    const byUser = new Map(assessments.rows.map(row => [row.user_id, row]));
+    const mine = byUser.get(req.authUser.id);
+    const theirs = byUser.get(partnerId);
+    if (!mine || !theirs) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'assessment_incomplete' });
+    }
+    if (!isValidAssessment(mine.answers) || !isValidAssessment(theirs.answers) ||
+        !isValidDealbreakers(mine.dealbreakers) || !isValidDealbreakers(theirs.dealbreakers)) {
+      await client.query('ROLLBACK');
+      return res.status(503).json({ error: 'assessment_data_unavailable' });
+    }
+    const compatibility = assessmentCompatibilityBreakdown(
+      mine.answers, theirs.answers, mine.dealbreakers, theirs.dealbreakers
+    );
+    await client.query('COMMIT');
+    return res.json(compatibility);
+  } catch (error) {
+    if (client && !await rollbackPooledTransaction(client)) client = null;
+    console.error('Match compatibility read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'match_compatibility_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
 app.get('/api/matches/:matchId/messages', requireSession, async (req, res) => {
   if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
   const { limit, offset, latest, beforeCreatedAt, beforeId, invalidCursor } = normalizeMatchMessageHistoryOptions(req.query);
