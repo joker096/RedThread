@@ -56,7 +56,7 @@ export const MobilePushSettingsPanel: FC = () => {
           if (mounted.current) setNotice(t('pushRegistrationError'));
         }),
         PushNotifications.addListener('pushNotificationReceived', () => {
-          window.dispatchEvent(new Event('vow:app-resumed'));
+          window.dispatchEvent(new Event('vow:notifications-changed'));
         }),
         PushNotifications.addListener('pushNotificationActionPerformed', action => {
           const route = action.notification.data?.route;
@@ -110,8 +110,8 @@ export const MobilePushSettingsPanel: FC = () => {
         setNotice(t('pushPermissionDenied'));
         return;
       }
-      await PushNotifications.register();
       setNotice(t('pushRegistrationPending'));
+      await PushNotifications.register();
     } catch {
       setNotice(t('pushRegistrationError'));
     } finally {
