@@ -112,6 +112,18 @@ test('native mobile auth login, refresh rotation, replay revocation and device l
     assert.equal(allowedPreflight.headers.get('access-control-allow-credentials'), null,
       'mobile API must not enable credentialed cookie CORS');
 
+    const iosPreflight = await fetch(`${api}/api/mobile/auth/login`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'capacitor://localhost',
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'authorization,content-type'
+      }
+    });
+    assert.equal(iosPreflight.status, 204);
+    assert.equal(iosPreflight.headers.get('access-control-allow-origin'), 'capacitor://localhost',
+      'iOS Capacitor custom origin must be preserved exactly');
+
     const deniedPreflight = await fetch(`${api}/api/mobile/auth/login`, {
       method: 'OPTIONS',
       headers: { Origin: 'https://attacker.invalid', 'Access-Control-Request-Method': 'POST' }
