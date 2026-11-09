@@ -55,7 +55,7 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
     clearTimer();
     if (!recordingRef.current) return;
     recordingRef.current = false;
-    setRecording(false);
+    if (mountedRef.current) setRecording(false);
     try { await CapacitorAudioRecorder.cancelRecording(); } catch {}
   };
 
@@ -63,16 +63,19 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
     if (!recordingRef.current) return;
     recordingRef.current = false;
     clearTimer();
-    setRecording(false);
-    setBusy(true);
+    if (mountedRef.current) { setRecording(false); setBusy(true); }
     try {
       const result = await CapacitorAudioRecorder.stopRecording();
+      if (!mountedRef.current) {
+        if (result.uri) await deleteNativeRecordingFile(result.uri);
+        return;
+      }
       const durationMs = Number.isFinite(result.duration) && Number(result.duration) > 0
         ? Math.round(Number(result.duration))
         : Math.round(Date.now() - startedAtRef.current);
       if (durationMs < MIN_DURATION_MS || durationMs > MAX_DURATION_MS) {
         if (result.uri) await deleteNativeRecordingFile(result.uri);
-        setNotice(t('voiceIntroDurationError'));
+        if (mountedRef.current) setNotice(t('voiceIntroDurationError'));
         return;
       }
 
@@ -94,9 +97,9 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
       setPreview({ blob, url, mimeType, durationMs });
       setNotice('');
     } catch {
-      setNotice(t('voiceIntroUploadError'));
+      if (mountedRef.current) setNotice(t('voiceIntroUploadError'));
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   };
 
@@ -109,14 +112,20 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
     });
     try {
       let permission = await CapacitorAudioRecorder.checkPermissions();
+      if (!mountedRef.current) return;
       if (permission.recordAudio !== 'granted') {
         permission = await CapacitorAudioRecorder.requestPermissions();
+        if (!mountedRef.current) return;
       }
       if (permission.recordAudio !== 'granted') {
-        setNotice(t('voiceIntroPermissionDenied'));
+        if (mountedRef.current) setNotice(t('voiceIntroPermissionDenied'));
         return;
       }
       await CapacitorAudioRecorder.startRecording({ bitRate: 64_000, sampleRate: 44_100, resetToPlaybackOnStop: true });
+      if (!mountedRef.current) {
+        try { await CapacitorAudioRecorder.cancelRecording(); } catch {}
+        return;
+      }
       recordingRef.current = true;
       startedAtRef.current = Date.now();
       setElapsedMs(0);
@@ -127,7 +136,7 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
         if (elapsed >= MAX_DURATION_MS) void stopRecording();
       }, 250);
     } catch {
-      setNotice(t('voiceIntroPermissionDenied'));
+      if (mountedRef.current) setNotice(t('voiceIntroPermissionDenied'));
     }
   };
 
