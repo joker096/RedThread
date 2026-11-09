@@ -41,7 +41,11 @@ export function parseVowDeepLink(rawUrl: unknown, allowedHost?: string): VowDeep
   }
   if (url.hostname.toLowerCase() !== expectedHost) return null;
 
-  if ([...url.searchParams.keys()].some(key => key !== 'verifyEmail' && key !== 'resetPassword')) return null;
+  if ([...url.searchParams.keys()].some(key =>
+    !['verifyEmail', 'resetPassword', 'identityVerification'].includes(key))) return null;
+  const identityReturns = url.searchParams.getAll('identityVerification');
+  if (identityReturns.length === 1 && identityReturns[0] === 'return' &&
+      url.searchParams.size === 1) return { type: 'identity-return' };
   const verifyTokens = url.searchParams.getAll('verifyEmail');
   const resetTokens = url.searchParams.getAll('resetPassword');
   if (verifyTokens.length + resetTokens.length !== 1) return null;
