@@ -21,6 +21,26 @@ function readBearer(header, kind) {
   return match[1];
 }
 
+export function readMobileAccessToken(header) {
+  return readBearer(header, 'access');
+}
+
+export function isAllowedMobileOrigin(origin) {
+  if (typeof origin !== 'string' || !origin) return false;
+  try { return MOBILE_ORIGINS.has(new URL(origin).origin); } catch { return false; }
+}
+
+export function applyMobileCorsHeaders(origin, res) {
+  if (!isAllowedMobileOrigin(origin)) return false;
+  const normalized = new URL(origin).origin;
+  res.setHeader('Access-Control-Allow-Origin', normalized);
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Max-Age', '600');
+  return true;
+}
+
 function validateMobileOrigin(req, res, next) {
   const origin = req.get('origin');
   if (origin) {
@@ -31,11 +51,7 @@ function validateMobileOrigin(req, res, next) {
     if (!MOBILE_ORIGINS.has(normalized)) {
       return res.status(403).json({ error: 'origin_not_allowed' });
     }
-    res.setHeader('Access-Control-Allow-Origin', normalized);
-    res.setHeader('Vary', 'Origin');
-    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Max-Age', '600');
+    applyMobileCorsHeaders(normalized, res);
   }
   if (req.method === 'OPTIONS') {
     if (!origin) return res.status(403).end();
