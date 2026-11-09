@@ -32,7 +32,7 @@ import { FEMALE_FREE_DAILY_PROFILE_LIMIT, canCreateFemaleFreeMatch, hasFemalePre
 import rateLimit from 'express-rate-limit';
 import { PostgresRateLimitStore } from './postgresRateLimitStore.js';
 import pg from 'pg';
-import { isValidAssessment, financialAlignment, ASSESSMENT_VERSION } from './relationshipAssessment.js';
+import { isValidAssessment, isValidDealbreakers, assessmentCompatibilityBreakdown, explainAssessmentCompatibility, financialAlignment, ASSESSMENT_VERSION } from './relationshipAssessment.js';
 import {
   createAccountReuseDigest,
   createSessionToken,
@@ -2281,8 +2281,8 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
        FROM profiles p
        JOIN users u ON u.id = p.user_id
        JOIN profiles me ON me.user_id = $1
-       LEFT JOIN relationship_assessments candidate_assessment ON candidate_assessment.user_id = p.user_id
-       LEFT JOIN relationship_assessments my_assessment ON my_assessment.user_id = me.user_id
+       LEFT JOIN relationship_assessments candidate_assessment ON candidate_assessment.user_id = p.user_id AND candidate_assessment.assessment_version = ${ASSESSMENT_VERSION}
+       LEFT JOIN relationship_assessments my_assessment ON my_assessment.user_id = me.user_id AND my_assessment.assessment_version = ${ASSESSMENT_VERSION}
        WHERE p.user_id <> $1
          AND p.gender <> me.gender
          AND p.is_visible = TRUE
@@ -2480,8 +2480,17 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
       : result.rows.length > parsedLimit;
     const profiles = result.rows.slice(0, parsedLimit).map(profile => {
       const { assessment_answers: candidateAnswers, my_assessment_answers: myAnswers, ...publicProfile } = profile;
-      const alignment = candidateAnswers && myAnswers ? financialAlignment(myAnswers, candidateAnswers).score : null;
-      return { ...publicProfile, financialAlignment: alignment };
+      const assessmentsValid = isValidAssessment(candidateAnswers) && isValidAssessment(myAnswers);
+      const alignment = assessmentsValid ? financialAlignment(myAnswers, candidateAnswers).score : null;
+      const compatibilityExplanation = assessmentsValid
+        ? explainAssessmentCompatibility(myAnswers, candidateAnswers)
+        : null;
+      return {
+        ...publicProfile,
+        compatibilityScore: compatibilityExplanation?.score ?? null,
+        financialAlignment: alignment,
+        compatibilityExplanation
+      };
     });
     return res.json({
       profiles,
@@ -2600,9 +2609,9 @@ app.get('/api/photos/:photoId', requireSession, async (req,res) => {
   }
 });
 
-app.get('/api/assessment', requireSession, requirePaidFeatures, async (req, res) => {
+app.get('/api/assessment', requireSession, async (req, res) => {
   try {
-    const read = await withActiveAccountRead(req.authUser.id, client => client.query('SELECT answers, assessment_version AS "assessmentVersion", completed_at AS "completedAt", updated_at AS "updatedAt" FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]));
+    const read = await withActiveAccountRead(req.authUser.id, client => client.query('SELECT answers, dealbreakers, assessment_version AS "assessmentVersion", completed_at AS "completedAt", updated_at AS "updatedAt" FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]));
     if (!read.active) return res.status(401).json({ error: 'account_not_active' });
     return res.json({ assessment: read.value.rows[0] || null, version: ASSESSMENT_VERSION });
   } catch (error) {
@@ -2611,9 +2620,12 @@ app.get('/api/assessment', requireSession, requirePaidFeatures, async (req, res)
   }
 });
 
-app.put('/api/assessment', validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
+app.put('/api/assessment', validateRequestOrigin, requireSession, async (req, res) => {
   const answers = req.body?.answers;
+  const hasDealbreakers = Boolean(req.body && Object.prototype.hasOwnProperty.call(req.body, 'dealbreakers'));
+  const dealbreakers = hasDealbreakers ? req.body.dealbreakers : [];
   if (!isValidAssessment(answers)) return res.status(400).json({ error: 'assessment_answers_incomplete_or_invalid' });
+  if (hasDealbreakers && !isValidDealbreakers(dealbreakers)) return res.status(400).json({ error: 'assessment_dealbreakers_invalid' });
   let client;
   try {
     client = await pool.connect();
@@ -2625,8 +2637,8 @@ app.put('/api/assessment', validateRequestOrigin, requireSession, requirePaidFea
       return res.status(401).json({ error: 'account_not_active' });
     }
     const result = await client.query(
-      'INSERT INTO relationship_assessments (user_id, answers, assessment_version, completed_at, updated_at) VALUES ($1, $2::jsonb, $3, statement_timestamp(), statement_timestamp()) ON CONFLICT (user_id) DO UPDATE SET answers = EXCLUDED.answers, assessment_version = EXCLUDED.assessment_version, completed_at = statement_timestamp(), updated_at = statement_timestamp() RETURNING answers, assessment_version AS "assessmentVersion", completed_at AS "completedAt", updated_at AS "updatedAt"',
-      [req.authUser.id, JSON.stringify(answers), ASSESSMENT_VERSION]
+      'INSERT INTO relationship_assessments (user_id, answers, dealbreakers, assessment_version, completed_at, updated_at) VALUES ($1, $2::jsonb, COALESCE($3::jsonb, \'[]\'::jsonb), $4, statement_timestamp(), statement_timestamp()) ON CONFLICT (user_id) DO UPDATE SET answers = EXCLUDED.answers, dealbreakers = CASE WHEN $5::boolean THEN EXCLUDED.dealbreakers ELSE relationship_assessments.dealbreakers END, assessment_version = EXCLUDED.assessment_version, completed_at = statement_timestamp(), updated_at = statement_timestamp() RETURNING answers, dealbreakers, assessment_version AS "assessmentVersion", completed_at AS "completedAt", updated_at AS "updatedAt"',
+      [req.authUser.id, JSON.stringify(answers), hasDealbreakers ? JSON.stringify(dealbreakers) : null, ASSESSMENT_VERSION, hasDealbreakers]
     );
     await client.query('COMMIT');
     return res.json({ assessment: result.rows[0] });
@@ -3849,6 +3861,97 @@ app.get('/api/matches', requireSession, async (req, res) => {
     if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Match list failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'match_list_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.get('/api/matches/:matchId/compatibility', profileActionLimiter, requireSession, async (req, res) => {
+  if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const preview = await client.query(
+      'SELECT user_a_id, user_b_id FROM matches WHERE id = $1 AND status = \'active\' AND (user_a_id = $2 OR user_b_id = $2) LIMIT 1',
+      [req.params.matchId, req.authUser.id]
+    );
+    if (!preview.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'match_not_found' });
+    }
+    const partnerId = preview.rows[0].user_a_id === req.authUser.id
+      ? preview.rows[0].user_b_id
+      : preview.rows[0].user_a_id;
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, partnerId);
+    const access = await client.query(
+      `SELECT m.user_a_id, m.user_b_id
+       FROM matches m
+       JOIN users me ON me.id = $2 AND me.status = 'active'
+       JOIN users partner ON partner.id = $3 AND partner.status = 'active'
+       JOIN profiles actor_profile ON actor_profile.user_id = me.id
+       JOIN profiles partner_profile ON partner_profile.user_id = partner.id
+       WHERE m.id = $1 AND m.status = 'active'
+         AND ((m.user_a_id = $2 AND m.user_b_id = $3) OR (m.user_a_id = $3 AND m.user_b_id = $2))
+         AND (actor_profile.gender <> 'male' OR (
+           EXISTS (
+             SELECT 1 FROM identity_verifications actor_iv
+             WHERE actor_iv.user_id = me.id AND actor_iv.provider = 'didit'
+               AND actor_iv.status = 'verified' AND actor_iv.provider_environment = 'live'
+           ) AND identity_l3_has_active_approval(me.id)
+         ))
+         AND (partner_profile.gender <> 'male' OR (
+           EXISTS (
+             SELECT 1 FROM identity_verifications iv
+             WHERE iv.user_id = partner.id AND iv.provider = 'didit'
+               AND iv.status = 'verified' AND iv.provider_environment = 'live'
+           ) AND identity_l3_has_active_approval(partner.id)
+         ))
+         AND NOT EXISTS (
+           SELECT 1 FROM user_blocks b
+           WHERE (b.blocker_id = $2 AND b.blocked_id = $3)
+              OR (b.blocker_id = $3 AND b.blocked_id = $2)
+         )
+       FOR SHARE OF m, me, partner`,
+      [req.params.matchId, req.authUser.id, partnerId]
+    );
+    if (!access.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'match_not_found' });
+    }
+    const assessments = await client.query(
+      'SELECT user_id, answers, dealbreakers, assessment_version AS "assessmentVersion" FROM relationship_assessments WHERE user_id = ANY($1::uuid[])',
+      [[req.authUser.id, partnerId]]
+    );
+    const byUser = new Map(assessments.rows.map(row => [row.user_id, row]));
+    const mine = byUser.get(req.authUser.id);
+    const theirs = byUser.get(partnerId);
+    const missingForCurrentVersion = assessmentVersionGaps(
+      mine?.assessmentVersion,
+      theirs?.assessmentVersion
+    );
+    if (!mine || !theirs || missingForCurrentVersion.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'assessment_incomplete',
+        requiredVersion: ASSESSMENT_VERSION,
+        missingForCurrentVersion
+      });
+    }
+    if (!isValidAssessment(mine.answers) || !isValidAssessment(theirs.answers) ||
+        !isValidDealbreakers(mine.dealbreakers) || !isValidDealbreakers(theirs.dealbreakers)) {
+      await client.query('ROLLBACK');
+      return res.status(503).json({ error: 'assessment_data_unavailable' });
+    }
+    const compatibility = assessmentCompatibilityBreakdown(
+      mine.answers, theirs.answers, mine.dealbreakers, theirs.dealbreakers
+    );
+    await client.query('COMMIT');
+    return res.json(compatibility);
+  } catch (error) {
+    if (client && !await rollbackPooledTransaction(client)) client = null;
+    console.error('Match compatibility read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'match_compatibility_failed' });
   } finally {
     client?.release();
   }

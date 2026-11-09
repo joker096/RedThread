@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 import { isChatWindowExpired } from '../utils/chatWindow.ts';
+import { MatchCompatibilityPanel } from './MatchCompatibilityPanel.tsx';
 
 type ServerMatch = {
   id: string;
@@ -105,6 +106,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
   const [clockNow, setClockNow] = useState(Date.now());
+  const [showCompatibility, setShowCompatibility] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [matchFilter, setMatchFilter] = useState<'all' | 'withMessages' | 'withoutMessages'>('all');
   const messageRequestId = useRef(0);
@@ -256,6 +258,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
     const timer = window.setInterval(() => setClockNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
+  useEffect(() => { setShowCompatibility(false); }, [selected]);
   // Refresh the inbox when the user returns to the app so new mutual matches appear
   // without requiring a manual refresh or a full page reload.
   useEffect(() => {
@@ -669,8 +672,10 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                         <strong className="block truncate text-sm text-white">{selectedMatch.displayName}, {selectedMatch.age}</strong>
                         <span className="block truncate text-xs text-stone-400">{[selectedMatch.city, selectedMatch.country].filter(Boolean).join(', ') || t('mutualMatches')}</span>
                       </span>
+                      <button type="button" onClick={() => setShowCompatibility(true)} className="min-h-10 rounded-full border border-rose-400/30 px-3 text-[10px] font-semibold text-rose-100">{t('compatibilityDetails')}</button>
                       <span className="vow-inbox-match-label">{t('matched')}</span>
                     </header>
+                    {showCompatibility && <MatchCompatibilityPanel matchId={selected} onClose={() => setShowCompatibility(false)} />}
                     {notice && !messagesFailed && <p role="status" aria-live="polite" className="px-4 pt-2 text-xs text-stone-300">{notice}</p>}
                     {selectedMatch.chatExpiresAt && <p className="px-4 pt-2 text-xs text-stone-400">{selectedChatExpired ? t('chatWindowExpired') : `${t('chatWindowClosesAt')} ${formatDate(selectedMatch.chatExpiresAt, { dateStyle: 'medium', timeStyle: 'short' })}`}</p>}
                     <div className="vow-inbox-message-area">

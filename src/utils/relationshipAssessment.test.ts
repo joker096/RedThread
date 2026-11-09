@@ -4,7 +4,10 @@ import {
   ASSESSMENT_QUESTIONS,
   calculateAssessmentCompatibility,
   getFinancialAlignment,
-  validateAssessmentAnswers
+  validateAssessmentAnswers,
+  normalizeAssessmentAnswers,
+  validateDealbreakers,
+  buildAssessmentSavePayload
 } from './relationshipAssessment.ts';
 
 const answers = Object.fromEntries(
@@ -70,4 +73,37 @@ test('localized compatibility questions preserve IDs and option values', () => {
     assert.ok(english[i].options.every(option => option.label.length > 0));
   }
   assert.notEqual(english[0].prompt, russian[0].prompt);
+});
+
+test('dealbreaker preferences must be unique known question IDs', () => {
+  assert.equal(validateDealbreakers([]), true);
+  assert.equal(validateDealbreakers(['children', 'financialModel']), true);
+  assert.equal(validateDealbreakers(['children', 'children']), false);
+  assert.equal(validateDealbreakers(['unknown']), false);
+  assert.equal(validateDealbreakers(null), false);
+  assert.equal(validateDealbreakers(Array(16).fill('children')), false);
+});
+
+
+test('assessment save omits non-negotiables until their stored state has loaded', () => {
+  const selected = ['children', 'financialModel'];
+  assert.deepEqual(buildAssessmentSavePayload(answers, selected, false), { answers });
+  assert.deepEqual(buildAssessmentSavePayload(answers, selected, true), {
+    answers,
+    dealbreakers: selected
+  });
+});
+
+
+test('older assessment versions restore only still-valid answers for completion', () => {
+  const previous: Record<string, string> = { ...answers };
+  delete previous.caregiving;
+  previous.children = 'invalid-option';
+  previous.legacyQuestion = 'legacy-value';
+  const restored = normalizeAssessmentAnswers(previous);
+  assert.equal(restored.relationshipGoal, answers.relationshipGoal);
+  assert.equal(Object.hasOwn(restored, 'caregiving'), false);
+  assert.equal(Object.hasOwn(restored, 'children'), false);
+  assert.equal(Object.hasOwn(restored, 'legacyQuestion'), false);
+  assert.equal(Object.keys(restored).length, Object.keys(answers).length - 2);
 });

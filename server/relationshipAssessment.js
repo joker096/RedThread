@@ -1,5 +1,12 @@
 export const ASSESSMENT_VERSION = 2;
 
+export function assessmentVersionGaps(selfVersion, partnerVersion) {
+  return [
+    ...(selfVersion === ASSESSMENT_VERSION ? [] : ['self']),
+    ...(partnerVersion === ASSESSMENT_VERSION ? [] : ['partner'])
+  ];
+}
+
 export const ASSESSMENT_OPTIONS = {
   relationshipGoal: ['marriage_soon', 'marriage_later', 'serious_no_rush'],
   children: ['want_soon', 'want_later', 'unsure', 'do_not_want'],
@@ -38,4 +45,84 @@ export function financialAlignment(first, second) {
   const keys = ['financialModel', 'lifestyleExpectation', 'gifts'];
   const aligned = keys.filter(key => first[key] === second[key]);
   return { score: Math.round(aligned.length / keys.length * 100), alignedCount: aligned.length, total: keys.length };
+}
+
+export const ASSESSMENT_DIMENSIONS = {
+  family: ['relationshipGoal', 'children', 'household', 'caregiving'],
+  budget: ['financialModel', 'lifestyleExpectation', 'gifts', 'debtTransparency'],
+  conflict: ['fidelity', 'conflictStyle', 'honesty', 'trustRepair', 'conflictSafety'],
+  lifestyle: ['substanceLifestyle', 'relocation']
+};
+
+const ASSESSMENT_WEIGHTS = {
+  relationshipGoal: 2, children: 2, financialModel: 3, lifestyleExpectation: 1,
+  gifts: 1, household: 1, fidelity: 2, conflictStyle: 1, honesty: 2,
+  trustRepair: 2, conflictSafety: 3, debtTransparency: 2,
+  substanceLifestyle: 1, relocation: 1, caregiving: 1
+};
+
+/**
+ * Discovery-safe explanation. It exposes field identifiers, never answer values
+ * or either participant's selected non-negotiables.
+ */
+export function explainAssessmentCompatibility(first, second) {
+  if (!isValidAssessment(first) || !isValidAssessment(second)) return null;
+  const dimensions = Object.entries(ASSESSMENT_DIMENSIONS).map(([key, fields]) => {
+    const aligned = fields.filter(field => first[field] === second[field]);
+    const discussionPoints = fields.filter(field => first[field] !== second[field]);
+    const totalWeight = fields.reduce((sum, field) => sum + ASSESSMENT_WEIGHTS[field], 0);
+    const alignedWeight = aligned.reduce((sum, field) => sum + ASSESSMENT_WEIGHTS[field], 0);
+    return {
+      key,
+      score: Math.round(alignedWeight / totalWeight * 100),
+      aligned,
+      discussionPoints
+    };
+  });
+  return {
+    version: ASSESSMENT_VERSION,
+    score: assessmentCompatibility(first, second).score,
+    dimensions,
+    dealbreakersHiddenUntilMatch: true
+  };
+}
+
+export function isValidDealbreakers(value) {
+  if (!Array.isArray(value) || value.length > Object.keys(ASSESSMENT_OPTIONS).length) return false;
+  const allowed = new Set(Object.keys(ASSESSMENT_OPTIONS));
+  return value.every((key, index) =>
+    typeof key === 'string' && allowed.has(key) && value.indexOf(key) === index
+  );
+}
+
+/**
+ * Returns dimension-level alignment and only the field names marked as
+ * non-negotiable by either participant. Raw answer values are never returned.
+ */
+export function assessmentCompatibilityBreakdown(first, second, firstDealbreakers = [], secondDealbreakers = []) {
+  if (!isValidAssessment(first) || !isValidAssessment(second) ||
+      !isValidDealbreakers(firstDealbreakers) || !isValidDealbreakers(secondDealbreakers)) {
+    throw new TypeError('invalid_assessment_compatibility_input');
+  }
+
+  const dimensions = Object.entries(ASSESSMENT_DIMENSIONS).map(([id, fields]) => {
+    const aligned = fields.filter(key => first[key] === second[key]);
+    const differences = fields.filter(key => first[key] !== second[key]);
+    const totalWeight = fields.reduce((sum, key) => sum + ASSESSMENT_WEIGHTS[key], 0);
+    const alignedWeight = aligned.reduce((sum, key) => sum + ASSESSMENT_WEIGHTS[key], 0);
+    return {
+      id,
+      score: Math.round(alignedWeight / totalWeight * 100),
+      alignedCount: aligned.length,
+      total: fields.length,
+      differences
+    };
+  });
+
+  return {
+    overallScore: assessmentCompatibility(first, second).score,
+    dimensions,
+    yourDealbreakerConflicts: firstDealbreakers.filter(key => first[key] !== second[key]),
+    partnerDealbreakerConflicts: secondDealbreakers.filter(key => first[key] !== second[key])
+  };
 }

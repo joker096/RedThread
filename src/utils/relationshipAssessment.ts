@@ -165,6 +165,19 @@ const VALID_OPTIONS = new Map<string, Set<string>>(
   ])
 );
 
+export function normalizeAssessmentAnswers(value: unknown): AssessmentAnswers {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const source = value as Record<string, unknown>;
+  const normalized: AssessmentAnswers = {};
+  for (const question of ASSESSMENT_QUESTIONS) {
+    const answer = source[question.id];
+    if (typeof answer === 'string' && VALID_OPTIONS.get(question.id)?.has(answer)) {
+      normalized[question.id] = answer;
+    }
+  }
+  return normalized;
+}
+
 export function validateAssessmentAnswers(value: unknown): value is AssessmentAnswers {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const answers = value as Record<string, unknown>;
@@ -235,4 +248,21 @@ export function getFinancialAlignment(
     score: Math.round(((dimensions.length - differences.length) / dimensions.length) * 100),
     differences
   };
+}
+
+export function validateDealbreakers(value: unknown): value is string[] {
+  if (!Array.isArray(value) || value.length > ASSESSMENT_QUESTIONS.length) return false;
+  const allowed = new Set<string>(ASSESSMENT_QUESTIONS.map(question => question.id));
+  return value.every((key, index) =>
+    typeof key === 'string' && allowed.has(key) && value.indexOf(key) === index
+  );
+}
+
+
+export function buildAssessmentSavePayload(
+  answers: AssessmentAnswers,
+  dealbreakers: string[],
+  dealbreakersReady: boolean
+): { answers: AssessmentAnswers; dealbreakers?: string[] } {
+  return { answers, ...(dealbreakersReady ? { dealbreakers } : {}) };
 }

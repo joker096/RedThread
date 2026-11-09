@@ -58,6 +58,12 @@ const messages = {
   en: {
     collapsePhoto: 'Collapse photo', expandPhoto: 'Expand photo',
     brandTagline: 'Vow — serious relationships', unreadChats: 'unread chats', vipLabel: 'VIP', ladyVipLabel: 'Lady VIP',
+    assessmentNeedsUpdate: 'We restored your valid previous answers. Complete the remaining questions to update your assessment.',
+    markAsDealbreaker: 'Mark as non-negotiable', dealbreakerHelp: 'Only the categories you mark are treated as your non-negotiable preferences. Differences are shown privately inside a mutual match; raw answers are never shared.',
+    compatibilityDetails: 'Compatibility details', compatibilityUnavailable: 'Complete the values assessment on both sides to see the compatibility matrix.',
+    close: 'Close', differences: 'Differences',
+    compatFamily: 'Family', compatBudget: 'Budget', compatConflict: 'Conflict and trust', compatLifestyle: 'Lifestyle',
+    yourDealbreakerConflicts: 'Differences with your non-negotiables', partnerDealbreakerConflicts: 'Differences with your match’s non-negotiables', noDealbreakerConflicts: 'No declared non-negotiable conflicts.',
     chatWindowExpired: 'The 72-hour chat window has ended. You can still read this conversation.', chatWindowClosesAt: 'Chat closes at:', quickDateInvites: 'Quick date invitations',
     inviteLabelCoffee: 'Coffee', inviteLabelPark: 'Walk in the park', inviteLabelDinner: 'Dinner', inviteLabelTea: 'Tea',
     inviteCoffee: 'Would you like to meet for coffee in a public place?', invitePark: 'Would you like to take a walk together in a public park?', inviteDinner: 'Would you like to meet for dinner in a public place?', inviteTea: 'Would you like to meet for tea in a public place?',
@@ -144,7 +150,7 @@ const messages = {
     giftCatalogRateLimited: 'The gift-request limit has been reached. Please try again later.',
     
     voiceIntroLabel: 'Voice intro ({seconds} sec)', profileQuestionCount: 'Profile question ({current}/{total})', profileResonance: 'Resonance',
-    compatibility: 'Compatibility', compatibilityMatrixDescription: 'Estimated alignment across five relationship topics', compatibilityHighAlignment: 'Strong alignment on answers', compatibilitySomeAlignment: 'Some shared preferences', compatibilityInsufficientData: 'Not enough answers yet', compatibilityScoreDisclaimer: 'An estimate based on profile answers and preferences — not a scientific prediction or a guarantee of relationship success.', partialTranslationHelp: 'Some interface text may appear in English until translation is complete',
+    compatibility: 'Compatibility', compatibilityMatrixDescription: 'Estimated alignment across four relationship dimensions', compatibilityDiscussionTopics: 'Topics to discuss', compatibilityAligned: 'Shared answers in this area', compatibilityDiscussionDisclaimer: 'Differences are conversation starters, not automatic deal-breakers. Your selected non-negotiables remain private until a mutual match.', compatibilityHighAlignment: 'Strong alignment on answers', compatibilitySomeAlignment: 'Some shared preferences', compatibilityInsufficientData: 'Not enough answers yet', compatibilityScoreDisclaimer: 'An estimate based on profile answers and preferences — not a scientific prediction or a guarantee of relationship success.', partialTranslationHelp: 'Some interface text may appear in English until translation is complete',
     searchSetupError: 'Could not search profiles. Check server configuration and migrations.',
     noProfilesForFilters: 'No matching profiles yet. Try changing filters.',
     connectionError: 'Could not connect to the server.',
@@ -446,6 +452,12 @@ const messages = {
   ru: {
     collapsePhoto: 'Свернуть фото', expandPhoto: 'Развернуть фото',
     brandTagline: 'Vow — серьёзные отношения', unreadChats: 'непрочитанных чатов', vipLabel: 'VIP', ladyVipLabel: 'Lady VIP',
+    assessmentNeedsUpdate: 'Сохранили подходящие прежние ответы. Заполните оставшиеся вопросы, чтобы обновить анкету.',
+    markAsDealbreaker: 'Отметить как принципиальное условие', dealbreakerHelp: 'Принципиальными считаются только выбранные вами пункты. Различия показываются конфиденциально внутри взаимной пары; исходные ответы не раскрываются.',
+    compatibilityDetails: 'Подробная совместимость', compatibilityUnavailable: 'Чтобы увидеть матрицу, оба человека должны заполнить тест ценностей.',
+    close: 'Закрыть', differences: 'Различия',
+    compatFamily: 'Семья', compatBudget: 'Бюджет', compatConflict: 'Конфликты и доверие', compatLifestyle: 'Образ жизни',
+    yourDealbreakerConflicts: 'Расхождения с вашими принципиальными условиями', partnerDealbreakerConflicts: 'Расхождения с принципиальными условиями партнёра', noDealbreakerConflicts: 'Совпадений, нарушающих отмеченные принципиальные условия, нет.',
     chatWindowExpired: '72-часовое окно чата завершилось. Историю переписки по-прежнему можно читать.', chatWindowClosesAt: 'Чат закроется:', quickDateInvites: 'Быстрые приглашения на встречу',
     inviteLabelCoffee: 'Кофе', inviteLabelPark: 'Прогулка', inviteLabelDinner: 'Ужин', inviteLabelTea: 'Чай',
     inviteCoffee: 'Хочешь встретиться на кофе в общественном месте?', invitePark: 'Хочешь прогуляться вместе в общественном парке?', inviteDinner: 'Хочешь встретиться на ужин в общественном месте?', inviteTea: 'Хочешь встретиться на чай в общественном месте?',
@@ -532,7 +544,7 @@ const messages = {
     giftCatalogRateLimited: 'Достигнут лимит запросов на подарки. Попробуйте позже.',
     
     voiceIntroLabel: 'Голосовое приветствие ({seconds} с)', profileQuestionCount: 'Вопрос профиля ({current}/{total})', profileResonance: 'Резонанс',
-    compatibility: 'Совместимость', compatibilityMatrixDescription: 'Предварительная оценка совпадения по пяти темам отношений', compatibilityHighAlignment: 'Много совпадений в ответах', compatibilitySomeAlignment: 'Есть общие предпочтения', compatibilityInsufficientData: 'Пока недостаточно ответов', compatibilityScoreDisclaimer: 'Оценка основана на ответах и предпочтениях анкеты. Это не научный прогноз и не гарантия успешных отношений.', partialTranslationHelp: 'Пока перевод не завершён, часть интерфейса может отображаться на английском языке',
+    compatibility: 'Совместимость', compatibilityMatrixDescription: 'Предварительная оценка совпадения по четырём направлениям отношений', compatibilityDiscussionTopics: 'Темы для обсуждения', compatibilityAligned: 'В этой области ответы совпадают', compatibilityDiscussionDisclaimer: 'Различия — повод обсудить ожидания, а не автоматические причины отказа. Выбранные вами принципиальные условия остаются скрытыми до взаимной симпатии.', compatibilityHighAlignment: 'Много совпадений в ответах', compatibilitySomeAlignment: 'Есть общие предпочтения', compatibilityInsufficientData: 'Пока недостаточно ответов', compatibilityScoreDisclaimer: 'Оценка основана на ответах и предпочтениях анкеты. Это не научный прогноз и не гарантия успешных отношений.', partialTranslationHelp: 'Пока перевод не завершён, часть интерфейса может отображаться на английском языке',
     searchSetupError: 'Не удалось выполнить поиск. Проверьте настройки сервера и применённые миграции.',
     noProfilesForFilters: 'Подходящих анкет пока нет. Попробуйте изменить фильтры.',
     connectionError: 'Не удалось подключиться к серверу.',

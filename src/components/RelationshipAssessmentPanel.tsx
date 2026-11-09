@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ASSESSMENT_QUESTIONS, type AssessmentAnswers, validateAssessmentAnswers } from '../utils/relationshipAssessment.ts';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ASSESSMENT_QUESTIONS, type AssessmentAnswers, validateAssessmentAnswers, normalizeAssessmentAnswers, validateDealbreakers, buildAssessmentSavePayload } from '../utils/relationshipAssessment.ts';
 import { getLocalizedAssessmentQuestions } from '../utils/assessmentTranslations.ts';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 
@@ -9,9 +9,10 @@ export const RelationshipAssessmentPanel: React.FC = () => {
   const { t, locale } = useLocale();
   const questions = useMemo(() => getLocalizedAssessmentQuestions(locale), [locale]);
   const [answers, setAnswers] = useState<AssessmentAnswers>(emptyAnswers);
+  const [dealbreakers, setDealbreakers] = useState<string[]>([]);
+  const [dealbreakersReady, setDealbreakersReady] = useState(false);
   const [status, setStatus] = useState<'loading' | 'ready' | 'saving' | 'saved' | 'login' | 'error'>('loading');
   const [note, setNote] = useState('');
-  const answersEditedRef = useRef(false);
   const complete = useMemo(
     () => questions.every(question => Boolean(answers[question.id])),
     [answers, questions]
@@ -23,36 +24,27 @@ export const RelationshipAssessmentPanel: React.FC = () => {
       .then(async response => {
         if (response.status === 401) {
           if (!cancelled) setStatus('ready');
-          return null;
-        }
-        if (response.status === 402) {
-          if (!cancelled) {
-            setStatus('ready');
-            setNote(t('trialExpiredTest'));
-          }
-          return null;
+          return { unauthenticated: true };
         }
         if (!response.ok) throw new Error(t('loadSavedAnswersError'));
         return response.json();
       })
       .then(data => {
-        if (cancelled) return;
+        if (cancelled || (data && typeof data === 'object' && 'unauthenticated' in data)) return;
         const savedAnswers: unknown = data?.assessment?.answers;
+        const restoredAnswers = normalizeAssessmentAnswers(savedAnswers);
+        const savedDealbreakers: unknown = data?.assessment?.dealbreakers;
+        setAnswers(restoredAnswers);
+        setDealbreakers(validateDealbreakers(savedDealbreakers) ? savedDealbreakers : []);
+        setDealbreakersReady(true);
         if (validateAssessmentAnswers(savedAnswers)) {
-          // Do not let a slow initial load overwrite edits made while it was in flight.
-          if (!answersEditedRef.current) {
-            setAnswers(savedAnswers);
-            setStatus('saved');
-            setNote(t('loadedSavedAnswers'));
-          } else {
-            // A valid response arrived after the user started editing. Keep their
-            // answers and only clear the initial loading state; don't interrupt a save.
-            setStatus(current => current === 'loading' ? 'ready' : current);
-          }
+          setStatus('saved');
+          setNote(t('loadedSavedAnswers'));
         } else {
-          // Ignore stale, partial, or unexpected server data rather than counting
-          // unknown fields as completed answers or presenting invalid choices.
+          // Keep valid answers from older versions so the user only needs to
+          // complete new or changed questions before saving the current version.
           setStatus('ready');
+          if (Object.keys(restoredAnswers).length > 0) setNote(t('assessmentNeedsUpdate'));
         }
       })
       .catch(() => {
@@ -69,7 +61,6 @@ export const RelationshipAssessmentPanel: React.FC = () => {
       setNote(t('answerEveryQuestion'));
       return;
     }
-    answersEditedRef.current = true;
     setStatus('saving');
     setNote('');
     try {
@@ -77,16 +68,11 @@ export const RelationshipAssessmentPanel: React.FC = () => {
         method: 'PUT',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers })
+        body: JSON.stringify(buildAssessmentSavePayload(answers, dealbreakers, dealbreakersReady))
       });
       if (response.status === 401) {
         setStatus('login');
         setNote(t('loginToSaveAssessment'));
-        return;
-      }
-      if (response.status === 402) {
-        setStatus('error');
-        setNote(t('premiumSaveAssessment'));
         return;
       }
       if (!response.ok) throw new Error(t('saveAnswersError'));
@@ -110,9 +96,11 @@ export const RelationshipAssessmentPanel: React.FC = () => {
       <p className="mb-4 text-xs leading-relaxed text-stone-400">
         {t('valuesTestDescription')}
       </p>
+      <p className="mb-4 text-xs leading-relaxed text-stone-500">{t('dealbreakerHelp')}</p>
+      {status === 'loading' && <p role="status" className="mb-3 text-xs text-stone-400">{t('loading')}</p>}
       <div className="space-y-4">
         {questions.map((question, index) => (
-          <fieldset key={question.id} disabled={status === 'saving'} className="rounded-2xl border border-white/5 bg-stone-950/60 p-3 disabled:opacity-70">
+          <fieldset key={question.id} disabled={status === 'saving' || status === 'loading'} className="rounded-2xl border border-white/5 bg-stone-950/60 p-3 disabled:opacity-70">
             <legend className="max-w-full px-1 text-[10px] uppercase tracking-wider text-rose-300">
               <span className="block">{index + 1}. {question.category}</span>
               <span className="mt-1 block text-sm font-medium normal-case tracking-normal text-stone-100">{question.prompt}</span>
@@ -126,7 +114,6 @@ export const RelationshipAssessmentPanel: React.FC = () => {
                     value={option.value}
                     checked={answers[question.id] === option.value}
                     onChange={() => {
-                      answersEditedRef.current = true;
                       setAnswers(current => ({ ...current, [question.id]: option.value }));
                     }}
                     className="mt-0.5 min-h-5 min-w-5 accent-rose-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
@@ -135,11 +122,19 @@ export const RelationshipAssessmentPanel: React.FC = () => {
                 </label>
               ))}
             </div>
+            <label className="mt-3 flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-amber-400/20 bg-amber-950/10 px-3 py-2 text-xs text-amber-100">
+              <input type="checkbox" checked={dealbreakers.includes(question.id)} disabled={!dealbreakersReady || status === 'saving'} onChange={event => {
+                setDealbreakers(current => event.target.checked
+                  ? [...current, question.id]
+                  : current.filter(id => id !== question.id));
+              }} className="min-h-5 min-w-5 accent-amber-400" />
+              <span>{t('markAsDealbreaker')}</span>
+            </label>
           </fieldset>
         ))}
       </div>
       <div className="mt-4 flex flex-col gap-2">
-        <button type="button" onClick={() => void save()} disabled={!complete || status === 'saving'} className="w-full min-h-11 rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 disabled:cursor-not-allowed disabled:opacity-40">
+        <button type="button" onClick={() => void save()} disabled={!complete || status === 'saving' || status === 'loading'} className="w-full min-h-11 rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 disabled:cursor-not-allowed disabled:opacity-40">
           {status === 'saving' ? t('savingAnswers') : t('saveAndUseTest')}
         </button>
         {note && <p role="status" aria-live="polite" aria-atomic="true" className="text-xs leading-relaxed text-stone-300">{note}</p>}
