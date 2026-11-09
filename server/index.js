@@ -2613,9 +2613,10 @@ app.get('/api/assessment', requireSession, requirePaidFeatures, async (req, res)
 
 app.put('/api/assessment', validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
   const answers = req.body?.answers;
-  const dealbreakers = req.body?.dealbreakers ?? [];
+  const hasDealbreakers = Boolean(req.body && Object.prototype.hasOwnProperty.call(req.body, 'dealbreakers'));
+  const dealbreakers = hasDealbreakers ? req.body.dealbreakers : [];
   if (!isValidAssessment(answers)) return res.status(400).json({ error: 'assessment_answers_incomplete_or_invalid' });
-  if (!isValidDealbreakers(dealbreakers)) return res.status(400).json({ error: 'assessment_dealbreakers_invalid' });
+  if (hasDealbreakers && !isValidDealbreakers(dealbreakers)) return res.status(400).json({ error: 'assessment_dealbreakers_invalid' });
   let client;
   try {
     client = await pool.connect();
@@ -2627,8 +2628,8 @@ app.put('/api/assessment', validateRequestOrigin, requireSession, requirePaidFea
       return res.status(401).json({ error: 'account_not_active' });
     }
     const result = await client.query(
-      'INSERT INTO relationship_assessments (user_id, answers, dealbreakers, assessment_version, completed_at, updated_at) VALUES ($1, $2::jsonb, $3::jsonb, $4, statement_timestamp(), statement_timestamp()) ON CONFLICT (user_id) DO UPDATE SET answers = EXCLUDED.answers, dealbreakers = EXCLUDED.dealbreakers, assessment_version = EXCLUDED.assessment_version, completed_at = statement_timestamp(), updated_at = statement_timestamp() RETURNING answers, dealbreakers, assessment_version AS "assessmentVersion", completed_at AS "completedAt", updated_at AS "updatedAt"',
-      [req.authUser.id, JSON.stringify(answers), JSON.stringify(dealbreakers), ASSESSMENT_VERSION]
+      'INSERT INTO relationship_assessments (user_id, answers, dealbreakers, assessment_version, completed_at, updated_at) VALUES ($1, $2::jsonb, COALESCE($3::jsonb, \'[]\'::jsonb), $4, statement_timestamp(), statement_timestamp()) ON CONFLICT (user_id) DO UPDATE SET answers = EXCLUDED.answers, dealbreakers = CASE WHEN $5::boolean THEN EXCLUDED.dealbreakers ELSE relationship_assessments.dealbreakers END, assessment_version = EXCLUDED.assessment_version, completed_at = statement_timestamp(), updated_at = statement_timestamp() RETURNING answers, dealbreakers, assessment_version AS "assessmentVersion", completed_at AS "completedAt", updated_at AS "updatedAt"',
+      [req.authUser.id, JSON.stringify(answers), hasDealbreakers ? JSON.stringify(dealbreakers) : null, ASSESSMENT_VERSION, hasDealbreakers]
     );
     await client.query('COMMIT');
     return res.json({ assessment: result.rows[0] });
