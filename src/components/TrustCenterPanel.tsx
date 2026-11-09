@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { Browser } from '@capacitor/browser';
 
 type Photo = { status: 'pending' | 'approved' | 'rejected'; createdAt: string };
 type IdentityStatus = 'not_configured' | 'not_started' | 'pending' | 'verified' | 'rejected';
@@ -127,7 +129,11 @@ export const TrustCenterPanel: React.FC = () => {
         throw new Error('Получена недействительная ссылка проверки.');
       }
       setIdentityConsent(false);
-      window.location.assign(verificationUrl.toString());
+      if (Capacitor.isNativePlatform()) {
+        await Browser.open({ url: verificationUrl.toString(), toolbarColor: '#881337' });
+      } else {
+        window.location.assign(verificationUrl.toString());
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось начать проверку.');
     } finally { setStartingVerification(false); }
@@ -251,6 +257,16 @@ export const TrustCenterPanel: React.FC = () => {
   }, [data, l3Consent, selectedL3Video, load]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    const handleIdentityReturn = () => { void load(); };
+    window.addEventListener('vow:identity-return', handleIdentityReturn);
+    window.addEventListener('vow:app-resumed', handleIdentityReturn);
+    return () => {
+      window.removeEventListener('vow:identity-return', handleIdentityReturn);
+      window.removeEventListener('vow:app-resumed', handleIdentityReturn);
+    };
+  }, [load]);
 
 
   const status = (ok: boolean, yes: string, no: string) => <span className={`text-xs font-semibold ${ok ? 'text-emerald-300' : 'text-amber-300'}`}>{ok ? yes : no}</span>;

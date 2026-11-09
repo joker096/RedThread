@@ -1,0 +1,110 @@
+name: Mobile platform builds
+
+on:
+  push:
+    branches: [feat/mobile-capacitor-foundation]
+    paths:
+      - "src/**"
+      - "capacitor.config.ts"
+      - "index.html"
+      - "public/**"
+      - "vite.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/ensure-capacitor-platform.mjs"
+      - "scripts/capacitor-entitlements.mjs"
+      - "docs/MOBILE_*.md"
+      - ".github/workflows/mobile-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      VOW_APP_LINK_HOST: ${{ vars.VOW_APP_LINK_HOST }}
+      VITE_APP_LINK_HOST: ${{ vars.VOW_APP_LINK_HOST }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Verify exact checked-out commit
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v4.0.4
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - name: Generate Android platform project
+        run: npm run cap:ensure:android
+      - name: Sync Capacitor Android
+        run: npx cap sync android
+      - name: Build debug APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vow-android-debug-${{ github.sha }}
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  ios:
+    name: iOS simulator build
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      VOW_APP_LINK_HOST: ${{ vars.VOW_APP_LINK_HOST }}
+      VITE_APP_LINK_HOST: ${{ vars.VOW_APP_LINK_HOST }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Verify exact checked-out commit
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - name: Generate iOS platform project
+        run: npm run cap:ensure:ios
+      - name: Sync Capacitor iOS
+        run: npx cap sync ios
+      - name: Build iOS Simulator app
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath ios/build \
+            build
+      - name: Package simulator app
+        run: ditto -c -k --sequesterRsrc --keepParent ios/build/Build/Products/Debug-iphonesimulator/App.app app-ios-simulator.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vow-ios-simulator-${{ github.sha }}
+          path: app-ios-simulator.zip
+          if-no-files-found: error
+          retention-days: 14
