@@ -96,3 +96,5 @@ Vow is a mobile product, not a public website/web product. The production VPS sh
 - Registered `vow://identity/return` on Android and iOS. This custom scheme carries no token.
 - Prepared optional verified HTTPS app-link configuration. Set repository variable `VOW_APP_LINK_HOST` only after choosing the production app/API hostname. The value must match the hostname in `APP_URL` / `APP_ORIGIN`.
 - Still blocked: domain ownership/DNS, Android `assetlinks.json` signing fingerprint, Apple Team ID and `apple-app-site-association`, final app identifier, and real-device verification. Do not mark Universal Links/App Links production-ready before these are published and tested.
+
+- Didit now opens in Capacitor's native browser surface. On iOS the presented browser is closed after the verified callback returns; on Android the app leaves the Custom Tab lifecycle alone.
