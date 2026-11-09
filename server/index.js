@@ -1510,6 +1510,12 @@ app.post('/api/auth/password-reset/complete', authLimiter, validateRequestOrigin
     }
     await client.query('UPDATE account_action_tokens SET consumed_at = NOW() WHERE id = $1', [action.id]);
     await client.query('DELETE FROM sessions WHERE user_id = $1', [action.user_id]);
+    await client.query(
+      `UPDATE mobile_sessions
+       SET revoked_at = NOW(), revoked_reason = 'password_reset'
+       WHERE user_id = $1 AND revoked_at IS NULL`,
+      [action.user_id]
+    );
     await client.query('COMMIT');
     clearSessionCookie(res);
     return res.json({ reset: true, message: 'Password changed. Sign in with your new password.' });
@@ -1991,6 +1997,12 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
          family_format = 'open_to_both', wants_children = 'discuss',
          children_living_arrangement = 'not_applicable', updated_at = statement_timestamp()
        WHERE user_id = $1`,
+      [req.authUser.id]
+    );
+    await client.query(
+      `UPDATE mobile_sessions
+       SET revoked_at = NOW(), revoked_reason = 'account_unavailable'
+       WHERE user_id = $1 AND revoked_at IS NULL`,
       [req.authUser.id]
     );
     await client.query(
@@ -4762,6 +4774,12 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
           [report.reported_user_id]
         );
         await client.query('DELETE FROM sessions WHERE user_id = $1', [report.reported_user_id]);
+        await client.query(
+          `UPDATE mobile_sessions
+           SET revoked_at = NOW(), revoked_reason = 'account_unavailable'
+           WHERE user_id = $1 AND revoked_at IS NULL`,
+          [report.reported_user_id]
+        );
         accountSuspended = true;
       }
     }
