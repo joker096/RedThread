@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isCurrentDiscoverySearchResponse, isSafeProfilePhotoUrl, normalizeFemaleDailyQuota, isFemaleWeeklyMatchQuotaExhausted, millisecondsUntilNextUtcDay } from './ServerDiscoveryPanel.tsx';
+import { isCurrentDiscoverySearchResponse, isSafeProfilePhotoUrl, normalizeFemaleDailyQuota, isFemaleWeeklyMatchQuotaExhausted, millisecondsUntilNextUtcDay, normalizeCompatibilityExplanation } from './ServerDiscoveryPanel.tsx';
 
 test('server profile photos must use private same-origin photo assets', () => {
   assert.equal(
@@ -136,4 +136,23 @@ test('like and pass refresh Discovery when the UTC day or entitlement changes be
     3,
     'all three actions must show the localized quota refresh notice'
   );
+});
+
+
+test('normalizes only bounded server compatibility explanations and never accepts invented deal-breakers', () => {
+  const valid = {
+    version: 2, score: 84, dealbreakers: [], dealbreakersConfigured: false,
+    dimensions: [
+      { key: 'family', score: 75, aligned: ['household'], discussionPoints: ['children'] },
+      { key: 'budget', score: 80, aligned: ['gifts'], discussionPoints: ['financialModel'] },
+      { key: 'conflict', score: 100, aligned: ['fidelity'], discussionPoints: [] },
+      { key: 'lifestyle', score: 50, aligned: [], discussionPoints: ['relocation'] }
+    ]
+  };
+  assert.deepEqual(normalizeCompatibilityExplanation(valid), valid);
+  assert.equal(normalizeCompatibilityExplanation({ ...valid, dealbreakersConfigured: true }), null);
+  assert.equal(normalizeCompatibilityExplanation({ ...valid, dealbreakers: ['children'] }), null);
+  assert.equal(normalizeCompatibilityExplanation({ ...valid, score: 101 }), null);
+  assert.equal(normalizeCompatibilityExplanation({ ...valid, dimensions: valid.dimensions.slice(0, 3) }), null);
+  assert.equal(normalizeCompatibilityExplanation(null), null);
 });
