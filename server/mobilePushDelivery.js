@@ -3,7 +3,6 @@ import http2 from 'node:http2';
 
 const FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
 const FCM_TOKEN_URL = 'https://oauth2.googleapis.com/token';
-const FCM_TOKEN_TTL_MS = 50 * 60 * 1000;
 const APNS_TOKEN_TTL_MS = 50 * 60 * 1000;
 const MAX_RETRY_DELAY_MS = 6 * 60 * 60 * 1000;
 let fcmAccessTokenCache = null;
