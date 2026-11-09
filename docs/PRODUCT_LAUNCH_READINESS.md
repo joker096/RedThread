@@ -25,7 +25,7 @@ The current working mobile branch is `feat/mobile-capacitor-foundation`, PR #429
 | Mobile sessions | Capacitor Android/iOS foundation, bearer API transport, secure refresh-token storage, rotation, replay detection and revocation | Physical-device testing, final API domain, HTTPS and association files |
 | Account lifecycle | Registration, login, email verification, password recovery and account deletion paths | Production email delivery, domain, templates and end-to-end device validation |
 | Discovery | Server-backed profile search, filters, likes, passes, blocks and reports | Production data volume, abuse/fraud monitoring and load testing |
-| Compatibility | Relationship assessment and compatibility calculations | Validate explanations and deal-breakers against final product policy; monitor match-to-date conversion |
+| Compatibility | Server-backed relationship assessment and compatibility calculations | Gender-specific quiz component still uses local demo state and preset scores; it is hidden in native builds until persistence/API support is added. Validate explanations and deal-breakers against final product policy; monitor match-to-date conversion |
 | Chats | Server-backed matches and messaging; in-app notifications | Remote FCM/APNs delivery and native device validation |
 | Trust Center | Didit integration, L2/L3 policy enforcement, moderation queue, consent and media-processing safeguards | Live provider credentials, native L3 capture UX, physical-device tests and moderation staffing |
 | Gifts | Catalog, match-scoped unpaid requests, recipient consent/decline/withdrawal, safety locks and reconciliation records | No payment adapter, protected recipient-address vault, fulfillment provider or delivery-status integration |
@@ -35,6 +35,10 @@ The current working mobile branch is `feat/mobile-capacitor-foundation`, PR #429
 | Mutual date plans | Draft PR #417 adds two-party confirmation, safety cancellation, privacy-preserving share and notifications | PR not merged; no venue verification, booking, payments or live location |
 | Native Google sign-in | Browser Google Identity Services path exists | Native SDK sign-in and server ID-token exchange are not implemented |
 | Release operations | Docker/Compose and CI foundations | No production domain/host, secrets, backups/restore rehearsal, monitoring/alerting, incident runbooks or store accounts |
+
+## Native app surface hardening
+
+The current mobile branch now forces native builds onto server-backed discovery, clears legacy prototype state from local storage, disables demo-state persistence, hides prototype/demo navigation and chats, and suppresses local-only quizzes, mock compatibility/safety tools, simulated ad manager surfaces and the Paddle Sandbox paywall. Browser demo mode remains available for development/regression only. The server-backed relationship assessment, profile editor, discovery, inbox, Trust Center, consent preferences and gift-consent flows remain available in the native app.
 
 ## Advertising: current code state
 
