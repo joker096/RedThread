@@ -10,7 +10,8 @@ import { publishVowDeepLink } from './utils/mobileDeepLinks.ts';
 installNativeApiTransport();
 
 if (Capacitor.isNativePlatform()) {
-  const forwardNativeUrl = (rawUrl: unknown) => publishVowDeepLink(rawUrl);
+  const appLinkHost = import.meta.env.VITE_APP_LINK_HOST;
+  const forwardNativeUrl = (rawUrl: unknown) => publishVowDeepLink(rawUrl, appLinkHost);
 
   // Register the listener before reading the launch URL so foreground and
   // cold-start links are both handled. Tokens are never written to logs.
