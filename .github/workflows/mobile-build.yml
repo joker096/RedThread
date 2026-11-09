@@ -11,6 +11,7 @@ on:
       - "vite.config.ts"
       - "package.json"
       - "scripts/ensure-capacitor-platform.mjs"
+      - "docs/MOBILE_*.md"
       - ".github/workflows/mobile-build.yml"
   workflow_dispatch:
 
