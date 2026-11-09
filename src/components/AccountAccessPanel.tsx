@@ -163,7 +163,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
     let cancelled = false;
     const initialSessionActionId = sessionActionIdRef.current;
     const initialAuxiliaryRequestId = auxiliaryRequestIdRef.current;
-    fetch('/api/auth/me', { credentials: 'include' })
+    apiFetch(nativeApp ? '/api/mobile/auth/me' : '/api/auth/me', { credentials: 'include' })
       .then(async response => response.ok ? response.json() : null)
       .then(async data => {
         if (!cancelled && initialSessionActionId === sessionActionIdRef.current && initialAuxiliaryRequestId === auxiliaryRequestIdRef.current && data?.user) {
@@ -179,7 +179,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
           }
           setUser(normalizedUser);
           window.dispatchEvent(new Event('vow:session-changed'));
-          const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
+          const billing = await apiFetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
           if (!cancelled && initialSessionActionId === sessionActionIdRef.current && initialAuxiliaryRequestId === auxiliaryRequestIdRef.current) setBillingStatus(isBillingStatus(billing) ? billing : null);
         }
       })
@@ -188,10 +188,12 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
     const verificationToken = params.get('verifyEmail');
     const passwordResetToken = params.get('resetPassword');
     if (verificationToken) {
-      fetch('/api/auth/verify-email', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: verificationToken })
-      }).then(async response => {
+      (nativeApp
+        ? mobileAuthFetch('verify-email', { token: verificationToken })
+        : apiFetch('/api/auth/verify-email', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: verificationToken })
+          })).then(async response => {
         await response.json().catch(() => null);
         if (cancelled || initialAuxiliaryRequestId !== auxiliaryRequestIdRef.current) return;
         if (!response.ok) throw new Error(t('authVerificationLinkInvalid'));
@@ -218,7 +220,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
     setBusy(true);
     setMessage('');
     try {
-      const response = await fetch('/api/auth/google', {
+      const response = await apiFetch('/api/auth/google', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -241,13 +243,19 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         setMessage(t('authGoogleFinishProfile'));
         return 'registration';
       }
+      if (nativeApp && data?.verificationRequired) {
+        setCanResendVerification(true);
+        setPassword('');
+        setMessage(t('authAccountCreatedVerification'));
+        return;
+      }
       const normalizedUser = normalizeAccountUser(data?.user);
       if (!normalizedUser) throw new Error(t('authRequestFailed'));
       actionId = ++sessionActionIdRef.current;
       setGoogleRegistrationTicket(null);
       setUser(normalizedUser);
       window.dispatchEvent(new Event('vow:session-changed'));
-      const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
+      const billing = await apiFetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
       if (sessionActionIdRef.current !== actionId) return 'ignored';
       setBillingStatus(isBillingStatus(billing) ? billing : null);
       setMessage(t('authSignedIn'));
@@ -269,7 +277,11 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
 
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/auth/google/config', { credentials: 'include' })
+    if (nativeApp) {
+      setGoogleClientId('');
+      return () => { cancelled = true; };
+    }
+    apiFetch('/api/auth/google/config', { credentials: 'include' })
       .then(response => response.ok ? response.json() : null)
       .then(data => {
         if (!cancelled && data?.configured && typeof data.clientId === 'string') setGoogleClientId(data.clientId);
@@ -286,7 +298,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       if (cancelled || !googleButtonRef.current || !window.google?.accounts?.id) return;
       const target = googleButtonRef.current;
       target.replaceChildren();
-      const challengeResponse = await fetch('/api/auth/google/challenge', {
+      const challengeResponse = await apiFetch('/api/auth/google/challenge', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -336,12 +348,14 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       const body = submittedMode === 'login'
         ? { email, password }
         : { email, password, displayName, birthDate, gender, country, city, relationshipIntent, familyFormat, hasChildren, wantsChildren, childrenLivingArrangement, ...(submittedGoogleRegistrationTicket ? { googleRegistrationTicket: submittedGoogleRegistrationTicket } : {}) };
-      const response = await fetch(submittedMode === 'login' ? '/api/auth/login' : '/api/auth/register', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
+      const response = nativeApp
+        ? await mobileAuthFetch(submittedMode, body)
+        : await apiFetch(submittedMode === 'login' ? '/api/auth/login' : '/api/auth/register', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
       const data = response.status === 204 ? null : await response.json().catch(() => null);
       if (sessionActionIdRef.current !== activeActionId) return;
       if (!response.ok) {
@@ -378,7 +392,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       activeActionId = ++sessionActionIdRef.current;
       setUser(normalizedUser);
       window.dispatchEvent(new Event('vow:session-changed'));
-      const billing = await fetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
+      const billing = await apiFetch('/api/billing/status', { credentials: 'include' }).then(response => response.ok ? response.json() : null).catch(() => null);
       if (sessionActionIdRef.current !== activeActionId) return;
       setBillingStatus(isBillingStatus(billing) ? billing : null);
       setMessage(submittedMode === 'register' ? t('authAccountCreated') : t('authSignedIn'));
@@ -397,9 +411,11 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
     const requestId = ++auxiliaryRequestIdRef.current;
     setBusy(true);
     try {
-      const response = await fetch('/api/auth/email-verification/resend', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email })
-      });
+      const response = nativeApp
+        ? await mobileAuthFetch('email-verification/resend', { email })
+        : await apiFetch('/api/auth/email-verification/resend', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email })
+          });
       await response.json().catch(() => null);
       if (requestId !== auxiliaryRequestIdRef.current) return;
       setMessage(t('authResendGeneric'));
@@ -414,9 +430,11 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
     const requestId = ++auxiliaryRequestIdRef.current;
     setBusy(true);
     try {
-      const response = await fetch('/api/auth/password-reset/request', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email })
-      });
+      const response = nativeApp
+        ? await mobileAuthFetch('password-reset/request', { email })
+        : await apiFetch('/api/auth/password-reset/request', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email })
+          });
       await response.json().catch(() => null);
       if (requestId !== auxiliaryRequestIdRef.current) return;
       setMessage(t('authResetGeneric'));
@@ -434,10 +452,12 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
     const requestId = ++auxiliaryRequestIdRef.current;
     setBusy(true);
     try {
-      const response = await fetch('/api/auth/password-reset/complete', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: resetToken, password: resetPassword })
-      });
+      const response = nativeApp
+        ? await mobileAuthFetch('password-reset/complete', { token: resetToken, password: resetPassword })
+        : await apiFetch('/api/auth/password-reset/complete', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: resetToken, password: resetPassword })
+          });
       const data = await response.json().catch(() => null);
       if (requestId !== auxiliaryRequestIdRef.current) return;
       if (!response.ok) throw new Error(data?.error === 'invalid_or_expired_token' ? t('authResetLinkInvalid') : t('authPasswordChangeFailed'));
@@ -467,7 +487,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
     setBusy(true);
     setDeleteNotice('');
     try {
-      const response = await fetch('/api/account', {
+      const response = await apiFetch('/api/account', {
         method: 'DELETE',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -483,6 +503,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         };
         throw new Error(errors[data?.error] || t('authDeleteFailed'));
       }
+      if (nativeApp) await clearMobileSession();
       setUser(null);
       window.dispatchEvent(new Event('vow:session-changed'));
       setBillingStatus(null);
@@ -503,7 +524,9 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
     const actionId = ++sessionActionIdRef.current;
     setBusy(true);
     try {
-      const response = await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      const response = nativeApp
+        ? await mobileAuthFetch('logout', {})
+        : await apiFetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
       if (sessionActionIdRef.current !== actionId) return;
       if (!response.ok) throw new Error(t('authLogoutFailed'));
       setUser(null);
@@ -531,7 +554,8 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
             <p className="text-sm font-semibold text-white">{user.displayName}</p>
             <p className="mt-1 text-xs text-stone-400">{user.email} · {user.city}, {user.country}</p>
           </div>
-          {user.gender === 'female' && <PaddleSubscriptionPanel email={user.email} />}
+          {user.gender === 'female' && !nativeApp && <PaddleSubscriptionPanel email={user.email} />}
+          {user.gender === 'female' && nativeApp && <p className="rounded-xl bg-stone-950 p-3 text-xs leading-relaxed text-stone-400">{t('authBillingPremiumNotConfigured')}</p>}
           {billingStatus && user.gender === 'female' && <div className={`rounded-xl border p-3 ${billingStatus.access === 'full' ? 'border-emerald-500/20 bg-emerald-950/20' : 'border-amber-500/20 bg-amber-950/20'}`}>
             <p className="text-sm font-semibold text-white">{billingStatus.access === 'full' ? t('authBillingFullAccess') : t('authBillingTrialEnded')}</p>
             <p className="mt-1 text-xs leading-relaxed text-stone-300">{billingStatus.trialEndsAt && billingStatus.access === 'full' ? t('authBillingFreeUntil').replace('{date}', formatDate(billingStatus.trialEndsAt, { dateStyle: 'medium', timeStyle: 'short' })) : billingStatus.access !== 'full' ? t('authBillingPremiumNotConfigured') : t('authBillingActive')}</p>
@@ -580,7 +604,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
               </fieldset>
             </>}
             <label className="block text-xs text-stone-300">{t('email')}<input name="account-email" type="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" /></label>
-            {mode === 'login' && googleClientId && <div ref={googleButtonRef} className="flex min-h-11 justify-center" aria-label="Sign in with Google" />}
+            {!nativeApp && mode === 'login' && googleClientId && <div ref={googleButtonRef} className="flex min-h-11 justify-center" aria-label="Sign in with Google" />}
             <label className="block text-xs text-stone-300">{t('passwordMin')}<input name="account-password" type="password" value={password} onChange={e => setPassword(e.target.value)} minLength={12} maxLength={128} required autoComplete={mode === 'login' ? 'current-password' : 'new-password'} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300" /></label>
             <button type="button" onClick={() => void submit()} disabled={busy || !email.trim() || password.length < 12 || (mode === 'register' && (!displayName.trim() || !birthDate || !country.trim() || !city.trim() || hasChildren === null))} className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 min-h-11 w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">{busy ? t('wait') : mode === 'login' ? t('signIn') : t('createAccount')}</button>
             {mode === 'login' && <div className="grid grid-cols-1 gap-2">
