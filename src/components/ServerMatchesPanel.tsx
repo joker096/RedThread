@@ -696,7 +696,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
                       </div>
                     )}
                     <div data-testid="chat-quick-invites" className="mx-3 mt-2 flex flex-wrap gap-2" aria-label={t('chatInviteDate')}>
-                      {['chatPlaceCafe', 'chatPlacePark', 'chatPlaceDinner', 'chatPlaceTea'].map(placeKey => (
+                      {(['chatPlaceCafe', 'chatPlacePark', 'chatPlaceDinner', 'chatPlaceTea'] as const).map(placeKey => (
                         <button key={placeKey} type="button" onClick={() => setQuickInviteDraft(placeKey)} disabled={busy} className="min-h-10 rounded-full border border-rose-300/25 bg-rose-500/10 px-3 py-2 text-[11px] font-semibold text-rose-100 hover:bg-rose-500/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">
                           {t(placeKey)}
                         </button>
