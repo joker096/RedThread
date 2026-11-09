@@ -103,8 +103,15 @@ References:
 - https://developer.paddle.com/get-started/how-paddle-works/mobile/
 
 ### Payment work that remains
+**Store billing and advertising-specific policy details**
+- Apple App Store Review Guideline 3.1.1 requires IAP for digital features/subscriptions, subject to region-specific external-purchase entitlements; Guideline 3.1.3(e) requires non-IAP payment for physical goods/services consumed outside the app.
+- Apple Guideline 3.1.3(g) exempts only apps whose sole purpose is advertiser campaign management. Buying digital ad inventory/boosts to display inside the same consumer app is still an in-app purchase. Keep advertiser campaign purchasing outside the Vow consumer app unless the applicable policy path is confirmed.
+- Apple Guideline 4.3(b) specifically calls out dating apps and expects meaningful differentiation. The store submission should explain Vow's serious-relationship focus, verified trust model and mutual-consent date planning, without claiming unfinished capabilities.
+- Google Play explicitly lists dating subscriptions as digital subscriptions normally requiring Play Billing; eligible alternative billing/external-offer programs require enrollment and region-specific compliance.
+
 
 **Premium subscription**
+- The current legacy catalog uses `1month`, `3months` and `lifetime`; the UI describes the third option as a one-time payment for access without a time limit. Confirm that this is the intended meaning of the planned 3,990 RUB "unlimited" tier before creating any replacement SKU.
 - Select a payment route that is contractually permitted for a dating app and compliant with the App Store / Play Store rules in each launch market.
 - Keep entitlement state server-authoritative.
 - Complete renewals, grace periods, cancellation, refunds, chargebacks, tax receipts, customer support and reconciliation tests.
