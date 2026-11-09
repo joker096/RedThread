@@ -13,6 +13,7 @@ interface HeaderNavProps {
   onOpenBrandModal: () => void;
   onToggleGender: () => void;
   allowDemoGenderSwitch: boolean;
+  showDemoPersonaControl?: boolean;
   onToggleDeviceFrame: (frame: DeviceFrame) => void;
   onOpenPremiumModal: () => void;
   showPremiumAction?: boolean;
@@ -35,6 +36,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   onOpenBrandModal,
   onToggleGender,
   allowDemoGenderSwitch,
+  showDemoPersonaControl = true,
   onToggleDeviceFrame,
   onOpenPremiumModal,
   showPremiumAction = true,
@@ -164,8 +166,8 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
               return <option key={option.code} value={option.code}>{label}</option>;
             })}
           </select>
-          {/* Binary Role Switcher */}
-          <button
+          {/* Demo-only persona switcher */}
+          {showDemoPersonaControl && <button
             type="button"
             onClick={allowDemoGenderSwitch ? onToggleGender : undefined}
             disabled={!allowDemoGenderSwitch}
@@ -179,7 +181,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           >
             <span className={`focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 w-1.5 h-1.5 rounded-full ${currentGender === 'female' ? 'bg-rose-500' : 'bg-blue-400'}`}></span>
             <span className="hidden min-[380px]:inline">{currentGender === 'female' ? `${t('demoWoman')} ♀` : `${t('demoMan')} ♂`}</span>
-          </button>
+          </button>}
 
           {/* Demo filters only: registered-account discovery has its own connected filters. */}
           {showFilters && <button
