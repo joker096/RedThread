@@ -24,13 +24,13 @@ export const RelationshipAssessmentPanel: React.FC = () => {
       .then(async response => {
         if (response.status === 401) {
           if (!cancelled) setStatus('ready');
-          return null;
+          return { unauthenticated: true };
         }
         if (!response.ok) throw new Error(t('loadSavedAnswersError'));
         return response.json();
       })
       .then(data => {
-        if (cancelled) return;
+        if (cancelled || (data && typeof data === 'object' && 'unauthenticated' in data)) return;
         const savedAnswers: unknown = data?.assessment?.answers;
         const savedDealbreakers: unknown = data?.assessment?.dealbreakers;
         setDealbreakers(validateDealbreakers(savedDealbreakers) ? savedDealbreakers : []);
