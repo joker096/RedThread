@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   deduplicateById,
+  getChatTimeRemaining,
   normalizeServerMatch,
   normalizeServerMessage,
   normalizeUserId
@@ -115,4 +116,27 @@ test('preserves the server precision cursor separately from the display timestam
   });
   assert.equal(message?.createdAt, '2026-11-05T08:00:00.000Z');
   assert.equal(message?.cursorCreatedAt, '2026-11-05T08:00:00.000123Z');
+});
+
+
+test('normalizes the first-message timestamp used by the 72-hour chat window', () => {
+  const match = normalizeServerMatch({
+    id: 'match-72h', partnerId: 'user-2', displayName: 'Alex', age: 30,
+    chatStartedAt: '2026-11-09T10:00:00.000Z'
+  });
+  assert.equal(match?.chatStartedAt, '2026-11-09T10:00:00.000Z');
+  assert.equal(normalizeServerMatch({
+    id: 'match-72h', partnerId: 'user-2', displayName: 'Alex', age: 30,
+    chatStartedAt: 'not-a-date'
+  })?.chatStartedAt, undefined);
+});
+
+test('counts down exactly 72 hours from the first message and never returns negative time', () => {
+  const startedAt = '2026-11-09T10:00:00.000Z';
+  assert.equal(getChatTimeRemaining(startedAt, Date.parse(startedAt)), 72 * 60 * 60 * 1000);
+  assert.equal(getChatTimeRemaining(startedAt, Date.parse(startedAt) + 60_000), 72 * 60 * 60 * 1000 - 60_000);
+  assert.equal(getChatTimeRemaining(startedAt, Date.parse(startedAt) + 72 * 60 * 60 * 1000), 0);
+  assert.equal(getChatTimeRemaining(startedAt, Date.parse(startedAt) + 73 * 60 * 60 * 1000), 0);
+  assert.equal(getChatTimeRemaining(null), null);
+  assert.equal(getChatTimeRemaining('invalid'), null);
 });
