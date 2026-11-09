@@ -71,14 +71,27 @@ test('queues cold-start links until the UI subscribes and suppresses duplicate d
   unsubscribe();
 });
 
-test('identity return events can be received again for a later verification attempt', () => {
+test('duplicate identity return delivery is suppressed but later verification attempts work', () => {
   const received: unknown[] = [];
   const unsubscribe = subscribeVowDeepLinks(link => received.push(link));
-  publishVowDeepLink('vow://identity/return');
-  publishVowDeepLink('vow://identity/return');
+  publishVowDeepLink('vow://identity/return', undefined, 1000);
+  publishVowDeepLink('vow://identity/return', undefined, 1100);
+  publishVowDeepLink('vow://identity/return', undefined, 4000);
   assert.deepEqual(received, [
     { type: 'identity-return' },
     { type: 'identity-return' }
   ]);
+  unsubscribe();
+});
+
+test('a one-time token can be retried after the duplicate-delivery window', () => {
+  const retryToken = 'd'.repeat(64);
+  const raw = `https://${appHost}/?verifyEmail=${retryToken}`;
+  const received: unknown[] = [];
+  const unsubscribe = subscribeVowDeepLinks(link => received.push(link));
+  publishVowDeepLink(raw, appHost, 1000);
+  publishVowDeepLink(raw, appHost, 1500);
+  publishVowDeepLink(raw, appHost, 4000);
+  assert.equal(received.length, 2);
   unsubscribe();
 });
