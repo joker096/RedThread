@@ -63,17 +63,20 @@ export function parseVowDeepLink(rawUrl: unknown, allowedHost?: string): VowDeep
 type DeepLinkListener = (link: VowDeepLink) => void;
 const deepLinkListeners = new Set<DeepLinkListener>();
 const pendingDeepLinks: VowDeepLink[] = [];
-const seenDeepLinks = new Set<string>();
+const seenDeepLinks = new Map<string, number>();
+const DEEP_LINK_DUPLICATE_WINDOW_MS = 2_000;
 
-export function publishVowDeepLink(rawUrl: unknown, allowedHost?: string): void {
+export function publishVowDeepLink(rawUrl: unknown, allowedHost?: string, now = Date.now()): void {
   const link = parseVowDeepLink(rawUrl, allowedHost);
   if (!link) return;
-  const key = link.type === 'identity-return' ? null : link.type + ':' + link.token;
-  if (key && seenDeepLinks.has(key)) return;
-  if (key) {
-    seenDeepLinks.add(key);
-    if (seenDeepLinks.size > 32) seenDeepLinks.delete(seenDeepLinks.values().next().value as string);
+  const key = link.type === 'identity-return' ? link.type : link.type + ':' + link.token;
+  for (const [seenKey, seenAt] of seenDeepLinks) {
+    if (now - seenAt >= DEEP_LINK_DUPLICATE_WINDOW_MS) seenDeepLinks.delete(seenKey);
   }
+  const previousAt = seenDeepLinks.get(key);
+  if (previousAt !== undefined && now - previousAt < DEEP_LINK_DUPLICATE_WINDOW_MS) return;
+  seenDeepLinks.set(key, now);
+  if (seenDeepLinks.size > 32) seenDeepLinks.delete(seenDeepLinks.keys().next().value as string);
   if (deepLinkListeners.size === 0) {
     // Preserve a cold-start link until the account UI subscribes. Keep this
     // queue bounded because it may contain a one-time action token.
