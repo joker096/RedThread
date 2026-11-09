@@ -211,6 +211,18 @@ test('native mobile auth login, refresh rotation, replay revocation and device l
     assert.equal(meA.status, 200);
     assert.equal((await meA.json()).user.id, userId);
 
+    const notifications = await request('/api/notifications', { token: pairA.accessToken });
+    assert.equal(notifications.status, 200,
+      'native access tokens must authenticate shared protected API routes');
+    const nativeMutation = await request('/api/notifications/read-all', {
+      method: 'POST',
+      token: pairA.accessToken,
+      body: {},
+      origin: 'https://localhost'
+    });
+    assert.equal(nativeMutation.status, 204, logs);
+    assert.equal(nativeMutation.headers.get('access-control-allow-origin'), 'https://localhost');
+
     const mismatch = await request('/api/mobile/auth/refresh', {
       method: 'POST', token: pairA.refreshToken, body: { ...deviceB }
     });
