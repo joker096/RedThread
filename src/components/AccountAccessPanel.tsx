@@ -522,6 +522,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       const data = await response.json().catch(() => null);
       if (requestId !== auxiliaryRequestIdRef.current) return;
       if (!response.ok) throw new Error(data?.error === 'invalid_or_expired_token' ? t('authResetLinkInvalid') : t('authPasswordChangeFailed'));
+      if (nativeApp) await clearMobileSession();
       setShowReset(false);
       setUser(null);
       setBillingStatus(null);
