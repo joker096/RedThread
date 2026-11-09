@@ -3,50 +3,61 @@ import assert from 'node:assert/strict';
 import { parseVowDeepLink, publishVowDeepLink, subscribeVowDeepLinks } from './mobileDeepLinks.ts';
 
 const token = 'a'.repeat(64);
+const appHost = 'app.vow-example.test';
 
-test('parses supported email verification and password reset app links', () => {
-  assert.deepEqual(parseVowDeepLink(`vow://auth/verify-email?token=${token}`), {
+test('parses verified HTTPS email verification and password reset app links', () => {
+  assert.deepEqual(parseVowDeepLink(`https://${appHost}/?verifyEmail=${token}`, appHost), {
     type: 'verify-email', token
   });
-  assert.deepEqual(parseVowDeepLink(`vow://auth/reset-password?token=${token}`), {
+  assert.deepEqual(parseVowDeepLink(`https://${appHost}/?resetPassword=${token}`, appHost), {
     type: 'reset-password', token
   });
 });
 
-test('parses the non-secret Didit return marker without accepting query data', () => {
+test('parses the non-secret custom-scheme identity return marker', () => {
   assert.deepEqual(parseVowDeepLink('vow://identity/return'), { type: 'identity-return' });
   assert.equal(parseVowDeepLink('vow://identity/return?token=secret'), null);
+  assert.equal(parseVowDeepLink(`vow://auth/verify-email?token=${token}`), null,
+    'custom schemes must never carry account action tokens');
 });
 
-test('rejects malformed, ambiguous and untrusted app links', () => {
+test('rejects malformed, ambiguous and unverified HTTPS app links', () => {
   const invalid = [
-    null, undefined, 42, '', 'https://vow.example/auth/verify-email?token=' + token,
-    'vow://attacker/auth/verify-email?token=' + token,
-    'vow://auth/verify-email?token=' + token + '&token=' + token,
-    'vow://auth/verify-email?token=' + token + '&redirect=https://attacker.invalid',
-    'vow://auth/verify-email?token=short',
-    'vow://auth/verify-email?token=' + 'a'.repeat(513),
-    'vow://auth/verify-email?token=' + token + '#fragment',
-    'vow://user@auth/verify-email?token=' + token,
-    'vow://auth:443/verify-email?token=' + token,
-    'vow://auth/unknown?token=' + token,
-    'vow://identity/other'
+    null, undefined, 42, '', `https://${appHost}/?verifyEmail=${token}`,
+    `https://attacker.invalid/?verifyEmail=${token}`,
+    `http://${appHost}/?verifyEmail=${token}`,
+    `https://${appHost}/?verifyEmail=${token}&verifyEmail=${token}`,
+    `https://${appHost}/?verifyEmail=${token}&redirect=https://attacker.invalid`,
+    `https://${appHost}/?verifyEmail=${token}&resetPassword=${token}`,
+    `https://${appHost}/?verifyEmail=short`,
+    `https://${appHost}/?verifyEmail=${'a'.repeat(513)}`,
+    `https://${appHost}/?verifyEmail=${token}#fragment`,
+    `https://user@${appHost}/?verifyEmail=${token}`,
+    `https://${appHost}:443/?verifyEmail=${token}`,
+    `https://${appHost}/unexpected?verifyEmail=${token}`,
+    'vow://attacker/identity/return'
   ];
-  for (const value of invalid) assert.equal(parseVowDeepLink(value), null, String(value));
+  for (const value of invalid) assert.equal(parseVowDeepLink(value, appHost), null, String(value));
+});
+
+test('rejects invalid configured app-link hosts', () => {
+  for (const host of ['', 'app.vow-example.test/path', 'app.vow-example.test:443', 'https://app.vow-example.test']) {
+    assert.equal(parseVowDeepLink(`https://app.vow-example.test/?verifyEmail=${token}`, host), null);
+  }
 });
 
 test('queues cold-start links until the UI subscribes and suppresses duplicate delivery', () => {
   const coldToken = 'b'.repeat(64);
-  const raw = `vow://auth/reset-password?token=${coldToken}`;
-  publishVowDeepLink(raw);
+  const raw = `https://${appHost}/?resetPassword=${coldToken}`;
+  publishVowDeepLink(raw, appHost);
   const received: unknown[] = [];
   const unsubscribe = subscribeVowDeepLinks(link => received.push(link));
   assert.deepEqual(received, [{ type: 'reset-password', token: coldToken }]);
 
-  publishVowDeepLink(raw);
+  publishVowDeepLink(raw, appHost);
   assert.equal(received.length, 1, 'the same one-time token must not be processed twice');
   const nextToken = 'c'.repeat(64);
-  publishVowDeepLink(`vow://auth/verify-email?token=${nextToken}`);
+  publishVowDeepLink(`https://${appHost}/?verifyEmail=${nextToken}`, appHost);
   assert.deepEqual(received[1], { type: 'verify-email', token: nextToken });
   unsubscribe();
 });
