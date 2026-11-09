@@ -63,7 +63,7 @@ Migration `212_mobile_sessions.sql` creates:
 - `mobile_sessions`: one row per device session, token hashes, platform/device metadata, absolute expiry and revocation state.
 - `mobile_refresh_token_history`: append-only consumed refresh-token hashes used to detect replay.
 
-The history table cascades on session/account deletion but rejects updates. Token values are never persisted.
+The history table rejects direct updates and deletes, while allowing FK-driven cleanup when the owning session/account is deleted. Token values are never persisted.
 
 ## Required integration tests before native clients use these endpoints
 
