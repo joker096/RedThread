@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { deleteNativeRecordingFile, readAndDeleteNativeRecordingFile } from './nativeRecordingFile.ts';
 
 test('reads a native recording and deletes its original private cache file', async () => {
-  const deleted = [];
+  const deleted: string[] = [];
   const expected = new Blob(['private audio bytes'], { type: 'audio/mp4' });
   const result = await readAndDeleteNativeRecordingFile('file:///private/voice.m4a', {
     convertFileSrc: uri => 'capacitor://localhost/_capacitor_file_' + encodeURIComponent(uri),
@@ -15,7 +15,7 @@ test('reads a native recording and deletes its original private cache file', asy
 });
 
 test('attempts native cache deletion even when reading the recording fails', async () => {
-  const deleted = [];
+  const deleted: string[] = [];
   await assert.rejects(
     readAndDeleteNativeRecordingFile('content://media/external/audio/42', {
       convertFileSrc: uri => uri,
@@ -48,7 +48,7 @@ test('rejects non-file recording references before accessing the filesystem', as
 });
 
 test('deletes native recordings rejected by duration validation and treats missing files as already cleaned', async () => {
-  const deleted = [];
+  const deleted: string[] = [];
   await deleteNativeRecordingFile('file:///private/too-short.m4a', async uri => { deleted.push(uri); });
   await deleteNativeRecordingFile('file:///private/already-gone.m4a', async () => {
     const error = new Error('file missing') as Error & { code: string };
