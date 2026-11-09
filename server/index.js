@@ -3914,15 +3914,23 @@ app.get('/api/matches/:matchId/compatibility', requireSession, async (req, res) 
       return res.status(404).json({ error: 'match_not_found' });
     }
     const assessments = await client.query(
-      'SELECT user_id, answers, dealbreakers FROM relationship_assessments WHERE user_id = ANY($1::uuid[])',
+      'SELECT user_id, answers, dealbreakers, assessment_version AS "assessmentVersion" FROM relationship_assessments WHERE user_id = ANY($1::uuid[])',
       [[req.authUser.id, partnerId]]
     );
     const byUser = new Map(assessments.rows.map(row => [row.user_id, row]));
     const mine = byUser.get(req.authUser.id);
     const theirs = byUser.get(partnerId);
-    if (!mine || !theirs) {
+    const missingForCurrentVersion = assessmentVersionGaps(
+      mine?.assessmentVersion,
+      theirs?.assessmentVersion
+    );
+    if (!mine || !theirs || missingForCurrentVersion.length > 0) {
       await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'assessment_incomplete' });
+      return res.status(409).json({
+        error: 'assessment_incomplete',
+        requiredVersion: ASSESSMENT_VERSION,
+        missingForCurrentVersion
+      });
     }
     if (!isValidAssessment(mine.answers) || !isValidAssessment(theirs.answers) ||
         !isValidDealbreakers(mine.dealbreakers) || !isValidDealbreakers(theirs.dealbreakers)) {
