@@ -244,3 +244,12 @@ export function validateDealbreakers(value: unknown): value is string[] {
     typeof key === 'string' && allowed.has(key) && value.indexOf(key) === index
   );
 }
+
+
+export function buildAssessmentSavePayload(
+  answers: AssessmentAnswers,
+  dealbreakers: string[],
+  dealbreakersReady: boolean
+): { answers: AssessmentAnswers; dealbreakers?: string[] } {
+  return { answers, ...(dealbreakersReady ? { dealbreakers } : {}) };
+}
