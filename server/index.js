@@ -24,6 +24,7 @@ import express from 'express';
 import { resolveTrustProxyHops } from './trustProxyConfig.js';
 import { applyMobileCorsHeaders, createMobileAuthRouter, isAllowedMobileOrigin, readMobileAccessToken } from './mobileAuthRoutes.js';
 import { hashMobileToken } from './mobileTokens.js';
+import { encryptMobilePushToken, fingerprintMobilePushToken, parseMobilePushTokenEncryptionKey, safeMobilePushPayload, validateMobilePushToken } from './mobilePushTokens.js';
 import { verifyGoogleIdTokenClaims } from './googleIdToken.js';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import { withPooledTransaction, rollbackPooledTransaction } from './withPooledTransaction.js';
@@ -55,6 +56,29 @@ const sessionCookieName = 'nit_session';
 const emailVerificationRequired = process.env.EMAIL_VERIFICATION_REQUIRED === 'true' || (process.env.NODE_ENV === 'production' && process.env.EMAIL_VERIFICATION_REQUIRED !== 'false');
 const allowedOrigin = process.env.APP_ORIGIN || 'http://localhost:3000';
 const googleClientId = (process.env.GOOGLE_CLIENT_ID || '').trim();
+
+function isFcmPushConfigured() {
+  return Boolean(
+    (process.env.FIREBASE_PROJECT_ID || '').trim() &&
+    (process.env.FIREBASE_CLIENT_EMAIL || '').trim() &&
+    (process.env.FIREBASE_PRIVATE_KEY || '').includes('PRIVATE KEY')
+  );
+}
+
+function isApnsPushConfigured() {
+  return Boolean(
+    /^[A-Z0-9]{10}$/.test((process.env.APNS_TEAM_ID || '').trim()) &&
+    /^[A-Z0-9]{10}$/.test((process.env.APNS_KEY_ID || '').trim()) &&
+    (process.env.APNS_PRIVATE_KEY || '').includes('PRIVATE KEY') &&
+    /^[A-Za-z0-9.-]+$/.test((process.env.IOS_BUNDLE_ID || '').trim()) &&
+    ['sandbox', 'production'].includes((process.env.APNS_ENVIRONMENT || '').trim())
+  );
+}
+
+function isMobilePushProviderConfigured(platform) {
+  return platform === 'android' ? isFcmPushConfigured() : platform === 'ios' ? isApnsPushConfigured() : false;
+}
+
 
 const pool = databaseUrl
   ? new Pool({
@@ -940,10 +964,29 @@ async function persistScreening(userId, scope, result, client = pool) {
 }
 
 async function createNotification(userId, type, metadata = {}, dedupeKey = null, client = pool) {
-  await client.query(
-    'INSERT INTO user_notifications (user_id, type, metadata, dedupe_key) VALUES ($1, $2, $3::jsonb, $4) ON CONFLICT (user_id, dedupe_key) DO NOTHING',
+  const inserted = await client.query(
+    'INSERT INTO user_notifications (user_id, type, metadata, dedupe_key) VALUES ($1, $2, $3::jsonb, $4) ON CONFLICT (user_id, dedupe_key) DO NOTHING RETURNING id',
     [userId, type, JSON.stringify(metadata), dedupeKey]
   );
+  const notificationId = inserted.rows[0]?.id;
+  const payload = safeMobilePushPayload(type);
+  if (!notificationId || !payload) return notificationId || null;
+  // Queue only a generic event and a fixed in-app route. Never copy notification
+  // metadata, message text, match IDs, identity state or gift details to a push.
+  await client.query(
+    `INSERT INTO mobile_push_outbox
+       (notification_id, user_id, token_id, event_type, deep_link)
+     SELECT $1, $2, push_token.id, $3, $4
+     FROM mobile_push_tokens push_token
+     JOIN mobile_sessions mobile_session ON mobile_session.id = push_token.session_id
+     WHERE push_token.user_id = $2
+       AND push_token.revoked_at IS NULL
+       AND mobile_session.revoked_at IS NULL
+       AND mobile_session.refresh_expires_at > NOW()
+     ON CONFLICT (notification_id, token_id) DO NOTHING`,
+    [notificationId, userId, type, payload.route]
+  );
+  return notificationId;
 }
 
 const FEMALE_POLICY_CLOCK_SQL = process.env.NODE_ENV === 'test'
