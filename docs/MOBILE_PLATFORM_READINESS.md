@@ -86,3 +86,13 @@ Vow is a mobile product, not a public website/web product. The production VPS sh
 - No public Vow website or web product is planned. Browser code remains a development and regression surface.
 - Keep this work on `feat/mobile-capacitor-foundation`; do not modify `main`, merge, or create a PR until the feature branch is fully audited and the user authorizes the next step.
 - Successful CI or simulator packaging does not mean the app is production-ready.
+
+
+## Deep links implementation status
+
+- Implemented the Capacitor App plugin listener for foreground and cold-start links.
+- Implemented strict URL parsing, a bounded cold-start queue, and duplicate suppression for one-time action tokens.
+- Implemented native account handling for verified email and password-reset HTTPS app links, plus Trust Center refresh on Didit return.
+- Registered `vow://identity/return` on Android and iOS. This custom scheme carries no token.
+- Prepared optional verified HTTPS app-link configuration. Set repository variable `VOW_APP_LINK_HOST` only after choosing the production app/API hostname. The value must match the hostname in `APP_URL` / `APP_ORIGIN`.
+- Still blocked: domain ownership/DNS, Android `assetlinks.json` signing fingerprint, Apple Team ID and `apple-app-site-association`, final app identifier, and real-device verification. Do not mark Universal Links/App Links production-ready before these are published and tested.
