@@ -165,6 +165,19 @@ const VALID_OPTIONS = new Map<string, Set<string>>(
   ])
 );
 
+export function normalizeAssessmentAnswers(value: unknown): AssessmentAnswers {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const source = value as Record<string, unknown>;
+  const normalized: AssessmentAnswers = {};
+  for (const question of ASSESSMENT_QUESTIONS) {
+    const answer = source[question.id];
+    if (typeof answer === 'string' && VALID_OPTIONS.get(question.id)?.has(answer)) {
+      normalized[question.id] = answer;
+    }
+  }
+  return normalized;
+}
+
 export function validateAssessmentAnswers(value: unknown): value is AssessmentAnswers {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const answers = value as Record<string, unknown>;

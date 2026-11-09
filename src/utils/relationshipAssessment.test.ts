@@ -5,6 +5,7 @@ import {
   calculateAssessmentCompatibility,
   getFinancialAlignment,
   validateAssessmentAnswers,
+  normalizeAssessmentAnswers,
   validateDealbreakers,
   buildAssessmentSavePayload
 } from './relationshipAssessment.ts';
@@ -91,4 +92,18 @@ test('assessment save omits non-negotiables until their stored state has loaded'
     answers,
     dealbreakers: selected
   });
+});
+
+
+test('older assessment versions restore only still-valid answers for completion', () => {
+  const previous: Record<string, string> = { ...answers };
+  delete previous.caregiving;
+  previous.children = 'invalid-option';
+  previous.legacyQuestion = 'legacy-value';
+  const restored = normalizeAssessmentAnswers(previous);
+  assert.equal(restored.relationshipGoal, answers.relationshipGoal);
+  assert.equal(Object.hasOwn(restored, 'caregiving'), false);
+  assert.equal(Object.hasOwn(restored, 'children'), false);
+  assert.equal(Object.hasOwn(restored, 'legacyQuestion'), false);
+  assert.equal(Object.keys(restored).length, Object.keys(answers).length - 2);
 });
