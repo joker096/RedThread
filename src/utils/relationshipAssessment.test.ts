@@ -5,7 +5,8 @@ import {
   calculateAssessmentCompatibility,
   getFinancialAlignment,
   validateAssessmentAnswers,
-  validateDealbreakers
+  validateDealbreakers,
+  buildAssessmentSavePayload
 } from './relationshipAssessment.ts';
 
 const answers = Object.fromEntries(
@@ -80,4 +81,14 @@ test('dealbreaker preferences must be unique known question IDs', () => {
   assert.equal(validateDealbreakers(['unknown']), false);
   assert.equal(validateDealbreakers(null), false);
   assert.equal(validateDealbreakers(Array(16).fill('children')), false);
+});
+
+
+test('assessment save omits non-negotiables until their stored state has loaded', () => {
+  const selected = ['children', 'financialModel'];
+  assert.deepEqual(buildAssessmentSavePayload(answers, selected, false), { answers });
+  assert.deepEqual(buildAssessmentSavePayload(answers, selected, true), {
+    answers,
+    dealbreakers: selected
+  });
 });

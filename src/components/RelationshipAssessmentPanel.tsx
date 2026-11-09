@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ASSESSMENT_QUESTIONS, type AssessmentAnswers, validateAssessmentAnswers, validateDealbreakers } from '../utils/relationshipAssessment.ts';
+import { ASSESSMENT_QUESTIONS, type AssessmentAnswers, validateAssessmentAnswers, validateDealbreakers, buildAssessmentSavePayload } from '../utils/relationshipAssessment.ts';
 import { getLocalizedAssessmentQuestions } from '../utils/assessmentTranslations.ts';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 
@@ -66,7 +66,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
         method: 'PUT',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers, ...(dealbreakersReady ? { dealbreakers } : {}) })
+        body: JSON.stringify(buildAssessmentSavePayload(answers, dealbreakers, dealbreakersReady))
       });
       if (response.status === 401) {
         setStatus('login');
@@ -95,6 +95,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
         {t('valuesTestDescription')}
       </p>
       <p className="mb-4 text-xs leading-relaxed text-stone-500">{t('dealbreakerHelp')}</p>
+      {status === 'loading' && <p role="status" className="mb-3 text-xs text-stone-400">{t('loading')}</p>}
       <div className="space-y-4">
         {questions.map((question, index) => (
           <fieldset key={question.id} disabled={status === 'saving' || status === 'loading'} className="rounded-2xl border border-white/5 bg-stone-950/60 p-3 disabled:opacity-70">
