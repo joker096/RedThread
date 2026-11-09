@@ -2728,6 +2728,18 @@ app.get('/api/profiles/:userId/voice-intro', profileActionLimiter, requireSessio
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
     }
+    const viewerExposurePolicy = await captureFemaleExposurePolicy(client, req.authUser);
+    if (viewerExposurePolicy.isFreeTier) {
+      const issued = await client.query(
+        `SELECT 1 FROM female_profile_exposures
+         WHERE user_id = $1 AND profile_user_id = $2 AND exposure_date = $3::date`,
+        [req.authUser.id, req.params.userId, viewerExposurePolicy.exposureDate]
+      );
+      if (!issued.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(404).end();
+      }
+    }
     const result = await client.query(
       `SELECT a.storage_path AS "storagePath", a.mime_type AS "mimeType"
        FROM profile_voice_intros a
