@@ -15,6 +15,7 @@ interface HeaderNavProps {
   allowDemoGenderSwitch: boolean;
   onToggleDeviceFrame: (frame: DeviceFrame) => void;
   onOpenPremiumModal: () => void;
+  showPremiumAction?: boolean;
   onOpenBotScanner: () => void;
   onOpenAdManager: () => void;
   onOpenFilters: () => void;
@@ -36,6 +37,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   allowDemoGenderSwitch,
   onToggleDeviceFrame,
   onOpenPremiumModal,
+  showPremiumAction = true,
   onOpenBotScanner,
   onOpenAdManager,
   onOpenFilters,
@@ -192,7 +194,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             <SlidersHorizontal className="w-3.5 h-3.5" />
           </button>}
 
-          {currentGender === 'female' && (
+          {showPremiumAction && currentGender === 'female' && (
             <button
               type="button"
               onClick={onOpenPremiumModal}
