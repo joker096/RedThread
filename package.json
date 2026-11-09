@@ -47,8 +47,6 @@
     "@paddle/paddle-node-sdk": "^3.0.0",
     "google-auth-library": "^11.3.1",
     "@capacitor/core": "8.6.0",
-    "@capacitor/android": "8.6.0",
-    "@capacitor/ios": "8.6.0",
     "@aparajita/capacitor-secure-storage": "8.0.1"
   },
   "devDependencies": {
@@ -62,7 +60,9 @@
     "typescript": "^7.0.2",
     "@types/express": "^4.17.21",
     "@playwright/test": "1.64.1",
-    "@capacitor/cli": "8.6.0"
+    "@capacitor/cli": "8.6.0",
+    "@capacitor/android": "8.6.0",
+    "@capacitor/ios": "8.6.0"
   },
   "overrides": {
     "tslib": "2.8.1"
