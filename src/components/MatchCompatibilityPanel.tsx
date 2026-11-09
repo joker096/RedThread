@@ -58,6 +58,14 @@ export const MatchCompatibilityPanel: React.FC<Props> = ({ matchId, onClose }) =
   const [error, setError] = useState('');
 
   useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  useEffect(() => {
     let cancelled = false;
     setStatus('loading');
     setPayload(null);
