@@ -220,7 +220,7 @@ function createNativeRequest(
     cache: init?.cache || source?.cache || 'default',
     redirect: init?.redirect || source?.redirect || 'follow',
     referrer: init?.referrer || source?.referrer || 'about:client',
-    referrerPolicy: init?.referrerPolicy || source?.referrerPolicy || '',
+    referrerPolicy: init?.referrerPolicy || source?.referrerPolicy || 'strict-origin-when-cross-origin',
     integrity: init?.integrity || source?.integrity || '',
     keepalive: init?.keepalive ?? source?.keepalive ?? false,
     signal: init?.signal || source?.signal
