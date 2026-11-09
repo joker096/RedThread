@@ -17,7 +17,7 @@ test('mobile push tokens are platform-validated without storing plaintext', () =
   assert.equal(validateMobilePushToken(fcm, 'android'), true);
   assert.equal(validateMobilePushToken(apns, 'ios'), true);
   assert.equal(validateMobilePushToken(fcm, 'ios'), false);
-  assert.equal(validateMobilePushToken(apns, 'android'), true);
+  assert.equal(validateMobilePushToken(apns, 'android'), false);
   assert.equal(validateMobilePushToken('short', 'android'), false);
   assert.equal(validateMobilePushToken('token with spaces and symbols !!!', 'android'), false);
   assert.equal(validateMobilePushToken(fcm, 'web'), false);
