@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
+import { mergeAssociatedDomainsEntitlements } from './capacitor-entitlements.mjs';
 
 const platform = process.argv[2];
 if (!['android', 'ios'].includes(platform)) {
@@ -93,13 +94,11 @@ function configureIosDeepLinks(host) {
     const entitlementsPath = join('ios', 'App', 'App', 'App.entitlements');
     const projectPath = join('ios', 'App', 'App.xcodeproj', 'project.pbxproj');
     if (!existsSync(projectPath)) throw new Error('ios_xcode_project_missing_after_capacitor_add');
-    const entitlements = '<?xml version="1.0" encoding="UTF-8"?>\n' +
-      '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n' +
-      '<plist version="1.0">\n<dict>\n' +
-      '  <key>com.apple.developer.associated-domains</key>\n' +
-      '  <array><string>applinks:' + host + '</string></array>\n' +
-      '</dict>\n</plist>\n';
-    writeFileSync(entitlementsPath, entitlements);
+    const existingEntitlements = existsSync(entitlementsPath)
+      ? readFileSync(entitlementsPath, 'utf8')
+      : '';
+    const entitlements = mergeAssociatedDomainsEntitlements(existingEntitlements, host);
+    if (entitlements !== existingEntitlements) writeFileSync(entitlementsPath, entitlements);
     let project = readFileSync(projectPath, 'utf8');
     if (!project.includes('CODE_SIGN_ENTITLEMENTS = App/App.entitlements;')) {
       project = project.replace(/buildSettings = \{/g,
