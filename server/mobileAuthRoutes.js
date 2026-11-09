@@ -51,6 +51,28 @@ function tokenResponse(user, accessToken, refreshToken, refreshExpiresAt) {
   };
 }
 
+async function createMobileSessionPair(client, userId, device) {
+  const accessToken = createMobileToken('access');
+  const refreshToken = createMobileToken('refresh');
+  const inserted = await client.query(
+    `INSERT INTO mobile_sessions
+       (user_id, platform, device_id, device_name, access_token_hash, refresh_token_hash,
+        access_expires_at, refresh_expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6,
+             NOW() + ($7::int * INTERVAL '1 second'),
+             NOW() + ($8::int * INTERVAL '1 second'))
+     RETURNING refresh_expires_at`,
+    [userId, device.platform, device.deviceId, device.deviceName,
+      hashMobileToken(accessToken, 'access'), hashMobileToken(refreshToken, 'refresh'),
+      ACCESS_TOKEN_SECONDS, REFRESH_TOKEN_SECONDS]
+  );
+  return {
+    accessToken,
+    refreshToken,
+    refreshExpiresAt: new Date(inserted.rows[0].refresh_expires_at).toISOString()
+  };
+}
+
 export function createMobileAuthRouter({
   pool,
   authLimiter,
@@ -62,11 +84,222 @@ export function createMobileAuthRouter({
   isValidEmail,
   verifyPassword,
   hashPassword,
-  publicUser
+  publicUser,
+  createAccountReuseDigest,
+  isAdultDate,
+  hashSessionToken,
+  screenProfilePrivate,
+  persistScreening,
+  createAccountActionToken,
+  emailDeliveryConfigured,
+  sendConfiguredEmail,
+  accountActionUrl
 }) {
   const router = express.Router();
 
   router.use(validateMobileOrigin, requireDatabase);
+
+  router.post('/register', authLimiter, async (req, res) => {
+    const email = normalizeEmail(req.body?.email);
+    const password = req.body?.password;
+    const displayName = typeof req.body?.displayName === 'string' ? req.body.displayName.trim() : '';
+    const birthDate = req.body?.birthDate;
+    const gender = req.body?.gender;
+    const country = typeof req.body?.country === 'string' ? req.body.country.trim() : '';
+    const city = typeof req.body?.city === 'string' ? req.body.city.trim() : '';
+    const relationshipIntent = req.body?.relationshipIntent || 'marriage_family';
+    const familyFormat = req.body?.familyFormat || 'open_to_both';
+    const hasChildren = req.body?.hasChildren;
+    const wantsChildren = req.body?.wantsChildren || 'discuss';
+    const childrenLivingArrangement = req.body?.childrenLivingArrangement ||
+      (hasChildren === true ? 'prefer_to_discuss' : 'not_applicable');
+    const device = validateMobileDevice(req.body);
+
+    if (!isValidEmail(email)) return res.status(400).json({ error: 'invalid_email' });
+    if (typeof password !== 'string' || password.length < 12 || password.length > 128) {
+      return res.status(400).json({ error: 'password_must_be_12_to_128_characters' });
+    }
+    if (displayName.length < 2 || displayName.length > 80) {
+      return res.status(400).json({ error: 'display_name_must_be_2_to_80_characters' });
+    }
+    if (!isAdultDate(birthDate)) return res.status(400).json({ error: 'must_be_18_or_older_with_valid_birth_date' });
+    if (gender !== 'female' && gender !== 'male') return res.status(400).json({ error: 'invalid_gender' });
+    if (!country || country.length > 100 || !city || city.length > 120) {
+      return res.status(400).json({ error: 'valid_country_and_city_required' });
+    }
+    if (!['marriage_family', 'serious_relationship', 'family_without_marriage'].includes(relationshipIntent)) {
+      return res.status(400).json({ error: 'invalid_relationship_intent' });
+    }
+    if (!['marriage', 'cohabitation', 'open_to_both'].includes(familyFormat)) {
+      return res.status(400).json({ error: 'invalid_family_format' });
+    }
+    if (typeof hasChildren !== 'boolean') return res.status(400).json({ error: 'children_status_required' });
+    if (!['yes', 'no', 'discuss', 'unsure'].includes(wantsChildren)) {
+      return res.status(400).json({ error: 'invalid_wants_children' });
+    }
+    if (!['with_me', 'shared_custody', 'with_other_parent', 'not_applicable', 'prefer_to_discuss'].includes(childrenLivingArrangement)) {
+      return res.status(400).json({ error: 'invalid_children_living_arrangement' });
+    }
+    if (!device) return res.status(400).json({ error: 'invalid_mobile_device' });
+
+    const accountReuseDigest = createAccountReuseDigest(email, process.env.ACCOUNT_REUSE_HMAC_KEY);
+    if (!accountReuseDigest) return res.status(503).json({ error: 'account_reuse_protection_not_configured' });
+    if (emailVerificationRequired && !emailDeliveryConfigured()) {
+      return res.status(503).json({ error: 'email_delivery_not_configured' });
+    }
+
+    let client;
+    let verificationToken = null;
+    let createdUser = null;
+    let mobilePair = null;
+    try {
+      const passwordHash = await hashPassword(password);
+      client = await pool.connect();
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`account-reuse:${accountReuseDigest}`]);
+      await client.query(
+        'DELETE FROM account_reuse_restrictions WHERE email_hmac = $1 AND expires_at <= clock_timestamp()',
+        [accountReuseDigest]
+      );
+      const restriction = await client.query(
+        `WITH policy_clock AS MATERIALIZED (SELECT clock_timestamp() AS policy_now)
+         SELECT restrictions.expires_at,
+                GREATEST(1, CEIL(EXTRACT(EPOCH FROM (restrictions.expires_at - policy_clock.policy_now))))::int AS retry_after_seconds
+         FROM account_reuse_restrictions restrictions CROSS JOIN policy_clock
+         WHERE restrictions.email_hmac = $1 AND restrictions.expires_at > policy_clock.policy_now`,
+        [accountReuseDigest]
+      );
+      if (restriction.rowCount) {
+        const retryAt = new Date(restriction.rows[0].expires_at);
+        const retryAfterSeconds = Math.max(1, Number(restriction.rows[0].retry_after_seconds) || 1);
+        await client.query('ROLLBACK');
+        res.setHeader('Retry-After', String(retryAfterSeconds));
+        return res.status(429).json({
+          error: 'account_recreation_restricted',
+          retryAt: retryAt.toISOString(),
+          retryAfterSeconds
+        });
+      }
+
+      const inserted = await client.query(
+        `INSERT INTO users (email, password_hash, status, female_trial_ends_at)
+         VALUES ($1, $2, $3, CASE WHEN $4 = 'female' THEN NOW() + INTERVAL '24 hours' ELSE NULL END)
+         RETURNING id, email`,
+        [email, passwordHash, emailVerificationRequired ? 'pending' : 'active', gender]
+      );
+      createdUser = inserted.rows[0];
+      const profile = await client.query(
+        `INSERT INTO profiles (
+           user_id, display_name, birth_date, gender, country, city, relationship_intent,
+           family_format, has_children, children_disclosure_confirmed_at, wants_children, children_living_arrangement
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10, $11)
+         RETURNING user_id AS id, display_name, gender, country, city, relationship_intent`,
+        [createdUser.id, displayName, birthDate, gender, country, city, relationshipIntent,
+          familyFormat, hasChildren, wantsChildren, childrenLivingArrangement]
+      );
+
+      if (emailVerificationRequired) {
+        verificationToken = await createAccountActionToken(client, createdUser.id, 'email_verification', 60);
+      } else {
+        mobilePair = await createMobileSessionPair(client, createdUser.id, device);
+      }
+      await acquireGiftSafetyUserLocks(client, createdUser.id);
+      const screening = await screenProfilePrivate({
+        displayName, country, city, bio: '', occupation: '', education: '',
+        hasChildren, childrenLivingArrangement
+      });
+      await persistScreening(createdUser.id, 'profile', screening, client);
+      await client.query('COMMIT');
+
+      if (verificationToken) {
+        try {
+          await sendConfiguredEmail({
+            to: createdUser.email,
+            subject: 'Verify your Vow account',
+            html: '<p>Welcome to Vow.</p><p>Confirm your email address to activate your account:</p><p><a href="' +
+              accountActionUrl('verifyEmail', verificationToken) +
+              '">Verify email</a></p><p>This link expires in 60 minutes. If you did not create this account, you can ignore this email.</p>'
+          });
+        } catch (mailError) {
+          console.error('Mobile registration verification email failed:', mailError?.message || 'unknown error');
+          return res.status(503).json({ error: 'verification_email_delivery_failed', accountCreated: true });
+        }
+        return res.status(201).json({
+          verificationRequired: true,
+          message: 'Check your email to activate your account.'
+        });
+      }
+
+      return res.status(201).json({
+        ...tokenResponse(publicUser({ ...profile.rows[0], email: createdUser.email }),
+          mobilePair.accessToken, mobilePair.refreshToken, mobilePair.refreshExpiresAt)
+      });
+    } catch (error) {
+      if (client) {
+        try { await client.query('ROLLBACK'); } catch {}
+      }
+      if (error?.code === '23505') return res.status(409).json({ error: 'email_already_registered' });
+      console.error('Mobile registration failed:', error?.message || 'unknown error');
+      return res.status(500).json({ error: 'mobile_registration_failed' });
+    } finally {
+      client?.release();
+    }
+  });
+
+  router.post('/verify-email', authLimiter, async (req, res) => {
+    const token = typeof req.body?.token === 'string' ? req.body.token : '';
+    if (token.length < 32 || token.length > 512) return res.status(400).json({ error: 'invalid_or_expired_token' });
+    let client;
+    try {
+      client = await pool.connect();
+      await client.query('BEGIN');
+      const tokenHash = hashSessionToken(token);
+      const preview = await client.query(
+        `SELECT user_id FROM account_action_tokens
+         WHERE purpose = 'email_verification' AND token_hash = $1
+           AND consumed_at IS NULL AND expires_at > NOW()`,
+        [tokenHash]
+      );
+      const userId = preview.rows[0]?.user_id;
+      if (!userId) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'invalid_or_expired_token' });
+      }
+      await acquireGiftSafetyUserLocks(client, userId);
+      const action = await client.query(
+        `SELECT id FROM account_action_tokens
+         WHERE purpose = 'email_verification' AND token_hash = $1
+           AND user_id = $2 AND consumed_at IS NULL AND expires_at > NOW()
+         FOR UPDATE`,
+        [tokenHash, userId]
+      );
+      if (!action.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'invalid_or_expired_token' });
+      }
+      const updated = await client.query(
+        `UPDATE users SET email_verified_at = COALESCE(email_verified_at, NOW()),
+           status = CASE WHEN status = 'pending' THEN 'active' ELSE status END,
+           updated_at = NOW()
+         WHERE id = $1 AND status IN ('pending', 'active') RETURNING id`,
+        [userId]
+      );
+      if (!updated.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'invalid_or_expired_token' });
+      }
+      await client.query('UPDATE account_action_tokens SET consumed_at = NOW() WHERE id = $1', [action.rows[0].id]);
+      await client.query('COMMIT');
+      return res.json({ verified: true, message: 'Email verified. You can now sign in.' });
+    } catch (error) {
+      try { await client?.query('ROLLBACK'); } catch {}
+      console.error('Mobile email verification failed:', error?.message || 'unknown error');
+      return res.status(500).json({ error: 'email_verification_failed' });
+    } finally {
+      client?.release();
+    }
+  });
 
   router.post('/login', authLimiter, async (req, res) => {
     const email = normalizeEmail(req.body?.email);
