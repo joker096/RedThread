@@ -15,7 +15,9 @@ if (Capacitor.isNativePlatform()) {
 
   // Register the listener before reading the launch URL so foreground and
   // cold-start links are both handled. Tokens are never written to logs.
-  void CapacitorApp.addListener('appUrlOpen', event => forwardNativeUrl(event.url));
+  void CapacitorApp.addListener('appUrlOpen', event => forwardNativeUrl(event.url)).catch(() => {
+    // Deep-link delivery is unavailable until the native plugin is synced.
+  });
   void CapacitorApp.getLaunchUrl()
     .then(result => { if (result?.url) forwardNativeUrl(result.url); })
     .catch(() => { /* A normal app launch has no URL to process. */ });
