@@ -96,7 +96,7 @@ test('assessment save omits non-negotiables until their stored state has loaded'
 
 
 test('older assessment versions restore only still-valid answers for completion', () => {
-  const previous = { ...answers };
+  const previous: Record<string, string> = { ...answers };
   delete previous.caregiving;
   previous.children = 'invalid-option';
   previous.legacyQuestion = 'legacy-value';
