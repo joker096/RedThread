@@ -12,8 +12,10 @@ BEGIN
     ALTER TABLE relationship_assessments
       ADD CONSTRAINT relationship_assessments_dealbreakers_array_check
       CHECK (
-        jsonb_typeof(dealbreakers) = 'array'
-        AND jsonb_array_length(dealbreakers) <= 15
+        CASE WHEN jsonb_typeof(dealbreakers) = 'array'
+          THEN jsonb_array_length(dealbreakers) <= 15
+          ELSE FALSE
+        END
       );
   END IF;
 END;
