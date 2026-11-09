@@ -47,6 +47,39 @@ export const ASSESSMENT_DIMENSIONS = {
   lifestyle: ['substanceLifestyle', 'relocation']
 };
 
+const ASSESSMENT_WEIGHTS = {
+  relationshipGoal: 2, children: 2, financialModel: 3, lifestyleExpectation: 1,
+  gifts: 1, household: 1, fidelity: 2, conflictStyle: 1, honesty: 2,
+  trustRepair: 2, conflictSafety: 3, debtTransparency: 2,
+  substanceLifestyle: 1, relocation: 1, caregiving: 1
+};
+
+/**
+ * Discovery-safe explanation. It exposes field identifiers, never answer values
+ * or either participant's selected non-negotiables.
+ */
+export function explainAssessmentCompatibility(first, second) {
+  if (!isValidAssessment(first) || !isValidAssessment(second)) return null;
+  const dimensions = Object.entries(ASSESSMENT_DIMENSIONS).map(([key, fields]) => {
+    const aligned = fields.filter(field => first[field] === second[field]);
+    const discussionPoints = fields.filter(field => first[field] !== second[field]);
+    const totalWeight = fields.reduce((sum, field) => sum + ASSESSMENT_WEIGHTS[field], 0);
+    const alignedWeight = aligned.reduce((sum, field) => sum + ASSESSMENT_WEIGHTS[field], 0);
+    return {
+      key,
+      score: Math.round(alignedWeight / totalWeight * 100),
+      aligned,
+      discussionPoints
+    };
+  });
+  return {
+    version: ASSESSMENT_VERSION,
+    score: assessmentCompatibility(first, second).score,
+    dimensions,
+    dealbreakersHiddenUntilMatch: true
+  };
+}
+
 export function isValidDealbreakers(value) {
   if (!Array.isArray(value) || value.length > Object.keys(ASSESSMENT_OPTIONS).length) return false;
   const allowed = new Set(Object.keys(ASSESSMENT_OPTIONS));
