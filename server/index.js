@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { queuePrivatePhotoPurges } from './photoPurge.js';
+import { decryptVoiceIntro, encryptVoiceIntro, parseVoiceIntroEncryptionKey, persistVoiceIntroReview, queuePrivateVoiceIntroPurges, resolvePrivateVoiceIntroPath, validateVoiceIntro } from './voiceIntroStorage.js';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -671,6 +672,7 @@ app.get('/api/paddle/config', requireSession, (req, res) => {
 });
 
 const photoStorageDir = path.resolve(process.env.PHOTO_STORAGE_DIR || 'uploads/private-photos');
+const voiceIntroStorageDir = path.resolve(process.env.VOICE_INTRO_STORAGE_DIR || 'uploads/private-voice-intros');
 
 const authLimiter = rateLimit({
   ...(pool ? { store: new PostgresRateLimitStore(pool, 'auth') } : {}),
@@ -2054,6 +2056,9 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     const photoFiles = await client.query('SELECT storage_path FROM photo_assets WHERE user_id = $1', [req.authUser.id]);
     await queuePrivatePhotoPurges(client, photoFiles.rows.map(row => row.storage_path));
     await client.query('DELETE FROM photo_assets WHERE user_id = $1', [req.authUser.id]);
+    const voiceIntroFiles = await client.query('SELECT storage_path FROM profile_voice_intros WHERE user_id = $1', [req.authUser.id]);
+    await queuePrivateVoiceIntroPurges(client, voiceIntroFiles.rows.map(row => row.storage_path));
+    await client.query('DELETE FROM profile_voice_intros WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM sessions WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM identity_verification_consents WHERE user_id = $1', [req.authUser.id]);
@@ -2248,6 +2253,10 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
          p.city,
          p.bio,
          p.photo_urls AS "photoUrls",
+         EXISTS (
+           SELECT 1 FROM profile_voice_intros voice_intro
+           WHERE voice_intro.user_id = p.user_id AND voice_intro.review_status = 'approved'
+         ) AS "voiceIntroAvailable",
          p.occupation,
          p.education,
          p.languages,
@@ -2558,6 +2567,232 @@ app.post('/api/photos', validateRequestOrigin, requireSession, profileActionLimi
   } finally { client?.release(); }
 });
 
+app.put('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession, profileActionLimiter,
+  express.raw({ type: ['audio/mp4', 'audio/aac', 'audio/x-m4a'], limit: '2mb' }), async (req, res) => {
+    if (process.env.NODE_ENV === 'production' && (!process.env.VOICE_INTRO_STORAGE_DIR || !process.env.VOICE_INTRO_ENCRYPTION_KEY)) {
+      return res.status(503).json({ error: 'voice_intro_storage_not_configured' });
+    }
+    const key = parseVoiceIntroEncryptionKey();
+    if (!key) return res.status(503).json({ error: 'voice_intro_encryption_not_configured' });
+    let media;
+    try {
+      media = await validateVoiceIntro(req.body, req.headers['content-type']);
+    } catch (error) {
+      const code = error instanceof Error ? error.message : 'invalid_voice_intro';
+      return res.status(code === 'voice_intro_too_large' ? 413 : 400).json({ error: code });
+    }
+    const id = randomUUID();
+    const filePath = path.join(voiceIntroStorageDir, id + '.enc');
+    const encrypted = encryptVoiceIntro(req.body, key);
+    let client;
+    let fileWritten = false;
+    try {
+      client = await pool.connect();
+      await client.query('BEGIN');
+      await acquireGiftSafetyUserLocks(client, req.authUser.id);
+      const profile = await client.query(
+        `SELECT p.user_id FROM profiles p JOIN users u ON u.id = p.user_id
+         WHERE p.user_id = $1 AND u.status = 'active' FOR UPDATE OF p, u`,
+        [req.authUser.id]
+      );
+      if (!profile.rows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'profile_not_found' });
+      }
+      const previous = await client.query(
+        'SELECT storage_path FROM profile_voice_intros WHERE user_id = $1 FOR UPDATE',
+        [req.authUser.id]
+      );
+      await mkdir(voiceIntroStorageDir, { recursive: true, mode: 0o700 });
+      await writeFile(filePath, encrypted, { flag: 'wx', mode: 0o600 });
+      fileWritten = true;
+      if (previous.rows[0]?.storage_path) {
+        await queuePrivateVoiceIntroPurges(client, [previous.rows[0].storage_path]);
+      }
+      await client.query(
+        `INSERT INTO profile_voice_intros
+           (id, user_id, storage_path, mime_type, byte_size, duration_ms, review_status)
+         VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+         ON CONFLICT (user_id) DO UPDATE SET
+           id = EXCLUDED.id, storage_path = EXCLUDED.storage_path,
+           mime_type = EXCLUDED.mime_type, byte_size = EXCLUDED.byte_size,
+           duration_ms = EXCLUDED.duration_ms, review_status = 'pending',
+           reviewed_at = NULL, reviewer_id = NULL, review_reason = NULL,
+           created_at = statement_timestamp(), updated_at = statement_timestamp()`,
+        [id, req.authUser.id, filePath, media.mimeType, media.byteSize, media.durationMs]
+      );
+      await client.query('COMMIT');
+      return res.status(201).json({ voiceIntro: { id, status: 'pending', durationMs: media.durationMs } });
+    } catch (error) {
+      if (client && !await rollbackPooledTransaction(client)) client = null;
+      if (fileWritten) await unlink(filePath).catch(() => {});
+      console.error('Voice intro upload failed:', error?.message || 'unknown error');
+      return res.status(500).json({ error: 'voice_intro_upload_failed' });
+    } finally {
+      client?.release();
+    }
+  });
+
+app.get('/api/profiles/me/voice-intro', requireSession, async (req, res) => {
+  const key = parseVoiceIntroEncryptionKey();
+  if (!key) return res.status(503).json({ error: 'voice_intro_encryption_not_configured' });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const result = await client.query(
+      `SELECT storage_path AS "storagePath", mime_type AS "mimeType"
+       FROM profile_voice_intros WHERE user_id = $1`,
+      [req.authUser.id]
+    );
+    const asset = result.rows[0];
+    if (!asset) {
+      await client.query('ROLLBACK');
+      return res.status(404).end();
+    }
+    const encrypted = await readFile(resolvePrivateVoiceIntroPath(asset.storagePath, voiceIntroStorageDir));
+    const bytes = decryptVoiceIntro(encrypted, key);
+    await client.query('COMMIT');
+    res.setHeader('Content-Type', asset.mimeType);
+    res.setHeader('Content-Length', bytes.length);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-site');
+    res.setHeader('Cache-Control', 'private, no-store');
+    return res.send(bytes);
+  } catch (error) {
+    if (client && !await rollbackPooledTransaction(client)) client = null;
+    if (error?.code === 'ENOENT') return res.status(404).end();
+    console.error('Voice intro read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'voice_intro_read_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.delete('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const result = await client.query(
+      'SELECT storage_path FROM profile_voice_intros WHERE user_id = $1 FOR UPDATE',
+      [req.authUser.id]
+    );
+    if (!result.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'voice_intro_not_found' });
+    }
+    await queuePrivateVoiceIntroPurges(client, [result.rows[0].storage_path]);
+    await client.query('DELETE FROM profile_voice_intros WHERE user_id = $1', [req.authUser.id]);
+    await client.query('COMMIT');
+    return res.status(204).end();
+  } catch (error) {
+    if (client && !await rollbackPooledTransaction(client)) client = null;
+    console.error('Voice intro delete failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'voice_intro_delete_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.get('/api/profiles/:userId/voice-intro', requireSession, async (req, res) => {
+  if (!isUuid(req.params.userId) || req.params.userId === req.authUser.id) return res.status(404).end();
+  const key = parseVoiceIntroEncryptionKey();
+  if (!key) return res.status(503).json({ error: 'voice_intro_encryption_not_configured' });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, req.params.userId);
+    const viewerIdentity = await client.query(
+      `SELECT p.gender, iv.status AS identity_status,
+              iv.provider_environment AS identity_environment,
+              l3.status AS l3_status, l3.expires_at AS l3_expires_at
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id AND u.status = 'active'
+       LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
+       WHERE p.user_id = $1 FOR SHARE OF p, u`,
+      [req.authUser.id]
+    );
+    const viewer = viewerIdentity.rows[0];
+    if (!viewer || !canIdentityInteract({
+      gender: viewer.gender,
+      status: viewer.identity_status,
+      environment: viewer.identity_environment,
+      l3Status: viewer.l3_status,
+      l3ExpiresAt: viewer.l3_expires_at
+    })) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
+    }
+    const result = await client.query(
+      `SELECT a.storage_path AS "storagePath", a.mime_type AS "mimeType"
+       FROM profile_voice_intros a
+       JOIN profiles owner_profile ON owner_profile.user_id = a.user_id
+       JOIN users owner ON owner.id = a.user_id AND owner.status = 'active'
+       JOIN profiles viewer_profile ON viewer_profile.user_id = $2
+       JOIN users viewer ON viewer.id = $2 AND viewer.status = 'active'
+       WHERE a.user_id = $1 AND a.review_status = 'approved'
+         AND owner_profile.gender <> viewer_profile.gender
+         AND owner_profile.birth_date IS NOT NULL
+         AND owner_profile.children_disclosure_confirmed_at IS NOT NULL
+         AND owner_profile.has_children IS NOT NULL
+         AND owner_profile.is_visible = TRUE
+         AND (owner_profile.gender <> 'male' OR (
+           EXISTS (SELECT 1 FROM identity_verifications iv
+                   WHERE iv.user_id = owner.id AND iv.provider = 'didit'
+                     AND iv.status = 'verified' AND iv.provider_environment = 'live')
+           AND identity_l3_has_active_approval(owner.id)
+         ))
+         AND (viewer_profile.gender <> 'male' OR (
+           EXISTS (SELECT 1 FROM identity_verifications iv
+                   WHERE iv.user_id = viewer.id AND iv.provider = 'didit'
+                     AND iv.status = 'verified' AND iv.provider_environment = 'live')
+           AND identity_l3_has_active_approval(viewer.id)
+         ))
+         AND NOT EXISTS (
+           SELECT 1 FROM user_blocks b
+           WHERE (b.blocker_id = viewer.id AND b.blocked_id = owner.id)
+              OR (b.blocker_id = owner.id AND b.blocked_id = viewer.id)
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM profile_passes skipped
+           WHERE skipped.passer_id = viewer.id AND skipped.passed_user_id = owner.id
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM likes prior_like
+           WHERE prior_like.sender_id = viewer.id AND prior_like.target_id = owner.id
+         )
+       LIMIT 1`,
+      [req.params.userId, req.authUser.id]
+    );
+    const asset = result.rows[0];
+    if (!asset) {
+      await client.query('ROLLBACK');
+      return res.status(404).end();
+    }
+    const encrypted = await readFile(resolvePrivateVoiceIntroPath(asset.storagePath, voiceIntroStorageDir));
+    const bytes = decryptVoiceIntro(encrypted, key);
+    await client.query('COMMIT');
+    res.setHeader('Content-Type', asset.mimeType);
+    res.setHeader('Content-Length', bytes.length);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-site');
+    res.setHeader('Cache-Control', 'private, no-store');
+    return res.send(bytes);
+  } catch (error) {
+    if (client && !await rollbackPooledTransaction(client)) client = null;
+    if (error?.code === 'ENOENT') return res.status(404).end();
+    console.error('Public voice intro read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'voice_intro_read_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
 app.get('/api/photos/:photoId', requireSession, async (req,res) => {
   if(!isUuid(req.params.photoId)) return res.status(404).end();
   let client;
@@ -2857,7 +3092,9 @@ app.get('/api/profiles/me', requireSession, async (req, res) => {
         relationship_intent AS "relationshipIntent", is_visible AS "isVisible",
          family_format AS "familyFormat", has_children AS "hasChildren",
          children_disclosure_confirmed_at AS "childrenDisclosureConfirmedAt",
-         wants_children AS "wantsChildren", children_living_arrangement AS "childrenLivingArrangement"
+         wants_children AS "wantsChildren", children_living_arrangement AS "childrenLivingArrangement",
+         (SELECT jsonb_build_object('id', vi.id, 'status', vi.review_status, 'durationMs', vi.duration_ms)
+          FROM profile_voice_intros vi WHERE vi.user_id = profiles.user_id) AS "voiceIntro"
        FROM profiles WHERE user_id = $1`,
       [req.authUser.id]
     ));
@@ -4577,6 +4814,148 @@ app.post('/api/admin/photos/:photoId/review', validateRequestOrigin, requireSess
     if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Photo moderation failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'photo_review_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.get('/api/admin/voice-intros', requireSession, async (req, res) => {
+  try {
+    const read = await withActiveModeratorRead(req.authUser.id, async client => {
+      const result = await client.query(
+        `SELECT a.id, a.user_id AS "userId", p.display_name AS "displayName",
+                a.mime_type AS "mimeType", a.byte_size AS "byteSize",
+                a.duration_ms AS "durationMs", a.created_at AS "createdAt"
+         FROM profile_voice_intros a
+         JOIN profiles p ON p.user_id = a.user_id
+         JOIN users u ON u.id = a.user_id
+         WHERE a.review_status = 'pending' AND u.status = 'active'
+         ORDER BY a.created_at ASC, a.id ASC LIMIT 100`
+      );
+      return result.rows;
+    });
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    if (read.value.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    return res.json({ voiceIntros: read.value });
+  } catch (error) {
+    console.error('Pending voice intro list failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'pending_voice_intro_list_failed' });
+  }
+});
+
+app.get('/api/admin/voice-intros/:voiceIntroId/audio', requireSession, async (req, res) => {
+  if (!isUuid(req.params.voiceIntroId)) return res.status(404).end();
+  const key = parseVoiceIntroEncryptionKey();
+  if (!key) return res.status(503).json({ error: 'voice_intro_encryption_not_configured' });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const preview = await client.query(
+      "SELECT user_id FROM profile_voice_intros WHERE id = $1 AND review_status = 'pending'",
+      [req.params.voiceIntroId]
+    );
+    if (!preview.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).end();
+    }
+    const ownerId = preview.rows[0].user_id;
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, ownerId);
+    const moderator = await client.query(
+      "SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (!moderator.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    if (!['admin', 'moderator'].includes(moderator.rows[0].role)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'moderator_access_required' });
+    }
+    const result = await client.query(
+      `SELECT storage_path AS "storagePath", mime_type AS "mimeType"
+       FROM profile_voice_intros
+       WHERE id = $1 AND user_id = $2 AND review_status = 'pending'
+         AND EXISTS (SELECT 1 FROM users WHERE id = $2 AND status = 'active')`,
+      [req.params.voiceIntroId, ownerId]
+    );
+    if (!result.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).end();
+    }
+    await client.query(
+      'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, reason, details) VALUES ($1, $2, $3, $4, $5, $6::jsonb)',
+      [req.authUser.id, 'voice_intro_media_viewed', 'profile_voice_intro', req.params.voiceIntroId, null, JSON.stringify({ userId: ownerId })]
+    );
+    const encrypted = await readFile(resolvePrivateVoiceIntroPath(result.rows[0].storagePath, voiceIntroStorageDir));
+    const bytes = decryptVoiceIntro(encrypted, key);
+    await client.query('COMMIT');
+    res.setHeader('Content-Type', result.rows[0].mimeType);
+    res.setHeader('Content-Length', bytes.length);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-site');
+    res.setHeader('Cache-Control', 'private, no-store');
+    return res.send(bytes);
+  } catch (error) {
+    if (client && !await rollbackPooledTransaction(client)) client = null;
+    if (error?.code === 'ENOENT') return res.status(404).end();
+    console.error('Moderator voice intro read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'voice_intro_review_audio_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.post('/api/admin/voice-intros/:voiceIntroId/review', validateRequestOrigin, requireSession, async (req, res) => {
+  if (!isUuid(req.params.voiceIntroId) || !['approve', 'reject'].includes(req.body?.decision)) {
+    return res.status(400).json({ error: 'invalid_voice_intro_review' });
+  }
+  const status = req.body.decision === 'approve' ? 'approved' : 'rejected';
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 500) : '';
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const preview = await client.query(
+      "SELECT user_id FROM profile_voice_intros WHERE id = $1 AND review_status = 'pending'",
+      [req.params.voiceIntroId]
+    );
+    if (!preview.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'pending_voice_intro_not_found' });
+    }
+    const ownerId = preview.rows[0].user_id;
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, ownerId);
+    const moderator = await client.query(
+      "SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (!moderator.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    if (!['admin', 'moderator'].includes(moderator.rows[0].role)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'moderator_access_required' });
+    }
+    const reviewed = await persistVoiceIntroReview(client, {
+      voiceIntroId: req.params.voiceIntroId,
+      ownerId,
+      moderatorId: req.authUser.id,
+      status,
+      reason
+    });
+    if (!reviewed) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'pending_voice_intro_not_found' });
+    }
+    await client.query('COMMIT');
+    return res.json(reviewed);
+  } catch (error) {
+    if (client && !await rollbackPooledTransaction(client)) client = null;
+    console.error('Voice intro moderation failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'voice_intro_review_failed' });
   } finally {
     client?.release();
   }
