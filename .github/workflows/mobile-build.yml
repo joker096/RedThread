@@ -2,7 +2,7 @@ name: Mobile platform builds
 
 on:
   push:
-    branches: [feat/mobile-capacitor-foundation, feat/server-backed-chat-lifecycle, feat/compatibility-explanations]
+    branches: ["feat/**"]
     paths:
       - "src/**"
       - "capacitor.config.ts"
@@ -11,8 +11,7 @@ on:
       - "vite.config.ts"
       - "package.json"
       - "package-lock.json"
-      - "scripts/ensure-capacitor-platform.mjs"
-      - "scripts/capacitor-entitlements.mjs"
+      - "scripts/**"
       - "docs/MOBILE_*.md"
       - ".github/workflows/mobile-build.yml"
   workflow_dispatch:
