@@ -23,6 +23,7 @@ type ServerProfile = {
   financialAlignment: number | null;
   compatibilityScore?: number | null;
   compatibilityExplanation?: CompatibilityExplanation | null;
+  voiceIntroAvailable?: boolean;
 };
 
 type CompatibilityExplanation = {
@@ -150,6 +151,7 @@ const normalizeServerProfile = (value: unknown): ServerProfile | null => {
     education: typeof profile.education === 'string' ? profile.education.trim().slice(0, 120) : undefined,
     financialAlignment: score(profile.financialAlignment),
     compatibilityScore: score(profile.compatibilityScore) ?? undefined,
+    voiceIntroAvailable: profile.voiceIntroAvailable === true,
     compatibilityExplanation: normalizeCompatibilityExplanation(profile.compatibilityExplanation),
     photoUrls: Array.isArray(profile.photoUrls)
       ? [...new Set(profile.photoUrls.slice(0, 48).filter(isSafeProfilePhotoUrl).map(url => url.trim()))].slice(0, 12)
@@ -160,6 +162,44 @@ const normalizeServerProfile = (value: unknown): ServerProfile | null => {
           .map(language => language.trim().slice(0, 40)))].slice(0, 20)
       : []
   };
+};
+
+const VoiceIntroPlayer: React.FC<{ userId: string; displayName: string }> = ({ userId, displayName }) => {
+  const { t } = useLocale();
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (!audioUrl) return;
+    return () => URL.revokeObjectURL(audioUrl);
+  }, [audioUrl]);
+  const load = async () => {
+    if (busy || audioUrl) return;
+    setBusy(true);
+    setError('');
+    try {
+      const response = await fetch('/api/profiles/' + encodeURIComponent(userId) + '/voice-intro', { credentials: 'include' });
+      if (!response.ok) throw new Error(t('voiceIntroPlaybackError'));
+      const blob = await response.blob();
+      if (blob.size < 64 || blob.size > 2 * 1024 * 1024) throw new Error(t('voiceIntroPlaybackError'));
+      setAudioUrl(URL.createObjectURL(blob));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t('voiceIntroPlaybackError'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="mt-3 rounded-xl border border-rose-400/20 bg-rose-950/10 p-3">
+      {audioUrl
+        ? <audio controls preload="none" src={audioUrl} aria-label={t('voiceIntroLabel').replace('{seconds}', '15–25')} className="w-full" />
+        : <button type="button" onClick={() => void load()} disabled={busy} className="min-h-11 rounded-lg border border-rose-400/30 px-3 py-2 text-xs font-semibold text-rose-200 disabled:opacity-50">
+            {busy ? t('loading') : t('voiceIntroListen')}
+          </button>}
+      {error && <p role="status" className="mt-2 text-[10px] text-amber-200">{error}</p>}
+      <span className="sr-only">{displayName}</span>
+    </div>
+  );
 };
 
 export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOpenAccount }) => {
@@ -893,6 +933,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                   </div>
                 </div>
                 {profile.bio && <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-stone-300">{profile.bio}</p>}
+                {profile.voiceIntroAvailable && <VoiceIntroPlayer userId={profile.id} displayName={profile.displayName} />}
                 {profile.compatibilityExplanation && (
                   <details className="mt-3 rounded-xl border border-rose-500/20 bg-rose-950/10 p-3">
                     <summary className="min-h-11 cursor-pointer py-2 text-xs font-semibold text-rose-200">
