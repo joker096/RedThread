@@ -25,9 +25,9 @@ The current working mobile branch is `feat/mobile-capacitor-foundation`, PR #429
 | Mobile sessions | Capacitor Android/iOS foundation, bearer API transport, secure refresh-token storage, rotation, replay detection and revocation | Physical-device testing, final API domain, HTTPS and association files |
 | Account lifecycle | Registration, login, email verification, password recovery and account deletion paths | Production email delivery, domain, templates and end-to-end device validation |
 | Discovery | Server-backed profile search, filters, likes, passes, blocks and reports | Production data volume, abuse/fraud monitoring and load testing |
-| Compatibility | Server-backed relationship assessment and compatibility calculations | Gender-specific quiz component still uses local demo state and preset scores; it is hidden in native builds until persistence/API support is added. Validate explanations and deal-breakers against final product policy; monitor match-to-date conversion |
-| Chats | Server-backed matches and messaging; in-app notifications | Remote FCM/APNs delivery and native device validation |
-| Trust Center | Didit integration, L2/L3 policy enforcement, moderation queue, consent and media-processing safeguards | Live provider credentials, native L3 capture UX, physical-device tests and moderation staffing |
+| Compatibility | Server-backed relationship assessment, overall compatibility score and financial-alignment score | Detailed Family/Budget/Conflict/Lifestyle dimension explanations and deal-breaker reasons are not exposed by the server API; the compatibility matrix and gender-specific quizzes are local demo tools and are hidden in native builds. Implement server-derived, privacy-safe explanations before claiming the full compatibility engine is complete |
+| Chats | Server-backed mutual matches, text messaging, paginated history and in-app notifications | The native server chat has no 72-hour match/chat timer or date-invite actions (coffee/park/dinner/tea). Those controls exist only in the demo ChatMessenger, which is hidden in native builds. PR #417 adds a separately confirmed date-plan flow but does not add the 72-hour timer or invite buttons. Remote FCM/APNs delivery and native device validation also remain |
+| Trust Center | Didit integration, L2/L3 policy enforcement, moderation queue, consent and media-processing safeguards | Live provider credentials, native L3 capture UX, physical-device tests and moderation staffing. A 15–25 second voice introduction and general voice/video profile capture are not implemented |
 | Gifts | Catalog, match-scoped unpaid requests, recipient consent/decline/withdrawal, safety locks and reconciliation records | No payment adapter, protected recipient-address vault, fulfillment provider or delivery-status integration |
 | Ads | Explicit consent preferences, campaign approval/eligibility policy, country targeting and event frequency controls | No trusted placement issuance; event ingestion intentionally returns unavailable; no serving, advertiser billing or revenue ledger |
 | Lady Premium | Paddle Sandbox checkout, subscription state and webhook-driven entitlement logic | Sandbox only; mobile checkout unavailable; provider and app-store policy blockers described below |
@@ -39,6 +39,15 @@ The current working mobile branch is `feat/mobile-capacitor-foundation`, PR #429
 ## Native app surface hardening
 
 The current mobile branch now forces native builds onto server-backed discovery, clears legacy prototype state from local storage, disables demo-state persistence, hides prototype/demo navigation and chats, and suppresses local-only quizzes, mock compatibility/safety tools, simulated ad manager surfaces and the Paddle Sandbox paywall. Browser demo mode remains available for development/regression only. The server-backed relationship assessment, profile editor, discovery, inbox, Trust Center, consent preferences and gift-consent flows remain available in the native app.
+
+## Core relationship experience gaps
+
+- The native server chat is currently text-only. The 72-hour conversation timer and coffee/park/dinner/tea date-invite controls are present in the prototype `ChatMessenger`, not in the server-backed `ServerMatchesPanel`; native builds intentionally do not show the prototype.
+- PR #417 adds a safer mutual-confirmation date-plan flow, but it does not supply the missing 72-hour timer or the original quick-invite actions. Its venue label is user-provided and is not independently verified.
+- The server exposes an overall compatibility score and financial-alignment score. It does not yet expose a complete, explainable Family/Budget/Conflict/Lifestyle matrix or actionable deal-breaker explanations. The old local compatibility modal is demo-only and hidden in native builds.
+- The gender-specific quiz cards currently calculate results in local React state and include preset completed scores. They are hidden in native builds until backed by account-scoped persistence and server-derived results.
+- A 15–25 second voice introduction and native voice/video capture are not implemented. The L3 identity-video workflow is separate and must not be repurposed as a public profile voice/video feature.
+- Conversation Coach, Smart Discovery and Relationship Journey remain roadmap items; they must not be presented as shipped capabilities.
 
 ## Advertising: current code state
 
