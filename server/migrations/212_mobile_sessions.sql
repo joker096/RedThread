@@ -36,16 +36,29 @@ CREATE TABLE IF NOT EXISTS mobile_refresh_token_history (
 CREATE INDEX IF NOT EXISTS mobile_refresh_token_history_session_idx
   ON mobile_refresh_token_history (session_id, consumed_at DESC);
 
-CREATE OR REPLACE FUNCTION prevent_mobile_refresh_history_update()
+CREATE OR REPLACE FUNCTION prevent_mobile_refresh_history_mutation()
 RETURNS trigger
 LANGUAGE plpgsql
-AS $$
+AS $
 BEGIN
-  RAISE EXCEPTION 'mobile refresh token history is append-only';
+  IF TG_OP = 'UPDATE' THEN
+    RAISE EXCEPTION 'mobile refresh token history is append-only';
+  END IF;
+
+  -- Permit FK-driven account/session cleanup, but forbid deleting history
+  -- while its owning session still exists.
+  IF EXISTS (SELECT 1 FROM mobile_sessions WHERE id = OLD.session_id) THEN
+    RAISE EXCEPTION 'mobile refresh token history is append-only';
+  END IF;
+  RETURN OLD;
 END;
-$$;
+$;
 
 DROP TRIGGER IF EXISTS mobile_refresh_token_history_no_update ON mobile_refresh_token_history;
+DROP TRIGGER IF EXISTS mobile_refresh_token_history_no_delete ON mobile_refresh_token_history;
 CREATE TRIGGER mobile_refresh_token_history_no_update
   BEFORE UPDATE ON mobile_refresh_token_history
-  FOR EACH ROW EXECUTE FUNCTION prevent_mobile_refresh_history_update();
+  FOR EACH ROW EXECUTE FUNCTION prevent_mobile_refresh_history_mutation();
+CREATE TRIGGER mobile_refresh_token_history_no_delete
+  BEFORE DELETE ON mobile_refresh_token_history
+  FOR EACH ROW EXECUTE FUNCTION prevent_mobile_refresh_history_mutation();
