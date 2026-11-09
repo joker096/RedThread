@@ -4,7 +4,8 @@ import {
   ASSESSMENT_QUESTIONS,
   calculateAssessmentCompatibility,
   getFinancialAlignment,
-  validateAssessmentAnswers
+  validateAssessmentAnswers,
+  validateDealbreakers
 } from './relationshipAssessment.ts';
 
 const answers = Object.fromEntries(
@@ -70,4 +71,13 @@ test('localized compatibility questions preserve IDs and option values', () => {
     assert.ok(english[i].options.every(option => option.label.length > 0));
   }
   assert.notEqual(english[0].prompt, russian[0].prompt);
+});
+
+test('dealbreaker preferences must be unique known question IDs', () => {
+  assert.equal(validateDealbreakers([]), true);
+  assert.equal(validateDealbreakers(['children', 'financialModel']), true);
+  assert.equal(validateDealbreakers(['children', 'children']), false);
+  assert.equal(validateDealbreakers(['unknown']), false);
+  assert.equal(validateDealbreakers(null), false);
+  assert.equal(validateDealbreakers(Array(16).fill('children')), false);
 });
