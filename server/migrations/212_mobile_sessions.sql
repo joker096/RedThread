@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS mobile_refresh_token_history (
 CREATE INDEX IF NOT EXISTS mobile_refresh_token_history_session_idx
   ON mobile_refresh_token_history (session_id, consumed_at DESC);
 
-CREATE OR REPLACE FUNCTION prevent_mobile_refresh_history_mutation()
+CREATE OR REPLACE FUNCTION prevent_mobile_refresh_history_update()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
@@ -48,4 +48,4 @@ $$;
 DROP TRIGGER IF EXISTS mobile_refresh_token_history_no_update ON mobile_refresh_token_history;
 CREATE TRIGGER mobile_refresh_token_history_no_update
   BEFORE UPDATE ON mobile_refresh_token_history
-  FOR EACH ROW EXECUTE FUNCTION prevent_mobile_refresh_history_mutation();
+  FOR EACH ROW EXECUTE FUNCTION prevent_mobile_refresh_history_update();
