@@ -58,6 +58,10 @@ const messages = {
   en: {
     collapsePhoto: 'Collapse photo', expandPhoto: 'Expand photo',
     brandTagline: 'Vow — serious relationships', unreadChats: 'unread chats', vipLabel: 'VIP', ladyVipLabel: 'Lady VIP',
+    markAsDealbreaker: 'Mark as non-negotiable', dealbreakerHelp: 'Only the categories you mark are treated as your non-negotiable preferences. Differences are shown privately inside a mutual match; raw answers are never shared.',
+    compatibilityDetails: 'Compatibility details', compatibilityUnavailable: 'Complete the values assessment on both sides to see the compatibility matrix.',
+    compatFamily: 'Family', compatBudget: 'Budget', compatConflict: 'Conflict and trust', compatLifestyle: 'Lifestyle',
+    yourDealbreakerConflicts: 'Differences with your non-negotiables', partnerDealbreakerConflicts: 'Differences with your match’s non-negotiables', noDealbreakerConflicts: 'No declared non-negotiable conflicts.',
     chatWindowExpired: 'The 72-hour chat window has ended. You can still read this conversation.', chatWindowClosesAt: 'Chat closes at:', quickDateInvites: 'Quick date invitations',
     inviteLabelCoffee: 'Coffee', inviteLabelPark: 'Walk in the park', inviteLabelDinner: 'Dinner', inviteLabelTea: 'Tea',
     inviteCoffee: 'Would you like to meet for coffee in a public place?', invitePark: 'Would you like to take a walk together in a public park?', inviteDinner: 'Would you like to meet for dinner in a public place?', inviteTea: 'Would you like to meet for tea in a public place?',
@@ -446,6 +450,10 @@ const messages = {
   ru: {
     collapsePhoto: 'Свернуть фото', expandPhoto: 'Развернуть фото',
     brandTagline: 'Vow — серьёзные отношения', unreadChats: 'непрочитанных чатов', vipLabel: 'VIP', ladyVipLabel: 'Lady VIP',
+    markAsDealbreaker: 'Отметить как принципиальное условие', dealbreakerHelp: 'Принципиальными считаются только выбранные вами пункты. Различия показываются конфиденциально внутри взаимной пары; исходные ответы не раскрываются.',
+    compatibilityDetails: 'Подробная совместимость', compatibilityUnavailable: 'Чтобы увидеть матрицу, оба человека должны заполнить тест ценностей.',
+    compatFamily: 'Семья', compatBudget: 'Бюджет', compatConflict: 'Конфликты и доверие', compatLifestyle: 'Образ жизни',
+    yourDealbreakerConflicts: 'Расхождения с вашими принципиальными условиями', partnerDealbreakerConflicts: 'Расхождения с принципиальными условиями партнёра', noDealbreakerConflicts: 'Совпадений, нарушающих отмеченные принципиальные условия, нет.',
     chatWindowExpired: '72-часовое окно чата завершилось. Историю переписки по-прежнему можно читать.', chatWindowClosesAt: 'Чат закроется:', quickDateInvites: 'Быстрые приглашения на встречу',
     inviteLabelCoffee: 'Кофе', inviteLabelPark: 'Прогулка', inviteLabelDinner: 'Ужин', inviteLabelTea: 'Чай',
     inviteCoffee: 'Хочешь встретиться на кофе в общественном месте?', invitePark: 'Хочешь прогуляться вместе в общественном парке?', inviteDinner: 'Хочешь встретиться на ужин в общественном месте?', inviteTea: 'Хочешь встретиться на чай в общественном месте?',
