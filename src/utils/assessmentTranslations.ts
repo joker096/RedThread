@@ -27,3 +27,10 @@ export function getLocalizedAssessmentQuestions(locale: string) {
       options: question.options.map(option => ({ ...option, label: translated.options[option.value] || option.label })) };
   });
 }
+
+
+export function getAssessmentTopicLabel(field: string, locale: string): string {
+  const question = ASSESSMENT_QUESTIONS.find(item => item.id === field);
+  if (locale === 'ru' && question) return question.category;
+  return english[field]?.category || field;
+}
