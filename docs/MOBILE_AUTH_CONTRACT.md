@@ -1,6 +1,6 @@
 # Vow Native Authentication Contract
 
-Status: contract proposal; routes are not implemented yet.  
+Status: implemented on the dedicated mobile feature branch; CI and Browser E2E passed on commit 2695241.  
 Clients: official Android and iOS apps only.  
 Existing browser cookie authentication remains unchanged.
 
@@ -14,7 +14,7 @@ Existing browser cookie authentication remains unchanged.
 - Each installation has a random UUID device identifier and a bounded display name. Device metadata is informational, not proof of device integrity.
 - Tokens are scoped to one mobile session and cannot authenticate browser cookie routes by being copied into a cookie.
 
-## Proposed endpoints
+## Implemented endpoints
 
 ### POST /api/mobile/auth/login
 
@@ -22,7 +22,7 @@ Input: email, password, platform (`android` or `ios`), deviceId (UUID), deviceNa
 
 Success: `{ user, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt }`.
 
-The handler must reuse the same password verification, account status, email-verification and account-safety locking rules as browser login. It must not create a browser `sessions` row or set `nit_session`.
+The handler reuses the existing password verification, account status, email-verification and account-safety locking rules. It creates only a mobile session and never sets the browser `nit_session` cookie.
 
 ### POST /api/mobile/auth/refresh
 
@@ -78,4 +78,15 @@ The history table rejects direct updates and deletes, while allowing FK-driven c
 9. Origin-less browser mutations and untrusted browser Origins remain rejected.
 10. Mobile refresh history cannot be edited; account deletion cascades cleanly.
 
-No app integration should begin until these endpoint and lifecycle tests pass.
+## Implementation notes
+
+- Native registration, login, email verification/resend and password-reset request/completion are implemented under `/api/mobile/auth`.
+- Native bearer access tokens are accepted by the shared `requireSession` middleware, so existing protected profile, discovery, match, notification, moderation and gift API routes can be reused without weakening browser cookie sessions.
+- State-changing shared API routes accept native bearer requests only when the token is valid and the optional Origin is on the explicit mobile allowlist. Browser cookie mutations still require the exact configured `APP_ORIGIN`.
+- CORS is allowlisted for `capacitor://localhost`, `https://localhost`, `http://localhost` and explicit `MOBILE_ALLOWED_ORIGINS` entries. Credentialed CORS is not enabled.
+- At most 10 active mobile sessions are allowed per account. A new login on an installation revokes its prior session, backed by a unique active-device index.
+- Password reset, moderator suspension and account deletion revoke mobile sessions.
+- The test suite exercises registration, verification, login, protected shared API access, CORS preflight, refresh rotation, replay and concurrent refresh, device mismatch, logout, logout-all, password reset and same-device replacement.
+- Refresh requests must be serialized in the client. A concurrent second refresh is treated as replay and revokes all sessions for the account by design.
+
+CI and Browser E2E both passed on the same commit `2695241ae58d6e072d446ccb4c103688b337883f`. This validates the server foundation; native app integration and physical-device tests remain outstanding.
