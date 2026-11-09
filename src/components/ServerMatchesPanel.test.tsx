@@ -15,15 +15,25 @@ test('normalizes bounded match fields and safely handles optional location/messa
   }), {
     id: 'match-1', partnerId: 'user-2', displayName: 'Alex', age: 32,
     country: ' Country '.repeat(20).trim().slice(0, 100), city: 'City',
-    lastMessage: 'Hello', lastMessageAt: '2026-10-22T12:00:00Z'
+    lastMessage: 'Hello', lastMessageAt: '2026-10-22T12:00:00Z', chatExpiresAt: null, chatExpired: false
   });
   assert.deepEqual(normalizeServerMatch({
     id: 'match-2', partnerId: 'user-3', displayName: 'Sam', age: 18,
     country: null, city: 42, lastMessage: {}, lastMessageAt: 'not-a-date'
   }), {
     id: 'match-2', partnerId: 'user-3', displayName: 'Sam', age: 18,
-    country: '', city: '', lastMessage: null, lastMessageAt: null
+    country: '', city: '', lastMessage: null, lastMessageAt: null, chatExpiresAt: null, chatExpired: false
   });
+});
+
+
+test('normalizes the server-authoritative chat expiry fields', () => {
+  const expiresAt = '2026-11-12T12:00:00.000Z';
+  const match = normalizeServerMatch({ id: 'm', partnerId: 'p', displayName: 'Alex', age: 30, chatExpiresAt: expiresAt, chatExpired: true });
+  assert.equal(match?.chatExpiresAt, expiresAt);
+  assert.equal(match?.chatExpired, true);
+  assert.equal(normalizeServerMatch({ id: 'm', partnerId: 'p', displayName: 'Alex', age: 30, chatExpiresAt: 'invalid', chatExpired: 'true' })?.chatExpiresAt, null);
+  assert.equal(normalizeServerMatch({ id: 'm', partnerId: 'p', displayName: 'Alex', age: 30, chatExpired: 'true' })?.chatExpired, false);
 });
 
 test('rejects malformed matches and invalid age or oversized required fields', () => {
