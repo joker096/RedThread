@@ -54,7 +54,7 @@ No Vow production API hostname has been selected. A public HTTPS hostname and va
 
 ### 3. Camera, microphone, location and verification media
 
-The API currently sends `Permissions-Policy: camera=(), microphone=(), geolocation=()`. This intentionally blocks browser media APIs. Before enabling media capture, map the actual flows and use native Capacitor plugins with narrowly scoped permission prompts. Preserve server-side upload validation and identity-verification checks. Do not request permissions at app launch.
+The API currently sends `Permissions-Policy: camera=(), microphone=(), geolocation=()`, intentionally blocking browser media APIs. PR #434 adds a native Capacitor audio-recorder flow for the optional 15–25 second profile voice introduction; the microphone prompt is requested only after the user taps Record. The plugin does not enable browser microphone access and does not change the separate L3 identity-video policy. Server-side media parsing, duration/size checks, encryption and moderation remain authoritative. Physical-device recording, preview, upload, playback and cancellation tests are still required.
 
 ### 4. Native providers and verified app links
 
@@ -84,7 +84,7 @@ Vow is a mobile product, not a public website/web product. The production VPS sh
 3. Android debug and iOS Simulator cloud builds — implemented and build-checked.
 4. Finish edge-case auth/security regression checks and keep CI + Browser E2E green on the same HEAD.
 5. Validate Android emulator and physical Android/iOS devices against a configured HTTPS API.
-6. Implement native Google sign-in, app/universal links, Didit return flows, camera/microphone/location and push notifications with corresponding tests.
+6. Implement native Google sign-in and remote push with corresponding tests; complete physical-device validation for PR #434 voice-intro recording/playback and the separate native L3 identity-video capture before enabling those flows.
 7. Resolve store billing, app identifiers, signing and privacy disclosures; prepare signed store builds only after release blockers are cleared.
 
 ## Scope and safety boundaries
@@ -109,4 +109,4 @@ Vow is a mobile product, not a public website/web product. The production VPS sh
 
 - In-app notifications remain database-backed. Native app resume now triggers a refresh of notification rows/unread counts and Trust Center state; this is not remote push delivery.
 - Remote push is intentionally not enabled. Firebase/FCM, Apple APNs credentials, final application identifiers, encrypted token storage, provider workers and physical-device tests are prerequisites. See `docs/MOBILE_PUSH_READINESS.md`.
-- Native camera/microphone capture is intentionally not enabled. The global browser Permissions-Policy remains restrictive, and L3 remains disabled until production encrypted storage, key management, backup and purge monitoring are ready. A native recording implementation must include deterministic local-file cleanup and server-authoritative media validation. See `docs/MOBILE_MEDIA_READINESS.md`.
+- Native L3 identity-video capture remains intentionally disabled. PR #434 adds a distinct native audio-only profile introduction; it remains Draft and is not production-enabled until the dedicated encryption key, persistent private storage, backup/restore, scheduled purge worker, moderation staffing and physical-device tests are ready. The global browser Permissions-Policy remains restrictive. See `docs/MOBILE_MEDIA_READINESS.md`.
