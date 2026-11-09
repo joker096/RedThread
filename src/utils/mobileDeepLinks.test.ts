@@ -70,3 +70,15 @@ test('queues cold-start links until the UI subscribes and suppresses duplicate d
   assert.deepEqual(received[1], { type: 'verify-email', token: nextToken });
   unsubscribe();
 });
+
+test('identity return events can be received again for a later verification attempt', () => {
+  const received: unknown[] = [];
+  const unsubscribe = subscribeVowDeepLinks(link => received.push(link));
+  publishVowDeepLink('vow://identity/return');
+  publishVowDeepLink('vow://identity/return');
+  assert.deepEqual(received, [
+    { type: 'identity-return' },
+    { type: 'identity-return' }
+  ]);
+  unsubscribe();
+});
