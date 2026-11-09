@@ -63,11 +63,11 @@ function configureIosDeepLinks() {
     '      <key>CFBundleURLSchemes</key>\n' +
     '      <array>\n        <string>vow</string>\n      </array>\n' +
     '    </dict>';
-  const urlTypesPattern = new RegExp('<key>CFBundleURLTypes</key>\\\\s*<array>');
+  const urlTypesPattern = new RegExp('<key>CFBundleURLTypes</key>\\s*<array>');
   if (urlTypesPattern.test(plist)) {
     plist = plist.replace(urlTypesPattern, match => match + urlType);
   } else {
-    const bundleIdentifier = new RegExp('(<key>CFBundleIdentifier</key>\\\\s*<string>[^<]*</string>)');
+    const bundleIdentifier = new RegExp('(<key>CFBundleIdentifier</key>\\s*<string>[^<]*</string>)');
     if (!bundleIdentifier.test(plist)) throw new Error('ios_bundle_identifier_entry_not_found');
     plist = plist.replace(bundleIdentifier, '$1\n    <key>CFBundleURLTypes</key>\n    <array>' + urlType + '\n    </array>');
   }
