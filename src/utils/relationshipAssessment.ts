@@ -236,3 +236,11 @@ export function getFinancialAlignment(
     differences
   };
 }
+
+export function validateDealbreakers(value: unknown): value is string[] {
+  if (!Array.isArray(value) || value.length > ASSESSMENT_QUESTIONS.length) return false;
+  const allowed = new Set(ASSESSMENT_QUESTIONS.map(question => question.id));
+  return value.every((key, index) =>
+    typeof key === 'string' && allowed.has(key) && value.indexOf(key) === index
+  );
+}
