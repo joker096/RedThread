@@ -39,7 +39,7 @@ CREATE INDEX IF NOT EXISTS mobile_refresh_token_history_session_idx
 CREATE OR REPLACE FUNCTION prevent_mobile_refresh_history_mutation()
 RETURNS trigger
 LANGUAGE plpgsql
-AS $
+AS $mobile_refresh_history$
 BEGIN
   IF TG_OP = 'UPDATE' THEN
     RAISE EXCEPTION 'mobile refresh token history is append-only';
@@ -52,7 +52,7 @@ BEGIN
   END IF;
   RETURN OLD;
 END;
-$;
+$mobile_refresh_history$;
 
 DROP TRIGGER IF EXISTS mobile_refresh_token_history_no_update ON mobile_refresh_token_history;
 DROP TRIGGER IF EXISTS mobile_refresh_token_history_no_delete ON mobile_refresh_token_history;
