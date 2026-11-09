@@ -52,14 +52,23 @@ export function decryptMobilePushToken(value, key) {
 }
 
 const PUSH_MESSAGES = Object.freeze({
-  new_match: Object.freeze({ title: 'Vow', body: 'You have a new mutual match.', route: '/chats' }),
-  new_message: Object.freeze({ title: 'Vow', body: 'You have a new message.', route: '/chats' }),
-  gift_request: Object.freeze({ title: 'Vow', body: 'You have a gift request to review.', route: '/gifts' }),
-  gift_request_update: Object.freeze({ title: 'Vow', body: 'There is an update to your gift request.', route: '/gifts' })
+  en: Object.freeze({
+    new_match: Object.freeze({ title: 'Vow', body: 'You have a new mutual match.', route: '/chats' }),
+    new_message: Object.freeze({ title: 'Vow', body: 'You have a new message.', route: '/chats' }),
+    gift_request: Object.freeze({ title: 'Vow', body: 'You have a gift request to review.', route: '/gifts' }),
+    gift_request_update: Object.freeze({ title: 'Vow', body: 'There is an update to your gift request.', route: '/gifts' })
+  }),
+  ru: Object.freeze({
+    new_match: Object.freeze({ title: 'Vow', body: 'У вас новое взаимное совпадение.', route: '/chats' }),
+    new_message: Object.freeze({ title: 'Vow', body: 'У вас новое сообщение.', route: '/chats' }),
+    gift_request: Object.freeze({ title: 'Vow', body: 'У вас новый запрос на подарок.', route: '/gifts' }),
+    gift_request_update: Object.freeze({ title: 'Vow', body: 'Обновился статус запроса на подарок.', route: '/gifts' })
+  })
 });
 
-export function safeMobilePushPayload(type) {
-  const payload = PUSH_MESSAGES[type];
+export function safeMobilePushPayload(type, locale = 'en') {
+  const messages = locale === 'ru' ? PUSH_MESSAGES.ru : PUSH_MESSAGES.en;
+  const payload = messages[type];
   if (!payload) return null;
   return { ...payload, data: { type, route: payload.route } };
 }
