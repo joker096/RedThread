@@ -543,11 +543,11 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         ? await mobileAuthFetch('logout', {})
         : await apiFetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
       if (sessionActionIdRef.current !== actionId) return;
-      if (!response.ok) throw new Error(t('authLogoutFailed'));
+      if (!response.ok && !nativeApp) throw new Error(t('authLogoutFailed'));
       setUser(null);
       window.dispatchEvent(new Event('vow:session-changed'));
       setBillingStatus(null);
-      setMessage(t('authLogoutSuccess'));
+      setMessage(response.ok ? t('authLogoutSuccess') : t('authLogoutFailed'));
       onAuthenticated();
     } catch (error) {
       if (sessionActionIdRef.current !== actionId) return;
