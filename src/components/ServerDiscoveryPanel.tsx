@@ -169,6 +169,11 @@ const VoiceIntroPlayer: React.FC<{ userId: string; displayName: string }> = ({ u
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
   useEffect(() => {
     if (!audioUrl) return;
     return () => URL.revokeObjectURL(audioUrl);
@@ -182,11 +187,16 @@ const VoiceIntroPlayer: React.FC<{ userId: string; displayName: string }> = ({ u
       if (!response.ok) throw new Error(t('voiceIntroPlaybackError'));
       const blob = await response.blob();
       if (blob.size < 64 || blob.size > 2 * 1024 * 1024) throw new Error(t('voiceIntroPlaybackError'));
-      setAudioUrl(URL.createObjectURL(blob));
+      const url = URL.createObjectURL(blob);
+      if (!mountedRef.current) {
+        URL.revokeObjectURL(url);
+        return;
+      }
+      setAudioUrl(url);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('voiceIntroPlaybackError'));
+      if (mountedRef.current) setError(cause instanceof Error ? cause.message : t('voiceIntroPlaybackError'));
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   };
   return (
