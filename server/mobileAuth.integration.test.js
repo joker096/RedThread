@@ -427,7 +427,7 @@ test('native mobile auth login, refresh rotation, replay revocation and device l
     const refreshExpiryPair = await refreshExpiryLogin.json();
     activeTokens.push(refreshExpiryPair.accessToken, refreshExpiryPair.refreshToken);
     await db.query(
-      "UPDATE mobile_sessions SET refresh_expires_at = NOW() - INTERVAL '1 second' WHERE refresh_token_hash = $1",
+      "UPDATE mobile_sessions SET access_expires_at = NOW() - INTERVAL '2 seconds', refresh_expires_at = NOW() - INTERVAL '1 second' WHERE refresh_token_hash = $1",
       [hashMobileToken(refreshExpiryPair.refreshToken, 'refresh')]
     );
     const expiredRefresh = await request('/api/mobile/auth/refresh', {
