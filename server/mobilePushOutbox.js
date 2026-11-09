@@ -37,8 +37,9 @@ export async function processMobilePushOutboxBatch(pool, {
            last_error_code = 'push_recipient_or_token_unavailable'
        FROM mobile_push_tokens token
        LEFT JOIN mobile_sessions session ON session.id = token.session_id
-       LEFT JOIN users recipient ON recipient.id = outbox.user_id
+       LEFT JOIN users recipient ON recipient.id = token.user_id
        WHERE outbox.token_id = token.id
+         AND recipient.id = outbox.user_id
          AND outbox.status IN ('pending', 'retry', 'processing')
          AND (token.revoked_at IS NOT NULL OR session.id IS NULL OR
               session.revoked_at IS NOT NULL OR session.refresh_expires_at <= NOW() OR
@@ -184,7 +185,8 @@ export async function processMobilePushOutboxBatch(pool, {
          WHERE id = $1 AND status = 'processing'`,
         [item.id, MAX_ATTEMPTS, mobilePushRetryDelayMs(Math.max(1, item.attemptCount))]
       );
-      summary.retried += 1;
+      if (item.attemptCount < MAX_ATTEMPTS) summary.retried += 1;
+      else summary.failed += 1;
     }
   }
   return summary;
