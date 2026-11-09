@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { mergeAssociatedDomainsEntitlements } from './capacitor-entitlements.mjs';
-import { ensureAndroidRecordAudioPermission, ensureIosMicrophoneUsageDescription, ensureIosFilesystemPrivacyManifest, createEmptyIosPrivacyManifest } from './capacitor-audio-permissions.mjs';
+import { ensureAndroidRecordAudioPermission, ensureIosMicrophoneUsageDescription, ensureIosFilesystemPrivacyManifest, createEmptyIosPrivacyManifest, ensureIosPrivacyManifestXcodeResource } from './capacitor-audio-permissions.mjs';
 
 const platform = process.argv[2];
 if (!['android', 'ios'].includes(platform)) {
@@ -130,6 +130,12 @@ function configureIosMicrophonePermission() {
     : emptyPrivacyManifest;
   const updatedPrivacy = ensureIosFilesystemPrivacyManifest(currentPrivacy);
   if (updatedPrivacy !== currentPrivacy) writeFileSync(privacyManifestPath, updatedPrivacy);
+
+  const projectPath = join('ios', 'App', 'App.xcodeproj', 'project.pbxproj');
+  if (!existsSync(projectPath)) throw new Error('ios_xcode_project_missing_after_capacitor_add');
+  const currentProject = readFileSync(projectPath, 'utf8');
+  const updatedProject = ensureIosPrivacyManifestXcodeResource(currentProject);
+  if (updatedProject !== currentProject) writeFileSync(projectPath, updatedProject);
 }
 
 const appLinkHost = configuredAppLinkHost();
