@@ -36,8 +36,8 @@ test('returns four transparent compatibility dimensions without exposing answer 
   const result = assessmentCompatibilityBreakdown(answers, second, ['children', 'financialModel'], ['conflictStyle']);
   assert.equal(result.dimensions.length, 4);
   assert.deepEqual(result.dimensions.map(item => item.id), ['family', 'budget', 'conflict', 'lifestyle']);
-  assert.equal(result.dimensions.find(item => item.id === 'family').score, 75);
-  assert.equal(result.dimensions.find(item => item.id === 'budget').score, 75);
+  assert.equal(result.dimensions.find(item => item.id === 'family').score, 67);
+  assert.equal(result.dimensions.find(item => item.id === 'budget').score, 57);
   assert.deepEqual(result.yourDealbreakerConflicts, ['children', 'financialModel']);
   assert.deepEqual(result.partnerDealbreakerConflicts, ['conflictStyle']);
   assert.equal(JSON.stringify(result).includes('do_not_want'), false);
@@ -75,4 +75,14 @@ test('compatibility requires both participants to use the current assessment ver
   assert.deepEqual(assessmentVersionGaps(1, 2), ['self']);
   assert.deepEqual(assessmentVersionGaps(2, 1), ['partner']);
   assert.deepEqual(assessmentVersionGaps(undefined, undefined), ['self', 'partner']);
+});
+
+test('detailed dimension scores use the same declared field weights as discovery', () => {
+  const other = { ...answers, children: 'do_not_want', financialModel: 'provider_full' };
+  const detailed = assessmentCompatibilityBreakdown(answers, other);
+  const discovery = explainAssessmentCompatibility(answers, other);
+  for (const dimension of detailed.dimensions) {
+    const matching = discovery.dimensions.find(item => item.key === dimension.id);
+    assert.equal(dimension.score, matching.score);
+  }
 });
