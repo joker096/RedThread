@@ -33,6 +33,8 @@ import rateLimit from 'express-rate-limit';
 import { PostgresRateLimitStore } from './postgresRateLimitStore.js';
 import pg from 'pg';
 import { isValidAssessment, financialAlignment, ASSESSMENT_VERSION } from './relationshipAssessment.js';
+import { buildAssessmentCompatibilityExplanation } from './assessmentCompatibilityExplanation.js';
+
 import {
   createAccountReuseDigest,
   createSessionToken,
@@ -2595,6 +2597,73 @@ app.get('/api/photos/:photoId', requireSession, async (req,res) => {
     if (client && !await rollbackPooledTransaction(client)) client = null;
     if(error?.code==='ENOENT') return res.status(404).end();
     console.error('Photo read failed:',error?.message||'unknown error');return res.status(500).json({error:'photo_read_failed'});
+  } finally {
+    client?.release();
+  }
+});
+
+app.get('/api/matches/:matchId/compatibility', requireSession, async (req, res) => {
+  if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const preview = await client.query(
+      'SELECT user_a_id, user_b_id FROM matches WHERE id = $1 AND (user_a_id = $2 OR user_b_id = $2) LIMIT 1',
+      [req.params.matchId, req.authUser.id]
+    );
+    if (!preview.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'match_not_found' });
+    }
+    const { user_a_id: userAId, user_b_id: userBId } = preview.rows[0];
+    await acquireGiftSafetyUserLocks(client, userAId, userBId);
+    const match = await client.query(
+      `SELECT a.answers AS "answersA", a.assessment_version AS "versionA",
+              b.answers AS "answersB", b.assessment_version AS "versionB"
+       FROM matches m
+       JOIN users ua ON ua.id = m.user_a_id AND ua.status = 'active'
+       JOIN users ub ON ub.id = m.user_b_id AND ub.status = 'active'
+       LEFT JOIN relationship_assessments a ON a.user_id = m.user_a_id
+       LEFT JOIN relationship_assessments b ON b.user_id = m.user_b_id
+       WHERE m.id = $1 AND m.status = 'active'
+         AND ((m.user_a_id = $2 AND m.user_b_id = $3) OR (m.user_a_id = $3 AND m.user_b_id = $2))
+         AND NOT EXISTS (
+           SELECT 1 FROM user_blocks block
+           WHERE (block.blocker_id = m.user_a_id AND block.blocked_id = m.user_b_id)
+              OR (block.blocker_id = m.user_b_id AND block.blocked_id = m.user_a_id)
+         )
+       FOR SHARE OF m, ua, ub`,
+      [req.params.matchId, userAId, userBId]
+    );
+    if (!match.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'match_not_found' });
+    }
+    const row = match.rows[0];
+    if (!row.answersA || !row.answersB ||
+        row.versionA !== ASSESSMENT_VERSION || row.versionB !== ASSESSMENT_VERSION) {
+      await client.query('COMMIT');
+      return res.json({
+        assessmentIncomplete: true,
+        requiredVersion: ASSESSMENT_VERSION,
+        missingForCurrentVersion: [
+          ...(!row.answersA || row.versionA !== ASSESSMENT_VERSION ? ['self'] : []),
+          ...(!row.answersB || row.versionB !== ASSESSMENT_VERSION ? ['partner'] : [])
+        ]
+      });
+    }
+    const explanation = buildAssessmentCompatibilityExplanation(row.answersA, row.answersB);
+    if (!explanation) {
+      await client.query('COMMIT');
+      return res.json({ assessmentIncomplete: true, requiredVersion: ASSESSMENT_VERSION });
+    }
+    await client.query('COMMIT');
+    return res.json({ assessmentIncomplete: false, compatibility: explanation });
+  } catch (error) {
+    if (client && !await rollbackPooledTransaction(client)) client = null;
+    console.error('Match compatibility read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'match_compatibility_read_failed' });
   } finally {
     client?.release();
   }
