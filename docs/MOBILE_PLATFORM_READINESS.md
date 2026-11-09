@@ -28,6 +28,7 @@ Implementation: preserve the React UI, package it with Capacitor, and keep Expre
 - Native CORS is allowlisted for Capacitor origins and configured additional origins; credentialed CORS is not enabled.
 - Password reset, account suspension and account deletion invalidate mobile sessions.
 - The client uses secure refresh-token storage, in-memory access tokens, a single-flight refresh operation and a native API base URL.
+- Native runtime is server-backed only: it clears legacy prototype state, does not restore/persist demo profiles or chats, and hides demo persona controls, prototype notices, local-only quizzes, mock safety/compatibility tools, simulated ad management and the Paddle Sandbox paywall. Browser demo mode remains available only for development/regression.
 - Native login/registration and recovery flows are wired into the existing account UI. Google browser sign-in and Paddle checkout are intentionally hidden in native builds until native provider sign-in and store-compliant billing are implemented.
 
 ### Verification
