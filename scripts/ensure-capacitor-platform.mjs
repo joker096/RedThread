@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { mergeAssociatedDomainsEntitlements } from './capacitor-entitlements.mjs';
-import { ensureAndroidRecordAudioPermission, ensureIosMicrophoneUsageDescription, ensureIosFilesystemPrivacyManifest } from './capacitor-audio-permissions.mjs';
+import { ensureAndroidRecordAudioPermission, ensureIosMicrophoneUsageDescription, ensureIosFilesystemPrivacyManifest, createEmptyIosPrivacyManifest } from './capacitor-audio-permissions.mjs';
 
 const platform = process.argv[2];
 if (!['android', 'ios'].includes(platform)) {
@@ -124,7 +124,7 @@ function configureIosMicrophonePermission() {
   if (updated !== current) writeFileSync(plistPath, updated);
 
   const privacyManifestPath = join(appDirectory, 'PrivacyInfo.xcprivacy');
-  const emptyPrivacyManifest = '<?xml version="1.0" encoding="UTF-8"?>\\n<plist version="1.0"><dict></dict></plist>\\n';
+  const emptyPrivacyManifest = createEmptyIosPrivacyManifest();
   const currentPrivacy = existsSync(privacyManifestPath)
     ? readFileSync(privacyManifestPath, 'utf8')
     : emptyPrivacyManifest;
