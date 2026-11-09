@@ -131,6 +131,7 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
       setElapsedMs(0);
       setRecording(true);
       timerRef.current = window.setInterval(() => {
+        if (!mountedRef.current) return;
         const elapsed = Date.now() - startedAtRef.current;
         setElapsedMs(elapsed);
         if (elapsed >= MAX_DURATION_MS) void stopRecording();
@@ -167,6 +168,7 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
         body: preview.blob
       });
       const data = await response.json().catch(() => null);
+      if (!mountedRef.current) return;
       if (response.status === 401) throw new Error(t('profileLoginPrompt'));
       if (response.status === 503) throw new Error(t('voiceIntroStorageError'));
       if (!response.ok || !data?.voiceIntro || typeof data.voiceIntro.id !== 'string') {
@@ -183,9 +185,9 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
       setPreview(null);
       setNotice(t('voiceIntroPending'));
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('voiceIntroUploadError'));
+      if (mountedRef.current) setNotice(error instanceof Error ? error.message : t('voiceIntroUploadError'));
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   };
 
@@ -195,6 +197,7 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
     setNotice('');
     try {
       const response = await fetch('/api/profiles/me/voice-intro', { credentials: 'include' });
+      if (!mountedRef.current) return;
       if (response.status === 401) throw new Error(t('profileLoginPrompt'));
       if (!response.ok) throw new Error(t('voiceIntroPlaybackError'));
       const blob = await response.blob();
@@ -206,9 +209,9 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
       }
       setSavedAudioUrl(url);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('voiceIntroPlaybackError'));
+      if (mountedRef.current) setNotice(error instanceof Error ? error.message : t('voiceIntroPlaybackError'));
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   };
 
@@ -221,6 +224,7 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
         method: 'DELETE',
         credentials: 'include'
       });
+      if (!mountedRef.current) return;
       if (response.status === 401) throw new Error(t('profileLoginPrompt'));
       if (!response.ok && response.status !== 404) throw new Error(t('voiceIntroUploadError'));
       setSavedAudioUrl(null);
@@ -228,9 +232,9 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
       onChanged(null);
       setNotice('');
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t('voiceIntroUploadError'));
+      if (mountedRef.current) setNotice(error instanceof Error ? error.message : t('voiceIntroUploadError'));
     } finally {
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   };
 
