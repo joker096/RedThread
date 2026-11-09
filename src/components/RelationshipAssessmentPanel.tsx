@@ -95,6 +95,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
         {t('valuesTestDescription')}
       </p>
       <p className="mb-4 text-xs leading-relaxed text-stone-500">{t('dealbreakerHelp')}</p>
+      {status === 'loading' && <p role="status" className="mb-3 text-xs text-stone-400">{t('loading')}</p>}
       <div className="space-y-4">
         {questions.map((question, index) => (
           <fieldset key={question.id} disabled={status === 'saving' || status === 'loading'} className="rounded-2xl border border-white/5 bg-stone-950/60 p-3 disabled:opacity-70">
