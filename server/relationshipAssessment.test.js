@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ASSESSMENT_OPTIONS, assessmentCompatibility, assessmentCompatibilityBreakdown, explainAssessmentCompatibility, financialAlignment, isValidAssessment, isValidDealbreakers } from './relationshipAssessment.js';
+import { ASSESSMENT_OPTIONS, assessmentCompatibility, assessmentCompatibilityBreakdown, assessmentVersionGaps, explainAssessmentCompatibility, financialAlignment, isValidAssessment, isValidDealbreakers } from './relationshipAssessment.js';
 
 const answers = Object.fromEntries(Object.entries(ASSESSMENT_OPTIONS).map(([key, options]) => [key, options[0]]));
 
@@ -68,4 +68,11 @@ test('discovery compatibility explains four weighted dimensions without exposing
 test('discovery compatibility refuses incomplete assessment answers', () => {
   assert.equal(explainAssessmentCompatibility(answers, { children: 'want_soon' }), null);
   assert.equal(explainAssessmentCompatibility(null, answers), null);
+});
+
+test('compatibility requires both participants to use the current assessment version', () => {
+  assert.deepEqual(assessmentVersionGaps(2, 2), []);
+  assert.deepEqual(assessmentVersionGaps(1, 2), ['self']);
+  assert.deepEqual(assessmentVersionGaps(2, 1), ['partner']);
+  assert.deepEqual(assessmentVersionGaps(undefined, undefined), ['self', 'partner']);
 });
