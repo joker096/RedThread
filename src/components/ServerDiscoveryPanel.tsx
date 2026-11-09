@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 import { getSwipeActionFromDelta } from '../utils/swipe.ts';
-import { getAssessmentTopicLabel } from '../utils/assessmentTranslations.ts';
+import { getAssessmentTopicLabel, getCompatibilityDimensionLabel } from '../utils/assessmentTranslations.ts';
 
 type ServerProfile = {
   id: string;
@@ -884,7 +884,7 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                       {profile.compatibilityExplanation.dimensions.map(dimension => (
                         <div key={dimension.key} className="rounded-lg border border-white/10 bg-black/20 p-2">
                           <div className="flex items-center justify-between gap-2 text-xs">
-                            <strong className="capitalize text-stone-100">{dimension.key}</strong>
+                            <strong className="text-stone-100">{getCompatibilityDimensionLabel(dimension.key, locale)}</strong>
                             <span className="text-rose-200">{dimension.score}%</span>
                           </div>
                           {dimension.discussionPoints.length > 0 ? (
