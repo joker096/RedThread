@@ -32,7 +32,7 @@ import { FEMALE_FREE_DAILY_PROFILE_LIMIT, canCreateFemaleFreeMatch, hasFemalePre
 import rateLimit from 'express-rate-limit';
 import { PostgresRateLimitStore } from './postgresRateLimitStore.js';
 import pg from 'pg';
-import { isValidAssessment, financialAlignment, ASSESSMENT_VERSION } from './relationshipAssessment.js';
+import { isValidAssessment, financialAlignment, explainAssessmentCompatibility, ASSESSMENT_VERSION } from './relationshipAssessment.js';
 import {
   createAccountReuseDigest,
   createSessionToken,
@@ -2481,7 +2481,10 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
     const profiles = result.rows.slice(0, parsedLimit).map(profile => {
       const { assessment_answers: candidateAnswers, my_assessment_answers: myAnswers, ...publicProfile } = profile;
       const alignment = candidateAnswers && myAnswers ? financialAlignment(myAnswers, candidateAnswers).score : null;
-      return { ...publicProfile, financialAlignment: alignment };
+      const compatibilityExplanation = candidateAnswers && myAnswers
+        ? explainAssessmentCompatibility(myAnswers, candidateAnswers)
+        : null;
+      return { ...publicProfile, financialAlignment: alignment, compatibilityExplanation };
     });
     return res.json({
       profiles,
