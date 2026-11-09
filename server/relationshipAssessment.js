@@ -1,5 +1,12 @@
 export const ASSESSMENT_VERSION = 2;
 
+export function assessmentVersionGaps(selfVersion, partnerVersion) {
+  return [
+    ...(selfVersion === ASSESSMENT_VERSION ? [] : ['self']),
+    ...(partnerVersion === ASSESSMENT_VERSION ? [] : ['partner'])
+  ];
+}
+
 export const ASSESSMENT_OPTIONS = {
   relationshipGoal: ['marriage_soon', 'marriage_later', 'serious_no_rush'],
   children: ['want_soon', 'want_later', 'unsure', 'do_not_want'],
