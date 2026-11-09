@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 import { getSwipeActionFromDelta } from '../utils/swipe.ts';
+import { getAssessmentTopicLabel } from '../utils/assessmentTranslations.ts';
 
 type ServerProfile = {
   id: string;
@@ -21,6 +22,15 @@ type ServerProfile = {
   childrenLivingArrangement?: string;
   financialAlignment: number | null;
   compatibilityScore?: number | null;
+  compatibilityExplanation?: CompatibilityExplanation | null;
+};
+
+type CompatibilityExplanation = {
+  version: number;
+  score: number;
+  dimensions: Array<{ key: 'family' | 'budget' | 'conflict' | 'lifestyle'; score: number; aligned: string[]; discussionPoints: string[] }>;
+  dealbreakers: string[];
+  dealbreakersConfigured: boolean;
 };
 
 type ServerDiscoveryPanelProps = { onOpenAccount: () => void };
@@ -66,6 +76,25 @@ export function isCurrentDiscoverySearchResponse(
     requestId === currentRequestId && actionEpoch === currentEpoch;
 }
 
+export function normalizeCompatibilityExplanation(value: unknown): CompatibilityExplanation | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const item = value as Partial<CompatibilityExplanation>;
+  const allowed = new Set(['family', 'budget', 'conflict', 'lifestyle']);
+  if (item.version !== 2 || !Number.isInteger(item.score) || (item.score as number) < 0 || (item.score as number) > 100 ||
+      !Array.isArray(item.dimensions) || item.dimensions.length !== 4 ||
+      item.dealbreakersConfigured !== false || !Array.isArray(item.dealbreakers) || item.dealbreakers.length !== 0) return null;
+  const dimensions = item.dimensions.map(dimension => {
+    if (!dimension || !allowed.has(dimension.key) || !Number.isInteger(dimension.score) ||
+        dimension.score < 0 || dimension.score > 100 ||
+        !Array.isArray(dimension.aligned) || !Array.isArray(dimension.discussionPoints) ||
+        [...dimension.aligned, ...dimension.discussionPoints].some(field => typeof field !== 'string' || field.length > 64)) return null;
+    return { key: dimension.key, score: dimension.score, aligned: [...dimension.aligned], discussionPoints: [...dimension.discussionPoints] };
+  });
+  if (dimensions.some(dimension => dimension === null) ||
+      new Set(dimensions.map(dimension => dimension?.key)).size !== 4) return null;
+  return { version: 2, score: item.score as number, dimensions: dimensions as CompatibilityExplanation['dimensions'], dealbreakers: [], dealbreakersConfigured: false };
+}
+
 const normalizeServerProfile = (value: unknown): ServerProfile | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const profile = value as Partial<ServerProfile>;
@@ -103,6 +132,7 @@ const normalizeServerProfile = (value: unknown): ServerProfile | null => {
     education: typeof profile.education === 'string' ? profile.education.trim().slice(0, 120) : undefined,
     financialAlignment: score(profile.financialAlignment),
     compatibilityScore: score(profile.compatibilityScore) ?? undefined,
+    compatibilityExplanation: normalizeCompatibilityExplanation(profile.compatibilityExplanation),
     photoUrls: Array.isArray(profile.photoUrls)
       ? [...new Set(profile.photoUrls.slice(0, 48).filter(isSafeProfilePhotoUrl).map(url => url.trim()))].slice(0, 12)
       : [],
@@ -845,6 +875,31 @@ export const ServerDiscoveryPanel: React.FC<ServerDiscoveryPanelProps> = ({ onOp
                   </div>
                 </div>
                 {profile.bio && <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-stone-300">{profile.bio}</p>}
+                {profile.compatibilityExplanation && (
+                  <details className="mt-3 rounded-xl border border-rose-500/20 bg-rose-950/10 p-3">
+                    <summary className="min-h-11 cursor-pointer py-2 text-xs font-semibold text-rose-200">
+                      {t('compatibility')} · {profile.compatibilityExplanation.score}% — {t('compatibilityMatrixDescription')}
+                    </summary>
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                      {profile.compatibilityExplanation.dimensions.map(dimension => (
+                        <div key={dimension.key} className="rounded-lg border border-white/10 bg-black/20 p-2">
+                          <div className="flex items-center justify-between gap-2 text-xs">
+                            <strong className="capitalize text-stone-100">{dimension.key}</strong>
+                            <span className="text-rose-200">{dimension.score}%</span>
+                          </div>
+                          {dimension.discussionPoints.length > 0 ? (
+                            <p className="mt-1 text-[11px] text-amber-200">
+                              {t('compatibilityDiscussionTopics')}: {dimension.discussionPoints.map(field => getAssessmentTopicLabel(field, locale)).join(', ')}
+                            </p>
+                          ) : (
+                            <p className="mt-1 text-[11px] text-emerald-200">{t('compatibilityAligned')}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-[10px] text-stone-400">{t('compatibilityDiscussionDisclaimer')}</p>
+                  </details>
+                )}
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {profile.relationshipIntent === 'family_without_marriage' && <span className="rounded-full border border-amber-500/20 bg-amber-950/30 px-2 py-1 text-[10px] text-amber-200">{t('familyWithoutMarriage')}</span>}
                   {profile.familyFormat === 'cohabitation' && <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-stone-300">{t('cohabitation')}</span>}
