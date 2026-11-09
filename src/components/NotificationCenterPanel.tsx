@@ -84,7 +84,7 @@ export const NotificationCenterPanel:React.FC=()=>{
    }
   }
  };
- if(!ready||!allowed)return <MobilePushSettingsPanel />;
+ if(!ready||!allowed)return null;
  return <section role="region" aria-label={t('notificationCenter')} aria-busy={busy} className="vow-screen mb-5 rounded-3xl border border-sky-500/20 bg-stone-900/80 p-4 sm:p-5">
   <MobilePushSettingsPanel />
   <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] uppercase tracking-[0.2em] text-sky-300">{t('notifications')}</p><h3 className="mt-1 text-lg font-bold text-white">{t('notificationCenter')} · <span aria-live="polite" aria-atomic="true">{unread} {t('notifications')}</span></h3></div><div className="flex flex-wrap gap-2"><button type="button" disabled={busy} onClick={()=>void refresh()} className="min-h-11 min-w-11 rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-200 focus-visible:border-sky-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400">{t('refreshNotifications')}</button><button type="button" disabled={busy||unread===0} onClick={()=>void markRead()} className="min-h-11 min-w-11 rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-200 focus-visible:border-sky-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-40">{t('markAllRead')}</button></div></div>
