@@ -58,6 +58,7 @@ const messages = {
   en: {
     collapsePhoto: 'Collapse photo', expandPhoto: 'Expand photo',
     brandTagline: 'Vow — serious relationships', unreadChats: 'unread chats', vipLabel: 'VIP', ladyVipLabel: 'Lady VIP',
+    assessmentNeedsUpdate: 'We restored your valid previous answers. Complete the remaining questions to update your assessment.',
     markAsDealbreaker: 'Mark as non-negotiable', dealbreakerHelp: 'Only the categories you mark are treated as your non-negotiable preferences. Differences are shown privately inside a mutual match; raw answers are never shared.',
     compatibilityDetails: 'Compatibility details', compatibilityUnavailable: 'Complete the values assessment on both sides to see the compatibility matrix.',
     close: 'Close', differences: 'Differences',
@@ -451,6 +452,7 @@ const messages = {
   ru: {
     collapsePhoto: 'Свернуть фото', expandPhoto: 'Развернуть фото',
     brandTagline: 'Vow — серьёзные отношения', unreadChats: 'непрочитанных чатов', vipLabel: 'VIP', ladyVipLabel: 'Lady VIP',
+    assessmentNeedsUpdate: 'Сохранили подходящие прежние ответы. Заполните оставшиеся вопросы, чтобы обновить анкету.',
     markAsDealbreaker: 'Отметить как принципиальное условие', dealbreakerHelp: 'Принципиальными считаются только выбранные вами пункты. Различия показываются конфиденциально внутри взаимной пары; исходные ответы не раскрываются.',
     compatibilityDetails: 'Подробная совместимость', compatibilityUnavailable: 'Чтобы увидеть матрицу, оба человека должны заполнить тест ценностей.',
     close: 'Закрыть', differences: 'Различия',
