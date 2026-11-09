@@ -240,6 +240,8 @@ test('native mobile auth login, refresh rotation, replay revocation and device l
     });
     assert.equal(rotateA.status, 200, logs);
     const pairA2 = await rotateA.json();
+    assert.equal(pairA2.user.id, userId,
+      'refresh must return the account id, not the internal mobile session id');
     activeTokens.push(pairA2.accessToken, pairA2.refreshToken);
     assert.notEqual(pairA2.refreshToken, pairA.refreshToken);
 
