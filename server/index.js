@@ -24,7 +24,7 @@ import express from 'express';
 import { resolveTrustProxyHops } from './trustProxyConfig.js';
 import { applyMobileCorsHeaders, createMobileAuthRouter, isAllowedMobileOrigin, readMobileAccessToken } from './mobileAuthRoutes.js';
 import { hashMobileToken } from './mobileTokens.js';
-import { encryptMobilePushToken, fingerprintMobilePushToken, parseMobilePushTokenEncryptionKey, safeMobilePushPayload, validateMobilePushToken } from './mobilePushTokens.js';
+import { encryptMobilePushToken, fingerprintMobilePushToken, parseMobilePushTokenEncryptionKey, safeMobilePushPayload, validateMobilePushToken, enqueueMobilePushOutbox } from './mobilePushTokens.js';
 import { verifyGoogleIdTokenClaims } from './googleIdToken.js';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import { withPooledTransaction, rollbackPooledTransaction } from './withPooledTransaction.js';
@@ -969,23 +969,10 @@ async function createNotification(userId, type, metadata = {}, dedupeKey = null,
     [userId, type, JSON.stringify(metadata), dedupeKey]
   );
   const notificationId = inserted.rows[0]?.id;
-  const payload = safeMobilePushPayload(type);
-  if (!notificationId || !payload) return notificationId || null;
+  if (!notificationId) return null;
   // Queue only a generic event and a fixed in-app route. Never copy notification
   // metadata, message text, match IDs, identity state or gift details to a push.
-  await client.query(
-    `INSERT INTO mobile_push_outbox
-       (notification_id, user_id, token_id, event_type, deep_link)
-     SELECT $1, $2, push_token.id, $3, $4
-     FROM mobile_push_tokens push_token
-     JOIN mobile_sessions mobile_session ON mobile_session.id = push_token.session_id
-     WHERE push_token.user_id = $2
-       AND push_token.revoked_at IS NULL
-       AND mobile_session.revoked_at IS NULL
-       AND mobile_session.refresh_expires_at > NOW()
-     ON CONFLICT (notification_id, token_id) DO NOTHING`,
-    [notificationId, userId, type, payload.route]
-  );
+  await enqueueMobilePushOutbox(client, notificationId, userId, type);
   return notificationId;
 }
 
