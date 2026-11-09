@@ -80,11 +80,11 @@ export function ensureIosPrivacyManifestXcodeResource(project) {
   updated = updated.replace(fileReferenceEnd,
     `\t\t${fileReferenceId} /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };\n\t${fileReferenceEnd}`);
 
-  const appGroup = /(\\b[A-F0-9]{24} \/\\* App \/\\* = \\{\\s*isa = PBXGroup;\\s*children = \\(\\n)/;
+  const appGroup = /(\b[A-F0-9]{24} \/\* App \*\/ = \{\s*isa = PBXGroup;\s*children = \(\n)/;
   if (!appGroup.test(updated)) throw new Error('ios_xcode_app_group_not_found');
   updated = updated.replace(appGroup, `$1\t\t\t\t${fileReferenceId} /* PrivacyInfo.xcprivacy */,\n`);
 
-  const resourcesPhase = /(\\b[A-F0-9]{24} \/\\* Resources \/\\* = \\{[\\s\\S]*?isa = PBXResourcesBuildPhase;[\\s\\S]*?files = \\(\\n)/;
+  const resourcesPhase = /(\b[A-F0-9]{24} \/\* Resources \*\/ = \{[\s\S]*?isa = PBXResourcesBuildPhase;[\s\S]*?files = \(\n)/;
   if (!resourcesPhase.test(updated)) throw new Error('ios_xcode_resources_phase_not_found');
   updated = updated.replace(resourcesPhase, `$1\t\t\t\t${buildFileId} /* PrivacyInfo.xcprivacy in Resources */,\n`);
   return updated;
