@@ -110,7 +110,7 @@ export const MatchCompatibilityPanel: React.FC<Props> = ({ matchId, onClose }) =
             <p id="vow-compatibility-description" className="text-[10px] font-bold uppercase tracking-[0.2em] text-rose-300">{t('compatibilityDetails')}</p>
             <h3 id="vow-compatibility-title" className="mt-1 text-xl font-bold text-white">{t('compatibilityScore')}</h3>
           </div>
-          <button type="button" onClick={onClose} aria-label={t('close')} className="min-h-11 min-w-11 rounded-xl border border-white/10 text-xl text-stone-300">×</button>
+          <button type="button" onClick={onClose} aria-label={t('close')} aria-keyshortcuts="Escape" className="min-h-11 min-w-11 rounded-xl border border-white/10 text-xl text-stone-300">×</button>
         </div>
         {status === 'loading' && <p role="status" className="py-8 text-center text-sm text-stone-300">{t('loading')}</p>}
         {status === 'unavailable' && <p role="status" className="rounded-2xl border border-white/10 bg-stone-950 p-4 text-sm text-stone-300">{t('compatibilityUnavailable')}</p>}
