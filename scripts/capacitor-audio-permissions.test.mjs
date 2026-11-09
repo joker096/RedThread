@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ensureAndroidRecordAudioPermission, ensureIosMicrophoneUsageDescription, ensureIosFilesystemPrivacyManifest, createEmptyIosPrivacyManifest } from './capacitor-audio-permissions.mjs';
+import { ensureAndroidRecordAudioPermission, ensureIosMicrophoneUsageDescription, ensureIosFilesystemPrivacyManifest, createEmptyIosPrivacyManifest, ensureIosPrivacyManifestXcodeResource } from './capacitor-audio-permissions.mjs';
 
 test('adds Android microphone permission once and preserves existing permissions', () => {
   const source = '<manifest xmlns:android="http://schemas.android.com/apk/res/android"><application /></manifest>';
@@ -44,4 +44,33 @@ test('creates a valid empty iOS privacy manifest template with real XML whitespa
   const updated = ensureIosFilesystemPrivacyManifest(source);
   assert.match(updated, /<plist version="1\.0">/);
   assert.match(updated, /NSPrivacyAccessedAPICategoryFileTimestamp/);
+});
+
+
+test('registers the iOS privacy manifest in the App group and Resources build phase once', () => {
+  const project = `/* Begin PBXBuildFile section */
+/* End PBXBuildFile section */
+/* Begin PBXFileReference section */
+/* End PBXFileReference section */
+/* Begin PBXGroup section */
+AAAAAAAAAAAAAAAAAAAAAAAA /* App */ = {
+  isa = PBXGroup;
+  children = (
+  );
+};
+/* End PBXGroup section */
+/* Begin PBXResourcesBuildPhase section */
+BBBBBBBBBBBBBBBBBBBBBBBB /* Resources */ = {
+  isa = PBXResourcesBuildPhase;
+  files = (
+  );
+};
+/* End PBXResourcesBuildPhase section */`;
+  const once = ensureIosPrivacyManifestXcodeResource(project);
+  assert.equal((once.match(/PrivacyInfo\\.xcprivacy/g) || []).length, 3);
+  assert.equal(ensureIosPrivacyManifestXcodeResource(once), once);
+});
+
+test('fails closed when the generated Xcode project has no App resource group', () => {
+  assert.throws(() => ensureIosPrivacyManifestXcodeResource('/* Begin PBXBuildFile section *//* End PBXBuildFile section */'), /sections_missing/);
 });
