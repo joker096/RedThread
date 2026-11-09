@@ -616,8 +616,8 @@ export function createMobileAuthRouter({
       await acquireGiftSafetyUserLocks(client, userId);
 
       const current = await client.query(
-        `SELECT s.id, s.user_id, s.device_id, s.platform, s.refresh_expires_at,
-                s.revoked_at, u.status, u.email_verified_at,
+        `SELECT s.id AS session_id, s.user_id, s.device_id, s.platform, s.refresh_expires_at,
+                s.revoked_at, u.id, u.status, u.email_verified_at,
                 p.display_name, u.email, p.gender, p.country, p.city, p.relationship_intent
          FROM mobile_sessions s
          JOIN users u ON u.id = s.user_id
@@ -683,7 +683,7 @@ export function createMobileAuthRouter({
       const nextRefreshHash = hashMobileToken(nextRefreshToken, 'refresh');
       await client.query(
         'INSERT INTO mobile_refresh_token_history (session_id, token_hash) VALUES ($1, $2)',
-        [session.id, oldHash]
+        [session.session_id, oldHash]
       );
       const updated = await client.query(
         `UPDATE mobile_sessions
@@ -694,7 +694,7 @@ export function createMobileAuthRouter({
              last_seen_at = NOW()
          WHERE id = $1 AND revoked_at IS NULL
          RETURNING refresh_expires_at`,
-        [session.id, nextAccessHash, nextRefreshHash, ACCESS_TOKEN_SECONDS]
+        [session.session_id, nextAccessHash, nextRefreshHash, ACCESS_TOKEN_SECONDS]
       );
       if (updated.rowCount !== 1) throw new Error('mobile_session_rotation_lost');
       await client.query('COMMIT');
