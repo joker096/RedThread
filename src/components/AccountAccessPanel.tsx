@@ -523,6 +523,9 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       if (requestId !== auxiliaryRequestIdRef.current) return;
       if (!response.ok) throw new Error(data?.error === 'invalid_or_expired_token' ? t('authResetLinkInvalid') : t('authPasswordChangeFailed'));
       setShowReset(false);
+      setUser(null);
+      setBillingStatus(null);
+      window.dispatchEvent(new Event('vow:session-changed'));
       setResetToken('');
       setResetPassword('');
       setMode('login');
@@ -617,7 +620,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         <p className="text-[10px] uppercase tracking-[0.2em] text-rose-300">{t('accountTitle')}</p>
         <h3 className="mt-1 text-lg font-bold text-white">{user ? t('signedIn') : mode === 'login' ? t('signIn') : t('createAccount')}</h3>
       </div>
-      {user ? (
+      {user && !showReset ? (
         <div className="flex flex-col gap-3">
           <div className="rounded-xl bg-stone-950 p-3">
             <p className="text-sm font-semibold text-white">{user.displayName}</p>
