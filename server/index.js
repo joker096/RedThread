@@ -2697,7 +2697,7 @@ app.delete('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession
   }
 });
 
-app.get('/api/profiles/:userId/voice-intro', requireSession, async (req, res) => {
+app.get('/api/profiles/:userId/voice-intro', profileActionLimiter, requireSession, async (req, res) => {
   if (!isUuid(req.params.userId) || req.params.userId === req.authUser.id) return res.status(404).end();
   const key = parseVoiceIntroEncryptionKey();
   if (!key) return res.status(503).json({ error: 'voice_intro_encryption_not_configured' });
