@@ -2281,8 +2281,8 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
        FROM profiles p
        JOIN users u ON u.id = p.user_id
        JOIN profiles me ON me.user_id = $1
-       LEFT JOIN relationship_assessments candidate_assessment ON candidate_assessment.user_id = p.user_id
-       LEFT JOIN relationship_assessments my_assessment ON my_assessment.user_id = me.user_id
+       LEFT JOIN relationship_assessments candidate_assessment ON candidate_assessment.user_id = p.user_id AND candidate_assessment.assessment_version = ${ASSESSMENT_VERSION}
+       LEFT JOIN relationship_assessments my_assessment ON my_assessment.user_id = me.user_id AND my_assessment.assessment_version = ${ASSESSMENT_VERSION}
        WHERE p.user_id <> $1
          AND p.gender <> me.gender
          AND p.is_visible = TRUE
@@ -2480,11 +2480,17 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
       : result.rows.length > parsedLimit;
     const profiles = result.rows.slice(0, parsedLimit).map(profile => {
       const { assessment_answers: candidateAnswers, my_assessment_answers: myAnswers, ...publicProfile } = profile;
-      const alignment = candidateAnswers && myAnswers ? financialAlignment(myAnswers, candidateAnswers).score : null;
-      const compatibilityExplanation = candidateAnswers && myAnswers
+      const assessmentsValid = isValidAssessment(candidateAnswers) && isValidAssessment(myAnswers);
+      const alignment = assessmentsValid ? financialAlignment(myAnswers, candidateAnswers).score : null;
+      const compatibilityExplanation = assessmentsValid
         ? explainAssessmentCompatibility(myAnswers, candidateAnswers)
         : null;
-      return { ...publicProfile, financialAlignment: alignment, compatibilityExplanation };
+      return {
+        ...publicProfile,
+        compatibilityScore: compatibilityExplanation?.score ?? null,
+        financialAlignment: alignment,
+        compatibilityExplanation
+      };
     });
     return res.json({
       profiles,
