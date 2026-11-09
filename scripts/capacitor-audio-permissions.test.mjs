@@ -67,7 +67,7 @@ BBBBBBBBBBBBBBBBBBBBBBBB /* Resources */ = {
 };
 /* End PBXResourcesBuildPhase section */`;
   const once = ensureIosPrivacyManifestXcodeResource(project);
-  assert.equal((once.match(/PrivacyInfo\\.xcprivacy/g) || []).length, 3);
+  assert.equal((once.match(/PrivacyInfo\.xcprivacy/g) || []).length, 3);
   assert.equal(ensureIosPrivacyManifestXcodeResource(once), once);
 });
 
