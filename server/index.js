@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { chmod, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { queuePrivatePhotoPurges } from './photoPurge.js';
 import { decryptVoiceIntro, encryptVoiceIntro, parseVoiceIntroEncryptionKey, persistVoiceIntroReview, queuePrivateVoiceIntroPurges, resolvePrivateVoiceIntroPath, validateVoiceIntro } from './voiceIntroStorage.js';
 import { pipeline } from 'node:stream/promises';
@@ -2604,6 +2604,10 @@ app.put('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession, p
         [req.authUser.id]
       );
       await mkdir(voiceIntroStorageDir, { recursive: true, mode: 0o700 });
+      const storageDirectory = await lstat(voiceIntroStorageDir);
+      if (!storageDirectory.isDirectory() || storageDirectory.isSymbolicLink()) {
+        throw new Error('voice_intro_storage_directory_invalid');
+      }
       await chmod(voiceIntroStorageDir, 0o700);
       await writeFile(filePath, encrypted, { flag: 'wx', mode: 0o600 });
       fileWritten = true;
