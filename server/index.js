@@ -707,7 +707,16 @@ app.use('/api/mobile/auth', createMobileAuthRouter({
   isValidEmail,
   verifyPassword,
   hashPassword,
-  publicUser
+  publicUser,
+  createAccountReuseDigest,
+  isAdultDate,
+  hashSessionToken,
+  screenProfilePrivate,
+  persistScreening,
+  createAccountActionToken,
+  emailDeliveryConfigured,
+  sendConfiguredEmail,
+  accountActionUrl
 }));
 
 function emailDeliveryConfigured() {
