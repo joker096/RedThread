@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS mobile_push_tokens (
   revoked_at TIMESTAMPTZ,
   revoked_reason TEXT CHECK (revoked_reason IS NULL OR revoked_reason IN (
     'logout', 'refresh_reuse', 'account_security', 'password_reset',
-    'account_unavailable', 'permission_revoked', 'token_rotated', 'session_revoked'
+    'account_unavailable', 'permission_revoked', 'token_rotated', 'provider_unregistered', 'session_revoked'
   )),
   CHECK ((revoked_at IS NULL) = (revoked_reason IS NULL))
 );
