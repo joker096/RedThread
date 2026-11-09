@@ -95,3 +95,13 @@ The integration suite covers:
 - Refresh is single-flight in the client. Do not run parallel refresh requests: the server deliberately treats reuse as a security event.
 - Browser requests continue through the existing cookie transport.
 - Google browser sign-in and Paddle checkout are hidden in native builds until native provider sign-in and a store-compliant billing design are ready.
+
+
+## Verified app links and token safety
+
+- Token-bearing verification and password-reset actions are accepted by the native app only from HTTPS URLs whose hostname exactly matches the build-time `VITE_APP_LINK_HOST`.
+- Custom `vow://` links are restricted to the non-secret identity return marker. Account action tokens must never be placed in custom-scheme URLs.
+- The existing HTTPS links from `accountActionUrl` remain the email source of truth. Android/iOS open them in the app only after domain association is configured and verified.
+- The native build workflow uses repository variable `VOW_APP_LINK_HOST` for the native Android/iOS association and runtime host allowlist. It must match `APP_URL` / `APP_ORIGIN` and contain only a hostname.
+- Publish Android `/.well-known/assetlinks.json` with the final application ID and signing-certificate SHA-256 fingerprint, and Apple `/.well-known/apple-app-site-association` with the final Team ID and bundle ID before enabling production app links.
+- Didit callback uses `APP_ORIGIN/?identityVerification=return`; the app refreshes Trust Center only when that exact HTTPS host is associated. The custom scheme callback is not trusted to carry verification credentials.
