@@ -128,7 +128,7 @@ export async function processMobilePushOutboxBatch(pool, {
       const token = decryptMobilePushToken(device.tokenCiphertext, key);
       let outcome;
       try {
-        outcome = await send({ platform: device.platform, token, payload, env });
+        outcome = await send({ platform: device.platform, token, payload, collapseId: item.id, env });
       } catch {
         outcome = { outcome: 'retry', errorCode: 'provider_unavailable' };
       }
