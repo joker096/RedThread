@@ -48,8 +48,9 @@ test('native mobile auth login, refresh rotation, replay revocation and device l
       API_PORT: String(port),
       APP_ORIGIN: 'http://localhost:3000',
       NODE_ENV: 'test',
-      EMAIL_VERIFICATION_REQUIRED: 'true',
+      EMAIL_VERIFICATION_REQUIRED: 'false',
       AUTH_RATE_LIMIT: '1000',
+      ACCOUNT_REUSE_HMAC_KEY: 'a'.repeat(64),
       DATABASE_URL: process.env.DATABASE_URL
     },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -107,6 +108,36 @@ test('native mobile auth login, refresh rotation, replay revocation and device l
       body: { email, password: 'incorrect password', ...deviceA }
     });
     assert.equal(invalidPassword.status, 401);
+
+    const registrationEmail = `mobile-register-${randomUUID()}@example.invalid`;
+    const registration = await request('/api/mobile/auth/register', {
+      method: 'POST',
+      body: {
+        email: registrationEmail,
+        password: 'Native Registration Test Password 2026!',
+        displayName: 'Mobile Registration',
+        birthDate: '1990-01-01',
+        gender: 'female',
+        country: 'Georgia',
+        city: 'Tbilisi',
+        relationshipIntent: 'family_without_marriage',
+        familyFormat: 'cohabitation',
+        hasChildren: false,
+        wantsChildren: 'discuss',
+        childrenLivingArrangement: 'not_applicable',
+        ...deviceA
+      }
+    });
+    assert.equal(registration.status, 201, logs);
+    const registered = await registration.json();
+    assert.equal(registered.user.email, registrationEmail);
+    assert.match(registered.accessToken, /^vow_access_/);
+    assert.match(registered.refreshToken, /^vow_refresh_/);
+    assert.equal(registration.headers.get('set-cookie'), null,
+      'native registration must not issue a browser cookie');
+    const registeredMe = await request('/api/mobile/auth/me', { token: registered.accessToken });
+    assert.equal(registeredMe.status, 200);
+    await db.query('DELETE FROM users WHERE id = $1', [registered.user.id]);
 
     const loginA = await request('/api/mobile/auth/login', {
       method: 'POST',
