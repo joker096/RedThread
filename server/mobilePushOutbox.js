@@ -144,7 +144,7 @@ export async function processMobilePushOutboxBatch(pool, {
       } else if (outcome?.outcome === 'invalid_token') {
         await pool.query(
           `UPDATE mobile_push_tokens
-           SET revoked_at = statement_timestamp(), revoked_reason = 'permission_revoked',
+           SET revoked_at = statement_timestamp(), revoked_reason = 'provider_unregistered',
                updated_at = statement_timestamp()
            WHERE id = $1 AND revoked_at IS NULL`,
           [item.tokenId]
