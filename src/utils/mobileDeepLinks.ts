@@ -37,3 +37,26 @@ export function parseVowDeepLink(rawUrl: unknown): VowDeepLink | null {
 
   return null;
 }
+
+type DeepLinkListener = (link: VowDeepLink) => void;
+const deepLinkListeners = new Set<DeepLinkListener>();
+const pendingDeepLinks: VowDeepLink[] = [];
+
+export function publishVowDeepLink(rawUrl: unknown): void {
+  const link = parseVowDeepLink(rawUrl);
+  if (!link) return;
+  if (deepLinkListeners.size === 0) {
+    // Preserve a cold-start link until the account UI subscribes. Keep this
+    // queue bounded because the URL may contain a one-time action token.
+    if (pendingDeepLinks.length < 3) pendingDeepLinks.push(link);
+    return;
+  }
+  for (const listener of deepLinkListeners) listener(link);
+}
+
+export function subscribeVowDeepLinks(listener: DeepLinkListener): () => void {
+  deepLinkListeners.add(listener);
+  const queued = pendingDeepLinks.splice(0, pendingDeepLinks.length);
+  for (const link of queued) listener(link);
+  return () => deepLinkListeners.delete(listener);
+}
