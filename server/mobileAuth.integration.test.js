@@ -341,6 +341,21 @@ test('native mobile auth login, refresh rotation, replay revocation and device l
     assert.equal(newPasswordLogin.status, 200, logs);
     const newPasswordPair = await newPasswordLogin.json();
     activeTokens.push(newPasswordPair.accessToken, newPasswordPair.refreshToken);
+    const sameDeviceLogin = await request('/api/mobile/auth/login', {
+      method: 'POST',
+      body: { email, password: 'New Native Password 2026! Secure', ...deviceA }
+    });
+    assert.equal(sameDeviceLogin.status, 200, logs);
+    const sameDevicePair = await sameDeviceLogin.json();
+    activeTokens.push(sameDevicePair.accessToken, sameDevicePair.refreshToken);
+    const replacedDeviceToken = await request('/api/mobile/auth/me', { token: newPasswordPair.accessToken });
+    assert.equal(replacedDeviceToken.status, 401,
+      'a new login on the same installation must replace its previous active session');
+    const activeDeviceSessions = await db.query(
+      'SELECT COUNT(*)::int AS count FROM mobile_sessions WHERE user_id = $1 AND device_id = $2 AND revoked_at IS NULL',
+      [userId, deviceA.deviceId]
+    );
+    assert.equal(activeDeviceSessions.rows[0].count, 1);
   } finally {
     if (registrationUserId) await db.query('DELETE FROM users WHERE id = $1', [registrationUserId]).catch(() => {});
     await db.query('DELETE FROM users WHERE id = $1', [pendingUserId]).catch(() => {});
