@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ASSESSMENT_QUESTIONS, type AssessmentAnswers, validateAssessmentAnswers, validateDealbreakers } from '../utils/relationshipAssessment.ts';
+import { ASSESSMENT_QUESTIONS, type AssessmentAnswers, validateAssessmentAnswers, validateDealbreakers, buildAssessmentSavePayload } from '../utils/relationshipAssessment.ts';
 import { getLocalizedAssessmentQuestions } from '../utils/assessmentTranslations.ts';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 
@@ -66,7 +66,7 @@ export const RelationshipAssessmentPanel: React.FC = () => {
         method: 'PUT',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers, ...(dealbreakersReady ? { dealbreakers } : {}) })
+        body: JSON.stringify(buildAssessmentSavePayload(answers, dealbreakers, dealbreakersReady))
       });
       if (response.status === 401) {
         setStatus('login');
