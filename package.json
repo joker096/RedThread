@@ -29,7 +29,9 @@
     "cap:open:android": "cap open android",
     "cap:open:ios": "cap open ios",
     "cap:sync:android:dev": "vite build --mode mobile-dev && cap sync android",
-    "cap:sync:ios:dev": "vite build --mode mobile-dev && cap sync ios"
+    "cap:sync:ios:dev": "vite build --mode mobile-dev && cap sync ios",
+    "cap:ensure:android": "node scripts/ensure-capacitor-platform.mjs android",
+    "cap:ensure:ios": "node scripts/ensure-capacitor-platform.mjs ios"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
