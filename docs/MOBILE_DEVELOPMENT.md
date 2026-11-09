@@ -91,3 +91,6 @@ Do not put API secrets in \`.env\` variables prefixed with \`VITE_\`; Vite embed
 - The native build workflow uses repository variable `VOW_APP_LINK_HOST` for the native Android/iOS association and runtime host allowlist. It must match `APP_URL` / `APP_ORIGIN` and contain only a hostname.
 - Publish Android `/.well-known/assetlinks.json` with the final application ID and signing-certificate SHA-256 fingerprint, and Apple `/.well-known/apple-app-site-association` with the final Team ID and bundle ID before enabling production app links.
 - Didit callback uses `APP_ORIGIN/?identityVerification=return`; the app refreshes Trust Center only when that exact HTTPS host is associated. The custom scheme callback is not trusted to carry verification credentials.
+
+- Native Didit verification opens through `@capacitor/browser` (iOS SFSafariViewController / Android Custom Tabs); browser navigation stays outside the app WebView.
+- On verified Didit return, iOS closes the presented browser. Android does not call `Browser.close()` on the return path because its Custom Tab is already removed when the verified link opens the singleTask activity.
