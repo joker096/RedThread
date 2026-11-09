@@ -34,3 +34,14 @@ export function getAssessmentTopicLabel(field: string, locale: string): string {
   if (locale === 'ru' && question) return question.category;
   return english[field]?.category || field;
 }
+
+
+export function getCompatibilityDimensionLabel(key: string, locale: string): string {
+  const englishLabels: Record<string, string> = {
+    family: 'Family', budget: 'Budget', conflict: 'Conflict', lifestyle: 'Lifestyle'
+  };
+  const russianLabels: Record<string, string> = {
+    family: 'Семья', budget: 'Финансы', conflict: 'Конфликты', lifestyle: 'Образ жизни'
+  };
+  return (locale === 'ru' ? russianLabels : englishLabels)[key] || key;
+}
