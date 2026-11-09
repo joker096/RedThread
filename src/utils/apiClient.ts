@@ -292,21 +292,24 @@ export async function mobileAuthFetch(
   const body = ['login', 'register'].includes(action)
     ? { ...payload, ...(await getMobileDeviceContext()) }
     : payload;
-  const response = await apiFetch(`/api/mobile/auth/${action}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  if (response.ok) {
-    const result = await response.clone().json().catch(() => null);
-    if (result?.accessToken && result?.refreshToken) {
-      await persistMobileSession(result as MobileSessionPayload);
+  try {
+    const response = await apiFetch(`/api/mobile/auth/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (response.ok) {
+      const result = await response.clone().json().catch(() => null);
+      if (result?.accessToken && result?.refreshToken) {
+        await persistMobileSession(result as MobileSessionPayload);
+      }
+    }
+    return response;
+  } finally {
+    if (action === 'logout' || action === 'logout-all') {
+      await clearMobileSession();
     }
   }
-  if (action === 'logout' || action === 'logout-all') {
-    await clearMobileSession();
-  }
-  return response;
 }
 
 export function installNativeApiTransport(): void {
