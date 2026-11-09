@@ -234,6 +234,14 @@ test('native mobile auth login, refresh rotation, replay revocation and device l
     });
     assert.equal(nativeMutation.status, 204, logs);
     assert.equal(nativeMutation.headers.get('access-control-allow-origin'), 'https://localhost');
+    const iosNativeMutation = await request('/api/notifications/read-all', {
+      method: 'POST',
+      token: pairA.accessToken,
+      body: {},
+      origin: 'capacitor://localhost'
+    });
+    assert.equal(iosNativeMutation.status, 204, logs);
+    assert.equal(iosNativeMutation.headers.get('access-control-allow-origin'), 'capacitor://localhost');
 
     const mismatch = await request('/api/mobile/auth/refresh', {
       method: 'POST', token: pairA.refreshToken, body: { ...deviceB }
