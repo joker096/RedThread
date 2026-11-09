@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ASSESSMENT_QUESTIONS, type AssessmentAnswers, validateAssessmentAnswers, validateDealbreakers, buildAssessmentSavePayload } from '../utils/relationshipAssessment.ts';
+import { ASSESSMENT_QUESTIONS, type AssessmentAnswers, validateAssessmentAnswers, normalizeAssessmentAnswers, validateDealbreakers, buildAssessmentSavePayload } from '../utils/relationshipAssessment.ts';
 import { getLocalizedAssessmentQuestions } from '../utils/assessmentTranslations.ts';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 
@@ -32,17 +32,19 @@ export const RelationshipAssessmentPanel: React.FC = () => {
       .then(data => {
         if (cancelled || (data && typeof data === 'object' && 'unauthenticated' in data)) return;
         const savedAnswers: unknown = data?.assessment?.answers;
+        const restoredAnswers = normalizeAssessmentAnswers(savedAnswers);
         const savedDealbreakers: unknown = data?.assessment?.dealbreakers;
+        setAnswers(restoredAnswers);
         setDealbreakers(validateDealbreakers(savedDealbreakers) ? savedDealbreakers : []);
         setDealbreakersReady(true);
         if (validateAssessmentAnswers(savedAnswers)) {
-          setAnswers(savedAnswers);
           setStatus('saved');
           setNote(t('loadedSavedAnswers'));
         } else {
-          // Keep invalid or incomplete saved answers out of the form, but still
-          // restore the independently validated non-negotiable preferences.
+          // Keep valid answers from older versions so the user only needs to
+          // complete new or changed questions before saving the current version.
           setStatus('ready');
+          if (Object.keys(restoredAnswers).length > 0) setNote(t('assessmentNeedsUpdate'));
         }
       })
       .catch(() => {
