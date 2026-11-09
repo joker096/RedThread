@@ -1,6 +1,6 @@
 # Vow Mobile Platform Readiness
 
-Status: architecture audit in progress  
+Status: architecture audit complete; native authentication foundation in progress  
 Target platforms: Android and iOS only  
 Implementation approach: preserve the existing React UI and evaluate Capacitor; keep the Node.js API and PostgreSQL backend shared.
 
@@ -17,6 +17,14 @@ Implementation approach: preserve the existing React UI and evaluate Capacitor; 
 ## Mobile-critical findings
 
 ### 1. Authentication and API transport — blocking
+
+Progress on the dedicated mobile branch:
+- Added migration `212_mobile_sessions.sql` for device-scoped native sessions and consumed refresh-token history.
+- Added strict opaque access/refresh token helpers in `server/mobileTokens.js` and unit tests.
+- Added a database integration test for token-hash constraints, refresh-history immutability and account-deletion cleanup.
+- Added `docs/MOBILE_AUTH_CONTRACT.md` defining the proposed endpoint and token lifecycle.
+
+Important: the database schema and token helpers are not a complete authentication implementation. No mobile login/refresh/logout endpoints are enabled yet, and no native app should consume this contract until endpoint-level security and lifecycle tests pass.
 
 The current client calls relative paths such as `/api/auth/me` and uses `fetch(..., { credentials: 'include' })`. The API currently authenticates with an HttpOnly `nit_session` cookie configured as `SameSite=Lax`.
 
