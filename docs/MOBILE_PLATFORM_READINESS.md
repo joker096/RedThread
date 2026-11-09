@@ -53,11 +53,12 @@ No Vow production API hostname has been selected. A public HTTPS hostname and va
 
 The API currently sends `Permissions-Policy: camera=(), microphone=(), geolocation=()`. This intentionally blocks browser media APIs. Before enabling media capture, map the actual flows and use native Capacitor plugins with narrowly scoped permission prompts. Preserve server-side upload validation and identity-verification checks. Do not request permissions at app launch.
 
-### 4. Native providers and deep links
+### 4. Native providers and verified app links
 
 - Google sign-in currently uses browser Google Identity Services and is hidden in native builds. Native provider SDK sign-in and server-side ID-token exchange remain to be implemented.
-- Email verification and password-reset query links need verified HTTPS app links / iOS Universal Links with safe browser fallback.
-- Didit verification return/deep-link behavior needs a native flow without weakening webhook signature checks.
+- Implemented: strict deep-link parsing, bounded cold-start delivery, duplicate suppression, native handling for email-verification and password-reset HTTPS links when an app-link host is configured, and the non-secret `vow://identity/return` callback.
+- Implemented: Didit opens through the Capacitor native browser surface; the verified return callback refreshes Trust Center state. Existing server-side Didit webhook signature and status checks remain authoritative.
+- Still blocked for production: domain ownership/DNS, Android `assetlinks.json` with the final signing fingerprint, Apple `apple-app-site-association` with the final Team ID/bundle ID, final application identifier, and physical-device validation. Until those are completed, HTTPS app links are prepared but not production-verified.
 
 ### 5. Billing and store policy
 
@@ -65,7 +66,7 @@ The backend remains Paddle-only. Paddle checkout is hidden in native builds pend
 
 ### 6. Push notifications and app lifecycle
 
-Native push registration, permission UX, token rotation, notification routing and deep-link handling are not yet implemented or physically tested.
+Remote push registration, permission UX, provider-token rotation and delivery routing are not implemented. In-app notifications refresh on native app resume. Deep-link parsing and callback handling are implemented, but production domain association and physical-device validation remain outstanding.
 
 ## Deployment target
 
