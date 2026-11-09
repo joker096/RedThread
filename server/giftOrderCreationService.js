@@ -1,3 +1,4 @@
+import { enqueueMobilePushOutbox } from './mobilePushTokens.js';
 import { evaluateGiftOrderCreation } from './giftOrderCreationPolicy.js';
 import { resolveProfileCountryCode } from './adCampaignRegistry.js';
 
@@ -55,10 +56,12 @@ export async function notifyGiftRequestUpdate(client, userId, orderReference, tr
     throw new Error('invalid_gift_request_update_notification');
   }
   const dedupeKey = 'gift_request_update:' + orderReference + ':' + transition;
-  return client.query(
-    "INSERT INTO user_notifications (user_id, type, metadata, dedupe_key) VALUES ($1, 'gift_request_update', $2::jsonb, $3) ON CONFLICT (user_id, dedupe_key) DO NOTHING",
+  const inserted = await client.query(
+    "INSERT INTO user_notifications (user_id, type, metadata, dedupe_key) VALUES ($1, 'gift_request_update', $2::jsonb, $3) ON CONFLICT (user_id, dedupe_key) DO NOTHING RETURNING id",
     [userId, JSON.stringify({ orderReference }), dedupeKey]
   );
+  if (inserted.rows[0]?.id) await enqueueMobilePushOutbox(client, inserted.rows[0].id, userId, 'gift_request_update');
+  return inserted;
 }
 /** Queue durable provider reconciliation without claiming a void or refund occurred. */
 export async function enqueueExpiredGiftPaymentReconciliation(client, orderId) {
@@ -626,12 +629,16 @@ export async function createGiftOrderRequest(client, {
 
   // Notify the recipient inside the same transaction as the order and audit event.
   // Metadata contains only the public order reference, never location or contact data.
-  await client.query(
+  const notification = await client.query(
     `INSERT INTO user_notifications (user_id, type, metadata, dedupe_key)
      VALUES ($1, 'gift_request', $2::jsonb, $3)
-     ON CONFLICT (user_id, dedupe_key) DO NOTHING`,
+     ON CONFLICT (user_id, dedupe_key) DO NOTHING
+     RETURNING id`,
     [recipientId, JSON.stringify({ orderReference: order.id }), `gift_request:${order.id}`]
   );
+  if (notification.rows[0]?.id) {
+    await enqueueMobilePushOutbox(client, notification.rows[0].id, recipientId, 'gift_request');
+  }
 
   return {
     status: 201,
