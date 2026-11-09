@@ -2,7 +2,7 @@ name: Mobile platform builds
 
 on:
   push:
-    branches: [feat/mobile-capacitor-foundation, feat/server-backed-chat-lifecycle, feat/compatibility-explanations]
+    branches: [feat/mobile-capacitor-foundation, feat/server-backed-chat-lifecycle, feat/compatibility-explanations, feat/mobile-push-notifications]
     paths:
       - "src/**"
       - "capacitor.config.ts"
@@ -13,6 +13,8 @@ on:
       - "package-lock.json"
       - "scripts/ensure-capacitor-platform.mjs"
       - "scripts/capacitor-entitlements.mjs"
+      - "scripts/configure-capacitor-push.mjs"
+      - "scripts/configure-capacitor-push.test.mjs"
       - "docs/MOBILE_*.md"
       - ".github/workflows/mobile-build.yml"
   workflow_dispatch:
@@ -52,6 +54,8 @@ jobs:
       - run: npm run build
       - name: Generate Android platform project
         run: npm run cap:ensure:android
+      - name: Configure Android push prerequisites
+        run: node scripts/configure-capacitor-push.mjs android
       - name: Sync Capacitor Android
         run: npx cap sync android
       - name: Build debug APK
@@ -88,6 +92,8 @@ jobs:
       - run: npm run build
       - name: Generate iOS platform project
         run: npm run cap:ensure:ios
+      - name: Configure iOS push bridge
+        run: node scripts/configure-capacitor-push.mjs ios
       - name: Sync Capacitor iOS
         run: npx cap sync ios
       - name: Build iOS Simulator app
