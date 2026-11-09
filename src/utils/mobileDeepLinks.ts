@@ -4,12 +4,13 @@ export type VowDeepLink =
   | { type: 'identity-return' };
 
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,512}$/;
+const HOST_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$/i;
 
 /**
- * Parse only explicitly supported Vow app links. Never accept arbitrary URLs,
- * credentials, duplicate token parameters, fragments or unknown query fields.
+ * Parse only verified HTTPS app links for token-bearing account actions.
+ * The custom vow:// scheme is deliberately restricted to non-secret returns.
  */
-export function parseVowDeepLink(rawUrl: unknown): VowDeepLink | null {
+export function parseVowDeepLink(rawUrl: unknown, allowedHost?: string): VowDeepLink | null {
   if (typeof rawUrl !== 'string' || rawUrl.length < 1 || rawUrl.length > 2048) return null;
 
   let url: URL;
@@ -19,22 +20,28 @@ export function parseVowDeepLink(rawUrl: unknown): VowDeepLink | null {
     return null;
   }
 
-  if (url.protocol !== 'vow:' || url.username || url.password || url.port || url.hash) return null;
+  if (url.username || url.password || url.port || url.hash) return null;
 
-  if (url.hostname === 'auth') {
-    if (url.pathname !== '/verify-email' && url.pathname !== '/reset-password') return null;
-    if ([...url.searchParams.keys()].some(key => key !== 'token')) return null;
-    const tokens = url.searchParams.getAll('token');
-    if (tokens.length !== 1 || !TOKEN_PATTERN.test(tokens[0])) return null;
-    return url.pathname === '/verify-email'
-      ? { type: 'verify-email', token: tokens[0] }
-      : { type: 'reset-password', token: tokens[0] };
+  if (url.protocol === 'vow:') {
+    if (url.hostname === 'identity' && url.pathname === '/return' && url.search === '') {
+      return { type: 'identity-return' };
+    }
+    return null;
   }
 
-  if (url.hostname === 'identity' && url.pathname === '/return' && url.search === '') {
-    return { type: 'identity-return' };
-  }
+  if (url.protocol !== 'https:' || !allowedHost || !HOST_PATTERN.test(allowedHost) ||
+      url.hostname.toLowerCase() !== allowedHost.toLowerCase() || url.pathname !== '/') return null;
 
+  if ([...url.searchParams.keys()].some(key => key !== 'verifyEmail' && key !== 'resetPassword')) return null;
+  const verifyTokens = url.searchParams.getAll('verifyEmail');
+  const resetTokens = url.searchParams.getAll('resetPassword');
+  if (verifyTokens.length + resetTokens.length !== 1) return null;
+  if (verifyTokens.length === 1 && TOKEN_PATTERN.test(verifyTokens[0])) {
+    return { type: 'verify-email', token: verifyTokens[0] };
+  }
+  if (resetTokens.length === 1 && TOKEN_PATTERN.test(resetTokens[0])) {
+    return { type: 'reset-password', token: resetTokens[0] };
+  }
   return null;
 }
 
@@ -43,8 +50,8 @@ const deepLinkListeners = new Set<DeepLinkListener>();
 const pendingDeepLinks: VowDeepLink[] = [];
 const seenDeepLinks = new Set<string>();
 
-export function publishVowDeepLink(rawUrl: unknown): void {
-  const link = parseVowDeepLink(rawUrl);
+export function publishVowDeepLink(rawUrl: unknown, allowedHost?: string): void {
+  const link = parseVowDeepLink(rawUrl, allowedHost);
   if (!link) return;
   const key = link.type === 'identity-return' ? null : link.type + ':' + link.token;
   if (key && seenDeepLinks.has(key)) return;
@@ -54,7 +61,7 @@ export function publishVowDeepLink(rawUrl: unknown): void {
   }
   if (deepLinkListeners.size === 0) {
     // Preserve a cold-start link until the account UI subscribes. Keep this
-    // queue bounded because the URL may contain a one-time action token.
+    // queue bounded because it may contain a one-time action token.
     if (pendingDeepLinks.length < 3) pendingDeepLinks.push(link);
     return;
   }
