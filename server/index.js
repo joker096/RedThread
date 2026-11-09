@@ -22,7 +22,8 @@ import { canInteract as canIdentityInteract } from './identityAccessPolicy.js';
 import { DIDIT_FREE_MONTHLY_SESSION_LIMIT, releaseDiditSessionReservation } from './diditQuota.js';
 import express from 'express';
 import { resolveTrustProxyHops } from './trustProxyConfig.js';
-import { createMobileAuthRouter } from './mobileAuthRoutes.js';
+import { applyMobileCorsHeaders, createMobileAuthRouter, isAllowedMobileOrigin, readMobileAccessToken } from './mobileAuthRoutes.js';
+import { hashMobileToken } from './mobileTokens.js';
 import { verifyGoogleIdTokenClaims } from './googleIdToken.js';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import { withPooledTransaction, rollbackPooledTransaction } from './withPooledTransaction.js';
@@ -197,6 +198,16 @@ app.post('/api/didit/webhook', express.json({ limit: '256kb', strict: true }), a
 });
 
 app.use(express.json({ limit: '32kb', strict: true }));
+
+app.use('/api', (req, res, next) => {
+  const origin = req.get('origin');
+  if (origin && isAllowedMobileOrigin(origin)) applyMobileCorsHeaders(origin, res);
+  if (req.method === 'OPTIONS') {
+    if (origin && isAllowedMobileOrigin(origin)) return res.status(204).end();
+    return res.status(403).end();
+  }
+  return next();
+});
 
 app.post('/api/paddle/checkout', validateRequestOrigin, requireSession, async (req, res) => {
   if (process.env.PADDLE_ENVIRONMENT !== 'sandbox') {
@@ -772,20 +783,47 @@ function requireDatabase(_req, res, next) {
   next();
 }
 
-function validateRequestOrigin(req, res, next) {
+async function validateRequestOrigin(req, res, next) {
   const origin = req.get('origin');
-  // All browser-originated state changes must carry an explicit, trusted Origin.
-  // This deliberately rejects origin-less cookie-authenticated mutations.
-  if (!origin) return res.status(403).json({ error: 'origin_required' });
-
-  try {
-    if (new URL(origin).origin !== new URL(allowedOrigin).origin) {
+  if (origin) {
+    try {
+      if (new URL(origin).origin === new URL(allowedOrigin).origin) return next();
+    } catch {
       return res.status(403).json({ error: 'origin_not_allowed' });
     }
-  } catch {
-    return res.status(403).json({ error: 'origin_not_allowed' });
+    if (!isAllowedMobileOrigin(origin)) {
+      return res.status(403).json({ error: 'origin_not_allowed' });
+    }
   }
-  return next();
+
+  // Browser cookie mutations still require the exact configured APP_ORIGIN.
+  // Native mutations require a live, unexpired access token and an allowlisted
+  // WebView origin (or an Origin-less native HTTP request).
+  const mobileToken = readMobileAccessToken(req.get('authorization'));
+  if (!mobileToken) {
+    return res.status(403).json({ error: origin ? 'origin_not_allowed' : 'origin_required' });
+  }
+  if (!pool) return res.status(503).json({ error: 'database_not_configured' });
+  try {
+    const authenticated = await pool.query(
+      `SELECT 1
+       FROM mobile_sessions s
+       JOIN users u ON u.id = s.user_id
+       WHERE s.access_token_hash = $1
+         AND s.access_expires_at > NOW()
+         AND s.revoked_at IS NULL
+         AND u.status = 'active'
+         AND ($2::boolean = FALSE OR u.email_verified_at IS NOT NULL)
+       LIMIT 1`,
+      [hashMobileToken(mobileToken, 'access'), emailVerificationRequired]
+    );
+    if (!authenticated.rowCount) return res.status(401).json({ error: 'not_authenticated' });
+    if (origin) applyMobileCorsHeaders(origin, res);
+    return next();
+  } catch (error) {
+    console.error('Request origin authentication failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'request_authentication_failed' });
+  }
 }
 
 function readSessionToken(req) {
@@ -825,6 +863,45 @@ function publicUser(row) {
 
 async function requireSession(req, res, next) {
   if (!pool) return res.status(503).json({ error: 'database_not_configured' });
+
+  const authorization = req.get('authorization');
+  if (authorization) {
+    const mobileToken = readMobileAccessToken(authorization);
+    if (!mobileToken) return res.status(401).json({ error: 'not_authenticated' });
+    try {
+      const mobileResult = await pool.query(
+        `SELECT u.id, u.email, u.status, u.role, u.email_verified_at,
+                u.female_trial_ends_at, u.premium_until, u.premium_lifetime,
+                u.paddle_customer_id, u.paddle_subscription_id, u.paddle_subscription_status,
+                pca.status AS paddle_checkout_status, pca.plan AS paddle_checkout_plan,
+                u.phone_verified_at, p.display_name, p.gender, p.country, p.city,
+                p.relationship_intent, s.id AS session_id
+         FROM mobile_sessions s
+         JOIN users u ON u.id = s.user_id
+         JOIN profiles p ON p.user_id = u.id
+         LEFT JOIN paddle_checkout_attempts pca ON pca.user_id = u.id
+         WHERE s.access_token_hash = $1
+           AND s.access_expires_at > NOW()
+           AND s.revoked_at IS NULL
+         LIMIT 1`,
+        [hashMobileToken(mobileToken, 'access')]
+      );
+      const mobileUser = mobileResult.rows[0];
+      if (!mobileUser || mobileUser.status !== 'active') {
+        return res.status(401).json({ error: 'not_authenticated' });
+      }
+      if (emailVerificationRequired && !mobileUser.email_verified_at) {
+        return res.status(403).json({ error: 'email_verification_required' });
+      }
+      req.authUser = mobileUser;
+      await pool.query('UPDATE mobile_sessions SET last_seen_at = NOW() WHERE id = $1', [mobileUser.session_id]);
+      return next();
+    } catch (error) {
+      console.error('Mobile session authentication failed:', error?.message || 'unknown error');
+      return res.status(500).json({ error: 'authentication_failed' });
+    }
+  }
+
   const token = readSessionToken(req);
   if (!token) return res.status(401).json({ error: 'not_authenticated' });
 
