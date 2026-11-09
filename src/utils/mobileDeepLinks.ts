@@ -4,7 +4,6 @@ export type VowDeepLink =
   | { type: 'identity-return' };
 
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,512}$/;
-const HOST_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$/i;
 
 /**
  * Parse only verified HTTPS app links for token-bearing account actions.
@@ -29,8 +28,18 @@ export function parseVowDeepLink(rawUrl: unknown, allowedHost?: string): VowDeep
     return null;
   }
 
-  if (url.protocol !== 'https:' || !allowedHost || !HOST_PATTERN.test(allowedHost) ||
-      url.hostname.toLowerCase() !== allowedHost.toLowerCase() || url.pathname !== '/') return null;
+  if (url.protocol !== 'https:' || !allowedHost || url.pathname !== '/') return null;
+  let expectedHost: string;
+  try {
+    const configured = new URL('https://' + allowedHost);
+    if (configured.username || configured.password || configured.port ||
+        configured.pathname !== '/' || configured.search || configured.hash ||
+        configured.hostname.toLowerCase() !== allowedHost.toLowerCase()) return null;
+    expectedHost = configured.hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  if (url.hostname.toLowerCase() !== expectedHost) return null;
 
   if ([...url.searchParams.keys()].some(key => key !== 'verifyEmail' && key !== 'resetPassword')) return null;
   const verifyTokens = url.searchParams.getAll('verifyEmail');
