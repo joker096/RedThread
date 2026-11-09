@@ -34,7 +34,7 @@ function validateMobileOrigin(req, res, next) {
   }
   // Origin-less native requests are accepted only on these dedicated JSON routes.
   // No CORS allow-origin header is emitted; browser cookie routes remain unchanged.
-  if (!req.is('application/json')) {
+  if (req.method !== 'GET' && !req.is('application/json')) {
     return res.status(415).json({ error: 'application_json_required' });
   }
   return next();
