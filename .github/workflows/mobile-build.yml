@@ -6,6 +6,9 @@ on:
     paths:
       - "src/**"
       - "capacitor.config.ts"
+      - "index.html"
+      - "public/**"
+      - "vite.config.ts"
       - "package.json"
       - "scripts/ensure-capacitor-platform.mjs"
       - ".github/workflows/mobile-build.yml"
