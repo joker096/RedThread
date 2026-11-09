@@ -32,6 +32,12 @@ if (Capacitor.isNativePlatform()) {
   void CapacitorApp.getLaunchUrl()
     .then(result => { if (result?.url) forwardNativeUrl(result.url); })
     .catch(() => { /* A normal app launch has no URL to process. */ });
+
+  void CapacitorApp.addListener('appStateChange', state => {
+    if (state.isActive) window.dispatchEvent(new Event('vow:app-resumed'));
+  }).catch(() => {
+    // Resume refresh is an enhancement; API focus refresh remains available.
+  });
 }
 
 createRoot(document.getElementById('root')!).render(<LocaleProvider><App /></LocaleProvider>);
