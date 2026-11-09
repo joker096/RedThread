@@ -27,7 +27,13 @@ export const ModeratorConsolePanel:React.FC=()=>{
     fetch('/api/admin/voice-intros',{credentials:'include'})
    ]);
    if(requestId!==refreshRequestId.current||actionEpoch!==sessionEpoch.current)return;
-   if(responses.some(r=>r.status===401||r.status===403)){setAllowed(false);setReady(true);return;}
+   if(responses.some(r=>r.status===401||r.status===403)){
+    sessionEpoch.current+=1;
+    for(const url of voiceAudioUrls.current.values())URL.revokeObjectURL(url);
+    voiceAudioUrls.current.clear();
+    setVoiceAudioSrcs({});
+    setAllowed(false);setReady(true);setBusy(false);return;
+   }
    const data=await Promise.all(responses.map(async (r,index)=>{const d=await r.json().catch(()=>null);if(index===4&&r.status===503&&d?.error==='l3_feature_disabled')return {submissions:[],disabled:true};if(!r.ok)throw new Error('Не удалось загрузить данные модерации.');return d||{};}));
    if(requestId!==refreshRequestId.current||actionEpoch!==sessionEpoch.current)return;
    const safeArray=<T,>(value: unknown): T[] => Array.isArray(value) ? value : [];
@@ -35,7 +41,7 @@ export const ModeratorConsolePanel:React.FC=()=>{
   }catch(e){if(requestId===refreshRequestId.current&&actionEpoch===sessionEpoch.current){setNotice(e instanceof Error?e.message:'Ошибка загрузки панели.');setReady(true);}}
   finally{if(requestId===refreshRequestId.current&&actionEpoch===sessionEpoch.current)setBusy(false);}
  },[]);
- useEffect(()=>{void refresh();const refreshOnFocus=()=>void refresh();const refreshOnSession=()=>{sessionEpoch.current+=1;refreshRequestId.current+=1;setAllowed(false);setReady(false);setNotice('');setBusy(false);void refresh();};window.addEventListener('focus',refreshOnFocus);window.addEventListener('vow:session-changed',refreshOnSession);return()=>{window.removeEventListener('focus',refreshOnFocus);window.removeEventListener('vow:session-changed',refreshOnSession);refreshRequestId.current+=1;sessionEpoch.current+=1;};},[refresh]);
+ useEffect(()=>{void refresh();const refreshOnFocus=()=>void refresh();const refreshOnSession=()=>{sessionEpoch.current+=1;refreshRequestId.current+=1;for(const url of voiceAudioUrls.current.values())URL.revokeObjectURL(url);voiceAudioUrls.current.clear();setVoiceAudioSrcs({});setAllowed(false);setReady(false);setNotice('');setBusy(false);void refresh();};window.addEventListener('focus',refreshOnFocus);window.addEventListener('vow:session-changed',refreshOnSession);return()=>{window.removeEventListener('focus',refreshOnFocus);window.removeEventListener('vow:session-changed',refreshOnSession);refreshRequestId.current+=1;sessionEpoch.current+=1;};},[refresh]);
  useEffect(()=>()=>{for(const url of voiceAudioUrls.current.values())URL.revokeObjectURL(url);voiceAudioUrls.current.clear();},[]);
  const loadVoiceAudio=async(id:string)=>{
   if(voiceAudioUrls.current.has(id))return;
