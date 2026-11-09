@@ -252,6 +252,12 @@ export const TrustCenterPanel: React.FC = () => {
 
   useEffect(() => { void load(); }, [load]);
 
+  useEffect(() => {
+    const handleIdentityReturn = () => { void load(); };
+    window.addEventListener('vow:identity-return', handleIdentityReturn);
+    return () => window.removeEventListener('vow:identity-return', handleIdentityReturn);
+  }, [load]);
+
 
   const status = (ok: boolean, yes: string, no: string) => <span className={`text-xs font-semibold ${ok ? 'text-emerald-300' : 'text-amber-300'}`}>{ok ? yes : no}</span>;
   const identityLabels: Record<IdentityStatus, string> = {
