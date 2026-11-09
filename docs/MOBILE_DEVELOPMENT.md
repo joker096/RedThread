@@ -62,6 +62,14 @@ npm run cap:open:ios
 
 iOS testing must use an HTTPS API origin. The Android-only HTTP development exception does not relax iOS App Transport Security.
 
+## Cloud platform build artifacts
+
+The `Mobile platform builds` GitHub Actions workflow generates native platform projects in clean runners and builds:
+- an unsigned Android debug APK;
+- an iOS Simulator .app bundle.
+
+The artifacts are retained for 14 days and are available under the workflow run's Artifacts section. These are compile/smoke-test outputs, not store-signed release packages. The workflow does not set a Vow API hostname, so the artifacts are not connected to a production backend until a build is made with the correct `VITE_API_BASE_URL`.
+
 ## API hostname and release blocker
 
 No Vow production API hostname has been selected yet. Until a public HTTPS API hostname and valid TLS certificate exist, a mobile package can be built for shell/emulator validation, but it cannot be considered a usable release candidate for real devices.
