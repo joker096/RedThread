@@ -69,6 +69,10 @@ BBBBBBBBBBBBBBBBBBBBBBBB /* Resources */ = {
   const once = ensureIosPrivacyManifestXcodeResource(project);
   assert.equal((once.match(/PrivacyInfo\.xcprivacy/g) || []).length, 6);
   assert.equal(ensureIosPrivacyManifestXcodeResource(once), once);
+  assert.throws(
+    () => ensureIosPrivacyManifestXcodeResource(project + '\n/* PrivacyInfo.xcprivacy */'),
+    /ios_privacy_manifest_xcode_registration_incomplete/
+  );
 });
 
 test('fails closed when the generated Xcode project has no App resource group', () => {
