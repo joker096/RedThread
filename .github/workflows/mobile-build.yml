@@ -26,6 +26,9 @@ jobs:
     name: Android debug APK
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    env:
+      VOW_APP_LINK_HOST: ${{ vars.VOW_APP_LINK_HOST }}
+      VITE_APP_LINK_HOST: ${{ vars.VOW_APP_LINK_HOST }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -64,6 +67,9 @@ jobs:
     name: iOS simulator build
     runs-on: macos-15
     timeout-minutes: 40
+    env:
+      VOW_APP_LINK_HOST: ${{ vars.VOW_APP_LINK_HOST }}
+      VITE_APP_LINK_HOST: ${{ vars.VOW_APP_LINK_HOST }}
     steps:
       - uses: actions/checkout@v4
         with:
