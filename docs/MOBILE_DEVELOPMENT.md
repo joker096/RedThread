@@ -80,7 +80,7 @@ Do not put API secrets in \`.env\` variables prefixed with \`VITE_\`; Vite embed
 
 - Google sign-in is temporarily hidden in native builds until native provider sign-in and server token exchange are implemented.
 - Paddle checkout is not exposed in native builds pending a reviewed Google Play / App Store compliant subscription design. This does not change the backend's Paddle-only integration or authorize adding Stripe.
-- Camera, microphone, push notifications, deep links and real-device verification flows are subsequent milestones, not yet release-ready.
+- Native deep-link parsing/routing and Didit browser return handling are implemented. Production App Links / Universal Links still require a chosen hostname, published association files and physical-device verification. Camera/microphone capture and remote push remain subsequent milestones; none of these flows should be described as release-ready before their external prerequisites and device tests pass.
 
 
 ## Verified app links and token safety
