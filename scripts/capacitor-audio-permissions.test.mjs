@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ensureAndroidRecordAudioPermission, ensureIosMicrophoneUsageDescription, ensureIosFilesystemPrivacyManifest } from './capacitor-audio-permissions.mjs';
+import { ensureAndroidRecordAudioPermission, ensureIosMicrophoneUsageDescription, ensureIosFilesystemPrivacyManifest, createEmptyIosPrivacyManifest } from './capacitor-audio-permissions.mjs';
 
 test('adds Android microphone permission once and preserves existing permissions', () => {
   const source = '<manifest xmlns:android="http://schemas.android.com/apk/res/android"><application /></manifest>';
@@ -35,4 +35,13 @@ test('adds the required iOS file timestamp privacy reason without overwriting ex
 test('refuses to silently overwrite a partially configured iOS privacy manifest', () => {
   const source = '<plist><dict><key>NSPrivacyAccessedAPITypes</key><array/></dict></plist>';
   assert.throws(() => ensureIosFilesystemPrivacyManifest(source), /requires_manual_merge/);
+});
+
+test('creates a valid empty iOS privacy manifest template with real XML whitespace', () => {
+  const source = createEmptyIosPrivacyManifest();
+  assert.match(source, /^<\?xml version="1\.0" encoding="UTF-8"\?>\n<plist version="1\.0">/);
+  assert.doesNotMatch(source, /\\\\n/);
+  const updated = ensureIosFilesystemPrivacyManifest(source);
+  assert.match(updated, /<plist version="1\.0">/);
+  assert.match(updated, /NSPrivacyAccessedAPICategoryFileTimestamp/);
 });
