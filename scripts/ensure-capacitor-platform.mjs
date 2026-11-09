@@ -15,7 +15,7 @@ if (!existsSync(platform)) {
     shell: process.platform === 'win32'
   });
   if (result.error) {
-    console.error(\`Could not generate Capacitor \${platform} project:\`, result.error.message);
+    console.error('Could not generate Capacitor ' + platform + ' project:', result.error.message);
     process.exit(1);
   }
   if (result.status !== 0) process.exit(result.status ?? 1);
@@ -37,17 +37,17 @@ function configureAndroidDeepLinks() {
   ];
   let insert = '';
   for (const item of filters) {
-    if (activityBody.includes(\`android:host="\${item.host}"\`)) continue;
-    insert += \`
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="vow" android:host="\${item.host}" android:pathPrefix="\${item.path}" />
-            </intent-filter>\`;
+    if (activityBody.includes('android:host="' + item.host + '"')) continue;
+    insert += '\n            <intent-filter>\n' +
+      '                <action android:name="android.intent.action.VIEW" />\n' +
+      '                <category android:name="android.intent.category.DEFAULT" />\n' +
+      '                <category android:name="android.intent.category.BROWSABLE" />\n' +
+      '                <data android:scheme="vow" android:host="' + item.host +
+      '" android:pathPrefix="' + item.path + '" />\n' +
+      '            </intent-filter>';
   }
   if (insert) {
-    xml = xml.slice(0, activityEnd) + insert + '\\n        ' + xml.slice(activityEnd);
+    xml = xml.slice(0, activityEnd) + insert + '\n        ' + xml.slice(activityEnd);
     writeFileSync(manifestPath, xml);
   }
 }
@@ -56,25 +56,19 @@ function configureIosDeepLinks() {
   const plistPath = join('ios', 'App', 'App', 'Info.plist');
   if (!existsSync(plistPath)) throw new Error('ios_info_plist_missing_after_capacitor_add');
   let plist = readFileSync(plistPath, 'utf8');
-  if (/<string>vow<\/string>/.test(plist)) return;
-  const urlType = \`
-    <dict>
-      <key>CFBundleURLName</key>
-      <string>com.vow.app</string>
-      <key>CFBundleURLSchemes</key>
-      <array>
-        <string>vow</string>
-      </array>
-    </dict>\`;
-  if (/<key>CFBundleURLTypes<\/key>\s*<array>/.test(plist)) {
-    plist = plist.replace(/(<key>CFBundleURLTypes<\/key>\s*<array>)/, \`$1\${urlType}\`);
+  if (/<string>vow<\\/string>/.test(plist)) return;
+  const urlType = '\n    <dict>\n' +
+    '      <key>CFBundleURLName</key>\n' +
+    '      <string>com.vow.app</string>\n' +
+    '      <key>CFBundleURLSchemes</key>\n' +
+    '      <array>\n        <string>vow</string>\n      </array>\n' +
+    '    </dict>';
+  if (/<key>CFBundleURLTypes<\\/key>\\s*<array>/.test(plist)) {
+    plist = plist.replace(/(<key>CFBundleURLTypes<\\/key>\\s*<array>)/, '$1' + urlType);
   } else {
-    const bundleIdentifier = /(<key>CFBundleIdentifier<\/key>\s*<string>[^<]*<\/string>)/;
+    const bundleIdentifier = /(<key>CFBundleIdentifier<\\/key>\\s*<string>[^<]*<\\/string>)/;
     if (!bundleIdentifier.test(plist)) throw new Error('ios_bundle_identifier_entry_not_found');
-    plist = plist.replace(bundleIdentifier, \`$1
-    <key>CFBundleURLTypes</key>
-    <array>\${urlType}
-    </array>\`);
+    plist = plist.replace(bundleIdentifier, '$1\n    <key>CFBundleURLTypes</key>\n    <array>' + urlType + '\n    </array>');
   }
   writeFileSync(plistPath, plist);
 }
@@ -82,4 +76,4 @@ function configureIosDeepLinks() {
 if (platform === 'android') configureAndroidDeepLinks();
 else configureIosDeepLinks();
 
-console.log(\`Capacitor \${platform} project is ready with Vow custom URL handlers.\`);
+console.log('Capacitor ' + platform + ' project is ready with Vow custom URL handlers.');
