@@ -42,6 +42,10 @@ test('mobile session schema enforces token integrity, rotation history and accou
       db.query('UPDATE mobile_refresh_token_history SET token_hash = $2 WHERE session_id = $1', [sessionId, 'd'.repeat(64)]),
       /append-only/
     );
+    await assert.rejects(
+      db.query('DELETE FROM mobile_refresh_token_history WHERE session_id = $1', [sessionId]),
+      /append-only/
+    );
 
     await assert.rejects(
       db.query(
