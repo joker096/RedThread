@@ -40,7 +40,7 @@ test('refuses to silently overwrite a partially configured iOS privacy manifest'
 test('creates a valid empty iOS privacy manifest template with real XML whitespace', () => {
   const source = createEmptyIosPrivacyManifest();
   assert.match(source, /^<\?xml version="1\.0" encoding="UTF-8"\?>\n<plist version="1\.0">/);
-  assert.doesNotMatch(source, /\\\\n/);
+  assert.equal(source.includes(String.fromCharCode(92) + 'n'), false);
   const updated = ensureIosFilesystemPrivacyManifest(source);
   assert.match(updated, /<plist version="1\.0">/);
   assert.match(updated, /NSPrivacyAccessedAPICategoryFileTimestamp/);
