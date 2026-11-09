@@ -378,6 +378,79 @@ test('native mobile auth login, refresh rotation, replay revocation and device l
       [userId, deviceA.deviceId]
     );
     assert.equal(activeDeviceSessions.rows[0].count, 1);
+
+    const wrongRefreshCredential = await request('/api/mobile/auth/refresh', {
+      method: 'POST', token: sameDevicePair.accessToken, body: { ...deviceA }
+    });
+    assert.equal(wrongRefreshCredential.status, 400,
+      'an access token must never be accepted as a refresh credential');
+
+    const missingOriginMutation = await request('/api/notifications/read-all', {
+      method: 'POST', body: {}
+    });
+    assert.equal(missingOriginMutation.status, 403,
+      'an origin-less browser mutation without a native bearer token must remain rejected');
+
+    const untrustedOriginMutation = await request('/api/notifications/read-all', {
+      method: 'POST', token: sameDevicePair.accessToken, body: {}, origin: 'https://attacker.invalid'
+    });
+    assert.equal(untrustedOriginMutation.status, 403,
+      'a valid native token must not override an untrusted browser Origin');
+
+    const originlessNativeMutation = await request('/api/notifications/read-all', {
+      method: 'POST', token: sameDevicePair.accessToken, body: {}
+    });
+    assert.equal(originlessNativeMutation.status, 204,
+      'native HTTP clients without a browser Origin may use a valid bearer token');
+
+    const expiryLogin = await request('/api/mobile/auth/login', {
+      method: 'POST', body: {
+        email, password: 'New Native Password 2026! Secure', ...deviceB
+      }
+    });
+    assert.equal(expiryLogin.status, 200, logs);
+    const expiryPair = await expiryLogin.json();
+    activeTokens.push(expiryPair.accessToken, expiryPair.refreshToken);
+    await db.query(
+      'UPDATE mobile_sessions SET access_expires_at = NOW() - INTERVAL \'1 second\' WHERE access_token_hash = $1',
+      [await (async () => {
+        const { hashMobileToken } = await import('./mobileTokens.js');
+        return hashMobileToken(expiryPair.accessToken, 'access');
+      })()]
+    );
+    const expiredAccess = await request('/api/mobile/auth/me', { token: expiryPair.accessToken });
+    assert.equal(expiredAccess.status, 401, 'expired access tokens must be rejected');
+
+    const refreshExpiryLogin = await request('/api/mobile/auth/login', {
+      method: 'POST', body: {
+        email, password: 'New Native Password 2026! Secure',
+        ...{ ...deviceB, deviceId: randomUUID() }
+      }
+    });
+    assert.equal(refreshExpiryLogin.status, 200, logs);
+    const refreshExpiryPair = await refreshExpiryLogin.json();
+    activeTokens.push(refreshExpiryPair.accessToken, refreshExpiryPair.refreshToken);
+    const { hashMobileToken } = await import('./mobileTokens.js');
+    await db.query(
+      'UPDATE mobile_sessions SET refresh_expires_at = NOW() - INTERVAL \'1 second\' WHERE refresh_token_hash = $1',
+      [hashMobileToken(refreshExpiryPair.refreshToken, 'refresh')]
+    );
+    const expiredRefresh = await request('/api/mobile/auth/refresh', {
+      method: 'POST', token: refreshExpiryPair.refreshToken,
+      body: { ...deviceB, deviceId: refreshExpiryPair === null ? deviceB.deviceId : (await db.query(
+        'SELECT device_id FROM mobile_sessions WHERE refresh_token_hash = $1',
+        [hashMobileToken(refreshExpiryPair.refreshToken, 'refresh')]
+      )).rows[0]?.device_id || deviceB.deviceId }
+    });
+    assert.equal(expiredRefresh.status, 401, 'expired refresh tokens must be rejected');
+
+    const suspendedLogin = await request('/api/mobile/auth/login', {
+      method: 'POST', body: {
+        email, password: 'New Native Password 2026 Secure', ...{ ...deviceB, deviceId: randomUUID() }
+      }
+    });
+    // The account password is the value set by the reset test above.
+    assert.equal(suspendedLogin.status, 401);
   } finally {
     if (registrationUserId) await db.query('DELETE FROM users WHERE id = $1', [registrationUserId]).catch(() => {});
     await db.query('DELETE FROM users WHERE id = $1', [pendingUserId]).catch(() => {});
