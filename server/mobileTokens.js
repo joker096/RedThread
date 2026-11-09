@@ -21,8 +21,8 @@ export function hashMobileToken(token, expectedKind) {
 
 export function readMobileBearerToken(header) {
   if (typeof header !== 'string' || header.length > 300) return null;
-  const match = /^Bearer (vow_access_[A-Za-z0-9_-]{43})$/i.exec(header);
-  if (!match) return null;
+  const match = /^Bearer (.+)$/i.exec(header);
+  if (!match || !/^vow_access_[A-Za-z0-9_-]{43}$/.test(match[1])) return null;
   return match[1];
 }
 
