@@ -87,13 +87,13 @@ export function classifyApnsResponse(status, payload = {}) {
   return { outcome: 'failed', errorCode: 'provider_rejected_payload' };
 }
 
-export function buildFcmMessage(token, payload) {
+export function buildFcmMessage(token, payload, collapseId = undefined) {
   return {
     message: {
       token,
       notification: { title: payload.title, body: payload.body },
       data: { type: payload.data.type, route: payload.data.route },
-      android: { priority: 'HIGH', notification: { channel_id: 'vow_messages' } }
+      android: { priority: 'HIGH', ...(collapseId ? { collapse_key: collapseId } : {}), notification: { channel_id: 'vow_messages' } }
     }
   };
 }
@@ -118,6 +118,7 @@ async function getFcmAccessToken(config, fetchImpl) {
   const response = await fetchImpl(FCM_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    signal: AbortSignal.timeout(15_000),
     body: new URLSearchParams({
       grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
       assertion
@@ -135,7 +136,7 @@ async function getFcmAccessToken(config, fetchImpl) {
   return fcmAccessTokenCache.value;
 }
 
-async function sendApnsRequest({ host, token, topic, providerToken, payload, http2Module = http2 }) {
+async function sendApnsRequest({ host, token, topic, providerToken, payload, collapseId, http2Module = http2 }) {
   return new Promise((resolve, reject) => {
     const client = http2Module.connect(host);
     let status = 0;
@@ -148,7 +149,8 @@ async function sendApnsRequest({ host, token, topic, providerToken, payload, htt
       if (error) reject(error);
       else resolve(result);
     };
-    client.once('error', error => finish(new Error('apns_transport_unavailable')));
+    client.once('error', () => finish(new Error('apns_transport_unavailable')));
+    if (typeof client.setTimeout === 'function') client.setTimeout(15_000, () => finish(new Error('apns_transport_timeout')));
     const request = client.request({
       ':method': 'POST',
       ':path': '/3/device/' + encodeURIComponent(token),
@@ -156,6 +158,7 @@ async function sendApnsRequest({ host, token, topic, providerToken, payload, htt
       'apns-topic': topic,
       'apns-push-type': 'alert',
       'apns-priority': '10',
+      ...(collapseId ? { 'apns-collapse-id': collapseId.slice(0, 64) } : {}),
       'content-type': 'application/json'
     });
     request.on('response', headers => { status = Number(headers[':status']) || 0; });
@@ -171,7 +174,7 @@ async function sendApnsRequest({ host, token, topic, providerToken, payload, htt
   });
 }
 
-export async function sendMobilePush({ platform, token, payload, env = process.env, fetchImpl = fetch, http2Module = http2 }) {
+export async function sendMobilePush({ platform, token, payload, collapseId, env = process.env, fetchImpl = fetch, http2Module = http2 }) {
   if (platform === 'android') {
     const projectId = (env.FIREBASE_PROJECT_ID || '').trim();
     const clientEmail = (env.FIREBASE_CLIENT_EMAIL || '').trim();
@@ -183,7 +186,8 @@ export async function sendMobilePush({ platform, token, payload, env = process.e
       {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildFcmMessage(token, payload))
+        body: JSON.stringify(buildFcmMessage(token, payload, collapseId)),
+        signal: AbortSignal.timeout(15_000)
       }
     );
     const data = await response.json().catch(() => ({}));
@@ -207,7 +211,7 @@ export async function sendMobilePush({ platform, token, payload, env = process.e
       apnsProviderTokenCache.set(cacheKey, { value: providerToken, expiresAt: now + APNS_TOKEN_TTL_MS });
     }
     const host = environment === 'production' ? 'https://api.push.apple.com' : 'https://api.sandbox.push.apple.com';
-    const response = await sendApnsRequest({ host, token, topic, providerToken, payload, http2Module });
+    const response = await sendApnsRequest({ host, token, topic, providerToken, payload, collapseId, http2Module });
     return classifyApnsResponse(response.status, response.payload);
   }
   throw new Error('unsupported_mobile_push_platform');
