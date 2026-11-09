@@ -64,10 +64,15 @@ export function ensureIosPrivacyManifestXcodeResource(project) {
   if (typeof project !== 'string' || !project.includes('/* Begin PBXBuildFile section */')) {
     throw new TypeError('iOS Xcode project is invalid');
   }
-  if (project.includes('PrivacyInfo.xcprivacy')) return project;
-
   const buildFileId = 'A11CE0000000000000000001';
   const fileReferenceId = 'A11CE0000000000000000002';
+  if (project.includes('PrivacyInfo.xcprivacy')) {
+    if (project.includes(buildFileId) && project.includes(fileReferenceId)) return project;
+    throw new Error('ios_privacy_manifest_xcode_registration_incomplete');
+  }
+  if (project.includes(buildFileId) || project.includes(fileReferenceId)) {
+    throw new Error('ios_privacy_manifest_xcode_reference_id_collision');
+  }
   let updated = project;
 
   const buildFileEnd = '/* End PBXBuildFile section */';
