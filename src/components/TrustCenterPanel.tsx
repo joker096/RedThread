@@ -261,7 +261,11 @@ export const TrustCenterPanel: React.FC = () => {
   useEffect(() => {
     const handleIdentityReturn = () => { void load(); };
     window.addEventListener('vow:identity-return', handleIdentityReturn);
-    return () => window.removeEventListener('vow:identity-return', handleIdentityReturn);
+    window.addEventListener('vow:app-resumed', handleIdentityReturn);
+    return () => {
+      window.removeEventListener('vow:identity-return', handleIdentityReturn);
+      window.removeEventListener('vow:app-resumed', handleIdentityReturn);
+    };
   }, [load]);
 
 
