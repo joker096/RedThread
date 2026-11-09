@@ -72,3 +72,23 @@ export function safeMobilePushPayload(type, locale = 'en') {
   if (!payload) return null;
   return { ...payload, data: { type, route: payload.route } };
 }
+
+
+export async function enqueueMobilePushOutbox(client, notificationId, userId, type) {
+  const payload = safeMobilePushPayload(type);
+  if (!notificationId || !payload) return 0;
+  const result = await client.query(
+    `INSERT INTO mobile_push_outbox
+       (notification_id, user_id, token_id, event_type, deep_link)
+     SELECT $1, $2, push_token.id, $3, $4
+     FROM mobile_push_tokens push_token
+     JOIN mobile_sessions mobile_session ON mobile_session.id = push_token.session_id
+     WHERE push_token.user_id = $2
+       AND push_token.revoked_at IS NULL
+       AND mobile_session.revoked_at IS NULL
+       AND mobile_session.refresh_expires_at > NOW()
+     ON CONFLICT (notification_id, token_id) DO NOTHING`,
+    [notificationId, userId, type, payload.route]
+  );
+  return result.rowCount || 0;
+}
