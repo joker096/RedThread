@@ -30,7 +30,7 @@ const isNative = Capacitor.isNativePlatform() &&
 let accessToken: string | null = null;
 let accessTokenExpiresAt = 0;
 let refreshInFlight: Promise<RefreshResult> | null = null;
-let originalFetch: typeof fetch = globalThis.fetch.bind(globalThis);
+let nativeFetch: typeof fetch | null = null;
 let transportInstalled = false;
 
 function apiBaseUrl(): string {
@@ -155,7 +155,7 @@ async function performRefresh(): Promise<RefreshResult> {
     refreshToken = await secureGetString(REFRESH_TOKEN_KEY);
     if (!refreshToken) return 'invalid';
     device = await getMobileDeviceContext();
-    const response = await originalFetch(nativeApiUrl('/api/mobile/auth/refresh'), {
+    const response = await (nativeFetch || globalThis.fetch.bind(globalThis))(nativeApiUrl('/api/mobile/auth/refresh'), {
       method: 'POST',
       credentials: 'omit',
       headers: {
@@ -231,9 +231,10 @@ export async function apiFetch(
   input: RequestInfo | URL,
   init?: RequestInit
 ): Promise<Response> {
-  if (!isNative) return originalFetch(input, init);
+  if (!isNative) return globalThis.fetch(input, init);
+  const transport = nativeFetch || globalThis.fetch.bind(globalThis);
   const path = apiPathFrom(input);
-  if (!path) return originalFetch(input, init);
+  if (!path) return transport(input, init);
 
   const authEndpoint = AUTH_ENDPOINT.test(path.split('?', 1)[0]);
   if (!authEndpoint && (!accessToken || accessTokenExpiresAt <= Date.now() + ACCESS_REFRESH_SKEW_MS)) {
@@ -247,14 +248,14 @@ export async function apiFetch(
   }
 
   const request = createNativeRequest(input, init, accessToken);
-  let response = await originalFetch(request.clone());
+  let response = await transport(request.clone());
 
   if (response.status === 401 && accessToken && !authEndpoint) {
     const refreshed = await refreshMobileSession();
     if (refreshed === 'refreshed' && accessToken) {
       const headers = new Headers(request.headers);
       headers.set('Authorization', `Bearer ${accessToken}`);
-      response = await originalFetch(new Request(request, { headers }));
+      response = await transport(new Request(request, { headers }));
     } else if (refreshed === 'unavailable') {
       return new Response(JSON.stringify({ error: 'session_refresh_unavailable' }), {
         status: 503,
@@ -292,7 +293,7 @@ export async function mobileAuthFetch(
 
 export function installNativeApiTransport(): void {
   if (!isNative || transportInstalled || typeof window === 'undefined') return;
-  originalFetch = window.fetch.bind(window);
+  nativeFetch = window.fetch.bind(window);
   window.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
     apiFetch(input, init)) as typeof window.fetch;
   transportInstalled = true;
