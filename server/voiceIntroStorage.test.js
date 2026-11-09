@@ -1,0 +1,100 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import {
+  decryptVoiceIntro,
+  encryptVoiceIntro,
+  parseVoiceIntroEncryptionKey,
+  resolvePrivateVoiceIntroPath,
+  validateVoiceIntro,
+  persistVoiceIntroReview,
+  VOICE_INTRO_LIMITS
+} from './voiceIntroStorage.js';
+
+const key = Buffer.alloc(32, 7);
+
+test('voice intro encryption uses authenticated encryption and rejects tampering', () => {
+  const plain = Buffer.from('short private voice introduction');
+  const encrypted = encryptVoiceIntro(plain, key);
+  assert.notDeepEqual(encrypted, plain);
+  assert.deepEqual(decryptVoiceIntro(encrypted, key), plain);
+  const tampered = Buffer.from(encrypted);
+  tampered[tampered.length - 1] ^= 1;
+  assert.throws(() => decryptVoiceIntro(tampered, key), /voice_intro_authentication_failed/);
+  assert.throws(() => decryptVoiceIntro(Buffer.from('not encrypted'), key), /invalid_voice_intro_ciphertext/);
+});
+
+test('voice intro key parser accepts only a 32-byte hexadecimal key', () => {
+  assert.equal(parseVoiceIntroEncryptionKey('not-a-key'), null);
+  assert.equal(parseVoiceIntroEncryptionKey('a'.repeat(64)).length, 32);
+  assert.equal(parseVoiceIntroEncryptionKey('a'.repeat(63)), null);
+});
+
+test('voice intro storage paths are constrained to one UUID encrypted file under the private root', () => {
+  const id = randomUUID();
+  assert.equal(resolvePrivateVoiceIntroPath('/private/voice/' + id + '.enc', '/private/voice'), '/private/voice/' + id + '.enc');
+  assert.throws(() => resolvePrivateVoiceIntroPath('/private/voice/../secret.enc', '/private/voice'), /outside the configured storage root/);
+  assert.throws(() => resolvePrivateVoiceIntroPath('/private/voice/not-a-uuid.enc', '/private/voice'), /outside the configured storage root/);
+});
+
+test('voice intro validation enforces AAC, size and 15–25 second duration using parsed media metadata', async () => {
+  const parser = async () => ({ format: { codec: 'AAC', duration: 20 } });
+  const valid = await validateVoiceIntro(Buffer.alloc(100), 'audio/mp4; codecs=aac', parser);
+  assert.deepEqual(valid, { mimeType: 'audio/mp4', durationMs: 20_000, byteSize: 100 });
+  await assert.rejects(() => validateVoiceIntro(Buffer.alloc(100), 'audio/mpeg', parser), /unsupported_voice_intro_format/);
+  await assert.rejects(() => validateVoiceIntro(Buffer.alloc(100), 'audio/mp4', async () => ({ format: { codec: 'AAC', duration: 14.9 } })), /voice_intro_duration_out_of_range/);
+  await assert.rejects(() => validateVoiceIntro(Buffer.alloc(100), 'audio/mp4', async () => ({ format: { codec: 'AAC', duration: 25.1 } })), /voice_intro_duration_out_of_range/);
+  await assert.rejects(() => validateVoiceIntro(Buffer.alloc(100), 'audio/mp4', async () => ({ format: { codec: 'MP3', duration: 20 } })), /invalid_voice_intro_metadata/);
+  await assert.rejects(() => validateVoiceIntro(Buffer.alloc(VOICE_INTRO_LIMITS.maxBytes + 1), 'audio/mp4', parser), /voice_intro_too_large/);
+});
+
+test('rejecting a voice intro queues encrypted media for purge and writes an audit event', async () => {
+  const statements = [];
+  const storagePath = '/private/voice/' + randomUUID() + '.enc';
+  const client = {
+    query: async (sql, params) => {
+      statements.push({ sql: sql.replace(/\s+/g, ' ').trim(), params });
+      if (sql.includes('UPDATE profile_voice_intros')) {
+        return { rows: [{ id: 'voice-1', userId: 'user-1', storagePath }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    }
+  };
+  const result = await persistVoiceIntroReview(client, {
+    voiceIntroId: 'voice-1', ownerId: 'user-1', moderatorId: 'moderator-1',
+    status: 'rejected', reason: 'manual_review_rejected'
+  });
+  assert.deepEqual(result, { id: 'voice-1', userId: 'user-1', reviewStatus: 'rejected' });
+  const purge = statements.find(item => item.sql.startsWith('INSERT INTO private_voice_intro_purge_queue'));
+  assert.ok(purge);
+  assert.deepEqual(purge.params, [[storagePath]]);
+  assert.ok(statements.some(item => item.sql.startsWith('INSERT INTO moderation_audit_log')));
+});
+
+test('approving a voice intro preserves the encrypted media and writes an audit event', async () => {
+  const statements = [];
+  const client = {
+    query: async (sql, params) => {
+      statements.push({ sql: sql.replace(/\s+/g, ' ').trim(), params });
+      if (sql.includes('UPDATE profile_voice_intros')) {
+        return { rows: [{ id: 'voice-2', userId: 'user-2', storagePath: '/private/voice/' + randomUUID() + '.enc' }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    }
+  };
+  const result = await persistVoiceIntroReview(client, {
+    voiceIntroId: 'voice-2', ownerId: 'user-2', moderatorId: 'moderator-2',
+    status: 'approved'
+  });
+  assert.equal(result.reviewStatus, 'approved');
+  assert.equal(statements.some(item => item.sql.startsWith('INSERT INTO private_voice_intro_purge_queue')), false);
+  assert.ok(statements.some(item => item.sql.startsWith('INSERT INTO moderation_audit_log')));
+});
+
+test('voice intro review rejects invalid status before database writes', async () => {
+  let writes = 0;
+  await assert.rejects(() => persistVoiceIntroReview({ query: async () => { writes += 1; } }, {
+    voiceIntroId: 'voice-3', ownerId: 'user-3', moderatorId: 'moderator-3', status: 'pending'
+  }), /invalid_voice_intro_review_status/);
+  assert.equal(writes, 0);
+});
