@@ -2,7 +2,7 @@ name: Mobile platform builds
 
 on:
   push:
-    branches: [feat/mobile-capacitor-foundation]
+    branches: [feat/mobile-capacitor-foundation, feat/server-backed-chat-lifecycle]
     paths:
       - "src/**"
       - "capacitor.config.ts"

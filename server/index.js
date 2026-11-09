@@ -3812,6 +3812,8 @@ app.get('/api/matches', requireSession, async (req, res) => {
     }
     const result = await client.query(
       `SELECT m.id,
+         m.created_at + INTERVAL '72 hours' AS "chatExpiresAt",
+         (m.created_at + INTERVAL '72 hours' <= clock_timestamp()) AS "chatExpired",
          other.user_id AS "partnerId", other.display_name AS "displayName",
          EXTRACT(YEAR FROM AGE(CURRENT_DATE, other.birth_date))::int AS age,
          other.country, other.city,
@@ -3986,7 +3988,9 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
       return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
     }
     const access = await client.query(
-      `SELECT m.user_a_id, m.user_b_id
+      `SELECT m.user_a_id, m.user_b_id,
+              m.created_at + INTERVAL '72 hours' AS chat_expires_at,
+              (m.created_at + INTERVAL '72 hours' <= clock_timestamp()) AS chat_expired
        FROM matches m
        JOIN users sender ON sender.id = $2 AND sender.status = 'active'
        JOIN users recipient ON recipient.id = $3 AND recipient.status = 'active'
@@ -4007,6 +4011,10 @@ app.post('/api/matches/:matchId/messages', messageLimiter, validateRequestOrigin
     if (access.rowCount === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'match_not_found' });
+    }
+    if (access.rows[0].chat_expired) {
+      await client.query('ROLLBACK');
+      return res.status(410).json({ error: 'chat_window_expired', chatExpiresAt: new Date(access.rows[0].chat_expires_at).toISOString() });
     }
     // Blocking either participant must stop new messages as well as history reads.
     // Both account-safety locks are already held, so this check is serialized
