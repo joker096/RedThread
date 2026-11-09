@@ -108,9 +108,11 @@ export function assessmentCompatibilityBreakdown(first, second, firstDealbreaker
   const dimensions = Object.entries(ASSESSMENT_DIMENSIONS).map(([id, fields]) => {
     const aligned = fields.filter(key => first[key] === second[key]);
     const differences = fields.filter(key => first[key] !== second[key]);
+    const totalWeight = fields.reduce((sum, key) => sum + ASSESSMENT_WEIGHTS[key], 0);
+    const alignedWeight = aligned.reduce((sum, key) => sum + ASSESSMENT_WEIGHTS[key], 0);
     return {
       id,
-      score: Math.round(aligned.length / fields.length * 100),
+      score: Math.round(alignedWeight / totalWeight * 100),
       alignedCount: aligned.length,
       total: fields.length,
       differences
