@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseVowDeepLink } from './mobileDeepLinks.ts';
+import { parseVowDeepLink, publishVowDeepLink, subscribeVowDeepLinks } from './mobileDeepLinks.ts';
 
 const token = 'a'.repeat(64);
 
@@ -33,4 +33,20 @@ test('rejects malformed, ambiguous and untrusted app links', () => {
     'vow://identity/other'
   ];
   for (const value of invalid) assert.equal(parseVowDeepLink(value), null, String(value));
+});
+
+test('queues cold-start links until the UI subscribes and suppresses duplicate delivery', () => {
+  const coldToken = 'b'.repeat(64);
+  const raw = `vow://auth/reset-password?token=${coldToken}`;
+  publishVowDeepLink(raw);
+  const received: unknown[] = [];
+  const unsubscribe = subscribeVowDeepLinks(link => received.push(link));
+  assert.deepEqual(received, [{ type: 'reset-password', token: coldToken }]);
+
+  publishVowDeepLink(raw);
+  assert.equal(received.length, 1, 'the same one-time token must not be processed twice');
+  const nextToken = 'c'.repeat(64);
+  publishVowDeepLink(`vow://auth/verify-email?token=${nextToken}`);
+  assert.deepEqual(received[1], { type: 'verify-email', token: nextToken });
+  unsubscribe();
 });
