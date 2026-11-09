@@ -548,6 +548,12 @@ export function createMobileAuthRouter({
         return res.status(403).json({ error: 'email_verification_required' });
       }
 
+      await client.query(
+        `UPDATE mobile_sessions
+         SET revoked_at = NOW(), revoked_reason = 'logout'
+         WHERE user_id = $1 AND device_id = $2 AND revoked_at IS NULL`,
+        [user.id, device.deviceId]
+      );
       const activeCount = await client.query(
         'SELECT COUNT(*)::int AS count FROM mobile_sessions WHERE user_id = $1 AND revoked_at IS NULL AND refresh_expires_at > NOW()',
         [user.id]
