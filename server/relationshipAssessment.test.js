@@ -21,3 +21,25 @@ test('financial alignment compares declared preferences without labeling a perso
   assert.equal(result.score, 33);
   assert.equal(result.alignedCount, 1);
 });
+
+
+test('compatibility explanations group alignment and differences into four useful dimensions', async () => {
+  const { explainAssessmentCompatibility } = await import('./relationshipAssessment.js');
+  const other = { ...answers, children: 'do_not_want', financialModel: 'provider_full', conflictStyle: 'avoid', relocation: 'international' };
+  const result = explainAssessmentCompatibility(answers, other);
+  assert.equal(result.version, 2);
+  assert.equal(result.score, assessmentCompatibility(answers, other).score);
+  assert.deepEqual(result.dimensions.map(item => item.key), ['family', 'budget', 'conflict', 'lifestyle']);
+  assert.deepEqual(result.dimensions.find(item => item.key === 'family').discussionPoints, ['children']);
+  assert.deepEqual(result.dimensions.find(item => item.key === 'budget').discussionPoints, ['financialModel']);
+  assert.deepEqual(result.dimensions.find(item => item.key === 'conflict').discussionPoints, ['conflictStyle']);
+  assert.deepEqual(result.dimensions.find(item => item.key === 'lifestyle').discussionPoints, ['relocation']);
+  assert.deepEqual(result.dealbreakers, []);
+  assert.equal(result.dealbreakersConfigured, false);
+});
+
+test('compatibility explanations reject incomplete or malformed answer sets', async () => {
+  const { explainAssessmentCompatibility } = await import('./relationshipAssessment.js');
+  assert.equal(explainAssessmentCompatibility(answers, { children: 'want_soon' }), null);
+  assert.equal(explainAssessmentCompatibility(null, answers), null);
+});
