@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 import { PaddleSubscriptionPanel } from './PaddleSubscriptionPanel.tsx';
 import { apiFetch, clearMobileSession, isNativeVowApp, mobileAuthFetch } from '../utils/apiClient.ts';
+import { subscribeVowDeepLinks, type VowDeepLink } from '../utils/mobileDeepLinks.ts';
 
 declare global {
   interface Window {
@@ -212,6 +213,51 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       window.history.replaceState({}, '', window.location.pathname + (params.size ? '?' + params.toString() : '') + window.location.hash);
     }
     return () => { cancelled = true; auxiliaryRequestIdRef.current += 1; };
+  }, [nativeApp, t]);
+
+
+  useEffect(() => {
+    if (!nativeApp) return;
+    let cancelled = false;
+    const unsubscribe = subscribeVowDeepLinks((link: VowDeepLink) => {
+      if (link.type === 'identity-return') {
+        window.dispatchEvent(new Event('vow:identity-return'));
+        setMessage('Возврат из проверки личности получен. Обновляем статус в Центре безопасности.');
+        return;
+      }
+      if (link.type === 'reset-password') {
+        setResetToken(link.token);
+        setResetPassword('');
+        setShowReset(true);
+        setMode('login');
+        setMessage('Ссылка для сброса пароля получена. Задайте новый пароль.');
+        return;
+      }
+      const requestId = ++auxiliaryRequestIdRef.current;
+      setBusy(true);
+      setMessage('');
+      void mobileAuthFetch('verify-email', { token: link.token })
+        .then(async response => {
+          await response.json().catch(() => null);
+          if (cancelled || requestId !== auxiliaryRequestIdRef.current) return;
+          if (!response.ok) throw new Error(t('authVerificationLinkInvalid'));
+          setMessage(t('authEmailVerified'));
+          setMode('login');
+          setCanResendVerification(false);
+        })
+        .catch(error => {
+          if (!cancelled && requestId === auxiliaryRequestIdRef.current) {
+            setMessage(error instanceof Error ? error.message : t('authVerificationFailed'));
+          }
+        })
+        .finally(() => {
+          if (!cancelled && requestId === auxiliaryRequestIdRef.current) setBusy(false);
+        });
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, [nativeApp, t]);
 
   const handleGoogleRegistrationTicket = useCallback(async (credential: string, nonce: string): Promise<GoogleAuthAttemptResult> => {
