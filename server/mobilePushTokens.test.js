@@ -49,5 +49,6 @@ test('push payloads are generic and contain no match, message, identity or gift 
     title: 'Vow', body: 'You have a gift request to review.',
     route: '/gifts', data: { type: 'gift_request', route: '/gifts' }
   });
+  assert.equal(safeMobilePushPayload('new_message', 'ru').body, 'У вас новое сообщение.');
   assert.equal(safeMobilePushPayload('unknown'), null);
 });
