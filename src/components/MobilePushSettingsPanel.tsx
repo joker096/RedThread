@@ -27,6 +27,20 @@ export const MobilePushSettingsPanel: FC = () => {
     return next;
   }, []);
 
+  const preparePlatform = useCallback(async (platform: PushStatus['platform']) => {
+    if (platform === 'android') {
+      await PushNotifications.createChannel({
+        id: 'vow_messages',
+        name: 'Vow messages',
+        description: 'Private updates about matches, messages and gifts',
+        importance: 5,
+        visibility: -1,
+        sound: 'default',
+        vibration: true
+      });
+    }
+  }, []);
+
   const saveToken = useCallback(async (token: string) => {
     const response = await fetch('/api/mobile/push-token', {
       method: 'PUT',
@@ -79,6 +93,7 @@ export const MobilePushSettingsPanel: FC = () => {
         if (!next?.available) return;
         const permission = await PushNotifications.checkPermissions();
         if (permission.receive === 'granted' && next.registered) {
+          await preparePlatform(next.platform);
           await PushNotifications.register();
         } else if (permission.receive === 'denied' && next.registered) {
           await fetch('/api/mobile/push-token', { method: 'DELETE', credentials: 'include' });
@@ -97,7 +112,7 @@ export const MobilePushSettingsPanel: FC = () => {
       void Promise.all(listeners.current.map(handle => handle.remove()));
       listeners.current = [];
     };
-  }, [refreshStatus, saveToken, t]);
+  }, [preparePlatform, refreshStatus, saveToken, t]);
 
   const enable = async () => {
     if (!status.available || busy) return;
@@ -110,6 +125,7 @@ export const MobilePushSettingsPanel: FC = () => {
         setNotice(t('pushPermissionDenied'));
         return;
       }
+      await preparePlatform(status.platform);
       setNotice(t('pushRegistrationPending'));
       await PushNotifications.register();
     } catch {
