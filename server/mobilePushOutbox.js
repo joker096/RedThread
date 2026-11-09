@@ -89,7 +89,7 @@ export async function processMobilePushOutboxBatch(pool, {
   for (const item of claimed) {
     try {
       const current = await pool.query(
-        `SELECT token.platform, token.token_ciphertext AS "tokenCiphertext",
+        `SELECT token.platform, token.locale, token.token_ciphertext AS "tokenCiphertext",
                 token.revoked_at AS "tokenRevokedAt",
                 session.revoked_at AS "sessionRevokedAt",
                 session.refresh_expires_at AS "refreshExpiresAt",
@@ -114,7 +114,7 @@ export async function processMobilePushOutboxBatch(pool, {
         summary.failed += 1;
         continue;
       }
-      const payload = safeMobilePushPayload(item.eventType);
+      const payload = safeMobilePushPayload(item.eventType, device.locale);
       if (!payload) {
         await pool.query(
           `UPDATE mobile_push_outbox
