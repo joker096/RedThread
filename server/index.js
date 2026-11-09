@@ -3880,9 +3880,17 @@ app.get('/api/matches/:matchId/compatibility', requireSession, async (req, res) 
        FROM matches m
        JOIN users me ON me.id = $2 AND me.status = 'active'
        JOIN users partner ON partner.id = $3 AND partner.status = 'active'
+       JOIN profiles actor_profile ON actor_profile.user_id = me.id
        JOIN profiles partner_profile ON partner_profile.user_id = partner.id
        WHERE m.id = $1 AND m.status = 'active'
          AND ((m.user_a_id = $2 AND m.user_b_id = $3) OR (m.user_a_id = $3 AND m.user_b_id = $2))
+         AND (actor_profile.gender <> 'male' OR (
+           EXISTS (
+             SELECT 1 FROM identity_verifications actor_iv
+             WHERE actor_iv.user_id = me.id AND actor_iv.provider = 'didit'
+               AND actor_iv.status = 'verified' AND actor_iv.provider_environment = 'live'
+           ) AND identity_l3_has_active_approval(me.id)
+         ))
          AND (partner_profile.gender <> 'male' OR (
            EXISTS (
              SELECT 1 FROM identity_verifications iv
