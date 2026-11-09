@@ -674,6 +674,15 @@ app.get('/api/paddle/config', requireSession, (req, res) => {
 const photoStorageDir = path.resolve(process.env.PHOTO_STORAGE_DIR || 'uploads/private-photos');
 const voiceIntroStorageDir = path.resolve(process.env.VOICE_INTRO_STORAGE_DIR || 'uploads/private-voice-intros');
 
+async function ensurePrivateVoiceIntroStorageDirectory() {
+  await mkdir(voiceIntroStorageDir, { recursive: true, mode: 0o700 });
+  const storageDirectory = await lstat(voiceIntroStorageDir);
+  if (!storageDirectory.isDirectory() || storageDirectory.isSymbolicLink()) {
+    throw new Error('voice_intro_storage_directory_invalid');
+  }
+  await chmod(voiceIntroStorageDir, 0o700);
+}
+
 const authLimiter = rateLimit({
   ...(pool ? { store: new PostgresRateLimitStore(pool, 'auth') } : {}),
   windowMs: 15 * 60 * 1000,
@@ -2603,12 +2612,7 @@ app.put('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession, p
         'SELECT storage_path FROM profile_voice_intros WHERE user_id = $1 FOR UPDATE',
         [req.authUser.id]
       );
-      await mkdir(voiceIntroStorageDir, { recursive: true, mode: 0o700 });
-      const storageDirectory = await lstat(voiceIntroStorageDir);
-      if (!storageDirectory.isDirectory() || storageDirectory.isSymbolicLink()) {
-        throw new Error('voice_intro_storage_directory_invalid');
-      }
-      await chmod(voiceIntroStorageDir, 0o700);
+      await ensurePrivateVoiceIntroStorageDirectory();
       await writeFile(filePath, encrypted, { flag: 'wx', mode: 0o600 });
       fileWritten = true;
       if (previous.rows[0]?.storage_path) {
@@ -2656,6 +2660,7 @@ app.get('/api/profiles/me/voice-intro', profileActionLimiter, requireSession, as
       await client.query('ROLLBACK');
       return res.status(404).end();
     }
+    await ensurePrivateVoiceIntroStorageDirectory();
     const encrypted = await readFile(resolvePrivateVoiceIntroPath(asset.storagePath, voiceIntroStorageDir));
     const bytes = decryptVoiceIntro(encrypted, key);
     await client.query('COMMIT');
@@ -4905,6 +4910,7 @@ app.get('/api/admin/voice-intros/:voiceIntroId/audio', profileActionLimiter, req
       'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, reason, details) VALUES ($1, $2, $3, $4, $5, $6::jsonb)',
       [req.authUser.id, 'voice_intro_media_viewed', 'profile_voice_intro', req.params.voiceIntroId, null, JSON.stringify({ userId: ownerId })]
     );
+    await ensurePrivateVoiceIntroStorageDirectory();
     const encrypted = await readFile(resolvePrivateVoiceIntroPath(result.rows[0].storagePath, voiceIntroStorageDir));
     const bytes = decryptVoiceIntro(encrypted, key);
     await client.query('COMMIT');
