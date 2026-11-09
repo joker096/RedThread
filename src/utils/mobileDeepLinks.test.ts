@@ -12,6 +12,8 @@ test('parses verified HTTPS email verification and password reset app links', ()
   assert.deepEqual(parseVowDeepLink(`https://${appHost}/?resetPassword=${token}`, appHost), {
     type: 'reset-password', token
   });
+  assert.equal(parseVowDeepLink(`https://${appHost}/?verifyEmail=${token}`), null,
+    'token-bearing HTTPS links require an explicitly configured host');
 });
 
 test('parses Didit return only through the configured verified HTTPS host', () => {
@@ -30,7 +32,7 @@ test('parses the non-secret custom-scheme identity return marker', () => {
 
 test('rejects malformed, ambiguous and unverified HTTPS app links', () => {
   const invalid = [
-    null, undefined, 42, '', `https://${appHost}/?verifyEmail=${token}`,
+    null, undefined, 42, '',
     `https://attacker.invalid/?verifyEmail=${token}`,
     `http://${appHost}/?verifyEmail=${token}`,
     `https://${appHost}/?verifyEmail=${token}&verifyEmail=${token}`,
