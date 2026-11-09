@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { createSessionToken, hashPassword, hashSessionToken } from './security.js';
+import { hashMobileToken } from './mobileTokens.js';
 
 const { Pool } = pg;
 
@@ -404,53 +405,59 @@ test('native mobile auth login, refresh rotation, replay revocation and device l
       'native HTTP clients without a browser Origin may use a valid bearer token');
 
     const expiryLogin = await request('/api/mobile/auth/login', {
-      method: 'POST', body: {
-        email, password: 'New Native Password 2026! Secure', ...deviceB
-      }
+      method: 'POST', body: { email, password: 'New Native Password 2026! Secure', ...deviceB }
     });
     assert.equal(expiryLogin.status, 200, logs);
     const expiryPair = await expiryLogin.json();
     activeTokens.push(expiryPair.accessToken, expiryPair.refreshToken);
     await db.query(
-      'UPDATE mobile_sessions SET access_expires_at = NOW() - INTERVAL \'1 second\' WHERE access_token_hash = $1',
-      [await (async () => {
-        const { hashMobileToken } = await import('./mobileTokens.js');
-        return hashMobileToken(expiryPair.accessToken, 'access');
-      })()]
+      "UPDATE mobile_sessions SET access_expires_at = NOW() - INTERVAL '1 second' WHERE access_token_hash = $1",
+      [hashMobileToken(expiryPair.accessToken, 'access')]
     );
     const expiredAccess = await request('/api/mobile/auth/me', { token: expiryPair.accessToken });
     assert.equal(expiredAccess.status, 401, 'expired access tokens must be rejected');
 
+    const deviceC = { ...deviceB, deviceId: randomUUID(), deviceName: 'iOS expiry test device' };
     const refreshExpiryLogin = await request('/api/mobile/auth/login', {
       method: 'POST', body: {
-        email, password: 'New Native Password 2026! Secure',
-        ...{ ...deviceB, deviceId: randomUUID() }
+        email, password: 'New Native Password 2026! Secure', ...deviceC
       }
     });
     assert.equal(refreshExpiryLogin.status, 200, logs);
     const refreshExpiryPair = await refreshExpiryLogin.json();
     activeTokens.push(refreshExpiryPair.accessToken, refreshExpiryPair.refreshToken);
-    const { hashMobileToken } = await import('./mobileTokens.js');
     await db.query(
-      'UPDATE mobile_sessions SET refresh_expires_at = NOW() - INTERVAL \'1 second\' WHERE refresh_token_hash = $1',
+      "UPDATE mobile_sessions SET refresh_expires_at = NOW() - INTERVAL '1 second' WHERE refresh_token_hash = $1",
       [hashMobileToken(refreshExpiryPair.refreshToken, 'refresh')]
     );
     const expiredRefresh = await request('/api/mobile/auth/refresh', {
-      method: 'POST', token: refreshExpiryPair.refreshToken,
-      body: { ...deviceB, deviceId: refreshExpiryPair === null ? deviceB.deviceId : (await db.query(
-        'SELECT device_id FROM mobile_sessions WHERE refresh_token_hash = $1',
-        [hashMobileToken(refreshExpiryPair.refreshToken, 'refresh')]
-      )).rows[0]?.device_id || deviceB.deviceId }
+      method: 'POST', token: refreshExpiryPair.refreshToken, body: deviceC
     });
     assert.equal(expiredRefresh.status, 401, 'expired refresh tokens must be rejected');
 
-    const suspendedLogin = await request('/api/mobile/auth/login', {
+    const deviceD = { ...deviceB, deviceId: randomUUID(), deviceName: 'Suspension test device' };
+    const suspensionLogin = await request('/api/mobile/auth/login', {
       method: 'POST', body: {
-        email, password: 'New Native Password 2026 Secure', ...{ ...deviceB, deviceId: randomUUID() }
+        email, password: 'New Native Password 2026! Secure', ...deviceD
       }
     });
-    // The account password is the value set by the reset test above.
-    assert.equal(suspendedLogin.status, 401);
+    assert.equal(suspensionLogin.status, 200, logs);
+    const suspensionPair = await suspensionLogin.json();
+    activeTokens.push(suspensionPair.accessToken, suspensionPair.refreshToken);
+    await db.query("UPDATE users SET status = 'suspended' WHERE id = $1", [userId]);
+    const suspendedAccess = await request('/api/mobile/auth/me', { token: suspensionPair.accessToken });
+    assert.equal(suspendedAccess.status, 401, 'suspended accounts cannot keep using mobile access tokens');
+    const suspendedRefresh = await request('/api/mobile/auth/refresh', {
+      method: 'POST', token: suspensionPair.refreshToken, body: deviceD
+    });
+    assert.equal(suspendedRefresh.status, 401);
+    assert.equal((await suspendedRefresh.json()).error, 'account_unavailable');
+    const suspensionState = await db.query(
+      "SELECT revoked_reason FROM mobile_sessions WHERE user_id = $1 AND device_id = $2",
+      [userId, deviceD.deviceId]
+    );
+    assert.equal(suspensionState.rows[0]?.revoked_reason, 'account_unavailable',
+      'refresh after account suspension must persist a security revocation reason');
   } finally {
     if (registrationUserId) await db.query('DELETE FROM users WHERE id = $1', [registrationUserId]).catch(() => {});
     await db.query('DELETE FROM users WHERE id = $1', [pendingUserId]).catch(() => {});
