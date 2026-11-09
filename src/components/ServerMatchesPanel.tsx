@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
+import { isChatWindowExpired } from '../utils/chatWindow.ts';
 
 type ServerMatch = {
   id: string;
@@ -589,7 +590,7 @@ export const ServerMatchesPanel: React.FC<Props> = ({ onOpenAccount }) => {
   });
   const selectedMatch = matches.find(match => match.id === selected) || null;
   const selectedChatExpired = Boolean(selectedMatch && (selectedMatch.chatExpired ||
-    (selectedMatch.chatExpiresAt && Date.parse(selectedMatch.chatExpiresAt) <= clockNow)));
+    isChatWindowExpired(selectedMatch.chatExpiresAt, clockNow)));
   const initials = (name: string) => name.trim().split(/\s+/u).slice(0, 2).map(part => Array.from(part)[0] || '').join('').toLocaleUpperCase();
 
   return (
