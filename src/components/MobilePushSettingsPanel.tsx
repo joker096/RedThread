@@ -7,7 +7,7 @@ import { isNativeVowApp } from '../utils/apiClient';
 type PushStatus = { available: boolean; registered: boolean; platform: 'android' | 'ios' | null };
 
 export const MobilePushSettingsPanel: FC = () => {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [status, setStatus] = useState<PushStatus>({ available: false, registered: false, platform: null });
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
@@ -32,14 +32,14 @@ export const MobilePushSettingsPanel: FC = () => {
       method: 'PUT',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token })
+      body: JSON.stringify({ token, locale })
     });
     if (!response.ok) throw new Error('push_registration_failed');
     if (mounted.current) {
       setStatus(current => ({ ...current, registered: true }));
       setNotice(t('pushEnabled'));
     }
-  }, [t]);
+  }, [locale, t]);
 
   useEffect(() => {
     mounted.current = true;
