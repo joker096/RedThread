@@ -25,14 +25,34 @@ export function readMobileAccessToken(header) {
   return readBearer(header, 'access');
 }
 
+function normalizeMobileOrigin(origin) {
+  if (typeof origin !== 'string' || !origin) return null;
+  // Capacitor's iOS WebView uses this custom scheme. URL.origin serializes
+  // non-special schemes as "null", so preserve this exact trusted origin.
+  if (origin === 'capacitor://localhost') return origin;
+  try {
+    const parsed = new URL(origin);
+    if (parsed.protocol === 'capacitor:' &&
+        parsed.hostname === 'localhost' &&
+        !parsed.port &&
+        (parsed.pathname === '' || parsed.pathname === '/') &&
+        !parsed.search && !parsed.hash) {
+      return 'capacitor://localhost';
+    }
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
 export function isAllowedMobileOrigin(origin) {
-  if (typeof origin !== 'string' || !origin) return false;
-  try { return MOBILE_ORIGINS.has(new URL(origin).origin); } catch { return false; }
+  const normalized = normalizeMobileOrigin(origin);
+  return Boolean(normalized && MOBILE_ORIGINS.has(normalized));
 }
 
 export function applyMobileCorsHeaders(origin, res) {
-  if (!isAllowedMobileOrigin(origin)) return false;
-  const normalized = new URL(origin).origin;
+  const normalized = normalizeMobileOrigin(origin);
+  if (!normalized || !MOBILE_ORIGINS.has(normalized)) return false;
   res.setHeader('Access-Control-Allow-Origin', normalized);
   res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
@@ -44,11 +64,8 @@ export function applyMobileCorsHeaders(origin, res) {
 function validateMobileOrigin(req, res, next) {
   const origin = req.get('origin');
   if (origin) {
-    let normalized;
-    try { normalized = new URL(origin).origin; } catch {
-      return res.status(403).json({ error: 'origin_not_allowed' });
-    }
-    if (!MOBILE_ORIGINS.has(normalized)) {
+    const normalized = normalizeMobileOrigin(origin);
+    if (!normalized || !MOBILE_ORIGINS.has(normalized)) {
       return res.status(403).json({ error: 'origin_not_allowed' });
     }
     applyMobileCorsHeaders(normalized, res);
