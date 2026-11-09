@@ -32,7 +32,7 @@ import { FEMALE_FREE_DAILY_PROFILE_LIMIT, canCreateFemaleFreeMatch, hasFemalePre
 import rateLimit from 'express-rate-limit';
 import { PostgresRateLimitStore } from './postgresRateLimitStore.js';
 import pg from 'pg';
-import { isValidAssessment, financialAlignment, ASSESSMENT_VERSION } from './relationshipAssessment.js';
+import { isValidAssessment, isValidDealbreakers, assessmentCompatibilityBreakdown, financialAlignment, ASSESSMENT_VERSION } from './relationshipAssessment.js';
 import {
   createAccountReuseDigest,
   createSessionToken,
@@ -2602,7 +2602,7 @@ app.get('/api/photos/:photoId', requireSession, async (req,res) => {
 
 app.get('/api/assessment', requireSession, requirePaidFeatures, async (req, res) => {
   try {
-    const read = await withActiveAccountRead(req.authUser.id, client => client.query('SELECT answers, assessment_version AS "assessmentVersion", completed_at AS "completedAt", updated_at AS "updatedAt" FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]));
+    const read = await withActiveAccountRead(req.authUser.id, client => client.query('SELECT answers, dealbreakers, assessment_version AS "assessmentVersion", completed_at AS "completedAt", updated_at AS "updatedAt" FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]));
     if (!read.active) return res.status(401).json({ error: 'account_not_active' });
     return res.json({ assessment: read.value.rows[0] || null, version: ASSESSMENT_VERSION });
   } catch (error) {
@@ -2613,7 +2613,9 @@ app.get('/api/assessment', requireSession, requirePaidFeatures, async (req, res)
 
 app.put('/api/assessment', validateRequestOrigin, requireSession, requirePaidFeatures, async (req, res) => {
   const answers = req.body?.answers;
+  const dealbreakers = req.body?.dealbreakers ?? [];
   if (!isValidAssessment(answers)) return res.status(400).json({ error: 'assessment_answers_incomplete_or_invalid' });
+  if (!isValidDealbreakers(dealbreakers)) return res.status(400).json({ error: 'assessment_dealbreakers_invalid' });
   let client;
   try {
     client = await pool.connect();
@@ -2625,8 +2627,8 @@ app.put('/api/assessment', validateRequestOrigin, requireSession, requirePaidFea
       return res.status(401).json({ error: 'account_not_active' });
     }
     const result = await client.query(
-      'INSERT INTO relationship_assessments (user_id, answers, assessment_version, completed_at, updated_at) VALUES ($1, $2::jsonb, $3, statement_timestamp(), statement_timestamp()) ON CONFLICT (user_id) DO UPDATE SET answers = EXCLUDED.answers, assessment_version = EXCLUDED.assessment_version, completed_at = statement_timestamp(), updated_at = statement_timestamp() RETURNING answers, assessment_version AS "assessmentVersion", completed_at AS "completedAt", updated_at AS "updatedAt"',
-      [req.authUser.id, JSON.stringify(answers), ASSESSMENT_VERSION]
+      'INSERT INTO relationship_assessments (user_id, answers, dealbreakers, assessment_version, completed_at, updated_at) VALUES ($1, $2::jsonb, $3::jsonb, $4, statement_timestamp(), statement_timestamp()) ON CONFLICT (user_id) DO UPDATE SET answers = EXCLUDED.answers, dealbreakers = EXCLUDED.dealbreakers, assessment_version = EXCLUDED.assessment_version, completed_at = statement_timestamp(), updated_at = statement_timestamp() RETURNING answers, dealbreakers, assessment_version AS "assessmentVersion", completed_at AS "completedAt", updated_at AS "updatedAt"',
+      [req.authUser.id, JSON.stringify(answers), JSON.stringify(dealbreakers), ASSESSMENT_VERSION]
     );
     await client.query('COMMIT');
     return res.json({ assessment: result.rows[0] });
