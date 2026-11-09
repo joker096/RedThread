@@ -99,6 +99,13 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath ios/build \
             build
+      - name: Verify iOS privacy manifest is included in the app bundle
+        run: |
+          manifest="ios/build/Build/Products/Debug-iphonesimulator/App.app/PrivacyInfo.xcprivacy"
+          test -f "$manifest"
+          plutil -lint "$manifest"
+          /usr/libexec/PlistBuddy -c "Print :NSPrivacyAccessedAPITypes:0:NSPrivacyAccessedAPIType" "$manifest" | grep -Fx "NSPrivacyAccessedAPICategoryFileTimestamp"
+          /usr/libexec/PlistBuddy -c "Print :NSPrivacyAccessedAPITypes:0:NSPrivacyAccessedAPITypeReasons:0" "$manifest" | grep -Fx "C617.1"
       - name: Package simulator app
         run: ditto -c -k --sequesterRsrc --keepParent ios/build/Build/Products/Debug-iphonesimulator/App.app app-ios-simulator.zip
       - uses: actions/upload-artifact@v4
