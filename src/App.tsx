@@ -641,14 +641,14 @@ export default function App() {
             <AdConsentPanel />
             <ModeratorConsolePanel />
             <RelationshipAssessmentPanel key={assessmentRevision} />
-            <GenderSpecificTests
+            {!nativeApp && <GenderSpecificTests
             currentGender={currentGender}
             onOpenMatrix={profile => {
               setMatrixTargetProfile(profile || profiles[0]);
               setIsMatrixOpen(true);
             }}
             brandName={currentBrand.name}
-          />
+          />}
           </>
         );
 
@@ -1087,7 +1087,7 @@ export default function App() {
 
       {/* MODALS */}
       {/* 1. Deep Compatibility Matrix */}
-      <CompatibilityMatrixModal
+      {!nativeApp && <CompatibilityMatrixModal
         isOpen={isMatrixOpen}
         onClose={() => setIsMatrixOpen(false)}
         profile={matrixTargetProfile}
@@ -1098,7 +1098,7 @@ export default function App() {
           handleLike(profile);
           setActiveTab(profile.likedByCandidate ? 'chats' : 'discovery');
         }}
-      />
+      />}
 
       {/* 2. Lady Premium Club Modal */}
       {!nativeApp && <LadyPremiumModal
@@ -1107,11 +1107,11 @@ export default function App() {
       />}
 
       {/* 3. Bot & Safety Scanner */}
-      <BotSafetyScanner
+      {!nativeApp && <BotSafetyScanner
         isOpen={isBotScannerOpen}
         onClose={() => setIsBotScannerOpen(false)}
         targetProfile={botScanTargetProfile}
-      />
+      />}
 
       {/* 4. Ad Revenue Manager */}
       {!nativeApp && <AdManagerModal
@@ -1125,7 +1125,7 @@ export default function App() {
       />}
 
       {/* 5. Filter Drawer */}
-      <FilterDrawer
+      {!nativeApp && <FilterDrawer
         isOpen={isFilterOpen}
         onClose={() => setIsFilterOpen(false)}
         minCompatibility={minCompatibility}
@@ -1152,15 +1152,15 @@ export default function App() {
           setMinAge(18);
           setMaxAge(99);
         }}
-      />
+      />}
 
       {/* 6. Brand Naming Proposals Modal */}
-      <BrandNamingModal
+      {!nativeApp && <BrandNamingModal
         isOpen={isBrandModalOpen}
         onClose={() => setIsBrandModalOpen(false)}
         currentBrandId={currentBrandId}
         onSelectBrand={id => setCurrentBrandId(id)}
-      />
+      />}
     </div>
   );
 }
