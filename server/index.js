@@ -4244,6 +4244,7 @@ app.get('/api/mobile/push/status', requireSession, async (req, res) => {
 
 app.put('/api/mobile/push-token', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
   const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+  const locale = req.body?.locale === 'ru' ? 'ru' : 'en';
   const key = parseMobilePushTokenEncryptionKey();
   if (!key) return res.status(503).json({ error: 'mobile_push_encryption_not_configured' });
   let client;
@@ -4293,18 +4294,18 @@ app.put('/api/mobile/push-token', validateRequestOrigin, requireSession, profile
     if (existingToken) {
       await client.query(
         `UPDATE mobile_push_tokens
-         SET user_id = $2, session_id = $3, platform = $4, token_ciphertext = $5,
+         SET user_id = $2, session_id = $3, platform = $4, locale = $5, token_ciphertext = $6,
              updated_at = statement_timestamp(), last_registered_at = statement_timestamp(),
              revoked_at = NULL, revoked_reason = NULL
          WHERE id = $1`,
-        [existingToken.id, req.authUser.id, mobileSession.id, mobileSession.platform, encrypted]
+        [existingToken.id, req.authUser.id, mobileSession.id, mobileSession.platform, locale, encrypted]
       );
     } else {
       await client.query(
         `INSERT INTO mobile_push_tokens
-           (user_id, session_id, platform, token_fingerprint, token_ciphertext)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [req.authUser.id, mobileSession.id, mobileSession.platform, fingerprint, encrypted]
+           (user_id, session_id, platform, locale, token_fingerprint, token_ciphertext)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [req.authUser.id, mobileSession.id, mobileSession.platform, locale, fingerprint, encrypted]
       );
     }
     await client.query('COMMIT');
