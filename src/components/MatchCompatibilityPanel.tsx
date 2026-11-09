@@ -104,10 +104,10 @@ export const MatchCompatibilityPanel: React.FC<Props> = ({ matchId, onClose }) =
 
   return (
     <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/75 p-2 sm:items-center sm:p-5" role="presentation" onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
-      <section role="dialog" aria-modal="true" aria-labelledby="vow-compatibility-title" className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-3xl border border-rose-400/20 bg-[#111114] p-5 shadow-2xl">
+      <section role="dialog" aria-modal="true" aria-labelledby="vow-compatibility-title" aria-describedby="vow-compatibility-description" className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-3xl border border-rose-400/20 bg-[#111114] p-5 shadow-2xl">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-rose-300">{t('compatibilityDetails')}</p>
+            <p id="vow-compatibility-description" className="text-[10px] font-bold uppercase tracking-[0.2em] text-rose-300">{t('compatibilityDetails')}</p>
             <h3 id="vow-compatibility-title" className="mt-1 text-xl font-bold text-white">{t('compatibilityScore')}</h3>
           </div>
           <button type="button" onClick={onClose} aria-label={t('close')} className="min-h-11 min-w-11 rounded-xl border border-white/10 text-xl text-stone-300">×</button>
