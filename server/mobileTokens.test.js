@@ -25,6 +25,7 @@ test('mobile bearer parser accepts only a bounded access token authorization hea
   const access = createMobileToken('access');
   assert.equal(readMobileBearerToken(`Bearer ${access}`), access);
   assert.equal(readMobileBearerToken(`bearer ${access}`), access);
+  assert.equal(readMobileBearerToken(`Bearer ${access.toUpperCase()}`), null);
   assert.equal(readMobileBearerToken(`Bearer ${createMobileToken('refresh')}`), null);
   assert.equal(readMobileBearerToken(access), null);
   assert.equal(readMobileBearerToken('Bearer token extra'), null);
@@ -47,7 +48,7 @@ test('mobile device metadata is normalized and strictly bounded', () => {
   assert.equal(validateMobileDevice({ ...valid, deviceId: 'invalid' }), null);
   assert.equal(validateMobileDevice({ ...valid, deviceName: ' ' }), null);
   assert.equal(validateMobileDevice({ ...valid, deviceName: 'x'.repeat(81) }), null);
-  assert.equal(validateMobileDevice({ ...valid, deviceName: 'phone\\nforged' }), null);
+  assert.equal(validateMobileDevice({ ...valid, deviceName: 'phone' + String.fromCharCode(10) + 'forged' }), null);
   assert.equal(validateMobileDevice([]), null);
 });
 
