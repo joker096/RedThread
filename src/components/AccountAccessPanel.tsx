@@ -212,7 +212,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       window.history.replaceState({}, '', window.location.pathname + (params.size ? '?' + params.toString() : '') + window.location.hash);
     }
     return () => { cancelled = true; auxiliaryRequestIdRef.current += 1; };
-  }, []);
+  }, [nativeApp, t]);
 
   const handleGoogleRegistrationTicket = useCallback(async (credential: string, nonce: string): Promise<GoogleAuthAttemptResult> => {
     if (!credential || googleAuthInFlightRef.current) return 'ignored';
