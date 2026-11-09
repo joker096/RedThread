@@ -1,6 +1,6 @@
 # Vow Mobile Platform Readiness
 
-Status: architecture audit complete; native authentication foundation in progress  
+Status: architecture audit and native authentication foundation complete; Capacitor client integration in progress  
 Target platforms: Android and iOS only  
 Implementation approach: preserve the existing React UI and evaluate Capacitor; keep the Node.js API and PostgreSQL backend shared.
 
@@ -16,15 +16,20 @@ Implementation approach: preserve the existing React UI and evaluate Capacitor; 
 
 ## Mobile-critical findings
 
-### 1. Authentication and API transport — blocking
+### 1. Authentication and API transport — server foundation complete
 
 Progress on the dedicated mobile branch:
 - Added migration `212_mobile_sessions.sql` for device-scoped native sessions and consumed refresh-token history.
 - Added strict opaque access/refresh token helpers in `server/mobileTokens.js` and unit tests.
 - Added a database integration test for token-hash constraints, refresh-history immutability and account-deletion cleanup.
-- Added `docs/MOBILE_AUTH_CONTRACT.md` defining the proposed endpoint and token lifecycle.
+- Added `docs/MOBILE_AUTH_CONTRACT.md` documenting the implemented endpoint and token lifecycle.
+- Implemented mobile registration, email verification/resend, login, refresh, current-user, logout/logout-all and password-reset flows.
+- Integrated native bearer authentication into shared protected API routes while preserving browser cookie authentication and strict browser Origin checks.
+- Added allowlisted native WebView CORS without credentialed cookies.
+- Password reset, account suspension and account deletion revoke mobile sessions; repeated login on the same installation replaces its prior session.
+- CI and Browser E2E both passed on the same commit `2695241ae58d6e072d446ccb4c103688b337883f`.
 
-Important: the database schema and token helpers are not a complete authentication implementation. No mobile login/refresh/logout endpoints are enabled yet, and no native app should consume this contract until endpoint-level security and lifecycle tests pass.
+Remaining: client-side secure token storage, refresh single-flight, API URL configuration and mobile login UI integration. Native device testing has not yet occurred.
 
 The current client calls relative paths such as `/api/auth/me` and uses `fetch(..., { credentials: 'include' })`. The API currently authenticates with an HttpOnly `nit_session` cookie configured as `SameSite=Lax`.
 
@@ -66,7 +71,7 @@ The mobile app will call a public HTTPS API endpoint. The production VPS deploym
 ## Delivery sequence
 
 1. Complete the API/auth/media/provider audit and write native transport/security tests.
-2. Add Capacitor to a dedicated feature branch; configure app identifiers, Android/iOS build settings and platform-specific environment handling.
+2. Add Capacitor 8 to the dedicated feature branch; configure provisional app identifiers, Android/iOS build settings and platform-specific environment handling.
 3. Add a typed API transport abstraction and native secure-session implementation without weakening browser protections.
 4. Integrate native Google sign-in, camera/photo/microphone flows, deep links and push notifications only with their corresponding tests.
 5. Build Android on Windows and validate on emulator/physical Android device.
