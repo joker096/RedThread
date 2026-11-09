@@ -39,3 +39,48 @@ export function financialAlignment(first, second) {
   const aligned = keys.filter(key => first[key] === second[key]);
   return { score: Math.round(aligned.length / keys.length * 100), alignedCount: aligned.length, total: keys.length };
 }
+
+export const ASSESSMENT_DIMENSIONS = {
+  family: ['relationshipGoal', 'children', 'household', 'caregiving'],
+  budget: ['financialModel', 'lifestyleExpectation', 'gifts', 'debtTransparency'],
+  conflict: ['fidelity', 'conflictStyle', 'honesty', 'trustRepair', 'conflictSafety'],
+  lifestyle: ['substanceLifestyle', 'relocation']
+};
+
+export function isValidDealbreakers(value) {
+  if (!Array.isArray(value) || value.length > Object.keys(ASSESSMENT_OPTIONS).length) return false;
+  const allowed = new Set(Object.keys(ASSESSMENT_OPTIONS));
+  return value.every((key, index) =>
+    typeof key === 'string' && allowed.has(key) && value.indexOf(key) === index
+  );
+}
+
+/**
+ * Returns dimension-level alignment and only the field names marked as
+ * non-negotiable by either participant. Raw answer values are never returned.
+ */
+export function assessmentCompatibilityBreakdown(first, second, firstDealbreakers = [], secondDealbreakers = []) {
+  if (!isValidAssessment(first) || !isValidAssessment(second) ||
+      !isValidDealbreakers(firstDealbreakers) || !isValidDealbreakers(secondDealbreakers)) {
+    throw new TypeError('invalid_assessment_compatibility_input');
+  }
+
+  const dimensions = Object.entries(ASSESSMENT_DIMENSIONS).map(([id, fields]) => {
+    const aligned = fields.filter(key => first[key] === second[key]);
+    const differences = fields.filter(key => first[key] !== second[key]);
+    return {
+      id,
+      score: Math.round(aligned.length / fields.length * 100),
+      alignedCount: aligned.length,
+      total: fields.length,
+      differences
+    };
+  });
+
+  return {
+    overallScore: assessmentCompatibility(first, second).score,
+    dimensions,
+    yourDealbreakerConflicts: firstDealbreakers.filter(key => first[key] !== second[key]),
+    partnerDealbreakerConflicts: secondDealbreakers.filter(key => first[key] !== second[key])
+  };
+}
