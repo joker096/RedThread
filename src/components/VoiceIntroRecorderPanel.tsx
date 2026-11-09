@@ -3,6 +3,7 @@ import { Capacitor } from '@capacitor/core';
 import { App } from '@capacitor/app';
 import { CapacitorAudioRecorder } from '@capgo/capacitor-audio-recorder';
 import { deleteNativeRecordingFile, readAndDeleteNativeRecordingFile } from '../utils/nativeRecordingFile.ts';
+import { startNativeVoiceRecording } from '../utils/nativeVoiceRecording.ts';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 
 type VoiceIntro = { id: string; status: 'pending' | 'approved' | 'rejected'; durationMs: number };
@@ -23,6 +24,9 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const recordingRef = useRef(false);
+  const startingRef = useRef(false);
+  const appActiveRef = useRef(true);
+  const cancelStartRef = useRef(false);
   const startedAtRef = useRef(0);
   const timerRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
@@ -52,6 +56,7 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
   };
 
   const cancelRecording = async () => {
+    cancelStartRef.current = true;
     clearTimer();
     if (!recordingRef.current) return;
     recordingRef.current = false;
@@ -104,25 +109,33 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
   };
 
   const startRecording = async () => {
-    if (recordingRef.current || busy) return;
+    if (recordingRef.current || startingRef.current || busy) return;
+    startingRef.current = true;
+    cancelStartRef.current = false;
     setNotice('');
     setPreview(current => {
       if (current?.url) URL.revokeObjectURL(current.url);
       return null;
     });
     try {
-      let permission = await CapacitorAudioRecorder.checkPermissions();
-      if (!mountedRef.current) return;
-      if (permission.recordAudio !== 'granted') {
-        permission = await CapacitorAudioRecorder.requestPermissions();
-        if (!mountedRef.current) return;
-      }
-      if (permission.recordAudio !== 'granted') {
-        if (mountedRef.current) setNotice(t('voiceIntroPermissionDenied'));
+      const outcome = await startNativeVoiceRecording({
+        checkPermissions: () => CapacitorAudioRecorder.checkPermissions(),
+        requestPermissions: () => CapacitorAudioRecorder.requestPermissions(),
+        startRecording: () => CapacitorAudioRecorder.startRecording({
+          bitRate: 64_000,
+          sampleRate: 44_100,
+          resetToPlaybackOnStop: true
+        }),
+        cancelRecording: () => CapacitorAudioRecorder.cancelRecording(),
+        isMounted: () => mountedRef.current,
+        isActive: () => appActiveRef.current && !cancelStartRef.current
+      });
+      if (!mountedRef.current || outcome === 'cancelled') return;
+      if (outcome === 'permission-denied') {
+        setNotice(t('voiceIntroPermissionDenied'));
         return;
       }
-      await CapacitorAudioRecorder.startRecording({ bitRate: 64_000, sampleRate: 44_100, resetToPlaybackOnStop: true });
-      if (!mountedRef.current) {
+      if (cancelStartRef.current || !appActiveRef.current) {
         try { await CapacitorAudioRecorder.cancelRecording(); } catch {}
         return;
       }
@@ -138,15 +151,20 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
       }, 250);
     } catch {
       if (mountedRef.current) setNotice(t('voiceIntroPermissionDenied'));
+    } finally {
+      startingRef.current = false;
     }
   };
 
   useEffect(() => {
     let listener: { remove: () => Promise<void> } | undefined;
     void App.addListener('appStateChange', state => {
-      if (!state.isActive && recordingRef.current) void cancelRecording();
+      appActiveRef.current = state.isActive;
+      if (!state.isActive) void cancelRecording();
     }).then(value => { listener = value; }).catch(() => {});
     return () => {
+      appActiveRef.current = false;
+      cancelStartRef.current = true;
       void listener?.remove();
       clearTimer();
       if (recordingRef.current) {

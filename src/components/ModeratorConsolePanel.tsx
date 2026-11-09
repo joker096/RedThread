@@ -39,17 +39,21 @@ export const ModeratorConsolePanel:React.FC=()=>{
  useEffect(()=>()=>{for(const url of voiceAudioUrls.current.values())URL.revokeObjectURL(url);voiceAudioUrls.current.clear();},[]);
  const loadVoiceAudio=async(id:string)=>{
   if(voiceAudioUrls.current.has(id))return;
+  const actionEpoch=sessionEpoch.current;
   setBusy(true);setNotice('');
   try{
    const response=await fetch('/api/admin/voice-intros/'+encodeURIComponent(id)+'/audio',{credentials:'include'});
+   if(actionEpoch!==sessionEpoch.current)return;
    if(!response.ok)throw new Error('Не удалось безопасно загрузить аудиозапись.');
    const blob=await response.blob();
+   if(actionEpoch!==sessionEpoch.current)return;
    if(blob.size<64||blob.size>2*1024*1024)throw new Error('Некорректный аудиофайл.');
    const url=URL.createObjectURL(blob);
+   if(actionEpoch!==sessionEpoch.current){URL.revokeObjectURL(url);return;}
    voiceAudioUrls.current.set(id,url);
    setVoiceAudioSrcs(current=>({...current,[id]:url}));
-  }catch(e){setNotice(e instanceof Error?e.message:'Не удалось загрузить аудиозапись.');}
-  finally{setBusy(false);}
+  }catch(e){if(actionEpoch===sessionEpoch.current)setNotice(e instanceof Error?e.message:'Не удалось загрузить аудиозапись.');}
+  finally{if(actionEpoch===sessionEpoch.current)setBusy(false);}
  };
  const act=async(url:string,payload?:Record<string,unknown>)=>{
   const actionEpoch=sessionEpoch.current;
