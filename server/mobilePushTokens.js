@@ -11,7 +11,7 @@ export function parseMobilePushTokenEncryptionKey(value = process.env.MOBILE_PUS
 
 export function validateMobilePushToken(token, platform) {
   if (typeof token !== 'string' || token.length < 20 || token.length > 4096) return false;
-  if (platform === 'android') return /^[A-Za-z0-9:_\-.]+$/.test(token);
+  if (platform === 'android') return token.includes(':') && /^[A-Za-z0-9:_\\-.]+$/.test(token);
   if (platform === 'ios') return /^[a-f0-9]{64}$/i.test(token);
   return false;
 }
