@@ -54,7 +54,8 @@
     "@capacitor/core": "8.6.0",
     "@aparajita/capacitor-secure-storage": "8.0.1",
     "@capacitor/app": "8.1.2",
-    "@capacitor/browser": "8.0.5"
+    "@capacitor/browser": "8.0.5",
+    "@capacitor/push-notifications": "^8.1.3"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
