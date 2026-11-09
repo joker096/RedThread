@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 import { PaddleSubscriptionPanel } from './PaddleSubscriptionPanel.tsx';
+import { apiFetch, clearMobileSession, isNativeVowApp, mobileAuthFetch } from '../utils/apiClient.ts';
 
 declare global {
   interface Window {
@@ -127,6 +128,7 @@ export const isBillingStatus = (value: unknown): value is BillingStatus => {
 
 export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthenticated }) => {
   const { formatDate, t } = useLocale();
+  const nativeApp = isNativeVowApp();
   const [user, setUser] = useState<AccountUser | null>(null);
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
@@ -243,12 +245,6 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         setMessage(t('authGoogleFinishProfile'));
         return 'registration';
       }
-      if (nativeApp && data?.verificationRequired) {
-        setCanResendVerification(true);
-        setPassword('');
-        setMessage(t('authAccountCreatedVerification'));
-        return;
-      }
       const normalizedUser = normalizeAccountUser(data?.user);
       if (!normalizedUser) throw new Error(t('authRequestFailed'));
       actionId = ++sessionActionIdRef.current;
@@ -288,7 +284,7 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       })
       .catch(() => { if (!cancelled) setGoogleClientId(''); });
     return () => { cancelled = true; };
-  }, []);
+  }, [nativeApp]);
 
   useEffect(() => {
     const container = googleButtonRef.current;
@@ -335,6 +331,19 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
     });
     return () => { cancelled = true; };
   }, [googleClientId, mode, googleButtonRevision, handleGoogleRegistrationTicket, t]);
+
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      sessionActionIdRef.current += 1;
+      setUser(null);
+      setBillingStatus(null);
+      setMessage('');
+      window.dispatchEvent(new Event('vow:session-changed'));
+      onAuthenticated();
+    };
+    window.addEventListener('vow:session-expired', handleSessionExpired);
+    return () => window.removeEventListener('vow:session-expired', handleSessionExpired);
+  }, [onAuthenticated]);
 
   const submit = async () => {
     auxiliaryRequestIdRef.current += 1;
@@ -384,6 +393,12 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         }
         if (data?.error === 'email_verification_required' || data?.error === 'verification_email_delivery_failed') setCanResendVerification(true);
         throw new Error(errors[data?.error] || t('authRequestFailed'));
+      }
+      if (nativeApp && data?.verificationRequired) {
+        setCanResendVerification(true);
+        setPassword('');
+        setMessage(t('authAccountCreatedVerification'));
+        return;
       }
       const normalizedUser = normalizeAccountUser(data?.user);
       if (!normalizedUser) {
