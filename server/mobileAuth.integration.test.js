@@ -96,6 +96,25 @@ test('native mobile auth login, refresh rotation, replay revocation and device l
     );
     await waitForApi();
 
+    const allowedPreflight = await fetch(`${api}/api/mobile/auth/login`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'https://localhost',
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'authorization,content-type'
+      }
+    });
+    assert.equal(allowedPreflight.status, 204);
+    assert.equal(allowedPreflight.headers.get('access-control-allow-origin'), 'https://localhost');
+    assert.equal(allowedPreflight.headers.get('access-control-allow-credentials'), null,
+      'mobile API must not enable credentialed cookie CORS');
+
+    const deniedPreflight = await fetch(`${api}/api/mobile/auth/login`, {
+      method: 'OPTIONS',
+      headers: { Origin: 'https://attacker.invalid', 'Access-Control-Request-Method': 'POST' }
+    });
+    assert.equal(deniedPreflight.status, 403);
+
     const blockedOrigin = await request('/api/mobile/auth/login', {
       method: 'POST',
       body: { email, password, ...deviceA },
@@ -223,6 +242,29 @@ test('native mobile auth login, refresh rotation, replay revocation and device l
       [userId]
     );
     assert.equal(sessions.rows[0].active, 0);
+
+    const loginConcurrent = await request('/api/mobile/auth/login', {
+      method: 'POST', body: { email, password, ...deviceA }
+    });
+    assert.equal(loginConcurrent.status, 200, logs);
+    const concurrentPair = await loginConcurrent.json();
+    activeTokens.push(concurrentPair.accessToken, concurrentPair.refreshToken);
+    const concurrentResults = await Promise.all([
+      request('/api/mobile/auth/refresh', {
+        method: 'POST', token: concurrentPair.refreshToken, body: { ...deviceA }
+      }),
+      request('/api/mobile/auth/refresh', {
+        method: 'POST', token: concurrentPair.refreshToken, body: { ...deviceA }
+      })
+    ]);
+    assert.deepEqual(concurrentResults.map(response => response.status).sort(), [200, 401],
+      'parallel refresh must never produce two successful rotations');
+    const concurrentSuccess = concurrentResults.find(response => response.status === 200);
+    const concurrentNewPair = await concurrentSuccess.json();
+    activeTokens.push(concurrentNewPair.accessToken, concurrentNewPair.refreshToken);
+    const concurrentRevoked = await request('/api/mobile/auth/me', { token: concurrentNewPair.accessToken });
+    assert.equal(concurrentRevoked.status, 401,
+      'the losing parallel refresh must trigger replay response and revoke the account sessions');
   } finally {
     await db.query('DELETE FROM users WHERE id = $1', [userId]).catch(() => {});
     child.kill('SIGTERM');
