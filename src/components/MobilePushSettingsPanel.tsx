@@ -1,12 +1,12 @@
 import { PushNotifications } from '@capacitor/push-notifications';
 import type { PluginListenerHandle } from '@capacitor/core';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type FC } from 'react';
 import { useLocale } from '../i18n/LocaleProvider';
 import { isNativeVowApp } from '../utils/apiClient';
 
 type PushStatus = { available: boolean; registered: boolean; platform: 'android' | 'ios' | null };
 
-export const MobilePushSettingsPanel: React.FC = () => {
+export const MobilePushSettingsPanel: FC = () => {
   const { t } = useLocale();
   const [status, setStatus] = useState<PushStatus>({ available: false, registered: false, platform: null });
   const [busy, setBusy] = useState(false);
