@@ -47,5 +47,5 @@ $$;
 
 DROP TRIGGER IF EXISTS mobile_refresh_token_history_no_update ON mobile_refresh_token_history;
 CREATE TRIGGER mobile_refresh_token_history_no_update
-  BEFORE UPDATE OR DELETE ON mobile_refresh_token_history
+  BEFORE UPDATE ON mobile_refresh_token_history
   FOR EACH ROW EXECUTE FUNCTION prevent_mobile_refresh_history_mutation();
