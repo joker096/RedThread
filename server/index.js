@@ -3860,7 +3860,7 @@ app.get('/api/matches', requireSession, async (req, res) => {
   }
 });
 
-app.get('/api/matches/:matchId/compatibility', requireSession, async (req, res) => {
+app.get('/api/matches/:matchId/compatibility', profileActionLimiter, requireSession, async (req, res) => {
   if (!isUuid(req.params.matchId)) return res.status(400).json({ error: 'invalid_match_id' });
   let client;
   try {
