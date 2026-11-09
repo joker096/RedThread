@@ -57,6 +57,7 @@ test('provider payloads contain only generic notification copy and allowlisted r
     route: '/chats'
   });
   assert.equal(JSON.stringify(buildFcmMessage('fcm-token', payload)).includes('messageId'), false);
+  assert.equal(buildFcmMessage('fcm-token', payload, 'outbox-1').message.android.collapse_key, 'outbox-1');
 });
 
 test('provider responses distinguish sent, invalid token, retry and permanent failure', () => {
