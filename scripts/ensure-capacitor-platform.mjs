@@ -58,7 +58,7 @@ function configureAndroidDeepLinks(host) {
       '                <action android:name="android.intent.action.VIEW" />\n' +
       '                <category android:name="android.intent.category.DEFAULT" />\n' +
       '                <category android:name="android.intent.category.BROWSABLE" />\n' +
-      '                <data android:scheme="https" android:host="' + host + '" android:pathPrefix="/" />\n' +
+      '                <data android:scheme="https" android:host="' + host + '" android:path="/" />\n' +
       '            </intent-filter>';
   }
   if (insert) {
