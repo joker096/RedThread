@@ -28,7 +28,7 @@ concurrency:
 jobs:
   android-emulator:
     name: Android Emulator install, launch and microphone permission
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -60,11 +60,11 @@ jobs:
       - name: Boot virtual Android device and smoke test app
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 34
           target: google_apis
           arch: x86_64
           profile: pixel_2
-          emulator-boot-timeout: 600
+          emulator-boot-timeout: 900
           disable-animations: true
           script: |
             set -euo pipefail
