@@ -35,12 +35,19 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
-  IF TG_OP = 'INSERT' OR NEW.granted_at IS DISTINCT FROM OLD.granted_at OR
-     NEW.consent_version IS DISTINCT FROM OLD.consent_version THEN
+  IF TG_OP = 'INSERT' THEN
     NEW.granted_txid := txid_current();
-  END IF;
-  IF TG_OP = 'INSERT' OR NEW.withdrawn_at IS DISTINCT FROM OLD.withdrawn_at THEN
     NEW.withdrawn_txid := CASE WHEN NEW.withdrawn_at IS NULL THEN NULL ELSE txid_current() END;
+  ELSE
+    IF NEW.granted_at IS DISTINCT FROM OLD.granted_at OR
+       NEW.consent_version IS DISTINCT FROM OLD.consent_version OR
+       (OLD.withdrawn_at IS NOT NULL AND NEW.withdrawn_at IS NULL) THEN
+      NEW.granted_at := statement_timestamp();
+      NEW.granted_txid := txid_current();
+    END IF;
+    IF NEW.withdrawn_at IS DISTINCT FROM OLD.withdrawn_at THEN
+      NEW.withdrawn_txid := CASE WHEN NEW.withdrawn_at IS NULL THEN NULL ELSE txid_current() END;
+    END IF;
   END IF;
   RETURN NEW;
 END;
