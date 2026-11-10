@@ -2634,10 +2634,10 @@ app.put('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession, p
         [req.authUser.id, VOICE_INTRO_CONSENT_VERSION]
       );
       await client.query(
-        \`INSERT INTO profile_voice_intro_consent_events
+        `INSERT INTO profile_voice_intro_consent_events
            (user_id, actor_user_id, event_type, consent_version, occurred_at)
          SELECT user_id, user_id, 'granted', consent_version, granted_at
-         FROM profile_voice_intro_consents WHERE user_id = $1 AND consent_version = $2\`,
+         FROM profile_voice_intro_consents WHERE user_id = $1 AND consent_version = $2`,
         [req.authUser.id, VOICE_INTRO_CONSENT_VERSION]
       );
       const previous = await client.query(
@@ -2736,10 +2736,10 @@ app.delete('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession
       );
       if (!consent.rows[0].withdrawn_at) {
         await client.query(
-          \`INSERT INTO profile_voice_intro_consent_events
+          `INSERT INTO profile_voice_intro_consent_events
              (user_id, actor_user_id, event_type, consent_version, occurred_at)
            SELECT user_id, user_id, 'withdrawn', consent_version, withdrawn_at
-           FROM profile_voice_intro_consents WHERE user_id = $1 AND consent_version = $2\`,
+           FROM profile_voice_intro_consents WHERE user_id = $1 AND consent_version = $2`,
           [req.authUser.id, VOICE_INTRO_CONSENT_VERSION]
         );
       }
