@@ -85,6 +85,40 @@ CREATE TRIGGER profile_voice_intro_consent_events_validate
   BEFORE INSERT ON profile_voice_intro_consent_events
   FOR EACH ROW EXECUTE FUNCTION validate_profile_voice_intro_consent_event();
 
+CREATE OR REPLACE FUNCTION require_profile_voice_intro_consent_transition_event()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $
+BEGIN
+  IF NEW.granted_txid = txid_current() AND NOT EXISTS (
+    SELECT 1 FROM profile_voice_intro_consent_events e
+    WHERE e.user_id = NEW.user_id AND e.event_type = 'granted'
+      AND e.consent_version = NEW.consent_version
+      AND e.occurred_at = NEW.granted_at AND e.recorded_txid = txid_current()
+  ) THEN
+    RAISE EXCEPTION 'profile voice intro grant requires a same-transaction consent event'
+      USING ERRCODE = '23514';
+  END IF;
+  IF NEW.withdrawn_txid = txid_current() AND NOT EXISTS (
+    SELECT 1 FROM profile_voice_intro_consent_events e
+    WHERE e.user_id = NEW.user_id AND e.event_type = 'withdrawn'
+      AND e.consent_version = NEW.consent_version
+      AND e.occurred_at = NEW.withdrawn_at AND e.recorded_txid = txid_current()
+  ) THEN
+    RAISE EXCEPTION 'profile voice intro withdrawal requires a same-transaction consent event'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NULL;
+END;
+$;
+
+DROP TRIGGER IF EXISTS profile_voice_intro_consents_require_event
+  ON profile_voice_intro_consents;
+CREATE CONSTRAINT TRIGGER profile_voice_intro_consents_require_event
+  AFTER INSERT OR UPDATE ON profile_voice_intro_consents
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION require_profile_voice_intro_consent_transition_event();
+
 CREATE OR REPLACE FUNCTION protect_profile_voice_intro_consent_events()
 RETURNS trigger
 LANGUAGE plpgsql
