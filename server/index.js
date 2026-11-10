@@ -2729,20 +2729,18 @@ app.delete('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession
       'SELECT storage_path FROM profile_voice_intros WHERE user_id = $1 FOR UPDATE',
       [req.authUser.id]
     );
-    if (consent.rows[0] && consent.rows[0].consent_version === VOICE_INTRO_CONSENT_VERSION) {
+    if (consent.rows[0] && !consent.rows[0].withdrawn_at) {
       await client.query(
-        'UPDATE profile_voice_intro_consents SET withdrawn_at = COALESCE(withdrawn_at, statement_timestamp()), updated_at = statement_timestamp() WHERE user_id = $1',
+        'UPDATE profile_voice_intro_consents SET withdrawn_at = statement_timestamp(), updated_at = statement_timestamp() WHERE user_id = $1',
         [req.authUser.id]
       );
-      if (!consent.rows[0].withdrawn_at) {
-        await client.query(
-          `INSERT INTO profile_voice_intro_consent_events
-             (user_id, actor_user_id, event_type, consent_version, occurred_at)
-           SELECT user_id, user_id, 'withdrawn', consent_version, withdrawn_at
-           FROM profile_voice_intro_consents WHERE user_id = $1 AND consent_version = $2`,
-          [req.authUser.id, VOICE_INTRO_CONSENT_VERSION]
-        );
-      }
+      await client.query(
+        `INSERT INTO profile_voice_intro_consent_events
+           (user_id, actor_user_id, event_type, consent_version, occurred_at)
+         SELECT user_id, user_id, 'withdrawn', consent_version, withdrawn_at
+         FROM profile_voice_intro_consents WHERE user_id = $1`,
+        [req.authUser.id]
+      );
     }
     await queuePrivateVoiceIntroPurges(client, result.rows.map(row => row.storage_path));
     await client.query('DELETE FROM profile_voice_intros WHERE user_id = $1', [req.authUser.id]);
