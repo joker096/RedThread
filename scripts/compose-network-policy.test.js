@@ -47,6 +47,7 @@ test('Docker database network is isolated from the public web proxy container', 
   assert.deepEqual(networksFor('clamav'), ['backend']);
   assert.deepEqual(networksFor('identity-l3-worker'), ['backend']);
   assert.deepEqual(networksFor('identity-l3-purge-worker'), ['backend']);
+  assert.deepEqual(networksFor('private-voice-intro-purge'), ['backend']);
   const clamav = serviceBlock('clamav');
   const l3Worker = serviceBlock('identity-l3-worker');
   const l3PurgeWorker = serviceBlock('identity-l3-purge-worker');
@@ -87,9 +88,24 @@ test('Docker database network is isolated from the public web proxy container', 
   assert.doesNotMatch(l3PurgeWorker, /clamav:/,
     'the purge-only worker must not depend on or access the malware scanner');
   assert.deepEqual(networksFor('api'), ['backend', 'frontend', 'egress']);
+  const voicePurgeWorker = serviceBlock('private-voice-intro-purge');
+  assert.match(voicePurgeWorker, /restart: unless-stopped/);
+  assert.match(voicePurgeWorker, /cap_drop: \\[ALL\\]/);
+  assert.match(voicePurgeWorker, /no-new-privileges:true/);
+  assert.match(voicePurgeWorker, /VOICE_INTRO_STORAGE_DIR: \/app\/uploads\/private-voice-intros/);
+  assert.match(voicePurgeWorker, /VOICE_INTRO_PURGE_BATCH_SIZE/);
+  assert.match(voicePurgeWorker, /process-private-voice-intro-purge.js/);
+  assert.match(voicePurgeWorker, /sleep 60/);
+  assert.match(voicePurgeWorker, /private_voice_intros:\/app\/uploads\/private-voice-intros/);
+  assert.match(voicePurgeWorker, /migrate:\\n        condition: service_completed_successfully/);
+  assert.doesNotMatch(voicePurgeWorker, /VOICE_INTRO_ENCRYPTION_KEY/,
+    'the deletion worker must not receive the media encryption key');
   const api = serviceBlock('api');
   const web = serviceBlock('web');
   assert.ok(api.includes('IDENTITY_L3_STORAGE_DIR: /app/uploads/private-identity-l3'));
+  assert.ok(api.includes('VOICE_INTRO_STORAGE_DIR: /app/uploads/private-voice-intros'));
+  assert.ok(api.includes('VOICE_INTRO_ENCRYPTION_KEY: ${VOICE_INTRO_ENCRYPTION_KEY:-}'));
+  assert.ok(api.includes('private_voice_intros:/app/uploads/private-voice-intros'));
   assert.ok(api.includes('ACCOUNT_REUSE_HMAC_KEY: ${ACCOUNT_REUSE_HMAC_KEY:-}'));
   assert.ok(api.includes('IDENTITY_L3_ENCRYPTION_KEY: ${IDENTITY_L3_ENCRYPTION_KEY:-}'));
   assert.match(api, /cap_drop: \[ALL\]/);
@@ -102,7 +118,7 @@ test('Docker database network is isolated from the public web proxy container', 
     'moderator plaintext staging must use a bounded private tmpfs');
 
   assert.ok(api.includes('private_identity_l3:/app/uploads/private-identity-l3'));
-  assert.doesNotMatch(web, /IDENTITY_L3_ENCRYPTION_KEY|IDENTITY_L3_TEMP_DIR|private_identity_l3/,
+  assert.doesNotMatch(web, /IDENTITY_L3_ENCRYPTION_KEY|IDENTITY_L3_TEMP_DIR|private_identity_l3|VOICE_INTRO_ENCRYPTION_KEY|private_voice_intros/,
     'L3 media storage and encryption key must be API-only');
   assert.deepEqual(networksFor('web'), ['frontend']);
 
