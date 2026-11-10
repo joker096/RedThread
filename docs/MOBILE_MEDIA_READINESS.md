@@ -30,7 +30,7 @@ Status: native camera/microphone capture is not enabled. The current L3 video-up
 - The Compose deployment now defines a dedicated `private-voice-intro-purge` service. It runs one bounded PostgreSQL queue batch every 60 seconds and retries failed batches on the next cycle.
 - The API and purge worker share the named `private_voice_intros` volume. The encryption key is injected only into the API; the deletion worker never receives it.
 - The worker fails closed if the configured storage root is missing or is a symbolic link. It does not treat an unavailable mount as proof that media has already been deleted.
-- The queue uses row-level `FOR UPDATE SKIP LOCKED` locking, so multiple worker instances do not process the same queue row concurrently. File deletion is idempotent: an already absent encrypted file allows its stale queue row to be completed.
+- The queue uses row-level `FOR UPDATE SKIP LOCKED` locking, so multiple worker instances do not process the same queue row concurrently. File deletion is idempotent: an already absent encrypted file allows its stale queue row to be completed. Automated tests also verify that an invalid/traversal storage path is never passed to file deletion and is retained for retry.
 - This is deployment configuration, not evidence of a running production service. After a real host is provisioned, operators must confirm the named volume is backed up appropriately, start the service, monitor queue age/failures and rehearse restore and deletion before enabling voice introductions.
 
 ## Release blockers
