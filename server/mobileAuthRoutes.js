@@ -55,7 +55,7 @@ export function applyMobileCorsHeaders(origin, res) {
   if (!normalized || !MOBILE_ORIGINS.has(normalized)) return false;
   res.setHeader('Access-Control-Allow-Origin', normalized);
   res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Vow-Voice-Intro-Consent, X-Vow-Voice-Intro-Consent-Version');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Max-Age', '600');
   return true;
