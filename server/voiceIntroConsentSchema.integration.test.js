@@ -99,6 +99,29 @@ test('voice intro consent state requires same-transaction immutable audit events
     assert.equal(state.rows[0].withdrawn, true);
 
     await client.query('BEGIN');
+    await client.query(
+      'UPDATE profile_voice_intro_consents SET withdrawn_at = NULL WHERE user_id = $1',
+      [userId]
+    );
+    await assert.rejects(client.query('COMMIT'), error => error.code === '23514');
+    await client.query('ROLLBACK');
+
+    await client.query('BEGIN');
+    const regrant = await client.query(
+      `UPDATE profile_voice_intro_consents
+       SET withdrawn_at = NULL WHERE user_id = $1
+       RETURNING consent_version, granted_at`,
+      [userId]
+    );
+    await client.query(
+      `INSERT INTO profile_voice_intro_consent_events
+         (user_id, actor_user_id, event_type, consent_version, occurred_at)
+       VALUES ($1, $1, 'granted', $2, $3)`,
+      [userId, regrant.rows[0].consent_version, regrant.rows[0].granted_at]
+    );
+    await client.query('COMMIT');
+
+    await client.query('BEGIN');
     await client.query("UPDATE users SET status = 'deleted' WHERE id = $1", [userId]);
     await client.query('DELETE FROM profile_voice_intro_consent_events WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM profile_voice_intro_consents WHERE user_id = $1', [userId]);
