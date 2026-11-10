@@ -99,6 +99,8 @@ test('Docker database network is isolated from the public web proxy container', 
   assert.match(voicePurgeWorker, /VOICE_INTRO_PURGE_BATCH_SIZE/);
   assert.match(voicePurgeWorker, /process-private-voice-intro-purge.js/);
   assert.match(voicePurgeWorker, /sleep 60/);
+  assert.match(voicePurgeWorker, /Private voice introduction purge failed; retrying on the next minute/,
+    'a transient purge failure must be logged and retried on the next scheduled cycle');
   assert.match(voicePurgeWorker, /private_voice_intros:\/app\/uploads\/private-voice-intros/);
   assert.match(voicePurgeWorker, /migrate:\n        condition: service_completed_successfully/);
   assert.doesNotMatch(voicePurgeWorker, /VOICE_INTRO_ENCRYPTION_KEY/,
