@@ -103,10 +103,10 @@ test('Docker database network is isolated from the public web proxy container', 
   const api = serviceBlock('api');
   const web = serviceBlock('web');
   assert.ok(api.includes('IDENTITY_L3_STORAGE_DIR: /app/uploads/private-identity-l3'));
-  const apiSection = compose.slice(compose.indexOf('  api:\n'), compose.indexOf('  web:\n'));
-  assert.ok(apiSection.includes('VOICE_INTRO_STORAGE_DIR: /app/uploads/private-voice-intros'));
-  assert.ok(apiSection.includes('VOICE_INTRO_ENCRYPTION_KEY: ${VOICE_INTRO_ENCRYPTION_KEY:-}'));
-  assert.ok(apiSection.includes('private_voice_intros:/app/uploads/private-voice-intros'));
+  assert.match(compose, /^      VOICE_INTRO_STORAGE_DIR: \/app\/uploads\/private-voice-intros$/m);
+  assert.match(compose, /^      VOICE_INTRO_ENCRYPTION_KEY: \$\{VOICE_INTRO_ENCRYPTION_KEY:-\}$/m);
+  assert.equal((compose.match(/^      - private_voice_intros:\/app\/uploads\/private-voice-intros$/gm) || []).length, 2,
+    'API and purge worker must share exactly the same named private volume');
   assert.ok(api.includes('ACCOUNT_REUSE_HMAC_KEY: ${ACCOUNT_REUSE_HMAC_KEY:-}'));
   assert.ok(api.includes('IDENTITY_L3_ENCRYPTION_KEY: ${IDENTITY_L3_ENCRYPTION_KEY:-}'));
   assert.match(api, /cap_drop: \[ALL\]/);
