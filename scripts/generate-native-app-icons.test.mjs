@@ -30,6 +30,7 @@ test('Android launcher, round and adaptive foreground icons are generated from t
         const metadata = await sharp(path.join(root, 'android/app/src/main/res/mipmap-' + density, filename)).metadata();
         assert.equal(metadata.width, size);
         assert.equal(metadata.height, size);
+        assert.notEqual(metadata.hasAlpha, true, 'regular Android launcher icons must be opaque');
       }
       const foreground = await sharp(path.join(root, 'android/app/src/main/res/mipmap-' + density, 'ic_launcher_foreground.png')).metadata();
       assert.equal(foreground.width, size * 2.25);
@@ -52,6 +53,7 @@ test('iOS AppIcon asset catalog receives a 1024px PNG generated from the vector 
     const metadata = await sharp(iconPath).metadata();
     assert.equal(metadata.width, 1024);
     assert.equal(metadata.height, 1024);
+    assert.notEqual(metadata.hasAlpha, true, 'iOS App Store icons must not contain transparency');
     const contents = JSON.parse(await readFile(path.join(path.dirname(iconPath), 'Contents.json'), 'utf8'));
     assert.equal(contents.images[0].filename, 'AppIcon-1024.png');
     assert.equal(contents.images[0].size, '1024x1024');
