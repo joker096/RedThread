@@ -35,6 +35,7 @@ test('Vow brand icon is a scalable custom SVG and the app header uses it instead
   assert.ok(brandIcon.includes('viewBox="0 0 512 512"'));
   assert.ok(brandIcon.includes('<title id="title">Vow</title>'));
   assert.ok(brandIcon.includes('<linearGradient'));
+  assert.ok(brandIcon.includes('<rect width="512" height="512" fill="url(#bg)"/>'));
   assert.ok(brandIcon.includes('stroke-linecap="round"'));
   assert.ok(header.includes('<img src="/icon.svg"'));
   assert.equal(header.includes('Flame'), false);
