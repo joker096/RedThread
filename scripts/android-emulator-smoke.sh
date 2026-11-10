@@ -109,12 +109,29 @@ if [[ "$launcher_activity" != *"/"* ]]; then
   exit 1
 fi
 echo "Launching Vow activity: $launcher_activity"
-launch_result="$(adb_call shell am start -W -n "$launcher_activity")"
+# Do not use am start -W here: on resource-constrained API 35 emulators its
+# fixed wait can expire while system_server is still scheduling the launch.
+# Start asynchronously, then verify the actual foreground activity with a
+# bounded poll. This avoids treating a slow launch as an app failure.
+launch_result="$(adb_call shell am start -n "$launcher_activity")"
 printf '%s\n' "$launch_result"
-grep -q "Status: ok" <<< "$launch_result"
-sleep 5
-activity_state="$(adb_call shell dumpsys activity activities)"
-grep -E 'ResumedActivity|topResumedActivity|mResumedActivity' <<< "$activity_state" | grep -F com.vow.app
+grep -q "Starting:" <<< "$launch_result"
+
+activity_ready=0
+for attempt in $(seq 1 45); do
+  activity_state="$(adb shell dumpsys activity activities 2>&1 || true)"
+  if grep -E 'ResumedActivity|topResumedActivity|mResumedActivity' <<< "$activity_state" | grep -Fq com.vow.app; then
+    grep -E 'ResumedActivity|topResumedActivity|mResumedActivity' <<< "$activity_state" | grep -F com.vow.app
+    activity_ready=1
+    break
+  fi
+  sleep 2
+done
+if [[ "$activity_ready" -ne 1 ]]; then
+  echo "Vow did not reach the resumed foreground state within 90 seconds" >&2
+  adb shell dumpsys activity activities >&2 || true
+  exit 1
+fi
 
 capture_logcat
 if grep -A 8 -E 'FATAL EXCEPTION|Fatal signal' "$LOG_FILE" | grep -F com.vow.app; then
