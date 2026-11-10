@@ -303,6 +303,7 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
             <input
               type="checkbox"
               checked={consentAccepted}
+              disabled={busy}
               onChange={event => setConsentAccepted(event.target.checked)}
               className="mt-0.5 h-4 w-4 shrink-0 accent-rose-500"
               aria-label={t('voiceIntroConsentText')}
