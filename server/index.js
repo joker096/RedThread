@@ -2269,6 +2269,10 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
          p.photo_urls AS "photoUrls",
          EXISTS (
            SELECT 1 FROM profile_voice_intros voice_intro
+           JOIN profile_voice_intro_consents voice_consent
+             ON voice_consent.user_id = voice_intro.user_id
+            AND voice_consent.consent_version = ${VOICE_INTRO_CONSENT_VERSION}
+            AND voice_consent.withdrawn_at IS NULL
            WHERE voice_intro.user_id = p.user_id AND voice_intro.review_status = 'approved'
          ) AS "voiceIntroAvailable",
          p.occupation,
@@ -4949,7 +4953,12 @@ app.get('/api/admin/voice-intros/:voiceIntroId/audio', profileActionLimiter, req
       `SELECT storage_path AS "storagePath", mime_type AS "mimeType"
        FROM profile_voice_intros
        WHERE id = $1 AND user_id = $2 AND review_status = 'pending'
-         AND EXISTS (SELECT 1 FROM users WHERE id = $2 AND status = 'active')`,
+         AND EXISTS (SELECT 1 FROM users WHERE id = $2 AND status = 'active')
+         AND EXISTS (
+           SELECT 1 FROM profile_voice_intro_consents c
+           WHERE c.user_id = $2 AND c.consent_version = ${VOICE_INTRO_CONSENT_VERSION}
+             AND c.withdrawn_at IS NULL
+         )`,
       [req.params.voiceIntroId, ownerId]
     );
     if (!result.rows[0]) {
