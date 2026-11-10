@@ -84,10 +84,21 @@ fi
 
 echo "Granting and verifying microphone permission"
 adb_call shell pm grant com.vow.app android.permission.RECORD_AUDIO
-permission_state="$(adb_call shell cmd package check-permission android.permission.RECORD_AUDIO com.vow.app)"
-printf 'RECORD_AUDIO permission: %s\n' "$permission_state"
-test "$permission_state" = "granted"
-adb_call shell appops get com.vow.app RECORD_AUDIO || true
+# Android 15's package shell does not expose the old check-permission subcommand.
+# Verify the runtime grant from PackageManager's package dump instead.
+package_dump="$(adb_call shell dumpsys package com.vow.app)"
+if ! grep -Fq 'android.permission.RECORD_AUDIO: granted=true' <<< "$package_dump"; then
+  echo "RECORD_AUDIO runtime permission was not granted" >&2
+  grep -F 'android.permission.RECORD_AUDIO' <<< "$package_dump" >&2 || true
+  exit 1
+fi
+echo "RECORD_AUDIO permission: granted"
+appops_state="$(adb_call shell appops get com.vow.app RECORD_AUDIO)"
+printf '%s\n' "$appops_state"
+if ! grep -Eq 'RECORD_AUDIO: allow([[:space:];]|$)' <<< "$appops_state"; then
+  echo "RECORD_AUDIO app-op is not allowed" >&2
+  exit 1
+fi
 
 # Resolve and launch the app directly; monkey unnecessarily stresses low-resource CI emulators.
 launcher_activity="$(adb_call shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER com.vow.app | tr -d '\r' | tail -n 1)"
