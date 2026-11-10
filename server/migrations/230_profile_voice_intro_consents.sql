@@ -88,7 +88,7 @@ CREATE TRIGGER profile_voice_intro_consent_events_validate
 CREATE OR REPLACE FUNCTION require_profile_voice_intro_consent_transition_event()
 RETURNS trigger
 LANGUAGE plpgsql
-AS $
+AS $$
 BEGIN
   IF NEW.granted_txid = txid_current() AND NOT EXISTS (
     SELECT 1 FROM profile_voice_intro_consent_events e
@@ -110,7 +110,7 @@ BEGIN
   END IF;
   RETURN NULL;
 END;
-$;
+$$;
 
 DROP TRIGGER IF EXISTS profile_voice_intro_consents_require_event
   ON profile_voice_intro_consents;
