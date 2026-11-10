@@ -57,6 +57,8 @@ jobs:
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug
+      - name: Validate Android emulator smoke script
+        run: bash -n scripts/android-emulator-smoke.sh
       - name: Boot virtual Android device and smoke test app
         uses: reactivecircus/android-emulator-runner@v2
         with:
