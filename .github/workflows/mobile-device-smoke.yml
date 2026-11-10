@@ -15,6 +15,7 @@ on:
       - "android/**"
       - "ios/**"
       - ".github/workflows/mobile-device-smoke.yml"
+      - ".github/workflows/mobile-build.yml"
   workflow_dispatch:
 
 permissions:
@@ -73,7 +74,8 @@ jobs:
             adb shell monkey -p com.vow.app -c android.intent.category.LAUNCHER 1
             sleep 8
             adb shell dumpsys activity activities | grep -E 'ResumedActivity|topResumedActivity' | grep -F com.vow.app
-            if adb logcat -d -t 5000 | grep -E 'FATAL EXCEPTION|Fatal signal' | grep -F com.vow.app; then
+            adb logcat -d -t 5000 > android-emulator-logcat.txt
+            if grep -E 'FATAL EXCEPTION|Fatal signal' android-emulator-logcat.txt | grep -F com.vow.app; then
               echo "Vow crashed on Android Emulator"
               exit 1
             fi
