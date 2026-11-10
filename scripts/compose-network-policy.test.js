@@ -88,6 +88,9 @@ test('Docker database network is isolated from the public web proxy container', 
   assert.doesNotMatch(l3PurgeWorker, /clamav:/,
     'the purge-only worker must not depend on or access the malware scanner');
   assert.deepEqual(networksFor('api'), ['backend', 'frontend', 'egress']);
+  const photoPurgeWorker = serviceBlock('private-photo-purge');
+  assert.doesNotMatch(photoPurgeWorker, /VOICE_INTRO_STORAGE_DIR|VOICE_INTRO_ENCRYPTION_KEY|private_voice_intros:/,
+    'the photo purge worker must not receive or mount private voice introduction media');
   const voicePurgeWorker = serviceBlock('private-voice-intro-purge');
   assert.match(voicePurgeWorker, /restart: unless-stopped/);
   assert.match(voicePurgeWorker, /cap_drop: \[ALL\]/);
@@ -103,8 +106,10 @@ test('Docker database network is isolated from the public web proxy container', 
   const api = serviceBlock('api');
   const web = serviceBlock('web');
   assert.ok(api.includes('IDENTITY_L3_STORAGE_DIR: /app/uploads/private-identity-l3'));
-  assert.match(compose, /^      VOICE_INTRO_STORAGE_DIR: \/app\/uploads\/private-voice-intros$/m);
-  assert.match(compose, /^      VOICE_INTRO_ENCRYPTION_KEY: \$\{VOICE_INTRO_ENCRYPTION_KEY:-\}$/m);
+  assert.ok(api.includes('VOICE_INTRO_STORAGE_DIR: /app/uploads/private-voice-intros'),
+    'the API must mount and use the private voice introduction storage root');
+  assert.ok(api.includes('VOICE_INTRO_ENCRYPTION_KEY: ${VOICE_INTRO_ENCRYPTION_KEY:-}'),
+    'only the API may receive the voice introduction encryption key');
   assert.equal((compose.match(/^      - private_voice_intros:\/app\/uploads\/private-voice-intros$/gm) || []).length, 2,
     'API and purge worker must share exactly the same named private volume');
   assert.ok(api.includes('ACCOUNT_REUSE_HMAC_KEY: ${ACCOUNT_REUSE_HMAC_KEY:-}'));
