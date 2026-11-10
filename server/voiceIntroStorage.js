@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { randomBytes, createCipheriv, createDecipheriv } from 'node:crypto';
 import { parseBuffer } from 'music-metadata';
+import { VOICE_INTRO_CONSENT_VERSION } from './voiceIntroConsent.js';
 
 const MAGIC = Buffer.from('VOWVOICE1');
 const IV_BYTES = 12;
@@ -128,8 +129,12 @@ export async function persistVoiceIntroReview(client, {
          reviewer_id = $3, review_reason = $4, updated_at = statement_timestamp()
      WHERE id = $1 AND user_id = $5 AND review_status = 'pending'
        AND EXISTS (SELECT 1 FROM users WHERE id = $5 AND status = 'active')
+       AND EXISTS (
+         SELECT 1 FROM profile_voice_intro_consents c
+         WHERE c.user_id = $5 AND c.consent_version = $6 AND c.withdrawn_at IS NULL
+       )
      RETURNING id, user_id AS "userId", storage_path AS "storagePath"`,
-    [voiceIntroId, status, moderatorId, reason || null, ownerId]
+    [voiceIntroId, status, moderatorId, reason || null, ownerId, VOICE_INTRO_CONSENT_VERSION]
   );
   const reviewed = result.rows[0];
   if (!reviewed) return null;
