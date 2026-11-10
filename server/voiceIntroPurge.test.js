@@ -73,3 +73,47 @@ test('purge worker retains failed encrypted files and schedules a bounded retry'
   assert.equal(retry.params[3], 'EACCES');
   assert.equal(statements.at(-1).sql, 'COMMIT');
 });
+
+test('purge worker treats an already absent encrypted file as idempotently deleted', async () => {
+  const task = { id: 'task-enoent', storage_path: validPath, attempts: 0 };
+  const statements = [];
+  const client = {
+    query: async (sql, params) => {
+      statements.push({ sql: sql.replace(/\\s+/g, ' ').trim(), params });
+      if (sql.includes('SELECT id, storage_path, attempts')) return { rows: [task], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    },
+    release: () => {}
+  };
+  const pool = { query: async () => ({ rows: [{ id: task.id }] }), connect: async () => client };
+  const summary = await processPrivateVoiceIntroPurgeBatch(pool, {
+    storageRoot: root,
+    unlinkFile: async () => { const error = new Error('already removed'); error.code = 'ENOENT'; throw error; }
+  });
+  assert.deepEqual(summary, { scanned: 1, deleted: 1, retried: 0, failures: 0 });
+  assert.ok(statements.some(item => item.sql.startsWith('DELETE FROM private_voice_intro_purge_queue')));
+});
+
+test('purge worker refuses traversal paths without touching files and retries the invalid task', async () => {
+  const task = { id: 'task-invalid-path', storage_path: path.resolve(root, '../outside/' + randomUUID() + '.enc'), attempts: 0 };
+  const statements = [];
+  const client = {
+    query: async (sql, params) => {
+      statements.push({ sql: sql.replace(/\\s+/g, ' ').trim(), params });
+      if (sql.includes('SELECT id, storage_path, attempts')) return { rows: [task], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    },
+    release: () => {}
+  };
+  const pool = { query: async () => ({ rows: [{ id: task.id }] }), connect: async () => client };
+  let unlinkCalls = 0;
+  const summary = await processPrivateVoiceIntroPurgeBatch(pool, {
+    storageRoot: root,
+    unlinkFile: async () => { unlinkCalls += 1; }
+  });
+  assert.deepEqual(summary, { scanned: 1, deleted: 0, retried: 1, failures: 1 });
+  assert.equal(unlinkCalls, 0);
+  const retry = statements.find(item => item.sql.startsWith('UPDATE private_voice_intro_purge_queue'));
+  assert.ok(retry);
+  assert.equal(retry.params[3], 'VOICE_INTRO_PATH_INVALID');
+});
