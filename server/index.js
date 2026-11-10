@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { chmod, lstat, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { queuePrivatePhotoPurges } from './photoPurge.js';
 import { decryptVoiceIntro, encryptVoiceIntro, parseVoiceIntroEncryptionKey, persistVoiceIntroReview, queuePrivateVoiceIntroPurges, resolvePrivateVoiceIntroPath, validateVoiceIntro } from './voiceIntroStorage.js';
+import { VOICE_INTRO_CONSENT_VERSION, isCurrentVoiceIntroConsentVersion } from './voiceIntroConsent.js';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -2112,6 +2113,10 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
        WHERE id = $1`,
       [req.authUser.id, 'deleted+' + req.authUser.id + '@deleted.invalid']
     );
+    // Voice consent history is append-only while the account is active and may
+    // be purged only after the account has been tombstoned as deleted.
+    await client.query('DELETE FROM profile_voice_intro_consent_events WHERE user_id = $1', [req.authUser.id]);
+    await client.query('DELETE FROM profile_voice_intro_consents WHERE user_id = $1', [req.authUser.id]);
     // Account deletion removes both the current consent state and its history.
     // Migration 104 permits history purge only after the account is marked deleted.
     await client.query('DELETE FROM identity_l3_consent_events WHERE user_id = $1', [req.authUser.id]);
@@ -2584,6 +2589,10 @@ app.post('/api/photos', validateRequestOrigin, requireSession, profileActionLimi
 
 app.put('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession, profileActionLimiter,
   express.raw({ type: ['audio/mp4', 'audio/aac', 'audio/x-m4a'], limit: '2mb' }), async (req, res) => {
+    if (!isCurrentVoiceIntroConsentVersion(req.get('x-vow-voice-intro-consent-version')) ||
+        req.get('x-vow-voice-intro-consent') !== 'granted') {
+      return res.status(428).json({ error: 'voice_intro_consent_required', consentVersion: VOICE_INTRO_CONSENT_VERSION });
+    }
     if (process.env.NODE_ENV === 'production' && (!process.env.VOICE_INTRO_STORAGE_DIR || !process.env.VOICE_INTRO_ENCRYPTION_KEY)) {
       return res.status(503).json({ error: 'voice_intro_storage_not_configured' });
     }
@@ -2614,6 +2623,20 @@ app.put('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession, p
         await client.query('ROLLBACK');
         return res.status(404).json({ error: 'profile_not_found' });
       }
+      await client.query(
+        `INSERT INTO profile_voice_intro_consents
+           (user_id, consent_version, granted_at, withdrawn_at, updated_at)
+         VALUES ($1, $2, statement_timestamp(), NULL, statement_timestamp())
+         ON CONFLICT (user_id) DO UPDATE SET
+           consent_version = EXCLUDED.consent_version,
+           granted_at = statement_timestamp(), withdrawn_at = NULL,
+           updated_at = statement_timestamp()`,
+        [req.authUser.id, VOICE_INTRO_CONSENT_VERSION]
+      );
+      await client.query(
+        'INSERT INTO profile_voice_intro_consent_events (user_id, event_type, consent_version) VALUES ($1, \'granted\', $2)',
+        [req.authUser.id, VOICE_INTRO_CONSENT_VERSION]
+      );
       const previous = await client.query(
         'SELECT storage_path FROM profile_voice_intros WHERE user_id = $1 FOR UPDATE',
         [req.authUser.id]
@@ -2657,9 +2680,12 @@ app.get('/api/profiles/me/voice-intro', profileActionLimiter, requireSession, as
     await client.query('BEGIN');
     await acquireGiftSafetyUserLocks(client, req.authUser.id);
     const result = await client.query(
-      `SELECT storage_path AS "storagePath", mime_type AS "mimeType"
-       FROM profile_voice_intros WHERE user_id = $1`,
-      [req.authUser.id]
+      `SELECT a.storage_path AS "storagePath", a.mime_type AS "mimeType"
+       FROM profile_voice_intros a
+       JOIN profile_voice_intro_consents c ON c.user_id = a.user_id
+       WHERE a.user_id = $1 AND c.consent_version = $2 AND c.withdrawn_at IS NULL`,
+
+      [req.authUser.id, VOICE_INTRO_CONSENT_VERSION]
     );
     const asset = result.rows[0];
     if (!asset) {
@@ -2692,15 +2718,27 @@ app.delete('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession
     client = await pool.connect();
     await client.query('BEGIN');
     await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const consent = await client.query(
+      'SELECT consent_version FROM profile_voice_intro_consents WHERE user_id = $1 FOR UPDATE',
+      [req.authUser.id]
+    );
     const result = await client.query(
       'SELECT storage_path FROM profile_voice_intros WHERE user_id = $1 FOR UPDATE',
       [req.authUser.id]
     );
-    if (!result.rows[0]) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'voice_intro_not_found' });
+    if (consent.rows[0] && consent.rows[0].consent_version === VOICE_INTRO_CONSENT_VERSION) {
+      await client.query(
+        'UPDATE profile_voice_intro_consents SET withdrawn_at = COALESCE(withdrawn_at, statement_timestamp()), updated_at = statement_timestamp() WHERE user_id = $1',
+        [req.authUser.id]
+      );
+      if (!consent.rows[0].withdrawn_at) {
+        await client.query(
+          'INSERT INTO profile_voice_intro_consent_events (user_id, event_type, consent_version) VALUES ($1, \'withdrawn\', $2)',
+          [req.authUser.id, VOICE_INTRO_CONSENT_VERSION]
+        );
+      }
     }
-    await queuePrivateVoiceIntroPurges(client, [result.rows[0].storage_path]);
+    await queuePrivateVoiceIntroPurges(client, result.rows.map(row => row.storage_path));
     await client.query('DELETE FROM profile_voice_intros WHERE user_id = $1', [req.authUser.id]);
     await client.query('COMMIT');
     return res.status(204).end();
@@ -2763,7 +2801,9 @@ app.get('/api/profiles/:userId/voice-intro', profileActionLimiter, requireSessio
        JOIN users owner ON owner.id = a.user_id AND owner.status = 'active'
        JOIN profiles viewer_profile ON viewer_profile.user_id = $2
        JOIN users viewer ON viewer.id = $2 AND viewer.status = 'active'
+       JOIN profile_voice_intro_consents consent ON consent.user_id = a.user_id
        WHERE a.user_id = $1 AND a.review_status = 'approved'
+         AND consent.consent_version = $3 AND consent.withdrawn_at IS NULL
          AND owner_profile.gender <> viewer_profile.gender
          AND owner_profile.birth_date IS NOT NULL
          AND owner_profile.children_disclosure_confirmed_at IS NOT NULL
@@ -2795,7 +2835,7 @@ app.get('/api/profiles/:userId/voice-intro', profileActionLimiter, requireSessio
            WHERE prior_like.sender_id = viewer.id AND prior_like.target_id = owner.id
          )
        LIMIT 1`,
-      [req.params.userId, req.authUser.id]
+      [req.params.userId, req.authUser.id, VOICE_INTRO_CONSENT_VERSION]
     );
     const asset = result.rows[0];
     if (!asset) {
