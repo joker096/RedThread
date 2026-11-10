@@ -11,8 +11,13 @@ adb wait-for-device
 
 # Android can report sys.boot_completed before PackageManager is available.
 package_ready=0
-for attempt in $(seq 1 90); do
-  if adb shell cmd package list packages >/dev/null 2>&1; then
+for attempt in $(seq 1 120); do
+  package_service="$(adb shell service check package 2>&1 || true)"
+  activity_service="$(adb shell service check activity 2>&1 || true)"
+  package_list="$(adb shell cmd package list packages 2>&1 || true)"
+  if grep -q "Service package: found" <<< "$package_service" \
+    && grep -q "Service activity: found" <<< "$activity_service" \
+    && grep -q "^package:" <<< "$package_list"; then
     package_ready=1
     break
   fi
@@ -20,9 +25,13 @@ for attempt in $(seq 1 90); do
 done
 
 if [[ "$package_ready" -ne 1 ]]; then
-  echo "Android PackageManager did not become ready after emulator boot" >&2
+  echo "Android system services did not become ready after emulator boot" >&2
   adb shell getprop sys.boot_completed || true
   adb shell service check package || true
+  adb shell service check activity || true
+  adb shell cmd package list packages || true
+  capture_logcat
+  tail -n 250 "$LOG_FILE" >&2 || true
   exit 1
 fi
 
