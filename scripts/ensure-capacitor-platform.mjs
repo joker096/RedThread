@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
+import { generateNativeAppIcons } from './generate-native-app-icons.mjs';
 import { mergeAssociatedDomainsEntitlements } from './capacitor-entitlements.mjs';
 import { ensureAndroidRecordAudioPermission, ensureIosMicrophoneUsageDescription, ensureIosFilesystemPrivacyManifest, createEmptyIosPrivacyManifest, ensureIosPrivacyManifestXcodeResource } from './capacitor-audio-permissions.mjs';
 
@@ -139,6 +140,7 @@ function configureIosMicrophonePermission() {
 }
 
 const appLinkHost = configuredAppLinkHost();
+await generateNativeAppIcons(platform);
 if (platform === 'android') {
   configureAndroidDeepLinks(appLinkHost);
   configureAndroidAudioPermission();
