@@ -231,6 +231,8 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
       PGSSL: "${PGSSL:-false}"
       PHOTO_STORAGE_DIR: /app/uploads/private-photos
+      VOICE_INTRO_STORAGE_DIR: /app/uploads/private-voice-intros
+      VOICE_INTRO_ENCRYPTION_KEY: ${VOICE_INTRO_ENCRYPTION_KEY:-}
       PRIVATE_PHOTO_PURGE_BATCH_SIZE: ${PRIVATE_PHOTO_PURGE_BATCH_SIZE:-100}
     command:
       - sh
@@ -242,6 +244,34 @@ services:
         done
     volumes:
       - private_photos:/app/uploads/private-photos
+      - private_voice_intros:/app/uploads/private-voice-intros
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [backend]
+
+  private-voice-intro-purge:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
+      PGSSL: "${PGSSL:-false}"
+      VOICE_INTRO_STORAGE_DIR: /app/uploads/private-voice-intros
+      VOICE_INTRO_PURGE_BATCH_SIZE: ${VOICE_INTRO_PURGE_BATCH_SIZE:-100}
+    command:
+      - sh
+      - -c
+      - |
+        while :; do
+          node server/process-private-voice-intro-purge.js || echo "Private voice introduction purge failed; retrying on the next minute."
+          sleep 60
+        done
+    volumes:
+      - private_voice_intros:/app/uploads/private-voice-intros
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -325,6 +355,7 @@ services:
 volumes:
   postgres_data:
   private_photos:
+  private_voice_intros:
   private_identity_l3:
   clamav_database:
 
