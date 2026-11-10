@@ -1,5 +1,5 @@
 import React from 'react';
-import { SlidersHorizontal, Flame, MessageCircle, Brain, Crown, Sun, Moon } from 'lucide-react';
+import { SlidersHorizontal, MessageCircle, Brain, Crown, Sun, Moon } from 'lucide-react';
 import type { DeviceFrame, Gender } from '../types/index.ts';
 import { getTranslationCoverage, LANGUAGE_OPTIONS, useLocale } from '../i18n/LocaleProvider.tsx';
 
@@ -61,8 +61,8 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           className="flex items-center gap-1.5 select-none group shrink-0"
           title={t('brandTagline')}
         >
-          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-tr from-rose-600 via-red-600 to-amber-500 flex items-center justify-center text-white shadow-md shadow-rose-950/60 group-hover:scale-105 transition-transform">
-            <Flame className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-white" />
+          <div className="w-8 h-8 sm:w-9 sm:h-9 overflow-hidden rounded-xl shadow-md shadow-rose-950/40 transition-transform group-hover:scale-105">
+            <img src="/icon.svg" alt="" aria-hidden="true" className="block h-full w-full object-cover" />
           </div>
           <div className="flex items-baseline gap-1">
             <span className="font-heading font-black tracking-tight text-sm sm:text-base text-white">
