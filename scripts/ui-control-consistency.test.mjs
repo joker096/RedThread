@@ -9,6 +9,7 @@ const voicePanel = await readFile(new URL('../src/components/VoiceIntroRecorderP
 const voiceApi = await readFile(new URL('../server/index.js', import.meta.url), 'utf8');
 const voiceConsent = await readFile(new URL('../server/voiceIntroConsent.js', import.meta.url), 'utf8');
 const voiceConsentMigration = await readFile(new URL('../server/migrations/230_profile_voice_intro_consents.sql', import.meta.url), 'utf8');
+const voiceConsentIntegrationTest = await readFile(new URL('../server/voiceIntroConsentSchema.integration.test.js', import.meta.url), 'utf8');
 
 test('Vow defines one shared readable control scale', () => {
   assert.match(css, /--vow-control-height:\s*2\.75rem/);
@@ -69,4 +70,10 @@ test('voice consent cannot be reactivated without a fresh grant event', () => {
   assert.ok(voiceConsentMigration.includes('OLD.withdrawn_at IS NOT NULL AND NEW.withdrawn_at IS NULL'));
   assert.ok(voiceConsentMigration.includes('NEW.granted_txid = txid_current()'));
   assert.ok(voicePanel.includes('disabled={busy}'));
+});
+
+test('consent integration tests compare timestamps inside PostgreSQL without JavaScript precision loss', () => {
+  assert.ok(voiceConsentIntegrationTest.includes("SELECT user_id, user_id, 'granted', consent_version, granted_at"));
+  assert.ok(voiceConsentIntegrationTest.includes("SELECT user_id, user_id, 'withdrawn', consent_version, withdrawn_at"));
+  assert.equal(voiceConsentIntegrationTest.includes("VALUES ($1, $1, 'granted', 1, $2)"), false);
 });
