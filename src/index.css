@@ -1251,11 +1251,6 @@ main article[class*="rounded-2xl"][class*="border"] {
   padding-inline: 0.625rem;
 }
 
-:where(button[aria-label]:not(:has(:not(svg, img, [aria-hidden="true"]))),
-[role="button"][aria-label]:not(:has(:not(svg, img, [aria-hidden="true"])))) {
-  padding-inline: 0.625rem;
-}
-
 @media (max-width: 380px) {
   :where(button, [role="button"]) {
     padding-inline: 0.75rem;
