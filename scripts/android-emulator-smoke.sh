@@ -95,8 +95,10 @@ fi
 echo "RECORD_AUDIO permission: granted"
 appops_state="$(adb_call shell appops get com.vow.app RECORD_AUDIO)"
 printf '%s\n' "$appops_state"
-if ! grep -Eq 'RECORD_AUDIO: allow([[:space:];]|$)' <<< "$appops_state"; then
-  echo "RECORD_AUDIO app-op is not allowed" >&2
+# Android may report "foreground" rather than "allow" for a granted runtime
+# microphone permission. Foreground is the expected privacy-preserving mode.
+if ! grep -Eq 'RECORD_AUDIO: (allow|foreground)([[:space:];]|$)' <<< "$appops_state"; then
+  echo "RECORD_AUDIO app-op is neither allow nor foreground" >&2
   exit 1
 fi
 
