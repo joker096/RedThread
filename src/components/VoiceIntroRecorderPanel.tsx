@@ -12,6 +12,7 @@ type Preview = { blob: Blob; url: string; mimeType: string; durationMs: number }
 
 const MIN_DURATION_MS = 15_000;
 const MAX_DURATION_MS = 25_000;
+const VOICE_INTRO_CONSENT_VERSION = 1;
 const ALLOWED_MIME_TYPES = new Set(['audio/mp4', 'audio/aac', 'audio/x-m4a']);
 
 export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged }) => {
@@ -23,6 +24,7 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
   const [elapsedMs, setElapsedMs] = useState(0);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
+  const [consentAccepted, setConsentAccepted] = useState(false);
   const recordingRef = useRef(false);
   const startingRef = useRef(false);
   const appActiveRef = useRef(true);
@@ -113,6 +115,7 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
     startingRef.current = true;
     cancelStartRef.current = false;
     setNotice('');
+    setConsentAccepted(false);
     setPreview(current => {
       if (current?.url) URL.revokeObjectURL(current.url);
       return null;
@@ -175,20 +178,25 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
   }, []);
 
   const upload = async () => {
-    if (!preview || busy) return;
+    if (!preview || busy || !consentAccepted) return;
     setBusy(true);
     setNotice('');
     try {
       const response = await fetch('/api/profiles/me/voice-intro', {
         method: 'PUT',
         credentials: 'include',
-        headers: { 'Content-Type': preview.mimeType },
+        headers: {
+          'Content-Type': preview.mimeType,
+          'X-Vow-Voice-Intro-Consent': 'granted',
+          'X-Vow-Voice-Intro-Consent-Version': String(VOICE_INTRO_CONSENT_VERSION)
+        },
         body: preview.blob
       });
       const data = await response.json().catch(() => null);
       if (!mountedRef.current) return;
       if (response.status === 401) throw new Error(t('profileLoginPrompt'));
       if (response.status === 503) throw new Error(t('voiceIntroStorageError'));
+      if (response.status === 428) throw new Error(t('voiceIntroConsentRequired'));
       if (!response.ok || !data?.voiceIntro || typeof data.voiceIntro.id !== 'string') {
         throw new Error(t('voiceIntroUploadError'));
       }
@@ -201,6 +209,7 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
       setSaved(next);
       onChanged(next);
       setPreview(null);
+      setConsentAccepted(false);
       setNotice(t('voiceIntroPending'));
     } catch (error) {
       if (mountedRef.current) setNotice(error instanceof Error ? error.message : t('voiceIntroUploadError'));
@@ -247,6 +256,7 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
       if (!response.ok && response.status !== 404) throw new Error(t('voiceIntroUploadError'));
       setSavedAudioUrl(null);
       setSaved(null);
+      setConsentAccepted(false);
       onChanged(null);
       setNotice('');
     } catch (error) {
@@ -289,9 +299,19 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
         <div className="mt-3 rounded-xl border border-white/10 p-3">
           <p className="text-xs text-stone-300">{(preview.durationMs / 1000).toFixed(1)} {t('voiceIntroDurationLabel')}</p>
           <audio className="mt-2 w-full" controls preload="metadata" src={preview.url} />
+          <label className="mt-3 flex cursor-pointer items-start gap-2 text-xs leading-relaxed text-stone-300">
+            <input
+              type="checkbox"
+              checked={consentAccepted}
+              onChange={event => setConsentAccepted(event.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-rose-500"
+              aria-label={t('voiceIntroConsentText')}
+            />
+            <span>{t('voiceIntroConsentText')}</span>
+          </label>
           <div className="mt-2 flex flex-wrap gap-2">
-            <button type="button" onClick={() => void upload()} disabled={busy} className="min-h-11 rounded-lg bg-rose-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{t('voiceIntroSave')}</button>
-            <button type="button" onClick={() => { setPreview(null); setNotice(''); }} disabled={busy} className="min-h-11 rounded-lg border border-white/10 px-3 py-2 text-xs text-stone-300">{t('voiceIntroCancel')}</button>
+            <button type="button" onClick={() => void upload()} disabled={busy || !consentAccepted} className="min-h-11 rounded-lg bg-rose-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{t('voiceIntroSave')}</button>
+            <button type="button" onClick={() => { setPreview(null); setConsentAccepted(false); setNotice(''); }} disabled={busy} className="min-h-11 rounded-lg border border-white/10 px-3 py-2 text-xs text-stone-300">{t('voiceIntroCancel')}</button>
           </div>
         </div>
       )}
