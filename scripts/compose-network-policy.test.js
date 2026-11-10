@@ -90,14 +90,14 @@ test('Docker database network is isolated from the public web proxy container', 
   assert.deepEqual(networksFor('api'), ['backend', 'frontend', 'egress']);
   const voicePurgeWorker = serviceBlock('private-voice-intro-purge');
   assert.match(voicePurgeWorker, /restart: unless-stopped/);
-  assert.match(voicePurgeWorker, /cap_drop: \\[ALL\\]/);
+  assert.match(voicePurgeWorker, /cap_drop: \[ALL\]/);
   assert.match(voicePurgeWorker, /no-new-privileges:true/);
   assert.match(voicePurgeWorker, /VOICE_INTRO_STORAGE_DIR: \/app\/uploads\/private-voice-intros/);
   assert.match(voicePurgeWorker, /VOICE_INTRO_PURGE_BATCH_SIZE/);
   assert.match(voicePurgeWorker, /process-private-voice-intro-purge.js/);
   assert.match(voicePurgeWorker, /sleep 60/);
   assert.match(voicePurgeWorker, /private_voice_intros:\/app\/uploads\/private-voice-intros/);
-  assert.match(voicePurgeWorker, /migrate:\\n        condition: service_completed_successfully/);
+  assert.match(voicePurgeWorker, /migrate:\n        condition: service_completed_successfully/);
   assert.doesNotMatch(voicePurgeWorker, /VOICE_INTRO_ENCRYPTION_KEY/,
     'the deletion worker must not receive the media encryption key');
   const api = serviceBlock('api');
@@ -146,6 +146,8 @@ test('Docker database network is isolated from the public web proxy container', 
     internal: true`));
   assert.ok(compose.includes(`  frontend:
     internal: true`));
+  assert.ok(compose.includes(`  private_voice_intros:
+`), 'voice intro data must use a named persistent volume');
   assert.doesNotMatch(serviceBlock('db'), /^    ports:/m,
     'PostgreSQL must not publish a host port');
 });
