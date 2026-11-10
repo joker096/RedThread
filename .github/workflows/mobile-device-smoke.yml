@@ -66,23 +66,7 @@ jobs:
           profile: pixel_2
           emulator-boot-timeout: 900
           disable-animations: true
-          script: |
-            set -eu
-            trap 'adb logcat -d -t 5000 > android-emulator-logcat.txt 2>/dev/null || true' EXIT
-            adb wait-for-device
-            # sys.boot_completed can become 1 before PackageManager is ready on
-            # cold CI emulators. Wait for the package service before installing.
-            package_ready=0
-            for attempt in $(seq 1 90); do if adb shell cmd package list packages >/dev/null 2>&1; then package_ready=1; break; fi; sleep 5; done
-            if [ "$package_ready" -ne 1 ]; then echo "Android PackageManager did not become ready after emulator boot"; adb shell getprop sys.boot_completed || true; adb shell service check package || true; exit 1; fi
-            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
-            adb shell pm grant com.vow.app android.permission.RECORD_AUDIO
-            adb shell appops get com.vow.app RECORD_AUDIO
-            adb shell monkey -p com.vow.app -c android.intent.category.LAUNCHER 1
-            sleep 8
-            adb shell dumpsys activity activities | grep -E 'ResumedActivity|topResumedActivity' | grep -F com.vow.app
-            adb logcat -d -t 5000 > android-emulator-logcat.txt
-            if grep -A 8 -E 'FATAL EXCEPTION|Fatal signal' android-emulator-logcat.txt | grep -F com.vow.app; then echo "Vow crashed on Android Emulator"; exit 1; fi
+          script: bash scripts/android-emulator-smoke.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
