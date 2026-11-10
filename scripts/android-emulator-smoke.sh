@@ -39,9 +39,10 @@ APK="android/app/build/outputs/apk/debug/app-debug.apk"
 test -s "$APK"
 adb install -r "$APK"
 adb shell pm grant com.vow.app android.permission.RECORD_AUDIO
-permission_state="$(adb shell appops get com.vow.app RECORD_AUDIO)"
-printf '%s\n' "$permission_state"
-grep -qE 'RECORD_AUDIO: (allow|foreground)' <<< "$permission_state"
+permission_state="$(adb shell cmd package check-permission android.permission.RECORD_AUDIO com.vow.app)"
+printf 'RECORD_AUDIO permission: %s\n' "$permission_state"
+test "$permission_state" = "granted"
+adb shell appops get com.vow.app RECORD_AUDIO || true
 
 # Resolve and launch the app directly; monkey unnecessarily stresses low-resource CI emulators.
 launcher_activity="$(adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER com.vow.app | tr -d '\r' | tail -n 1)"
