@@ -67,7 +67,7 @@ jobs:
           emulator-boot-timeout: 900
           disable-animations: true
           script: |
-            set -euo pipefail
+            set -eu
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk
             adb shell pm grant com.vow.app android.permission.RECORD_AUDIO
             adb shell appops get com.vow.app RECORD_AUDIO
@@ -75,7 +75,7 @@ jobs:
             sleep 8
             adb shell dumpsys activity activities | grep -E 'ResumedActivity|topResumedActivity' | grep -F com.vow.app
             adb logcat -d -t 5000 > android-emulator-logcat.txt
-            if grep -E 'FATAL EXCEPTION|Fatal signal' android-emulator-logcat.txt | grep -F com.vow.app; then
+            if grep -A 8 -E 'FATAL EXCEPTION|Fatal signal' android-emulator-logcat.txt | grep -F com.vow.app; then
               echo "Vow crashed on Android Emulator"
               exit 1
             fi
