@@ -56,7 +56,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   return (
     <header className="vow-app-header sticky top-0 z-40 w-full border-b border-white/[0.07] bg-stone-950/90 px-3 py-2 backdrop-blur-2xl supports-[backdrop-filter]:bg-stone-950/75 sm:px-5">
       <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-2 sm:gap-4">
-        {/* NIT brand */}
+        {/* Vow brand */}
         <div 
           className="flex items-center gap-1.5 select-none group shrink-0"
           title={t('brandTagline')}
