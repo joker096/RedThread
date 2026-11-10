@@ -39,8 +39,8 @@ export async function generateNativeAppIcons(platform, root = process.cwd()) {
   const publicDir = path.join(root, 'public');
   const appIconSvg = await readFile(path.join(publicDir, 'icon.svg'));
   const markSvg = await readFile(path.join(publicDir, 'vow-mark.svg'));
-  if (!/^\\s*<svg\\b/.test(appIconSvg.toString('utf8')) ||
-      !/^\\s*<svg\\b/.test(markSvg.toString('utf8'))) {
+  if (!appIconSvg.toString('utf8').trimStart().startsWith('<svg') ||
+      !markSvg.toString('utf8').trimStart().startsWith('<svg')) {
     throw new Error('invalid_vow_vector_icon_source');
   }
 
