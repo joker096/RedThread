@@ -1,12 +1,14 @@
 # Vow Mobile Camera, Microphone and Verification Media Readiness
 
-Status: native camera/microphone capture is not enabled. The current L3 video-upload path remains gated by the existing server-side consent and storage readiness checks.
+Status: native L3 camera capture is not enabled. The optional 15–25 second profile voice introduction uses the native Capacitor microphone recorder; L3 identity video remains a separate, gated workflow.
 
 ## Existing safety controls
 
 - The API sends `Permissions-Policy: camera=(), microphone=(), geolocation=()`; browser media capture is intentionally disabled.
 - L3 is not enabled until production private storage, key management, backup and background purge monitoring are ready.
 - L3 consent is explicit, versioned and revocable. Upload capabilities are short-lived and bound to the account/session rules.
+- Profile voice introductions require a separate versioned consent before upload. Grant/withdraw events are immutable and tied to the same database transaction as the consent-state change; deleting the recording withdraws consent, removes profile visibility immediately and queues encrypted media for purge.
+- Migration 230 removes pre-consent voice recordings and queues their encrypted files for deletion rather than treating earlier uploads as retroactively consented.
 - Server upload validation checks media format, size and duration and stores media encrypted. Withdrawal queues deletion; account deletion remains blocked until purge is complete.
 
 ## Native capture design
@@ -22,7 +24,7 @@ Status: native camera/microphone capture is not enabled. The current L3 video-up
 ## Other media permissions
 
 - Photo capture should use a native camera picker only in the relevant profile-photo flow and only after an explicit user action.
-- Microphone permission must not be requested for voice playback or general app startup. Request it only for a user-started recording flow.
+- Microphone permission must not be requested for voice playback or general app startup. The voice introduction flow requests it only after the user taps Record; it does not grant access to L3 camera capture.
 - Location permission is not needed for the mobile foundation. Date Planner location features must use explicit, purpose-specific consent and a manual location fallback.
 
 ## Voice introduction purge operations
