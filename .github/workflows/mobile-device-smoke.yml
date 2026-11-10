@@ -1,0 +1,148 @@
+name: Virtual device smoke tests
+
+on:
+  push:
+    branches: ["feat/**"]
+    paths:
+      - "src/**"
+      - "capacitor.config.ts"
+      - "index.html"
+      - "public/**"
+      - "vite.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/**"
+      - "android/**"
+      - "ios/**"
+      - ".github/workflows/mobile-device-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: virtual-device-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-emulator:
+    name: Android Emulator install, launch and microphone permission
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Verify exact checked-out commit
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v4.0.4
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - name: Generate and sync Android project
+        run: |
+          npm run cap:ensure:android
+          npx cap sync android
+      - name: Build debug APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+      - name: Boot virtual Android device and smoke test app
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          emulator-boot-timeout: 600
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+            adb shell pm grant com.vow.app android.permission.RECORD_AUDIO
+            adb shell appops get com.vow.app RECORD_AUDIO
+            adb shell monkey -p com.vow.app -c android.intent.category.LAUNCHER 1
+            sleep 8
+            adb shell dumpsys activity activities | grep -E 'ResumedActivity|topResumedActivity' | grep -F com.vow.app
+            if adb logcat -d -t 5000 | grep -E 'FATAL EXCEPTION|Fatal signal' | grep -F com.vow.app; then
+              echo "Vow crashed on Android Emulator"
+              exit 1
+            fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-emulator-logcat-${{ github.sha }}
+          path: |
+            android-emulator-logcat.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
+  ios-simulator:
+    name: iOS Simulator install, launch and microphone permission
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Verify exact checked-out commit
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - name: Generate and sync iOS project
+        run: |
+          npm run cap:ensure:ios
+          npx cap sync ios
+      - name: Build iOS Simulator app
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath ios/build \
+            build
+      - name: Boot simulator, grant microphone permission and launch Vow
+        run: |
+          set -euo pipefail
+          APP="ios/build/Build/Products/Debug-iphonesimulator/App.app"
+          test -d "$APP"
+          DEVICE_ID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ && /Booted|Shutdown/ {print $2; exit}')"
+          test -n "$DEVICE_ID"
+          xcrun simctl boot "$DEVICE_ID" 2>/dev/null || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          xcrun simctl install "$DEVICE_ID" "$APP"
+          xcrun simctl privacy "$DEVICE_ID" grant microphone com.vow.app
+          xcrun simctl launch "$DEVICE_ID" com.vow.app
+          sleep 8
+          xcrun simctl spawn "$DEVICE_ID" launchctl list | grep -F com.vow.app
+          xcrun simctl terminate "$DEVICE_ID" com.vow.app
+          xcrun simctl launch "$DEVICE_ID" com.vow.app
+          xcrun simctl spawn "$DEVICE_ID" launchctl list | grep -F com.vow.app
+      - name: Verify privacy manifest in simulator bundle
+        run: |
+          manifest="ios/build/Build/Products/Debug-iphonesimulator/App.app/PrivacyInfo.xcprivacy"
+          test -f "$manifest"
+          plutil -lint "$manifest"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-simulator-app-${{ github.sha }}
+          path: ios/build/Build/Products/Debug-iphonesimulator/App.app
+          if-no-files-found: ignore
+          retention-days: 7
