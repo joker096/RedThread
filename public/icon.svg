@@ -17,7 +17,7 @@
       <stop offset="1" stop-color="#0C0A09"/>
     </radialGradient>
   </defs>
-  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <rect width="512" height="512" fill="url(#bg)"/>
   <path d="M256 385c-29-27-66-55-101-87-38-35-61-65-61-105 0-48 34-82 80-82 37 0 65 22 82 59 17-37 45-59 82-59 46 0 80 34 80 82 0 40-23 70-61 105-35 32-72 60-101 87Z"
         fill="none" stroke="url(#rose)" stroke-width="27" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M154 158c31 3 62 26 102 81 40-55 71-78 102-81M154 354c31-3 62-26 102-81 40 55 71 78 102 81"
