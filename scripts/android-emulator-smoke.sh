@@ -39,10 +39,22 @@ APK="android/app/build/outputs/apk/debug/app-debug.apk"
 test -s "$APK"
 adb install -r "$APK"
 adb shell pm grant com.vow.app android.permission.RECORD_AUDIO
-adb shell appops get com.vow.app RECORD_AUDIO
-adb shell monkey -p com.vow.app -c android.intent.category.LAUNCHER 1
-sleep 8
-adb shell dumpsys activity activities | grep -E 'ResumedActivity|topResumedActivity' | grep -F com.vow.app
+permission_state="$(adb shell appops get com.vow.app RECORD_AUDIO)"
+printf '%s\n' "$permission_state"
+grep -qE 'RECORD_AUDIO: (allow|foreground)' <<< "$permission_state"
+
+# Resolve and launch the app directly; monkey unnecessarily stresses low-resource CI emulators.
+launcher_activity="$(adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER com.vow.app | tr -d '\r' | tail -n 1)"
+if [[ "$launcher_activity" != *"/"* ]]; then
+  echo "Unable to resolve Vow launcher activity: $launcher_activity" >&2
+  exit 1
+fi
+launch_result="$(adb shell am start -W -n "$launcher_activity")"
+printf '%s\n' "$launch_result"
+grep -q "Status: ok" <<< "$launch_result"
+sleep 5
+activity_state="$(adb shell dumpsys activity activities)"
+grep -E 'ResumedActivity|topResumedActivity|mResumedActivity' <<< "$activity_state" | grep -F com.vow.app
 
 capture_logcat
 if grep -A 8 -E 'FATAL EXCEPTION|Fatal signal' "$LOG_FILE" | grep -F com.vow.app; then
