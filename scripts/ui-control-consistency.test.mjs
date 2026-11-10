@@ -30,20 +30,20 @@ test('navigation has a compact but consistent control size', () => {
 
 
 test('Vow brand icon is a scalable custom SVG and the app header uses it instead of the old flame glyph', () => {
-  assert.match(brandIcon, /<svg[^>]+viewBox="0 0 512 512"/);
-  assert.match(brandIcon, /<title[^>]*>Vow<\\/title>/);
-  assert.match(brandIcon, /<linearGradient/);
-  assert.match(brandIcon, /stroke-linecap="round"/);
-  assert.match(header, /<img src="\\/icon\\.svg"/);
-  assert.doesNotMatch(header, /\\bFlame\\b/);
+  assert.ok(brandIcon.includes('viewBox="0 0 512 512"'));
+  assert.ok(brandIcon.includes('<title id="title">Vow</title>'));
+  assert.ok(brandIcon.includes('<linearGradient'));
+  assert.ok(brandIcon.includes('stroke-linecap="round"'));
+  assert.ok(header.includes('<img src="/icon.svg"'));
+  assert.equal(header.includes('Flame'), false);
 });
 
 test('voice introduction upload requires explicit current-version consent in both UI and API', () => {
-  assert.match(voicePanel, /checked={consentAccepted}/);
-  assert.match(voicePanel, /X-Vow-Voice-Intro-Consent-Version/);
-  assert.match(voicePanel, /X-Vow-Voice-Intro-Consent': 'granted'/);
-  assert.match(voicePanel, /disabled={busy \|\| !consentAccepted}/);
-  assert.match(voiceApi, /isCurrentVoiceIntroConsentVersion\(req\.get\('x-vow-voice-intro-consent-version'\)\)/);
-  assert.match(voiceApi, /voice_intro_consent_required/);
-  assert.match(voiceApi, /consent\.withdrawn_at IS NULL/);
+  assert.ok(voicePanel.includes('checked={consentAccepted}'));
+  assert.ok(voicePanel.includes('X-Vow-Voice-Intro-Consent-Version'));
+  assert.ok(voicePanel.includes("'X-Vow-Voice-Intro-Consent': 'granted'"));
+  assert.ok(voicePanel.includes('disabled={busy || !consentAccepted}'));
+  assert.ok(voiceApi.includes("isCurrentVoiceIntroConsentVersion(req.get('x-vow-voice-intro-consent-version'))"));
+  assert.ok(voiceApi.includes('voice_intro_consent_required'));
+  assert.ok(voiceApi.includes('consent.withdrawn_at IS NULL'));
 });
