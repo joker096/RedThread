@@ -103,9 +103,10 @@ test('Docker database network is isolated from the public web proxy container', 
   const api = serviceBlock('api');
   const web = serviceBlock('web');
   assert.ok(api.includes('IDENTITY_L3_STORAGE_DIR: /app/uploads/private-identity-l3'));
-  assert.ok(api.includes('VOICE_INTRO_STORAGE_DIR: /app/uploads/private-voice-intros'));
-  assert.ok(api.includes('VOICE_INTRO_ENCRYPTION_KEY: ${VOICE_INTRO_ENCRYPTION_KEY:-}'));
-  assert.ok(api.includes('private_voice_intros:/app/uploads/private-voice-intros'));
+  const apiSection = compose.slice(compose.indexOf('  api:\n'), compose.indexOf('  web:\n'));
+  assert.ok(apiSection.includes('VOICE_INTRO_STORAGE_DIR: /app/uploads/private-voice-intros'));
+  assert.ok(apiSection.includes('VOICE_INTRO_ENCRYPTION_KEY: ${VOICE_INTRO_ENCRYPTION_KEY:-}'));
+  assert.ok(apiSection.includes('private_voice_intros:/app/uploads/private-voice-intros'));
   assert.ok(api.includes('ACCOUNT_REUSE_HMAC_KEY: ${ACCOUNT_REUSE_HMAC_KEY:-}'));
   assert.ok(api.includes('IDENTITY_L3_ENCRYPTION_KEY: ${IDENTITY_L3_ENCRYPTION_KEY:-}'));
   assert.match(api, /cap_drop: \[ALL\]/);
