@@ -48,7 +48,7 @@ export async function generateNativeAppIcons(platform, root = process.cwd()) {
     for (const [density, sizes] of Object.entries(ANDROID_DENSITIES)) {
       const directory = path.join(root, 'android', 'app', 'src', 'main', 'res', 'mipmap-' + density);
       await mkdir(directory, { recursive: true });
-      const launcher = sharp(appIconSvg).resize(sizes.launcher, sizes.launcher).png();
+      const launcher = sharp(appIconSvg).resize(sizes.launcher, sizes.launcher).flatten({ background: '#0C0A09' }).png();
       await launcher.toFile(path.join(directory, 'ic_launcher.png'));
       await sharp(appIconSvg).resize(sizes.launcher, sizes.launcher).png()
         .toFile(path.join(directory, 'ic_launcher_round.png'));
@@ -67,7 +67,7 @@ export async function generateNativeAppIcons(platform, root = process.cwd()) {
 
   const iconSetDir = path.join(root, 'ios', 'App', 'App', 'Assets.xcassets', 'AppIcon.appiconset');
   await mkdir(iconSetDir, { recursive: true });
-  await sharp(appIconSvg).resize(1024, 1024).png()
+  await sharp(appIconSvg).resize(1024, 1024).flatten({ background: '#0C0A09' }).png()
     .toFile(path.join(iconSetDir, 'AppIcon-1024.png'));
   await writeFile(path.join(iconSetDir, 'Contents.json'), JSON.stringify(IOS_ICON_CONTENTS, null, 2) + '\n');
   return { platform, iconSize: 1024 };
