@@ -7,6 +7,8 @@ const brandIcon = await readFile(new URL('../public/icon.svg', import.meta.url),
 const header = await readFile(new URL('../src/components/HeaderNav.tsx', import.meta.url), 'utf8');
 const voicePanel = await readFile(new URL('../src/components/VoiceIntroRecorderPanel.tsx', import.meta.url), 'utf8');
 const voiceApi = await readFile(new URL('../server/index.js', import.meta.url), 'utf8');
+const voiceConsent = await readFile(new URL('../server/voiceIntroConsent.js', import.meta.url), 'utf8');
+const voiceConsentMigration = await readFile(new URL('../server/migrations/230_profile_voice_intro_consents.sql', import.meta.url), 'utf8');
 
 test('Vow defines one shared readable control scale', () => {
   assert.match(css, /--vow-control-height:\s*2\.75rem/);
@@ -46,4 +48,12 @@ test('voice introduction upload requires explicit current-version consent in bot
   assert.ok(voiceApi.includes("isCurrentVoiceIntroConsentVersion(req.get('x-vow-voice-intro-consent-version'))"));
   assert.ok(voiceApi.includes('voice_intro_consent_required'));
   assert.ok(voiceApi.includes('consent.withdrawn_at IS NULL'));
+});
+
+test('voice consent versions stay aligned and legacy clips are purged rather than grandfathered', () => {
+  assert.ok(voiceConsent.includes('VOICE_INTRO_CONSENT_VERSION = 1'));
+  assert.ok(voicePanel.includes('VOICE_INTRO_CONSENT_VERSION = 1'));
+  assert.ok(voiceConsentMigration.includes('INSERT INTO private_voice_intro_purge_queue'));
+  assert.ok(voiceConsentMigration.includes('DELETE FROM profile_voice_intros'));
+  assert.ok(voiceConsentMigration.includes('profile_voice_intro_consent_events_immutable'));
 });
