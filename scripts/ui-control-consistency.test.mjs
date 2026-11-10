@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const css = await readFile(new URL('../src/index.css', import.meta.url), 'utf8');
+const brandIcon = await readFile(new URL('../public/icon.svg', import.meta.url), 'utf8');
+const header = await readFile(new URL('../src/components/HeaderNav.tsx', import.meta.url), 'utf8');
 
 test('Vow defines one shared readable control scale', () => {
   assert.match(css, /--vow-control-height:\s*2\.75rem/);
@@ -22,4 +24,14 @@ test('form controls use a readable 16px baseline and labels use a consistent sca
 
 test('navigation has a compact but consistent control size', () => {
   assert.match(css, /:where\(\[role="navigation"\]\) :where\(button, \[role="button"\]\)\s*\{[^}]*font-size:\s*0\.8125rem !important/s);
+});
+
+
+test('Vow brand icon is a scalable custom SVG and the app header uses it instead of the old flame glyph', () => {
+  assert.match(brandIcon, /<svg[^>]+viewBox="0 0 512 512"/);
+  assert.match(brandIcon, /<title[^>]*>Vow<\\/title>/);
+  assert.match(brandIcon, /<linearGradient/);
+  assert.match(brandIcon, /stroke-linecap="round"/);
+  assert.match(header, /<img src="\\/icon\\.svg"/);
+  assert.doesNotMatch(header, /\\bFlame\\b/);
 });
