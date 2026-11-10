@@ -35,7 +35,8 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
-  IF TG_OP = 'INSERT' OR NEW.granted_at IS DISTINCT FROM OLD.granted_at THEN
+  IF TG_OP = 'INSERT' OR NEW.granted_at IS DISTINCT FROM OLD.granted_at OR
+     NEW.consent_version IS DISTINCT FROM OLD.consent_version THEN
     NEW.granted_txid := txid_current();
   END IF;
   IF TG_OP = 'INSERT' OR NEW.withdrawn_at IS DISTINCT FROM OLD.withdrawn_at THEN
