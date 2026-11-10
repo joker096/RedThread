@@ -29,7 +29,7 @@ jobs:
   android-emulator:
     name: Android Emulator install, launch and microphone permission
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
         with:
@@ -62,13 +62,15 @@ jobs:
       - name: Boot virtual Android device and smoke test app
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 34
+          api-level: 35
           target: default
           arch: x86_64
           profile: pixel_2
-          emulator-boot-timeout: 900
+          emulator-boot-timeout: 1200
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -memory 4096 -cores 2
+          # Avoid stale AVD snapshots and give Android system_server enough CPU/RAM
+          # to finish first-boot package/permission initialization on hosted runners.
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -wipe-data -memory 6144 -cores 4
           script: bash scripts/android-emulator-smoke.sh
       - uses: actions/upload-artifact@v4
         if: always()
