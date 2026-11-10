@@ -66,11 +66,11 @@ jobs:
           target: default
           arch: x86_64
           profile: pixel_2
-          emulator-boot-timeout: 1200
+          emulator-boot-timeout: 1500
           disable-animations: true
-          # Avoid stale AVD snapshots and give Android system_server enough CPU/RAM
-          # to finish first-boot package/permission initialization on hosted runners.
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -wipe-data -memory 6144 -cores 4
+          # Hosted Ubuntu runners have 2 vCPUs and limited RAM. Keep the guest below
+          # the host memory ceiling so system_server and PackageManager can finish boot.
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -wipe-data -memory 3072 -cores 2
           script: bash scripts/android-emulator-smoke.sh
       - uses: actions/upload-artifact@v4
         if: always()
