@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises';
 
 const css = await readFile(new URL('../src/index.css', import.meta.url), 'utf8');
 const brandIcon = await readFile(new URL('../public/icon.svg', import.meta.url), 'utf8');
+const brandMark = await readFile(new URL('../public/vow-mark.svg', import.meta.url), 'utf8');
+const iconAttribution = await readFile(new URL('../public/ICON_ATTRIBUTION.md', import.meta.url), 'utf8');
 const header = await readFile(new URL('../src/components/HeaderNav.tsx', import.meta.url), 'utf8');
 const voicePanel = await readFile(new URL('../src/components/VoiceIntroRecorderPanel.tsx', import.meta.url), 'utf8');
 const voiceApi = await readFile(new URL('../server/index.js', import.meta.url), 'utf8');
@@ -40,6 +42,10 @@ test('Vow brand icon is a scalable custom SVG and the app header uses it instead
   assert.ok(brandIcon.includes('stroke-linecap="round"'));
   assert.ok(header.includes('<img src="/icon.svg"'));
   assert.equal(header.includes('Flame'), false);
+  assert.ok(brandIcon.includes('translate(58 36) scale(16.5)'));
+  assert.ok(brandMark.includes('translate(58 36) scale(16.5)'), 'adaptive foreground stays within the launcher safe zone');
+  assert.ok(iconAttribution.includes('ISC License'));
+  assert.ok(iconAttribution.includes('heart-handshake.svg'));
 });
 
 test('voice introduction upload requires explicit current-version consent in both UI and API', () => {
