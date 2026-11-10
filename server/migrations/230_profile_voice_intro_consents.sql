@@ -23,6 +23,13 @@ CREATE TABLE IF NOT EXISTS profile_voice_intro_consent_events (
 CREATE INDEX IF NOT EXISTS profile_voice_intro_consent_events_user_idx
   ON profile_voice_intro_consent_events (user_id, occurred_at, id);
 
+-- Existing voice clips predate explicit, versioned consent. They must not remain
+-- available or retained as if the new consent had been granted retroactively.
+INSERT INTO private_voice_intro_purge_queue (storage_path)
+SELECT storage_path FROM profile_voice_intros
+ON CONFLICT (storage_path) DO NOTHING;
+DELETE FROM profile_voice_intros;
+
 CREATE OR REPLACE FUNCTION stamp_profile_voice_intro_consent_transition()
 RETURNS trigger
 LANGUAGE plpgsql
