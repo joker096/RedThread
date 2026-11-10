@@ -50,7 +50,7 @@ export async function generateNativeAppIcons(platform, root = process.cwd()) {
       await mkdir(directory, { recursive: true });
       const launcher = sharp(appIconSvg).resize(sizes.launcher, sizes.launcher).flatten({ background: '#0C0A09' }).png();
       await launcher.toFile(path.join(directory, 'ic_launcher.png'));
-      await sharp(appIconSvg).resize(sizes.launcher, sizes.launcher).png()
+      await sharp(appIconSvg).resize(sizes.launcher, sizes.launcher).flatten({ background: '#0C0A09' }).png()
         .toFile(path.join(directory, 'ic_launcher_round.png'));
       await sharp(markSvg).resize(sizes.foreground, sizes.foreground, { fit: 'contain' }).png()
         .toFile(path.join(directory, 'ic_launcher_foreground.png'));
