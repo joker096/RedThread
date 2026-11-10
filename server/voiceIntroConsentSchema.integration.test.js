@@ -44,16 +44,16 @@ test('voice intro consent state requires same-transaction immutable audit events
     await client.query('ROLLBACK');
 
     await client.query('BEGIN');
-    const grant = await client.query(
-      `INSERT INTO profile_voice_intro_consents (user_id, consent_version)
-       VALUES ($1, 1) RETURNING granted_at`,
+    await client.query(
+      'INSERT INTO profile_voice_intro_consents (user_id, consent_version) VALUES ($1, 1)',
       [userId]
     );
     await client.query(
       `INSERT INTO profile_voice_intro_consent_events
          (user_id, actor_user_id, event_type, consent_version, occurred_at)
-       VALUES ($1, $1, 'granted', 1, $2)`,
-      [userId, grant.rows[0].granted_at]
+       SELECT user_id, user_id, 'granted', consent_version, granted_at
+       FROM profile_voice_intro_consents WHERE user_id = $1`,
+      [userId]
     );
     await client.query('COMMIT');
 
@@ -78,17 +78,18 @@ test('voice intro consent state requires same-transaction immutable audit events
     await client.query('ROLLBACK');
 
     await client.query('BEGIN');
-    const withdrawn = await client.query(
+    await client.query(
       `UPDATE profile_voice_intro_consents
        SET withdrawn_at = statement_timestamp(), updated_at = statement_timestamp()
-       WHERE user_id = $1 RETURNING consent_version, withdrawn_at`,
+       WHERE user_id = $1`,
       [userId]
     );
     await client.query(
       `INSERT INTO profile_voice_intro_consent_events
          (user_id, actor_user_id, event_type, consent_version, occurred_at)
-       VALUES ($1, $1, 'withdrawn', $2, $3)`,
-      [userId, withdrawn.rows[0].consent_version, withdrawn.rows[0].withdrawn_at]
+       SELECT user_id, user_id, 'withdrawn', consent_version, withdrawn_at
+       FROM profile_voice_intro_consents WHERE user_id = $1`,
+      [userId]
     );
     await client.query('COMMIT');
 
@@ -107,17 +108,16 @@ test('voice intro consent state requires same-transaction immutable audit events
     await client.query('ROLLBACK');
 
     await client.query('BEGIN');
-    const regrant = await client.query(
-      `UPDATE profile_voice_intro_consents
-       SET withdrawn_at = NULL WHERE user_id = $1
-       RETURNING consent_version, granted_at`,
+    await client.query(
+      'UPDATE profile_voice_intro_consents SET withdrawn_at = NULL WHERE user_id = $1',
       [userId]
     );
     await client.query(
       `INSERT INTO profile_voice_intro_consent_events
          (user_id, actor_user_id, event_type, consent_version, occurred_at)
-       VALUES ($1, $1, 'granted', $2, $3)`,
-      [userId, regrant.rows[0].consent_version, regrant.rows[0].granted_at]
+       SELECT user_id, user_id, 'granted', consent_version, granted_at
+       FROM profile_voice_intro_consents WHERE user_id = $1`,
+      [userId]
     );
     await client.query('COMMIT');
 
