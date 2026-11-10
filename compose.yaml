@@ -231,8 +231,6 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
       PGSSL: "${PGSSL:-false}"
       PHOTO_STORAGE_DIR: /app/uploads/private-photos
-      VOICE_INTRO_STORAGE_DIR: /app/uploads/private-voice-intros
-      VOICE_INTRO_ENCRYPTION_KEY: ${VOICE_INTRO_ENCRYPTION_KEY:-}
       PRIVATE_PHOTO_PURGE_BATCH_SIZE: ${PRIVATE_PHOTO_PURGE_BATCH_SIZE:-100}
     command:
       - sh
@@ -244,7 +242,6 @@ services:
         done
     volumes:
       - private_photos:/app/uploads/private-photos
-      - private_voice_intros:/app/uploads/private-voice-intros
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -320,12 +317,15 @@ services:
       IDENTITY_L3_TEMP_DIR: /run/identity-l3-tmp
       IDENTITY_L3_ENCRYPTION_KEY: ${IDENTITY_L3_ENCRYPTION_KEY:-}
       PHOTO_STORAGE_DIR: /app/uploads/private-photos
+      VOICE_INTRO_STORAGE_DIR: /app/uploads/private-voice-intros
+      VOICE_INTRO_ENCRYPTION_KEY: ${VOICE_INTRO_ENCRYPTION_KEY:-}
       PHOTO_AI_ENABLED: ${PHOTO_AI_ENABLED:-false}
       PHOTO_AI_MODEL: ${PHOTO_AI_MODEL:-llava:7b}
       LOCAL_AI_ENABLED: ${LOCAL_AI_ENABLED:-false}
       LOCAL_AI_MODEL: ${LOCAL_AI_MODEL:-qwen2.5:3b}
     volumes:
       - private_photos:/app/uploads/private-photos
+      - private_voice_intros:/app/uploads/private-voice-intros
       - private_identity_l3:/app/uploads/private-identity-l3
     tmpfs:
       - /run/identity-l3-tmp:rw,noexec,nosuid,nodev,size=256m,mode=0700,uid=1000,gid=1000
