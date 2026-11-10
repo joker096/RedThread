@@ -65,3 +65,13 @@ test('iOS AppIcon asset catalog receives a 1024px PNG generated from the vector 
 test('native icon generator rejects unknown platforms', async () => {
   await assert.rejects(() => generateNativeAppIcons('web'), /unsupported_native_icon_platform/);
 });
+
+test('native icon generation fails closed for malformed SVG inputs', async () => {
+  const root = await createIconFixture();
+  try {
+    await writeFile(path.join(root, 'public', 'icon.svg'), 'not-an-svg');
+    await assert.rejects(() => generateNativeAppIcons('ios', root), /invalid_vow_vector_icon_source/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
