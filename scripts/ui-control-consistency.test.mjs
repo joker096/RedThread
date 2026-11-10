@@ -57,3 +57,9 @@ test('voice consent versions stay aligned and legacy clips are purged rather tha
   assert.ok(voiceConsentMigration.includes('DELETE FROM profile_voice_intros'));
   assert.ok(voiceConsentMigration.includes('profile_voice_intro_consent_events_immutable'));
 });
+
+test('discovery availability and moderator playback both require active current-version consent', () => {
+  assert.ok(voiceApi.includes('voice_consent.consent_version = ${VOICE_INTRO_CONSENT_VERSION}'));
+  assert.ok(voiceApi.includes('c.consent_version = ${VOICE_INTRO_CONSENT_VERSION}'));
+  assert.ok(voiceApi.includes('voice_intro_media_viewed'));
+});
