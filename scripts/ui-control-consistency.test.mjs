@@ -63,3 +63,9 @@ test('discovery availability and moderator playback both require active current-
   assert.ok(voiceApi.includes('c.consent_version = ${VOICE_INTRO_CONSENT_VERSION}'));
   assert.ok(voiceApi.includes('voice_intro_media_viewed'));
 });
+
+test('voice consent cannot be reactivated without a fresh grant event', () => {
+  assert.ok(voiceConsentMigration.includes('OLD.withdrawn_at IS NOT NULL AND NEW.withdrawn_at IS NULL'));
+  assert.ok(voiceConsentMigration.includes('NEW.granted_txid = txid_current()'));
+  assert.ok(voicePanel.includes('disabled={busy}'));
+});
