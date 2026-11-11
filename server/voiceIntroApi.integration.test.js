@@ -206,3 +206,240 @@ test('voice intro HTTP API enforces consent, authentication and withdrawal histo
     }
   }
 });
+
+
+test('voice intro HTTP API covers encrypted upload, moderator review, owner playback and withdrawal purge', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 90_000
+}, async () => {
+  const { mkdtemp, readFile, stat, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { spawnSync } = await import('node:child_process');
+  const port = await findFreePort();
+  const origin = 'http://localhost:3000';
+  const api = 'http://127.0.0.1:' + port;
+  const storageDir = await mkdtemp(join(tmpdir(), 'vow-voice-intro-api-'));
+  const serverDatabaseUrl = new URL(process.env.DATABASE_URL);
+  serverDatabaseUrl.searchParams.set('application_name', 'vow-voice-intro-media-integration');
+  const db = new Pool({ connectionString: serverDatabaseUrl.toString(), max: 3 });
+  const child = spawn(process.execPath, ['server/index.js'], {
+    env: {
+      ...process.env,
+      API_PORT: String(port),
+      APP_ORIGIN: origin,
+      NODE_ENV: 'test',
+      GOOGLE_CLIENT_ID: '   ',
+      AUTH_RATE_LIMIT: '1000',
+      DATABASE_URL: serverDatabaseUrl.toString(),
+      ACCOUNT_REUSE_HMAC_KEY: 'c'.repeat(64),
+      VOICE_INTRO_ENCRYPTION_KEY: 'd'.repeat(64),
+      VOICE_INTRO_STORAGE_DIR: storageDir,
+      PG_STATEMENT_TIMEOUT_MS: '8000'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  let apiLogs = '';
+  child.stdout.on('data', chunk => { apiLogs += chunk.toString(); });
+  child.stderr.on('data', chunk => { apiLogs += chunk.toString(); });
+  const createdUsers = [];
+
+  async function request(path, options = {}) {
+    return fetch(api + path, {
+      ...options,
+      signal: options.signal || AbortSignal.timeout(15_000),
+      headers: { Origin: origin, ...(options.headers || {}) }
+    });
+  }
+
+  async function register(gender, label) {
+    const email = 'voice-media-' + label + '-' + randomUUID() + '@example.test';
+    const response = await request('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email,
+        password: 'Test Password 2026! Secure',
+        displayName: 'Voice media ' + label,
+        birthDate: '1990-01-01',
+        gender,
+        country: 'Georgia',
+        city: 'Tbilisi',
+        relationshipIntent: 'family_without_marriage',
+        familyFormat: 'cohabitation',
+        hasChildren: false,
+        wantsChildren: 'yes',
+        childrenLivingArrangement: 'not_applicable'
+      })
+    });
+    assert.equal(response.status, 201, label + ' registration failed: ' + await response.clone().text());
+    const result = await response.json();
+    createdUsers.push(result.user.id);
+    const cookie = response.headers.get('set-cookie')?.split(';')[0];
+    assert.ok(cookie?.startsWith('nit_session='));
+    return { id: result.user.id, cookie };
+  }
+
+  try {
+    let healthy = false;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (child.exitCode !== null) throw new Error('API exited with code ' + child.exitCode + ': ' + apiLogs);
+      try {
+        const response = await fetch(api + '/api/health', { signal: AbortSignal.timeout(1_500) });
+        if (response.ok) { healthy = true; break; }
+      } catch {}
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    assert.equal(healthy, true, 'API should start successfully. Logs: ' + apiLogs);
+
+    const fixtureDir = await mkdtemp(join(tmpdir(), 'vow-aac-fixture-'));
+    const fixturePath = join(fixtureDir, 'voice-intro.m4a');
+    try {
+      const generated = spawnSync('ffmpeg', [
+        '-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i',
+        'anullsrc=r=44100:cl=mono', '-t', '20', '-c:a', 'aac', '-b:a', '48k',
+        '-movflags', '+faststart', fixturePath
+      ], { encoding: 'utf8', timeout: 20_000 });
+      assert.equal(generated.error, undefined,
+        'ffmpeg must be installed in the integration-test runner: ' + (generated.error?.message || ''));
+      assert.equal(generated.status, 0, 'could not generate deterministic AAC fixture: ' + generated.stderr);
+      const audio = await readFile(fixturePath);
+      assert.ok(audio.length >= 64 && audio.length <= 2 * 1024 * 1024);
+
+      const owner = await register('female', 'owner');
+      const moderator = await register('female', 'moderator');
+      const viewer = await register('male', 'viewer');
+      await db.query("UPDATE users SET role = 'moderator' WHERE id = $1", [moderator.id]);
+
+      const ordinaryModeratorList = await request('/api/admin/voice-intros', {
+        headers: { Cookie: owner.cookie }
+      });
+      assert.equal(ordinaryModeratorList.status, 403,
+        'ordinary account must not enumerate pending voice recordings');
+
+      const uploaded = await request('/api/profiles/me/voice-intro', {
+        method: 'PUT',
+        headers: {
+          Cookie: owner.cookie,
+          'Content-Type': 'audio/mp4',
+          'X-Vow-Voice-Intro-Consent': 'granted',
+          'X-Vow-Voice-Intro-Consent-Version': '1'
+        },
+        body: audio
+      });
+      assert.equal(uploaded.status, 201, 'valid AAC upload failed: ' + await uploaded.clone().text());
+      const uploadedBody = await uploaded.json();
+      const voiceIntroId = uploadedBody.voiceIntro.id;
+      assert.equal(uploadedBody.voiceIntro.status, 'pending');
+      assert.equal(uploadedBody.voiceIntro.durationMs, 20_000);
+
+      const stored = await db.query(
+        'SELECT storage_path, byte_size, duration_ms, review_status FROM profile_voice_intros WHERE id = $1 AND user_id = $2',
+        [voiceIntroId, owner.id]
+      );
+      assert.equal(stored.rowCount, 1);
+      assert.equal(stored.rows[0].review_status, 'pending');
+      assert.equal(stored.rows[0].byte_size, audio.length);
+      assert.equal(stored.rows[0].duration_ms, 20_000);
+      const encryptedPath = stored.rows[0].storage_path;
+      const encryptedStat = await stat(encryptedPath);
+      assert.equal(encryptedStat.mode & 0o777, 0o600);
+      assert.notDeepEqual(await readFile(encryptedPath), audio,
+        'private storage must contain ciphertext rather than raw AAC');
+
+      const ownerPlayback = await request('/api/profiles/me/voice-intro', {
+        headers: { Cookie: owner.cookie }
+      });
+      assert.equal(ownerPlayback.status, 200);
+      assert.equal(ownerPlayback.headers.get('cache-control'), 'private, no-store');
+      assert.equal(ownerPlayback.headers.get('x-content-type-options'), 'nosniff');
+      assert.equal(ownerPlayback.headers.get('content-type'), 'audio/mp4');
+      assert.deepEqual(Buffer.from(await ownerPlayback.arrayBuffer()), audio);
+
+      const pendingList = await request('/api/admin/voice-intros', {
+        headers: { Cookie: moderator.cookie }
+      });
+      assert.equal(pendingList.status, 200);
+      const pendingItems = (await pendingList.json()).voiceIntros;
+      assert.ok(pendingItems.some(item => item.id === voiceIntroId && item.durationMs === 20_000));
+
+      const moderatorPreview = await request('/api/admin/voice-intros/' + voiceIntroId + '/audio', {
+        headers: { Cookie: moderator.cookie }
+      });
+      assert.equal(moderatorPreview.status, 200);
+      assert.equal(moderatorPreview.headers.get('cache-control'), 'private, no-store');
+      assert.deepEqual(Buffer.from(await moderatorPreview.arrayBuffer()), audio);
+
+      const approved = await request('/api/admin/voice-intros/' + voiceIntroId + '/review', {
+        method: 'POST',
+        headers: { Cookie: moderator.cookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision: 'approve' })
+      });
+      assert.equal(approved.status, 200, 'moderator approval failed: ' + await approved.clone().text());
+      assert.equal((await approved.json()).reviewStatus, 'approved');
+
+      const ordinaryReview = await request('/api/admin/voice-intros/' + voiceIntroId + '/review', {
+        method: 'POST',
+        headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision: 'reject', reason: 'must not be allowed' })
+      });
+      assert.equal(ordinaryReview.status, 404,
+        'a reviewed clip must no longer be mutable through the pending-only review route');
+
+      const unverifiedPublicViewer = await request('/api/profiles/' + owner.id + '/voice-intro', {
+        headers: { Cookie: viewer.cookie }
+      });
+      assert.equal(unverifiedPublicViewer.status, 403);
+      assert.equal((await unverifiedPublicViewer.json()).error, 'identity_verification_required');
+
+      const withdrawn = await request('/api/profiles/me/voice-intro', {
+        method: 'DELETE',
+        headers: { Cookie: owner.cookie }
+      });
+      assert.equal(withdrawn.status, 204);
+      const removed = await db.query(
+        'SELECT 1 FROM profile_voice_intros WHERE user_id = $1',
+        [owner.id]
+      );
+      assert.equal(removed.rowCount, 0);
+      const purge = await db.query(
+        'SELECT attempts, next_attempt_at FROM private_voice_intro_purge_queue WHERE storage_path = $1',
+        [encryptedPath]
+      );
+      assert.equal(purge.rowCount, 1, 'withdrawal must enqueue encrypted media for physical purge');
+      assert.equal(purge.rows[0].attempts, 0);
+
+      const ownerAfterWithdrawal = await request('/api/profiles/me/voice-intro', {
+        headers: { Cookie: owner.cookie }
+      });
+      assert.equal(ownerAfterWithdrawal.status, 404);
+      const history = await db.query(
+        'SELECT event_type FROM profile_voice_intro_consent_events WHERE user_id = $1 ORDER BY id',
+        [owner.id]
+      );
+      assert.deepEqual(history.rows.map(row => row.event_type), ['granted', 'withdrawn']);
+    } finally {
+      await rm(fixtureDir, { recursive: true, force: true });
+    }
+  } finally {
+    for (const userId of createdUsers) {
+      await db.query("UPDATE users SET status = 'deleted' WHERE id = $1", [userId]).catch(() => {});
+      await db.query('DELETE FROM users WHERE id = $1', [userId]).catch(() => {});
+    }
+    await db.end().catch(() => {});
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGTERM');
+      let exitTimer;
+      await Promise.race([
+        once(child, 'exit'),
+        new Promise(resolve => { exitTimer = setTimeout(resolve, 2_000); })
+      ]);
+      clearTimeout(exitTimer);
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGKILL');
+        await once(child, 'exit');
+      }
+    }
+    await rm(storageDir, { recursive: true, force: true }).catch(() => {});
+  }
+});
