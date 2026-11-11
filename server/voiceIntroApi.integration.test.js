@@ -186,7 +186,10 @@ test('voice intro HTTP API enforces consent, authentication and withdrawal histo
     );
     assert.equal(historyAfterRepeat.rows[0].count, 1);
   } finally {
-    if (userId) await db.query('DELETE FROM users WHERE id = $1', [userId]).catch(() => {});
+    if (userId) {
+      await db.query("UPDATE users SET status = 'deleted' WHERE id = $1", [userId]).catch(() => {});
+      await db.query('DELETE FROM users WHERE id = $1', [userId]).catch(() => {});
+    }
     await db.end().catch(() => {});
     if (child.exitCode === null && child.signalCode === null) {
       child.kill('SIGTERM');
