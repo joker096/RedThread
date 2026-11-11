@@ -883,6 +883,7 @@ async function requireSession(req, res, next) {
     try {
       const mobileResult = await pool.query(
         `SELECT u.id, u.email, u.status, u.role, u.email_verified_at,
+                'mobile'::text AS auth_source,
                 u.female_trial_ends_at, u.premium_until, u.premium_lifetime,
                 u.paddle_customer_id, u.paddle_subscription_id, u.paddle_subscription_status,
                 pca.status AS paddle_checkout_status, pca.plan AS paddle_checkout_plan,
@@ -919,7 +920,7 @@ async function requireSession(req, res, next) {
 
   try {
     const result = await pool.query(
-      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.female_trial_ends_at, u.premium_until, u.premium_lifetime, u.paddle_customer_id, u.paddle_subscription_id, u.paddle_subscription_status, pca.status AS paddle_checkout_status, pca.plan AS paddle_checkout_plan, u.phone_verified_at,
+      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, 'web'::text AS auth_source, u.female_trial_ends_at, u.premium_until, u.premium_lifetime, u.paddle_customer_id, u.paddle_subscription_id, u.paddle_subscription_status, pca.status AS paddle_checkout_status, pca.plan AS paddle_checkout_plan, u.phone_verified_at,
               p.display_name, p.gender, p.country, p.city, p.relationship_intent, s.id AS session_id
        FROM sessions s
        JOIN users u ON u.id = s.user_id
@@ -1879,10 +1880,22 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     const account = await client.query(
       `SELECT u.password_hash, u.email
        FROM users u
-       JOIN sessions s ON s.user_id = u.id
        WHERE u.id = $1 AND u.status = 'active'
-         AND s.id = $2 AND s.expires_at > statement_timestamp()`,
-      [req.authUser.id, req.authUser.session_id]
+         AND (
+           ( $3 = 'mobile' AND EXISTS (
+             SELECT 1 FROM mobile_sessions ms
+             WHERE ms.id = $2 AND ms.user_id = u.id
+               AND ms.access_expires_at > statement_timestamp()
+               AND ms.revoked_at IS NULL
+           ))
+           OR
+           ( $3 = 'web' AND EXISTS (
+             SELECT 1 FROM sessions s
+             WHERE s.id = $2 AND s.user_id = u.id
+               AND s.expires_at > statement_timestamp()
+           ))
+         )`,
+      [req.authUser.id, req.authUser.session_id, req.authUser.auth_source]
     );
     if (!account.rows[0] || typeof account.rows[0].password_hash !== 'string' ||
         !(await verifyPassword(password, account.rows[0].password_hash))) {
