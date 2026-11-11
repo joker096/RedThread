@@ -136,13 +136,13 @@ test('voice intro HTTP API enforces consent, authentication and withdrawal histo
     const client = await db.connect();
     try {
       await client.query('BEGIN');
-      const granted = await client.query(
-        'INSERT INTO profile_voice_intro_consents (user_id, consent_version) VALUES ($1, 1) RETURNING granted_at',
+      await client.query(
+        'INSERT INTO profile_voice_intro_consents (user_id, consent_version) VALUES ($1, 1)',
         [userId]
       );
       await client.query(
-        "INSERT INTO profile_voice_intro_consent_events (user_id, actor_user_id, event_type, consent_version, occurred_at) VALUES ($1, $1, 'granted', 1, $2)",
-        [userId, granted.rows[0].granted_at]
+        "INSERT INTO profile_voice_intro_consent_events (user_id, actor_user_id, event_type, consent_version, occurred_at) SELECT user_id, user_id, 'granted', consent_version, granted_at FROM profile_voice_intro_consents WHERE user_id = $1",
+        [userId]
       );
       await client.query('COMMIT');
     } catch (error) {
