@@ -330,8 +330,11 @@ test('voice intro HTTP API covers encrypted upload, moderator review, owner play
       assert.equal(uploaded.status, 201, 'valid AAC upload failed: ' + await uploaded.clone().text());
       const uploadedBody = await uploaded.json();
       const voiceIntroId = uploadedBody.voiceIntro.id;
+      const expectedDurationMs = uploadedBody.voiceIntro.durationMs;
       assert.equal(uploadedBody.voiceIntro.status, 'pending');
-      assert.equal(uploadedBody.voiceIntro.durationMs, 20_000);
+      // AAC packet/frame padding can add a few milliseconds to a nominal 20-second fixture.
+      assert.ok(expectedDurationMs >= 20_000 && expectedDurationMs <= 20_100,
+        '20-second AAC fixture duration should stay within 100ms: ' + expectedDurationMs);
 
       const stored = await db.query(
         'SELECT storage_path, byte_size, duration_ms, review_status FROM profile_voice_intros WHERE id = $1 AND user_id = $2',
@@ -340,7 +343,7 @@ test('voice intro HTTP API covers encrypted upload, moderator review, owner play
       assert.equal(stored.rowCount, 1);
       assert.equal(stored.rows[0].review_status, 'pending');
       assert.equal(stored.rows[0].byte_size, audio.length);
-      assert.equal(stored.rows[0].duration_ms, 20_000);
+      assert.equal(stored.rows[0].duration_ms, expectedDurationMs);
       const encryptedPath = stored.rows[0].storage_path;
       const encryptedStat = await stat(encryptedPath);
       assert.equal(encryptedStat.mode & 0o777, 0o600);
@@ -361,7 +364,7 @@ test('voice intro HTTP API covers encrypted upload, moderator review, owner play
       });
       assert.equal(pendingList.status, 200);
       const pendingItems = (await pendingList.json()).voiceIntros;
-      assert.ok(pendingItems.some(item => item.id === voiceIntroId && item.durationMs === 20_000));
+      assert.ok(pendingItems.some(item => item.id === voiceIntroId && item.durationMs === expectedDurationMs));
 
       const moderatorPreview = await request('/api/admin/voice-intros/' + voiceIntroId + '/audio', {
         headers: { Cookie: moderator.cookie }
