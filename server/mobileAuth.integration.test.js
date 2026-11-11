@@ -471,3 +471,105 @@ test('native mobile auth login, refresh rotation, replay revocation and device l
     await db.end();
   }
 });
+
+test('mobile account deletion validates the authenticated mobile session and revokes it', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 60_000
+}, async () => {
+  const port = await findFreePort();
+  const api = `http://127.0.0.1:${port}`;
+  const db = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
+  const userId = randomUUID();
+  const email = `mobile-delete-${userId}@example.invalid`;
+  const password = 'Mobile Account Deletion Test Password 2026!';
+  const passwordHash = await hashPassword(password);
+  const device = {
+    platform: 'android',
+    deviceId: randomUUID(),
+    deviceName: 'Account deletion test device'
+  };
+  const child = spawn(process.execPath, ['server/index.js'], {
+    env: {
+      ...process.env,
+      API_PORT: String(port),
+      APP_ORIGIN: 'http://localhost:3000',
+      NODE_ENV: 'test',
+      EMAIL_VERIFICATION_REQUIRED: 'false',
+      AUTH_RATE_LIMIT: '1000',
+      ACCOUNT_REUSE_HMAC_KEY: 'c'.repeat(64),
+      DATABASE_URL: process.env.DATABASE_URL
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  let logs = '';
+  child.stdout.on('data', chunk => { logs += chunk.toString(); });
+  child.stderr.on('data', chunk => { logs += chunk.toString(); });
+
+  try {
+    await db.query(
+      "INSERT INTO users (id, email, password_hash, status, email_verified_at) VALUES ($1, $2, $3, 'active', NOW())",
+      [userId, email, passwordHash]
+    );
+    await db.query(
+      "INSERT INTO profiles (user_id, display_name, gender, country, city) VALUES ($1, 'Mobile Delete Test', 'female', 'Georgia', 'Tbilisi')",
+      [userId]
+    );
+
+    let healthy = false;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (child.exitCode !== null) throw new Error(`API exited: ${child.exitCode}\n${logs}`);
+      try {
+        const response = await fetch(`${api}/api/health`, { signal: AbortSignal.timeout(1_000) });
+        if (response.ok) { healthy = true; break; }
+      } catch {}
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    assert.equal(healthy, true, `API should start before account deletion test\n${logs}`);
+
+    const login = await fetch(`${api}/api/mobile/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, ...device }),
+      signal: AbortSignal.timeout(10_000)
+    });
+    assert.equal(login.status, 200, logs);
+    const session = await login.json();
+    assert.match(session.accessToken, /^vow_access_/);
+
+    const deletion = await fetch(`${api}/api/account`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${session.accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ password }),
+      signal: AbortSignal.timeout(15_000)
+    });
+    assert.equal(deletion.status, 204, `mobile session should authorize account deletion\n${await deletion.text()}\n${logs}`);
+
+    const deleted = await db.query(
+      "SELECT status, password_hash, email FROM users WHERE id = $1",
+      [userId]
+    );
+    assert.equal(deleted.rows[0]?.status, 'deleted');
+    assert.equal(deleted.rows[0]?.password_hash, null);
+    assert.equal(deleted.rows[0]?.email, `deleted+${userId}@deleted.invalid`);
+
+    const revoked = await db.query(
+      "SELECT revoked_at, revoked_reason FROM mobile_sessions WHERE user_id = $1",
+      [userId]
+    );
+    assert.ok(revoked.rowCount > 0);
+    assert.ok(revoked.rows.every(row => row.revoked_at));
+    assert.ok(revoked.rows.every(row => row.revoked_reason === 'account_unavailable'));
+  } finally {
+    await db.query('DELETE FROM users WHERE id = $1', [userId]).catch(() => {});
+    child.kill('SIGTERM');
+    await Promise.race([
+      new Promise(resolve => child.once('exit', resolve)),
+      new Promise(resolve => setTimeout(resolve, 5_000))
+    ]);
+    if (child.exitCode === null) child.kill('SIGKILL');
+    await db.end();
+  }
+});
