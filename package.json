@@ -33,7 +33,8 @@
     "cap:ensure:android": "node scripts/ensure-capacitor-platform.mjs android",
     "cap:ensure:ios": "node scripts/ensure-capacitor-platform.mjs ios",
     "voice-intros:purge": "node server/process-private-voice-intro-purge.js",
-    "test:voice-api": "tsx --test server/voiceIntroApi.integration.test.js server/voiceIntroConsentSchema.integration.test.js"
+    "test:voice-api": "tsx --test server/voiceIntroApi.integration.test.js server/voiceIntroConsentSchema.integration.test.js",
+    "test:voice-api:media": "tsx --test --test-name-pattern='encrypted upload' server/voiceIntroApi.integration.test.js"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
