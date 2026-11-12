@@ -24,6 +24,17 @@ test('user data export returns a versioned package with only explicitly safe acc
         }] };
       }
       if (/FROM profiles p/.test(sql)) return { rows: [{ data: { display_name: 'Member' } }] };
+      if (/FROM photo_assets/.test(sql)) return { rows: [{
+        id: 'b0e6d5a1-12a1-4d51-9d2c-a7d3cc5b1190',
+        mime_type: 'image/jpeg', byte_size: 1200, width: 800, height: 600,
+        created_at: '2026-11-12T00:00:00.000Z',
+        downloadPath: '/api/account/export/media/photo/b0e6d5a1-12a1-4d51-9d2c-a7d3cc5b1190'
+      }] };
+      if (/FROM profile_voice_intros vi/.test(sql)) return { rows: [{
+        id: 'c0e6d5a1-12a1-4d51-9d2c-a7d3cc5b1190',
+        mime_type: 'audio/mp4', byte_size: 9000, duration_ms: 20000,
+        review_status: 'approved', downloadPath: '/api/account/export/media/voice-intro/c0e6d5a1-12a1-4d51-9d2c-a7d3cc5b1190'
+      }] };
       return { rows: [] };
     }
   };
@@ -38,6 +49,8 @@ test('user data export returns a versioned package with only explicitly safe acc
   assert.equal(result.profile.display_name, 'Member');
   assert.deepEqual(result.messages, []);
   assert.deepEqual(result.gifts.orders, []);
+  assert.equal(result.photos[0].downloadPath, '/api/account/export/media/photo/b0e6d5a1-12a1-4d51-9d2c-a7d3cc5b1190');
+  assert.equal(result.voiceIntroduction.downloadPath, '/api/account/export/media/voice-intro/c0e6d5a1-12a1-4d51-9d2c-a7d3cc5b1190');
   assert.ok(statements.length >= 20, 'export should include the declared personal-data collections');
 
   const sql = statements.join('\n').toLowerCase();
