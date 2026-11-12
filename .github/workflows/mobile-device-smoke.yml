@@ -63,6 +63,17 @@ jobs:
         run: |
           yes | sdkmanager --licenses >/dev/null
           sdkmanager "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;default;x86_64"
+      - name: Grant runner access to hardware acceleration
+        run: |
+          set -Eeuo pipefail
+          if [[ ! -e /dev/kvm ]]; then
+            echo "KVM device is unavailable on this runner; x86_64 Android Emulator cannot boot without hardware acceleration." >&2
+            exit 1
+          fi
+          sudo chmod 666 /dev/kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
+          ls -l /dev/kvm
       - name: Create and boot virtual Android device
         env:
           ANDROID_AVD_HOME: ${{ runner.temp }}/.android/avd
