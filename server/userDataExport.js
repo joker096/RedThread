@@ -1,3 +1,5 @@
+import { VOICE_INTRO_CONSENT_VERSION } from './voiceIntroConsent.js';
+
 const EXPORT_FORMAT = 'vow-user-data-export';
 const EXPORT_VERSION = 1;
 
@@ -67,7 +69,7 @@ export async function buildUserDataExport(db, userId, generatedAt = new Date()) 
              vi.created_at, vi.updated_at,
              CASE WHEN EXISTS (
                SELECT 1 FROM profile_voice_intro_consents c
-               WHERE c.user_id = vi.user_id AND c.consent_version = 1 AND c.withdrawn_at IS NULL
+               WHERE c.user_id = vi.user_id AND c.consent_version = ${VOICE_INTRO_CONSENT_VERSION} AND c.withdrawn_at IS NULL
              ) THEN '/api/account/export/media/voice-intro/' || vi.id::text ELSE NULL END AS "downloadPath"
       FROM profile_voice_intros vi
       WHERE user_id = $1
