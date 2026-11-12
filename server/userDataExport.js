@@ -56,15 +56,20 @@ export async function buildUserDataExport(db, userId, generatedAt = new Date()) 
       ORDER BY created_at
     `, userId),
     readRows(db, `
-      SELECT id, mime_type, byte_size, width, height, created_at
+      SELECT id, mime_type, byte_size, width, height, created_at,
+             '/api/account/export/media/photo/' || id::text AS "downloadPath"
       FROM photo_assets
       WHERE user_id = $1
       ORDER BY created_at
     `, userId),
     readRows(db, `
-      SELECT id, mime_type, byte_size, duration_ms, review_status, reviewed_at,
-             created_at, updated_at
-      FROM profile_voice_intros
+      SELECT vi.id, vi.mime_type, vi.byte_size, vi.duration_ms, vi.review_status, vi.reviewed_at,
+             vi.created_at, vi.updated_at,
+             CASE WHEN EXISTS (
+               SELECT 1 FROM profile_voice_intro_consents c
+               WHERE c.user_id = vi.user_id AND c.consent_version = 1 AND c.withdrawn_at IS NULL
+             ) THEN '/api/account/export/media/voice-intro/' || vi.id::text ELSE NULL END AS "downloadPath"
+      FROM profile_voice_intros vi
       WHERE user_id = $1
     `, userId),
     readRows(db, `
