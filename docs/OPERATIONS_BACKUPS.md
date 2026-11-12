@@ -2,22 +2,26 @@
 
 ## Create a backup
 
-Use a deployment secret manager for DATABASE_URL; do not commit credentials. On a trusted Linux host with PostgreSQL client tools installed:
+Use a deployment secret manager for DATABASE_URL and BACKUP_AGE_RECIPIENT; do not commit credentials. Install PostgreSQL client tools and age on a trusted Linux backup host. Generate an age recipient key pair and keep the private identity offline or in a dedicated secret manager; only the public recipient belongs in BACKUP_AGE_RECIPIENT.
 
 ```bash
 chmod +x scripts/backup-postgres.sh
-BACKUP_DIR=/secure/backups BACKUP_RETENTION_DAYS=30 ./scripts/backup-postgres.sh
+BACKUP_DIR=/secure/backups BACKUP_RETENTION_DAYS=30 \\
+  BACKUP_AGE_RECIPIENT='age1...' ./scripts/backup-postgres.sh
 ```
 
-The script creates a custom-format pg_dump, restricts local permissions, writes a SHA-256 checksum and removes local backups past the configured retention. A local backup is not a disaster-recovery plan: copy it to encrypted off-site/object storage with restricted access and lifecycle policies.
+The script streams pg_dump directly into age, so plaintext database contents are not written to disk. It creates a custom-format encrypted backup, restricts local permissions, writes a SHA-256 checksum and removes encrypted local backups past the configured retention. It refuses to run without age and a recipient. A local backup is not a disaster-recovery plan: copy the encrypted artifact to off-site/object storage with restricted access and lifecycle policies.
 
 ## Restore test
 
-On a separate staging database, create a fresh database and restore a recent dump:
+On a separate staging database, verify the checksum, decrypt the backup stream into pg_restore, and restore to a fresh database. Keep the age identity out of the application host and shell history:
 
 ```bash
+sha256sum --check /secure/backups/vow-postgres-YYYYMMDDTHHMMSSZ.dump.age.sha256
 createdb vow_restore_test
-pg_restore --dbname=vow_restore_test --no-owner --no-acl /secure/backups/vow-postgres-YYYYMMDDTHHMMSSZ.dump
+age --decrypt --identity /secure/keys/vow-backup-identity.txt \\
+  /secure/backups/vow-postgres-YYYYMMDDTHHMMSSZ.dump.age \\
+  | pg_restore --dbname=vow_restore_test --no-owner --no-acl -
 ```
 
 Verify migrations, account access, profiles, matches, messages, photo metadata and billing state. Do not restore production data into an unapproved development environment. Delete test copies after verification.
