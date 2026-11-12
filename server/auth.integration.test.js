@@ -248,6 +248,23 @@ test('auth API supports registration, session lookup, logout and login', {
     }
     const firstCookie = registration.headers.get('set-cookie')?.split(';')[0];
     assert.ok(firstCookie?.startsWith('nit_session='));
+    const anonymousExport = await request('/api/account/export', { method: 'POST' });
+    assert.equal(anonymousExport.status, 401, 'data export must require an authenticated session');
+    const exportResponse = await request('/api/account/export', {
+      method: 'POST',
+      headers: { Cookie: firstCookie }
+    });
+    assert.equal(exportResponse.status, 200);
+    assert.match(exportResponse.headers.get('content-disposition') || '', /^attachment; filename="vow-data-export-/);
+    assert.equal(exportResponse.headers.get('cache-control'), 'no-store, private');
+    const userExport = await exportResponse.json();
+    assert.equal(userExport.format, 'vow-user-data-export');
+    assert.equal(userExport.account.id, registered.user.id);
+    assert.equal(userExport.account.email, email);
+    assert.equal('password_hash' in userExport.account, false);
+    assert.equal('paddle_customer_id' in userExport.account, false);
+    assert.equal(JSON.stringify(userExport).includes('address_vault_ref'), false);
+    assert.equal(JSON.stringify(userExport).includes('storage_path'), false);
     const billingStatus = await request('/api/billing/status', { headers: { Cookie: firstCookie } });
     assert.equal(billingStatus.status, 200);
     const trial = await billingStatus.json();
