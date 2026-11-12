@@ -1577,9 +1577,11 @@ app.post('/api/auth/password-reset/complete', authLimiter, validateRequestOrigin
     await client.query('BEGIN');
     const tokenHash = hashSessionToken(token);
     const preview = await client.query(
-      `SELECT user_id FROM account_action_tokens
-       WHERE purpose = 'password_reset' AND token_hash = $1
-         AND consumed_at IS NULL AND expires_at > NOW()`,
+      `SELECT t.user_id FROM account_action_tokens t
+       JOIN users u ON u.id = t.user_id
+       WHERE t.purpose = 'password_reset' AND t.token_hash = $1
+         AND t.consumed_at IS NULL AND t.expires_at > NOW()
+         AND u.status = 'active' AND u.email_verified_at IS NOT NULL`,
       [tokenHash]
     );
     const userId = preview.rows[0]?.user_id;
@@ -1589,10 +1591,12 @@ app.post('/api/auth/password-reset/complete', authLimiter, validateRequestOrigin
     }
     await acquireGiftSafetyUserLocks(client, userId);
     const result = await client.query(
-      `SELECT id, user_id FROM account_action_tokens
-       WHERE purpose = 'password_reset' AND token_hash = $1
-         AND user_id = $2 AND consumed_at IS NULL AND expires_at > NOW()
-       FOR UPDATE`,
+      `SELECT t.id, t.user_id FROM account_action_tokens t
+       JOIN users u ON u.id = t.user_id
+       WHERE t.purpose = 'password_reset' AND t.token_hash = $1
+         AND t.user_id = $2 AND t.consumed_at IS NULL AND t.expires_at > NOW()
+         AND u.status = 'active' AND u.email_verified_at IS NOT NULL
+       FOR UPDATE OF t`,
       [tokenHash, userId]
     );
     const action = result.rows[0];
@@ -1601,7 +1605,7 @@ app.post('/api/auth/password-reset/complete', authLimiter, validateRequestOrigin
       return res.status(400).json({ error: 'invalid_or_expired_token' });
     }
     const updated = await client.query(
-      "UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 AND status = 'active' RETURNING id",
+      "UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 AND status = 'active' AND email_verified_at IS NOT NULL RETURNING id",
       [passwordHash, action.user_id]
     );
     if (!updated.rowCount) {
