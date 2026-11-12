@@ -359,6 +359,30 @@ test('voice intro HTTP API covers encrypted upload, moderator review, owner play
       assert.equal(ownerPlayback.headers.get('content-type'), 'audio/mp4');
       assert.deepEqual(Buffer.from(await ownerPlayback.arrayBuffer()), audio);
 
+      const dataExport = await request('/api/account/export', {
+        method: 'POST',
+        headers: { Cookie: owner.cookie }
+      });
+      assert.equal(dataExport.status, 200, 'account data export should include owner media references');
+      const exported = await dataExport.json();
+      const exportedVoice = exported.voiceIntroduction;
+      assert.equal(exportedVoice.id, voiceIntroId);
+      assert.equal(exportedVoice.downloadPath, '/api/account/export/media/voice-intro/' + voiceIntroId);
+
+      const mediaExport = await request(exportedVoice.downloadPath, {
+        headers: { Cookie: owner.cookie }
+      });
+      assert.equal(mediaExport.status, 200, 'owner should be able to download own unwithdrawn voice source');
+      assert.equal(mediaExport.headers.get('content-disposition'), 'attachment; filename="' + voiceIntroId + '.m4a"');
+      assert.equal(mediaExport.headers.get('cache-control'), 'no-store, private');
+      assert.deepEqual(Buffer.from(await mediaExport.arrayBuffer()), audio);
+
+      const otherAccountMediaExport = await request(exportedVoice.downloadPath, {
+        headers: { Cookie: viewer.cookie }
+      });
+      assert.equal(otherAccountMediaExport.status, 404,
+        'another account must not download this voice source even when it knows the asset id');
+
       const pendingList = await request('/api/admin/voice-intros', {
         headers: { Cookie: moderator.cookie }
       });
@@ -416,6 +440,11 @@ test('voice intro HTTP API covers encrypted upload, moderator review, owner play
         headers: { Cookie: owner.cookie }
       });
       assert.equal(ownerAfterWithdrawal.status, 404);
+      const mediaAfterWithdrawal = await request('/api/account/export/media/voice-intro/' + voiceIntroId, {
+        headers: { Cookie: owner.cookie }
+      });
+      assert.equal(mediaAfterWithdrawal.status, 404,
+        'withdrawn voice consent must disable the export download immediately');
       const history = await db.query(
         'SELECT event_type FROM profile_voice_intro_consent_events WHERE user_id = $1 ORDER BY id',
         [owner.id]
