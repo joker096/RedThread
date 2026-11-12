@@ -27,7 +27,16 @@ The export is versioned as `vow-user-data-export` (version 1) and is scoped to t
 
 The export intentionally omits passwords, session/reset tokens, provider credentials and identifiers, payment secrets, private address-vault references, identity documents or biometric media, and private filesystem paths. Message bodies that have already been deleted are represented as unavailable.
 
-**Media limitation:** profile-photo and voice-introduction records currently export metadata only. The actual photo/audio bytes are not bundled or exposed through this endpoint. A secure authenticated media-export flow is a separate implementation task.
+## Original profile media
+
+The JSON contains an authenticated, account-scoped downloadPath for each profile photo and, while current voice-introduction consent remains active, for the voice recording. Download each item with an authenticated GET request:
+
+- GET /api/account/export/media/photo/:assetId
+- GET /api/account/export/media/voice-intro/:assetId
+
+The route checks that the asset belongs to the active signed-in account. It does not reuse discovery visibility, so an owner can export their own photo even if their profile is not discoverable. Another account receives the same not-found response as for an unknown asset. Voice audio is decrypted only for the owner and only while the current versioned consent is active; withdrawing consent immediately disables the export route. Files are returned as attachments with no-store, nosniff, and private cache controls. The downloadPath is a relative API path and must be requested with the user's normal authenticated session.
+
+Media files are downloaded individually; the JSON response is not a ZIP archive. Identity documents, biometric/L3 evidence, and gift-recipient delivery addresses remain excluded.
 
 ## Client handling
 
