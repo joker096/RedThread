@@ -3206,6 +3206,67 @@ app.post('/api/account/export', validateRequestOrigin, requireSession, userDataE
   }
 });
 
+app.get('/api/account/export/media/:kind/:assetId', requireSession, profileActionLimiter, requireDatabase, async (req, res) => {
+  const { kind, assetId } = req.params;
+  if (!['photo', 'voice-intro'].includes(kind) || !isUuid(assetId)) return res.status(404).end();
+  try {
+    const read = await withActiveAccountRead(req.authUser.id, async client => {
+      if (kind === 'photo') {
+        const asset = await client.query(
+          `SELECT storage_path AS "storagePath", mime_type AS "mimeType"
+           FROM photo_assets WHERE id = $1 AND user_id = $2`,
+          [assetId, req.authUser.id]
+        );
+        const row = asset.rows[0];
+        if (!row || !['image/jpeg', 'image/png', 'image/webp'].includes(row.mimeType)) return null;
+        const filePath = path.resolve(row.storagePath);
+        const extension = path.extname(filePath).toLowerCase();
+        if (path.dirname(filePath) !== photoStorageDir ||
+            path.basename(filePath) !== assetId + extension ||
+            !['.jpg', '.jpeg', '.png', '.webp'].includes(extension)) return null;
+        const fileStat = await lstat(filePath);
+        if (!fileStat.isFile() || fileStat.isSymbolicLink()) return null;
+        return { bytes: await readFile(filePath), mimeType: row.mimeType, filename: assetId + extension };
+      }
+
+      const asset = await client.query(
+        `SELECT vi.storage_path AS "storagePath", vi.mime_type AS "mimeType"
+         FROM profile_voice_intros vi
+         JOIN profile_voice_intro_consents c ON c.user_id = vi.user_id
+         WHERE vi.id = $1 AND vi.user_id = $2
+           AND c.consent_version = $3 AND c.withdrawn_at IS NULL`,
+        [assetId, req.authUser.id, VOICE_INTRO_CONSENT_VERSION]
+      );
+      const row = asset.rows[0];
+      if (!row || !['audio/mp4', 'audio/aac', 'audio/x-m4a'].includes(row.mimeType)) return null;
+      const filePath = resolvePrivateVoiceIntroPath(row.storagePath, voiceIntroStorageDir);
+      const fileStat = await lstat(filePath);
+      if (!fileStat.isFile() || fileStat.isSymbolicLink()) return null;
+      const key = parseVoiceIntroEncryptionKey();
+      if (!key) throw new Error('voice_intro_encryption_not_configured');
+      const bytes = decryptVoiceIntro(await readFile(filePath), key);
+      const extension = row.mimeType === 'audio/aac' ? '.aac' : '.m4a';
+      return { bytes, mimeType: row.mimeType, filename: assetId + extension };
+    });
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    if (!read.value) return res.status(404).end();
+    res.set({
+      'Cache-Control': 'no-store, private',
+      'Pragma': 'no-cache',
+      'X-Content-Type-Options': 'nosniff',
+      'Cross-Origin-Resource-Policy': 'same-site',
+      'Content-Type': read.value.mimeType,
+      'Content-Length': String(read.value.bytes.length),
+      'Content-Disposition': 'attachment; filename="' + read.value.filename + '"'
+    });
+    return res.status(200).send(read.value.bytes);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return res.status(404).end();
+    console.error('Account media export failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'account_media_export_unavailable' });
+  }
+});
+
 app.get('/api/profiles/me', requireSession, async (req, res) => {
   try {
     const read = await withActiveAccountRead(req.authUser.id, client => client.query(
