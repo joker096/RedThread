@@ -14,6 +14,7 @@ BEGIN
       AND pg_get_constraintdef(oid) ILIKE '%address_vault_ref%'
       AND pg_get_constraintdef(oid) ILIKE '%address_verified_at%'
       AND pg_get_constraintdef(oid) ILIKE '%delivered%'
+      AND pg_get_constraintdef(oid) ILIKE '%status <> ALL%'
   LOOP
     EXECUTE format('ALTER TABLE gift_delivery_orders DROP CONSTRAINT %I', constraint_row.conname);
   END LOOP;
