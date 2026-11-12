@@ -23,6 +23,9 @@ export function normalizeGiftAddress(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return { ok: false, error: 'invalid_address' };
   }
+  if (Object.keys(input).some(field => !ADDRESS_FIELDS.includes(field))) {
+    return { ok: false, error: 'unknown_address_field' };
+  }
   const address = {};
   for (const field of ADDRESS_FIELDS) {
     const value = input[field];
