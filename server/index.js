@@ -698,7 +698,7 @@ const authLimiter = rateLimit({
 const userDataExportLimiter = rateLimit({
   ...(pool ? { store: new PostgresRateLimitStore(pool, 'user_data_export') } : {}),
   windowMs: 60 * 60 * 1000,
-  limit: process.env.NODE_ENV === 'test' && /^\\d+$/.test(process.env.USER_DATA_EXPORT_RATE_LIMIT || '')
+  limit: process.env.NODE_ENV === 'test' && /^\d+$/.test(process.env.USER_DATA_EXPORT_RATE_LIMIT || '')
     ? Math.max(3, Math.min(Number.parseInt(process.env.USER_DATA_EXPORT_RATE_LIMIT, 10), 1000))
     : 3,
   standardHeaders: true,
