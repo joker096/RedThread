@@ -19,10 +19,10 @@ export function parseVowDeepLink(rawUrl: unknown, allowedHost?: string): VowDeep
     return null;
   }
 
-  if (url.username || url.password || url.port || url.hash) return null;
+  if (url.username || url.password || url.port) return null;
 
   if (url.protocol === 'vow:') {
-    if (url.hostname === 'identity' && url.pathname === '/return' && url.search === '') {
+    if (url.hostname === 'identity' && url.pathname === '/return' && url.search === '' && url.hash === '') {
       return { type: 'identity-return' };
     }
     return null;
@@ -43,13 +43,15 @@ export function parseVowDeepLink(rawUrl: unknown, allowedHost?: string): VowDeep
 
   if ([...url.searchParams.keys()].some(key =>
     !['verifyEmail', 'resetPassword', 'identityVerification'].includes(key))) return null;
+  const fragmentParams = new URLSearchParams(url.hash.startsWith('#') ? url.hash.slice(1) : url.hash);
+  if ([...fragmentParams.keys()].some(key => !['verifyEmail', 'resetPassword'].includes(key))) return null;
   const identityReturns = url.searchParams.getAll('identityVerification');
   if (identityReturns.length > 0) {
     return identityReturns.length === 1 && identityReturns[0] === 'return' &&
-      url.searchParams.size === 1 ? { type: 'identity-return' } : null;
+      url.searchParams.size === 1 && fragmentParams.size === 0 ? { type: 'identity-return' } : null;
   }
-  const verifyTokens = url.searchParams.getAll('verifyEmail');
-  const resetTokens = url.searchParams.getAll('resetPassword');
+  const verifyTokens = [...url.searchParams.getAll('verifyEmail'), ...fragmentParams.getAll('verifyEmail')];
+  const resetTokens = [...url.searchParams.getAll('resetPassword'), ...fragmentParams.getAll('resetPassword')];
   if (verifyTokens.length + resetTokens.length !== 1) return null;
   if (verifyTokens.length === 1 && TOKEN_PATTERN.test(verifyTokens[0])) {
     return { type: 'verify-email', token: verifyTokens[0] };
