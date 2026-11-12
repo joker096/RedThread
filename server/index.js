@@ -27,6 +27,7 @@ import { resolveTrustProxyHops } from './trustProxyConfig.js';
 import { applyMobileCorsHeaders, createMobileAuthRouter, isAllowedMobileOrigin, readMobileAccessToken } from './mobileAuthRoutes.js';
 import { hashMobileToken } from './mobileTokens.js';
 import { verifyGoogleIdTokenClaims } from './googleIdToken.js';
+import { buildUserDataExport } from './userDataExport.js';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import { withPooledTransaction, rollbackPooledTransaction } from './withPooledTransaction.js';
 import { normalizeMatchMessageHistoryOptions, matchMessageHistoryOrder, toChronologicalMessageHistory } from './matchMessageHistory.js';
@@ -3175,6 +3176,25 @@ app.get('/api/trust/summary', requireSession, async (req, res) => {
   } catch (error) {
     console.error('Trust summary read failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'trust_summary_unavailable' });
+  }
+});
+
+app.post('/api/account/export', validateRequestOrigin, requireSession, requireDatabase, async (req, res) => {
+  try {
+    const read = await withActiveAccountRead(req.authUser.id, client =>
+      buildUserDataExport(client, req.authUser.id)
+    );
+    if (!read.active || !read.value) return res.status(401).json({ error: 'account_not_active' });
+    const exportDate = new Date().toISOString().slice(0, 10);
+    res.set({
+      'Cache-Control': 'no-store, private',
+      'Pragma': 'no-cache',
+      'Content-Disposition': `attachment; filename="vow-data-export-${exportDate}.json"`
+    });
+    return res.json(read.value);
+  } catch (error) {
+    console.error('User data export failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'user_data_export_unavailable' });
   }
 });
 
