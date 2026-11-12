@@ -201,6 +201,47 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(registered.user.email, email);
     assert.equal(registered.user.country, 'Грузия');
     assert.equal('password_hash' in registered.user, false);
+
+    // A password-reset token must not turn an unverified/Google-only account
+    // into a password-authenticated account. Both web and native endpoints
+    // reject the token and leave it unconsumed.
+    const unverifiedUserId = randomUUID();
+    const unverifiedEmail = `unverified-reset-${unverifiedUserId}@example.invalid`;
+    const unverifiedResetToken = randomUUID() + randomUUID();
+    const passwordResetEligibilityDb = new Pool({ connectionString: process.env.DATABASE_URL });
+    try {
+      await passwordResetEligibilityDb.query(
+        "INSERT INTO users (id, email, password_hash, status, email_verified_at) VALUES ($1, $2, NULL, 'active', NULL)",
+        [unverifiedUserId, unverifiedEmail]
+      );
+      await passwordResetEligibilityDb.query(
+        "INSERT INTO account_action_tokens (user_id, purpose, token_hash, expires_at) VALUES ($1, 'password_reset', $2, NOW() + INTERVAL '5 minutes')",
+        [unverifiedUserId, hashSessionToken(unverifiedResetToken)]
+      );
+      const resetBody = JSON.stringify({
+        token: unverifiedResetToken,
+        password: 'Unverified Reset Password 2026!'
+      });
+      const [webUnverifiedReset, mobileUnverifiedReset] = await Promise.all([
+        request('/api/auth/password-reset/complete', { method: 'POST', body: resetBody }),
+        request('/api/mobile/auth/password-reset/complete', { method: 'POST', body: resetBody })
+      ]);
+      assert.equal(webUnverifiedReset.status, 400);
+      assert.equal(mobileUnverifiedReset.status, 400);
+      const unchangedUnverifiedUser = await passwordResetEligibilityDb.query(
+        'SELECT password_hash FROM users WHERE id = $1',
+        [unverifiedUserId]
+      );
+      assert.equal(unchangedUnverifiedUser.rows[0]?.password_hash, null);
+      const unconsumedResetToken = await passwordResetEligibilityDb.query(
+        "SELECT consumed_at FROM account_action_tokens WHERE user_id = $1 AND purpose = 'password_reset'",
+        [unverifiedUserId]
+      );
+      assert.equal(unconsumedResetToken.rows[0]?.consumed_at, null);
+    } finally {
+      await passwordResetEligibilityDb.query('DELETE FROM users WHERE id = $1', [unverifiedUserId]);
+      await passwordResetEligibilityDb.end();
+    }
     const firstCookie = registration.headers.get('set-cookie')?.split(';')[0];
     assert.ok(firstCookie?.startsWith('nit_session='));
     const billingStatus = await request('/api/billing/status', { headers: { Cookie: firstCookie } });
