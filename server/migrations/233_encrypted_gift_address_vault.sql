@@ -43,7 +43,7 @@ BEGIN
 
   IF NOT FOUND
      OR order_row.recipient_id <> NEW.recipient_user_id
-     OR order_row.status NOT IN ('address_verified', 'fulfilment_authorized', 'dispatched')
+     OR order_row.status NOT IN ('address_verified', 'fulfilment_authorized', 'dispatched', 'delivered', 'delivery_failed')
      OR order_row.recipient_consent_at IS NULL
      OR order_row.recipient_consent_version IS NULL
      OR order_row.address_verified_at IS NULL
