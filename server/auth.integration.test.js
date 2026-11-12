@@ -224,7 +224,11 @@ test('auth API supports registration, session lookup, logout and login', {
       });
       const [webUnverifiedReset, mobileUnverifiedReset] = await Promise.all([
         request('/api/auth/password-reset/complete', { method: 'POST', body: resetBody }),
-        request('/api/mobile/auth/password-reset/complete', { method: 'POST', body: resetBody })
+        request('/api/mobile/auth/password-reset/complete', {
+          method: 'POST',
+          body: resetBody,
+          headers: { Origin: 'capacitor://localhost' }
+        })
       ]);
       assert.equal(webUnverifiedReset.status, 400);
       assert.equal(mobileUnverifiedReset.status, 400);
