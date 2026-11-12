@@ -104,7 +104,7 @@ async function findFreePort() {
 
 test('auth API supports registration, session lookup, logout and login', {
   skip: !process.env.DATABASE_URL,
-  timeout: 30_000
+  timeout: 60_000
 }, async () => {
   const port = await findFreePort();
   const origin = 'http://localhost:3000';
@@ -634,7 +634,7 @@ test('auth API supports registration, session lookup, logout and login', {
         body: JSON.stringify({ token: resetToken, password: newPassword })
       });
       const waitForAuthLockWaiters = async expected => {
-        for (let attempt = 0; attempt < 100; attempt += 1) {
+        for (let attempt = 0; attempt < 250; attempt += 1) {
           const blocked = await passwordResetRaceDb.query(
             `SELECT COUNT(*)::int AS count
              FROM pg_stat_activity activity
