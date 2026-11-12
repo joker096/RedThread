@@ -3243,7 +3243,7 @@ app.get('/api/account/export/media/:kind/:assetId', requireSession, profileActio
       const fileStat = await lstat(filePath);
       if (!fileStat.isFile() || fileStat.isSymbolicLink()) return null;
       const key = parseVoiceIntroEncryptionKey();
-      if (!key) throw new Error('voice_intro_encryption_not_configured');
+      if (!key) { const error = new Error('voice_intro_encryption_not_configured'); error.code = 'VOICE_INTRO_ENCRYPTION_NOT_CONFIGURED'; throw error; }
       const bytes = decryptVoiceIntro(await readFile(filePath), key);
       const extension = row.mimeType === 'audio/aac' ? '.aac' : '.m4a';
       return { bytes, mimeType: row.mimeType, filename: assetId + extension };
@@ -3262,6 +3262,7 @@ app.get('/api/account/export/media/:kind/:assetId', requireSession, profileActio
     return res.status(200).send(read.value.bytes);
   } catch (error) {
     if (error?.code === 'ENOENT') return res.status(404).end();
+    if (error?.code === 'VOICE_INTRO_ENCRYPTION_NOT_CONFIGURED') return res.status(503).json({ error: 'voice_intro_encryption_not_configured' });
     console.error('Account media export failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'account_media_export_unavailable' });
   }
