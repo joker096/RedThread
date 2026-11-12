@@ -47,7 +47,7 @@ BEGIN
      OR order_row.recipient_consent_at IS NULL
      OR order_row.recipient_consent_version IS NULL
      OR order_row.address_verified_at IS NULL
-     OR order_row.address_vault_ref IS DISTINCT FROM NEW.vault_ref THEN
+     OR order_row.address_vault_ref IS DISTINCT FROM NEW.vault_ref::text THEN
     RAISE EXCEPTION 'gift address vault entry is not authorized for this order'
       USING ERRCODE = '23514';
   END IF;
