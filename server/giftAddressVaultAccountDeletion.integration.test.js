@@ -85,3 +85,62 @@ test('deleting either gift-order account revokes delivered address pointer but p
     await pool.end();
   }
 });
+
+
+test('direct tombstoning fails closed while an in-flight gift still has an address pointer', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 10_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const client = await pool.connect();
+  const senderId = randomUUID();
+  const recipientId = randomUUID();
+  const matchId = randomUUID();
+  const orderId = randomUUID();
+  const idempotencyKey = 'gift-address-inflight-' + randomUUID();
+  try {
+    await client.query('BEGIN');
+    try {
+      await client.query(
+        'INSERT INTO users (id, email, role, status, email_verified_at) VALUES ($1, $2, \'member\', \'active\', NOW()), ($3, $4, \'member\', \'active\', NOW())',
+        [senderId, 'gift-inflight-sender-' + senderId + '@example.invalid', recipientId, 'gift-inflight-recipient-' + recipientId + '@example.invalid']
+      );
+      await client.query(
+        'INSERT INTO matches (id, user_a_id, user_b_id, status, created_at) VALUES ($1, LEAST($2::uuid, $3::uuid), GREATEST($2::uuid, $3::uuid), \'active\', NOW())',
+        [matchId, senderId, recipientId]
+      );
+      await client.query(
+        `INSERT INTO gift_delivery_orders
+           (id, match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, idempotency_key, status, recipient_consent_at,
+            recipient_consent_version, address_vault_ref, address_verified_at)
+         VALUES ($1, $2, $3, $4, 'In-flight address erasure test', 'chocolate',
+                 1500, 'USD', $5, 'address_verified', NOW() - INTERVAL '1 hour',
+                 1, 'vault:inflight-reference', NOW() - INTERVAL '1 hour')`,
+        [orderId, matchId, senderId, recipientId, idempotencyKey]
+      );
+
+      await assert.rejects(
+        client.query(`UPDATE users SET status = 'deleted', updated_at = NOW() WHERE id = $1`, [recipientId]),
+        error => error.code === '23514',
+        'direct SQL tombstoning must not bypass the gift safety/payment workflow'
+      );
+      const state = await client.query(
+        `SELECT u.status AS account_status, o.status AS order_status, o.address_vault_ref
+         FROM users u CROSS JOIN gift_delivery_orders o
+         WHERE u.id = $1 AND o.id = $2`,
+        [recipientId, orderId]
+      );
+      assert.equal(state.rows[0].account_status, 'active', 'failed tombstoning must roll back');
+      assert.equal(state.rows[0].order_status, 'address_verified');
+      assert.equal(state.rows[0].address_vault_ref, 'vault:inflight-reference');
+      await client.query('ROLLBACK');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    }
+  } finally {
+    client.release();
+    await pool.end();
+  }
+});
