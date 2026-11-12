@@ -30,7 +30,7 @@ test('address normalization rejects unknown shapes and invalid required fields',
   assert.equal(normalizeGiftAddress(address).ok, true);
   assert.equal(normalizeGiftAddress({ ...address, countryCode: 'Georgia' }).ok, false);
   assert.equal(normalizeGiftAddress({ ...address, phone: 'abc' }).ok, false);
-  assert.equal(normalizeGiftAddress({ ...address, surprise: 'secret' }).ok, true);
+  assert.equal(normalizeGiftAddress({ ...address, surprise: 'secret' }).ok, false);
 });
 
 test('AES-256-GCM round-trips only with the same order and recipient context', () => {
