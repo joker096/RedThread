@@ -39,6 +39,7 @@ test('voice intro HTTP API enforces consent, authentication and withdrawal histo
       NODE_ENV: 'test',
       GOOGLE_CLIENT_ID: '   ',
       AUTH_RATE_LIMIT: '1000',
+      USER_DATA_EXPORT_RATE_LIMIT: '100',
       DATABASE_URL: serverDatabaseUrl.toString(),
       ACCOUNT_REUSE_HMAC_KEY: 'a'.repeat(64),
       VOICE_INTRO_ENCRYPTION_KEY: 'b'.repeat(64),
