@@ -120,11 +120,16 @@ test('direct tombstoning fails closed while an in-flight gift still has an addre
         [orderId, matchId, senderId, recipientId, idempotencyKey]
       );
 
+      await client.query('SAVEPOINT before_rejected_tombstone');
       await assert.rejects(
         client.query(`UPDATE users SET status = 'deleted', updated_at = NOW() WHERE id = $1`, [recipientId]),
         error => error.code === '23514',
         'direct SQL tombstoning must not bypass the gift safety/payment workflow'
       );
+      // PostgreSQL marks the transaction aborted after the expected trigger
+      // exception; roll back only that statement so we can inspect persisted state.
+      await client.query('ROLLBACK TO SAVEPOINT before_rejected_tombstone');
+      await client.query('RELEASE SAVEPOINT before_rejected_tombstone');
       const state = await client.query(
         `SELECT u.status AS account_status, o.status AS order_status, o.address_vault_ref
          FROM users u CROSS JOIN gift_delivery_orders o
