@@ -1260,3 +1260,41 @@ main article[class*="rounded-2xl"][class*="border"] {
     padding-inline: 0.375rem;
   }
 }
+
+/* Icon-first mobile navigation: preserve accessible names without repeating labels visually. */
+.vow-bottom-nav {
+  min-height: 3.25rem;
+  padding-block: .35rem !important;
+  gap: .35rem;
+}
+
+.vow-bottom-nav > button {
+  min-height: 2.75rem;
+  justify-content: center;
+  gap: 0;
+  padding-block: .35rem;
+  padding-inline: .25rem;
+}
+
+.vow-bottom-nav > button > svg {
+  width: 1.3rem;
+  height: 1.3rem;
+}
+
+.vow-bottom-nav > button[aria-current="page"] {
+  border-radius: 1rem;
+  box-shadow: inset 0 0 0 1px rgb(225 29 72 / 10%);
+}
+
+@media (max-width: 380px) {
+  .vow-bottom-nav {
+    width: calc(100% - .75rem);
+    padding-inline: .35rem !important;
+    gap: .2rem;
+  }
+
+  .vow-bottom-nav > button > svg {
+    width: 1.2rem;
+    height: 1.2rem;
+  }
+}
