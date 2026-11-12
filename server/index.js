@@ -785,7 +785,8 @@ async function createAccountActionToken(client, userId, purpose, lifetimeMinutes
 
 function accountActionUrl(parameter, token) {
   const base = (process.env.APP_URL || process.env.APP_ORIGIN).replace(/\/+$/, '');
-  return base + '/?'+ parameter + '=' + encodeURIComponent(token);
+  // Keep one-time tokens in the URL fragment: fragments are never sent in HTTP requests or access logs.
+  return base + '/#' + parameter + '=' + encodeURIComponent(token);
 }
 
 function requireDatabase(_req, res, next) {
