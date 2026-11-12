@@ -1025,7 +1025,7 @@ export default function App() {
                     }`}
                   >
                     <Heart className={`w-4 h-4 ${activeTab === 'discovery' ? 'fill-rose-500' : ''}`} />
-                    <span className="text-[9px] leading-tight">{t('radar')}</span>
+                    <span className="sr-only">{t('radar')}</span>
                   </button>
 
                   <button
@@ -1037,7 +1037,7 @@ export default function App() {
                     }`}
                   >
                     <Brain className="w-4 h-4" />
-                    <span className="text-[9px] leading-tight">{t('testsShort')}</span>
+                    <span className="sr-only">{t('testsShort')}</span>
                   </button>
 
                   <button
@@ -1050,7 +1050,7 @@ export default function App() {
                     }`}
                   >
                     <MessageCircle className="w-4 h-4" />
-                    <span className="text-[9px] leading-tight">{t('chatsShort')}</span>
+                    <span className="sr-only">{t('chatsShort')}</span>
                     {visibleUnreadCount > 0 && (
                       <span
                         aria-label={`${t('chatsShort')}: ${visibleUnreadCount}`}
@@ -1070,16 +1070,18 @@ export default function App() {
                     }`}
                   >
                     <ShieldCheck className="w-4 h-4" />
-                    <span className="text-[9px] leading-tight">{t('safetyShort')}</span>
+                    <span className="sr-only">{t('safetyShort')}</span>
                   </button>
 
                   {!nativeApp && currentGender === 'female' && (
                     <button
                       onClick={() => setIsLadyPremiumOpen(true)}
+                      aria-label={t('ladyVipLabel')}
+                      title={t('ladyVipLabel')}
                       className="vow-motion-button flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 text-amber-400 font-bold"
                     >
                       <Crown className="w-4 h-4" />
-                      <span className="text-[8px]">VIP</span>
+                      <span className="sr-only">VIP</span>
                     </button>
                   )}
                 </div>
