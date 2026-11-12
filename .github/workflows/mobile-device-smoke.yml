@@ -69,11 +69,16 @@ jobs:
         run: |
           set -Eeuo pipefail
           mkdir -p "$ANDROID_AVD_HOME"
-          echo "no" | avdmanager create avd --name vow-ci --package "system-images;android-35;default;x86_64" --device pixel_2 --force
+          echo "no" | avdmanager create avd --name vow-ci --package "system-images;android-35;default;x86_64" --force
           nohup emulator -avd vow-ci -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -wipe-data -memory 2048 -cores 2 > "$RUNNER_TEMP/android-emulator.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/android-emulator.pid"
           adb start-server
-          adb wait-for-device
+          if ! timeout 180s adb wait-for-device; then
+            echo "Android emulator did not register with ADB within 3 minutes" >&2
+            adb devices -l >&2 || true
+            tail -n 160 "$RUNNER_TEMP/android-emulator.log" >&2 || true
+            exit 1
+          fi
           booted=0
           for attempt in $(seq 1 180); do
             if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then
