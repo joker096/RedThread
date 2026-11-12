@@ -81,7 +81,11 @@ export const ModeratorConsolePanel:React.FC=()=>{
   finally{if(actionEpoch===sessionEpoch.current)setBusy(false);}
  };
  if(!ready||!allowed)return null;
- return <section aria-busy={busy} className="vow-screen mb-5 rounded-3xl border border-violet-500/30 bg-stone-900/90 p-4 sm:p-5">
+ return <details className="vow-screen mb-5 w-full rounded-3xl border border-violet-500/30 bg-stone-900/70 text-left">
+  <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 rounded-3xl px-4 py-3 text-sm font-semibold text-violet-200 outline-none transition hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-violet-400 [&::-webkit-details-marker]:hidden">
+   <span>Инструменты модератора</span><span className="ml-auto text-xs text-violet-300/70" aria-hidden="true">+</span>
+  </summary>
+  <section aria-busy={busy} className="rounded-b-3xl border-t border-violet-500/20 bg-stone-900/90 p-4 sm:p-5">
   <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] uppercase tracking-[0.2em] text-violet-300">Только модераторы</p><h3 className="mt-1 text-lg font-bold text-white">Панель безопасности Vow</h3><p className="mt-1 text-xs text-stone-400">Очередь проверок, жалобы и журнал решений.</p></div><button type="button" onClick={()=>void refresh()} disabled={busy} className="min-h-11 rounded-xl border border-white/10 px-3 py-2 text-xs text-stone-200 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400">Обновить</button></div>
   {notice&&<p role="status" aria-live="polite" aria-atomic="true" className="mt-3 rounded-xl bg-stone-950 p-3 text-xs text-stone-300">{notice}</p>}
   <div className="mt-4 rounded-2xl border border-violet-500/20 bg-stone-950/60 p-3">
@@ -140,5 +144,6 @@ export const ModeratorConsolePanel:React.FC=()=>{
   <div className="mt-4 rounded-2xl border border-white/10 bg-stone-950/60 p-3"><h4 className="text-sm font-semibold text-white">Журнал действий ({audit.length})</h4>
    {!audit.length?<p className="mt-2 text-xs text-stone-500">Записей пока нет.</p>:<div className="mt-2 space-y-2">{audit.map(x=><div key={x.id} className="rounded-xl border border-white/5 p-2"><p className="text-xs text-stone-200">{x.action} · {x.targetType}</p><p className="mt-1 break-all text-[10px] text-stone-500">{x.targetId} · {new Date(x.createdAt).toLocaleString()}</p>{x.reason&&<p className="mt-1 text-[10px] text-stone-400">{x.reason}</p>}</div>)}</div>}
   </div>
- </section>;
+  </section>
+ </details>;
 };
