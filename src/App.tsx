@@ -658,8 +658,17 @@ export default function App() {
             <ServerMatchesPanel onOpenAccount={() => setActiveTab('tests')} />
             <NotificationCenterPanel />
             <GiftOrdersPanel />
-            <GiftReceivingPreferencesPanel />
-            <GiftCatalogPanel />
+            <details className="mx-auto mt-4 w-full max-w-md rounded-2xl border border-white/10 bg-stone-900/70 text-left text-white">
+              <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold text-stone-200 outline-none transition hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-rose-400 [&::-webkit-details-marker]:hidden">
+                <Gift className="h-4 w-4 shrink-0 text-rose-300" aria-hidden="true" />
+                <span>{t('giftCatalogTitle')} · {t('giftPreferencesTitle')}</span>
+                <span className="ml-auto text-xs text-stone-500" aria-hidden="true">+</span>
+              </summary>
+              <div className="border-t border-white/10 px-2 pb-2">
+                <GiftReceivingPreferencesPanel />
+                <GiftCatalogPanel />
+              </div>
+            </details>
             {!nativeApp && (!showDemoChats ? (
               <section className="mx-auto mt-4 w-full max-w-md rounded-2xl border border-white/10 bg-stone-900 p-4 text-left">
                 <h3 className="font-semibold text-white">{t('demoChatsHiddenTitle')}</h3>
