@@ -37,11 +37,28 @@ LANGUAGE plpgsql
 AS $gift_address_erasure$
 BEGIN
   IF NEW.status = 'deleted' AND OLD.status IS DISTINCT FROM 'deleted' THEN
+    -- The authenticated deletion service first blocks/suspends every in-flight
+    -- order and clears its address pointer. A direct SQL tombstone must fail
+    -- closed rather than bypassing that payment/safety workflow.
+    IF EXISTS (
+      SELECT 1
+      FROM gift_delivery_orders
+      WHERE (sender_id = NEW.id OR recipient_id = NEW.id)
+        AND address_vault_ref IS NOT NULL
+        AND status IN ('address_verified', 'fulfilment_authorized', 'dispatched', 'delivery_failed')
+    ) THEN
+      RAISE EXCEPTION 'gift order safety workflow must revoke in-flight address access before account tombstoning'
+        USING ERRCODE = '23514';
+    END IF;
+
+    -- Once fulfilment is complete, revoke the address pointer but preserve
+    -- immutable delivery, consent, dispatch, and payment evidence.
     UPDATE gift_delivery_orders
     SET address_vault_ref = NULL,
         updated_at = statement_timestamp()
     WHERE (sender_id = NEW.id OR recipient_id = NEW.id)
-      AND address_vault_ref IS NOT NULL;
+      AND address_vault_ref IS NOT NULL
+      AND status = 'delivered';
   END IF;
   RETURN NEW;
 END;
@@ -55,4 +72,4 @@ CREATE TRIGGER users_revoke_deleted_account_gift_address_refs
   EXECUTE FUNCTION revoke_deleted_account_gift_address_refs();
 
 COMMENT ON FUNCTION revoke_deleted_account_gift_address_refs() IS
-  'Revokes opaque private gift-address references for every order involving a deleted account, including delivered orders, without rewriting delivery or payment evidence.';
+  'Revokes completed-delivery address pointers for deleted accounts while preserving delivery/payment evidence; refuses direct tombstoning if an in-flight order still needs the authenticated safety/payment workflow.';
