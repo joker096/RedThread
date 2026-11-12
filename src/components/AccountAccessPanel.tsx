@@ -188,8 +188,23 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
       })
       .catch(() => {});
     const params = new URLSearchParams(window.location.search);
-    const verificationToken = params.get('verifyEmail');
-    const passwordResetToken = params.get('resetPassword');
+    const fragmentParams = new URLSearchParams(window.location.hash.slice(1));
+    const verificationToken = fragmentParams.get('verifyEmail') || params.get('verifyEmail');
+    const passwordResetToken = fragmentParams.get('resetPassword') || params.get('resetPassword');
+    // Remove one-time tokens from browser history before making any network request.
+    if (verificationToken || passwordResetToken) {
+      params.delete('verifyEmail');
+      params.delete('resetPassword');
+      fragmentParams.delete('verifyEmail');
+      fragmentParams.delete('resetPassword');
+      window.history.replaceState(
+        {},
+        '',
+        window.location.pathname +
+          (params.size ? '?' + params.toString() : '') +
+          (fragmentParams.size ? '#' + fragmentParams.toString() : '')
+      );
+    }
     if (verificationToken) {
       (nativeApp
         ? mobileAuthFetch('verify-email', { token: verificationToken })
@@ -203,14 +218,10 @@ export const AccountAccessPanel: React.FC<AccountAccessPanelProps> = ({ onAuthen
         setMessage(t('authEmailVerified'));
         setMode('login');
       }).catch(error => { if (!cancelled && initialAuxiliaryRequestId === auxiliaryRequestIdRef.current) setMessage(error instanceof Error ? error.message : t('authVerificationFailed')); });
-      params.delete('verifyEmail');
-      window.history.replaceState({}, '', window.location.pathname + (params.size ? '?' + params.toString() : '') + window.location.hash);
     }
     if (passwordResetToken) {
       setResetToken(passwordResetToken);
       setShowReset(true);
-      params.delete('resetPassword');
-      window.history.replaceState({}, '', window.location.pathname + (params.size ? '?' + params.toString() : '') + window.location.hash);
     }
     return () => { cancelled = true; auxiliaryRequestIdRef.current += 1; };
   }, [nativeApp, t]);
