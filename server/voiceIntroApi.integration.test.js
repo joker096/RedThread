@@ -236,6 +236,7 @@ test('voice intro HTTP API covers encrypted upload, moderator review, owner play
       ACCOUNT_REUSE_HMAC_KEY: 'c'.repeat(64),
       VOICE_INTRO_ENCRYPTION_KEY: 'd'.repeat(64),
       VOICE_INTRO_STORAGE_DIR: storageDir,
+      USER_DATA_EXPORT_RATE_LIMIT: '100',
       PG_STATEMENT_TIMEOUT_MS: '8000'
     },
     stdio: ['ignore', 'pipe', 'pipe']
