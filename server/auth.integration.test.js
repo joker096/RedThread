@@ -613,6 +613,12 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     let passwordResetLock;
     try {
+      // The race below exercises an eligible, email-verified account. Unverified-account
+      // reset rejection is covered separately above and must remain fail-closed.
+      await passwordResetRaceDb.query(
+        'UPDATE users SET email_verified_at = NOW() WHERE id = $1',
+        [registered.user.id]
+      );
       const resetToken = randomUUID() + randomUUID();
       await passwordResetRaceDb.query(
         `INSERT INTO account_action_tokens (user_id, purpose, token_hash, expires_at)
