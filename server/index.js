@@ -695,6 +695,14 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'too_many_auth_attempts' }
 });
+const userDataExportLimiter = rateLimit({
+  ...(pool ? { store: new PostgresRateLimitStore(pool, 'user_data_export') } : {}),
+  windowMs: 60 * 60 * 1000,
+  limit: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too_many_user_data_exports' }
+});
 const profileActionLimiter = rateLimit({
   ...(pool ? { store: new PostgresRateLimitStore(pool, 'profile') } : {}),
   windowMs: 15 * 60 * 1000,
@@ -3179,7 +3187,7 @@ app.get('/api/trust/summary', requireSession, async (req, res) => {
   }
 });
 
-app.post('/api/account/export', validateRequestOrigin, requireSession, requireDatabase, async (req, res) => {
+app.post('/api/account/export', validateRequestOrigin, requireSession, userDataExportLimiter, requireDatabase, async (req, res) => {
   try {
     const read = await withActiveAccountRead(req.authUser.id, client =>
       buildUserDataExport(client, req.authUser.id)
