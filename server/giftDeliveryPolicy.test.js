@@ -382,6 +382,16 @@ test('persistence validator rejects malformed evidence timestamps and address re
     dispatchedAt: '2026-10-20T12:03:00Z',
     deliveredAt: '2026-10-26T12:04:00Z'
   }, { now }).reason, 'delivery_timestamp_required');
+  assert.deepEqual(validateGiftOrderPersistenceState({
+    ...authorized,
+    status: 'delivered',
+    paymentStatus: 'captured',
+    addressVaultRef: null,
+    addressVerifiedAt: null,
+    dispatchedAt: '2026-10-20T12:03:00Z',
+    deliveredAt: '2026-10-24T12:04:00Z'
+  }, { now }), { valid: true, reason: 'persistence_state_consistent' },
+  'completed delivery evidence must remain valid after its address-vault reference is revoked');
 });
 
 test('refund policy is fail-closed, state-bound, amount-matched and idempotency-keyed', () => {
