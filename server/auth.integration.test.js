@@ -265,6 +265,19 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal('paddle_customer_id' in userExport.account, false);
     assert.equal(JSON.stringify(userExport).includes('address_vault_ref'), false);
     assert.equal(JSON.stringify(userExport).includes('storage_path'), false);
+    for (let exportAttempt = 0; exportAttempt < 2; exportAttempt += 1) {
+      const allowedExport = await request('/api/account/export', {
+        method: 'POST',
+        headers: { Cookie: firstCookie }
+      });
+      assert.equal(allowedExport.status, 200, 'the first three exports in the window are allowed');
+    }
+    const rateLimitedExport = await request('/api/account/export', {
+      method: 'POST',
+      headers: { Cookie: firstCookie }
+    });
+    assert.equal(rateLimitedExport.status, 429, 'repeated exports are rate limited');
+    assert.deepEqual(await rateLimitedExport.json(), { error: 'too_many_user_data_exports' });
     const billingStatus = await request('/api/billing/status', { headers: { Cookie: firstCookie } });
     assert.equal(billingStatus.status, 200);
     const trial = await billingStatus.json();
