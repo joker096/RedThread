@@ -1522,7 +1522,7 @@ app.post('/api/auth/password-reset/request', authLimiter, validateRequestOrigin,
   if (!isValidEmail(email) || !emailDeliveryConfigured()) return res.status(202).json(generic);
   try {
     const result = await pool.query(
-      "SELECT id FROM users WHERE email = $1 AND status = 'active' LIMIT 1",
+      "SELECT id FROM users WHERE email = $1 AND status = 'active' AND email_verified_at IS NOT NULL LIMIT 1",
       [email]
     );
     const user = result.rows[0];
@@ -1533,7 +1533,7 @@ app.post('/api/auth/password-reset/request', authLimiter, validateRequestOrigin,
         await client.query('BEGIN');
         await acquireGiftSafetyUserLocks(client, user.id);
         const current = await client.query(
-          "SELECT id, email FROM users WHERE id = $1 AND email = $2 AND status = 'active' FOR SHARE",
+          "SELECT id, email FROM users WHERE id = $1 AND email = $2 AND status = 'active' AND email_verified_at IS NOT NULL FOR SHARE",
           [user.id, email]
         );
         if (current.rows[0]) {
