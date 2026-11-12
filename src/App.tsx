@@ -860,7 +860,7 @@ export default function App() {
             />
 
             {/* Main Stage */}
-            <main className={`flex-1 w-full ${activeTab === 'chats' ? 'max-w-6xl' : 'max-w-xl'} mx-auto px-3 sm:px-4 py-3 sm:py-5 flex flex-col items-center pb-28`}>
+            <main className={`flex-1 w-full ${activeTab === 'chats' ? 'max-w-6xl' : 'max-w-xl'} mx-auto px-2 sm:px-4 py-2 sm:py-4 flex flex-col items-center pb-24`}>
               {renderMainContent()}
             </main>
 
@@ -868,6 +868,7 @@ export default function App() {
             <div role="navigation" aria-label={t('primaryNavigation')} className="vow-bottom-nav fixed bottom-[calc(env(safe-area-inset-bottom)+0.5rem)] left-1/2 z-30 flex w-[calc(100%-1rem)] max-w-md -translate-x-1/2 items-stretch justify-around gap-1 rounded-[1.6rem] border border-white/10 bg-stone-950/90 px-2 py-2 shadow-2xl shadow-black/30 backdrop-blur-2xl lg:hidden">
               <button
                 onClick={() => setActiveTab('discovery')}
+                aria-label={t('radar')}
                 aria-current={activeTab === 'discovery' ? 'page' : undefined}
                 className={`vow-motion-button flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 transition-colors ${
                   activeTab === 'discovery' ? 'bg-rose-500/10 text-rose-400 font-bold' : 'text-stone-400 hover:bg-white/5 hover:text-white'
@@ -875,12 +876,13 @@ export default function App() {
                 title={t('radar')}
               >
                 <Heart className={`w-5 h-5 ${activeTab === 'discovery' ? 'fill-rose-500' : ''}`} />
-                <span className="text-[10px] leading-tight">{t('radar')}</span>
+                <span className="sr-only">{t('radar')}</span>
               </button>
 
               <button
                 data-testid="mobile-nav-tests"
                 onClick={() => setActiveTab('tests')}
+                aria-label={t('tests')}
                 aria-current={activeTab === 'tests' ? 'page' : undefined}
                 className={`vow-motion-button flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 transition-colors ${
                   activeTab === 'tests' ? 'bg-rose-500/10 text-rose-400 font-bold' : 'text-stone-400 hover:bg-white/5 hover:text-white'
@@ -888,12 +890,13 @@ export default function App() {
                 title={t('tests')}
               >
                 <Brain className="w-5 h-5" />
-                <span className="text-[10px] leading-tight">{t('testsShort')}</span>
+                <span className="sr-only">{t('testsShort')}</span>
               </button>
 
               <button
                 onClick={() => setActiveTab('chats')}
                 data-testid="nav-chats"
+                aria-label={visibleUnreadCount > 0 ? `${t('chats')}, ${visibleUnreadCount} ${t('unreadChats')}` : t('chats')}
                 aria-current={activeTab === 'chats' ? 'page' : undefined}
                 className={`vow-motion-button relative flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 transition-colors ${
                   activeTab === 'chats' ? 'bg-rose-500/10 text-rose-400 font-bold' : 'text-stone-400 hover:bg-white/5 hover:text-white'
@@ -901,7 +904,7 @@ export default function App() {
                 title={t('chats')}
               >
                 <MessageCircle className="w-5 h-5" />
-                <span className="text-[10px] leading-tight">{t('chatsShort')}</span>
+                <span className="sr-only">{t('chatsShort')}</span>
                 {visibleUnreadCount > 0 && (
                   <span aria-label={`${visibleUnreadCount}`} className="absolute right-1 top-1 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-amber-400 px-1 text-[9px] font-black leading-none text-stone-950">{visibleUnreadCount > 99 ? '99+' : visibleUnreadCount}</span>
                 )}
@@ -909,6 +912,7 @@ export default function App() {
 
               <button
                 onClick={() => setActiveTab('safety')}
+                aria-label={t('safety')}
                 aria-current={activeTab === 'safety' ? 'page' : undefined}
                 className={`vow-motion-button flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 transition-colors ${
                   activeTab === 'safety' ? 'bg-rose-500/10 text-rose-400 font-bold' : 'text-stone-400 hover:bg-white/5 hover:text-white'
@@ -916,17 +920,18 @@ export default function App() {
                 title={t('safety')}
               >
                 <ShieldCheck className="w-5 h-5" />
-                <span className="text-[10px] leading-tight">{t('safetyShort')}</span>
+                <span className="sr-only">{t('safetyShort')}</span>
               </button>
 
               {!nativeApp && currentGender === 'female' && (
                 <button
                   onClick={() => setIsLadyPremiumOpen(true)}
                   className="vow-motion-button flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 text-amber-400 transition-colors hover:bg-amber-400/10 hover:text-amber-300 font-bold"
-                  title="Lady VIP — демо-подписка"
+                  title={t('ladyVipLabel')}
+                  aria-label={t('ladyVipLabel')}
                 >
                   <Crown className="w-5 h-5 fill-amber-400/20" />
-                  <span className="text-[9px]">VIP</span>
+                  <span className="sr-only">VIP</span>
                 </button>
               )}
             </div>
@@ -1013,6 +1018,7 @@ export default function App() {
                 <div role="navigation" aria-label={t('primaryNavigation')} className="absolute bottom-3 left-3 right-3 z-30 flex items-stretch justify-around gap-1 rounded-[1.4rem] border border-white/10 bg-stone-900/95 px-2 py-2 shadow-2xl backdrop-blur-xl">
                   <button
                     onClick={() => setActiveTab('discovery')}
+                aria-label={t('radar')}
                 aria-current={activeTab === 'discovery' ? 'page' : undefined}
                     className={`vow-motion-button flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 ${
                       activeTab === 'discovery' ? 'bg-rose-500/10 text-rose-400 font-bold' : 'text-stone-400 hover:bg-white/5'
@@ -1024,6 +1030,7 @@ export default function App() {
 
                   <button
                     onClick={() => setActiveTab('tests')}
+                aria-label={t('tests')}
                 aria-current={activeTab === 'tests' ? 'page' : undefined}
                     className={`vow-motion-button flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 ${
                       activeTab === 'tests' ? 'bg-rose-500/10 text-rose-400 font-bold' : 'text-stone-400 hover:bg-white/5'
@@ -1036,6 +1043,7 @@ export default function App() {
                   <button
                     onClick={() => setActiveTab('chats')}
                 data-testid="nav-chats"
+                aria-label={visibleUnreadCount > 0 ? `${t('chats')}, ${visibleUnreadCount} ${t('unreadChats')}` : t('chats')}
                 aria-current={activeTab === 'chats' ? 'page' : undefined}
                     className={`vow-motion-button relative flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 ${
                       activeTab === 'chats' ? 'bg-rose-500/10 text-rose-400 font-bold' : 'text-stone-400 hover:bg-white/5'
@@ -1055,6 +1063,7 @@ export default function App() {
 
                   <button
                     onClick={() => setActiveTab('safety')}
+                aria-label={t('safety')}
                 aria-current={activeTab === 'safety' ? 'page' : undefined}
                     className={`vow-motion-button flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 ${
                       activeTab === 'safety' ? 'bg-rose-500/10 text-rose-400 font-bold' : 'text-stone-400 hover:bg-white/5'
