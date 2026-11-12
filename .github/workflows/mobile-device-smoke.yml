@@ -12,6 +12,7 @@ on:
       - "package.json"
       - "package-lock.json"
       - "scripts/**"
+      - "server/**"
       - "android/**"
       - "ios/**"
       - ".github/workflows/mobile-device-smoke.yml"
