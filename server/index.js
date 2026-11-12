@@ -1792,8 +1792,9 @@ async function enqueueGiftSafetyPaymentReconciliation(client, gift, { actorUserI
 async function suspendGiftOrdersForUser(client, userId, { actorUserId = null, actorType = 'system', reason = 'account_safety_event' } = {}) {
   // Use the same pair-level lock as accept/block/report, in stable order, before
   // touching gift rows. Clear any legacy pointer left on a state where the
-  // address-vault constraints do not permit one; delivered orders deliberately
-  // retain their verified pointer for the delivery audit trail.
+  // address-vault constraints do not permit one. Delivered orders retain their
+  // delivery evidence here; the account-tombstone trigger separately revokes
+  // every remaining private address pointer, including completed deliveries.
   const pairs = await client.query(
     `SELECT DISTINCT LEAST(sender_id, recipient_id)::text AS user_a,
             GREATEST(sender_id, recipient_id)::text AS user_b
