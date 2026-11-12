@@ -1,5 +1,5 @@
 import React from 'react';
-import { SlidersHorizontal, MessageCircle, Brain, Crown, Sun, Moon } from 'lucide-react';
+import { SlidersHorizontal, Brain, Crown, Sun, Moon, Heart, ShieldCheck, Venus, Mars } from 'lucide-react';
 import type { DeviceFrame, Gender } from '../types/index.ts';
 import { getTranslationCoverage, LANGUAGE_OPTIONS, useLocale } from '../i18n/LocaleProvider.tsx';
 
@@ -77,13 +77,14 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             type="button"
             onClick={() => setActiveTab('discovery')}
             aria-current={activeTab === 'discovery' ? 'page' : undefined}
-            className={`focus-visible:border-rose-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 min-h-11 px-3 py-2 rounded-full text-xs font-bold transition-all ${
+            className={`focus-visible:border-rose-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 flex min-h-11 items-center gap-1.5 px-3 py-2 rounded-full text-xs font-bold transition-all ${
               activeTab === 'discovery'
                 ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-sm'
                 : 'text-stone-400 hover:text-stone-200'
             }`}
           >
-            {t('discovery')}
+            <Heart className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>{t('discovery')}</span>
           </button>
 
           <button
@@ -127,13 +128,14 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             type="button"
             onClick={() => setActiveTab('safety')}
             aria-current={activeTab === 'safety' ? 'page' : undefined}
-            className={`focus-visible:border-rose-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 min-h-11 px-3 py-2 rounded-full text-xs font-bold transition-all ${
+            className={`focus-visible:border-rose-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 flex min-h-11 items-center gap-1.5 px-3 py-2 rounded-full text-xs font-bold transition-all ${
               activeTab === 'safety'
                 ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-sm'
                 : 'text-stone-400 hover:text-stone-200'
             }`}
           >
-            {t('safety')}
+            <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>{t('safety')}</span>
           </button>
         </nav>
 
@@ -179,8 +181,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             }`}
             title={t('demoModeToggleHelp')} aria-label={t('demoModeToggleHelp')} aria-pressed={currentGender === 'female'}
           >
-            <span className={`focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 w-1.5 h-1.5 rounded-full ${currentGender === 'female' ? 'bg-rose-500' : 'bg-blue-400'}`}></span>
-            <span className="hidden min-[380px]:inline">{currentGender === 'female' ? `${t('demoWoman')} ♀` : `${t('demoMan')} ♂`}</span>
+            {currentGender === 'female' ? <Venus className="h-4 w-4" aria-hidden="true" /> : <Mars className="h-4 w-4" aria-hidden="true" />}
           </button>}
 
           {/* Demo filters only: registered-account discovery has its own connected filters. */}
