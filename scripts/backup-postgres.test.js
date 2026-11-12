@@ -33,7 +33,7 @@ done
 test -n "$output"
 temporary_input="${output}.input"
 cat > "$temporary_input"
-{ printf 'AGE-ENCRYPTED-FIXTURE:'; cat "$temporary_input"; } > "$output"
+{ printf 'AGE-ENCRYPTED-FIXTURE:'; sha256sum "$temporary_input" | cut -d ' ' -f 1; } > "$output"
 rm -f "$temporary_input"
 `);
     await chmod(pgDump, 0o700);
@@ -61,8 +61,8 @@ rm -f "$temporary_input"
     const backupPath = path.join(backupDir, backupName);
     const encrypted = await readFile(backupPath, 'utf8');
     assert.ok(encrypted.startsWith('AGE-ENCRYPTED-FIXTURE:'));
-    assert.equal(encrypted.includes('fixture-plaintext-database-dump'), true,
-      'the fake age fixture preserves its input to prove that pg_dump is piped through the encryptor');
+    assert.equal(encrypted.includes('fixture-plaintext-database-dump'), false,
+      'the encrypted artifact must not contain the plaintext fixture');
     const metadata = await stat(backupPath);
     assert.equal(metadata.mode & 0o777, 0o600, 'encrypted backup must be owner-readable only');
     const directoryMetadata = await stat(backupDir);
