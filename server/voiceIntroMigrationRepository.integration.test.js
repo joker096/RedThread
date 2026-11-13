@@ -71,7 +71,7 @@ test('voice intro migration repository atomically claims, renews and CAS-transit
       id: journalId, token: tokenA, generation: 1,
       expectedState: 'source_authenticated', expectedVersion: 1,
       nextState: 'staged_authenticated',
-      patch: { stagedPath: '/private/voice/staging/repository.enc', stagedSha256: 'e'.repeat(64) }
+      patch: { stagedPath, stagedSha256: 'e'.repeat(64) }
     });
     assert.equal(staleVersion, null, 'a stale journal version cannot transition');
 
@@ -79,7 +79,7 @@ test('voice intro migration repository atomically claims, renews and CAS-transit
       id: journalId, token: tokenA, generation: 1,
       expectedState: 'source_authenticated', expectedVersion: 2,
       nextState: 'staged_authenticated',
-      patch: { stagedPath: '/private/voice/staging/repository.enc', stagedSha256: 'e'.repeat(64) }
+      patch: { stagedPath, stagedSha256: 'e'.repeat(64) }
     });
     assert.equal(staged.state, 'staged_authenticated');
     assert.equal(staged.version, 3, 'state transition succeeds while lease metadata remains unchanged');
