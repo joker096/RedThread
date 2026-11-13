@@ -58,7 +58,7 @@ function classifyEnvelope(buffer, report) {
   report.versionedByKeyId[keyId] = (report.versionedByKeyId[keyId] || 0) + 1;
 }
 
-async function inspectPath(storagePath, storageRoot, diskNames, report, missingCounter) {
+async function inspectPath(storagePath, storageRoot, diskNames, unsafeNames, report, missingCounter) {
   let target;
   try {
     target = resolvePrivateVoiceIntroPath(storagePath, storageRoot);
@@ -74,7 +74,7 @@ async function inspectPath(storagePath, storageRoot, diskNames, report, missingC
   let info;
   try { info = await lstat(target); }
   catch { report[missingCounter] += 1; return; }
-  if (info.isSymbolicLink() || !info.isFile()) report.symlinkOrUnsafePaths += 1;
+  if (info.isSymbolicLink() || !info.isFile()) {\n    if (!unsafeNames.has(name)) { unsafeNames.add(name); report.symlinkOrUnsafePaths += 1; }\n  }
 }
 
 export async function inspectVoiceIntroInventory({ pool, storageRoot } = {}) {
@@ -141,12 +141,12 @@ export async function inspectVoiceIntroInventory({ pool, storageRoot } = {}) {
   for (const row of rows) {
     try { referencedNames.add(path.basename(resolvePrivateVoiceIntroPath(row.storage_path, root))); }
     catch { /* counted by inspectPath below */ }
-    await inspectPath(row.storage_path, root, diskNames, report, 'missingReferencedFiles');
+    await inspectPath(row.storage_path, root, diskNames, unsafeNames, report, 'missingReferencedFiles');
   }
   for (const row of queueRows) {
     try { queuedNames.add(path.basename(resolvePrivateVoiceIntroPath(row.storage_path, root))); }
     catch { /* counted by inspectPath below */ }
-    await inspectPath(row.storage_path, root, diskNames, report, 'missingQueuedFiles');
+    await inspectPath(row.storage_path, root, diskNames, unsafeNames, report, 'missingQueuedFiles');
   }
   for (const name of queuedNames) if (referencedNames.has(name)) report.filesAlsoQueuedForPurge += 1;
   for (const name of diskNames) {
