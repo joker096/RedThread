@@ -37,7 +37,7 @@ fi
 
 # Never use --clean or drop/create the target. Refuse anything other than an empty staging DB.
 empty_state_sql="
-SELECT current_database() || E'\\t' ||
+SELECT current_database() || '|' ||
   (SELECT count(*) FROM pg_namespace
     WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'public')
       AND nspname NOT LIKE 'pg_toast%')
@@ -57,29 +57,13 @@ SELECT current_database() || E'\\t' ||
       AND t.typcategory <> 'A');
 "
 target_state="$(psql --dbname="$RESTORE_DATABASE_URL" -X -A -t -v ON_ERROR_STOP=1 -c "$empty_state_sql")"
-target_database="${target_state%%
-
-# Keep decrypted SQL/custom-format bytes in the pipe only; no plaintext dump is written to disk.
-age --decrypt --identity "$AGE_IDENTITY_FILE" "$ARCHIVE_FILE" \
-  | pg_restore --dbname="$RESTORE_DATABASE_URL" --exit-on-error --single-transaction --no-owner --no-acl
-
-printf 'Restored encrypted PostgreSQL backup into the verified empty staging database.\n'
-printf 'Run application integrity checks and reconcile deletion/consent state before exposing the environment.\n'
-\\t'*}"
-empty_state="${target_state#*
-
-# Keep decrypted SQL/custom-format bytes in the pipe only; no plaintext dump is written to disk.
-age --decrypt --identity "$AGE_IDENTITY_FILE" "$ARCHIVE_FILE" \
-  | pg_restore --dbname="$RESTORE_DATABASE_URL" --exit-on-error --single-transaction --no-owner --no-acl
-
-printf 'Restored encrypted PostgreSQL backup into the verified empty staging database.\n'
-printf 'Run application integrity checks and reconcile deletion/consent state before exposing the environment.\n'
-\\t'}"
+target_database="${target_state%%|*}"
+target_object_count="${target_state#*|}"
 if ! [[ "$target_database" =~ ^vow_restore_(test|dst_[a-zA-Z0-9_]+)$ ]]; then
   echo "restore target database name must use the dedicated vow_restore_test or vow_restore_dst_ prefix" >&2
   exit 1
 fi
-if ! [[ "$empty_state" =~ ^[0-9]+$ ]] || [[ "$empty_state" != "0" ]]; then
+if ! [[ "$target_object_count" =~ ^[0-9]+$ ]] || [[ "$target_object_count" != "0" ]]; then
   echo "restore target is not an empty staging database; refusing to restore" >&2
   exit 1
 fi
