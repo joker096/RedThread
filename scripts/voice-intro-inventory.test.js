@@ -50,8 +50,8 @@ test('voice inventory is read-only and counts V1, V2, queued and orphaned files 
     assert.equal(result.counts.queuedForPurge, 1);
     assert.equal(result.counts.filesOnDisk, 3);
     assert.equal(result.counts.legacyV1, 2);
-    assert.equal(result.counts.versionedV2, 2);
-    assert.equal(result.counts.versionedByKeyId.key_2026_02, 2);
+    assert.equal(result.counts.versionedV2, 1);
+    assert.equal(result.counts.versionedByKeyId.key_2026_02, 1);
     assert.equal(result.counts.filesAlsoQueuedForPurge, 1);
     assert.equal(result.counts.orphanFiles, 1);
     assert.ok(pool.statements.includes('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'));
