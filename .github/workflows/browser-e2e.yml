@@ -2,7 +2,7 @@ name: Browser E2E
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, feat/compatibility-explanations]
   push:
     branches: [main, "fix/**", "feat/**"]
   # Browser coverage is required for implementation/fix branches before review.
