@@ -312,3 +312,21 @@ export async function completeVoiceIntroMigrationAfterRollbackWindow(pool, {
     return row;
   });
 }
+
+
+/** Read the immutable source identity and current journal state under a live lease. */
+export async function getVoiceIntroMigrationLeaseRecord(pool, { id, token, generation } = {}) {
+  requireUuid(id, 'journal_id');
+  requireUuid(token, 'lease_token');
+  if (!Number.isSafeInteger(generation) || generation < 1) throw new TypeError('lease_generation_invalid');
+  const result = await pool.query(
+    `SELECT id, voice_intro_id, source_path, source_sha256, source_format,
+            target_key_id, state, version, staged_path, staged_sha256,
+            rollback_deadline
+     FROM voice_intro_migration_journal
+     WHERE id = $1 AND lease_token = $2 AND lease_generation = $3
+       AND lease_expires_at > statement_timestamp()`,
+    [id, token, generation]
+  );
+  return result.rows[0] || null;
+}
