@@ -106,7 +106,7 @@ test('voice intro migration repository atomically claims, renews and CAS-transit
     assert.equal(released.id, journalId);
 
     const leaseB = await claimNextVoiceIntroMigration(pool, {
-      workerId: 'repository-worker-b', token: tokenB, leaseDurationMs: 30_000
+      workerId: 'repository-worker-b', token: tokenB, leaseDurationMs: 30_000, journalId
     });
     assert.equal(leaseB.id, journalId);
     assert.equal(Number(leaseB.lease_generation), 2);
