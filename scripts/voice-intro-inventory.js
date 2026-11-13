@@ -72,26 +72,9 @@ async function inspectPath(storagePath, storageRoot, diskNames, report, missingC
     return;
   }
   let info;
-  try {
-    info = await lstat(target);
-  } catch {
-    report[missingCounter] += 1;
-    return;
-  }
-  if (info.isSymbolicLink() || !info.isFile()) {
-    report.symlinkOrUnsafePaths += 1;
-    return;
-  }
-  // Read only the small authenticated envelope header. Never read or emit audio bytes.
-  const { open } = await import('node:fs/promises');
-  const handle = await open(target, 'r');
-  try {
-    const prefix = Buffer.alloc(Math.min(info.size, VERSIONED_MAGIC.length + 1 + 64 + 12 + 16 + 1));
-    const { bytesRead } = await handle.read(prefix, 0, prefix.length, 0);
-    classifyEnvelope(prefix.subarray(0, bytesRead), report);
-  } finally {
-    await handle.close();
-  }
+  try { info = await lstat(target); }
+  catch { report[missingCounter] += 1; return; }
+  if (info.isSymbolicLink() || !info.isFile()) report.symlinkOrUnsafePaths += 1;
 }
 
 export async function inspectVoiceIntroInventory({ pool, storageRoot } = {}) {
@@ -111,7 +94,22 @@ export async function inspectVoiceIntroInventory({ pool, storageRoot } = {}) {
     }
     diskNames.add(entry.name);
     report.filesOnDisk += 1;
-    if (entry.isSymbolicLink()) report.symlinkOrUnsafePaths += 1;
+    const filePath = path.join(root, entry.name);
+    const info = await lstat(filePath);
+    if (info.isSymbolicLink() || !info.isFile()) {
+      report.symlinkOrUnsafePaths += 1;
+      continue;
+    }
+    // Read only the envelope prefix, never decrypt or emit audio content.
+    const { open } = await import('node:fs/promises');
+    const handle = await open(filePath, 'r');
+    try {
+      const prefix = Buffer.alloc(Math.min(info.size, VERSIONED_MAGIC.length + 1 + 64 + 12 + 16 + 1));
+      const { bytesRead } = await handle.read(prefix, 0, prefix.length, 0);
+      classifyEnvelope(prefix.subarray(0, bytesRead), report);
+    } finally {
+      await handle.close();
+    }
   }
 
   const client = await pool.connect();
