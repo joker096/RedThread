@@ -80,6 +80,18 @@ test('PostgreSQL restore verifies checksum, requires an empty staging DB and str
   }
 });
 
+test('PostgreSQL restore refuses a database that is not explicitly named as a Vow restore target', async () => {
+  const f = await fixture();
+  try {
+    const result = run(f, { PSQL_DATABASE_NAME: 'vow_production' });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /dedicated vow_restore_test or vow_restore_dst_/);
+    await assert.rejects(readFile(f.capture));
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
 test('PostgreSQL restore refuses a non-empty target before decryption', async () => {
   const f = await fixture();
   try {
