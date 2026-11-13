@@ -12,19 +12,25 @@ BACKUP_DIR=/secure/backups BACKUP_RETENTION_DAYS=30 \\
 
 The script streams pg_dump directly into age, so plaintext database contents are not written to disk. It creates a custom-format encrypted backup, restricts local permissions, writes a SHA-256 checksum and removes encrypted local backups past the configured retention. It refuses to run without age and a recipient. A local backup is not a disaster-recovery plan: copy the encrypted artifact to off-site/object storage with restricted access and lifecycle policies.
 
-## Restore test
+## Restore drill
 
-On a separate staging database, verify the checksum, decrypt the backup stream into pg_restore, and restore to a fresh database. Keep the age identity out of the application host and shell history:
+A restore must target a newly provisioned, isolated staging database. The wrapper never creates, drops, truncates or cleans a database: it checks that the target has no user schemas or objects and refuses to continue otherwise. Use a dedicated staging role with only the privileges needed for that database. Do not point it at the live application database.
+
+Keep the age identity out of the application host and shell history. Supply it through a protected secret file and use a separate `RESTORE_DATABASE_URL` so the restore target cannot be confused with the application's `DATABASE_URL`:
 
 ```bash
 sha256sum --check /secure/backups/vow-postgres-YYYYMMDDTHHMMSSZ.dump.age.sha256
-createdb vow_restore_test
-age --decrypt --identity /secure/keys/vow-backup-identity.txt \\
-  /secure/backups/vow-postgres-YYYYMMDDTHHMMSSZ.dump.age \\
-  | pg_restore --dbname=vow_restore_test --no-owner --no-acl -
+RESTORE_DATABASE_URL='postgresql://restore_user@staging-db/vow_restore_test' \
+ARCHIVE_FILE=/secure/backups/vow-postgres-YYYYMMDDTHHMMSSZ.dump.age \
+AGE_IDENTITY_FILE=/secure/keys/vow-backup-identity.txt \
+bash scripts/restore-postgres.sh
 ```
 
-Verify migrations, account access, profiles, matches, messages, photo metadata and billing state. Do not restore production data into an unapproved development environment. Delete test copies after verification.
+The wrapper validates that archive, checksum and identity are regular non-symlink files, verifies SHA-256 before connecting to PostgreSQL, requires an empty target, then streams age decryption directly to `pg_restore`. It does not write a plaintext dump to disk and does not use `--clean`, `DROP DATABASE`, or overwrite existing objects. It uses `--exit-on-error --no-owner --no-acl`; pipeline failures are fatal. Never put the private identity or database password in a command committed to the repository.
+
+Automated regression coverage is included in `npm test` (`scripts/restore-postgres.test.js`): successful stream restore, non-empty target refusal, checksum mismatch, decryption failure and `pg_restore` failure. These tests use isolated temporary files and fake client commands; they do not connect to any real database. A production-grade restore drill must additionally use a real, disposable PostgreSQL instance, verify migrations and application invariants, and record elapsed recovery time.
+
+Verify schema/migrations, account access, profiles, matches, messages, photo metadata and billing state. Do not restore production data into an unapproved development environment. Delete staging copies after verification. The database restore does not restore private media; use the separate private-media restore procedure and reconcile deletion tombstones, consent and moderation state before enabling access.
 
 ## Production checklist
 
