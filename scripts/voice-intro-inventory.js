@@ -86,6 +86,7 @@ export async function inspectVoiceIntroInventory({ pool, storageRoot } = {}) {
 
   const entries = await readdir(root, { withFileTypes: true });
   const diskNames = new Set();
+  const unsafeNames = new Set();
   const report = emptyCounts();
   for (const entry of entries) {
     if (!UUID_FILE.test(entry.name)) {
@@ -97,6 +98,7 @@ export async function inspectVoiceIntroInventory({ pool, storageRoot } = {}) {
     const filePath = path.join(root, entry.name);
     const info = await lstat(filePath);
     if (info.isSymbolicLink() || !info.isFile()) {
+      unsafeNames.add(entry.name);
       report.symlinkOrUnsafePaths += 1;
       continue;
     }
