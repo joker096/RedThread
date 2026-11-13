@@ -71,7 +71,8 @@ test('PostgreSQL restore verifies checksum, requires an empty staging DB and str
     assert.match(args, /--single-transaction/);
     assert.match(args, /--no-owner/);
     assert.match(args, /--no-acl/);
-    assert.equal(args.trim().split(' ').at(-1), '-');
+    assert.ok(args.includes('--no-acl'));
+    assert.equal(args.trim().endsWith('-'), false, 'pg_restore must read the archive from stdin without a filename');
     const files = await readdir(f.root, { recursive: true });
     assert.equal(files.some(name => name.endsWith('.tmp') || name.includes('plaintext')), false);
   } finally {
