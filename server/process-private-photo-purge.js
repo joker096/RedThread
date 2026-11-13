@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { stat, unlink } from 'node:fs/promises';
+import { lstat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import pg from 'pg';
@@ -22,8 +22,10 @@ export async function runPrivatePhotoPurge({
   });
   try {
     const resolvedStorageRoot = path.resolve(storageRoot);
-    const rootInfo = await stat(resolvedStorageRoot);
-    if (!rootInfo.isDirectory()) throw new Error('private photo storage root is not a directory');
+    const rootInfo = await lstat(resolvedStorageRoot);
+    if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) {
+      throw new Error('private photo storage root is not a real directory');
+    }
     return await processPrivatePhotoPurgeBatch(pool, {
       storageRoot: resolvedStorageRoot,
       batchSize,
@@ -36,7 +38,10 @@ export async function runPrivatePhotoPurge({
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   runPrivatePhotoPurge()
-    .then(summary => console.log('Private photo purge batch:', JSON.stringify(summary)))
+    .then(summary => {
+      console.log('Private photo purge batch:', JSON.stringify(summary));
+      if (summary.failures > 0) process.exitCode = 2;
+    })
     .catch(error => {
       console.error('Private photo purge failed:', error?.message || 'unknown error');
       process.exitCode = 1;
