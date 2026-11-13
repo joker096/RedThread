@@ -51,7 +51,17 @@ Exit codes are suitable for cron/monitoring integration: `0` healthy, `1` warnin
 
 The report checks checksum-sidecar presence and format; it deliberately does not re-hash large backup files on every monitoring run. Run `sha256sum --check` during scheduled backup verification and continue to perform isolated restore drills. An unset backup directory is reported as `not_configured`, not as proof that a backup exists.
 
-This repository does not activate a scheduler, webhook, external monitoring account or database exposure. Before launch, run the report from a trusted external scheduler/monitoring runner (or a protected host cron) using secrets, and send non-zero results to the selected alert channel. Do not expose PostgreSQL publicly just to make monitoring work; prefer a private tunnel or an outbound agent.
+For a free outbound-only heartbeat, Healthchecks.io's Hobbyist plan currently includes 20 monitored jobs. Create one check for the Vow operations report and store its base Ping URL as a secret named `OPS_HEALTHCHECKS_PING_URL` on the trusted scheduler. The report sends a success POST only when healthy and a `/fail` signal for warning/critical results; it sends only aggregate queue counts and backup freshness metadata, not user IDs or filesystem paths. The integration accepts HTTPS URLs on `hc-ping.com` only.
+
+Once all three backup locations are actually configured, set `OPS_REQUIRE_BACKUPS=true` so missing PostgreSQL/photo/voice backup paths become critical instead of `not_configured`. Example protected cron schedule (15-minute cadence):
+
+```cron
+*/15 * * * * cd /srv/vow && DATABASE_URL='...' OPS_REQUIRE_BACKUPS=true OPS_POSTGRES_BACKUP_DIR=/secure/backups/postgres OPS_PRIVATE_PHOTO_BACKUP_DIR=/secure/backups/photos OPS_PRIVATE_VOICE_BACKUP_DIR=/secure/backups/voice OPS_HEALTHCHECKS_PING_URL='https://hc-ping.com/...' npm run ops:health
+```
+
+Configure the Healthchecks check for a 15-minute schedule with a suitable grace period. Do not put the ping URL or database credentials in the repository or command history; use a protected environment file or secret manager. The ping is outbound, so no inbound port or public PostgreSQL access is required.
+
+The repository does not activate a scheduler, webhook, external monitoring account or database exposure. Before launch, run the report from a trusted external scheduler/monitoring runner (or a protected host cron) using secrets. Do not expose PostgreSQL publicly just to make monitoring work; prefer a private tunnel or an outbound agent.
 
 ## Production checklist
 
