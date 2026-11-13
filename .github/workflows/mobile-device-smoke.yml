@@ -12,6 +12,8 @@ on:
       - "package.json"
       - "package-lock.json"
       - "scripts/**"
+      # Backup/recovery documentation changes require native regression coverage too.
+      - "docs/OPERATIONS_BACKUPS.md"
       - "server/**"
       - "android/**"
       - "ios/**"
