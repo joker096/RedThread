@@ -210,3 +210,12 @@ Migration `234_voice_intro_migration_journal.sql` creates a durable PostgreSQL j
 The database enforces the ordered state transitions, optimistic version increments, immutable source identity, one active migration per voice-intro record, and append-only event history. A future worker must still use compare-and-swap updates (`WHERE id = ... AND state = ... AND version = ...`) inside transactions, authenticate staged ciphertext before switching the profile reference, and reconcile the journal against the live reference after a crash.
 
 This is schema and integrity enforcement only. There is no persistent-journal repository API, migration worker, filesystem staging implementation, reference-switch transaction, rollback executor, scheduler, or `--apply` command yet. Do not run a live migration or rotate the active voice key. Keep original ciphertext and the legacy key available through the eventual rollback window.
+
+
+### Persistent migration-worker leases
+
+Migration `235_voice_intro_migration_worker_leases.sql` adds database-enforced worker leases to the voice-introduction journal. A worker claim must select eligible rows with `FOR UPDATE SKIP LOCKED` inside a transaction, set a random lease token and expiry, and increment the monotonic `lease_generation`. The generation is a fencing value: every subsequent journal transition must include both the current token and generation in its compare-and-swap predicate.
+
+A worker may renew only its own unexpired lease and may release only the lease whose token/generation it still holds. An expired lease can be reclaimed by another worker, which receives a new token and higher generation; the old worker must then be unable to renew, release, or commit a journal transition. Keep lease durations bounded and renew well before expiry. Treat a zero-row renewal or transition as lease loss and stop all file/database work for that record.
+
+The migration adds coordination metadata and integrity guards only. It does not create a worker repository, schedule a job, read or write audio, switch profile references, or activate migration. The integration test covers concurrent claim exclusion, owner-only renewal/release, expiry reclaim and stale-worker fencing. Persistent repository operations and crash-recovery reconciliation remain separate work and require review before any migration can be enabled.
