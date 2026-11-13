@@ -28,7 +28,7 @@ printf 'RESTORED-PLAINTEXT-DUMP-FIXTURE'
 `);
   await writeFile(psql, `#!/usr/bin/env bash
 set -Eeuo pipefail
-printf '%s\\n' "\${PSQL_EMPTY_STATE:-0}"
+printf '%s|%s\\n' "\${PSQL_DATABASE_NAME:-vow_restore_test}" "\${PSQL_EMPTY_STATE:-0}"
 `);
   await writeFile(pgRestore, `#!/usr/bin/env bash
 set -Eeuo pipefail
