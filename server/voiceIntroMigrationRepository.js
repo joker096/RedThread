@@ -184,6 +184,9 @@ export async function transitionVoiceIntroMigrationState(pool, {
   requireVersion(expectedVersion);
   if (!NEXT_STATES[expectedState].has(nextState)) throw new Error('migration_transition_not_allowed');
   if (TERMINAL_STATES.has(expectedState)) throw new Error('migration_transition_terminal');
+  if (['reference_switched', 'completed', 'rolled_back'].includes(nextState)) {
+    throw new Error('migration_transition_requires_atomic_repository_method');
+  }
   const values = validateTransitionPatch(nextState, patch);
 
   return withPooledTransaction(pool, async client => {
