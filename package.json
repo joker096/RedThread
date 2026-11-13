@@ -39,7 +39,8 @@
     "backup:verify": "node scripts/verify-encrypted-backups.js",
     "test:voice-api": "tsx --test server/voiceIntroApi.integration.test.js server/voiceIntroConsentSchema.integration.test.js",
     "test:voice-api:media": "tsx --test --test-name-pattern='voice intro HTTP API covers encrypted upload' server/voiceIntroApi.integration.test.js",
-    "voice-intros:inventory": "node scripts/voice-intro-inventory.js",\n    "voice-intros:migration-preflight": "node scripts/voice-intro-migration-preflight.js"
+    "voice-intros:inventory": "node scripts/voice-intro-inventory.js",
+    "voice-intros:migration-preflight": "node scripts/voice-intro-migration-preflight.js"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
