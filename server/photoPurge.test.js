@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { mkdtemp, rm, symlink } from 'node:fs/promises';
 import os from 'node:os';
+import { privatePhotoPurgeExitCode } from './process-private-photo-purge.js';
 import {
   normalizePrivatePhotoPurgeBatchSize,
   resolvePrivatePhotoPath,
@@ -125,4 +126,12 @@ test('photo purge runner rejects a symlinked storage root and accepts a real dir
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
+});
+
+
+test('photo purge process exit code reports deletion failures to the scheduler', () => {
+  assert.equal(privatePhotoPurgeExitCode({ failures: 0 }), 0);
+  assert.equal(privatePhotoPurgeExitCode({ failures: 1 }), 2);
+  assert.equal(privatePhotoPurgeExitCode({ failures: 4 }), 2);
+  assert.equal(privatePhotoPurgeExitCode(undefined), 0);
 });
