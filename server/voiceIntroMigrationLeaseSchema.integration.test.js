@@ -29,6 +29,7 @@ test('voice intro migration journal leases are exclusive, renewable and fenced',
         SELECT id
         FROM voice_intro_migration_journal
         WHERE state NOT IN ('completed', 'rolled_back')
+          AND id = $4
           AND (lease_token IS NULL OR lease_expires_at <= statement_timestamp())
         ORDER BY created_at, id
         FOR UPDATE SKIP LOCKED
@@ -46,12 +47,12 @@ test('voice intro migration journal leases are exclusive, renewable and fenced',
     `;
 
     await first.query('BEGIN');
-    const firstClaim = await first.query(claimSql, [firstToken, 'worker-a', '30 seconds']);
+    const firstClaim = await first.query(claimSql, [firstToken, 'worker-a', '30 seconds', journalId]);
     assert.equal(firstClaim.rowCount, 1);
     assert.equal(firstClaim.rows[0].id, journalId);
 
     await second.query('BEGIN');
-    const concurrentClaim = await second.query(claimSql, [secondToken, 'worker-b', '30 seconds']);
+    const concurrentClaim = await second.query(claimSql, [secondToken, 'worker-b', '30 seconds', journalId]);
     assert.equal(concurrentClaim.rowCount, 0, 'SKIP LOCKED must prevent a second worker claiming the row');
     await second.query('COMMIT');
     await first.query('COMMIT');
@@ -93,11 +94,11 @@ test('voice intro migration journal leases are exclusive, renewable and fenced',
     );
     assert.equal(release.rowCount, 1);
 
-    const shortLease = await pool.query(claimSql, [secondToken, 'worker-b', '1 millisecond']);
+    const shortLease = await pool.query(claimSql, [secondToken, 'worker-b', '1 millisecond', journalId]);
     assert.equal(shortLease.rowCount, 1);
     await new Promise(resolve => setTimeout(resolve, 15));
 
-    const reclaimed = await pool.query(claimSql, [firstToken, 'worker-a', '30 seconds']);
+    const reclaimed = await pool.query(claimSql, [firstToken, 'worker-a', '30 seconds', journalId]);
     assert.equal(reclaimed.rowCount, 1, 'expired leases must be reclaimable');
     assert.equal(Number(reclaimed.rows[0].lease_generation), 3, 'each acquisition must advance the fencing generation');
 
