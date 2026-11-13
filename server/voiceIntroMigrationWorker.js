@@ -4,6 +4,7 @@ import {
   getVoiceIntroMigrationLeaseRecord,
   releaseVoiceIntroMigrationLease,
   renewVoiceIntroMigrationLease,
+  rollbackVoiceIntroMigrationReference,
   switchVoiceIntroMigrationReference,
   transitionVoiceIntroMigrationState
 } from './voiceIntroMigrationRepository.js';
@@ -152,6 +153,38 @@ export async function processNextVoiceIntroMigration(pool, {
       }
 
       if (record.state === 'reference_switched') {
+        const authenticated = await authenticateVoiceIntroMigrationSource({
+          storageRoot,
+          sourcePath: record.source_path,
+          sourceSha256: record.source_sha256,
+          sourceFormat: record.source_format,
+          keyring
+        });
+        try {
+          try {
+            await verifyVoiceIntroMigrationStage({
+              storageRoot,
+              stagedPath: record.staged_path,
+              stagedSha256: record.staged_sha256,
+              plaintext: authenticated.plaintext,
+              keyring,
+              targetKeyId: record.target_key_id
+            });
+          } catch {
+            const rolledBack = await rollbackVoiceIntroMigrationReference(pool, {
+              ...leaseIdentity,
+              expectedVersion: Number(record.version),
+              expectedState: 'reference_switched',
+              voiceIntroId: record.voice_intro_id,
+              sourcePath: record.source_path,
+              stagedPath: record.staged_path
+            });
+            outcome = rolledBack ? { status: 'rolled_back' } : { status: 'cas_conflict' };
+            break;
+          }
+        } finally {
+          authenticated.plaintext.fill(0);
+        }
         const moved = await transitionVoiceIntroMigrationState(pool, {
           ...leaseIdentity,
           expectedState: 'reference_switched',
@@ -167,6 +200,38 @@ export async function processNextVoiceIntroMigration(pool, {
       }
 
       if (record.state === 'rollback_window') {
+        const authenticated = await authenticateVoiceIntroMigrationSource({
+          storageRoot,
+          sourcePath: record.source_path,
+          sourceSha256: record.source_sha256,
+          sourceFormat: record.source_format,
+          keyring
+        });
+        try {
+          try {
+            await verifyVoiceIntroMigrationStage({
+              storageRoot,
+              stagedPath: record.staged_path,
+              stagedSha256: record.staged_sha256,
+              plaintext: authenticated.plaintext,
+              keyring,
+              targetKeyId: record.target_key_id
+            });
+          } catch {
+            const rolledBack = await rollbackVoiceIntroMigrationReference(pool, {
+              ...leaseIdentity,
+              expectedVersion: Number(record.version),
+              expectedState: 'rollback_window',
+              voiceIntroId: record.voice_intro_id,
+              sourcePath: record.source_path,
+              stagedPath: record.staged_path
+            });
+            outcome = rolledBack ? { status: 'rolled_back' } : { status: 'cas_conflict' };
+            break;
+          }
+        } finally {
+          authenticated.plaintext.fill(0);
+        }
         if (!record.rollback_window_elapsed) {
           outcome = { status: 'rollback_window' };
           break;
