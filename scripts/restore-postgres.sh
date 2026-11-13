@@ -64,7 +64,7 @@ fi
 
 # Keep decrypted SQL/custom-format bytes in the pipe only; no plaintext dump is written to disk.
 age --decrypt --identity "$AGE_IDENTITY_FILE" "$ARCHIVE_FILE" \
-  | pg_restore --dbname="$RESTORE_DATABASE_URL" --exit-on-error --single-transaction --no-owner --no-acl -
+  | pg_restore --dbname="$RESTORE_DATABASE_URL" --exit-on-error --single-transaction --no-owner --no-acl
 
 printf 'Restored encrypted PostgreSQL backup into the verified empty staging database.\n'
 printf 'Run application integrity checks and reconcile deletion/consent state before exposing the environment.\n'
