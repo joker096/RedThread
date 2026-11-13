@@ -4,6 +4,7 @@ import { parseBuffer } from 'music-metadata';
 import { VOICE_INTRO_CONSENT_VERSION } from './voiceIntroConsent.js';
 
 const MAGIC = Buffer.from('VOWVOICE1');
+const VERSIONED_MAGIC = Buffer.from('VOWVOICE2');
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -16,30 +17,85 @@ export function parseVoiceIntroEncryptionKey(value = process.env.VOICE_INTRO_ENC
   return Buffer.from(value, 'hex');
 }
 
+// JSON map: {"key-id":"<64 hex chars>"}. Keep legacy key material separately
+// until every VOWVOICE1 recording has been migrated and rollback is no longer needed.
+export function parseVoiceIntroEncryptionKeyring({
+  keyringValue = process.env.VOICE_INTRO_KEYRING,
+  activeKeyId = process.env.VOICE_INTRO_ACTIVE_KEY_ID,
+  legacyKeyValue = process.env.VOICE_INTRO_ENCRYPTION_KEY
+} = {}) {
+  const legacyKey = parseVoiceIntroEncryptionKey(legacyKeyValue);
+  if (typeof keyringValue !== 'string' || keyringValue.trim() === '') return legacyKey;
+  let parsed;
+  try { parsed = JSON.parse(keyringValue); } catch { return null; }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const entries = Object.entries(parsed);
+  if (entries.length < 1 || entries.length > 32 ||
+      typeof activeKeyId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(activeKeyId) ||
+      !Object.hasOwn(parsed, activeKeyId)) return null;
+  const keys = new Map();
+  for (const [id, value] of entries) {
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(id) || typeof value !== 'string' || !/^[a-f0-9]{64}$/i.test(value)) return null;
+    keys.set(id, Buffer.from(value, 'hex'));
+  }
+  return { activeKeyId, keys, legacyKey };
+}
+
+function resolveVoiceIntroKey(key, keyId) {
+  const resolved = key?.keys instanceof Map ? key.keys.get(keyId) : null;
+  if (Buffer.isBuffer(resolved) && resolved.length === 32) return resolved;
+  throw new Error('voice_intro_encryption_key_unavailable');
+}
+
 export function encryptVoiceIntro(input, key) {
   if (!Buffer.isBuffer(input) || input.length < 1 || input.length > MAX_BYTES) throw new TypeError('invalid_voice_intro_buffer');
-  if (!Buffer.isBuffer(key) || key.length !== 32) throw new TypeError('invalid_voice_intro_encryption_key');
+  if (Buffer.isBuffer(key)) {
+    if (key.length !== 32) throw new TypeError('invalid_voice_intro_encryption_key');
+    const iv = randomBytes(IV_BYTES);
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    const ciphertext = Buffer.concat([cipher.update(input), cipher.final()]);
+    return Buffer.concat([MAGIC, iv, cipher.getAuthTag(), ciphertext]);
+  }
+  if (!key || !(key.keys instanceof Map) || !key.activeKeyId || !key.keys.has(key.activeKeyId)) throw new TypeError('invalid_voice_intro_encryption_keyring');
+  const id = Buffer.from(key.activeKeyId, 'utf8');
+  if (id.length < 1 || id.length > 64) throw new TypeError('invalid_voice_intro_key_id');
+  const header = Buffer.concat([VERSIONED_MAGIC, Buffer.from([id.length]), id]);
   const iv = randomBytes(IV_BYTES);
-  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const cipher = createCipheriv('aes-256-gcm', key.keys.get(key.activeKeyId), iv);
+  cipher.setAAD(header);
   const ciphertext = Buffer.concat([cipher.update(input), cipher.final()]);
-  return Buffer.concat([MAGIC, iv, cipher.getAuthTag(), ciphertext]);
+  return Buffer.concat([header, iv, cipher.getAuthTag(), ciphertext]);
 }
 
 export function decryptVoiceIntro(encrypted, key) {
-  if (!Buffer.isBuffer(encrypted) || encrypted.length <= MAGIC.length + IV_BYTES + TAG_BYTES || !encrypted.subarray(0, MAGIC.length).equals(MAGIC)) {
-    throw new Error('invalid_voice_intro_ciphertext');
+  if (!Buffer.isBuffer(encrypted)) throw new Error('invalid_voice_intro_ciphertext');
+  if (encrypted.subarray(0, VERSIONED_MAGIC.length).equals(VERSIONED_MAGIC)) {
+    if (encrypted.length <= VERSIONED_MAGIC.length + 1 + IV_BYTES + TAG_BYTES) throw new Error('invalid_voice_intro_ciphertext');
+    const idLength = encrypted[VERSIONED_MAGIC.length];
+    const idStart = VERSIONED_MAGIC.length + 1;
+    const idEnd = idStart + idLength;
+    const ivStart = idEnd;
+    const tagStart = ivStart + IV_BYTES;
+    const bodyStart = tagStart + TAG_BYTES;
+    if (idLength < 1 || idLength > 64 || bodyStart >= encrypted.length) throw new Error('invalid_voice_intro_ciphertext');
+    const id = encrypted.subarray(idStart, idEnd).toString('utf8');
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) throw new Error('invalid_voice_intro_ciphertext');
+    const decipher = createDecipheriv('aes-256-gcm', resolveVoiceIntroKey(key, id), encrypted.subarray(ivStart, tagStart));
+    decipher.setAAD(encrypted.subarray(0, idEnd));
+    decipher.setAuthTag(encrypted.subarray(tagStart, bodyStart));
+    try { return Buffer.concat([decipher.update(encrypted.subarray(bodyStart)), decipher.final()]); }
+    catch { throw new Error('voice_intro_authentication_failed'); }
   }
-  if (!Buffer.isBuffer(key) || key.length !== 32) throw new TypeError('invalid_voice_intro_encryption_key');
+  if (encrypted.length <= MAGIC.length + IV_BYTES + TAG_BYTES || !encrypted.subarray(0, MAGIC.length).equals(MAGIC)) throw new Error('invalid_voice_intro_ciphertext');
+  const legacyKey = Buffer.isBuffer(key) ? key : key?.legacyKey;
+  if (!Buffer.isBuffer(legacyKey) || legacyKey.length !== 32) throw new Error('voice_intro_encryption_key_unavailable');
   const ivStart = MAGIC.length;
   const tagStart = ivStart + IV_BYTES;
   const bodyStart = tagStart + TAG_BYTES;
-  const decipher = createDecipheriv('aes-256-gcm', key, encrypted.subarray(ivStart, tagStart));
+  const decipher = createDecipheriv('aes-256-gcm', legacyKey, encrypted.subarray(ivStart, tagStart));
   decipher.setAuthTag(encrypted.subarray(tagStart, bodyStart));
-  try {
-    return Buffer.concat([decipher.update(encrypted.subarray(bodyStart)), decipher.final()]);
-  } catch {
-    throw new Error('voice_intro_authentication_failed');
-  }
+  try { return Buffer.concat([decipher.update(encrypted.subarray(bodyStart)), decipher.final()]); }
+  catch { throw new Error('voice_intro_authentication_failed'); }
 }
 
 export function resolvePrivateVoiceIntroPath(storagePath, storageRoot) {
