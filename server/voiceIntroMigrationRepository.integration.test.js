@@ -6,7 +6,8 @@ import {
   claimNextVoiceIntroMigration,
   renewVoiceIntroMigrationLease,
   releaseVoiceIntroMigrationLease,
-  transitionVoiceIntroMigrationState
+  transitionVoiceIntroMigrationState,
+  switchVoiceIntroMigrationReference
 } from './voiceIntroMigrationRepository.js';
 
 const { Pool } = pg;
@@ -18,15 +19,28 @@ test('voice intro migration repository atomically claims, renews and CAS-transit
   const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
   const journalId = randomUUID();
   const introId = randomUUID();
+  const userId = randomUUID();
+  const sourcePath = `/private/voice/${randomUUID()}.enc`;
+  const stagedPath = `/private/voice/${randomUUID()}.enc`;
   const tokenA = randomUUID();
   const tokenB = randomUUID();
 
   try {
     await pool.query(
+      "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
+      [userId, `voice-migration-repository-${userId}@example.invalid`]
+    );
+    await pool.query(
+      `INSERT INTO profile_voice_intros
+        (id, user_id, storage_path, mime_type, byte_size, duration_ms)
+       VALUES ($1, $2, $3, 'audio/mp4', 64, 15000)`,
+      [introId, userId, sourcePath]
+    );
+    await pool.query(
       `INSERT INTO voice_intro_migration_journal
         (id, idempotency_key, voice_intro_id, source_path, source_sha256, source_format, target_key_id)
-       VALUES ($1, $2, $3, '/private/voice/repository-source.enc', $4, 'VOWVOICE1', 'voice-next')`,
-      [journalId, `repository-test:${journalId}`, introId, 'd'.repeat(64)]
+       VALUES ($1, $2, $3, $4, $5, 'VOWVOICE1', 'voice-next')`,
+      [journalId, `repository-test:${journalId}`, introId, sourcePath, 'd'.repeat(64)]
     );
 
     const leaseA = await claimNextVoiceIntroMigration(pool, {
@@ -70,12 +84,16 @@ test('voice intro migration repository atomically claims, renews and CAS-transit
     });
     assert.equal(renewed.id, journalId);
 
-    const switched = await transitionVoiceIntroMigrationState(pool, {
-      id: journalId, token: tokenA, generation: 1,
-      expectedState: 'staged_authenticated', expectedVersion: 3,
-      nextState: 'reference_switched'
+    const switched = await switchVoiceIntroMigrationReference(pool, {
+      id: journalId, token: tokenA, generation: 1, expectedVersion: 3,
+      voiceIntroId: introId, sourcePath, stagedPath
     });
     assert.equal(switched.state, 'reference_switched');
+    const liveReference = await pool.query(
+      'SELECT storage_path FROM profile_voice_intros WHERE id = $1',
+      [introId]
+    );
+    assert.equal(liveReference.rows[0].storage_path, stagedPath);
 
     const released = await releaseVoiceIntroMigrationLease(pool, {
       id: journalId, token: tokenA, generation: 1
@@ -91,16 +109,17 @@ test('voice intro migration repository atomically claims, renews and CAS-transit
     const staleWorkerTransition = await transitionVoiceIntroMigrationState(pool, {
       id: journalId, token: tokenA, generation: 1,
       expectedState: 'reference_switched', expectedVersion: 4,
-      nextState: 'rollback_window'
+      nextState: 'rollback_window', patch: { rollbackWindowMs: 60_000 }
     });
     assert.equal(staleWorkerTransition, null, 'a previous lease owner is fenced after reacquisition');
 
     const currentTransition = await transitionVoiceIntroMigrationState(pool, {
       id: journalId, token: tokenB, generation: 2,
       expectedState: 'reference_switched', expectedVersion: 4,
-      nextState: 'rollback_window'
+      nextState: 'rollback_window', patch: { rollbackWindowMs: 60_000 }
     });
     assert.equal(currentTransition.state, 'rollback_window');
+    assert.ok(new Date(currentTransition.rollback_deadline).getTime() > Date.now());
 
     const events = await pool.query(
       'SELECT version, to_state FROM voice_intro_migration_journal_events WHERE journal_id = $1 ORDER BY version',
