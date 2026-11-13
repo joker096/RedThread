@@ -213,7 +213,7 @@ test('voice intro HTTP API covers encrypted upload, moderator review, owner play
   skip: !process.env.DATABASE_URL,
   timeout: 90_000
 }, async () => {
-  const { mkdtemp, readFile, stat, rm } = await import('node:fs/promises');
+  const { mkdtemp, readFile, writeFile, stat, rm } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { spawnSync } = await import('node:child_process');
@@ -236,6 +236,7 @@ test('voice intro HTTP API covers encrypted upload, moderator review, owner play
       ACCOUNT_REUSE_HMAC_KEY: 'c'.repeat(64),
       VOICE_INTRO_ENCRYPTION_KEY: 'd'.repeat(64),
       VOICE_INTRO_STORAGE_DIR: storageDir,
+      PHOTO_STORAGE_DIR: storageDir,
       USER_DATA_EXPORT_RATE_LIMIT: '100',
       PG_STATEMENT_TIMEOUT_MS: '8000'
     },
@@ -361,12 +362,41 @@ test('voice intro HTTP API covers encrypted upload, moderator review, owner play
       assert.equal(ownerPlayback.headers.get('content-type'), 'audio/mp4');
       assert.deepEqual(Buffer.from(await ownerPlayback.arrayBuffer()), audio);
 
+      // Seed a real private photo asset in the same isolated storage directory.
+      // The export route must authorize by photo_assets ownership, not profile visibility.
+      const photoId = randomUUID();
+      const photoPath = join(storageDir, photoId + '.png');
+      const photoBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/WQAAAABJRU5ErkJggg==', 'base64');
+      await writeFile(photoPath, photoBytes, { flag: 'wx', mode: 0o600 });
+      await db.query(
+        `INSERT INTO photo_assets (id, user_id, storage_path, mime_type, byte_size, width, height, review_status)
+         VALUES ($1, $2, $3, 'image/png', $4, 1, 1, 'approved')`,
+        [photoId, owner.id, photoPath, photoBytes.length]
+      );
+      await db.query(
+        "UPDATE profiles SET photo_urls = COALESCE(photo_urls, '{}') || ARRAY[$2]::text[] WHERE user_id = $1",
+        [owner.id, '/api/photos/' + photoId]
+      );
+
       const dataExport = await request('/api/account/export', {
         method: 'POST',
         headers: { Cookie: owner.cookie }
       });
       assert.equal(dataExport.status, 200, 'account data export should include owner media references');
       const exported = await dataExport.json();
+      const exportedPhoto = exported.photos.find(photo => photo.id === photoId);
+      assert.ok(exportedPhoto, 'JSON export should include the owner photo metadata');
+      assert.equal(exportedPhoto.downloadPath, '/api/account/export/media/photo/' + photoId);
+      const photoExport = await request(exportedPhoto.downloadPath, { headers: { Cookie: owner.cookie } });
+      assert.equal(photoExport.status, 200, 'owner should be able to download own private photo');
+      assert.equal(photoExport.headers.get('content-type'), 'image/png');
+      assert.equal(photoExport.headers.get('content-disposition'), 'attachment; filename="' + photoId + '.png"');
+      assert.equal(photoExport.headers.get('cache-control'), 'no-store, private');
+      assert.deepEqual(Buffer.from(await photoExport.arrayBuffer()), photoBytes);
+      const otherAccountPhotoExport = await request(exportedPhoto.downloadPath, { headers: { Cookie: viewer.cookie } });
+      assert.equal(otherAccountPhotoExport.status, 404,
+        'another account must not download a private photo even when it knows the asset id');
+
       const exportedVoice = exported.voiceIntroduction;
       assert.equal(exportedVoice.id, voiceIntroId);
       assert.equal(exportedVoice.downloadPath, '/api/account/export/media/voice-intro/' + voiceIntroId);
