@@ -33,6 +33,26 @@ Automated regression coverage is included in `npm test`: `scripts/restore-postgr
 
 Verify schema/migrations, account access, profiles, matches, messages, photo metadata and billing state. Do not restore production data into an unapproved development environment. Delete staging copies after verification. The database restore does not restore private media; use the separate private-media restore procedure and reconcile deletion tombstones, consent and moderation state before enabling access.
 
+## Backup and deletion-queue health report
+
+Run the read-only operations report from a trusted scheduler or monitoring runner with a read-only PostgreSQL account and access to the encrypted backup directories:
+
+```bash
+DATABASE_URL='postgresql://ops_reader@db-host/vow_app' \
+OPS_POSTGRES_BACKUP_DIR=/secure/backups/postgres \
+OPS_PRIVATE_PHOTO_BACKUP_DIR=/secure/backups/private-photos \
+OPS_PRIVATE_VOICE_BACKUP_DIR=/secure/backups/private-voice-intros \
+npm run ops:health
+```
+
+The report covers the private-photo, private-voice-introduction and identity-L3 media purge queues. It returns pending/due/retrying/failed counts, oldest outstanding work and maximum attempts without exposing user IDs or storage paths. It also checks the latest encrypted PostgreSQL/photo/voice backup in each configured directory, verifies that the checksum sidecar exists and contains a well-formed SHA-256 digest, and measures backup age.
+
+Exit codes are suitable for cron/monitoring integration: `0` healthy, `1` warning, `2` critical or report failure. Defaults warn when a queue has more than 100 pending jobs or its oldest job is at least 60 minutes old; failed L3 purge jobs and work older than 24 hours are critical. Backup age warns at 26 hours and becomes critical at 48 hours. Thresholds are configurable in `scripts/ops-health-report.js`.
+
+The report checks checksum-sidecar presence and format; it deliberately does not re-hash large backup files on every monitoring run. Run `sha256sum --check` during scheduled backup verification and continue to perform isolated restore drills. An unset backup directory is reported as `not_configured`, not as proof that a backup exists.
+
+This repository does not activate a scheduler, webhook, external monitoring account or database exposure. Before launch, run the report from a trusted external scheduler/monitoring runner (or a protected host cron) using secrets, and send non-zero results to the selected alert channel. Do not expose PostgreSQL publicly just to make monitoring work; prefer a private tunnel or an outbound agent.
+
 ## Production checklist
 
 - Schedule the script using the deployment scheduler or cron; scheduling is not enabled automatically by this repository.
