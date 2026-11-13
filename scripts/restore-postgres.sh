@@ -5,6 +5,11 @@ umask 077
 : "${ARCHIVE_FILE:?Set ARCHIVE_FILE to the encrypted PostgreSQL .dump.age backup}"
 : "${AGE_IDENTITY_FILE:?Set AGE_IDENTITY_FILE to the age private identity file}"
 : "${RESTORE_DATABASE_URL:?Set RESTORE_DATABASE_URL to a dedicated, empty staging database}"
+: "${RESTORE_CONFIRM_STAGING:?Set RESTORE_CONFIRM_STAGING to I_UNDERSTAND_THIS_IS_A_DISPOSABLE_STAGING_DATABASE}"
+if [[ "$RESTORE_CONFIRM_STAGING" != "I_UNDERSTAND_THIS_IS_A_DISPOSABLE_STAGING_DATABASE" ]]; then
+  echo "explicit staging-database confirmation is required" >&2
+  exit 1
+fi
 
 command -v sha256sum >/dev/null 2>&1 || { echo "sha256sum is required" >&2; exit 1; }
 command -v age >/dev/null 2>&1 || { echo "age is required" >&2; exit 1; }
@@ -34,7 +39,7 @@ fi
 export PGDATABASE="$RESTORE_DATABASE_URL"
 unset RESTORE_DATABASE_URL
 empty_state_sql="
-SELECT
+SELECT CASE WHEN current_database() IN ('postgres', 'template0', 'template1') THEN -1 ELSE
   (SELECT count(*) FROM pg_namespace
     WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'public')
       AND nspname NOT LIKE 'pg_toast%')
@@ -51,7 +56,7 @@ SELECT
     JOIN pg_namespace n ON n.oid = t.typnamespace
     WHERE n.nspname = 'public'
       AND t.typtype <> 'p'
-      AND t.typcategory <> 'A');
+      AND t.typcategory <> 'A') END;
 "
 empty_state="$(psql -X -A -t -v ON_ERROR_STOP=1 -c "$empty_state_sql" | tr -d '[:space:]')"
 if ! [[ "$empty_state" =~ ^[0-9]+$ ]] || [[ "$empty_state" != "0" ]]; then
