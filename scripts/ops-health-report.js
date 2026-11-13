@@ -100,17 +100,17 @@ export async function inspectBackupDirectory(directory, {
   now = new Date(),
   thresholds = OPS_HEALTH_DEFAULTS
 } = {}) {
-  if (!directory) return { status: 'not_configured', directory: null, latest: null, ageHours: null, reason: null };
+  if (!directory) return { status: 'not_configured', configured: false, latest: null, ageHours: null, reason: null };
 
   const resolvedDirectory = path.resolve(directory);
   let rootInfo;
   try {
     rootInfo = await lstat(resolvedDirectory);
   } catch (error) {
-    return { status: 'critical', directory: resolvedDirectory, latest: null, ageHours: null, reason: error?.code === 'ENOENT' ? 'backup_directory_missing' : 'backup_directory_unreadable' };
+    return { status: 'critical', configured: true, latest: null, ageHours: null, reason: error?.code === 'ENOENT' ? 'backup_directory_missing' : 'backup_directory_unreadable' };
   }
   if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) {
-    return { status: 'critical', directory: resolvedDirectory, latest: null, ageHours: null, reason: 'backup_directory_not_a_real_directory' };
+    return { status: 'critical', configured: true, latest: null, ageHours: null, reason: 'backup_directory_not_a_real_directory' };
   }
 
   const names = await readdir(resolvedDirectory);
@@ -120,13 +120,13 @@ export async function inspectBackupDirectory(directory, {
     const filePath = path.join(resolvedDirectory, name);
     const info = await lstat(filePath);
     if (info.isSymbolicLink() || !info.isFile()) {
-      return { status: 'critical', directory: resolvedDirectory, latest: name, ageHours: null, reason: 'backup_archive_not_a_regular_file' };
+      return { status: 'critical', configured: true, latest: name, ageHours: null, reason: 'backup_archive_not_a_regular_file' };
     }
     archives.push({ name, filePath, mtimeMs: info.mtimeMs });
   }
 
   if (archives.length === 0) {
-    return { status: 'critical', directory: resolvedDirectory, latest: null, ageHours: null, reason: 'no_encrypted_backup_found' };
+    return { status: 'critical', configured: true, latest: null, ageHours: null, reason: 'no_encrypted_backup_found' };
   }
   archives.sort((a, b) => b.mtimeMs - a.mtimeMs);
   const latest = archives[0];
@@ -135,15 +135,15 @@ export async function inspectBackupDirectory(directory, {
   try {
     checksumInfo = await lstat(checksumPath);
   } catch {
-    return { status: 'critical', directory: resolvedDirectory, latest: latest.name, ageHours: null, reason: 'latest_backup_checksum_missing' };
+    return { status: 'critical', configured: true, latest: latest.name, ageHours: null, reason: 'latest_backup_checksum_missing' };
   }
   if (checksumInfo.isSymbolicLink() || !checksumInfo.isFile()) {
-    return { status: 'critical', directory: resolvedDirectory, latest: latest.name, ageHours: null, reason: 'latest_backup_checksum_not_a_regular_file' };
+    return { status: 'critical', configured: true, latest: latest.name, ageHours: null, reason: 'latest_backup_checksum_not_a_regular_file' };
   }
   const checksumText = await readFile(checksumPath, 'utf8');
   const digest = checksumText.trim().split(/\s+/)[0];
   if (!/^[a-f0-9]{64}$/i.test(digest || '')) {
-    return { status: 'critical', directory: resolvedDirectory, latest: latest.name, ageHours: null, reason: 'latest_backup_checksum_malformed' };
+    return { status: 'critical', configured: true, latest: latest.name, ageHours: null, reason: 'latest_backup_checksum_malformed' };
   }
 
   const ageHours = Math.max(0, (now.getTime() - latest.mtimeMs) / 3_600_000);
@@ -159,7 +159,7 @@ export async function inspectBackupDirectory(directory, {
 
   return {
     status,
-    directory: resolvedDirectory,
+    configured: true,
     latest: latest.name,
     ageHours: Math.round(ageHours * 10) / 10,
     checksum: 'present_and_well_formed',
