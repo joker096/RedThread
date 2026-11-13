@@ -23,18 +23,18 @@ async function fixture() {
   const pgRestore = path.join(bin, 'pg_restore');
   await writeFile(age, `#!/usr/bin/env bash
 set -Eeuo pipefail
-if [[ "${FAIL_AGE:-0}" == "1" ]]; then exit 23; fi
-cat -- "${!#}"
+if [[ "\${FAIL_AGE:-0}" == "1" ]]; then exit 23; fi
+cat -- "\${!#}"
 `);
   await writeFile(psql, `#!/usr/bin/env bash
 set -Eeuo pipefail
-printf '%s\\n' "${PSQL_EMPTY_STATE:-0}"
+printf '%s\\n' "\${PSQL_EMPTY_STATE:-0}"
 `);
   await writeFile(pgRestore, `#!/usr/bin/env bash
 set -Eeuo pipefail
-if [[ "${FAIL_PG_RESTORE:-0}" == "1" ]]; then cat >/dev/null; exit 24; fi
-cat > "${RESTORE_CAPTURE}"
-printf '%s\\n' "$*" > "${RESTORE_ARGS_CAPTURE}"
+if [[ "\${FAIL_PG_RESTORE:-0}" == "1" ]]; then cat >/dev/null; exit 24; fi
+cat > "\${RESTORE_CAPTURE}"
+printf '%s\\n' "$*" > "\${RESTORE_ARGS_CAPTURE}"
 `);
   for (const file of [age, psql, pgRestore]) await chmod(file, 0o700);
   const { createHash } = await import('node:crypto');
