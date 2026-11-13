@@ -80,9 +80,6 @@ BEGIN
       RAISE EXCEPTION 'voice intro migration journal must start planned at version 1'
         USING ERRCODE = '23514';
     END IF;
-    INSERT INTO voice_intro_migration_journal_events
-      (journal_id, version, from_state, to_state, occurred_at)
-    VALUES (NEW.id, 1, NULL, 'planned', NEW.created_at);
     RETURN NEW;
   END IF;
 
@@ -143,6 +140,26 @@ DROP TRIGGER IF EXISTS voice_intro_migration_journal_transition_guard
 CREATE TRIGGER voice_intro_migration_journal_transition_guard
   BEFORE INSERT OR UPDATE ON voice_intro_migration_journal
   FOR EACH ROW EXECUTE FUNCTION enforce_voice_intro_migration_journal_transition();
+
+-- AFTER INSERT is required: the parent journal row must exist before its
+-- append-only event row can satisfy the foreign key.
+CREATE OR REPLACE FUNCTION record_voice_intro_migration_journal_creation()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $migration_creation$
+BEGIN
+  INSERT INTO voice_intro_migration_journal_events
+    (journal_id, version, from_state, to_state, occurred_at)
+  VALUES (NEW.id, 1, NULL, 'planned', NEW.created_at);
+  RETURN NEW;
+END;
+$migration_creation$;
+
+DROP TRIGGER IF EXISTS voice_intro_migration_journal_creation_event
+  ON voice_intro_migration_journal;
+CREATE TRIGGER voice_intro_migration_journal_creation_event
+  AFTER INSERT ON voice_intro_migration_journal
+  FOR EACH ROW EXECUTE FUNCTION record_voice_intro_migration_journal_creation();
 
 CREATE OR REPLACE FUNCTION protect_voice_intro_migration_journal_events()
 RETURNS trigger
