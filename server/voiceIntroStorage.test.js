@@ -1,12 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import {
   decryptVoiceIntro,
   encryptVoiceIntro,
   parseVoiceIntroEncryptionKey,
   parseVoiceIntroEncryptionKeyring,
   resolvePrivateVoiceIntroPath,
+  ensurePrivateVoiceIntroStorageRoot,
   validateVoiceIntro,
   persistVoiceIntroReview,
   VOICE_INTRO_LIMITS
@@ -124,4 +128,24 @@ test('voice keyring parser validates key IDs, active key and key material', () =
   assert.equal(parseVoiceIntroEncryptionKeyring({ keyringValue: '{bad', activeKeyId: 'new_key', legacyKeyValue: a }), null);
   assert.equal(parseVoiceIntroEncryptionKeyring({ keyringValue: JSON.stringify({ new_key: 'bad' }), activeKeyId: 'new_key', legacyKeyValue: a }), null);
   assert.equal(parseVoiceIntroEncryptionKeyring({ keyringValue: JSON.stringify({ old_key: a }), activeKeyId: 'missing', legacyKeyValue: a }), null);
+});
+
+
+test('private voice intro storage root rejects symlinked ancestors and creates nested roots safely', async () => {
+  const parent = await mkdtemp(path.join(os.tmpdir(), 'vow-voice-storage-root-'));
+  const real = path.join(parent, 'real');
+  const linked = path.join(parent, 'linked');
+  try {
+    await mkdir(real);
+    await symlink(real, linked, 'dir');
+    await assert.rejects(
+      ensurePrivateVoiceIntroStorageRoot(path.join(linked, 'nested'), { create: true }),
+      /not_private_directory/
+    );
+    const nested = path.join(real, 'private', 'voice');
+    assert.equal(await ensurePrivateVoiceIntroStorageRoot(nested, { create: true }), nested);
+    assert.equal(await ensurePrivateVoiceIntroStorageRoot(nested), nested);
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
 });
