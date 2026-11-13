@@ -168,3 +168,23 @@ Backups are immutable historical copies and may contain media that has since bee
 
 A backup is not considered verified merely because the command exited successfully. A restore drill must use a fresh isolated PostgreSQL database and fresh media directories, verify checksums before decryption, restore both database and media, run schema/migration and application-level integrity checks, and confirm that private media remains inaccessible without authorization and the correct encryption key. Record the recovery point, elapsed restore time, missing/orphaned media counts, and test outcome. Production scheduling, off-site replication, alert delivery, key escrow, and a deletion ledger are deployment responsibilities and are not activated by these scripts.
 
+
+
+### Read-only V1 → V2 migration preflight
+
+After the inventory is clean and every purge-queued recording has been reconciled, run the additional authentication preflight from a trusted maintenance host:
+
+```bash
+DATABASE_URL='postgresql://voice_ops_reader@db-host/vow_app' \
+VOICE_INTRO_STORAGE_DIR=/srv/vow/private-voice \
+VOICE_INTRO_KEYRING='{"voice-2026-02":"<64-hex-key>"}' \
+VOICE_INTRO_ACTIVE_KEY_ID='voice-2026-02' \
+VOICE_INTRO_ENCRYPTION_KEY='<legacy-64-hex-key>' \
+npm run voice-intros:migration-preflight
+```
+
+Use a database role with only `SELECT` privileges on `profile_voice_intros` and `private_voice_intro_purge_queue`. The command uses a repeatable-read, read-only transaction; opens each retained encrypted file without following symlinks; authenticates V1 with the legacy key or V2 with its key ID; then encrypts and decrypts a candidate V2 envelope in memory to verify the configured active key. Plaintext and temporary candidate buffers are cleared after each record. The report contains aggregate counts only and never emits user IDs, file paths, key IDs or audio bytes.
+
+This is a **preflight only**: it does not create staged files, update references, write a journal, pause workers, or modify database rows. It fails closed on missing/unsafe files, authentication failures, duplicate references, or any reference that is also queued for purge. A successful result is not authorization to migrate and is not a substitute for a coordinated maintenance window and tested backups.
+
+The actual migration remains a separate, explicitly approved operation. Before it is designed or run, uploads, replacements, moderation transitions and purge workers must be paused; take and verify coordinated database/media backups; preserve V1 ciphertext and the legacy key for rollback; and establish a recoverable journal and crash-resume procedure. Never remove V1 ciphertext or the legacy key automatically. Do not run a migration against live or production storage without explicit approval.
