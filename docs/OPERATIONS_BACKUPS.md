@@ -135,7 +135,17 @@ openssl rand -hex 32
 
 Store the exact 64-character hexadecimal value in the deployment secret manager and maintain a separately controlled offline recovery copy. Restrict access to the service identity and designated recovery custodians; record key ownership, creation date and recovery procedure without recording the key itself. Before relying on the escrow copy, retrieve it in an isolated recovery environment and authenticate-decrypt a controlled, non-user test recording. Do not print decrypted audio or key material in logs.
 
-**Rotation is not currently a supported routine operation.** The current encrypted voice file format does not carry a key identifier and the application expects one active `VOICE_INTRO_ENCRYPTION_KEY`. Replacing it while encrypted voice files remain will make those files unreadable. Keep the existing key stable and escrowed. Before rotation can be enabled, implement and test a versioned key envelope plus a migration that re-encrypts every retained recording, verifies authenticated decryption with the new key, preserves rollback capability, and commits metadata/file changes safely. Do not rotate by simply changing the environment variable. If the key is suspected compromised, suspend voice upload/playback and follow an approved incident-specific migration; do not silently discard old key material.
+**Versioned key envelope is now supported for new writes, but bulk rotation is not yet enabled.** New deployments may configure `VOICE_INTRO_KEYRING` as a JSON object mapping stable key IDs to 64-character hexadecimal AES-256 keys, and `VOICE_INTRO_ACTIVE_KEY_ID` to the key ID used for new recordings. Keep `VOICE_INTRO_ENCRYPTION_KEY` configured with the original legacy key for every existing `VOWVOICE1` recording until the inventory has been migrated and independently verified. New writes use the authenticated `VOWVOICE2` envelope, which binds the key ID into AES-256-GCM additional authenticated data; reads select the matching key by ID. Unknown IDs fail closed. The legacy key and each keyring key are separate secret values and must remain in the secret manager, never in Git or backup archives.
+
+Example shape (use placeholders only; never commit real keys):
+
+```bash
+VOICE_INTRO_KEYRING='{"voice-2026-01":"<64-hex-key>","voice-2026-02":"<64-hex-key>"}'
+VOICE_INTRO_ACTIVE_KEY_ID='voice-2026-02'
+VOICE_INTRO_ENCRYPTION_KEY='<legacy-64-hex-key>'
+```
+
+This format support alone does **not** migrate existing recordings or authorize removal of the legacy key. Bulk rotation remains disabled until a separately reviewed migration inventories every retained database reference, decrypts each source, writes and authenticates a staged versioned ciphertext, verifies all staged files, then safely switches file/metadata references with a recoverable journal and rollback window. Keep the old key available until the migration is complete and the rollback window is formally closed. Do not rotate by simply changing an environment variable. If the key is suspected compromised, suspend voice upload/playback and follow an approved incident-specific migration; do not silently discard old key material.
 
 
 ### Deletion and retention safety
