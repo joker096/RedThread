@@ -14,7 +14,7 @@ The script streams pg_dump directly into age, so plaintext database contents are
 
 ## Restore drill
 
-A restore must target a newly provisioned, isolated staging database. The wrapper never creates, drops, truncates or cleans a database: it checks that the target has no user schemas or objects and refuses to continue otherwise. Use a dedicated staging role with only the privileges needed for that database. Do not point it at the live application database.
+A restore must target a newly provisioned, isolated staging database. The wrapper never creates, drops, truncates or cleans a database: it checks that the target has no user schemas or objects and refuses to continue otherwise. It also verifies the connected database name uses the dedicated `vow_restore_test` or `vow_restore_dst_` naming convention, so a normal application/production database name is rejected before restore. Use a dedicated staging role with only the privileges needed for that database. Do not point it at the live application database.
 
 Keep the age identity out of the application host and shell history. Supply it through a protected secret file and use a separate `RESTORE_DATABASE_URL` so the restore target cannot be confused with the application's `DATABASE_URL`:
 
