@@ -18,6 +18,10 @@ test('voice intro migration repository atomically claims, renews and CAS-transit
   timeout: 20_000
 }, async () => {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
+  // These integration fixtures share a database and claim the global migration queue.
+  // Serialize them so one test cannot lease another test's synthetic journal row.
+  const lockClient = await pool.connect();
+  await lockClient.query("SELECT pg_advisory_lock(hashtext('vow-voice-intro-migration-integration'))");
   const journalId = randomUUID();
   const introId = randomUUID();
   const userId = randomUUID();
@@ -150,6 +154,8 @@ test('voice intro migration repository atomically claims, renews and CAS-transit
     ]);
     assert.deepEqual(events.rows.map(row => Number(row.version)), [1, 2, 3, 4, 5, 6]);
   } finally {
+    await lockClient.query("SELECT pg_advisory_unlock(hashtext('vow-voice-intro-migration-integration'))");
+    lockClient.release();
     await pool.end();
   }
 });
