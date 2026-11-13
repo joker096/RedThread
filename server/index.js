@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { chmod, lstat, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { queuePrivatePhotoPurges } from './photoPurge.js';
-import { decryptVoiceIntro, encryptVoiceIntro, parseVoiceIntroEncryptionKeyring, persistVoiceIntroReview, queuePrivateVoiceIntroPurges, resolvePrivateVoiceIntroPath, validateVoiceIntro } from './voiceIntroStorage.js';
+import { decryptVoiceIntro, encryptVoiceIntro, parseVoiceIntroEncryptionKeyring, persistVoiceIntroReview, queuePrivateVoiceIntroPurges, resolvePrivateVoiceIntroPath, validateVoiceIntro, ensurePrivateVoiceIntroStorageRoot } from './voiceIntroStorage.js';
 import { VOICE_INTRO_CONSENT_VERSION, isCurrentVoiceIntroConsentVersion } from './voiceIntroConsent.js';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
@@ -677,12 +677,7 @@ const photoStorageDir = path.resolve(process.env.PHOTO_STORAGE_DIR || 'uploads/p
 const voiceIntroStorageDir = path.resolve(process.env.VOICE_INTRO_STORAGE_DIR || 'uploads/private-voice-intros');
 
 async function ensurePrivateVoiceIntroStorageDirectory() {
-  await mkdir(voiceIntroStorageDir, { recursive: true, mode: 0o700 });
-  const storageDirectory = await lstat(voiceIntroStorageDir);
-  if (!storageDirectory.isDirectory() || storageDirectory.isSymbolicLink()) {
-    throw new Error('voice_intro_storage_directory_invalid');
-  }
-  await chmod(voiceIntroStorageDir, 0o700);
+  await ensurePrivateVoiceIntroStorageRoot(voiceIntroStorageDir, { create: true, mode: 0o700 });
 }
 
 const authLimiter = rateLimit({
