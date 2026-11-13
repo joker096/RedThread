@@ -65,6 +65,18 @@ age --decrypt --identity /secure/keys/vow-backup-identity.txt \\
   | tar --extract --file=- --directory=/srv/vow/restore/private-media --no-same-owner --no-same-permissions
 ```
 
+Prefer the automated restore wrapper so checksum verification and staging-directory safeguards are applied consistently:
+
+```bash
+mkdir -p /srv/vow/restore
+ARCHIVE_FILE=/secure/backups/private-media/vow-private-media-YYYYMMDDTHHMMSSZ.tar.age \\
+AGE_IDENTITY_FILE=/secure/keys/vow-backup-identity.txt \\
+RESTORE_DESTINATION=/srv/vow/restore/private-media \\
+bash scripts/restore-private-media.sh
+```
+
+The destination must be a new path beneath an existing, real (non-symlink) parent directory. The script verifies the SHA-256 digest before decryption, requires regular non-symlink archive/checksum/identity files, refuses existing destinations (including symlinks), creates the staging directory with mode 0700, and streams age output directly into tar without writing a plaintext archive. If decryption or extraction fails, it removes the staging directory it created. It never restores over an existing directory. Run it only on an isolated host with a trusted archive and key; after restoration, reconcile deletion tombstones, consent, moderation and application references before mounting any data.
+
 Validate the restored file count, sizes, expected UUID-based filenames, and application metadata references before mounting the restored directory. Restore voice introductions only when the matching dedicated `VOICE_INTRO_ENCRYPTION_KEY` is available; the key is not included in the media archive. Verify authenticated decryption of a controlled test recording with the matching key. Losing or rotating that key without a tested re-encryption/recovery procedure makes existing recordings unreadable.
 
 ### Deletion and retention safety
