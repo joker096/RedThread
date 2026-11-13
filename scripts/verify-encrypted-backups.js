@@ -66,7 +66,8 @@ export async function verifyConfiguredEncryptedBackups(env = process.env) {
   const configured = results.filter(result => result.status !== 'not_configured');
   return {
     status: results.some(result => result.status === 'failed') ? 'failed'
-      : configured.length === 0 ? 'not_configured' : 'verified',
+      : configured.length === 0 ? 'not_configured'
+        : configured.length !== results.length ? 'partially_configured' : 'verified',
     results
   };
 }
@@ -76,6 +77,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     .then(report => {
       console.log(JSON.stringify(report, null, 2));
       if (report.status === 'failed') process.exitCode = 1;
+      else if (report.status === 'partially_configured' || report.status === 'not_configured') process.exitCode = 2;
     })
     .catch(error => {
       console.error('Encrypted backup verification failed:', error?.message || 'unknown error');
