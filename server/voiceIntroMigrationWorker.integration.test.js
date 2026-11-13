@@ -118,9 +118,6 @@ test('voice migration worker stages, switches atomically and defers source purge
     sourceCiphertext.fill(0);
     legacyKey.fill(0);
     targetKey.fill(0);
-    await lockClient.query("SELECT pg_advisory_unlock(hashtext('vow-voice-intro-migration-integration'))");
-    lockClient.release();
-    await pool.end();
     await rm(root, { recursive: true, force: true });
     await lockClient.query("SELECT pg_advisory_unlock(hashtext('vow-voice-intro-migration-integration'))");
     lockClient.release();
@@ -224,7 +221,9 @@ test('voice migration worker restores the source reference and queues corrupt st
     sourceCiphertext.fill(0);
     legacyKey.fill(0);
     targetKey.fill(0);
-    await pool.end();
     await rm(root, { recursive: true, force: true });
+    await lockClient.query("SELECT pg_advisory_unlock(hashtext('vow-voice-intro-migration-integration'))");
+    lockClient.release();
+    await pool.end();
   }
 });
