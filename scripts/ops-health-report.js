@@ -244,7 +244,7 @@ export async function sendHealthchecksSignal(report, {
   if (typeof fetchImpl !== 'function') throw new Error('fetch is unavailable for Healthchecks.io signaling');
 
   const signal = report?.status === 'healthy' ? 'success' : 'fail';
-  const endpoint = parsed.origin + parsed.pathname.replace(/\\/+$/, '') + (signal === 'fail' ? '/fail' : '');
+  const endpoint = parsed.origin + parsed.pathname.replace(/\/+$/, '') + (signal === 'fail' ? '/fail' : '');
   const safePayload = {
     status: report?.status || 'critical',
     generatedAt: report?.generatedAt || null,
