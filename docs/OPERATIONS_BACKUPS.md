@@ -188,3 +188,16 @@ Use a database role with only `SELECT` privileges on `profile_voice_intros` and 
 This is a **preflight only**: it does not create staged files, update references, write a journal, pause workers, or modify database rows. It fails closed on missing/unsafe files, authentication failures, duplicate references, or any reference that is also queued for purge. A successful result is not authorization to migrate and is not a substitute for a coordinated maintenance window and tested backups.
 
 The actual migration remains a separate, explicitly approved operation. Before it is designed or run, uploads, replacements, moderation transitions and purge workers must be paused; take and verify coordinated database/media backups; preserve V1 ciphertext and the legacy key for rollback; and establish a recoverable journal and crash-resume procedure. Never remove V1 ciphertext or the legacy key automatically. Do not run a migration against live or production storage without explicit approval.
+
+
+#### Migration journal state model (implementation groundwork)
+
+The repository now defines and tests the allowed per-record journal transitions in `scripts/voice-intro-migration-journal.js`. The state machine is deliberately monotonic:
+
+`planned → source_authenticated → staged_authenticated → reference_switched → rollback_window → completed`
+
+A switched record may instead move to `rolled_back` after its original reference has been restored and verified. Skipping stages, reversing a transition, or advancing a terminal record is rejected. The journal snapshot binds the record UUID, original source path and SHA-256, source envelope format, target key ID, staged path and SHA-256, and switch/completion timestamps. Transition helpers return immutable snapshots and never perform I/O.
+
+This module is only the deterministic state model and regression coverage; it is **not** a persistent journal store or a migration runner. No journal table/file is created and no media/database state is changed by these helpers. A future migration runner must persist each transition durably and idempotently, re-check source and staged ciphertext hashes after every restart, authenticate staged V2 ciphertext before changing references, perform the reference switch in a database transaction with compare-and-swap against the expected original path, and retain V1 ciphertext plus the legacy key throughout the rollback window. If the process stops after the reference switch, recovery must inspect the durable journal and current DB reference before deciding to resume or roll back; it must never blindly overwrite a reference changed by a concurrent operation.
+
+The actual persistent journal schema, locking/maintenance-window enforcement, staged-file atomic-write protocol, crash-recovery runner and `--apply` mode remain unimplemented. Do not infer migration readiness from passing state-machine tests. Real migration remains disabled and requires separate review and explicit authorization.
