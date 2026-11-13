@@ -44,8 +44,16 @@ jobs:
         with:
           node-version: 22
       - run: npm install --no-audit --no-fund
-      - name: Install media and encrypted PostgreSQL restore drill tools
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg age postgresql-client
+      - name: Install media and PostgreSQL 16 restore drill tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg age ca-certificates curl
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          . /etc/os-release
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-16
       - name: Validate Google Play listing assets
         run: npm run store-assets:validate
       - run: npm run db:migrate
