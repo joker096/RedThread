@@ -7,6 +7,10 @@ import { processPrivatePhotoPurgeBatch } from './photoPurge.js';
 
 const { Pool } = pg;
 
+export function privatePhotoPurgeExitCode(summary) {
+  return Number(summary?.failures || 0) > 0 ? 2 : 0;
+}
+
 export async function runPrivatePhotoPurge({
   databaseUrl = process.env.DATABASE_URL,
   storageRoot = process.env.PHOTO_STORAGE_DIR || 'uploads/private-photos',
@@ -40,7 +44,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   runPrivatePhotoPurge()
     .then(summary => {
       console.log('Private photo purge batch:', JSON.stringify(summary));
-      if (summary.failures > 0) process.exitCode = 2;
+      process.exitCode = privatePhotoPurgeExitCode(summary);
     })
     .catch(error => {
       console.error('Private photo purge failed:', error?.message || 'unknown error');
