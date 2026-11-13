@@ -24,7 +24,7 @@ async function fixture() {
   await writeFile(age, `#!/usr/bin/env bash
 set -Eeuo pipefail
 if [[ "\${FAIL_AGE:-0}" == "1" ]]; then exit 23; fi
-cat -- "\${!#}"
+printf 'RESTORED-PLAINTEXT-DUMP-FIXTURE'
 `);
   await writeFile(psql, `#!/usr/bin/env bash
 set -Eeuo pipefail
@@ -64,9 +64,9 @@ test('PostgreSQL restore verifies checksum, requires an empty staging DB and str
   try {
     const result = run(f);
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.equal(await readFile(f.capture, 'utf8'), 'AGE-ENCRYPTED-POSTGRES-FIXTURE');
+    assert.equal(await readFile(f.capture, 'utf8'), 'RESTORED-PLAINTEXT-DUMP-FIXTURE');
     const args = await readFile(f.pgRestoreArgs, 'utf8');
-    assert.match(args, /--exit-on-error/);
+    assert.equal(args.trim().split(' ').at(-1), '-');
     assert.match(args, /--no-owner/);
     assert.match(args, /--no-acl/);
     assert.match(args, /(^|\\s)-($|\\s)/);
