@@ -34,6 +34,20 @@ BEGIN
 END;
 $lease_constraints$;
 
+DO $rollback_window_constraint$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'voice_intro_migration_rollback_deadline_check'
+      AND conrelid = 'voice_intro_migration_journal'::regclass
+  ) THEN
+    ALTER TABLE voice_intro_migration_journal
+      ADD CONSTRAINT voice_intro_migration_rollback_deadline_check
+      CHECK (state <> 'rollback_window' OR rollback_deadline IS NOT NULL);
+  END IF;
+END;
+$rollback_window_constraint$;
+
 CREATE INDEX IF NOT EXISTS voice_intro_migration_lease_recovery_idx
   ON voice_intro_migration_journal (lease_expires_at, created_at, id)
   WHERE state NOT IN ('completed', 'rolled_back');
