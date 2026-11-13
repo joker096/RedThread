@@ -201,3 +201,12 @@ A switched record may instead move to `rolled_back` after its original reference
 This module is only the deterministic state model and regression coverage; it is **not** a persistent journal store or a migration runner. No journal table/file is created and no media/database state is changed by these helpers. A future migration runner must persist each transition durably and idempotently, re-check source and staged ciphertext hashes after every restart, authenticate staged V2 ciphertext before changing references, perform the reference switch in a database transaction with compare-and-swap against the expected original path, and retain V1 ciphertext plus the legacy key throughout the rollback window. If the process stops after the reference switch, recovery must inspect the durable journal and current DB reference before deciding to resume or roll back; it must never blindly overwrite a reference changed by a concurrent operation.
 
 The actual persistent journal schema, locking/maintenance-window enforcement, staged-file atomic-write protocol, crash-recovery runner and `--apply` mode remain unimplemented. Do not infer migration readiness from passing state-machine tests. Real migration remains disabled and requires separate review and explicit authorization.
+
+
+## Voice-introduction migration journal storage
+
+Migration `234_voice_intro_migration_journal.sql` creates a durable PostgreSQL journal and append-only transition history for a future V1-to-V2 ciphertext migration. It stores only opaque record identity, private storage paths, SHA-256 fingerprints, format/key identifiers, state, timestamps, retry count and safe error codes; it never stores audio bytes or encryption keys.
+
+The database enforces the ordered state transitions, optimistic version increments, immutable source identity, one active migration per voice-intro record, and append-only event history. A future worker must still use compare-and-swap updates (`WHERE id = ... AND state = ... AND version = ...`) inside transactions, authenticate staged ciphertext before switching the profile reference, and reconcile the journal against the live reference after a crash.
+
+This is schema and integrity enforcement only. There is no persistent-journal repository API, migration worker, filesystem staging implementation, reference-switch transaction, rollback executor, scheduler, or `--apply` command yet. Do not run a live migration or rotate the active voice key. Keep original ciphertext and the legacy key available through the eventual rollback window.
