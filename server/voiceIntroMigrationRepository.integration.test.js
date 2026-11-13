@@ -7,7 +7,8 @@ import {
   renewVoiceIntroMigrationLease,
   releaseVoiceIntroMigrationLease,
   transitionVoiceIntroMigrationState,
-  switchVoiceIntroMigrationReference
+  switchVoiceIntroMigrationReference,
+  completeVoiceIntroMigrationAfterRollbackWindow
 } from './voiceIntroMigrationRepository.js';
 
 const { Pool } = pg;
@@ -121,15 +122,33 @@ test('voice intro migration repository atomically claims, renews and CAS-transit
     assert.equal(currentTransition.state, 'rollback_window');
     assert.ok(new Date(currentTransition.rollback_deadline).getTime() > Date.now());
 
+    await pool.query(
+      `UPDATE voice_intro_migration_journal
+       SET rollback_deadline = statement_timestamp() - INTERVAL '1 second'
+       WHERE id = $1`,
+      [journalId]
+    );
+    const completed = await completeVoiceIntroMigrationAfterRollbackWindow(pool, {
+      id: journalId, token: tokenB, generation: 2, expectedVersion: 5
+    });
+    assert.equal(completed.state, 'completed');
+    assert.equal(completed.version, 6);
+
+    const queuedSource = await pool.query(
+      'SELECT storage_path FROM private_voice_intro_purge_queue WHERE storage_path = $1',
+      [sourcePath]
+    );
+    assert.equal(queuedSource.rowCount, 1, 'old ciphertext is queued only after rollback window completion');
+
     const events = await pool.query(
       'SELECT version, to_state FROM voice_intro_migration_journal_events WHERE journal_id = $1 ORDER BY version',
       [journalId]
     );
     assert.deepEqual(events.rows.map(row => row.to_state), [
       'planned', 'source_authenticated', 'staged_authenticated',
-      'reference_switched', 'rollback_window'
+      'reference_switched', 'rollback_window', 'completed'
     ]);
-    assert.deepEqual(events.rows.map(row => Number(row.version)), [1, 2, 3, 4, 5]);
+    assert.deepEqual(events.rows.map(row => Number(row.version)), [1, 2, 3, 4, 5, 6]);
   } finally {
     await pool.end();
   }
