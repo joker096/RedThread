@@ -13,7 +13,15 @@ const restoreScript = path.join(scriptsDir, 'restore-postgres.sh');
 const stagingConfirmation = 'I_UNDERSTAND_THIS_IS_A_DISPOSABLE_STAGING_DATABASE';
 
 function run(command, args, env) {
-  const result = spawnSync(command, args, { encoding: 'utf8', env: { ...process.env, ...env } });
+  const pg16Bin = '/usr/lib/postgresql/16/bin';
+  const result = spawnSync(command, args, {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${pg16Bin}:${process.env.PATH || ''}`,
+      ...env
+    }
+  });
   assert.equal(result.status, 0, result.stderr || result.stdout || `${command} exited with ${result.status}`);
   return result;
 }
