@@ -123,6 +123,21 @@ The destination must be a new path beneath an existing, real (non-symlink) paren
 
 Validate the restored file count, sizes, expected UUID-based filenames, and application metadata references before mounting the restored directory. Restore voice introductions only when the matching dedicated `VOICE_INTRO_ENCRYPTION_KEY` is available; the key is not included in the media archive. Verify authenticated decryption of a controlled test recording with the matching key. Losing or rotating that key without a tested re-encryption/recovery procedure makes existing recordings unreadable.
 
+#### Voice-introduction key escrow and rotation boundary
+
+The voice media encryption key and the age backup identity are separate secrets with different purposes. The age identity decrypts backup archives; `VOICE_INTRO_ENCRYPTION_KEY` decrypts individual voice recordings after the media archive has been restored. Escrow both independently. Never derive one from the other, store either beside the encrypted backups, or put either in Git, CI logs, shell history or the application image.
+
+Generate a dedicated 32-byte key only in a trusted secret-management environment:
+
+```bash
+openssl rand -hex 32
+```
+
+Store the exact 64-character hexadecimal value in the deployment secret manager and maintain a separately controlled offline recovery copy. Restrict access to the service identity and designated recovery custodians; record key ownership, creation date and recovery procedure without recording the key itself. Before relying on the escrow copy, retrieve it in an isolated recovery environment and authenticate-decrypt a controlled, non-user test recording. Do not print decrypted audio or key material in logs.
+
+**Rotation is not currently a supported routine operation.** The current encrypted voice file format does not carry a key identifier and the application expects one active `VOICE_INTRO_ENCRYPTION_KEY`. Replacing it while encrypted voice files remain will make those files unreadable. Keep the existing key stable and escrowed. Before rotation can be enabled, implement and test a versioned key envelope plus a migration that re-encrypts every retained recording, verifies authenticated decryption with the new key, preserves rollback capability, and commits metadata/file changes safely. Do not rotate by simply changing the environment variable. If the key is suspected compromised, suspend voice upload/playback and follow an approved incident-specific migration; do not silently discard old key material.
+
+
 ### Deletion and retention safety
 
 Backups are immutable historical copies and may contain media that has since been deleted from the live service. Restrict access, use short documented retention, and expire off-site copies according to the approved privacy/deletion policy. A restore must not silently re-publish old media: keep the restored service isolated, replay account-deletion and media-purge tombstones from a separately retained deletion ledger where available, and reconcile against current consent and moderation state before enabling access. Do not restore a historical media volume into a live service without this reconciliation.
