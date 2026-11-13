@@ -18,6 +18,22 @@ on:
       - "docs/OPERATIONS_BACKUPS.md"
       - ".github/workflows/mobile-build.yml"
       - ".github/workflows/mobile-device-smoke.yml"
+  pull_request:
+    branches: [main, feat/compatibility-explanations]
+    paths:
+      - "src/**"
+      - "capacitor.config.ts"
+      - "index.html"
+      - "public/**"
+      - "vite.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/**"
+      - "server/**"
+      - "docs/MOBILE_*.md"
+      - "docs/OPERATIONS_BACKUPS.md"
+      - ".github/workflows/mobile-build.yml"
+      - ".github/workflows/mobile-device-smoke.yml"
   workflow_dispatch:
 
 permissions:
