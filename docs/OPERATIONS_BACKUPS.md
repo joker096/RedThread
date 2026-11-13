@@ -49,7 +49,14 @@ The report covers the private-photo, private-voice-introduction and identity-L3 
 
 Exit codes are suitable for cron/monitoring integration: `0` healthy, `1` warning, `2` critical or report failure. Defaults warn when a queue has more than 100 pending jobs or its oldest job is at least 60 minutes old; failed L3 purge jobs and work older than 24 hours are critical. Backup age warns at 26 hours and becomes critical at 48 hours. Thresholds are configurable in `scripts/ops-health-report.js`.
 
-The report checks checksum-sidecar presence and format; it deliberately does not re-hash large backup files on every monitoring run. Run `sha256sum --check` during scheduled backup verification and continue to perform isolated restore drills. An unset backup directory is reported as `not_configured`, not as proof that a backup exists.
+The report checks checksum-sidecar presence and format; it deliberately does not re-hash large backup files on every monitoring run. Verify the actual bytes of every configured encrypted artifact with:
+
+```bash
+npm run backup:verify
+```
+
+This command streams each encrypted archive through SHA-256, compares it with its sidecar (including the expected filename), rejects symlinks and fails on missing/malformed/mismatched artifacts. Schedule it after backup creation and before off-site replication; continue to perform isolated restore drills. It does not decrypt archives or prove that the recovery identity/key is available.
+ An unset backup directory is reported as `not_configured`, not as proof that a backup exists.
 
 Healthchecks.io's Hobbyist plan is $0 and includes 20 monitored jobs, but the provider describes it as intended for personal infrastructure; its FAQ says commercial use is tolerated while expecting businesses to eventually upgrade. Treat it as a development/pre-launch option only unless the provider confirms suitability for Vow. Create one check for the Vow operations report and store its base Ping URL as a secret named `OPS_HEALTHCHECKS_PING_URL` on the trusted scheduler. The report sends a success POST only when healthy and a `/fail` signal for warning/critical results; it sends only aggregate queue counts and backup freshness metadata, not user IDs or filesystem paths. The integration accepts HTTPS URLs on `hc-ping.com` only.
 
