@@ -36,8 +36,6 @@ if [[ "$actual_checksum" != "$expected_checksum" ]]; then
 fi
 
 # Never use --clean or drop/create the target. Refuse anything other than an empty staging DB.
-export PGDATABASE="$RESTORE_DATABASE_URL"
-unset RESTORE_DATABASE_URL
 empty_state_sql="
 SELECT CASE WHEN current_database() IN ('postgres', 'template0', 'template1') THEN -1 ELSE
   (SELECT count(*) FROM pg_namespace
@@ -58,7 +56,7 @@ SELECT CASE WHEN current_database() IN ('postgres', 'template0', 'template1') TH
       AND t.typtype <> 'p'
       AND t.typcategory <> 'A') END;
 "
-empty_state="$(psql -X -A -t -v ON_ERROR_STOP=1 -c "$empty_state_sql" | tr -d '[:space:]')"
+empty_state="$(psql --dbname="$RESTORE_DATABASE_URL" -X -A -t -v ON_ERROR_STOP=1 -c "$empty_state_sql" | tr -d '[:space:]')"
 if ! [[ "$empty_state" =~ ^[0-9]+$ ]] || [[ "$empty_state" != "0" ]]; then
   echo "restore target is not an empty staging database; refusing to restore" >&2
   exit 1
@@ -66,7 +64,7 @@ fi
 
 # Keep decrypted SQL/custom-format bytes in the pipe only; no plaintext dump is written to disk.
 age --decrypt --identity "$AGE_IDENTITY_FILE" "$ARCHIVE_FILE" \
-  | pg_restore --exit-on-error --no-owner --no-acl -
+  | pg_restore --dbname="$RESTORE_DATABASE_URL" --exit-on-error --no-owner --no-acl -
 
 printf 'Restored encrypted PostgreSQL backup into the verified empty staging database.\n'
 printf 'Run application integrity checks and reconcile deletion/consent state before exposing the environment.\n'
