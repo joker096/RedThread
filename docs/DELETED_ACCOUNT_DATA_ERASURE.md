@@ -20,19 +20,13 @@ npm run voice-intros:purge
 
 Both workers process bounded batches and retain failed queue rows for exponential-backoff retry. Exit code `0` means the batch had no deletion failures; a non-zero exit must trigger scheduler alerting. The photo worker exits with code `2` when any item was retried after a filesystem failure; configuration/database failures exit non-zero. The voice worker follows the same failure-signalling contract.
 
-Monitor both queues with the read-only health command after migrations are applied:
+Monitor all durable purge queues (private photos, private voice introductions and L3 media) with the consolidated read-only operations report after migrations are applied:
 
 ```bash
-npm run private-media:purge-health
+npm run ops:health
 ```
 
-It emits one JSON report containing pending/due counts, oldest queue-item age and maximum retry count for each queue. Configure thresholds in the scheduler environment to turn excessive backlog into a non-zero exit (and alert):
-
-- `PRIVATE_MEDIA_PURGE_MAX_PENDING`
-- `PRIVATE_MEDIA_PURGE_MAX_OLDEST_AGE_SECONDS`
-- `PRIVATE_MEDIA_PURGE_MAX_ATTEMPTS`
-
-Each threshold is optional; when unset, the command reports metrics without inventing an operational service-level objective. When any configured threshold is exceeded, it exits with code `2`; database/configuration failures exit with code `1`. Run it using a read-only database role that can select from both purge queues. The command does not delete, modify, or retry queue items.
+The report includes pending/due/retrying counts, oldest-item age and failed jobs. It can also check the latest encrypted PostgreSQL, private-photo and private-voice backup artifacts when `OPS_POSTGRES_BACKUP_DIR`, `OPS_PRIVATE_PHOTO_BACKUP_DIR` and `OPS_PRIVATE_VOICE_BACKUP_DIR` point to their respective backup directories. Unconfigured off-host backup directories are reported as `not_configured`, not as verified backups. The default warning/critical thresholds are defined in `scripts/ops-health-report.js`; scheduler alerts should be wired to its exit code (`0` healthy, `1` warning, `2` critical). Use a read-only database role for this report. It does not modify queue rows or delete files.
 
 A zero queue count confirms only that the database queue is empty; it does not prove that all backups, replicas, object-store versions, or external copies have expired. Include private media volumes and backup retention in the approved erasure process. Do not configure these jobs on the existing shared VPS until the Vow service volumes, database credentials, and scheduler isolation are explicitly provisioned.
 
