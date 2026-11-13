@@ -52,6 +52,7 @@ function run(f, overrides = {}) {
       ARCHIVE_FILE: f.archive,
       AGE_IDENTITY_FILE: f.identity,
       RESTORE_DATABASE_URL: 'postgresql://staging-user:secret@example.invalid/vow_restore_test',
+      RESTORE_CONFIRM_STAGING: 'I_UNDERSTAND_THIS_IS_A_DISPOSABLE_STAGING_DATABASE',
       RESTORE_CAPTURE: f.capture,
       RESTORE_ARGS_CAPTURE: f.pgRestoreArgs,
       ...overrides
