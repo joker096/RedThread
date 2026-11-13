@@ -21,7 +21,7 @@ test('voice intro purge refuses a symlink as the private storage root', async ()
     await symlink(target, link, 'dir');
     await assert.rejects(
       () => runPrivateVoiceIntroPurge({ storageRoot: link, pool: {} }),
-      /not a real directory/
+      /voice_intro_storage_root_not_private_directory/
     );
   } finally {
     await rm(root, { recursive: true, force: true });
