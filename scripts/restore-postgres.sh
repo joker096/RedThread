@@ -37,7 +37,7 @@ fi
 
 # Never use --clean or drop/create the target. Refuse anything other than an empty staging DB.
 empty_state_sql="
-SELECT current_database() || '|' ||
+SELECT current_database() || '|' || (
   (SELECT count(*) FROM pg_namespace
     WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'public')
       AND nspname NOT LIKE 'pg_toast%')
@@ -54,7 +54,7 @@ SELECT current_database() || '|' ||
     JOIN pg_namespace n ON n.oid = t.typnamespace
     WHERE n.nspname = 'public'
       AND t.typtype <> 'p'
-      AND t.typcategory <> 'A');
+      AND t.typcategory <> 'A'));
 "
 target_state="$(psql --dbname="$RESTORE_DATABASE_URL" -X -A -t -v ON_ERROR_STOP=1 -c "$empty_state_sql")"
 target_database="${target_state%%|*}"
