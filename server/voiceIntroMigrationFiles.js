@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, open } from 'node:fs/promises';
+import { lstat, open, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import {
   decryptVoiceIntro,
@@ -102,10 +102,12 @@ export async function stageVoiceIntroMigrationCiphertext({
     if (!verified.equals(plaintext)) throw new Error('voice_intro_staged_round_trip_mismatch');
 
     let stagedCiphertext;
+    let created = false;
     try {
       const handle = await open(stagedPath,
         constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW || 0),
         0o600);
+      created = true;
       try {
         await handle.writeFile(ciphertext);
         await handle.sync();
@@ -120,6 +122,7 @@ export async function stageVoiceIntroMigrationCiphertext({
       try { await directory.sync(); } finally { await directory.close(); }
       stagedCiphertext = await readRegularCiphertext(stagedPath);
     } catch (error) {
+      if (created) await unlink(stagedPath).catch(() => {});
       if (error?.code !== 'EEXIST') throw error;
       stagedCiphertext = await readRegularCiphertext(stagedPath);
     }
