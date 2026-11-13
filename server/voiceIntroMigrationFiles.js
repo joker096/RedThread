@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, open, realpath, unlink } from 'node:fs/promises';
+import { open, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import {
   decryptVoiceIntro,
   encryptVoiceIntro,
-  resolvePrivateVoiceIntroPath
+  resolvePrivateVoiceIntroPath,
+  ensurePrivateVoiceIntroStorageRoot
 } from './voiceIntroStorage.js';
 
 const MAX_CIPHERTEXT_BYTES = 2 * 1024 * 1024 + 128;
@@ -17,15 +18,7 @@ function sha256(buffer) {
 }
 
 async function assertPrivateRoot(storageRoot) {
-  if (typeof storageRoot !== 'string' || storageRoot.trim() === '') {
-    throw new TypeError('VOICE_INTRO_STORAGE_DIR_required');
-  }
-  const root = path.resolve(storageRoot);
-  const info = await lstat(root);
-  if (!info.isDirectory() || info.isSymbolicLink() || await realpath(root) !== root) {
-    throw new Error('voice_intro_storage_root_not_private_directory');
-  }
-  return root;
+  return ensurePrivateVoiceIntroStorageRoot(storageRoot);
 }
 
 async function readRegularCiphertext(filePath) {
