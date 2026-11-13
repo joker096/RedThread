@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { chmod, lstat, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { queuePrivatePhotoPurges } from './photoPurge.js';
-import { decryptVoiceIntro, encryptVoiceIntro, parseVoiceIntroEncryptionKey, persistVoiceIntroReview, queuePrivateVoiceIntroPurges, resolvePrivateVoiceIntroPath, validateVoiceIntro } from './voiceIntroStorage.js';
+import { decryptVoiceIntro, encryptVoiceIntro, parseVoiceIntroEncryptionKeyring, persistVoiceIntroReview, queuePrivateVoiceIntroPurges, resolvePrivateVoiceIntroPath, validateVoiceIntro } from './voiceIntroStorage.js';
 import { VOICE_INTRO_CONSENT_VERSION, isCurrentVoiceIntroConsentVersion } from './voiceIntroConsent.js';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
@@ -2627,10 +2627,10 @@ app.put('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession, p
         req.get('x-vow-voice-intro-consent') !== 'granted') {
       return res.status(428).json({ error: 'voice_intro_consent_required', consentVersion: VOICE_INTRO_CONSENT_VERSION });
     }
-    if (process.env.NODE_ENV === 'production' && (!process.env.VOICE_INTRO_STORAGE_DIR || !process.env.VOICE_INTRO_ENCRYPTION_KEY)) {
+    if (process.env.NODE_ENV === 'production' && (!process.env.VOICE_INTRO_STORAGE_DIR || (!process.env.VOICE_INTRO_ENCRYPTION_KEY && !process.env.VOICE_INTRO_KEYRING))) {
       return res.status(503).json({ error: 'voice_intro_storage_not_configured' });
     }
-    const key = parseVoiceIntroEncryptionKey();
+    const key = parseVoiceIntroEncryptionKeyring();
     if (!key) return res.status(503).json({ error: 'voice_intro_encryption_not_configured' });
     let media;
     try {
@@ -2709,7 +2709,7 @@ app.put('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession, p
   });
 
 app.get('/api/profiles/me/voice-intro', profileActionLimiter, requireSession, async (req, res) => {
-  const key = parseVoiceIntroEncryptionKey();
+  const key = parseVoiceIntroEncryptionKeyring();
   if (!key) return res.status(503).json({ error: 'voice_intro_encryption_not_configured' });
   let client;
   try {
@@ -2791,7 +2791,7 @@ app.delete('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession
 
 app.get('/api/profiles/:userId/voice-intro', profileActionLimiter, requireSession, async (req, res) => {
   if (!isUuid(req.params.userId) || req.params.userId === req.authUser.id) return res.status(404).end();
-  const key = parseVoiceIntroEncryptionKey();
+  const key = parseVoiceIntroEncryptionKeyring();
   if (!key) return res.status(503).json({ error: 'voice_intro_encryption_not_configured' });
   let client;
   try {
@@ -3244,7 +3244,7 @@ app.get('/api/account/export/media/:kind/:assetId', requireSession, profileActio
       const filePath = resolvePrivateVoiceIntroPath(row.storagePath, voiceIntroStorageDir);
       const fileStat = await lstat(filePath);
       if (!fileStat.isFile() || fileStat.isSymbolicLink()) return null;
-      const key = parseVoiceIntroEncryptionKey();
+      const key = parseVoiceIntroEncryptionKeyring();
       if (!key) { const error = new Error('voice_intro_encryption_not_configured'); error.code = 'VOICE_INTRO_ENCRYPTION_NOT_CONFIGURED'; throw error; }
       const bytes = decryptVoiceIntro(await readFile(filePath), key);
       const extension = row.mimeType === 'audio/aac' ? '.aac' : '.m4a';
@@ -5032,7 +5032,7 @@ app.get('/api/admin/voice-intros', profileActionLimiter, requireSession, async (
 
 app.get('/api/admin/voice-intros/:voiceIntroId/audio', profileActionLimiter, requireSession, async (req, res) => {
   if (!isUuid(req.params.voiceIntroId)) return res.status(404).end();
-  const key = parseVoiceIntroEncryptionKey();
+  const key = parseVoiceIntroEncryptionKeyring();
   if (!key) return res.status(503).json({ error: 'voice_intro_encryption_not_configured' });
   let client;
   try {
