@@ -370,7 +370,7 @@ test('voice intro HTTP API covers encrypted upload, moderator review, owner play
       await writeFile(photoPath, photoBytes, { flag: 'wx', mode: 0o600 });
       await db.query(
         `INSERT INTO photo_assets (id, user_id, storage_path, mime_type, byte_size, width, height, review_status)
-         VALUES ($1, $2, $3, 'image/png', $4, 1, 1, 'approved')`,
+         VALUES ($1, $2, $3, 'image/png', $4, 1, 1, 'pending')`,
         [photoId, owner.id, photoPath, photoBytes.length]
       );
       await db.query(
