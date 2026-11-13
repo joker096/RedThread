@@ -88,6 +88,23 @@ test('reports missing configuration separately from verified backups', async () 
   assert.ok(report.results.every(result => result.status === 'not_configured'));
 });
 
+test('partial backup configuration is not reported as fully verified', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'vow-backup-partial-'));
+  try {
+    const archive = 'vow-postgres-20261113T120000Z.dump.age';
+    await addBackup(root, archive, 'encrypted-fixture');
+    const report = await verifyConfiguredEncryptedBackups({
+      OPS_POSTGRES_BACKUP_DIR: root
+    });
+    assert.equal(report.status, 'partially_configured');
+    assert.deepEqual(report.results.map(result => result.status), [
+      'verified', 'not_configured', 'not_configured'
+    ]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('configured empty backup directory fails closed', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'vow-backup-empty-'));
   try {
