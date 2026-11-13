@@ -57,6 +57,7 @@ test('voice migration worker stages, switches atomically and defers source purge
 
     const first = await processNextVoiceIntroMigration(pool, {
       workerId: 'integration-worker-a',
+      journalId,
       storageRoot: root,
       keyring,
       rollbackWindowMs: 60_000
@@ -90,6 +91,7 @@ test('voice migration worker stages, switches atomically and defers source purge
     );
     const second = await processNextVoiceIntroMigration(pool, {
       workerId: 'integration-worker-b',
+      journalId,
       storageRoot: root,
       keyring,
       rollbackWindowMs: 60_000
@@ -172,6 +174,7 @@ test('voice migration worker restores the source reference and queues corrupt st
 
     const first = await processNextVoiceIntroMigration(pool, {
       workerId: 'rollback-worker-a',
+      journalId,
       storageRoot: root,
       keyring,
       rollbackWindowMs: 60_000
@@ -189,6 +192,7 @@ test('voice migration worker restores the source reference and queues corrupt st
 
     const second = await processNextVoiceIntroMigration(pool, {
       workerId: 'rollback-worker-b',
+      journalId,
       storageRoot: root,
       keyring,
       rollbackWindowMs: 60_000
