@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { chmod, lstat, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { queuePrivatePhotoPurges } from './photoPurge.js';
 import { decryptVoiceIntro, encryptVoiceIntro, parseVoiceIntroEncryptionKeyring, persistVoiceIntroReview, queuePrivateVoiceIntroPurges, resolvePrivateVoiceIntroPath, validateVoiceIntro, ensurePrivateVoiceIntroStorageRoot } from './voiceIntroStorage.js';
 import { VOICE_INTRO_CONSENT_VERSION, isCurrentVoiceIntroConsentVersion } from './voiceIntroConsent.js';
