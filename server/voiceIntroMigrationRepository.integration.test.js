@@ -49,13 +49,13 @@ test('voice intro migration repository atomically claims, renews and CAS-transit
     );
 
     const leaseA = await claimNextVoiceIntroMigration(pool, {
-      workerId: 'repository-worker-a', token: tokenA, leaseDurationMs: 30_000
+      workerId: 'repository-worker-a', token: tokenA, leaseDurationMs: 30_000, journalId
     });
     assert.equal(leaseA.id, journalId);
     assert.equal(Number(leaseA.lease_generation), 1);
 
     const competingLease = await claimNextVoiceIntroMigration(pool, {
-      workerId: 'repository-worker-b', token: tokenB, leaseDurationMs: 30_000
+      workerId: 'repository-worker-b', token: tokenB, leaseDurationMs: 30_000, journalId
     });
     assert.equal(competingLease, null, 'a second worker cannot claim a live lease');
 
