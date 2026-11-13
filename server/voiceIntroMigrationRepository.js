@@ -331,3 +331,63 @@ export async function getVoiceIntroMigrationLeaseRecord(pool, { id, token, gener
   );
   return result.rows[0] || null;
 }
+
+
+/**
+ * Roll the live profile pointer back to the retained source ciphertext and
+ * queue the staged artifact for deletion in the same transaction.
+ */
+export async function rollbackVoiceIntroMigrationReference(pool, {
+  id, token, generation, expectedVersion, expectedState,
+  voiceIntroId, sourcePath, stagedPath
+} = {}) {
+  requireUuid(id, 'journal_id');
+  requireUuid(token, 'lease_token');
+  requireUuid(voiceIntroId, 'voice_intro_id');
+  if (!Number.isSafeInteger(generation) || generation < 1) throw new TypeError('lease_generation_invalid');
+  requireVersion(expectedVersion);
+  if (!['reference_switched', 'rollback_window'].includes(expectedState)) {
+    throw new Error('migration_rollback_state_invalid');
+  }
+  if (typeof sourcePath !== 'string' || sourcePath.length < 1 || sourcePath.length > 2048 ||
+      typeof stagedPath !== 'string' || stagedPath.length < 1 || stagedPath.length > 2048 ||
+      sourcePath === stagedPath) throw new TypeError('migration_reference_path_invalid');
+
+  return withPooledTransaction(pool, async client => {
+    const restored = await client.query(
+      `UPDATE profile_voice_intros
+       SET storage_path = $2, updated_at = statement_timestamp()
+       WHERE id = $1 AND storage_path = $3
+       RETURNING id, storage_path`,
+      [voiceIntroId, sourcePath, stagedPath]
+    );
+    if (restored.rowCount === 0) {
+      const current = await client.query(
+        'SELECT storage_path FROM profile_voice_intros WHERE id = $1 FOR UPDATE',
+        [voiceIntroId]
+      );
+      if (current.rows[0]?.storage_path !== sourcePath) return null;
+    }
+
+    const rolledBack = await client.query(
+      `UPDATE voice_intro_migration_journal
+       SET state = 'rolled_back', version = version + 1,
+           updated_at = statement_timestamp()
+       WHERE id = $1 AND voice_intro_id = $2
+         AND state = $3 AND version = $4
+         AND source_path = $5 AND staged_path = $6
+         AND lease_token = $7 AND lease_generation = $8
+         AND lease_expires_at > statement_timestamp()
+       RETURNING id, state, version, completed_at, staged_path`,
+      [id, voiceIntroId, expectedState, expectedVersion, sourcePath, stagedPath, token, generation]
+    );
+    const row = rolledBack.rows[0];
+    if (!row) throw new Error('migration_rollback_cas_conflict');
+    await client.query(
+      `INSERT INTO private_voice_intro_purge_queue (storage_path)
+       VALUES ($1) ON CONFLICT (storage_path) DO NOTHING`,
+      [row.staged_path]
+    );
+    return row;
+  });
+}
