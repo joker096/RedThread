@@ -18,7 +18,13 @@ for file in "$ARCHIVE_FILE" "$CHECKSUM_FILE" "$AGE_IDENTITY_FILE"; do
   fi
 done
 
-if ! sha256sum --check --status "$CHECKSUM_FILE"; then
+expected_checksum="$(awk 'NR == 1 { print $1 }' "$CHECKSUM_FILE")"
+if ! [[ "$expected_checksum" =~ ^[[:xdigit:]]{64}$ ]]; then
+  echo "backup checksum file is malformed" >&2
+  exit 1
+fi
+actual_checksum="$(sha256sum "$ARCHIVE_FILE" | awk '{ print $1 }')"
+if [[ "$actual_checksum" != "$expected_checksum" ]]; then
   echo "backup checksum verification failed" >&2
   exit 1
 fi
