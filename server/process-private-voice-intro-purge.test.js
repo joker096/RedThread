@@ -40,3 +40,20 @@ test('voice intro purge processes one bounded batch when the private volume exis
     await rm(root, { recursive: true, force: true });
   }
 });
+
+
+test('voice intro purge rejects a symlinked ancestor of the private storage root', async () => {
+  const parent = await mkdtemp(path.join(os.tmpdir(), 'vow-voice-parent-'));
+  const target = path.join(parent, 'target');
+  const linked = path.join(parent, 'linked');
+  try {
+    await mkdir(target);
+    await symlink(target, linked, 'dir');
+    await assert.rejects(
+      () => runPrivateVoiceIntroPurge({ storageRoot: path.join(linked, 'nested'), pool: {} }),
+      /not_private_directory/
+    );
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
+});
