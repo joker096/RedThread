@@ -7,7 +7,8 @@ import {
   collectOpsHealth,
   evaluateQueueHealth,
   inspectBackupDirectory,
-  opsHealthExitCode
+  opsHealthExitCode,
+  sendHealthchecksSignal
 } from './ops-health-report.js';
 
 test('queue health is healthy when there is no outstanding purge work', () => {
@@ -152,4 +153,66 @@ test('operations report reads the three durable purge queues from PostgreSQL', {
     'private_photo',
     'private_voice_intro'
   ]);
+});
+
+test('required backup locations become critical when deployment monitoring enables the gate', async () => {
+  const pool = {
+    async query() {
+      return {
+        rows: [
+          { queue_name: 'private_photo', pending: 0, due: 0, retrying: 0, failed: 0, oldest_created_at: null, max_attempts: 0 },
+          { queue_name: 'private_voice_intro', pending: 0, due: 0, retrying: 0, failed: 0, oldest_created_at: null, max_attempts: 0 },
+          { queue_name: 'identity_l3_media', pending: 0, due: 0, retrying: 0, failed: 0, oldest_created_at: null, max_attempts: 0 }
+        ]
+      };
+    }
+  };
+  const report = await collectOpsHealth({ pool, requireBackups: true });
+  assert.equal(report.status, 'critical');
+  assert.deepEqual(report.configurationIssues, [
+    'backup_locations_not_configured:postgres,privatePhoto,privateVoice'
+  ]);
+  assert.equal(opsHealthExitCode(report), 2);
+});
+
+test('Healthchecks.io receives a success ping for a healthy report and a failure ping otherwise', async () => {
+  const calls = [];
+  const fetchImpl = async (url, options) => {
+    calls.push({ url, options });
+    return { ok: true };
+  };
+  const healthy = await sendHealthchecksSignal({
+    status: 'healthy',
+    generatedAt: '2026-11-13T12:00:00.000Z',
+    queues: [],
+    backups: {}
+  }, { pingUrl: 'https://hc-ping.com/12345678-1234-1234-1234-123456789abc', fetchImpl });
+  const warning = await sendHealthchecksSignal({
+    status: 'warning',
+    generatedAt: '2026-11-13T12:15:00.000Z',
+    queues: [],
+    backups: {}
+  }, { pingUrl: 'https://hc-ping.com/12345678-1234-1234-1234-123456789abc', fetchImpl });
+  assert.deepEqual(healthy, { status: 'sent', signal: 'success' });
+  assert.deepEqual(warning, { status: 'sent', signal: 'fail' });
+  assert.equal(calls[0].url, 'https://hc-ping.com/12345678-1234-1234-1234-123456789abc');
+  assert.equal(calls[1].url, 'https://hc-ping.com/12345678-1234-1234-1234-123456789abc/fail');
+  assert.equal(calls[0].options.method, 'POST');
+});
+
+test('Healthchecks.io integration rejects non-HTTPS and non-Healthchecks destinations', async () => {
+  await assert.rejects(
+    sendHealthchecksSignal({ status: 'healthy' }, {
+      pingUrl: 'http://hc-ping.com/12345678-1234-1234-1234-123456789abc',
+      fetchImpl: async () => ({ ok: true })
+    }),
+    /base HTTPS Healthchecks.io ping URL/
+  );
+  await assert.rejects(
+    sendHealthchecksSignal({ status: 'healthy' }, {
+      pingUrl: 'https://example.com/secret',
+      fetchImpl: async () => ({ ok: true })
+    }),
+    /base HTTPS Healthchecks.io ping URL/
+  );
 });
