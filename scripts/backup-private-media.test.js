@@ -33,7 +33,7 @@ while (($#)); do
   esac
 done
 test -n "$output"
-input="${output}.input"
+input="\${output}.input"
 cat > "$input"
 { printf 'AGE-ENCRYPTED-FIXTURE:'; sha256sum "$input" | cut -d ' ' -f 1; } > "$output"
 rm -f "$input"
