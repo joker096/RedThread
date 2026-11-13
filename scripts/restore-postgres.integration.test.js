@@ -39,6 +39,7 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
   const admin = new Client({ connectionString: process.env.DATABASE_URL });
   let source;
   let target;
+  let adminConnected = false;
   let sourceCreated = false;
   let targetCreated = false;
 
@@ -50,6 +51,7 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
     assert.ok(recipient, 'age-keygen must produce a public recipient');
 
     await admin.connect();
+    adminConnected = true;
     await admin.query(`CREATE DATABASE "${sourceDatabase}"`);
     sourceCreated = true;
     await admin.query(`CREATE DATABASE "${targetDatabase}"`);
@@ -121,7 +123,7 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
   } finally {
     if (source) await source.end().catch(() => {});
     if (target) await target.end().catch(() => {});
-    if (admin._connected) {
+    if (adminConnected) {
       if (targetCreated) await admin.query(`DROP DATABASE IF EXISTS "${targetDatabase}" WITH (FORCE)`).catch(() => {});
       if (sourceCreated) await admin.query(`DROP DATABASE IF EXISTS "${sourceDatabase}" WITH (FORCE)`).catch(() => {});
       await admin.end().catch(() => {});
