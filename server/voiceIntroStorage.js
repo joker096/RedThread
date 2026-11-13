@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { chmod, lstat, mkdir, realpath } from 'node:fs/promises';
 import { randomBytes, createCipheriv, createDecipheriv } from 'node:crypto';
 import { parseBuffer } from 'music-metadata';
 import { VOICE_INTRO_CONSENT_VERSION } from './voiceIntroConsent.js';
@@ -96,6 +97,44 @@ export function decryptVoiceIntro(encrypted, key) {
   decipher.setAuthTag(encrypted.subarray(tagStart, bodyStart));
   try { return Buffer.concat([decipher.update(encrypted.subarray(bodyStart)), decipher.final()]); }
   catch { throw new Error('voice_intro_authentication_failed'); }
+}
+
+/**
+ * Validate every component of a private voice-intro storage root. When create is
+ * enabled, create missing components one at a time only after validating their
+ * parent; never let recursive mkdir traverse an untrusted symlink ancestor.
+ */
+export async function ensurePrivateVoiceIntroStorageRoot(storageRoot, { create = false, mode = 0o700 } = {}) {
+  if (typeof storageRoot !== 'string' || storageRoot.trim() === '') {
+    throw new TypeError('VOICE_INTRO_STORAGE_DIR_required');
+  }
+  const root = path.resolve(storageRoot);
+  const parsed = path.parse(root);
+  const segments = root.slice(parsed.root.length).split(path.sep).filter(Boolean);
+  let current = parsed.root;
+  const rootInfo = await lstat(current);
+  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) {
+    throw new Error('voice_intro_storage_root_not_private_directory');
+  }
+  for (const segment of segments) {
+    current = path.join(current, segment);
+    let info;
+    try {
+      info = await lstat(current);
+    } catch (error) {
+      if (error?.code !== 'ENOENT' || !create) throw error;
+      await mkdir(current, { mode });
+      info = await lstat(current);
+    }
+    if (!info.isDirectory() || info.isSymbolicLink()) {
+      throw new Error('voice_intro_storage_root_not_private_directory');
+    }
+  }
+  if (await realpath(root) !== root) {
+    throw new Error('voice_intro_storage_root_not_private_directory');
+  }
+  if (create) await chmod(root, mode);
+  return root;
 }
 
 export function resolvePrivateVoiceIntroPath(storagePath, storageRoot) {
