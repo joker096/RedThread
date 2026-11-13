@@ -122,6 +122,9 @@ test('voice migration worker stages, switches atomically and defers source purge
     lockClient.release();
     await pool.end();
     await rm(root, { recursive: true, force: true });
+    await lockClient.query("SELECT pg_advisory_unlock(hashtext('vow-voice-intro-migration-integration'))");
+    lockClient.release();
+    await pool.end();
   }
 });
 
@@ -131,6 +134,9 @@ test('voice migration worker restores the source reference and queues corrupt st
   timeout: 30_000
 }, async () => {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
+  // Share the same queue lock with the repository integration test.
+  const lockClient = await pool.connect();
+  await lockClient.query("SELECT pg_advisory_lock(hashtext('vow-voice-intro-migration-integration'))");
   const root = await mkdtemp(path.join(os.tmpdir(), 'vow-voice-rollback-'));
   await chmod(root, 0o700);
   const userId = randomUUID();
