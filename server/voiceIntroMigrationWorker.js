@@ -3,6 +3,7 @@ import {
   completeVoiceIntroMigrationAfterRollbackWindow,
   getVoiceIntroMigrationLeaseRecord,
   releaseVoiceIntroMigrationLease,
+  renewVoiceIntroMigrationLease,
   switchVoiceIntroMigrationReference,
   transitionVoiceIntroMigrationState
 } from './voiceIntroMigrationRepository.js';
@@ -47,6 +48,13 @@ export async function processNextVoiceIntroMigration(pool, {
 
   try {
     for (let step = 0; step < 8; step += 1) {
+      const renewed = await renewVoiceIntroMigrationLease(pool, {
+        ...leaseIdentity, leaseDurationMs
+      });
+      if (!renewed) {
+        outcome = { status: 'lease_lost' };
+        break;
+      }
       const record = await getVoiceIntroMigrationLeaseRecord(pool, leaseIdentity);
       if (!record) {
         outcome = { status: 'lease_lost' };
@@ -159,11 +167,7 @@ export async function processNextVoiceIntroMigration(pool, {
       }
 
       if (record.state === 'rollback_window') {
-        const deadline = new Date(record.rollback_deadline).getTime();
-        if (!Number.isFinite(deadline)) {
-          throw new Error('migration_rollback_deadline_invalid');
-        }
-        if (deadline > Date.now()) {
+        if (!record.rollback_window_elapsed) {
           outcome = { status: 'rollback_window' };
           break;
         }
