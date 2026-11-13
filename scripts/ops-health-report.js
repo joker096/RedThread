@@ -174,7 +174,8 @@ export async function collectOpsHealth({
   thresholds = OPS_HEALTH_DEFAULTS,
   postgresBackupDir = process.env.OPS_POSTGRES_BACKUP_DIR,
   privatePhotoBackupDir = process.env.OPS_PRIVATE_PHOTO_BACKUP_DIR,
-  privateVoiceBackupDir = process.env.OPS_PRIVATE_VOICE_BACKUP_DIR
+  privateVoiceBackupDir = process.env.OPS_PRIVATE_VOICE_BACKUP_DIR,
+  requireBackups = process.env.OPS_REQUIRE_BACKUPS === 'true'
 } = {}) {
   if (!databaseUrl && !suppliedPool) throw new Error('DATABASE_URL is required');
   const pool = suppliedPool || new Pool({
@@ -197,13 +198,20 @@ export async function collectOpsHealth({
       privatePhoto: privatePhotoBackup,
       privateVoice: privateVoiceBackup
     };
+    const unconfiguredBackups = Object.entries(backups)
+      .filter(([, backup]) => backup.status === 'not_configured')
+      .map(([name]) => name);
     const status = combineStatus([
       ...queues.map(queue => queue.status),
-      ...Object.values(backups).filter(backup => backup.status !== 'not_configured').map(backup => backup.status)
+      ...Object.values(backups).filter(backup => backup.status !== 'not_configured').map(backup => backup.status),
+      ...(requireBackups && unconfiguredBackups.length > 0 ? ['critical'] : [])
     ]);
     return {
       generatedAt: now.toISOString(),
       status,
+      configurationIssues: requireBackups && unconfiguredBackups.length > 0
+        ? ['backup_locations_not_configured:' + unconfiguredBackups.join(',')]
+        : [],
       queues,
       backups
     };
@@ -212,15 +220,73 @@ export async function collectOpsHealth({
   }
 }
 
+export async function sendHealthchecksSignal(report, {
+  pingUrl = process.env.OPS_HEALTHCHECKS_PING_URL,
+  fetchImpl = globalThis.fetch
+} = {}) {
+  if (!pingUrl) return { status: 'not_configured' };
+  const parsed = new URL(pingUrl);
+  const segments = parsed.pathname.split('/').filter(Boolean);
+  if (
+    parsed.protocol !== 'https:' ||
+    parsed.hostname !== 'hc-ping.com' ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash ||
+    segments.length < 1 ||
+    segments.length > 2 ||
+    segments.some(segment => !/^[a-zA-Z0-9_-]+$/.test(segment)) ||
+    ['start', 'fail', 'log'].includes(segments.at(-1))
+  ) {
+    throw new Error('OPS_HEALTHCHECKS_PING_URL must be a base HTTPS Healthchecks.io ping URL');
+  }
+  if (typeof fetchImpl !== 'function') throw new Error('fetch is unavailable for Healthchecks.io signaling');
+
+  const signal = report?.status === 'healthy' ? 'success' : 'fail';
+  const endpoint = parsed.origin + parsed.pathname.replace(/\\/+$/, '') + (signal === 'fail' ? '/fail' : '');
+  const safePayload = {
+    status: report?.status || 'critical',
+    generatedAt: report?.generatedAt || null,
+    queues: (report?.queues || []).map(queue => ({
+      queue: queue.queue,
+      status: queue.status,
+      pending: queue.pending,
+      due: queue.due,
+      retrying: queue.retrying,
+      failed: queue.failed,
+      oldestMinutes: queue.oldestMinutes
+    })),
+    backups: Object.fromEntries(Object.entries(report?.backups || {}).map(([name, backup]) => [
+      name,
+      { status: backup.status, latest: backup.latest, ageHours: backup.ageHours, reason: backup.reason }
+    ]))
+  };
+  const response = await fetchImpl(endpoint, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(safePayload),
+    signal: AbortSignal.timeout(10_000)
+  });
+  if (!response.ok) throw new Error('Healthchecks.io rejected the operations signal');
+  return { status: 'sent', signal };
+}
+
 export function opsHealthExitCode(report) {
   return report?.status === 'critical' ? 2 : report?.status === 'warning' ? 1 : 0;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   collectOpsHealth()
-    .then(report => {
+    .then(async report => {
       console.log(JSON.stringify(report, null, 2));
-      process.exitCode = opsHealthExitCode(report);
+      try {
+        await sendHealthchecksSignal(report);
+      } catch (error) {
+        console.error('Healthchecks.io operations signal failed:', error?.message || 'unknown error');
+        process.exitCode = 2;
+      }
+      process.exitCode = Math.max(process.exitCode || 0, opsHealthExitCode(report));
     })
     .catch(error => {
       console.error('Vow operations health report failed:', error?.message || 'unknown error');
