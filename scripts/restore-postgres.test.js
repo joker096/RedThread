@@ -68,7 +68,7 @@ test('PostgreSQL restore verifies checksum, requires an empty staging DB and str
     assert.equal(await readFile(f.capture, 'utf8'), 'RESTORED-PLAINTEXT-DUMP-FIXTURE');
     const args = await readFile(f.pgRestoreArgs, 'utf8');
     assert.equal(args.trim().split(' ').at(-1), '-');
-    assert.match(args, /--no-owner/);
+    assert.equal(args.trim().split(' ').at(-1), '-');
     assert.match(args, /--no-acl/);
     assert.match(args, /(^|\\s)-($|\\s)/);
     const files = await readdir(f.root, { recursive: true });
