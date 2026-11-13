@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, symlink, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, symlink, rm, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -52,7 +52,7 @@ test('migration preflight authenticates retained V1/V2 and verifies V2 round tri
     assert.equal(report.plaintextWrittenToDisk, false);
     assert.equal(report.ciphertextWrittenToDisk, false);
     assert.equal(report.databaseRowsChanged, false);
-    assert.deepEqual(before.map(p => requireFileExists(p)), [true, true]);
+    assert.deepEqual(await Promise.all(before.map(async p => { await access(p); return true; })), [true, true]);
     assert.ok(pool.statements.includes('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'));
     assert.ok(pool.statements.every(sql => !/\\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE)\\b/i.test(sql)));
     assert.equal(JSON.stringify(report).includes(root), false);
