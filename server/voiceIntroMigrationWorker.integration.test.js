@@ -16,6 +16,10 @@ test('voice migration worker stages, switches atomically and defers source purge
   timeout: 30_000
 }, async () => {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
+  // These integration fixtures share a database and claim the global migration queue.
+  // Serialize them so one test cannot lease another test's synthetic journal row.
+  const lockClient = await pool.connect();
+  await lockClient.query("SELECT pg_advisory_lock(hashtext('vow-voice-intro-migration-integration'))");
   const root = await mkdtemp(path.join(os.tmpdir(), 'vow-voice-worker-'));
   await chmod(root, 0o700);
   const userId = randomUUID();
@@ -114,6 +118,8 @@ test('voice migration worker stages, switches atomically and defers source purge
     sourceCiphertext.fill(0);
     legacyKey.fill(0);
     targetKey.fill(0);
+    await lockClient.query("SELECT pg_advisory_unlock(hashtext('vow-voice-intro-migration-integration'))");
+    lockClient.release();
     await pool.end();
     await rm(root, { recursive: true, force: true });
   }
