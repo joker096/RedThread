@@ -148,6 +148,18 @@ VOICE_INTRO_ENCRYPTION_KEY='<legacy-64-hex-key>'
 This format support alone does **not** migrate existing recordings or authorize removal of the legacy key. Bulk rotation remains disabled until a separately reviewed migration inventories every retained database reference, decrypts each source, writes and authenticates a staged versioned ciphertext, verifies all staged files, then safely switches file/metadata references with a recoverable journal and rollback window. Keep the old key available until the migration is complete and the rollback window is formally closed. Do not rotate by simply changing an environment variable. If the key is suspected compromised, suspend voice upload/playback and follow an approved incident-specific migration; do not silently discard old key material.
 
 
+### Read-only voice recording inventory
+
+Before planning any re-encryption, run the inventory from a trusted host that can reach the database and the mounted private voice volume:
+
+```bash
+DATABASE_URL='...' VOICE_INTRO_STORAGE_DIR=/srv/vow/private-voice npm run voice-intros:inventory
+```
+
+The command opens a PostgreSQL `REPEATABLE READ READ ONLY` transaction and reads only `storage_path` values from `profile_voice_intros` and `private_voice_intro_purge_queue`. It scans UUID-named encrypted files in the configured voice directory, reads only a short ciphertext header, and reports aggregate counts for legacy `VOWVOICE1`, versioned `VOWVOICE2` key IDs, missing references, queued files, orphan files, malformed envelopes and unsafe paths. It does not decrypt audio, print user IDs or file paths, write database rows, modify files, or remove anything. Exit code 2 indicates missing references, unsafe paths or malformed ciphertext; exit code 1 indicates a configuration/runtime failure.
+
+Run it with a least-privilege database account that can only `SELECT` from the two voice tables. The database transaction is explicitly read-only as a second guard. Review any discrepancy and reconcile deletion/consent state before authorizing a separate migration. Inventory counts are a snapshot, not a lock: pause uploads, replacements, moderation transitions and purge workers during a future migration window, then take a fresh inventory immediately before it starts. This inventory is not proof that any key can decrypt a recording; it only identifies envelope versions and key IDs.
+
 ### Deletion and retention safety
 
 Backups are immutable historical copies and may contain media that has since been deleted from the live service. Restrict access, use short documented retention, and expire off-site copies according to the approved privacy/deletion policy. A restore must not silently re-publish old media: keep the restored service isolated, replay account-deletion and media-purge tombstones from a separately retained deletion ledger where available, and reconcile against current consent and moderation state before enabling access. Do not restore a historical media volume into a live service without this reconciliation.
