@@ -135,3 +135,21 @@ test('stale encrypted backup crosses the warning age threshold', async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('operations report reads the three durable purge queues from PostgreSQL', {
+  skip: !process.env.DATABASE_URL ? 'DATABASE_URL is not configured' : false,
+  timeout: 15_000
+}, async () => {
+  const report = await collectOpsHealth({
+    databaseUrl: process.env.DATABASE_URL,
+    postgresBackupDir: null,
+    privatePhotoBackupDir: null,
+    privateVoiceBackupDir: null
+  });
+  assert.equal(report.queues.length, 3);
+  assert.deepEqual(report.queues.map(queue => queue.queue).sort(), [
+    'identity_l3_media',
+    'private_photo',
+    'private_voice_intro'
+  ]);
+});
