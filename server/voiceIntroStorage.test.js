@@ -5,6 +5,7 @@ import {
   decryptVoiceIntro,
   encryptVoiceIntro,
   parseVoiceIntroEncryptionKey,
+  parseVoiceIntroEncryptionKeyring,
   resolvePrivateVoiceIntroPath,
   validateVoiceIntro,
   persistVoiceIntroReview,
@@ -97,4 +98,30 @@ test('voice intro review rejects invalid status before database writes', async (
     voiceIntroId: 'voice-3', ownerId: 'user-3', moderatorId: 'moderator-3', status: 'pending'
   }), /invalid_voice_intro_review_status/);
   assert.equal(writes, 0);
+});
+
+
+test('versioned voice envelope resolves key IDs and preserves legacy decryption', () => {
+  const legacyKey = Buffer.alloc(32, 7);
+  const activeKey = Buffer.alloc(32, 9);
+  const keyring = { activeKeyId: 'key_2026_02', keys: new Map([['key_2026_02', activeKey], ['key_2026_01', legacyKey]]), legacyKey };
+  const plain = Buffer.from('private recording bytes');
+  const versioned = encryptVoiceIntro(plain, keyring);
+  assert.ok(versioned.subarray(0, 9).equals(Buffer.from('VOWVOICE2')));
+  assert.deepEqual(decryptVoiceIntro(versioned, keyring), plain);
+  assert.throws(() => decryptVoiceIntro(versioned, { keys: new Map(), legacyKey }), /key_unavailable/);
+  const legacy = encryptVoiceIntro(plain, legacyKey);
+  assert.deepEqual(decryptVoiceIntro(legacy, keyring), plain);
+  assert.throws(() => decryptVoiceIntro(legacy, { legacyKey: Buffer.alloc(32, 8) }), /authentication_failed/);
+});
+
+test('voice keyring parser validates key IDs, active key and key material', () => {
+  const a = 'a'.repeat(64), b = 'b'.repeat(64);
+  const parsed = parseVoiceIntroEncryptionKeyring({ keyringValue: JSON.stringify({ old_key: a, new_key: b }), activeKeyId: 'new_key', legacyKeyValue: a });
+  assert.equal(parsed.activeKeyId, 'new_key');
+  assert.equal(parsed.keys.get('old_key').length, 32);
+  assert.equal(parsed.legacyKey.length, 32);
+  assert.equal(parseVoiceIntroEncryptionKeyring({ keyringValue: '{bad', activeKeyId: 'new_key', legacyKeyValue: a }), null);
+  assert.equal(parseVoiceIntroEncryptionKeyring({ keyringValue: JSON.stringify({ new_key: 'bad' }), activeKeyId: 'new_key', legacyKeyValue: a }), null);
+  assert.equal(parseVoiceIntroEncryptionKeyring({ keyringValue: JSON.stringify({ old_key: a }), activeKeyId: 'missing', legacyKeyValue: a }), null);
 });
