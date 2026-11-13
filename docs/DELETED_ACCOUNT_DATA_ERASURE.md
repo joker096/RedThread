@@ -20,21 +20,19 @@ npm run voice-intros:purge
 
 Both workers process bounded batches and retain failed queue rows for exponential-backoff retry. Exit code `0` means the batch had no deletion failures; a non-zero exit must trigger scheduler alerting. The photo worker exits with code `2` when any item was retried after a filesystem failure; configuration/database failures exit non-zero. The voice worker follows the same failure-signalling contract.
 
-Monitor queue age and attempts, not only worker process health:
+Monitor both queues with the read-only health command after migrations are applied:
 
-```sql
-SELECT count(*) AS pending,
-       count(*) FILTER (WHERE next_attempt_at <= now()) AS due,
-       max(created_at) AS oldest_created_at,
-       max(attempts) AS max_attempts
-FROM private_photo_purge_queue;
-
-SELECT count(*) AS pending,
-       count(*) FILTER (WHERE next_attempt_at <= now()) AS due,
-       max(created_at) AS oldest_created_at,
-       max(attempts) AS max_attempts
-FROM private_voice_intro_purge_queue;
+```bash
+npm run private-media:purge-health
 ```
+
+It emits one JSON report containing pending/due counts, oldest queue-item age and maximum retry count for each queue. Configure thresholds in the scheduler environment to turn excessive backlog into a non-zero exit (and alert):
+
+- `PRIVATE_MEDIA_PURGE_MAX_PENDING`
+- `PRIVATE_MEDIA_PURGE_MAX_OLDEST_AGE_SECONDS`
+- `PRIVATE_MEDIA_PURGE_MAX_ATTEMPTS`
+
+Each threshold is optional; when unset, the command reports metrics without inventing an operational service-level objective. When any configured threshold is exceeded, it exits with code `2`; database/configuration failures exit with code `1`. Run it using a read-only database role that can select from both purge queues. The command does not delete, modify, or retry queue items.
 
 A zero queue count confirms only that the database queue is empty; it does not prove that all backups, replicas, object-store versions, or external copies have expired. Include private media volumes and backup retention in the approved erasure process. Do not configure these jobs on the existing shared VPS until the Vow service volumes, database credentials, and scheduler isolation are explicitly provisioned.
 
