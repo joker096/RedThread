@@ -33,6 +33,8 @@
     "cap:ensure:android": "node scripts/ensure-capacitor-platform.mjs android",
     "cap:ensure:ios": "node scripts/ensure-capacitor-platform.mjs ios",
     "voice-intros:purge": "node server/process-private-voice-intro-purge.js",
+    "backup:postgres": "bash scripts/backup-postgres.sh",
+    "backup:private-media": "bash scripts/backup-private-media.sh",
     "test:voice-api": "tsx --test server/voiceIntroApi.integration.test.js server/voiceIntroConsentSchema.integration.test.js",
     "test:voice-api:media": "tsx --test --test-name-pattern='voice intro HTTP API covers encrypted upload' server/voiceIntroApi.integration.test.js"
   },
