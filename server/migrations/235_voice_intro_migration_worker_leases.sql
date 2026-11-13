@@ -66,10 +66,15 @@ BEGIN
       END IF;
     END IF;
   ELSIF NEW.lease_token IS NOT NULL THEN
+    -- Journal state transitions may update the row while its lease remains
+    -- unchanged. Enforce renewal rules only when the expiry itself changes.
     IF NEW.lease_owner IS DISTINCT FROM OLD.lease_owner
        OR NEW.lease_claimed_at IS DISTINCT FROM OLD.lease_claimed_at
        OR NEW.lease_generation <> OLD.lease_generation
-       OR NEW.lease_expires_at <= OLD.lease_expires_at THEN
+       OR (
+         NEW.lease_expires_at IS DISTINCT FROM OLD.lease_expires_at
+         AND NEW.lease_expires_at <= OLD.lease_expires_at
+       ) THEN
       RAISE EXCEPTION 'voice intro migration lease renewal is invalid'
         USING ERRCODE = '23514';
     END IF;
