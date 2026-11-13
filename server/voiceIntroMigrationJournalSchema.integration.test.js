@@ -97,10 +97,8 @@ test('voice intro migration journal persists guarded, append-only recovery state
       client.query("UPDATE voice_intro_migration_journal SET state = 'completed', version = version + 1, updated_at = statement_timestamp() WHERE id = $1", [id]),
       error => error.code === '23514'
     );
-    await client.query('DELETE FROM voice_intro_migration_journal WHERE id = $1', [id]);
   } finally {
     if (client) {
-      try { await client.query('DELETE FROM voice_intro_migration_journal WHERE id = $1', [id]); } catch {}
       client.release();
     }
     await pool.end();
