@@ -190,32 +190,24 @@ This is a **preflight only**: it does not create staged files, update references
 The actual migration remains a separate, explicitly approved operation. Before it is designed or run, uploads, replacements, moderation transitions and purge workers must be paused; take and verify coordinated database/media backups; preserve V1 ciphertext and the legacy key for rollback; and establish a recoverable journal and crash-resume procedure. Never remove V1 ciphertext or the legacy key automatically. Do not run a migration against live or production storage without explicit approval.
 
 
-#### Migration journal state model (implementation groundwork)
 
-The repository now defines and tests the allowed per-record journal transitions in `scripts/voice-intro-migration-journal.js`. The state machine is deliberately monotonic:
+## Persistent migration journal and guarded worker
 
-`planned → source_authenticated → staged_authenticated → reference_switched → rollback_window → completed`
+Migrations `234_voice_intro_migration_journal.sql` and `235_voice_intro_migration_worker_leases.sql` provide the durable journal, append-only transition history, optimistic versioning, and fenced worker leases. The repository layer implements atomic claim with `FOR UPDATE SKIP LOCKED`, lease renewal/release, compare-and-swap transitions, and transactional profile-reference switching, rollback, and completion with purge-queue enqueueing.
 
-A switched record may instead move to `rolled_back` after its original reference has been restored and verified. Skipping stages, reversing a transition, or advancing a terminal record is rejected. The journal snapshot binds the record UUID, original source path and SHA-256, source envelope format, target key ID, staged path and SHA-256, and switch/completion timestamps. Transition helpers return immutable snapshots and never perform I/O.
+The guarded worker and encrypted-file helpers are implemented in:
 
-This module is only the deterministic state model and regression coverage; it is **not** a persistent journal store or a migration runner. No journal table/file is created and no media/database state is changed by these helpers. A future migration runner must persist each transition durably and idempotently, re-check source and staged ciphertext hashes after every restart, authenticate staged V2 ciphertext before changing references, perform the reference switch in a database transaction with compare-and-swap against the expected original path, and retain V1 ciphertext plus the legacy key throughout the rollback window. If the process stops after the reference switch, recovery must inspect the durable journal and current DB reference before deciding to resume or roll back; it must never blindly overwrite a reference changed by a concurrent operation.
+- `server/voiceIntroMigrationWorker.js`
+- `server/voiceIntroMigrationRepository.js`
+- `server/voiceIntroMigrationFiles.js`
+- `server/voiceIntroStorage.js`
 
-The actual persistent journal schema, locking/maintenance-window enforcement, staged-file atomic-write protocol, crash-recovery runner and `--apply` mode remain unimplemented. Do not infer migration readiness from passing state-machine tests. Real migration remains disabled and requires separate review and explicit authorization.
+The worker processes at most one leased journal row per call to `processNextVoiceIntroMigration(pool, options)`. It authenticates the source ciphertext, stages and authenticates a versioned encrypted file, switches the database reference and journal state atomically, retains the original through the rollback window (24 hours by default), and then enqueues the old ciphertext for the existing purge worker. If staged ciphertext becomes invalid after the reference switch while the original remains authentic, it attempts an atomic reference rollback and queues the staged file for purge. Lease tokens plus monotonically increasing generations fence stale workers.
 
+Filesystem handling rejects symlinked storage-root ancestors, unsafe/non-regular ciphertext files and group/other file permissions. Staged files use deterministic journal UUID names, exclusive creation, mode `0600`, fsync, checksums and authenticated round-trip verification. Plaintext is processed in memory only and buffers are cleared; the migration worker does not write plaintext temporary files.
 
-## Voice-introduction migration journal storage
+**Activation remains intentionally disabled.** The worker is a library entrypoint only: it is not registered as a scheduler, API route, application startup task, or executable CLI. Importing it does not run a migration; there is no `--apply` command. CI uses synthetic encrypted fixtures and disposable PostgreSQL only. No user recording, production storage, or live profile reference is modified by these tests.
 
-Migration `234_voice_intro_migration_journal.sql` creates a durable PostgreSQL journal and append-only transition history for a future V1-to-V2 ciphertext migration. It stores only opaque record identity, private storage paths, SHA-256 fingerprints, format/key identifiers, state, timestamps, retry count and safe error codes; it never stores audio bytes or encryption keys.
+Before any separately approved live execution, all of the following remain required: escrow and independently recover both legacy and target voice keys; verify coordinated encrypted PostgreSQL and private-media backups and complete an isolated restore drill; confirm persistent storage and backup consistency; pause uploads, replacements, moderation transitions and purge workers for the maintenance window; run the complete procedure against synthetic fixtures; review journal events, reference changes, rollback and purge outcomes; define operational ownership, alerting and a controlled operator entrypoint. Keep the legacy ciphertext and key until the rollback window is formally closed and dependent backups/recovery procedures are verified. Passing CI does not satisfy these deployment gates.
 
-The database enforces the ordered state transitions, optimistic version increments, immutable source identity, one active migration per voice-intro record, and append-only event history. A future worker must still use compare-and-swap updates (`WHERE id = ... AND state = ... AND version = ...`) inside transactions, authenticate staged ciphertext before switching the profile reference, and reconcile the journal against the live reference after a crash.
-
-This is schema and integrity enforcement only. There is no persistent-journal repository API, migration worker, filesystem staging implementation, reference-switch transaction, rollback executor, scheduler, or `--apply` command yet. Do not run a live migration or rotate the active voice key. Keep original ciphertext and the legacy key available through the eventual rollback window.
-
-
-### Persistent migration-worker leases
-
-Migration `235_voice_intro_migration_worker_leases.sql` adds database-enforced worker leases to the voice-introduction journal. A worker claim must select eligible rows with `FOR UPDATE SKIP LOCKED` inside a transaction, set a random lease token and expiry, and increment the monotonic `lease_generation`. The generation is a fencing value: every subsequent journal transition must include both the current token and generation in its compare-and-swap predicate.
-
-A worker may renew only its own unexpired lease and may release only the lease whose token/generation it still holds. An expired lease can be reclaimed by another worker, which receives a new token and higher generation; the old worker must then be unable to renew, release, or commit a journal transition. Keep lease durations bounded and renew well before expiry. Treat a zero-row renewal or transition as lease loss and stop all file/database work for that record.
-
-The migration adds coordination metadata and integrity guards only. It does not create a worker repository, schedule a job, read or write audio, switch profile references, or activate migration. The integration test covers concurrent claim exclusion, owner-only renewal/release, expiry reclaim and stale-worker fencing. Persistent repository operations and crash-recovery reconciliation remain separate work and require review before any migration can be enabled.
+The read-only inventory and V1-to-V2 migration preflight described above remain prerequisites for planning. They do not start the worker, authorize migration, or modify files or database rows. Never connect the worker to live data or schedule it without separate explicit approval.
