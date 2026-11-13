@@ -48,13 +48,13 @@ The journal event trigger records each state transition in the append-only event
 - Staging uses a deterministic per-journal UUID filename and exclusive creation. If a worker crashes after writing the staged file but before the journal transition, the next attempt authenticates and reuses the existing staged file instead of overwriting it.
 - The old source ciphertext remains available throughout the rollback window. It is not removed by the migration worker directly; the existing purge worker handles queued deletion and retries.
 - If the source cannot be authenticated, the worker fails closed and does not switch the profile reference.
-- If the staged file is corrupt but the source remains authentic, the worker restores the source reference and queues the staged file for deletion.
+- If the staged file is corrupt before the reference switch, processing fails closed and the live profile reference remains on the source; the worker does not overwrite or silently discard the staged artifact. If corruption is detected after the reference switch and the source remains authentic, the worker restores the source reference and queues the staged file for deletion.
 
 ## Worker behavior
 
 `processNextVoiceIntroMigration(pool, options)` processes at most one leased journal row per invocation. It advances only through guarded transitions and returns a non-sensitive status such as `idle`, `rollback_window`, `completed`, `rolled_back`, `cas_conflict`, or `lease_lost`.
 
-The rollback window defaults to 24 hours. The PostgreSQL clock is authoritative for the deadline. The worker renews its lease before each processing step and releases the lease best-effort on exit.
+The rollback window defaults to 24 hours. The PostgreSQL clock is authoritative for the deadline. The worker renews its lease before each processing step and releases the lease best-effort on exit. Unexpected filesystem, key, or database errors are thrown to the caller; the current profile reference remains unchanged unless the atomic switch transaction commits.
 
 This library function is not yet exposed through a CLI or scheduler. Do not invoke it against live user media as part of ordinary CI.
 
