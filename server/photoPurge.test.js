@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { mkdtemp, rm, symlink } from 'node:fs/promises';
+import os from 'node:os';
 import {
   normalizePrivatePhotoPurgeBatchSize,
   resolvePrivatePhotoPath,
@@ -102,4 +104,25 @@ test('purge worker retains failed tasks and schedules a retry', async () => {
   assert.equal(retry.params[1], 3);
   assert.equal(retry.params[3], 'EACCES');
   assert.equal(statements.at(-1).sql, 'COMMIT');
+});
+
+
+test('photo purge runner rejects a symlinked storage root and accepts a real directory', async () => {
+  const { runPrivatePhotoPurge } = await import('./process-private-photo-purge.js');
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-photo-purge-'));
+  const realRoot = path.join(tempRoot, 'real');
+  const linkedRoot = path.join(tempRoot, 'linked');
+  const pool = { query: async () => ({ rows: [] }) };
+  try {
+    await (await import('node:fs/promises')).mkdir(realRoot);
+    await symlink(realRoot, linkedRoot, 'dir');
+    await assert.rejects(
+      runPrivatePhotoPurge({ storageRoot: linkedRoot, pool }),
+      /not a real directory/
+    );
+    const summary = await runPrivatePhotoPurge({ storageRoot: realRoot, pool });
+    assert.deepEqual(summary, { scanned: 0, deleted: 0, retried: 0, failures: 0 });
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
 });
