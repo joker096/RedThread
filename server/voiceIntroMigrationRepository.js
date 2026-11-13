@@ -82,9 +82,11 @@ function validateTransitionPatch(nextState, patch) {
 export async function claimNextVoiceIntroMigration(pool, {
   workerId,
   leaseDurationMs = DEFAULT_LEASE_MS,
-  token = randomUUID()
+  token = randomUUID(),
+  journalId
 } = {}) {
   requireWorkerId(workerId);
+  if (journalId !== undefined) requireUuid(journalId, 'journal_id');
   requireLeaseDuration(leaseDurationMs);
   requireUuid(token, 'lease_token');
 
@@ -94,6 +96,7 @@ export async function claimNextVoiceIntroMigration(pool, {
          SELECT id
          FROM voice_intro_migration_journal
          WHERE state NOT IN ('completed', 'rolled_back')
+           AND ($4::uuid IS NULL OR id = $4::uuid)
            AND (lease_token IS NULL OR lease_expires_at <= statement_timestamp())
          ORDER BY created_at, id
          FOR UPDATE SKIP LOCKED
@@ -111,7 +114,7 @@ export async function claimNextVoiceIntroMigration(pool, {
                  journal.lease_token, journal.lease_owner,
                  journal.lease_claimed_at, journal.lease_expires_at,
                  journal.lease_generation`,
-      [token, workerId, leaseDurationMs]
+      [token, workerId, leaseDurationMs, journalId ?? null]
     );
     return result.rows[0] || null;
   });
