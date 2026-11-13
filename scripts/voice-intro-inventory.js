@@ -74,7 +74,12 @@ async function inspectPath(storagePath, storageRoot, diskNames, unsafeNames, rep
   let info;
   try { info = await lstat(target); }
   catch { report[missingCounter] += 1; return; }
-  if (info.isSymbolicLink() || !info.isFile()) {\n    if (!unsafeNames.has(name)) { unsafeNames.add(name); report.symlinkOrUnsafePaths += 1; }\n  }
+  if (info.isSymbolicLink() || !info.isFile()) {
+    if (!unsafeNames.has(name)) {
+      unsafeNames.add(name);
+      report.symlinkOrUnsafePaths += 1;
+    }
+  }
 }
 
 export async function inspectVoiceIntroInventory({ pool, storageRoot } = {}) {
