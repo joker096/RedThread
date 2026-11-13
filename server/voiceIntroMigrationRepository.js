@@ -322,7 +322,8 @@ export async function getVoiceIntroMigrationLeaseRecord(pool, { id, token, gener
   const result = await pool.query(
     `SELECT id, voice_intro_id, source_path, source_sha256, source_format,
             target_key_id, state, version, staged_path, staged_sha256,
-            rollback_deadline
+            rollback_deadline,
+            (rollback_deadline IS NOT NULL AND rollback_deadline <= statement_timestamp()) AS rollback_window_elapsed
      FROM voice_intro_migration_journal
      WHERE id = $1 AND lease_token = $2 AND lease_generation = $3
        AND lease_expires_at > statement_timestamp()`,
