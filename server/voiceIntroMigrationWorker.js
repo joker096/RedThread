@@ -30,6 +30,7 @@ function validateRollbackWindow(value) {
  */
 export async function processNextVoiceIntroMigration(pool, {
   workerId,
+  journalId,
   storageRoot,
   keyring,
   leaseDurationMs = 30_000,
@@ -37,7 +38,7 @@ export async function processNextVoiceIntroMigration(pool, {
 } = {}) {
   validateRollbackWindow(rollbackWindowMs);
   if (!keyring || !(keyring.keys instanceof Map)) throw new TypeError('versioned_voice_keyring_required');
-  const lease = await claimNextVoiceIntroMigration(pool, { workerId, leaseDurationMs });
+  const lease = await claimNextVoiceIntroMigration(pool, { workerId, leaseDurationMs, journalId });
   if (!lease) return { status: 'idle' };
 
   const leaseIdentity = {
