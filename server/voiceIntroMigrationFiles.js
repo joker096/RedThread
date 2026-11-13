@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, open, unlink } from 'node:fs/promises';
+import { lstat, open, realpath, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import {
   decryptVoiceIntro,
@@ -22,7 +22,7 @@ async function assertPrivateRoot(storageRoot) {
   }
   const root = path.resolve(storageRoot);
   const info = await lstat(root);
-  if (!info.isDirectory() || info.isSymbolicLink()) {
+  if (!info.isDirectory() || info.isSymbolicLink() || await realpath(root) !== root) {
     throw new Error('voice_intro_storage_root_not_private_directory');
   }
   return root;
@@ -32,7 +32,8 @@ async function readRegularCiphertext(filePath) {
   const handle = await open(filePath, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
   try {
     const info = await handle.stat();
-    if (!info.isFile() || info.size < 1 || info.size > MAX_CIPHERTEXT_BYTES) {
+    if (!info.isFile() || info.size < 1 || info.size > MAX_CIPHERTEXT_BYTES ||
+        (info.mode & 0o077) !== 0) {
       throw new Error('voice_intro_ciphertext_file_invalid');
     }
     return await handle.readFile();
