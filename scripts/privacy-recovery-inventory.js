@@ -74,7 +74,7 @@ export async function runPrivacyRecoveryInventory({ pool, env = process.env } = 
     }
     const [users, voiceIntros, photos, giftOrders] = await Promise.all([
       client.query('SELECT id FROM users'),
-      client.query('SELECT id FROM profile_voice_intros'),
+      client.query('SELECT id, user_id FROM profile_voice_intros'),
       client.query('SELECT id FROM photo_assets'),
       client.query('SELECT id FROM gift_delivery_orders')
     ]);
