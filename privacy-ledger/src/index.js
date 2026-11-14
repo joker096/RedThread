@@ -32,7 +32,7 @@ async function readBoundedBody(request, maxBytes) {
       if (done) break;
       total += value.byteLength;
       if (total > maxBytes) {
-        await reader.cancel("request_too_large").catch(() => {});
+        void reader.cancel("request_too_large").catch(() => {});
         return null;
       }
       chunks.push(value);
@@ -105,8 +105,8 @@ export async function handleRequest(request, env) {
   const url = new URL(request.url);
 
   if (request.method === "POST" && url.pathname === "/v1/events") {
-    const rawBody = await request.text();
-    if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) return json({ error: "request_too_large" }, 413);
+    const rawBody = await readBoundedBody(request, MAX_BODY_BYTES);
+    if (rawBody === null) return json({ error: "request_too_large" }, 413);
     if (!await authenticate(request, env, rawBody)) return json({ error: "unauthorized" }, 401);
     let event;
     try { event = JSON.parse(rawBody); } catch { return json({ error: "invalid_json" }, 400); }
