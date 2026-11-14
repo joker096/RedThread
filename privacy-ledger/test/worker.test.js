@@ -49,6 +49,54 @@ test("ledger rejects oversized event payloads before database access", async () 
   assert.equal(response.status, 413);
 });
 
+test("ledger rejects oversized streamed bodies without buffering the complete payload", async () => {
+  let cancelled = false;
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new Uint8Array(4096));
+      controller.enqueue(new Uint8Array(4096));
+      controller.enqueue(new Uint8Array(4096));
+    },
+    cancel() { cancelled = true; }
+  });
+  const request = new Request("https://ledger.test/v1/events", {
+    method: "POST",
+    body: stream,
+    duplex: "half",
+    headers: {
+      "x-ledger-timestamp": String(Math.floor(Date.now() / 1000)),
+      "x-ledger-signature": "0".repeat(64)
+    }
+  });
+  const response = await handleRequest(request, env);
+  assert.equal(response.status, 413);
+  assert.equal(cancelled, true);
+});
+
+test("ledger rejects a declared oversized body before reading its stream", async () => {
+  let consumed = false;
+  const stream = new ReadableStream({
+    pull(controller) {
+      consumed = true;
+      controller.enqueue(new Uint8Array([1]));
+      controller.close();
+    }
+  });
+  const request = new Request("https://ledger.test/v1/events", {
+    method: "POST",
+    body: stream,
+    duplex: "half",
+    headers: {
+      "content-length": "999999",
+      "x-ledger-timestamp": String(Math.floor(Date.now() / 1000)),
+      "x-ledger-signature": "0".repeat(64)
+    }
+  });
+  const response = await handleRequest(request, env);
+  assert.equal(response.status, 413);
+  assert.equal(consumed, false);
+});
+
 class FakeLedgerDb {
   constructor() { this.rows = []; this.sequence = 0; }
   prepare(sql) {
