@@ -1,6 +1,8 @@
 import 'dotenv/config';
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { queuePrivatePhotoPurges } from './photoPurge.js';
+import { decryptVoiceIntro, encryptVoiceIntro, parseVoiceIntroEncryptionKeyring, persistVoiceIntroReview, queuePrivateVoiceIntroPurges, resolvePrivateVoiceIntroPath, validateVoiceIntro, ensurePrivateVoiceIntroStorageRoot } from './voiceIntroStorage.js';
+import { VOICE_INTRO_CONSENT_VERSION, isCurrentVoiceIntroConsentVersion } from './voiceIntroConsent.js';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -13,6 +15,7 @@ import { normalizeGiftRequestInput } from './giftRequestInput.js';
 import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, acquireGiftSafetyUserLocks, recipientGiftAcceptanceLimitReached, expireStaleGiftRequestsForPair, enqueueExpiredGiftPaymentReconciliation, notifyGiftRequestUpdate, hasPendingRecipientDecline } from './giftOrderCreationService.js';
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
+import { appendPrivacyRecoveryEvent } from './privacyRecoveryLedger.js';
 import { consumeIdentityL3UploadCapability, IDENTITY_L3_CONSENT_NOTICE, IDENTITY_L3_CONSENT_VERSION, IdentityL3UploadTokenError, issueIdentityL3UploadCapability } from './identityL3UploadTokens.js';
 import { assertIdentityL3StorageReady, assertIdentityL3TemporaryStorageReady, clearIdentityL3TemporaryFiles, deleteIdentityL3Object, IDENTITY_L3_MAX_MEDIA_BYTES, IdentityL3StorageError, openIdentityL3Stream, parseIdentityL3EncryptionKey, storeIdentityL3Stream } from './identityL3Storage.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
@@ -25,6 +28,7 @@ import { resolveTrustProxyHops } from './trustProxyConfig.js';
 import { applyMobileCorsHeaders, createMobileAuthRouter, isAllowedMobileOrigin, readMobileAccessToken } from './mobileAuthRoutes.js';
 import { hashMobileToken } from './mobileTokens.js';
 import { verifyGoogleIdTokenClaims } from './googleIdToken.js';
+import { buildUserDataExport } from './userDataExport.js';
 import { screenProfilePrivate, screenTextPrivate } from './privacyScreening.js';
 import { withPooledTransaction, rollbackPooledTransaction } from './withPooledTransaction.js';
 import { normalizeMatchMessageHistoryOptions, matchMessageHistoryOrder, toChronologicalMessageHistory } from './matchMessageHistory.js';
@@ -671,6 +675,11 @@ app.get('/api/paddle/config', requireSession, (req, res) => {
 });
 
 const photoStorageDir = path.resolve(process.env.PHOTO_STORAGE_DIR || 'uploads/private-photos');
+const voiceIntroStorageDir = path.resolve(process.env.VOICE_INTRO_STORAGE_DIR || 'uploads/private-voice-intros');
+
+async function ensurePrivateVoiceIntroStorageDirectory() {
+  await ensurePrivateVoiceIntroStorageRoot(voiceIntroStorageDir, { create: true, mode: 0o700 });
+}
 
 const authLimiter = rateLimit({
   ...(pool ? { store: new PostgresRateLimitStore(pool, 'auth') } : {}),
@@ -681,6 +690,16 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'too_many_auth_attempts' }
+});
+const userDataExportLimiter = rateLimit({
+  ...(pool ? { store: new PostgresRateLimitStore(pool, 'user_data_export') } : {}),
+  windowMs: 60 * 60 * 1000,
+  limit: process.env.NODE_ENV === 'test' && /^\d+$/.test(process.env.USER_DATA_EXPORT_RATE_LIMIT || '')
+    ? Math.max(3, Math.min(Number.parseInt(process.env.USER_DATA_EXPORT_RATE_LIMIT, 10), 1000))
+    : 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too_many_user_data_exports' }
 });
 const profileActionLimiter = rateLimit({
   ...(pool ? { store: new PostgresRateLimitStore(pool, 'profile') } : {}),
@@ -773,7 +792,8 @@ async function createAccountActionToken(client, userId, purpose, lifetimeMinutes
 
 function accountActionUrl(parameter, token) {
   const base = (process.env.APP_URL || process.env.APP_ORIGIN).replace(/\/+$/, '');
-  return base + '/?'+ parameter + '=' + encodeURIComponent(token);
+  // Keep one-time tokens in the URL fragment: fragments are never sent in HTTP requests or access logs.
+  return base + '/#' + parameter + '=' + encodeURIComponent(token);
 }
 
 function requireDatabase(_req, res, next) {
@@ -871,6 +891,7 @@ async function requireSession(req, res, next) {
     try {
       const mobileResult = await pool.query(
         `SELECT u.id, u.email, u.status, u.role, u.email_verified_at,
+                'mobile'::text AS auth_source,
                 u.female_trial_ends_at, u.premium_until, u.premium_lifetime,
                 u.paddle_customer_id, u.paddle_subscription_id, u.paddle_subscription_status,
                 pca.status AS paddle_checkout_status, pca.plan AS paddle_checkout_plan,
@@ -907,7 +928,7 @@ async function requireSession(req, res, next) {
 
   try {
     const result = await pool.query(
-      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.female_trial_ends_at, u.premium_until, u.premium_lifetime, u.paddle_customer_id, u.paddle_subscription_id, u.paddle_subscription_status, pca.status AS paddle_checkout_status, pca.plan AS paddle_checkout_plan, u.phone_verified_at,
+      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, 'web'::text AS auth_source, u.female_trial_ends_at, u.premium_until, u.premium_lifetime, u.paddle_customer_id, u.paddle_subscription_id, u.paddle_subscription_status, pca.status AS paddle_checkout_status, pca.plan AS paddle_checkout_plan, u.phone_verified_at,
               p.display_name, p.gender, p.country, p.city, p.relationship_intent, s.id AS session_id
        FROM sessions s
        JOIN users u ON u.id = s.user_id
@@ -1508,7 +1529,7 @@ app.post('/api/auth/password-reset/request', authLimiter, validateRequestOrigin,
   if (!isValidEmail(email) || !emailDeliveryConfigured()) return res.status(202).json(generic);
   try {
     const result = await pool.query(
-      "SELECT id FROM users WHERE email = $1 AND status = 'active' LIMIT 1",
+      "SELECT id FROM users WHERE email = $1 AND status = 'active' AND email_verified_at IS NOT NULL LIMIT 1",
       [email]
     );
     const user = result.rows[0];
@@ -1519,7 +1540,7 @@ app.post('/api/auth/password-reset/request', authLimiter, validateRequestOrigin,
         await client.query('BEGIN');
         await acquireGiftSafetyUserLocks(client, user.id);
         const current = await client.query(
-          "SELECT id, email FROM users WHERE id = $1 AND email = $2 AND status = 'active' FOR SHARE",
+          "SELECT id, email FROM users WHERE id = $1 AND email = $2 AND status = 'active' AND email_verified_at IS NOT NULL FOR SHARE",
           [user.id, email]
         );
         if (current.rows[0]) {
@@ -1563,9 +1584,11 @@ app.post('/api/auth/password-reset/complete', authLimiter, validateRequestOrigin
     await client.query('BEGIN');
     const tokenHash = hashSessionToken(token);
     const preview = await client.query(
-      `SELECT user_id FROM account_action_tokens
-       WHERE purpose = 'password_reset' AND token_hash = $1
-         AND consumed_at IS NULL AND expires_at > NOW()`,
+      `SELECT t.user_id FROM account_action_tokens t
+       JOIN users u ON u.id = t.user_id
+       WHERE t.purpose = 'password_reset' AND t.token_hash = $1
+         AND t.consumed_at IS NULL AND t.expires_at > NOW()
+         AND u.status = 'active' AND u.email_verified_at IS NOT NULL`,
       [tokenHash]
     );
     const userId = preview.rows[0]?.user_id;
@@ -1575,10 +1598,12 @@ app.post('/api/auth/password-reset/complete', authLimiter, validateRequestOrigin
     }
     await acquireGiftSafetyUserLocks(client, userId);
     const result = await client.query(
-      `SELECT id, user_id FROM account_action_tokens
-       WHERE purpose = 'password_reset' AND token_hash = $1
-         AND user_id = $2 AND consumed_at IS NULL AND expires_at > NOW()
-       FOR UPDATE`,
+      `SELECT t.id, t.user_id FROM account_action_tokens t
+       JOIN users u ON u.id = t.user_id
+       WHERE t.purpose = 'password_reset' AND t.token_hash = $1
+         AND t.user_id = $2 AND t.consumed_at IS NULL AND t.expires_at > NOW()
+         AND u.status = 'active' AND u.email_verified_at IS NOT NULL
+       FOR UPDATE OF t`,
       [tokenHash, userId]
     );
     const action = result.rows[0];
@@ -1587,7 +1612,7 @@ app.post('/api/auth/password-reset/complete', authLimiter, validateRequestOrigin
       return res.status(400).json({ error: 'invalid_or_expired_token' });
     }
     const updated = await client.query(
-      "UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 AND status = 'active' RETURNING id",
+      "UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 AND status = 'active' AND email_verified_at IS NOT NULL RETURNING id",
       [passwordHash, action.user_id]
     );
     if (!updated.rowCount) {
@@ -1778,8 +1803,9 @@ async function enqueueGiftSafetyPaymentReconciliation(client, gift, { actorUserI
 async function suspendGiftOrdersForUser(client, userId, { actorUserId = null, actorType = 'system', reason = 'account_safety_event' } = {}) {
   // Use the same pair-level lock as accept/block/report, in stable order, before
   // touching gift rows. Clear any legacy pointer left on a state where the
-  // address-vault constraints do not permit one; delivered orders deliberately
-  // retain their verified pointer for the delivery audit trail.
+  // address-vault constraints do not permit one. Delivered orders retain their
+  // delivery evidence here; the account-tombstone trigger separately revokes
+  // every remaining private address pointer, including completed deliveries.
   const pairs = await client.query(
     `SELECT DISTINCT LEAST(sender_id, recipient_id)::text AS user_a,
             GREATEST(sender_id, recipient_id)::text AS user_b
@@ -1867,10 +1893,22 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     const account = await client.query(
       `SELECT u.password_hash, u.email
        FROM users u
-       JOIN sessions s ON s.user_id = u.id
        WHERE u.id = $1 AND u.status = 'active'
-         AND s.id = $2 AND s.expires_at > statement_timestamp()`,
-      [req.authUser.id, req.authUser.session_id]
+         AND (
+           ( $3 = 'mobile' AND EXISTS (
+             SELECT 1 FROM mobile_sessions ms
+             WHERE ms.id = $2 AND ms.user_id = u.id
+               AND ms.access_expires_at > statement_timestamp()
+               AND ms.revoked_at IS NULL
+           ))
+           OR
+           ( $3 = 'web' AND EXISTS (
+             SELECT 1 FROM sessions s
+             WHERE s.id = $2 AND s.user_id = u.id
+               AND s.expires_at > statement_timestamp()
+           ))
+         )`,
+      [req.authUser.id, req.authUser.session_id, req.authUser.auth_source]
     );
     if (!account.rows[0] || typeof account.rows[0].password_hash !== 'string' ||
         !(await verifyPassword(password, account.rows[0].password_hash))) {
@@ -2032,6 +2070,16 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
       }
     }
 
+    try {
+      await appendPrivacyRecoveryEvent({
+        eventType: 'account_erasure_requested',
+        userId: req.authUser.id
+      });
+    } catch (error) {
+      console.error('Privacy recovery ledger rejected account erasure:', error?.message || 'unknown error');
+      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+    }
+
     await client.query('BEGIN');
     // Serialize deletion with registration for the same normalized email. This
     // prevents a concurrent registration from slipping between the tombstone
@@ -2054,6 +2102,9 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     const photoFiles = await client.query('SELECT storage_path FROM photo_assets WHERE user_id = $1', [req.authUser.id]);
     await queuePrivatePhotoPurges(client, photoFiles.rows.map(row => row.storage_path));
     await client.query('DELETE FROM photo_assets WHERE user_id = $1', [req.authUser.id]);
+    const voiceIntroFiles = await client.query('SELECT storage_path FROM profile_voice_intros WHERE user_id = $1', [req.authUser.id]);
+    await queuePrivateVoiceIntroPurges(client, voiceIntroFiles.rows.map(row => row.storage_path));
+    await client.query('DELETE FROM profile_voice_intros WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM sessions WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
     await client.query('DELETE FROM identity_verification_consents WHERE user_id = $1', [req.authUser.id]);
@@ -2098,6 +2149,10 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
        WHERE id = $1`,
       [req.authUser.id, 'deleted+' + req.authUser.id + '@deleted.invalid']
     );
+    // Voice consent history is append-only while the account is active and may
+    // be purged only after the account has been tombstoned as deleted.
+    await client.query('DELETE FROM profile_voice_intro_consent_events WHERE user_id = $1', [req.authUser.id]);
+    await client.query('DELETE FROM profile_voice_intro_consents WHERE user_id = $1', [req.authUser.id]);
     // Account deletion removes both the current consent state and its history.
     // Migration 104 permits history purge only after the account is marked deleted.
     await client.query('DELETE FROM identity_l3_consent_events WHERE user_id = $1', [req.authUser.id]);
@@ -2248,6 +2303,14 @@ app.get('/api/profiles/search', requireSession, async (req, res) => {
          p.city,
          p.bio,
          p.photo_urls AS "photoUrls",
+         EXISTS (
+           SELECT 1 FROM profile_voice_intros voice_intro
+           JOIN profile_voice_intro_consents voice_consent
+             ON voice_consent.user_id = voice_intro.user_id
+            AND voice_consent.consent_version = ${VOICE_INTRO_CONSENT_VERSION}
+            AND voice_consent.withdrawn_at IS NULL
+           WHERE voice_intro.user_id = p.user_id AND voice_intro.review_status = 'approved'
+         ) AS "voiceIntroAvailable",
          p.occupation,
          p.education,
          p.languages,
@@ -2564,6 +2627,307 @@ app.post('/api/photos', validateRequestOrigin, requireSession, profileActionLimi
   } finally { client?.release(); }
 });
 
+app.put('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession, profileActionLimiter,
+  express.raw({ type: ['audio/mp4', 'audio/aac', 'audio/x-m4a'], limit: '2mb' }), async (req, res) => {
+    if (!isCurrentVoiceIntroConsentVersion(req.get('x-vow-voice-intro-consent-version')) ||
+        req.get('x-vow-voice-intro-consent') !== 'granted') {
+      return res.status(428).json({ error: 'voice_intro_consent_required', consentVersion: VOICE_INTRO_CONSENT_VERSION });
+    }
+    if (process.env.NODE_ENV === 'production' && (!process.env.VOICE_INTRO_STORAGE_DIR || (!process.env.VOICE_INTRO_ENCRYPTION_KEY && !process.env.VOICE_INTRO_KEYRING))) {
+      return res.status(503).json({ error: 'voice_intro_storage_not_configured' });
+    }
+    const key = parseVoiceIntroEncryptionKeyring();
+    if (!key) return res.status(503).json({ error: 'voice_intro_encryption_not_configured' });
+    let media;
+    try {
+      media = await validateVoiceIntro(req.body, req.headers['content-type']);
+    } catch (error) {
+      const code = error instanceof Error ? error.message : 'invalid_voice_intro';
+      return res.status(code === 'voice_intro_too_large' ? 413 : 400).json({ error: code });
+    }
+    const id = randomUUID();
+    const filePath = path.join(voiceIntroStorageDir, id + '.enc');
+    const encrypted = encryptVoiceIntro(req.body, key);
+    let client;
+    let fileWritten = false;
+    try {
+      client = await pool.connect();
+      await client.query('BEGIN');
+      await acquireGiftSafetyUserLocks(client, req.authUser.id);
+      const profile = await client.query(
+        `SELECT p.user_id FROM profiles p JOIN users u ON u.id = p.user_id
+         WHERE p.user_id = $1 AND u.status = 'active' FOR UPDATE OF p, u`,
+        [req.authUser.id]
+      );
+      if (!profile.rows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'profile_not_found' });
+      }
+      await client.query(
+        `INSERT INTO profile_voice_intro_consents
+           (user_id, consent_version, granted_at, withdrawn_at, updated_at)
+         VALUES ($1, $2, statement_timestamp(), NULL, statement_timestamp())
+         ON CONFLICT (user_id) DO UPDATE SET
+           consent_version = EXCLUDED.consent_version,
+           granted_at = statement_timestamp(), withdrawn_at = NULL,
+           updated_at = statement_timestamp()`,
+        [req.authUser.id, VOICE_INTRO_CONSENT_VERSION]
+      );
+      await client.query(
+        `INSERT INTO profile_voice_intro_consent_events
+           (user_id, actor_user_id, event_type, consent_version, occurred_at)
+         SELECT user_id, user_id, 'granted', consent_version, granted_at
+         FROM profile_voice_intro_consents WHERE user_id = $1 AND consent_version = $2`,
+        [req.authUser.id, VOICE_INTRO_CONSENT_VERSION]
+      );
+      const previous = await client.query(
+        'SELECT storage_path FROM profile_voice_intros WHERE user_id = $1 FOR UPDATE',
+        [req.authUser.id]
+      );
+      await ensurePrivateVoiceIntroStorageDirectory();
+      await writeFile(filePath, encrypted, { flag: 'wx', mode: 0o600 });
+      fileWritten = true;
+      if (previous.rows[0]?.storage_path) {
+        await queuePrivateVoiceIntroPurges(client, [previous.rows[0].storage_path]);
+      }
+      await client.query(
+        `INSERT INTO profile_voice_intros
+           (id, user_id, storage_path, mime_type, byte_size, duration_ms, review_status)
+         VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+         ON CONFLICT (user_id) DO UPDATE SET
+           id = EXCLUDED.id, storage_path = EXCLUDED.storage_path,
+           mime_type = EXCLUDED.mime_type, byte_size = EXCLUDED.byte_size,
+           duration_ms = EXCLUDED.duration_ms, review_status = 'pending',
+           reviewed_at = NULL, reviewer_id = NULL, review_reason = NULL,
+           created_at = statement_timestamp(), updated_at = statement_timestamp()`,
+        [id, req.authUser.id, filePath, media.mimeType, media.byteSize, media.durationMs]
+      );
+      await client.query('COMMIT');
+      return res.status(201).json({ voiceIntro: { id, status: 'pending', durationMs: media.durationMs } });
+    } catch (error) {
+      if (client && !await rollbackPooledTransaction(client)) client = null;
+      if (fileWritten) await unlink(filePath).catch(() => {});
+      console.error('Voice intro upload failed:', error?.message || 'unknown error');
+      return res.status(500).json({ error: 'voice_intro_upload_failed' });
+    } finally {
+      client?.release();
+    }
+  });
+
+app.get('/api/profiles/me/voice-intro', profileActionLimiter, requireSession, async (req, res) => {
+  const key = parseVoiceIntroEncryptionKeyring();
+  if (!key) return res.status(503).json({ error: 'voice_intro_encryption_not_configured' });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const result = await client.query(
+      `SELECT a.storage_path AS "storagePath", a.mime_type AS "mimeType"
+       FROM profile_voice_intros a
+       JOIN profile_voice_intro_consents c ON c.user_id = a.user_id
+       WHERE a.user_id = $1 AND c.consent_version = $2 AND c.withdrawn_at IS NULL`,
+
+      [req.authUser.id, VOICE_INTRO_CONSENT_VERSION]
+    );
+    const asset = result.rows[0];
+    if (!asset) {
+      await client.query('ROLLBACK');
+      return res.status(404).end();
+    }
+    await ensurePrivateVoiceIntroStorageDirectory();
+    const encrypted = await readFile(resolvePrivateVoiceIntroPath(asset.storagePath, voiceIntroStorageDir));
+    const bytes = decryptVoiceIntro(encrypted, key);
+    await client.query('COMMIT');
+    res.setHeader('Content-Type', asset.mimeType);
+    res.setHeader('Content-Length', bytes.length);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-site');
+    res.setHeader('Cache-Control', 'private, no-store');
+    return res.send(bytes);
+  } catch (error) {
+    if (client && !await rollbackPooledTransaction(client)) client = null;
+    if (error?.code === 'ENOENT') return res.status(404).end();
+    console.error('Voice intro read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'voice_intro_read_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.delete('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id);
+    const consent = await client.query(
+      'SELECT consent_version, withdrawn_at FROM profile_voice_intro_consents WHERE user_id = $1 FOR UPDATE',
+      [req.authUser.id]
+    );
+    const result = await client.query(
+      'SELECT id, storage_path FROM profile_voice_intros WHERE user_id = $1 FOR UPDATE',
+      [req.authUser.id]
+    );
+    for (const clip of result.rows) {
+      try {
+        await appendPrivacyRecoveryEvent({
+          eventType: 'voice_intro_erasure_requested',
+          userId: req.authUser.id,
+          resourceId: clip.id
+        });
+      } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Privacy recovery ledger rejected voice intro erasure:', error?.message || 'unknown error');
+        return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+      }
+    }
+    if (consent.rows[0] && !consent.rows[0].withdrawn_at) {
+      try {
+        await appendPrivacyRecoveryEvent({
+          eventType: 'voice_intro_consent_withdrawn',
+          userId: req.authUser.id
+        });
+      } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Privacy recovery ledger rejected voice consent withdrawal:', error?.message || 'unknown error');
+        return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+      }
+      await client.query(
+        'UPDATE profile_voice_intro_consents SET withdrawn_at = statement_timestamp(), updated_at = statement_timestamp() WHERE user_id = $1',
+        [req.authUser.id]
+      );
+      await client.query(
+        `INSERT INTO profile_voice_intro_consent_events
+           (user_id, actor_user_id, event_type, consent_version, occurred_at)
+         SELECT user_id, user_id, 'withdrawn', consent_version, withdrawn_at
+         FROM profile_voice_intro_consents WHERE user_id = $1`,
+        [req.authUser.id]
+      );
+    }
+    await queuePrivateVoiceIntroPurges(client, result.rows.map(row => row.storage_path));
+    await client.query('DELETE FROM profile_voice_intros WHERE user_id = $1', [req.authUser.id]);
+    await client.query('COMMIT');
+    return res.status(204).end();
+  } catch (error) {
+    if (client && !await rollbackPooledTransaction(client)) client = null;
+    console.error('Voice intro delete failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'voice_intro_delete_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.get('/api/profiles/:userId/voice-intro', profileActionLimiter, requireSession, async (req, res) => {
+  if (!isUuid(req.params.userId) || req.params.userId === req.authUser.id) return res.status(404).end();
+  const key = parseVoiceIntroEncryptionKeyring();
+  if (!key) return res.status(503).json({ error: 'voice_intro_encryption_not_configured' });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, req.params.userId);
+    const viewerIdentity = await client.query(
+      `SELECT p.gender, iv.status AS identity_status,
+              iv.provider_environment AS identity_environment,
+              l3.status AS l3_status, l3.expires_at AS l3_expires_at
+       FROM profiles p
+       JOIN users u ON u.id = p.user_id AND u.status = 'active'
+       LEFT JOIN identity_verifications iv ON iv.user_id = p.user_id
+       LEFT JOIN LATERAL identity_l3_current_decision(p.user_id) l3 ON TRUE
+       WHERE p.user_id = $1 FOR SHARE OF p, u`,
+      [req.authUser.id]
+    );
+    const viewer = viewerIdentity.rows[0];
+    if (!viewer || !canIdentityInteract({
+      gender: viewer.gender,
+      status: viewer.identity_status,
+      environment: viewer.identity_environment,
+      l3Status: viewer.l3_status,
+      l3ExpiresAt: viewer.l3_expires_at
+    })) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'identity_verification_required', requiredLevel: 'L2_AND_L3' });
+    }
+    const viewerExposurePolicy = await captureFemaleExposurePolicy(client, req.authUser);
+    if (viewerExposurePolicy.isFreeTier) {
+      const issued = await client.query(
+        `SELECT 1 FROM female_profile_exposures
+         WHERE user_id = $1 AND profile_user_id = $2 AND exposure_date = $3::date`,
+        [req.authUser.id, req.params.userId, viewerExposurePolicy.exposureDate]
+      );
+      if (!issued.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(404).end();
+      }
+    }
+    const result = await client.query(
+      `SELECT a.storage_path AS "storagePath", a.mime_type AS "mimeType"
+       FROM profile_voice_intros a
+       JOIN profiles owner_profile ON owner_profile.user_id = a.user_id
+       JOIN users owner ON owner.id = a.user_id AND owner.status = 'active'
+       JOIN profiles viewer_profile ON viewer_profile.user_id = $2
+       JOIN users viewer ON viewer.id = $2 AND viewer.status = 'active'
+       JOIN profile_voice_intro_consents consent ON consent.user_id = a.user_id
+       WHERE a.user_id = $1 AND a.review_status = 'approved'
+         AND consent.consent_version = $3 AND consent.withdrawn_at IS NULL
+         AND owner_profile.gender <> viewer_profile.gender
+         AND owner_profile.birth_date IS NOT NULL
+         AND owner_profile.children_disclosure_confirmed_at IS NOT NULL
+         AND owner_profile.has_children IS NOT NULL
+         AND owner_profile.is_visible = TRUE
+         AND (owner_profile.gender <> 'male' OR (
+           EXISTS (SELECT 1 FROM identity_verifications iv
+                   WHERE iv.user_id = owner.id AND iv.provider = 'didit'
+                     AND iv.status = 'verified' AND iv.provider_environment = 'live')
+           AND identity_l3_has_active_approval(owner.id)
+         ))
+         AND (viewer_profile.gender <> 'male' OR (
+           EXISTS (SELECT 1 FROM identity_verifications iv
+                   WHERE iv.user_id = viewer.id AND iv.provider = 'didit'
+                     AND iv.status = 'verified' AND iv.provider_environment = 'live')
+           AND identity_l3_has_active_approval(viewer.id)
+         ))
+         AND NOT EXISTS (
+           SELECT 1 FROM user_blocks b
+           WHERE (b.blocker_id = viewer.id AND b.blocked_id = owner.id)
+              OR (b.blocker_id = owner.id AND b.blocked_id = viewer.id)
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM profile_passes skipped
+           WHERE skipped.passer_id = viewer.id AND skipped.passed_user_id = owner.id
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM likes prior_like
+           WHERE prior_like.sender_id = viewer.id AND prior_like.target_id = owner.id
+         )
+       LIMIT 1`,
+      [req.params.userId, req.authUser.id, VOICE_INTRO_CONSENT_VERSION]
+    );
+    const asset = result.rows[0];
+    if (!asset) {
+      await client.query('ROLLBACK');
+      return res.status(404).end();
+    }
+    const encrypted = await readFile(resolvePrivateVoiceIntroPath(asset.storagePath, voiceIntroStorageDir));
+    const bytes = decryptVoiceIntro(encrypted, key);
+    await client.query('COMMIT');
+    res.setHeader('Content-Type', asset.mimeType);
+    res.setHeader('Content-Length', bytes.length);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-site');
+    res.setHeader('Cache-Control', 'private, no-store');
+    return res.send(bytes);
+  } catch (error) {
+    if (client && !await rollbackPooledTransaction(client)) client = null;
+    if (error?.code === 'ENOENT') return res.status(404).end();
+    console.error('Public voice intro read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'voice_intro_read_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
 app.get('/api/photos/:photoId', requireSession, async (req,res) => {
   if(!isUuid(req.params.photoId)) return res.status(404).end();
   let client;
@@ -2854,6 +3218,87 @@ app.get('/api/trust/summary', requireSession, async (req, res) => {
   }
 });
 
+app.post('/api/account/export', validateRequestOrigin, requireSession, userDataExportLimiter, requireDatabase, async (req, res) => {
+  try {
+    const read = await withActiveAccountRead(req.authUser.id, client =>
+      buildUserDataExport(client, req.authUser.id)
+    );
+    if (!read.active || !read.value) return res.status(401).json({ error: 'account_not_active' });
+    const exportDate = new Date().toISOString().slice(0, 10);
+    res.set({
+      'Cache-Control': 'no-store, private',
+      'Pragma': 'no-cache',
+      'Content-Disposition': `attachment; filename="vow-data-export-${exportDate}.json"`
+    });
+    return res.json(read.value);
+  } catch (error) {
+    console.error('User data export failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'user_data_export_unavailable' });
+  }
+});
+
+app.get('/api/account/export/media/:kind/:assetId', requireSession, profileActionLimiter, requireDatabase, async (req, res) => {
+  const { kind, assetId } = req.params;
+  if (!['photo', 'voice-intro'].includes(kind) || !isUuid(assetId)) return res.status(404).end();
+  try {
+    const read = await withActiveAccountRead(req.authUser.id, async client => {
+      if (kind === 'photo') {
+        const asset = await client.query(
+          `SELECT storage_path AS "storagePath", mime_type AS "mimeType"
+           FROM photo_assets WHERE id = $1 AND user_id = $2`,
+          [assetId, req.authUser.id]
+        );
+        const row = asset.rows[0];
+        if (!row || !['image/jpeg', 'image/png', 'image/webp'].includes(row.mimeType)) return null;
+        const filePath = path.resolve(row.storagePath);
+        const extension = path.extname(filePath).toLowerCase();
+        if (path.dirname(filePath) !== photoStorageDir ||
+            path.basename(filePath) !== assetId + extension ||
+            !['.jpg', '.jpeg', '.png', '.webp'].includes(extension)) return null;
+        const fileStat = await lstat(filePath);
+        if (!fileStat.isFile() || fileStat.isSymbolicLink()) return null;
+        return { bytes: await readFile(filePath), mimeType: row.mimeType, filename: assetId + extension };
+      }
+
+      const asset = await client.query(
+        `SELECT vi.storage_path AS "storagePath", vi.mime_type AS "mimeType"
+         FROM profile_voice_intros vi
+         JOIN profile_voice_intro_consents c ON c.user_id = vi.user_id
+         WHERE vi.id = $1 AND vi.user_id = $2
+           AND c.consent_version = $3 AND c.withdrawn_at IS NULL`,
+        [assetId, req.authUser.id, VOICE_INTRO_CONSENT_VERSION]
+      );
+      const row = asset.rows[0];
+      if (!row || !['audio/mp4', 'audio/aac', 'audio/x-m4a'].includes(row.mimeType)) return null;
+      const filePath = resolvePrivateVoiceIntroPath(row.storagePath, voiceIntroStorageDir);
+      const fileStat = await lstat(filePath);
+      if (!fileStat.isFile() || fileStat.isSymbolicLink()) return null;
+      const key = parseVoiceIntroEncryptionKeyring();
+      if (!key) { const error = new Error('voice_intro_encryption_not_configured'); error.code = 'VOICE_INTRO_ENCRYPTION_NOT_CONFIGURED'; throw error; }
+      const bytes = decryptVoiceIntro(await readFile(filePath), key);
+      const extension = row.mimeType === 'audio/aac' ? '.aac' : '.m4a';
+      return { bytes, mimeType: row.mimeType, filename: assetId + extension };
+    });
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    if (!read.value) return res.status(404).end();
+    res.set({
+      'Cache-Control': 'no-store, private',
+      'Pragma': 'no-cache',
+      'X-Content-Type-Options': 'nosniff',
+      'Cross-Origin-Resource-Policy': 'same-site',
+      'Content-Type': read.value.mimeType,
+      'Content-Length': String(read.value.bytes.length),
+      'Content-Disposition': 'attachment; filename="' + read.value.filename + '"'
+    });
+    return res.status(200).send(read.value.bytes);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return res.status(404).end();
+    if (error?.code === 'VOICE_INTRO_ENCRYPTION_NOT_CONFIGURED') return res.status(503).json({ error: 'voice_intro_encryption_not_configured' });
+    console.error('Account media export failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'account_media_export_unavailable' });
+  }
+});
+
 app.get('/api/profiles/me', requireSession, async (req, res) => {
   try {
     const read = await withActiveAccountRead(req.authUser.id, client => client.query(
@@ -2863,7 +3308,9 @@ app.get('/api/profiles/me', requireSession, async (req, res) => {
         relationship_intent AS "relationshipIntent", is_visible AS "isVisible",
          family_format AS "familyFormat", has_children AS "hasChildren",
          children_disclosure_confirmed_at AS "childrenDisclosureConfirmedAt",
-         wants_children AS "wantsChildren", children_living_arrangement AS "childrenLivingArrangement"
+         wants_children AS "wantsChildren", children_living_arrangement AS "childrenLivingArrangement",
+         (SELECT jsonb_build_object('id', vi.id, 'status', vi.review_status, 'durationMs', vi.duration_ms)
+          FROM profile_voice_intros vi WHERE vi.user_id = profiles.user_id) AS "voiceIntro"
        FROM profiles WHERE user_id = $1`,
       [req.authUser.id]
     ));
@@ -2980,6 +3427,30 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
         if (ownedPhotos.rowCount !== new Set(photoIds).size) {
           await client.query('ROLLBACK');
           return res.status(400).json({ error: 'invalid_photo_urls' });
+        }
+      }
+    }
+    let photosPendingErasure = [];
+    if (Object.hasOwn(body, 'photoUrls')) {
+      const selectedPhotos = await client.query(
+        `SELECT id FROM photo_assets
+         WHERE user_id = $1
+           AND NOT (('/api/photos/' || id::text) = ANY($2::text[]))
+         ORDER BY id FOR UPDATE`,
+        [req.authUser.id, body.photoUrls.filter(url => url.startsWith('/api/photos/'))]
+      );
+      photosPendingErasure = selectedPhotos.rows;
+      for (const photo of photosPendingErasure) {
+        try {
+          await appendPrivacyRecoveryEvent({
+            eventType: 'private_photo_erasure_requested',
+            userId: req.authUser.id,
+            resourceId: photo.id
+          });
+        } catch (error) {
+          await client.query('ROLLBACK');
+          console.error('Privacy recovery ledger rejected photo erasure:', error?.message || 'unknown error');
+          return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
         }
       }
     }
@@ -4588,6 +5059,154 @@ app.post('/api/admin/photos/:photoId/review', validateRequestOrigin, requireSess
   }
 });
 
+app.get('/api/admin/voice-intros', profileActionLimiter, requireSession, async (req, res) => {
+  try {
+    const read = await withActiveModeratorRead(req.authUser.id, async client => {
+      const result = await client.query(
+        `SELECT a.id, a.user_id AS "userId", p.display_name AS "displayName",
+                a.mime_type AS "mimeType", a.byte_size AS "byteSize",
+                a.duration_ms AS "durationMs", a.created_at AS "createdAt"
+         FROM profile_voice_intros a
+         JOIN profiles p ON p.user_id = a.user_id
+         JOIN users u ON u.id = a.user_id
+         WHERE a.review_status = 'pending' AND u.status = 'active'
+         ORDER BY a.created_at ASC, a.id ASC LIMIT 100`
+      );
+      return result.rows;
+    });
+    if (!read.active) return res.status(401).json({ error: 'account_not_active' });
+    if (read.value.forbidden) return res.status(403).json({ error: 'moderator_access_required' });
+    return res.json({ voiceIntros: read.value });
+  } catch (error) {
+    console.error('Pending voice intro list failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'pending_voice_intro_list_failed' });
+  }
+});
+
+app.get('/api/admin/voice-intros/:voiceIntroId/audio', profileActionLimiter, requireSession, async (req, res) => {
+  if (!isUuid(req.params.voiceIntroId)) return res.status(404).end();
+  const key = parseVoiceIntroEncryptionKeyring();
+  if (!key) return res.status(503).json({ error: 'voice_intro_encryption_not_configured' });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const preview = await client.query(
+      "SELECT user_id FROM profile_voice_intros WHERE id = $1 AND review_status = 'pending'",
+      [req.params.voiceIntroId]
+    );
+    if (!preview.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).end();
+    }
+    const ownerId = preview.rows[0].user_id;
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, ownerId);
+    const moderator = await client.query(
+      "SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (!moderator.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    if (!['admin', 'moderator'].includes(moderator.rows[0].role)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'moderator_access_required' });
+    }
+    const result = await client.query(
+      `SELECT storage_path AS "storagePath", mime_type AS "mimeType"
+       FROM profile_voice_intros
+       WHERE id = $1 AND user_id = $2 AND review_status = 'pending'
+         AND EXISTS (SELECT 1 FROM users WHERE id = $2 AND status = 'active')
+         AND EXISTS (
+           SELECT 1 FROM profile_voice_intro_consents c
+           WHERE c.user_id = $2 AND c.consent_version = ${VOICE_INTRO_CONSENT_VERSION}
+             AND c.withdrawn_at IS NULL
+         )`,
+      [req.params.voiceIntroId, ownerId]
+    );
+    if (!result.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).end();
+    }
+    await client.query(
+      'INSERT INTO moderation_audit_log (moderator_id, action, target_type, target_id, reason, details) VALUES ($1, $2, $3, $4, $5, $6::jsonb)',
+      [req.authUser.id, 'voice_intro_media_viewed', 'profile_voice_intro', req.params.voiceIntroId, null, JSON.stringify({ userId: ownerId })]
+    );
+    await ensurePrivateVoiceIntroStorageDirectory();
+    const encrypted = await readFile(resolvePrivateVoiceIntroPath(result.rows[0].storagePath, voiceIntroStorageDir));
+    const bytes = decryptVoiceIntro(encrypted, key);
+    await client.query('COMMIT');
+    res.setHeader('Content-Type', result.rows[0].mimeType);
+    res.setHeader('Content-Length', bytes.length);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-site');
+    res.setHeader('Cache-Control', 'private, no-store');
+    return res.send(bytes);
+  } catch (error) {
+    if (client && !await rollbackPooledTransaction(client)) client = null;
+    if (error?.code === 'ENOENT') return res.status(404).end();
+    console.error('Moderator voice intro read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'voice_intro_review_audio_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.post('/api/admin/voice-intros/:voiceIntroId/review', validateRequestOrigin, profileActionLimiter, requireSession, async (req, res) => {
+  if (!isUuid(req.params.voiceIntroId) || !['approve', 'reject'].includes(req.body?.decision)) {
+    return res.status(400).json({ error: 'invalid_voice_intro_review' });
+  }
+  const status = req.body.decision === 'approve' ? 'approved' : 'rejected';
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 500) : '';
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const preview = await client.query(
+      "SELECT user_id FROM profile_voice_intros WHERE id = $1 AND review_status = 'pending'",
+      [req.params.voiceIntroId]
+    );
+    if (!preview.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'pending_voice_intro_not_found' });
+    }
+    const ownerId = preview.rows[0].user_id;
+    await acquireGiftSafetyUserLocks(client, req.authUser.id, ownerId);
+    const moderator = await client.query(
+      "SELECT role FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [req.authUser.id]
+    );
+    if (!moderator.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    if (!['admin', 'moderator'].includes(moderator.rows[0].role)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'moderator_access_required' });
+    }
+    const reviewed = await persistVoiceIntroReview(client, {
+      voiceIntroId: req.params.voiceIntroId,
+      ownerId,
+      moderatorId: req.authUser.id,
+      status,
+      reason
+    });
+    if (!reviewed) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'pending_voice_intro_not_found' });
+    }
+    await client.query('COMMIT');
+    return res.json(reviewed);
+  } catch (error) {
+    if (client && !await rollbackPooledTransaction(client)) client = null;
+    console.error('Voice intro moderation failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'voice_intro_review_failed' });
+  } finally {
+    client?.release();
+  }
+});
+
 app.get('/api/admin/paddle-adjustment-reconciliation', requireSession, async (req, res) => {
   const limit = Number.parseInt(String(req.query.limit ?? '50'), 10);
   const afterCreatedAt = req.query.afterCreatedAt === undefined ? null : String(req.query.afterCreatedAt);
@@ -5678,6 +6297,18 @@ app.post('/api/gifts/orders/:publicReference/withdraw-consent', validateRequestO
       return res.status(409).json({ error: 'gift_order_not_withdrawable' });
     }
 
+    try {
+      await appendPrivacyRecoveryEvent({
+        eventType: 'gift_order_consent_withdrawn',
+        userId: req.authUser.id,
+        resourceId: order.id
+      });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Privacy recovery ledger rejected gift consent withdrawal:', error?.message || 'unknown error');
+      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+    }
+
     const updated = await client.query(
       `UPDATE gift_delivery_orders
        SET status = 'cancelled',
@@ -6254,6 +6885,16 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, id
     // update; the current version is required for access, not for revocation.
     const wasActive = Boolean(consent && !consent.withdrawn_at);
     if (wasActive) {
+      try {
+        await appendPrivacyRecoveryEvent({
+          eventType: 'identity_l3_consent_withdrawn',
+          userId: req.authUser.id
+        });
+      } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Privacy recovery ledger rejected L3 consent withdrawal:', error?.message || 'unknown error');
+        return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+      }
       await client.query(
         'UPDATE identity_l3_consents SET withdrawn_at = statement_timestamp(), updated_at = statement_timestamp() WHERE user_id = $1 AND withdrawn_at IS NULL',
         [req.authUser.id]
@@ -6406,6 +7047,38 @@ app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileAction
     // on the same preference row until their transaction finishes, so a concurrent
     // revocation and event are serialized: either the event finishes before the
     // revocation commits, or it observes the revoked/stale consent and is rejected.
+    const previousConsent = await client.query(
+      `SELECT ads_consent, date_offers_consent, wedding_offers_consent,
+              marriage_planning_opt_in, category_consents
+       FROM ad_consent_preferences WHERE user_id = $1 FOR UPDATE`,
+      [req.authUser.id]
+    );
+    const previous = previousConsent.rows[0];
+    const previousCategories = previous?.category_consents && typeof previous.category_consents === 'object'
+      ? previous.category_consents : {};
+    const categoryRevoked = Object.entries(previousCategories).some(([key, enabled]) =>
+      enabled === true && preferences.categoryConsents[key] !== true
+    );
+    const consentRevoked = Boolean(previous && (
+      (previous.ads_consent && !preferences.adsConsent) ||
+      (previous.date_offers_consent && !preferences.dateOffersConsent) ||
+      (previous.wedding_offers_consent && !preferences.weddingOffersConsent) ||
+      (previous.marriage_planning_opt_in && !preferences.marriagePlanningOptIn) ||
+      categoryRevoked
+    ));
+    if (consentRevoked) {
+      try {
+        await appendPrivacyRecoveryEvent({
+          eventType: 'ad_consent_revoked',
+          userId: req.authUser.id
+        });
+      } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Privacy recovery ledger rejected ad consent revocation:', error?.message || 'unknown error');
+        return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+      }
+    }
+
     const result = await client.query(
       `INSERT INTO ad_consent_preferences
          (user_id, ads_consent, date_offers_consent, wedding_offers_consent,

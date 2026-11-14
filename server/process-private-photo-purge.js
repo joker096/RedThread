@@ -1,11 +1,15 @@
 import 'dotenv/config';
-import { stat, unlink } from 'node:fs/promises';
+import { lstat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import pg from 'pg';
 import { processPrivatePhotoPurgeBatch } from './photoPurge.js';
 
 const { Pool } = pg;
+
+export function privatePhotoPurgeExitCode(summary) {
+  return Number(summary?.failures || 0) > 0 ? 2 : 0;
+}
 
 export async function runPrivatePhotoPurge({
   databaseUrl = process.env.DATABASE_URL,
@@ -22,8 +26,10 @@ export async function runPrivatePhotoPurge({
   });
   try {
     const resolvedStorageRoot = path.resolve(storageRoot);
-    const rootInfo = await stat(resolvedStorageRoot);
-    if (!rootInfo.isDirectory()) throw new Error('private photo storage root is not a directory');
+    const rootInfo = await lstat(resolvedStorageRoot);
+    if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) {
+      throw new Error('private photo storage root is not a real directory');
+    }
     return await processPrivatePhotoPurgeBatch(pool, {
       storageRoot: resolvedStorageRoot,
       batchSize,
@@ -36,7 +42,10 @@ export async function runPrivatePhotoPurge({
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   runPrivatePhotoPurge()
-    .then(summary => console.log('Private photo purge batch:', JSON.stringify(summary)))
+    .then(summary => {
+      console.log('Private photo purge batch:', JSON.stringify(summary));
+      process.exitCode = privatePhotoPurgeExitCode(summary);
+    })
     .catch(error => {
       console.error('Private photo purge failed:', error?.message || 'unknown error');
       process.exitCode = 1;

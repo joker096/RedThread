@@ -104,7 +104,7 @@ async function findFreePort() {
 
 test('auth API supports registration, session lookup, logout and login', {
   skip: !process.env.DATABASE_URL,
-  timeout: 30_000
+  timeout: 60_000
 }, async () => {
   const port = await findFreePort();
   const origin = 'http://localhost:3000';
@@ -201,8 +201,83 @@ test('auth API supports registration, session lookup, logout and login', {
     assert.equal(registered.user.email, email);
     assert.equal(registered.user.country, 'Грузия');
     assert.equal('password_hash' in registered.user, false);
+
+    // A password-reset token must not turn an unverified/Google-only account
+    // into a password-authenticated account. Both web and native endpoints
+    // reject the token and leave it unconsumed.
+    const unverifiedUserId = randomUUID();
+    const unverifiedEmail = `unverified-reset-${unverifiedUserId}@example.invalid`;
+    const unverifiedResetToken = randomUUID() + randomUUID();
+    const passwordResetEligibilityDb = new Pool({ connectionString: process.env.DATABASE_URL });
+    try {
+      await passwordResetEligibilityDb.query(
+        "INSERT INTO users (id, email, password_hash, status, email_verified_at) VALUES ($1, $2, NULL, 'active', NULL)",
+        [unverifiedUserId, unverifiedEmail]
+      );
+      await passwordResetEligibilityDb.query(
+        "INSERT INTO account_action_tokens (user_id, purpose, token_hash, expires_at) VALUES ($1, 'password_reset', $2, NOW() + INTERVAL '5 minutes')",
+        [unverifiedUserId, hashSessionToken(unverifiedResetToken)]
+      );
+      const resetBody = JSON.stringify({
+        token: unverifiedResetToken,
+        password: 'Unverified Reset Password 2026!'
+      });
+      const [webUnverifiedReset, mobileUnverifiedReset] = await Promise.all([
+        request('/api/auth/password-reset/complete', { method: 'POST', body: resetBody }),
+        request('/api/mobile/auth/password-reset/complete', {
+          method: 'POST',
+          body: resetBody,
+          headers: { Origin: 'capacitor://localhost' }
+        })
+      ]);
+      assert.equal(webUnverifiedReset.status, 400);
+      assert.equal(mobileUnverifiedReset.status, 400);
+      const unchangedUnverifiedUser = await passwordResetEligibilityDb.query(
+        'SELECT password_hash FROM users WHERE id = $1',
+        [unverifiedUserId]
+      );
+      assert.equal(unchangedUnverifiedUser.rows[0]?.password_hash, null);
+      const unconsumedResetToken = await passwordResetEligibilityDb.query(
+        "SELECT consumed_at FROM account_action_tokens WHERE user_id = $1 AND purpose = 'password_reset'",
+        [unverifiedUserId]
+      );
+      assert.equal(unconsumedResetToken.rows[0]?.consumed_at, null);
+    } finally {
+      await passwordResetEligibilityDb.query('DELETE FROM users WHERE id = $1', [unverifiedUserId]);
+      await passwordResetEligibilityDb.end();
+    }
     const firstCookie = registration.headers.get('set-cookie')?.split(';')[0];
     assert.ok(firstCookie?.startsWith('nit_session='));
+    const anonymousExport = await request('/api/account/export', { method: 'POST' });
+    assert.equal(anonymousExport.status, 401, 'data export must require an authenticated session');
+    const exportResponse = await request('/api/account/export', {
+      method: 'POST',
+      headers: { Cookie: firstCookie }
+    });
+    assert.equal(exportResponse.status, 200);
+    assert.match(exportResponse.headers.get('content-disposition') || '', /^attachment; filename="vow-data-export-/);
+    assert.equal(exportResponse.headers.get('cache-control'), 'no-store, private');
+    const userExport = await exportResponse.json();
+    assert.equal(userExport.format, 'vow-user-data-export');
+    assert.equal(userExport.account.id, registered.user.id);
+    assert.equal(userExport.account.email, email);
+    assert.equal('password_hash' in userExport.account, false);
+    assert.equal('paddle_customer_id' in userExport.account, false);
+    assert.equal(JSON.stringify(userExport).includes('address_vault_ref'), false);
+    assert.equal(JSON.stringify(userExport).includes('storage_path'), false);
+    for (let exportAttempt = 0; exportAttempt < 2; exportAttempt += 1) {
+      const allowedExport = await request('/api/account/export', {
+        method: 'POST',
+        headers: { Cookie: firstCookie }
+      });
+      assert.equal(allowedExport.status, 200, 'the first three exports in the window are allowed');
+    }
+    const rateLimitedExport = await request('/api/account/export', {
+      method: 'POST',
+      headers: { Cookie: firstCookie }
+    });
+    assert.equal(rateLimitedExport.status, 429, 'repeated exports are rate limited');
+    assert.deepEqual(await rateLimitedExport.json(), { error: 'too_many_user_data_exports' });
     const billingStatus = await request('/api/billing/status', { headers: { Cookie: firstCookie } });
     assert.equal(billingStatus.status, 200);
     const trial = await billingStatus.json();
@@ -568,6 +643,12 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     let passwordResetLock;
     try {
+      // The race below exercises an eligible, email-verified account. Unverified-account
+      // reset rejection is covered separately above and must remain fail-closed.
+      await passwordResetRaceDb.query(
+        'UPDATE users SET email_verified_at = NOW() WHERE id = $1',
+        [registered.user.id]
+      );
       const resetToken = randomUUID() + randomUUID();
       await passwordResetRaceDb.query(
         `INSERT INTO account_action_tokens (user_id, purpose, token_hash, expires_at)
@@ -589,7 +670,7 @@ test('auth API supports registration, session lookup, logout and login', {
         body: JSON.stringify({ token: resetToken, password: newPassword })
       });
       const waitForAuthLockWaiters = async expected => {
-        for (let attempt = 0; attempt < 100; attempt += 1) {
+        for (let attempt = 0; attempt < 250; attempt += 1) {
           const blocked = await passwordResetRaceDb.query(
             `SELECT COUNT(*)::int AS count
              FROM pg_stat_activity activity

@@ -2,7 +2,7 @@ name: Mobile platform builds
 
 on:
   push:
-    branches: [feat/mobile-capacitor-foundation, feat/server-backed-chat-lifecycle, feat/compatibility-explanations]
+    branches: ["feat/**"]
     paths:
       - "src/**"
       - "capacitor.config.ts"
@@ -11,10 +11,29 @@ on:
       - "vite.config.ts"
       - "package.json"
       - "package-lock.json"
-      - "scripts/ensure-capacitor-platform.mjs"
-      - "scripts/capacitor-entitlements.mjs"
+      - "scripts/**"
+      - "server/**"
       - "docs/MOBILE_*.md"
+      # Backup/recovery runbook changes affect private voice/photo handling and require native regression coverage.
+      - "docs/OPERATIONS_BACKUPS.md"
       - ".github/workflows/mobile-build.yml"
+      - ".github/workflows/mobile-device-smoke.yml"
+  pull_request:
+    branches: [main, feat/compatibility-explanations]
+    paths:
+      - "src/**"
+      - "capacitor.config.ts"
+      - "index.html"
+      - "public/**"
+      - "vite.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/**"
+      - "server/**"
+      - "docs/MOBILE_*.md"
+      - "docs/OPERATIONS_BACKUPS.md"
+      - ".github/workflows/mobile-build.yml"
+      - ".github/workflows/mobile-device-smoke.yml"
   workflow_dispatch:
 
 permissions:
@@ -100,6 +119,13 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath ios/build \
             build
+      - name: Verify iOS privacy manifest is included in the app bundle
+        run: |
+          manifest="ios/build/Build/Products/Debug-iphonesimulator/App.app/PrivacyInfo.xcprivacy"
+          test -f "$manifest"
+          plutil -lint "$manifest"
+          /usr/libexec/PlistBuddy -c "Print :NSPrivacyAccessedAPITypes:0:NSPrivacyAccessedAPIType" "$manifest" | grep -Fx "NSPrivacyAccessedAPICategoryFileTimestamp"
+          /usr/libexec/PlistBuddy -c "Print :NSPrivacyAccessedAPITypes:0:NSPrivacyAccessedAPITypeReasons:0" "$manifest" | grep -Fx "C617.1"
       - name: Package simulator app
         run: ditto -c -k --sequesterRsrc --keepParent ios/build/Build/Products/Debug-iphonesimulator/App.app app-ios-simulator.zip
       - uses: actions/upload-artifact@v4

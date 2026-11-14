@@ -1,0 +1,220 @@
+name: Virtual device smoke tests
+
+on:
+  push:
+    branches: ["feat/**"]
+    paths:
+      - "src/**"
+      - "capacitor.config.ts"
+      - "index.html"
+      - "public/**"
+      - "vite.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/**"
+      # Backup/recovery documentation changes require native regression coverage too.
+      - "docs/OPERATIONS_BACKUPS.md"
+      - "server/**"
+      - "android/**"
+      - "ios/**"
+      - ".github/workflows/mobile-device-smoke.yml"
+      - ".github/workflows/mobile-build.yml"
+  pull_request:
+    branches: [main, feat/compatibility-explanations]
+    paths:
+      - "src/**"
+      - "capacitor.config.ts"
+      - "index.html"
+      - "public/**"
+      - "vite.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/**"
+      - "docs/OPERATIONS_BACKUPS.md"
+      - "server/**"
+      - "android/**"
+      - "ios/**"
+      - ".github/workflows/mobile-device-smoke.yml"
+      - ".github/workflows/mobile-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: virtual-device-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-emulator:
+    name: Android Emulator install, launch and microphone permission
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Verify exact checked-out commit
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v4.0.4
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - name: Generate and sync Android project
+        run: |
+          npm run cap:ensure:android
+          npx cap sync android
+      - name: Build debug APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+      - name: Validate Android emulator smoke script
+        run: bash -n scripts/android-emulator-smoke.sh
+      - name: Install Android 15 emulator image
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;default;x86_64"
+      - name: Grant runner access to hardware acceleration
+        run: |
+          set -Eeuo pipefail
+          if [[ ! -e /dev/kvm ]]; then
+            echo "KVM device is unavailable on this runner; x86_64 Android Emulator cannot boot without hardware acceleration." >&2
+            exit 1
+          fi
+          sudo chmod 666 /dev/kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
+          ls -l /dev/kvm
+      - name: Create and boot virtual Android device
+        env:
+          ANDROID_AVD_HOME: ${{ runner.temp }}/.android/avd
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo "no" | avdmanager create avd --name vow-ci --package "system-images;android-35;default;x86_64" --device "pixel_2" --force
+          EMULATOR_BIN="$ANDROID_HOME/emulator/emulator"
+          if [[ ! -x "$EMULATOR_BIN" ]]; then
+            echo "Android emulator binary not found at $EMULATOR_BIN" >&2
+            ls -la "$ANDROID_HOME/emulator" >&2 || true
+            exit 1
+          fi
+          nohup "$EMULATOR_BIN" -avd vow-ci -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -wipe-data -memory 2048 -cores 2 > "$RUNNER_TEMP/android-emulator.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/android-emulator.pid"
+          adb start-server
+          if ! timeout 180s adb wait-for-device; then
+            echo "Android emulator did not register with ADB within 3 minutes" >&2
+            adb devices -l >&2 || true
+            tail -n 160 "$RUNNER_TEMP/android-emulator.log" >&2 || true
+            exit 1
+          fi
+          booted=0
+          for attempt in $(seq 1 180); do
+            if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then
+              booted=1
+              break
+            fi
+            sleep 5
+          done
+          if [[ "$booted" -ne 1 ]]; then
+            echo "Android emulator did not finish booting within 15 minutes" >&2
+            tail -n 160 "$RUNNER_TEMP/android-emulator.log" >&2 || true
+            exit 1
+          fi
+          # Wait for the input and package services before running the app smoke test.
+          services_ready=0
+          for attempt in $(seq 1 60); do
+            package_service="$(adb shell service check package 2>&1 || true)"
+            input_service="$(adb shell service check input 2>&1 || true)"
+            if grep -q "Service package: found" <<< "$package_service" && grep -q "Service input: found" <<< "$input_service"; then
+              services_ready=1
+              break
+            fi
+            sleep 3
+          done
+          if [[ "$services_ready" -ne 1 ]]; then
+            echo "Android package/input services did not become ready" >&2
+            adb shell service check package >&2 || true
+            adb shell service check input >&2 || true
+            tail -n 160 "$RUNNER_TEMP/android-emulator.log" >&2 || true
+            exit 1
+          fi
+      - name: Install, launch Vow and verify microphone permission
+        run: bash scripts/android-emulator-smoke.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-emulator-logcat-${{ github.sha }}
+          path: |
+            android-emulator-logcat.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
+  ios-simulator:
+    name: iOS Simulator install, launch and microphone permission
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Verify exact checked-out commit
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - name: Generate and sync iOS project
+        run: |
+          npm run cap:ensure:ios
+          npx cap sync ios
+      - name: Build iOS Simulator app
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath ios/build \
+            build
+      - name: Boot simulator, grant microphone permission and launch Vow
+        run: |
+          set -euo pipefail
+          APP="ios/build/Build/Products/Debug-iphonesimulator/App.app"
+          test -d "$APP"
+          DEVICE_ID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ && /Booted|Shutdown/ {print $2; exit}')"
+          test -n "$DEVICE_ID"
+          xcrun simctl boot "$DEVICE_ID" 2>/dev/null || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          xcrun simctl install "$DEVICE_ID" "$APP"
+          xcrun simctl privacy "$DEVICE_ID" grant microphone com.vow.app
+          xcrun simctl launch "$DEVICE_ID" com.vow.app
+          sleep 8
+          xcrun simctl spawn "$DEVICE_ID" launchctl list | grep -F com.vow.app
+          xcrun simctl terminate "$DEVICE_ID" com.vow.app
+          xcrun simctl launch "$DEVICE_ID" com.vow.app
+          xcrun simctl spawn "$DEVICE_ID" launchctl list | grep -F com.vow.app
+      - name: Verify privacy manifest in simulator bundle
+        run: |
+          manifest="ios/build/Build/Products/Debug-iphonesimulator/App.app/PrivacyInfo.xcprivacy"
+          test -f "$manifest"
+          plutil -lint "$manifest"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-simulator-app-${{ github.sha }}
+          path: ios/build/Build/Products/Debug-iphonesimulator/App.app
+          if-no-files-found: ignore
+          retention-days: 7
