@@ -100,3 +100,12 @@ This stage is deliberately non-destructive: it does not map pseudonymous referen
 The function is read-only and accepts candidate rows supplied by a caller; it performs no SQL, filesystem or network operations. Every event is classified as matched, unmatched, ambiguous, or missing a required resource reference. It never guesses across entity types and returns null identifiers for unresolved matches. The pseudonym key must be the same key used when the event was appended. A wrong key therefore yields unmatched references and cannot silently select a different account.
 
 This is a mapping report only. It does not modify restored records, invoke purge workers, or constitute consent/deletion replay. A future replay executor must reject the entire batch unless every event is fully resolved and domain-specific invariants are satisfied. L3 media cleanup remains a subject-level workflow: the existing domain procedure must locate every retained L3 submission for that user and enqueue its purge jobs rather than assuming the event identifies one submission.
+
+
+## Isolated read-only recovery inventory
+
+The command `npm run privacy-recovery:inventory` produces a mapping-readiness report from an already restored, isolated PostgreSQL staging database. It requires all of the following: `PRIVACY_RECOVERY_RESTORE_ISOLATED=true`, a non-production `NODE_ENV`, `DATABASE_URL`, and the original `PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY`. It opens a repeatable-read, read-only transaction and reads only IDs from users, voice intros, photos and gift orders plus staged privacy events.
+
+The report contains candidate counts, event-type/status aggregates and unresolved ledger sequence numbers. It never emits raw user/resource IDs, pseudonym references, storage paths, addresses or event payloads. A sequence gap or any unresolved/ambiguous mapping prevents a ready result. The command performs no SQL writes, domain actions, filesystem operations, media deletion, consent changes or account changes.
+
+This is still only a preflight inventory. A ready report is not permission to replay events or release the restored environment. Account erasure, L3 revocation, advertising consent and gift-order withdrawal each require their existing domain workflows to be integrated and verified separately. In particular, gift order state/payment/address-vault handling must not be bypassed, and account deletion must not be reduced to deleting a users row.
