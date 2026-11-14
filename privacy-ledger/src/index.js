@@ -107,20 +107,27 @@ export async function handleRequest(request, env) {
   if (request.method === "GET" && url.pathname === "/v1/events") {
     const after = url.searchParams.get("after") ?? "0";
     const limit = url.searchParams.get("limit") ?? "200";
-    if (!/^\d+$/.test(after) || !/^\d+$/.test(limit) || Number(limit) < 1 || Number(limit) > 500) {
+    const through = url.searchParams.get("through");
+    if (!/^\d+$/.test(after) || !/^\d+$/.test(limit) || Number(limit) < 1 || Number(limit) > 500 ||
+        (through !== null && (!/^\d+$/.test(through) || Number(through) < Number(after)))) {
       return json({ error: "invalid_pagination" }, 400);
     }
-    const signedPath = `GET\n${url.pathname}${url.search}`;
+    if (![Number(after), Number(limit), ...(through === null ? [] : [Number(through)])].every(Number.isSafeInteger)) {
+      return json({ error: "invalid_pagination" }, 400);
+    }
+    const signedPath = \`GET\n\${url.pathname}\${url.search}\`;
     if (!await authenticate(request, env, signedPath)) return json({ error: "unauthorized" }, 401);
     try {
-      const page = await env.LEDGER_DB.prepare(
-        `SELECT sequence, event_id, schema_version, event_type, subject_ref, resource_ref, occurred_at, received_at
-         FROM privacy_events WHERE sequence > ? ORDER BY sequence ASC LIMIT ?`
-      ).bind(Number(after), Number(limit)).all();
-      const watermark = await env.LEDGER_DB.prepare(
+      const current = await env.LEDGER_DB.prepare(
         "SELECT COALESCE(MAX(sequence), 0) AS sequence FROM privacy_events"
       ).first();
-      return json({ events: page.results ?? [], next_after: page.results?.at(-1)?.sequence ?? Number(after), watermark: watermark.sequence });
+      const watermark = through === null ? current.sequence : Number(through);
+      if (watermark > current.sequence) return json({ error: "watermark_not_available" }, 409);
+      const page = await env.LEDGER_DB.prepare(
+        \`SELECT sequence, event_id, schema_version, event_type, subject_ref, resource_ref, occurred_at, received_at
+         FROM privacy_events WHERE sequence > ? AND sequence <= ? ORDER BY sequence ASC LIMIT ?\`
+      ).bind(Number(after), watermark, Number(limit)).all();
+      return json({ events: page.results ?? [], next_after: page.results?.at(-1)?.sequence ?? Number(after), watermark });
     } catch {
       return json({ error: "ledger_read_failed" }, 503);
     }
