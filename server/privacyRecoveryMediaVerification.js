@@ -47,7 +47,7 @@ export async function verifyPrivateMediaPrivacyRecovery({
       `SELECT e.ledger_sequence, e.event_id, e.schema_version, e.event_type,
               e.subject_ref, e.resource_ref, e.occurred_at, e.received_at,
               r.event_digest, r.event_type AS receipt_event_type,
-              r.outcome_code, x.event_type AS effect_event_type, x.subject_user_id, x.resource_id
+              r.outcome_code, x.event_type AS effect_event_type, x.subject_user_id, x.resource_id, x.purge_count
          FROM privacy_recovery_events e
          LEFT JOIN privacy_recovery_replay_receipts r
            ON r.ledger_sequence = e.ledger_sequence AND r.event_id = e.event_id
@@ -75,7 +75,9 @@ export async function verifyPrivateMediaPrivacyRecovery({
         throw new Error('privacy_recovery_verification_receipt_mismatch');
       }
       if (!row.subject_user_id ||
-          (expected[1] === 'voice_consent' ? row.resource_id !== null : !row.resource_id)) {
+          (expected[1] === 'voice_consent' ? row.resource_id !== null : !row.resource_id) ||
+          !Number.isSafeInteger(Number(row.purge_count)) || Number(row.purge_count) < 0 ||
+          (expected[1] !== 'voice_consent' && Number(row.purge_count) !== 1)) {
         throw new Error('privacy_recovery_verification_effect_missing');
       }
       effects.push(row);
@@ -126,15 +128,14 @@ export async function verifyPrivateMediaPrivacyRecovery({
     );
     const obligationRows = obligationsResult.rows || [];
     for (const row of effects) {
-      if (row.event_type !== 'voice_intro_consent_withdrawn') {
-        const expectedQueue = row.event_type === 'private_photo_erasure_requested'
-          ? 'private_photo' : 'private_voice_intro';
-        if (!obligationRows.some(item =>
-          String(item.ledger_sequence) === String(row.ledger_sequence) &&
-          item.queue_name === expectedQueue
-        )) {
-          throw new Error('privacy_recovery_verification_purge_obligation_missing');
-        }
+      const expectedQueue = row.event_type === 'private_photo_erasure_requested'
+        ? 'private_photo' : 'private_voice_intro';
+      const eventObligations = obligationRows.filter(item =>
+        String(item.ledger_sequence) === String(row.ledger_sequence)
+      );
+      if (eventObligations.length !== Number(row.purge_count) ||
+          eventObligations.some(item => item.queue_name !== expectedQueue)) {
+        throw new Error('privacy_recovery_verification_purge_obligation_missing');
       }
     }
     const photoQueue = await client.query('SELECT storage_path FROM private_photo_purge_queue');
