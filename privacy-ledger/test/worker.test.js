@@ -81,7 +81,7 @@ test("ledger rejects a declared oversized body before reading its stream", async
       controller.enqueue(new Uint8Array([1]));
       controller.close();
     }
-  });
+  }, { highWaterMark: 0 });
   const request = {
     method: "POST",
     url: "https://ledger.test/v1/events",
