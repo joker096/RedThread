@@ -115,7 +115,7 @@ export async function handleRequest(request, env) {
     if (![Number(after), Number(limit), ...(through === null ? [] : [Number(through)])].every(Number.isSafeInteger)) {
       return json({ error: "invalid_pagination" }, 400);
     }
-    const signedPath = "GET\\n" + url.pathname + url.search;
+    const signedPath = "GET\n" + url.pathname + url.search;
     if (!await authenticate(request, env, signedPath)) return json({ error: "unauthorized" }, 401);
     try {
       const current = await env.LEDGER_DB.prepare(
