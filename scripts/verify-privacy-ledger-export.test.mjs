@@ -61,12 +61,12 @@ test('verifies ciphertext checksum and decrypts through a pipe without plaintext
   const archivePath = path.join(directory, 'ledger.ndjson.age');
   const identityFile = path.join(directory, 'identity.txt');
   const ciphertext = Buffer.from('synthetic encrypted bytes');
-  const plaintext = [manifest(1), event(1)].map(row => JSON.stringify(row)).join('\\n') + '\\n';
+  const plaintext = [manifest(1), event(1)].map(row => JSON.stringify(row)).join('\n') + '\n';
   const digest = createHash('sha256').update(ciphertext).digest('hex');
   await writeFile(archivePath, ciphertext, { mode: 0o600 });
   await writeFile(identityFile, 'AGE-SECRET-KEY-1TEST', { mode: 0o600 });
   await chmod(identityFile, 0o600);
-  await writeFile(archivePath + '.sha256', digest + '  ledger.ndjson.age\\n', { mode: 0o600 });
+  await writeFile(archivePath + '.sha256', digest + '  ledger.ndjson.age\n', { mode: 0o600 });
 
   let invoked = false;
   const spawnImpl = (command, args, options) => {
@@ -101,7 +101,7 @@ test('rejects a tampered ciphertext before invoking age', async () => {
   const identityFile = path.join(directory, 'identity.txt');
   await writeFile(archivePath, 'changed ciphertext', { mode: 0o600 });
   await writeFile(identityFile, 'AGE-SECRET-KEY-1TEST', { mode: 0o600 });
-  await writeFile(archivePath + '.sha256', '0'.repeat(64) + '  ledger.ndjson.age\\n', { mode: 0o600 });
+  await writeFile(archivePath + '.sha256', '0'.repeat(64) + '  ledger.ndjson.age\n', { mode: 0o600 });
   let invoked = false;
   try {
     await assert.rejects(
