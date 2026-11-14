@@ -2766,18 +2766,21 @@ app.delete('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession
       [req.authUser.id]
     );
     const result = await client.query(
-      'SELECT storage_path FROM profile_voice_intros WHERE user_id = $1 FOR UPDATE',
+      'SELECT id, storage_path FROM profile_voice_intros WHERE user_id = $1 FOR UPDATE',
       [req.authUser.id]
     );
-    try {
-      await appendPrivacyRecoveryEvent({
-        eventType: 'voice_intro_erasure_requested',
-        userId: req.authUser.id
-      });
-    } catch (error) {
-      await client.query('ROLLBACK');
-      console.error('Privacy recovery ledger rejected voice intro erasure:', error?.message || 'unknown error');
-      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+    for (const clip of result.rows) {
+      try {
+        await appendPrivacyRecoveryEvent({
+          eventType: 'voice_intro_erasure_requested',
+          userId: req.authUser.id,
+          resourceId: clip.id
+        });
+      } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Privacy recovery ledger rejected voice intro erasure:', error?.message || 'unknown error');
+        return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+      }
     }
     if (consent.rows[0] && !consent.rows[0].withdrawn_at) {
       try {
