@@ -215,3 +215,49 @@ test('coordinator delegates unresolved resource mapping to receipt-first executo
     throughSequence: 1
   });
 });
+
+
+test('coordinator blocks every non-media privacy domain before applying any media prefix', async () => {
+  const photoId = '123e4567-e89b-42d3-a456-426614174005';
+  const photoRef = createHmac('sha256', key).update(photoId, 'utf8').digest('hex');
+  const blockedTypes = [
+    'account_erasure_requested',
+    'identity_l3_consent_withdrawn',
+    'ad_consent_revoked',
+    'gift_order_consent_withdrawn'
+  ];
+
+  for (const blockedType of blockedTypes) {
+    const { pool } = poolFor({
+      events: [{
+        sequence: '1',
+        event_id: '123e4567-e89b-42d3-a456-426614174006',
+        event_type: 'private_photo_erasure_requested',
+        subject_ref: subjectRef,
+        resource_ref: photoRef
+      }, {
+        sequence: '2',
+        event_id: '123e4567-e89b-42d3-a456-426614174007',
+        event_type: blockedType,
+        subject_ref: subjectRef,
+        resource_ref: null
+      }],
+      photos: [{ id: photoId, user_id: userId }]
+    });
+    let appliedCount = 0;
+    const result = await runPrivateMediaPrivacyRecovery({
+      pool,
+      env: isolatedEnv,
+      snapshotLedgerSequence: 0,
+      throughSequence: 2,
+      applyEvent: async () => {
+        appliedCount += 1;
+        return { applied: true, alreadyApplied: false };
+      }
+    });
+    assert.equal(result.complete, false, blockedType);
+    assert.equal(result.blockedSequence, 2, blockedType);
+    assert.equal(result.blockedEventType, blockedType, blockedType);
+    assert.equal(appliedCount, 0, blockedType);
+  }
+});
