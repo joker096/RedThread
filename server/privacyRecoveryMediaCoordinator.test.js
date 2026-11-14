@@ -16,7 +16,7 @@ function poolFor({ events = [], users = [{ id: userId }], voiceIntros = [], phot
       if (sql.includes('FROM privacy_recovery_events')) return { rows: events };
       if (sql === 'SELECT id FROM users') return { rows: users };
       if (sql.startsWith('SELECT id, user_id FROM profile_voice_intros')) return { rows: voiceIntros };
-      if (sql === 'SELECT id FROM photo_assets') return { rows: photos };
+      if (sql.startsWith('SELECT id, user_id FROM photo_assets')) return { rows: photos };
       if (sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
       throw new Error('unexpected_query');
     },
