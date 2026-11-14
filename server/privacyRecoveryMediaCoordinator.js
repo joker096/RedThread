@@ -106,6 +106,18 @@ export async function runPrivateMediaPrivacyRecovery({
     };
   }
 
+  const firstUnsupported = mappings.find(mapping => !SUPPORTED_MEDIA_EVENTS.has(mapping.eventType));
+  if (firstUnsupported) {
+    return {
+      complete: false,
+      processedCount: 0,
+      alreadyAppliedCount: 0,
+      blockedSequence: Number(firstUnsupported.sequence),
+      blockedEventType: firstUnsupported.eventType,
+      throughSequence
+    };
+  }
+
   let processedCount = 0;
   let alreadyAppliedCount = 0;
   for (const mapping of mappings) {
