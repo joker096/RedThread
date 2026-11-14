@@ -13,8 +13,8 @@ CREATE TABLE IF NOT EXISTS privacy_recovery_events (
     'ad_consent_revoked',
     'gift_order_consent_withdrawn'
   )),
-  subject_ref CHAR(64) NOT NULL CHECK (subject_ref ~ '^[a-fA-F0-9]{64}$'),
-  resource_ref CHAR(64) CHECK (resource_ref IS NULL OR resource_ref ~ '^[a-fA-F0-9]{64}$'),
+  subject_ref TEXT NOT NULL CHECK (subject_ref ~ '^[a-fA-F0-9]{64}$'),
+  resource_ref TEXT CHECK (resource_ref IS NULL OR resource_ref ~ '^[a-fA-F0-9]{64}$'),
   occurred_at TIMESTAMPTZ NOT NULL,
   received_at TIMESTAMPTZ NOT NULL,
   imported_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp()
