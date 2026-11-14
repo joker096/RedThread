@@ -146,32 +146,33 @@ test('voice purge skips a queue row already locked by another worker', async () 
 
 test('voice purge safely resumes when the worker loses its commit after unlink', async () => {
   let queueExists = true;
-  let attempts = 0;
   let commitCount = 0;
   let unlinkCount = 0;
   const pool = {
-    async query() {
-      return { rows: queueExists ? [{ id: 'crash-retry' }] : [] };
-    },
+    async query() { return { rows: queueExists ? [{ id: 'crash-retry' }] : [] }; },
     async connect() {
+      let connectionLost = false;
+      let pendingDelete = false;
       return {
         async query(sql) {
+          if (connectionLost) throw new Error('connection_lost');
           if (sql.includes('SELECT id, storage_path, attempts')) {
-            return { rows: queueExists ? [{ id: 'crash-retry', storage_path: validPath, attempts }] : [] };
-          }
-          if (sql.startsWith('UPDATE private_voice_intro_purge_queue')) {
-            attempts += 1;
-            return { rows: [], rowCount: 1 };
+            return { rows: queueExists ? [{ id: 'crash-retry', storage_path: validPath, attempts: 0 }] : [] };
           }
           if (sql.startsWith('DELETE FROM private_voice_intro_purge_queue')) {
-            queueExists = false;
+            pendingDelete = true;
             return { rows: [], rowCount: 1 };
           }
           if (sql === 'COMMIT') {
             commitCount += 1;
-            if (commitCount === 1) throw new Error('simulated_connection_loss_before_commit');
+            if (commitCount === 1) {
+              connectionLost = true;
+              throw new Error('simulated_connection_loss_before_commit');
+            }
+            if (pendingDelete) queueExists = false;
             return { rows: [] };
           }
+          if (sql === 'ROLLBACK') throw new Error('connection_lost');
           return { rows: [], rowCount: 0 };
         },
         release() {}
@@ -182,8 +183,8 @@ test('voice purge safely resumes when the worker loses its commit after unlink',
     storageRoot: root,
     unlinkFile: async () => { unlinkCount += 1; }
   });
-  assert.deepEqual(first, { scanned: 1, deleted: 0, retried: 1, failures: 1 });
-  assert.equal(queueExists, true);
+  assert.deepEqual(first, { scanned: 1, deleted: 0, retried: 0, failures: 1 });
+  assert.equal(queueExists, true, 'failed transaction must leave the purge obligation queued');
   assert.equal(unlinkCount, 1);
 
   const second = await processPrivateVoiceIntroPurgeBatch(pool, {
