@@ -102,7 +102,7 @@ export async function verifyEncryptedLedgerExport({
   }
 
   const sidecar = await readFile(checksumPath, 'utf8');
-  const match = sidecar.match(/^([a-f0-9]{64})  ([^\\r\\n]+)\\n?$/i);
+  const match = sidecar.match(/^([a-f0-9]{64})  ([^\r\n]+)\n?$/i);
   if (!match || match[2] !== path.basename(archive)) throw new Error('privacy_ledger_verify_checksum_format_invalid');
   const actualHash = await sha256File(archive);
   if (actualHash.toLowerCase() !== match[1].toLowerCase()) throw new Error('privacy_ledger_verify_checksum_mismatch');
