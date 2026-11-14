@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import { lstat, readFile, readdir } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import pg from 'pg';
@@ -95,6 +97,12 @@ export function evaluateQueueHealth(row, { now = new Date(), thresholds = OPS_HE
   };
 }
 
+async function sha256File(filePath) {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(filePath)) hash.update(chunk);
+  return hash.digest('hex');
+}
+
 export async function inspectBackupDirectory(directory, {
   archivePattern,
   now = new Date(),
@@ -141,9 +149,13 @@ export async function inspectBackupDirectory(directory, {
     return { status: 'critical', configured: true, latest: latest.name, ageHours: null, reason: 'latest_backup_checksum_not_a_regular_file' };
   }
   const checksumText = await readFile(checksumPath, 'utf8');
-  const digest = checksumText.trim().split(/\s+/)[0];
-  if (!/^[a-f0-9]{64}$/i.test(digest || '')) {
-    return { status: 'critical', configured: true, latest: latest.name, ageHours: null, reason: 'latest_backup_checksum_malformed' };
+  const checksumMatch = checksumText.match(/^([a-f0-9]{64})\\s+\\*?([^\\r\\n]+)\\s*$/i);
+  if (!checksumMatch || checksumMatch[2] !== latest.name) {
+    return { status: 'critical', configured: true, latest: latest.name, ageHours: null, reason: 'latest_backup_checksum_malformed_or_filename_mismatch' };
+  }
+  const actualDigest = await sha256File(latest.filePath);
+  if (actualDigest.toLowerCase() !== checksumMatch[1].toLowerCase()) {
+    return { status: 'critical', configured: true, latest: latest.name, ageHours: null, reason: 'latest_backup_checksum_mismatch' };
   }
 
   const ageHours = Math.max(0, (now.getTime() - latest.mtimeMs) / 3_600_000);
@@ -162,7 +174,7 @@ export async function inspectBackupDirectory(directory, {
     configured: true,
     latest: latest.name,
     ageHours: Math.round(ageHours * 10) / 10,
-    checksum: 'present_and_well_formed',
+    checksum: 'verified',
     reason
   };
 }
