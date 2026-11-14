@@ -97,10 +97,21 @@ test('private media restore rejects a checksum mismatch before creating destinat
   }
 });
 
-test('private media restore removes partial staging output after decryption failure', async () => {
+test('private media restore removes staging output when decryption fails before producing data', async () => {
   const f = await fixture();
   try {
     const result = run(f, { FAIL_AGE: '1' });
+    assert.notEqual(result.status, 0);
+    await assert.rejects(lstat(f.destination), { code: 'ENOENT' });
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('private media restore removes partial staging output when the decrypt stream is interrupted', async () => {
+  const f = await fixture();
+  try {
+    const result = run(f, { PARTIAL_AGE: '1' });
     assert.notEqual(result.status, 0);
     await assert.rejects(lstat(f.destination), { code: 'ENOENT' });
   } finally {
