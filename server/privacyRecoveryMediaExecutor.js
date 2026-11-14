@@ -127,6 +127,30 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
     );
     if (account.rowCount !== 1) throw new Error('privacy_recovery_subject_missing');
 
+    // Recheck after acquiring the same user lock used by live mutations. This
+    // closes the concurrent-retry window between the initial receipt lookup
+    // and the domain-row lock.
+    const concurrentReceipt = await client.query(
+      `SELECT ledger_sequence, event_id, event_digest, event_type, outcome_code
+         FROM privacy_recovery_replay_receipts
+        WHERE ledger_sequence = $1 OR event_id = $2
+        FOR UPDATE`,
+      [mapping.sequence, mapping.eventId]
+    );
+    if (concurrentReceipt.rowCount) {
+      const receipt = concurrentReceipt.rows[0];
+      if (concurrentReceipt.rowCount !== 1 ||
+          String(receipt.ledger_sequence) !== String(mapping.sequence) ||
+          receipt.event_id !== mapping.eventId ||
+          receipt.event_digest !== digest ||
+          receipt.event_type !== mapping.eventType) {
+        throw new Error('privacy_recovery_replay_receipt_conflict');
+      }
+      await client.query('COMMIT');
+      transactionOpen = false;
+      return { applied: false, alreadyApplied: true, outcome: receipt.outcome_code };
+    }
+
     if (kind === 'photos') {
       const root = await assertPhotoRoot(photoStorageRoot);
       const asset = await client.query(
