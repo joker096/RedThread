@@ -142,7 +142,8 @@ test('stale encrypted backup crosses the warning age threshold', async () => {
     const archivePath = path.join(root, archiveName);
     const now = new Date('2026-11-13T12:00:00.000Z');
     await writeFile(archivePath, 'encrypted-fixture');
-    await writeFile(archivePath + '.sha256', 'b'.repeat(64) + '  ' + archiveName + '\n');
+    const checksum = createHash('sha256').update(await readFile(archivePath)).digest('hex');
+    await writeFile(archivePath + '.sha256', checksum + '  ' + archiveName + '\n');
     const oldTime = new Date(now.getTime() - 30 * 60 * 60_000);
     await utimes(archivePath, oldTime, oldTime);
     const report = await inspectBackupDirectory(root, {
