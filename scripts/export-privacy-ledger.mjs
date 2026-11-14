@@ -121,7 +121,7 @@ export async function writeEncryptedLedgerExport({
 
   const { watermark, events } = await fetchCompleteLedger({ endpoint, authSecret, fetchImpl, now });
   const timestamp = new Date(now()).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-  const fileName = 'vow-privacy-ledger-' + timestamp + '-seq-' + watermark + '.ndjson.age';
+  const fileName = 'vow-privacy-ledger-' + timestamp + '-seq-' + watermark + '-' + randomUUID() + '.ndjson.age';
   const finalPath = path.join(root, fileName);
   const tempPath = finalPath + '.' + randomUUID() + '.tmp';
   const checksumPath = finalPath + '.sha256';
@@ -164,7 +164,7 @@ export async function writeEncryptedLedgerExport({
     return { archive: finalPath, checksum: checksumPath, sha256: checksum, watermark, eventCount: events.length };
   } catch (error) {
     child?.stdin?.destroy();
-    await Promise.all([rm(tempPath, { force: true }), rm(checksumTemp, { force: true })]);
+    await Promise.all([rm(tempPath, { force: true }), rm(checksumTemp, { force: true }), rm(finalPath, { force: true }), rm(checksumPath, { force: true })]);
     throw error;
   }
 }
