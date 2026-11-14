@@ -101,3 +101,12 @@ Supported event types are restricted to photo erasure, one voice-intro erasure, 
 - rolls back all database changes on any validation or domain conflict.
 
 The executor never deletes a file, starts a worker, calls an external service, or activates itself on server startup. It requires an explicit isolated recovery caller to provide a database pool, mapping, pseudonym key and the corresponding mounted private-media root. A coordinator, archive-watermark validation, post-replay inventory comparison, and real PostgreSQL concurrency/rollback integration tests are still required before the recovery workflow can be considered ready.
+
+
+## Ordered isolated media coordinator
+
+`server/privacyRecoveryMediaCoordinator.js` adds an explicit coordinator for a verified sequence range. It requires `NODE_ENV !== production`, `PRIVACY_RECOVERY_RESTORE_ISOLATED=true`, the pseudonym key, and caller-supplied snapshot and export watermarks. It reads the complete contiguous staged range in a repeatable-read, read-only transaction, resolves mappings against that snapshot, and then applies supported events in ascending ledger order.
+
+The coordinator stops before the first unsupported event (including account erasure, L3, advertising, and gift events). It does not skip over a blocked event to apply later media events. Each supported event commits independently with its immutable receipt; a later failure leaves earlier events safely resumable. A subsequent run uses the same verified watermarks and exact receipts to continue.
+
+This is still an isolated recovery utility, not a server route, scheduled job, or production startup hook. It does not provision or enable an isolated database, disable external egress/workers/webhooks, or guarantee the media volume is mounted read-only. Those are mandatory operator/environment controls. Post-replay inventory comparison and real PostgreSQL concurrency/rollback integration tests remain release gates.
