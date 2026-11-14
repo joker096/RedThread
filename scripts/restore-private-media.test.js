@@ -21,8 +21,12 @@ async function fixture() {
   const age = path.join(bin, 'age');
   await writeFile(age, `#!/usr/bin/env bash
 set -Eeuo pipefail
-if [[ "\${FAIL_AGE:-0}" == "1" ]]; then exit 23; fi
 archive="\${!#}"
+if [[ "\${FAIL_AGE:-0}" == "1" ]]; then exit 23; fi
+if [[ "\${PARTIAL_AGE:-0}" == "1" ]]; then
+  head -c 1 -- "$archive"
+  exit 23
+fi
 cat -- "$archive"
 `);
   await chmod(age, 0o700);
