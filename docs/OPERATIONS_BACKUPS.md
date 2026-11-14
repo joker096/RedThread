@@ -236,3 +236,12 @@ Until this mechanism exists and passes its isolated restore drill, encrypted bac
 ## Off-host privacy recovery ledger design
 
 The selected implementation design and event contract are documented in [PRIVACY_RECOVERY_LEDGER.md](./PRIVACY_RECOVERY_LEDGER.md). The proposed Cloudflare Worker + D1 ledger is not provisioned or active. It must be deployed and integrated before Production; this remains a hard recovery gate. The design explicitly treats remote ledger acknowledgement as a prerequisite to committing privacy erasure/withdrawal state and requires an independently exported copy before claiming provider-independent disaster recovery.
+
+
+## Private-media restore archive member safety
+
+The automated `scripts/restore-private-media.sh` wrapper now performs a streaming preflight of the authenticated decrypted tar archive before creating the staging directory or extracting any member. The preflight uses Python's standard-library tar reader and accepts only regular files and directories. It rejects absolute paths, parent-directory traversal, duplicate normalized paths, file/directory path conflicts, symlinks, hardlinks, devices, FIFOs and other special entries. The archive is decrypted a second time for extraction only after the preflight succeeds; neither pass writes a plaintext archive to disk.
+
+This policy matches the private-media backup contract: the media volume is expected to contain only regular files and directories. Do not weaken the restore filter to accommodate links or special files. If the application later requires another object type, design and test an explicit safe representation rather than restoring arbitrary tar link metadata.
+
+Regression tests cover symlink and hardlink members, parent traversal, checksum mismatch, interrupted decryption, existing/symlink destinations, and cleanup of partial staging output. A restore is still restricted to an isolated new directory and must pass deletion/consent reconciliation before the data is mounted or exposed.
