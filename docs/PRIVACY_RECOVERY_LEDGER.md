@@ -72,3 +72,11 @@ Fail closed if the manifest, ledger, keys, media snapshot IDs, event pagination,
 ## Operational boundary
 
 This repository change does not create a Cloudflare account, deploy a Worker, create a D1 database, set secrets, or enable Production. Those actions require account access and credentials that are not present in the repository. Until the service is provisioned, configured, and tested, the existing recovery gate remains mandatory and the system must not claim privacy-safe disaster recovery.
+
+## Encrypted ledger export implementation
+
+The repository now includes `scripts/export-privacy-ledger.mjs` and the `npm run privacy-ledger:export` command. It reads the full event history using authenticated pages pinned to one immutable watermark, checks every sequence is contiguous from 1 through that watermark, and fails closed on missing pages, changing watermarks, malformed events, or API errors. The Worker supports the signed `through` query parameter so events appended during a multi-page export cannot silently change the export boundary.
+
+The exporter writes a manifest followed by NDJSON events directly into the `age` process stdin. It does not persist plaintext ledger contents. It writes an encrypted archive and SHA-256 sidecar to a protected local directory. An operator must copy both artifacts to independently controlled offsite/immutable storage and verify the checksum. This code does not provision a Worker, configure secrets, upload artifacts, or enable a schedule.
+
+This is an export primitive, not a complete restore/replay implementation. The production recovery gate remains closed until an isolated restore tool validates the encrypted archive and manifest, matches pseudonym keys, replays all applicable events idempotently into restored PostgreSQL and media, and proves the restored state cannot re-expose erased data or withdrawn consent.
