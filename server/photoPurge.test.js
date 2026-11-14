@@ -135,3 +135,86 @@ test('photo purge process exit code reports deletion failures to the scheduler',
   assert.equal(privatePhotoPurgeExitCode({ failures: 4 }), 2);
   assert.equal(privatePhotoPurgeExitCode(undefined), 0);
 });
+
+
+test('photo purge skips a queue row already locked by another worker', async () => {
+  const statements = [];
+  const client = {
+    async query(sql) {
+      statements.push(sql.replace(/\\s+/g, ' ').trim());
+      if (sql.includes('FOR UPDATE SKIP LOCKED')) return { rows: [], rowCount: 0 };
+      return { rows: [], rowCount: 0 };
+    },
+    release() {}
+  };
+  const pool = {
+    async query() { return { rows: [{ id: 'claimed-by-other-worker' }] }; },
+    async connect() { return client; }
+  };
+  let unlinkCalls = 0;
+  const { processPrivatePhotoPurgeBatch } = await import('./photoPurge.js');
+  const summary = await processPrivatePhotoPurgeBatch(pool, {
+    storageRoot: root,
+    unlinkFile: async () => { unlinkCalls += 1; }
+  });
+  assert.deepEqual(summary, { scanned: 1, deleted: 0, retried: 0, failures: 0 });
+  assert.equal(unlinkCalls, 0);
+  assert.ok(statements.includes('COMMIT'));
+  assert.equal(statements.some(sql => sql.startsWith('DELETE FROM private_photo_purge_queue')), false);
+});
+
+test('photo purge safely resumes when the worker loses its commit after unlink', async () => {
+  let queueExists = true;
+  let attempts = 0;
+  let commitCount = 0;
+  let unlinkCount = 0;
+  const { processPrivatePhotoPurgeBatch } = await import('./photoPurge.js');
+  const pool = {
+    async query() {
+      return { rows: queueExists ? [{ id: 'crash-retry' }] : [] };
+    },
+    async connect() {
+      return {
+        async query(sql) {
+          if (sql.includes('SELECT id, storage_path, attempts')) {
+            return { rows: queueExists ? [{ id: 'crash-retry', storage_path: validPath, attempts }] : [] };
+          }
+          if (sql.startsWith('UPDATE private_photo_purge_queue')) {
+            attempts += 1;
+            return { rows: [], rowCount: 1 };
+          }
+          if (sql.startsWith('DELETE FROM private_photo_purge_queue')) {
+            queueExists = false;
+            return { rows: [], rowCount: 1 };
+          }
+          if (sql === 'COMMIT') {
+            commitCount += 1;
+            if (commitCount === 1) throw new Error('simulated_connection_loss_before_commit');
+            return { rows: [] };
+          }
+          return { rows: [], rowCount: 0 };
+        },
+        release() {}
+      };
+    }
+  };
+  const first = await processPrivatePhotoPurgeBatch(pool, {
+    storageRoot: root,
+    unlinkFile: async () => { unlinkCount += 1; }
+  });
+  assert.deepEqual(first, { scanned: 1, deleted: 0, retried: 1, failures: 1 });
+  assert.equal(queueExists, true);
+  assert.equal(unlinkCount, 1);
+
+  const second = await processPrivatePhotoPurgeBatch(pool, {
+    storageRoot: root,
+    unlinkFile: async () => {
+      const error = new Error('file was already removed by the previous worker');
+      error.code = 'ENOENT';
+      throw error;
+    }
+  });
+  assert.deepEqual(second, { scanned: 1, deleted: 1, retried: 0, failures: 0 });
+  assert.equal(queueExists, false);
+  assert.equal(unlinkCount, 1);
+});
