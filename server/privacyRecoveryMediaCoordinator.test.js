@@ -102,3 +102,40 @@ test('empty verified range completes without touching domain state', async () =>
   });
   assert.equal(calls.some(sql => sql === 'SELECT id FROM users'), true);
 });
+
+
+test('coordinator delegates unresolved resource mapping to receipt-first executor for safe resume', async () => {
+  const resourceId = '123e4567-e89b-42d3-a456-426614174003';
+  const resourceRef = createHmac('sha256', key).update(resourceId, 'utf8').digest('hex');
+  const { pool } = poolFor({
+    events: [{
+      sequence: '1',
+      event_id: '123e4567-e89b-42d3-a456-426614174004',
+      event_type: 'private_photo_erasure_requested',
+      subject_ref: subjectRef,
+      resource_ref: resourceRef
+    }],
+    photos: []
+  });
+  const applied = [];
+  const result = await runPrivateMediaPrivacyRecovery({
+    pool,
+    env: isolatedEnv,
+    snapshotLedgerSequence: 0,
+    throughSequence: 1,
+    applyEvent: async ({ mapping }) => {
+      applied.push(mapping);
+      assert.equal(mapping.status, 'resource_unmatched');
+      return { applied: false, alreadyApplied: true, outcome: 'photo_erasure_queued' };
+    }
+  });
+  assert.equal(applied.length, 1);
+  assert.deepEqual(result, {
+    complete: true,
+    processedCount: 0,
+    alreadyAppliedCount: 1,
+    blockedSequence: null,
+    blockedEventType: null,
+    throughSequence: 1
+  });
+});
