@@ -17,6 +17,38 @@ function json(body, status = 200) {
   });
 }
 
+async function readBoundedBody(request, maxBytes) {
+  const declaredLength = request.headers.get("content-length");
+  if (declaredLength !== null && /^\\d+$/.test(declaredLength) && Number(declaredLength) > maxBytes) {
+    return null;
+  }
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel("request_too_large").catch(() => {});
+        return null;
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
 function hex(bytes) {
   return [...new Uint8Array(bytes)].map(value => value.toString(16).padStart(2, "0")).join("");
 }
