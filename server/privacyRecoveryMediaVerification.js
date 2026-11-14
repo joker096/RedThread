@@ -126,9 +126,15 @@ export async function verifyPrivateMediaPrivacyRecovery({
     );
     const obligationRows = obligationsResult.rows || [];
     for (const row of effects) {
-      if (row.event_type !== 'voice_intro_consent_withdrawn' &&
-          !obligationRows.some(item => String(item.ledger_sequence) === String(row.ledger_sequence))) {
-        throw new Error('privacy_recovery_verification_purge_obligation_missing');
+      if (row.event_type !== 'voice_intro_consent_withdrawn') {
+        const expectedQueue = row.event_type === 'private_photo_erasure_requested'
+          ? 'private_photo' : 'private_voice_intro';
+        if (!obligationRows.some(item =>
+          String(item.ledger_sequence) === String(row.ledger_sequence) &&
+          item.queue_name === expectedQueue
+        )) {
+          throw new Error('privacy_recovery_verification_purge_obligation_missing');
+        }
       }
     }
     const photoQueue = await client.query('SELECT storage_path FROM private_photo_purge_queue');
