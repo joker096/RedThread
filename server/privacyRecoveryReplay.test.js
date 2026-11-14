@@ -48,7 +48,7 @@ test('stages only events newer than the restored snapshot watermark', async () =
   const result = await stagePrivacyRecoveryEvents(client, {
     snapshotLedgerSequence: 1, events: [event(1), event(2), event(3)]
   });
-  assert.deepEqual(result, { snapshotLedgerSequence: 1, stagedCount: 2, throughSequence: 3 });
+  assert.deepEqual(result, { snapshotLedgerSequence: 1, stagedCount: 2, alreadyPresentCount: 0, throughSequence: 3 });
   assert.deepEqual(client.rows.map(row => row.ledger_sequence), [2, 3]);
   assert.equal(client.calls[0].sql, 'BEGIN');
   assert.equal(client.calls.at(-1).sql, 'COMMIT');
