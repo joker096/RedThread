@@ -2769,6 +2769,16 @@ app.delete('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession
       'SELECT storage_path FROM profile_voice_intros WHERE user_id = $1 FOR UPDATE',
       [req.authUser.id]
     );
+    try {
+      await appendPrivacyRecoveryEvent({
+        eventType: 'voice_intro_erasure_requested',
+        userId: req.authUser.id
+      });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Privacy recovery ledger rejected voice intro erasure:', error?.message || 'unknown error');
+      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+    }
     if (consent.rows[0] && !consent.rows[0].withdrawn_at) {
       try {
         await appendPrivacyRecoveryEvent({
@@ -3414,6 +3424,30 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
         if (ownedPhotos.rowCount !== new Set(photoIds).size) {
           await client.query('ROLLBACK');
           return res.status(400).json({ error: 'invalid_photo_urls' });
+        }
+      }
+    }
+    let photosPendingErasure = [];
+    if (Object.hasOwn(body, 'photoUrls')) {
+      const selectedPhotos = await client.query(
+        `SELECT id FROM photo_assets
+         WHERE user_id = $1
+           AND NOT (('/api/photos/' || id::text) = ANY($2::text[]))
+         ORDER BY id FOR UPDATE`,
+        [req.authUser.id, body.photoUrls.filter(url => url.startsWith('/api/photos/'))]
+      );
+      photosPendingErasure = selectedPhotos.rows;
+      for (const photo of photosPendingErasure) {
+        try {
+          await appendPrivacyRecoveryEvent({
+            eventType: 'private_photo_erasure_requested',
+            userId: req.authUser.id,
+            resourceId: photo.id
+          });
+        } catch (error) {
+          await client.query('ROLLBACK');
+          console.error('Privacy recovery ledger rejected photo erasure:', error?.message || 'unknown error');
+          return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
         }
       }
     }
