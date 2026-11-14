@@ -109,9 +109,9 @@ test('backup health rejects a well-formed but incorrect checksum digest', async 
     const archiveName = 'vow-postgres-20261113T115500Z.dump.age';
     const archivePath = path.join(root, archiveName);
     await writeFile(archivePath, 'encrypted-fixture');
-    await writeFile(archivePath + '.sha256', 'a'.repeat(64) + '  ' + archiveName + '\\n');
+    await writeFile(archivePath + '.sha256', 'a'.repeat(64) + '  ' + archiveName + '\n');
     const report = await inspectBackupDirectory(root, {
-      archivePattern: /^vow-postgres-.*\\.dump\\.age$/,
+      archivePattern: /^vow-postgres-.*\.dump\.age$/,
       now: new Date('2026-11-13T12:00:00.000Z')
     });
     assert.equal(report.status, 'critical');
