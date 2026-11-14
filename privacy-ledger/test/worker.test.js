@@ -76,9 +76,9 @@ class FakeLedgerDb {
         return null;
       },
       async all() {
-        if (sql.includes("FROM privacy_events WHERE sequence > ?")) {
-          const [after, limit] = this.values;
-          return { results: db.rows.filter(row => row.sequence > after).slice(0, limit).map(({ payload_sha256, ...row }) => row) };
+        if (sql.includes("FROM privacy_events WHERE sequence > ? AND sequence <= ?")) {
+          const [after, through, limit] = this.values;
+          return { results: db.rows.filter(row => row.sequence > after && row.sequence <= through).slice(0, limit).map(({ payload_sha256, ...row }) => row) };
         }
         return { results: [] };
       }
@@ -133,4 +133,31 @@ test("ledger pagination is authenticated and exposes a stable watermark", async 
   assert.equal(page.next_after, 1);
   assert.equal(page.watermark, 1);
   assert.equal("payload_sha256" in page.events[0], false);
+});
+
+
+test("ledger export pagination remains pinned to its first watermark", async () => {
+  const db = new FakeLedgerDb();
+  const firstEvent = eventPayload();
+  await handleRequest(await signedRequest("POST", "https://ledger.test/v1/events", firstEvent), { ...env, LEDGER_DB: db });
+  const firstUrl = "https://ledger.test/v1/events?after=0&limit=1";
+  const first = await handleRequest(await signedRequest("GET", firstUrl), { ...env, LEDGER_DB: db });
+  const firstPage = await first.json();
+  assert.equal(firstPage.watermark, 1);
+
+  const secondEvent = eventPayload({ event_id: "123e4567-e89b-42d3-b456-426614174001", event_type: "private_photo_erasure_requested" });
+  await handleRequest(await signedRequest("POST", "https://ledger.test/v1/events", secondEvent), { ...env, LEDGER_DB: db });
+  const nextUrl = "https://ledger.test/v1/events?after=1&limit=1&through=1";
+  const next = await handleRequest(await signedRequest("GET", nextUrl), { ...env, LEDGER_DB: db });
+  const nextPage = await next.json();
+  assert.equal(nextPage.watermark, 1);
+  assert.deepEqual(nextPage.events, []);
+  assert.equal(nextPage.next_after, 1);
+});
+
+test("ledger rejects a requested watermark that is not yet available", async () => {
+  const db = new FakeLedgerDb();
+  const url = "https://ledger.test/v1/events?after=0&limit=10&through=2";
+  const response = await handleRequest(await signedRequest("GET", url), { ...env, LEDGER_DB: db });
+  assert.equal(response.status, 409);
 });
