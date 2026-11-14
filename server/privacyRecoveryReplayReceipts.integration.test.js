@@ -15,9 +15,12 @@ test('privacy recovery replay receipts are append-only, unique and bound to stag
   const sequence = BigInt(Date.now()) * 1000n + BigInt(Math.floor(Math.random() * 1000));
   const subjectRef = 'a'.repeat(64);
   const resourceRef = 'b'.repeat(64);
-  const digest = createHash('sha256').update([String(sequence), eventId, '1',
-    'private_photo_erasure_requested', subjectRef, resourceRef,
-    '2026-11-14T00:00:00.000Z', '2026-11-14T00:00:01.000Z'].join('|')).digest('hex');
+  const occurredAt = new Date('2026-11-14T00:00:00.000Z');
+  const receivedAt = new Date('2026-11-14T00:00:01.000Z');
+  const digest = createHash('sha256').update(JSON.stringify([
+    String(sequence), eventId, '1', 'private_photo_erasure_requested',
+    subjectRef, resourceRef, occurredAt.toISOString(), receivedAt.toISOString()
+  ])).digest('hex');
 
   try {
     const table = await client.query(
@@ -35,7 +38,7 @@ test('privacy recovery replay receipts are append-only, unique and bound to stag
         `INSERT INTO privacy_recovery_events
            (ledger_sequence, event_id, schema_version, event_type, subject_ref, resource_ref, occurred_at, received_at)
          VALUES ($1, $2, 1, 'private_photo_erasure_requested', $3, $4, $5, $6)`,
-        [sequence.toString(), eventId, subjectRef, resourceRef, '2026-11-14T00:00:00Z', '2026-11-14T00:00:01Z']
+        [sequence.toString(), eventId, subjectRef, resourceRef, occurredAt, receivedAt]
       );
       await client.query(
         `INSERT INTO privacy_recovery_replay_receipts
@@ -86,7 +89,7 @@ test('privacy recovery replay receipts are append-only, unique and bound to stag
         `INSERT INTO privacy_recovery_events
            (ledger_sequence, event_id, schema_version, event_type, subject_ref, resource_ref, occurred_at, received_at)
          VALUES ($1, $2, 1, 'private_photo_erasure_requested', $3, $4, $5, $6)`,
-        [sequence.toString(), eventId, subjectRef, resourceRef, '2026-11-14T00:00:00Z', '2026-11-14T00:00:01Z']
+        [sequence.toString(), eventId, subjectRef, resourceRef, occurredAt, receivedAt]
       );
       await client.query(
         `INSERT INTO privacy_recovery_replay_receipts
@@ -108,7 +111,7 @@ test('privacy recovery replay receipts are append-only, unique and bound to stag
         `INSERT INTO privacy_recovery_events
            (ledger_sequence, event_id, schema_version, event_type, subject_ref, resource_ref, occurred_at, received_at)
          VALUES ($1, $2, 1, 'private_photo_erasure_requested', $3, $4, $5, $6)`,
-        [sequence.toString(), eventId, subjectRef, resourceRef, '2026-11-14T00:00:00Z', '2026-11-14T00:00:01Z']
+        [sequence.toString(), eventId, subjectRef, resourceRef, occurredAt, receivedAt]
       );
       await client.query(
         `INSERT INTO privacy_recovery_replay_receipts
