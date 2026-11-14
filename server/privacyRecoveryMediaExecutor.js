@@ -252,8 +252,10 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
       await client.query(
         `INSERT INTO privacy_recovery_replay_purge_obligations
            (ledger_sequence, event_id, queue_name, storage_path_sha256)
-         SELECT value->>0, value->>1, value->>2, value->>3
-           FROM jsonb_array_elements($1::jsonb) AS value`,
+         SELECT item.ledger_sequence, item.event_id, item.queue_name, item.storage_path_sha256
+           FROM jsonb_to_recordset($1::jsonb) AS item(
+             ledger_sequence BIGINT, event_id UUID, queue_name TEXT, storage_path_sha256 TEXT
+           )`,
         [JSON.stringify(obligations)]
       );
     }
