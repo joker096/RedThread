@@ -82,16 +82,12 @@ test("ledger rejects a declared oversized body before reading its stream", async
       controller.close();
     }
   });
-  const request = new Request("https://ledger.test/v1/events", {
+  const request = {
     method: "POST",
-    body: stream,
-    duplex: "half",
-    headers: {
-      "content-length": "999999",
-      "x-ledger-timestamp": String(Math.floor(Date.now() / 1000)),
-      "x-ledger-signature": "0".repeat(64)
-    }
-  });
+    url: "https://ledger.test/v1/events",
+    headers: { get(name) { return name.toLowerCase() === "content-length" ? "999999" : null; } },
+    body: stream
+  };
   const response = await handleRequest(request, env);
   assert.equal(response.status, 413);
   assert.equal(consumed, false);
