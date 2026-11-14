@@ -211,3 +211,23 @@ Filesystem handling rejects symlinked storage-root ancestors, unsafe/non-regular
 Before any separately approved live execution, all of the following remain required: escrow and independently recover both legacy and target voice keys; verify coordinated encrypted PostgreSQL and private-media backups and complete an isolated restore drill; confirm persistent storage and backup consistency; pause uploads, replacements, moderation transitions and purge workers for the maintenance window; run the complete procedure against synthetic fixtures; review journal events, reference changes, rollback and purge outcomes; define operational ownership, alerting and a controlled operator entrypoint. Keep the legacy ciphertext and key until the rollback window is formally closed and dependent backups/recovery procedures are verified. Passing CI does not satisfy these deployment gates.
 
 The read-only inventory and V1-to-V2 migration preflight described above remain prerequisites for planning. They do not start the worker, authorize migration, or modify files or database rows. Never connect the worker to live data or schedule it without separate explicit approval.
+
+
+## Recovery reconciliation gate: deletions and consent withdrawals
+
+A successful PostgreSQL/media restore is not safe to expose merely because both archives decrypt and their checksums match. Restoring a snapshot from before a later account deletion or consent withdrawal can reintroduce an active account, profile/photo metadata, an earlier voice-consent grant, or references to private media that the user subsequently asked to erase.
+
+The in-database purge queues and tombstones are part of the database snapshot. They do not contain deletion or withdrawal events that occurred after that snapshot was taken. A coordinated database/media backup window prevents a mismatched pair of snapshots; it does not prevent an older, otherwise valid recovery point from rolling back later privacy actions.
+
+**Hard gate:** keep every restored environment isolated and unavailable to users until all deletion, media-removal and consent-withdrawal events newer than the restored database recovery point have been replayed and verified. Do not mount restored private media into an application-serving volume, enable discovery/playback, or permit account access before this gate is satisfied.
+
+The repository currently has no independent, off-host, append-only erasure/consent event ledger and no configured PostgreSQL WAL/PITR recovery pipeline that proves those later events are replayed. The purge queues, account tombstones, consent history and this runbook warning are not substitutes for that independent recovery source. Therefore a restore from an older snapshot cannot currently prove that post-snapshot deletions or consent withdrawals will remain effective.
+
+Before Production, implement and test one authoritative recovery mechanism:
+- Preserve an independently durable, access-restricted, append-only sequence of account-erasure, private-media deletion and consent-withdrawal events outside the PostgreSQL backup failure domain, or configure PostgreSQL PITR/WAL archiving with a verified recovery point that includes those transactions.
+- Bind each backup set to a recorded database recovery timestamp/LSN and the corresponding media snapshot/version identifiers.
+- On restore, determine the event/WAL range after that recovery point, replay the privacy actions idempotently against the isolated staging database and restored media, and verify that deleted accounts remain non-discoverable, withdrawn-consent media remains unavailable, and all required physical purges are completed or durably queued.
+- Fail closed if the event source, recovery watermark, media snapshot identity, or replay verification is unavailable or incomplete. Keep the restored environment isolated; do not silently treat missing evidence as an empty deletion backlog.
+- Add integration tests that restore a pre-deletion snapshot, replay a later synthetic deletion and consent withdrawal, and prove that the account/media cannot become visible or playable. Also test interrupted replay and safe idempotent retry.
+
+Until this mechanism exists and passes its isolated restore drill, encrypted backup integrity and archive round-trip tests are necessary but not sufficient for a Production recovery claim. No live account data should be used in these tests.
