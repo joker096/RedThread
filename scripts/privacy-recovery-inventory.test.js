@@ -93,12 +93,15 @@ test('all non-media event domains remain explicitly blocked even with matched su
     'ad_consent_revoked',
     'gift_order_consent_withdrawn'
   ];
+  const giftOrderId = randomUUID();
   const pool = fakePool({
     events: eventTypes.map((event_type, index) => ({
       sequence: index + 1, event_id: randomUUID(), event_type,
-      subject_ref: ref(userId), resource_ref: null
+      subject_ref: ref(userId),
+      resource_ref: event_type === 'gift_order_consent_withdrawn' ? ref(giftOrderId) : null
     })),
-    users: [{ id: userId }]
+    users: [{ id: userId }],
+    giftOrders: [{ id: giftOrderId, user_id: userId }]
   });
   const report = await runPrivacyRecoveryInventory({ pool, env });
   assert.equal(report.matchedCount, eventTypes.length);
