@@ -58,6 +58,8 @@ export async function stagePrivacyRecoveryEvents(client, {
   }
 
   await client.query('BEGIN');
+  let insertedCount = 0;
+  let alreadyPresentCount = 0;
   try {
     for (const event of pending) {
       const values = [
@@ -73,7 +75,10 @@ export async function stagePrivacyRecoveryEvents(client, {
          RETURNING ledger_sequence`,
         values
       );
-      if (inserted.rowCount === 1) continue;
+      if (inserted.rowCount === 1) {
+        insertedCount += 1;
+        continue;
+      }
 
       const existing = await client.query(
         `SELECT ledger_sequence, event_id, schema_version, event_type, subject_ref,
@@ -94,6 +99,7 @@ export async function stagePrivacyRecoveryEvents(client, {
       if (JSON.stringify(actual) !== JSON.stringify(expected)) {
         throw new Error('privacy_recovery_stage_conflicting_existing_event');
       }
+      alreadyPresentCount += 1;
     }
     await client.query('COMMIT');
   } catch (error) {
@@ -102,7 +108,8 @@ export async function stagePrivacyRecoveryEvents(client, {
   }
   return {
     snapshotLedgerSequence,
-    stagedCount: pending.length,
+    stagedCount: insertedCount,
+    alreadyPresentCount,
     throughSequence: watermark
   };
 }
