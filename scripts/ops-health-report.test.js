@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm, utimes, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -79,7 +80,7 @@ test('backup health requires a matching checksum sidecar and checks archive age'
   try {
     const archiveName = 'vow-postgres-20261113T115500Z.dump.age';
     const archivePath = path.join(root, archiveName);
-    const checksum = 'a'.repeat(64);
+    const checksum = createHash('sha256').update('encrypted-fixture').digest('hex');
     const now = new Date('2026-11-13T12:00:00.000Z');
     await writeFile(archivePath, 'encrypted-fixture');
     await writeFile(archivePath + '.sha256', checksum + '  ' + archiveName + '\n');
@@ -88,7 +89,7 @@ test('backup health requires a matching checksum sidecar and checks archive age'
       now
     });
     assert.equal(healthy.status, 'healthy');
-    assert.equal(healthy.checksum, 'present_and_well_formed');
+    assert.equal(healthy.checksum, 'verified');
 
     await rm(archivePath + '.sha256');
     const missingChecksum = await inspectBackupDirectory(root, {
@@ -97,6 +98,24 @@ test('backup health requires a matching checksum sidecar and checks archive age'
     });
     assert.equal(missingChecksum.status, 'critical');
     assert.equal(missingChecksum.reason, 'latest_backup_checksum_missing');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('backup health rejects a well-formed but incorrect checksum digest', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'vow-ops-backup-bad-checksum-'));
+  try {
+    const archiveName = 'vow-postgres-20261113T115500Z.dump.age';
+    const archivePath = path.join(root, archiveName);
+    await writeFile(archivePath, 'encrypted-fixture');
+    await writeFile(archivePath + '.sha256', 'a'.repeat(64) + '  ' + archiveName + '\\n');
+    const report = await inspectBackupDirectory(root, {
+      archivePattern: /^vow-postgres-.*\\.dump\\.age$/,
+      now: new Date('2026-11-13T12:00:00.000Z')
+    });
+    assert.equal(report.status, 'critical');
+    assert.equal(report.reason, 'latest_backup_checksum_mismatch');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
