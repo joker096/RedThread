@@ -98,6 +98,27 @@ test('private media backup refuses symlink roots and symlinks inside the media t
   }
 });
 
+test('private media backup refuses FIFOs and other special filesystem entries', async () => {
+  const f = await fixture();
+  try {
+    const fifo = path.join(f.mediaRoot, 'unexpected-pipe');
+    const created = spawnSync('mkfifo', [fifo], { encoding: 'utf8' });
+    assert.equal(created.status, 0, created.stderr || 'mkfifo is required for this test');
+    const result = run({
+      ...process.env,
+      PATH: `${f.fakeBin}:${process.env.PATH || ''}`,
+      PRIVATE_MEDIA_DIR: f.mediaRoot,
+      BACKUP_DIR: f.backupDir,
+      BACKUP_AGE_RECIPIENT: 'age1fixturepublicrecipient'
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /special filesystem entries/);
+    assert.deepEqual(await readdir(f.backupDir).catch(() => []), []);
+  } finally {
+    await rm(f.temporaryRoot, { recursive: true, force: true });
+  }
+});
+
 test('private media backup fails closed when encryption recipient is absent', async () => {
   const f = await fixture();
   try {
