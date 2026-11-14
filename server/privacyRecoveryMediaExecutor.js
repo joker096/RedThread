@@ -88,6 +88,9 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
 
   const client = await pool.connect();
   let transactionOpen = false;
+  let replayEffectResourceId = null;
+  let purgeQueueName = null;
+  let purgeStoragePaths = [];
   try {
     await client.query('BEGIN');
     transactionOpen = true;
@@ -161,6 +164,9 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
         throw new Error('privacy_recovery_photo_owner_or_asset_conflict');
       }
       resolvePrivatePhotoPath(asset.rows[0].storage_path, root);
+      replayEffectResourceId = mapping.resourceId;
+      purgeQueueName = 'private_photo';
+      purgeStoragePaths = [asset.rows[0].storage_path];
       const profile = await client.query(
         'SELECT photo_urls FROM profiles WHERE user_id = $1 FOR UPDATE',
         [mapping.subjectUserId]
@@ -186,6 +192,9 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
         throw new Error('privacy_recovery_voice_owner_or_asset_conflict');
       }
       resolvePrivateVoiceIntroPath(asset.rows[0].storage_path, root);
+      replayEffectResourceId = mapping.resourceId;
+      purgeQueueName = 'private_voice_intro';
+      purgeStoragePaths = [asset.rows[0].storage_path];
       await queuePrivateVoiceIntroPurges(client, [asset.rows[0].storage_path]);
       await client.query('DELETE FROM profile_voice_intros WHERE id = $1 AND user_id = $2', [mapping.resourceId, mapping.subjectUserId]);
     } else {
@@ -202,6 +211,8 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
         [mapping.subjectUserId]
       );
       for (const asset of assets.rows) resolvePrivateVoiceIntroPath(asset.storage_path, root);
+      purgeQueueName = 'private_voice_intro';
+      purgeStoragePaths = assets.rows.map(asset => asset.storage_path);
       await queuePrivateVoiceIntroPurges(client, assets.rows.map(asset => asset.storage_path));
       await client.query('DELETE FROM profile_voice_intros WHERE user_id = $1', [mapping.subjectUserId]);
       const withdrawn = await client.query(
@@ -225,6 +236,27 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
        VALUES ($1, $2, $3, $4, $5)`,
       [mapping.sequence, mapping.eventId, digest, mapping.eventType, outcome]
     );
+    await client.query(
+      `INSERT INTO privacy_recovery_replay_effects
+         (ledger_sequence, event_id, event_type, subject_user_id, resource_id)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [mapping.sequence, mapping.eventId, mapping.eventType, mapping.subjectUserId, replayEffectResourceId]
+    );
+    if (purgeQueueName && purgeStoragePaths.length) {
+      const obligations = purgeStoragePaths.map(storagePath => [
+        mapping.sequence,
+        mapping.eventId,
+        purgeQueueName,
+        createHash('sha256').update(storagePath, 'utf8').digest('hex')
+      ]);
+      await client.query(
+        `INSERT INTO privacy_recovery_replay_purge_obligations
+           (ledger_sequence, event_id, queue_name, storage_path_sha256)
+         SELECT value->>0, value->>1, value->>2, value->>3
+           FROM jsonb_array_elements($1::jsonb) AS value`,
+        [JSON.stringify(obligations)]
+      );
+    }
     await client.query('COMMIT');
     transactionOpen = false;
     return { applied: true, alreadyApplied: false, outcome };
