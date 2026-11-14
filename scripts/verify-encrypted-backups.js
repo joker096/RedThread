@@ -7,9 +7,9 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const BACKUP_SETS = Object.freeze([
-  { name: 'postgres', directoryEnv: 'OPS_POSTGRES_BACKUP_DIR', pattern: /^vow-postgres-.*\\.dump\\.age$/ },
-  { name: 'privatePhoto', directoryEnv: 'OPS_PRIVATE_PHOTO_BACKUP_DIR', pattern: /^vow-private-media-.*\\.tar\\.age$/ },
-  { name: 'privateVoice', directoryEnv: 'OPS_PRIVATE_VOICE_BACKUP_DIR', pattern: /^vow-private-media-.*\\.tar\\.age$/ }
+  { name: 'postgres', directoryEnv: 'OPS_POSTGRES_BACKUP_DIR', pattern: /^vow-postgres-.*\.dump\.age$/ },
+  { name: 'privatePhoto', directoryEnv: 'OPS_PRIVATE_PHOTO_BACKUP_DIR', pattern: /^vow-private-media-.*\.tar\.age$/ },
+  { name: 'privateVoice', directoryEnv: 'OPS_PRIVATE_VOICE_BACKUP_DIR', pattern: /^vow-private-media-.*\.tar\.age$/ }
 ]);
 
 async function sha256File(filePath) {
@@ -109,7 +109,7 @@ export async function verifyEncryptedBackupDirectory(directory, {
       if (archiveInfo.isSymbolicLink() || !archiveInfo.isFile()) throw new Error('backup_archive_not_a_regular_file');
       if (checksumInfo.isSymbolicLink() || !checksumInfo.isFile()) throw new Error('backup_checksum_not_a_regular_file');
       const checksumText = await readFile(checksumPath, 'utf8');
-      const match = checksumText.match(/^([a-f0-9]{64})\\s+\\*?([^\\r\\n]+)\\s*$/i);
+      const match = checksumText.match(/^([a-f0-9]{64})\s+\*?([^\r\n]+)\s*$/i);
       if (!match || match[2] !== archiveName) throw new Error('backup_checksum_malformed_or_filename_mismatch');
       const actual = await sha256File(archivePath);
       if (actual.toLowerCase() !== match[1].toLowerCase()) throw new Error('backup_checksum_mismatch');
