@@ -25,9 +25,9 @@ function fakePool({ events = [], users = [], voiceIntros = [], photos = [], gift
           calls.push(sql);
           if (sql.startsWith('SELECT ledger_sequence')) return { rows: data.events, rowCount: data.events.length };
           if (sql === 'SELECT id FROM users') return { rows: data.users, rowCount: data.users.length };
-          if (sql === 'SELECT id FROM profile_voice_intros') return { rows: data.voiceIntros, rowCount: data.voiceIntros.length };
-          if (sql === 'SELECT id FROM photo_assets') return { rows: data.photos, rowCount: data.photos.length };
-          if (sql === 'SELECT id FROM gift_delivery_orders') return { rows: data.giftOrders, rowCount: data.giftOrders.length };
+          if (sql.startsWith('SELECT id, user_id FROM profile_voice_intros')) return { rows: data.voiceIntros, rowCount: data.voiceIntros.length };
+          if (sql.startsWith('SELECT id, user_id FROM photo_assets')) return { rows: data.photos, rowCount: data.photos.length };
+          if (sql.startsWith('SELECT id, recipient_id AS user_id FROM gift_delivery_orders')) return { rows: data.giftOrders, rowCount: data.giftOrders.length };
           return { rows: [], rowCount: 0 };
         },
         release() { calls.push('RELEASE'); }
@@ -83,6 +83,28 @@ test('matched events from unsupported domains do not report replay readiness', a
   assert.equal(report.supportedEventCount, 0);
   assert.equal(report.unsupportedEventCount, 1);
   assert.deepEqual(report.unsupportedEventSequences, [1]);
+  assert.equal(report.readyForDomainReplay, false);
+});
+
+test('all non-media event domains remain explicitly blocked even with matched subjects', async () => {
+  const eventTypes = [
+    'account_erasure_requested',
+    'identity_l3_consent_withdrawn',
+    'ad_consent_revoked',
+    'gift_order_consent_withdrawn'
+  ];
+  const pool = fakePool({
+    events: eventTypes.map((event_type, index) => ({
+      sequence: index + 1, event_id: randomUUID(), event_type,
+      subject_ref: ref(userId), resource_ref: null
+    })),
+    users: [{ id: userId }]
+  });
+  const report = await runPrivacyRecoveryInventory({ pool, env });
+  assert.equal(report.matchedCount, eventTypes.length);
+  assert.equal(report.unresolvedCount, 0);
+  assert.equal(report.unsupportedEventCount, eventTypes.length);
+  assert.deepEqual(report.unsupportedEventSequences, [1, 2, 3, 4]);
   assert.equal(report.readyForDomainReplay, false);
 });
 
