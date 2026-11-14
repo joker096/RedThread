@@ -83,3 +83,21 @@ Enforce uniqueness on both event ID and ledger sequence. Prevent UPDATE/DELETE w
 - The test suite uses disposable PostgreSQL and temporary private-media roots only. No VPS, external ledger, Paddle, webhook, or production resource is involved.
 
 The executor remains disabled until the receipt migration, lock integration, path-guard reuse, full PostgreSQL concurrency/rollback tests, and exact-HEAD six-check validation are complete. This design does not authorize account erasure, L3 replay, advertising preference replay, or gift/payment actions.
+
+
+## Implemented first media-replay executor slice
+
+`server/privacyRecoveryMediaExecutor.js` now exposes `applyPrivateMediaPrivacyRecoveryEvent`. It is deliberately a single-event transaction rather than a multi-event transaction: each event's domain mutation, purge-queue obligation and immutable receipt commit atomically. The recovery coordinator must invoke events in ascending ledger sequence and stop on the first conflict. Successfully committed earlier events remain safely resumable because their exact receipts make retries no-ops.
+
+Supported event types are restricted to photo erasure, one voice-intro erasure, and voice-intro consent withdrawal. The executor:
+- checks an existing receipt before requiring a still-present resource mapping;
+- rechecks the receipt after acquiring the existing live per-user advisory lock, closing the concurrent retry race;
+- verifies subject/resource pseudonyms against the supplied HMAC key;
+- locks and rechecks ownership of the account and media row;
+- validates the configured private storage root and exact media path before queuing;
+- removes the photo URL, queues the file and deletes photo metadata in one transaction;
+- queues/deletes one voice clip, or queues/deletes all clips and writes the same-transaction immutable consent withdrawal event;
+- inserts the matching digest receipt before commit;
+- rolls back all database changes on any validation or domain conflict.
+
+The executor never deletes a file, starts a worker, calls an external service, or activates itself on server startup. It requires an explicit isolated recovery caller to provide a database pool, mapping, pseudonym key and the corresponding mounted private-media root. A coordinator, archive-watermark validation, post-replay inventory comparison, and real PostgreSQL concurrency/rollback integration tests are still required before the recovery workflow can be considered ready.
