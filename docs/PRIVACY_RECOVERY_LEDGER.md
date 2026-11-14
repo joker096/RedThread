@@ -19,6 +19,8 @@ D1 is off-host relative to the current Vow database/VPS, but it is not a second 
 The ledger accepts only a strict allowlist of versioned event types:
 - `account_erasure_requested`
 - `voice_intro_consent_withdrawn`
+- `voice_intro_erasure_requested`
+- `private_photo_erasure_requested`
 - `identity_l3_consent_withdrawn`
 - `ad_consent_revoked`
 - `gift_order_consent_withdrawn`
@@ -62,7 +64,7 @@ Fail closed if the manifest, ledger, keys, media snapshot IDs, event pagination,
 
 - Deployable Worker source, D1 schema/migrations, local deterministic tests and a documented deployment command.
 - HMAC authentication, timestamp skew rejection, request-size/schema allowlists, idempotency, immutable rows, authenticated paginated export and watermark.
-- API integration for account erasure, voice-intro withdrawal, L3 withdrawal, ad-consent revocation, and gift-order consent withdrawal. The remote append must precede each PostgreSQL mutation and must be mandatory in Production.
+- API integration for account erasure, voice-intro consent withdrawal and clip erasure, private-photo erasure, L3 withdrawal, ad-consent revocation, and gift-order consent withdrawal. The remote append must precede each PostgreSQL mutation and must be mandatory in Production.
 - Failure tests: remote unavailable, quota exceeded, invalid HMAC, stale timestamp, duplicate event, conflicting duplicate, DB rollback after remote acknowledgement, partial replay, replay retry, missing page, invalid sequence, wrong pseudonym key, and restore with post-snapshot erasure/withdrawal.
 - End-to-end restore drill: create snapshot, perform erasure and each consent withdrawal, restore the older snapshot in an isolated disposable database, replay ledger events, and prove deleted accounts remain inaccessible, consent remains withdrawn, media remains unavailable, and replay can be repeated safely.
 - Export the ledger to a separately controlled offsite destination and prove a restore from that export. Cloudflare D1 alone is not sufficient evidence of provider-independent disaster recovery.
