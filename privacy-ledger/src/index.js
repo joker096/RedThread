@@ -1,6 +1,8 @@
 const EVENT_TYPES = new Set([
   "account_erasure_requested",
   "voice_intro_consent_withdrawn",
+  "voice_intro_erasure_requested",
+  "private_photo_erasure_requested",
   "identity_l3_consent_withdrawn",
   "ad_consent_revoked",
   "gift_order_consent_withdrawn"
