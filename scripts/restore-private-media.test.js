@@ -122,3 +122,71 @@ test('private media restore removes partial staging output when the decrypt stre
     await rm(f.root, { recursive: true, force: true });
   }
 });
+
+
+async function replaceArchive(f, source) {
+  const packed = spawnSync('tar', ['--create', '--file', f.backup, '--directory', source, '.']);
+  assert.equal(packed.status, 0, packed.stderr?.toString());
+  const { createHash } = await import('node:crypto');
+  const digest = createHash('sha256').update(await readFile(f.backup)).digest('hex');
+  await writeFile(`${f.backup}.sha256`, `${digest}  ${path.basename(f.backup)}\\n`);
+}
+
+test('private media restore rejects symlink members before extracting anything', async () => {
+  const f = await fixture();
+  const malicious = path.join(f.root, 'malicious');
+  try {
+    await mkdir(malicious);
+    await writeFile(path.join(f.root, 'outside-secret.txt'), 'must-not-be-exposed');
+    await symlink(path.join(f.root, 'outside-secret.txt'), path.join(malicious, 'external-link'));
+    await replaceArchive(f, malicious);
+    const result = run(f);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /link or special filesystem entry/);
+    await assert.rejects(lstat(f.destination), { code: 'ENOENT' });
+    assert.equal(await readFile(path.join(f.root, 'outside-secret.txt'), 'utf8'), 'must-not-be-exposed');
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('private media restore rejects hardlink members before extracting anything', async () => {
+  const f = await fixture();
+  const malicious = path.join(f.root, 'malicious-hardlink');
+  try {
+    await mkdir(malicious);
+    await writeFile(path.join(malicious, 'original.txt'), 'private');
+    await import('node:fs/promises').then(({ link }) => link(
+      path.join(malicious, 'original.txt'),
+      path.join(malicious, 'linked.txt')
+    ));
+    await replaceArchive(f, malicious);
+    const result = run(f);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /link or special filesystem entry/);
+    await assert.rejects(lstat(f.destination), { code: 'ENOENT' });
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('private media restore rejects parent-directory traversal in archive member names', async () => {
+  const f = await fixture();
+  try {
+    const malicious = spawnSync('tar', [
+      '--create', '--file', f.backup, '--directory', path.join(f.root, 'source'),
+      '--transform=s,^photo-fixture.txt,../escaped.txt,', 'photo-fixture.txt'
+    ], { encoding: 'utf8' });
+    assert.equal(malicious.status, 0, malicious.stderr || '');
+    const { createHash } = await import('node:crypto');
+    const digest = createHash('sha256').update(await readFile(f.backup)).digest('hex');
+    await writeFile(`${f.backup}.sha256`, `${digest}  ${path.basename(f.backup)}\\n`);
+    const result = run(f);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /parent traversal|escapes staging/);
+    await assert.rejects(lstat(f.destination), { code: 'ENOENT' });
+    await assert.rejects(readFile(path.join(f.root, 'escaped.txt')));
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
