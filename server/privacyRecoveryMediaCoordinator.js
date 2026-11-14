@@ -91,19 +91,24 @@ export async function runPrivateMediaPrivacyRecovery({
     client.release();
   }
 
+  // Validate the entire ordered range before the first write. A supported
+  // media event followed by an unsupported domain event must not partially
+  // replay the prefix of a batch whose full domain semantics are unavailable.
+  const firstUnsupported = mappings.find(mapping => !SUPPORTED_MEDIA_EVENTS.has(mapping.eventType));
+  if (firstUnsupported) {
+    return {
+      complete: false,
+      processedCount: 0,
+      alreadyAppliedCount: 0,
+      blockedSequence: Number(firstUnsupported.sequence),
+      blockedEventType: firstUnsupported.eventType,
+      throughSequence
+    };
+  }
+
   let processedCount = 0;
   let alreadyAppliedCount = 0;
   for (const mapping of mappings) {
-    if (!SUPPORTED_MEDIA_EVENTS.has(mapping.eventType)) {
-      return {
-        complete: false,
-        processedCount,
-        alreadyAppliedCount,
-        blockedSequence: Number(mapping.sequence),
-        blockedEventType: mapping.eventType,
-        throughSequence
-      };
-    }
     const result = await applyEvent({
       pool,
       mapping,
