@@ -76,7 +76,7 @@ export async function runPrivacyRecoveryInventory({ pool, env = process.env } = 
       client.query('SELECT id FROM users'),
       client.query('SELECT id, user_id FROM profile_voice_intros'),
       client.query('SELECT id, user_id FROM photo_assets'),
-      client.query('SELECT id FROM gift_delivery_orders')
+      client.query('SELECT id, recipient_id AS user_id FROM gift_delivery_orders')
     ]);
     const mappings = resolvePrivacyRecoveryMappings({
       events,
