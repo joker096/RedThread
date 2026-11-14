@@ -80,3 +80,10 @@ The repository now includes `scripts/export-privacy-ledger.mjs` and the `npm run
 The exporter writes a manifest followed by NDJSON events directly into the `age` process stdin. It does not persist plaintext ledger contents. It writes an encrypted archive and SHA-256 sidecar to a protected local directory. An operator must copy both artifacts to independently controlled offsite/immutable storage and verify the checksum. This code does not provision a Worker, configure secrets, upload artifacts, or enable a schedule.
 
 This is an export primitive, not a complete restore/replay implementation. The production recovery gate remains closed until an isolated restore tool validates the encrypted archive and manifest, matches pseudonym keys, replays all applicable events idempotently into restored PostgreSQL and media, and proves the restored state cannot re-expose erased data or withdrawn consent.
+
+## Isolated PostgreSQL staging (not domain replay)
+
+Migration `187_privacy_recovery_event_staging.sql` adds an immutable PostgreSQL staging table for off-host events. `server/privacyRecoveryReplay.js` accepts an already verified, complete export and the ledger sequence recorded in the backup manifest. It validates the complete sequence from 1 through the export watermark, stages only events newer than the snapshot watermark in one transaction, and treats exact repeats as idempotent while rejecting sequence/event-ID collisions with different content. UPDATE and DELETE are blocked by database triggers.
+
+This stage is deliberately non-destructive: it does not map pseudonymous references to user/resource IDs and does not delete accounts, revoke consent, purge media, alter ads, or change gift orders. It is a durable quarantine/import step, not replay completion. A restored environment must remain isolated until domain-specific replay services, media reconciliation, and a verified end-to-end recovery drill are implemented. The import helper must only receive events from a successfully checksum-verified and age-decrypted archive.
+
