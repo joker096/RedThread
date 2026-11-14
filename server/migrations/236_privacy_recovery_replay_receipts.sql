@@ -23,11 +23,11 @@ CREATE TABLE IF NOT EXISTS privacy_recovery_replay_receipts (
     'voice_intro_erasure_requested',
     'voice_intro_consent_withdrawn'
   )),
-  outcome_code TEXT NOT NULL CHECK (outcome_code IN (
-    'photo_erasure_queued',
-    'voice_intro_erasure_queued',
-    'voice_intro_consent_withdrawn'
-  )),
+  outcome_code TEXT NOT NULL CHECK (
+    (event_type = 'private_photo_erasure_requested' AND outcome_code = 'photo_erasure_queued') OR
+    (event_type = 'voice_intro_erasure_requested' AND outcome_code = 'voice_intro_erasure_queued') OR
+    (event_type = 'voice_intro_consent_withdrawn' AND outcome_code = 'voice_intro_consent_withdrawn')
+  ),
   applied_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
   PRIMARY KEY (ledger_sequence),
   UNIQUE (event_id),
