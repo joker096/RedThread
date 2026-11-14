@@ -15,6 +15,7 @@ import { normalizeGiftRequestInput } from './giftRequestInput.js';
 import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, acquireGiftSafetyUserLocks, recipientGiftAcceptanceLimitReached, expireStaleGiftRequestsForPair, enqueueExpiredGiftPaymentReconciliation, notifyGiftRequestUpdate, hasPendingRecipientDecline } from './giftOrderCreationService.js';
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
+import { appendPrivacyRecoveryEvent } from './privacyRecoveryLedger.js';
 import { consumeIdentityL3UploadCapability, IDENTITY_L3_CONSENT_NOTICE, IDENTITY_L3_CONSENT_VERSION, IdentityL3UploadTokenError, issueIdentityL3UploadCapability } from './identityL3UploadTokens.js';
 import { assertIdentityL3StorageReady, assertIdentityL3TemporaryStorageReady, clearIdentityL3TemporaryFiles, deleteIdentityL3Object, IDENTITY_L3_MAX_MEDIA_BYTES, IdentityL3StorageError, openIdentityL3Stream, parseIdentityL3EncryptionKey, storeIdentityL3Stream } from './identityL3Storage.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
@@ -2069,6 +2070,16 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
       }
     }
 
+    try {
+      await appendPrivacyRecoveryEvent({
+        eventType: 'account_erasure_requested',
+        userId: req.authUser.id
+      });
+    } catch (error) {
+      console.error('Privacy recovery ledger rejected account erasure:', error?.message || 'unknown error');
+      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+    }
+
     await client.query('BEGIN');
     // Serialize deletion with registration for the same normalized email. This
     // prevents a concurrent registration from slipping between the tombstone
@@ -2759,6 +2770,16 @@ app.delete('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession
       [req.authUser.id]
     );
     if (consent.rows[0] && !consent.rows[0].withdrawn_at) {
+      try {
+        await appendPrivacyRecoveryEvent({
+          eventType: 'voice_intro_consent_withdrawn',
+          userId: req.authUser.id
+        });
+      } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Privacy recovery ledger rejected voice consent withdrawal:', error?.message || 'unknown error');
+        return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+      }
       await client.query(
         'UPDATE profile_voice_intro_consents SET withdrawn_at = statement_timestamp(), updated_at = statement_timestamp() WHERE user_id = $1',
         [req.authUser.id]
@@ -6239,6 +6260,18 @@ app.post('/api/gifts/orders/:publicReference/withdraw-consent', validateRequestO
       return res.status(409).json({ error: 'gift_order_not_withdrawable' });
     }
 
+    try {
+      await appendPrivacyRecoveryEvent({
+        eventType: 'gift_order_consent_withdrawn',
+        userId: req.authUser.id,
+        resourceId: order.id
+      });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Privacy recovery ledger rejected gift consent withdrawal:', error?.message || 'unknown error');
+      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+    }
+
     const updated = await client.query(
       `UPDATE gift_delivery_orders
        SET status = 'cancelled',
@@ -6815,6 +6848,16 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, id
     // update; the current version is required for access, not for revocation.
     const wasActive = Boolean(consent && !consent.withdrawn_at);
     if (wasActive) {
+      try {
+        await appendPrivacyRecoveryEvent({
+          eventType: 'identity_l3_consent_withdrawn',
+          userId: req.authUser.id
+        });
+      } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Privacy recovery ledger rejected L3 consent withdrawal:', error?.message || 'unknown error');
+        return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+      }
       await client.query(
         'UPDATE identity_l3_consents SET withdrawn_at = statement_timestamp(), updated_at = statement_timestamp() WHERE user_id = $1 AND withdrawn_at IS NULL',
         [req.authUser.id]
@@ -6967,6 +7010,38 @@ app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileAction
     // on the same preference row until their transaction finishes, so a concurrent
     // revocation and event are serialized: either the event finishes before the
     // revocation commits, or it observes the revoked/stale consent and is rejected.
+    const previousConsent = await client.query(
+      `SELECT ads_consent, date_offers_consent, wedding_offers_consent,
+              marriage_planning_opt_in, category_consents
+       FROM ad_consent_preferences WHERE user_id = $1 FOR UPDATE`,
+      [req.authUser.id]
+    );
+    const previous = previousConsent.rows[0];
+    const previousCategories = previous?.category_consents && typeof previous.category_consents === 'object'
+      ? previous.category_consents : {};
+    const categoryRevoked = Object.entries(previousCategories).some(([key, enabled]) =>
+      enabled === true && preferences.categoryConsents[key] !== true
+    );
+    const consentRevoked = Boolean(previous && (
+      (previous.ads_consent && !preferences.adsConsent) ||
+      (previous.date_offers_consent && !preferences.dateOffersConsent) ||
+      (previous.wedding_offers_consent && !preferences.weddingOffersConsent) ||
+      (previous.marriage_planning_opt_in && !preferences.marriagePlanningOptIn) ||
+      categoryRevoked
+    ));
+    if (consentRevoked) {
+      try {
+        await appendPrivacyRecoveryEvent({
+          eventType: 'ad_consent_revoked',
+          userId: req.authUser.id
+        });
+      } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Privacy recovery ledger rejected ad consent revocation:', error?.message || 'unknown error');
+        return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+      }
+    }
+
     const result = await client.query(
       `INSERT INTO ad_consent_preferences
          (user_id, ads_consent, date_offers_consent, wedding_offers_consent,
