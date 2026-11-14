@@ -231,3 +231,8 @@ Before Production, implement and test one authoritative recovery mechanism:
 - Add integration tests that restore a pre-deletion snapshot, replay a later synthetic deletion and consent withdrawal, and prove that the account/media cannot become visible or playable. Also test interrupted replay and safe idempotent retry.
 
 Until this mechanism exists and passes its isolated restore drill, encrypted backup integrity and archive round-trip tests are necessary but not sufficient for a Production recovery claim. No live account data should be used in these tests.
+
+
+## Off-host privacy recovery ledger design
+
+The selected implementation design and event contract are documented in [PRIVACY_RECOVERY_LEDGER.md](./PRIVACY_RECOVERY_LEDGER.md). The proposed Cloudflare Worker + D1 ledger is not provisioned or active. It must be deployed and integrated before Production; this remains a hard recovery gate. The design explicitly treats remote ledger acknowledgement as a prerequisite to committing privacy erasure/withdrawal state and requires an independently exported copy before claiming provider-independent disaster recovery.
