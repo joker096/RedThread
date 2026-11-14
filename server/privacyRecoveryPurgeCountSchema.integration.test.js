@@ -59,14 +59,18 @@ test('privacy recovery replay effects remain immutable after purge-count migrati
         [sequence]
       );
       assert.equal(effect.rows[0].purge_count, 0);
+      await client.query('SAVEPOINT reject_effect_update');
       await assert.rejects(
         client.query('UPDATE privacy_recovery_replay_effects SET purge_count = 1 WHERE ledger_sequence = $1', [sequence]),
         error => error.code === '55000'
       );
+      await client.query('ROLLBACK TO SAVEPOINT reject_effect_update');
+      await client.query('SAVEPOINT reject_effect_delete');
       await assert.rejects(
         client.query('DELETE FROM privacy_recovery_replay_effects WHERE ledger_sequence = $1', [sequence]),
         error => error.code === '55000'
       );
+      await client.query('ROLLBACK TO SAVEPOINT reject_effect_delete');
     } finally {
       await client.query('ROLLBACK').catch(() => {});
     }
