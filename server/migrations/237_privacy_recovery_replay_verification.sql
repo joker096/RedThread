@@ -1,5 +1,8 @@
 -- Persist minimal replay effects and hashed purge obligations so an isolated
 -- restore can verify domain state without exposing storage paths in reports.
+CREATE UNIQUE INDEX IF NOT EXISTS privacy_recovery_receipts_sequence_event_pair_idx
+  ON privacy_recovery_replay_receipts (ledger_sequence, event_id);
+
 CREATE TABLE IF NOT EXISTS privacy_recovery_replay_effects (
   ledger_sequence BIGINT PRIMARY KEY,
   event_id UUID NOT NULL UNIQUE,
