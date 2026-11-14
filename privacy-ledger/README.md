@@ -32,3 +32,16 @@ After the Worker has been provisioned and synthetic-event checks pass, configure
 Run `npm run privacy-ledger:export`. The exporter authenticates every page, pins the first response's watermark for all subsequent pages, validates contiguous sequence numbers and event shape, and refuses incomplete, changing, or inconsistent pagination. It streams NDJSON directly to `age` stdin; plaintext event data is not written to a temporary file. The encrypted archive includes a small manifest and all events through the pinned watermark. A SHA-256 sidecar is created after encryption.
 
 Copy both the `.ndjson.age` archive and its `.sha256` sidecar to immutable/offsite storage. Verify the ciphertext with `sha256sum --check` before retaining it. The exporter does not upload, schedule, provision, or configure any external storage. It creates a full-history export, not an incremental one; retain multiple verified generations according to the deletion-retention policy.
+
+## Encrypted export verification
+
+Before retaining or using an exported archive, verify its ciphertext checksum and decrypt/validate its contents in a controlled recovery environment. Keep the age identity in a separately escrowed secret file and set `PRIVACY_LEDGER_AGE_IDENTITY_FILE` only in the trusted runner:
+
+```bash
+npm run privacy-ledger:verify -- /secure/backups/vow-privacy-ledger-....ndjson.age
+```
+
+The verifier checks the sidecar against the archive bytes, rejects symlinks and malformed inputs, decrypts through the `age` process pipe without creating a plaintext temporary file, and validates the manifest, supported event types, event IDs, pseudonym references, timestamps, contiguous sequence numbers and declared event count. It prints only the verified archive path, checksum and sequence/count summary.
+
+This is an integrity/decryption validation step, not a restore or replay engine. It does not connect to PostgreSQL, map pseudonymous references to restored records, mutate accounts/media/consent, or authorize reopening a restored environment. The hard recovery gate remains in force until a separate isolated, idempotent replay tool and end-to-end privacy restoration drill exist.
+
