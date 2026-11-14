@@ -69,7 +69,7 @@ export async function runPrivateMediaPrivacyRecovery({
 
     const [users, voiceIntros, photos] = await Promise.all([
       client.query('SELECT id FROM users'),
-      client.query('SELECT id FROM profile_voice_intros'),
+      client.query('SELECT id, user_id FROM profile_voice_intros'),
       client.query('SELECT id FROM photo_assets')
     ]);
     mappings = resolvePrivacyRecoveryMappings({
