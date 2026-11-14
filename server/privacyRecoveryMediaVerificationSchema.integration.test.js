@@ -66,14 +66,21 @@ test('privacy recovery verification evidence is immutable and receipt-bound', {
       assert.equal(evidence.rows[0].resource_id, resourceId);
       assert.equal(evidence.rows[0].storage_path_sha256, storageDigest);
 
+      await client.query('SAVEPOINT immutable_effect_update');
       await assert.rejects(
         client.query('UPDATE privacy_recovery_replay_effects SET resource_id = resource_id WHERE ledger_sequence = $1', [sequence]),
         error => error.code === '55000'
       );
+      await client.query('ROLLBACK TO SAVEPOINT immutable_effect_update');
+      await client.query('RELEASE SAVEPOINT immutable_effect_update');
+
+      await client.query('SAVEPOINT immutable_purge_obligation_delete');
       await assert.rejects(
         client.query('DELETE FROM privacy_recovery_replay_purge_obligations WHERE ledger_sequence = $1', [sequence]),
         error => error.code === '55000'
       );
+      await client.query('ROLLBACK TO SAVEPOINT immutable_purge_obligation_delete');
+      await client.query('RELEASE SAVEPOINT immutable_purge_obligation_delete');
     } finally {
       await client.query('ROLLBACK').catch(() => {});
     }
