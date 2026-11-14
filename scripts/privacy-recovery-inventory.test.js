@@ -69,6 +69,23 @@ test('unresolved mappings fail readiness and report only sequence numbers', asyn
   assert.equal(report.byStatus.subject_unmatched, 1);
 });
 
+test('matched events from unsupported domains do not report replay readiness', async () => {
+  const pool = fakePool({
+    events: [{
+      sequence: 1, event_id: randomUUID(), event_type: 'account_erasure_requested',
+      subject_ref: ref(userId), resource_ref: null
+    }],
+    users: [{ id: userId }]
+  });
+  const report = await runPrivacyRecoveryInventory({ pool, env });
+  assert.equal(report.matchedCount, 1);
+  assert.equal(report.unresolvedCount, 0);
+  assert.equal(report.supportedEventCount, 0);
+  assert.equal(report.unsupportedEventCount, 1);
+  assert.deepEqual(report.unsupportedEventSequences, [1]);
+  assert.equal(report.readyForDomainReplay, false);
+});
+
 test('refuses production or non-isolated execution before opening a connection', async () => {
   let connected = false;
   const pool = { async connect() { connected = true; } };
