@@ -53,6 +53,21 @@ test('maps all resource-bearing event types against their own restored entity se
   ]);
 });
 
+test('rejects a resource that belongs to a different user', () => {
+  const ownerId = id();
+  const otherUserId = id();
+  const photoId = id();
+  const result = resolvePrivacyRecoveryMappings({
+    pseudonymKey: key,
+    users: [{ id: ownerId }, { id: otherUserId }],
+    photos: [{ id: photoId, user_id: otherUserId }],
+    events: [event('private_photo_erasure_requested', ownerId, photoId)]
+  });
+  assert.equal(result[0].status, 'resource_subject_mismatch');
+  assert.equal(result[0].subjectUserId, ownerId);
+  assert.equal(result[0].resourceId, null);
+});
+
 test('reports missing and ambiguous mappings without guessing', () => {
   const userId = id();
   const photoId = id();
