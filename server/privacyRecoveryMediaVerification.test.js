@@ -21,7 +21,8 @@ const event = {
   ])).digest('hex'),
   outcome_code: 'photo_erasure_queued',
   subject_user_id: '123e4567-e89b-42d3-a456-426614174001',
-  resource_id: '123e4567-e89b-42d3-a456-426614174002'
+  resource_id: '123e4567-e89b-42d3-a456-426614174002',
+  purge_count: 1
 };
 const storagePath = '/private/photos/123e4567-e89b-42d3-a456-426614174002.jpg';
 const pathDigest = createHash('sha256').update(storagePath).digest('hex');
