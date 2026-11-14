@@ -65,7 +65,8 @@ test('repeated staging is idempotent when existing rows match exactly', async ()
   const result = await stagePrivacyRecoveryEvents(client, {
     snapshotLedgerSequence: 1, events: [event(1), event(2)]
   });
-  assert.equal(result.stagedCount, 1);
+  assert.equal(result.stagedCount, 0);
+  assert.equal(result.alreadyPresentCount, 1);
   assert.equal(client.calls.at(-1).sql, 'COMMIT');
 });
 
