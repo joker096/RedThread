@@ -149,7 +149,7 @@ export async function inspectBackupDirectory(directory, {
     return { status: 'critical', configured: true, latest: latest.name, ageHours: null, reason: 'latest_backup_checksum_not_a_regular_file' };
   }
   const checksumText = await readFile(checksumPath, 'utf8');
-  const checksumMatch = checksumText.match(/^([a-f0-9]{64})\\s+\\*?([^\\r\\n]+)\\s*$/i);
+  const checksumMatch = checksumText.match(/^([a-f0-9]{64})\s+\*?([^\r\n]+)\s*$/i);
   if (!checksumMatch || checksumMatch[2] !== latest.name) {
     return { status: 'critical', configured: true, latest: latest.name, ageHours: null, reason: 'latest_backup_checksum_malformed_or_filename_mismatch' };
   }
