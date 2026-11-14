@@ -110,3 +110,12 @@ The executor never deletes a file, starts a worker, calls an external service, o
 The coordinator stops before the first unsupported event (including account erasure, L3, advertising, and gift events). It does not skip over a blocked event to apply later media events. Each supported event commits independently with its immutable receipt; a later failure leaves earlier events safely resumable. A subsequent run uses the same verified watermarks and exact receipts to continue.
 
 This is still an isolated recovery utility, not a server route, scheduled job, or production startup hook. It does not provision or enable an isolated database, disable external egress/workers/webhooks, or guarantee the media volume is mounted read-only. Those are mandatory operator/environment controls. Post-replay inventory comparison and real PostgreSQL concurrency/rollback integration tests remain release gates.
+
+
+## Post-replay verification evidence
+
+Migration 237 adds immutable replay-effect records and SHA-256-only purge obligations. The media executor writes them in the same transaction as the domain mutation and replay receipt; raw storage paths remain only in the existing purge queues.
+
+`server/privacyRecoveryMediaVerification.js` performs a read-only repeatable-read audit in an explicitly isolated, non-production restore. It checks contiguous event coverage, canonical event digests and receipt outcomes, effect records, absence of deleted photo/voice metadata, photo URL removal, withdrawn voice consent, and that every recorded purge obligation still exists in its corresponding queue. The report contains counts and watermarks only, never user IDs, resource IDs or storage paths.
+
+The verifier intentionally fails if a photo/voice erasure lacks a recorded purge obligation or if a queued path has disappeared before verification. Therefore purge workers must remain disabled until the report is complete and reviewed. This is a verification tool only; it does not delete files, start workers, or activate external services.
