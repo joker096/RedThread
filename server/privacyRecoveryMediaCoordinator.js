@@ -37,7 +37,8 @@ export async function runPrivateMediaPrivacyRecovery({
   snapshotLedgerSequence,
   throughSequence,
   photoStorageRoot,
-  voiceStorageRoot
+  voiceStorageRoot,
+  applyEvent = applyPrivateMediaPrivacyRecoveryEvent
 }) {
   assertIsolatedRestore(env);
   validateWatermarks(snapshotLedgerSequence, throughSequence);
@@ -103,10 +104,7 @@ export async function runPrivateMediaPrivacyRecovery({
         throughSequence
       };
     }
-    if (mapping.status !== 'matched') {
-      throw new Error('privacy_recovery_executor_mapping_unresolved_at_sequence_' + mapping.sequence);
-    }
-    const result = await applyPrivateMediaPrivacyRecoveryEvent({
+    const result = await applyEvent({
       pool,
       mapping,
       pseudonymKey: env.PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY,
