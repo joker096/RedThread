@@ -76,7 +76,8 @@ export async function appendPrivacyRecoveryEvent({
         'x-ledger-signature': signature
       },
       body,
-      cache: 'no-store'
+      cache: 'no-store',
+      signal: AbortSignal.timeout(5000)
     });
   } catch {
     throw new Error('privacy_recovery_ledger_unavailable');
