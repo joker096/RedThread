@@ -118,3 +118,72 @@ test('configured empty backup directory fails closed', async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+
+test('runs authenticated decryption and archive-format validation when an age identity is configured', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'vow-backup-crypto-'));
+  const identity = path.join(root, 'age-identity.txt');
+  try {
+    await addBackup(root, 'vow-private-media-20261113T120000Z.tar.age', 'ciphertext-fixture');
+    await writeFile(identity, 'AGE-SECRET-KEY-TEST');
+    const calls = [];
+    const result = await verifyEncryptedBackupDirectory(root, {
+      name: 'privatePhoto',
+      pattern: /^vow-private-media-.*\\.tar\\.age$/,
+      ageIdentityFile: identity,
+      archiveValidator: async (...args) => { calls.push(args); }
+    });
+    assert.equal(result.status, 'verified');
+    assert.equal(result.checked, 1);
+    assert.equal(result.cryptographicallyChecked, 1);
+    assert.deepEqual(calls, [[
+      path.join(root, 'vow-private-media-20261113T120000Z.tar.age'),
+      identity,
+      'tar'
+    ]]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('fails a backup set when authenticated archive validation rejects its contents', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'vow-backup-crypto-fail-'));
+  const identity = path.join(root, 'age-identity.txt');
+  try {
+    await addBackup(root, 'vow-postgres-20261113T120000Z.dump.age', 'ciphertext-fixture');
+    await writeFile(identity, 'AGE-SECRET-KEY-TEST');
+    const result = await verifyEncryptedBackupDirectory(root, {
+      name: 'postgres',
+      pattern: /^vow-postgres-.*\\.dump\\.age$/,
+      ageIdentityFile: identity,
+      archiveValidator: async () => { throw new Error('backup_archive_authentication_or_format_invalid'); }
+    });
+    assert.equal(result.status, 'failed');
+    assert.ok(result.failures.includes('backup_archive_authentication_or_format_invalid'));
+    assert.equal(result.cryptographicallyChecked, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('rejects a symlinked age identity before inspecting backup archives', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'vow-backup-identity-'));
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'vow-backup-identity-outside-'));
+  try {
+    await addBackup(root, 'vow-postgres-20261113T120000Z.dump.age', 'ciphertext-fixture');
+    const target = path.join(outside, 'identity.txt');
+    await writeFile(target, 'AGE-SECRET-KEY-TEST');
+    const identity = path.join(root, 'identity.txt');
+    await symlink(target, identity);
+    const result = await verifyEncryptedBackupDirectory(root, {
+      name: 'postgres',
+      pattern: /^vow-postgres-.*\\.dump\\.age$/,
+      ageIdentityFile: identity
+    });
+    assert.equal(result.status, 'failed');
+    assert.ok(result.failures.includes('backup_identity_not_a_regular_file'));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
+});
