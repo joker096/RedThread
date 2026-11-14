@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { validateEncryptedArchive } from './verify-encrypted-backups.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const backupScript = path.join(root, 'backup-private-media.sh');
@@ -33,6 +34,7 @@ test('private media backup and restore round-trip with real age encryption and t
   const source = path.join(temporaryRoot, 'private-media');
   const backupDir = path.join(temporaryRoot, 'encrypted-backups');
   const identityFile = path.join(temporaryRoot, 'age-identity.txt');
+  const wrongIdentityFile = path.join(temporaryRoot, 'wrong-age-identity.txt');
   const destination = path.join(temporaryRoot, 'isolated-restore', 'private-media');
   const fixture = Buffer.from('synthetic-private-media-fixture-not-user-data');
   const nestedFixture = Buffer.from([0, 1, 2, 3, 254, 255]);
@@ -61,6 +63,11 @@ test('private media backup and restore round-trip with real age encryption and t
     assert.ok(archiveName, 'encrypted private-media archive must exist');
     assert.ok(artifacts.includes(`${archiveName}.sha256`), 'checksum sidecar must exist');
     const archivePath = path.join(backupDir, archiveName);
+    await validateEncryptedArchive(archivePath, identityFile, 'tar');
+    run('age-keygen', ['-o', wrongIdentityFile]);
+    await chmod(wrongIdentityFile, 0o600);
+    await assert.rejects(validateEncryptedArchive(archivePath, wrongIdentityFile, 'tar'),
+      /backup_archive_authentication_or_format_invalid/);
     const encryptedArchive = await readFile(archivePath);
     assert.ok(encryptedArchive.subarray(0, 64).toString('utf8').includes('age-encryption.org/v1'),
       'backup must be a real age-encrypted archive');
