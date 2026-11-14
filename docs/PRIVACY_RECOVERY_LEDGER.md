@@ -87,3 +87,16 @@ Migration `187_privacy_recovery_event_staging.sql` adds an immutable PostgreSQL 
 
 This stage is deliberately non-destructive: it does not map pseudonymous references to user/resource IDs and does not delete accounts, revoke consent, purge media, alter ads, or change gift orders. It is a durable quarantine/import step, not replay completion. A restored environment must remain isolated until domain-specific replay services, media reconciliation, and a verified end-to-end recovery drill are implemented. The import helper must only receive events from a successfully checksum-verified and age-decrypted archive.
 
+
+
+## Read-only pseudonym mapping (no replay)
+
+`server/privacyRecoveryMapping.js` implements the next recovery gate. It uses the exact HMAC-SHA256 derivation used by the live API (the raw UUID string as UTF-8 input and the configured pseudonym key) to match staged subject references to restored users and resource references to the correct restored entity collection:
+- voice-introduction erasure → `profile_voice_intros.id`;
+- private-photo erasure → `photo_assets.id`;
+- gift-order consent withdrawal → `gift_delivery_orders.id`;
+- account erasure, voice consent withdrawal, L3 consent withdrawal and ad-consent revocation → subject only.
+
+The function is read-only and accepts candidate rows supplied by a caller; it performs no SQL, filesystem or network operations. Every event is classified as matched, unmatched, ambiguous, or missing a required resource reference. It never guesses across entity types and returns null identifiers for unresolved matches. The pseudonym key must be the same key used when the event was appended. A wrong key therefore yields unmatched references and cannot silently select a different account.
+
+This is a mapping report only. It does not modify restored records, invoke purge workers, or constitute consent/deletion replay. A future replay executor must reject the entire batch unless every event is fully resolved and domain-specific invariants are satisfied. L3 media cleanup remains a subject-level workflow: the existing domain procedure must locate every retained L3 submission for that user and enqueue its purge jobs rather than assuming the event identifies one submission.
