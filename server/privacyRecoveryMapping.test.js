@@ -68,6 +68,20 @@ test('rejects a resource that belongs to a different user', () => {
   assert.equal(result[0].resourceId, null);
 });
 
+test('gift recovery mapping requires the event subject to be the order recipient', () => {
+  const recipientId = id();
+  const senderId = id();
+  const orderId = id();
+  const result = resolvePrivacyRecoveryMappings({
+    pseudonymKey: key,
+    users: [{ id: recipientId }, { id: senderId }],
+    giftOrders: [{ id: orderId, user_id: senderId }],
+    events: [event('gift_order_consent_withdrawn', recipientId, orderId)]
+  });
+  assert.equal(result[0].status, 'resource_subject_mismatch');
+  assert.equal(result[0].resourceId, null);
+});
+
 test('reports missing and ambiguous mappings without guessing', () => {
   const userId = id();
   const photoId = id();
