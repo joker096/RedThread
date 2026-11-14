@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS privacy_recovery_replay_effects (
     'voice_intro_erasure_requested',
     'voice_intro_consent_withdrawn'
   )),
-  subject_user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  subject_user_id UUID NOT NULL,
   resource_id UUID,
   created_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
   FOREIGN KEY (ledger_sequence, event_id)
