@@ -238,9 +238,9 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
     );
     await client.query(
       `INSERT INTO privacy_recovery_replay_effects
-         (ledger_sequence, event_id, event_type, subject_user_id, resource_id)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [mapping.sequence, mapping.eventId, mapping.eventType, mapping.subjectUserId, replayEffectResourceId]
+         (ledger_sequence, event_id, event_type, subject_user_id, resource_id, purge_count)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [mapping.sequence, mapping.eventId, mapping.eventType, mapping.subjectUserId, replayEffectResourceId, purgeStoragePaths.length]
     );
     if (purgeQueueName && purgeStoragePaths.length) {
       const obligations = purgeStoragePaths.map(storagePath => [
