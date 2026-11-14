@@ -99,6 +99,44 @@ test('coordinator preflights the full batch before applying any supported prefix
   });
 });
 
+test('coordinator preflights the full batch before applying a supported prefix', async () => {
+  const photoId = '123e4567-e89b-42d3-a456-426614174005';
+  const photoRef = createHmac('sha256', key).update(photoId, 'utf8').digest('hex');
+  const { pool } = poolFor({
+    events: [{
+      sequence: '1',
+      event_id: '123e4567-e89b-42d3-a456-426614174006',
+      event_type: 'private_photo_erasure_requested',
+      subject_ref: subjectRef,
+      resource_ref: photoRef
+    }, {
+      sequence: '2',
+      event_id: '123e4567-e89b-42d3-a456-426614174007',
+      event_type: 'account_erasure_requested',
+      subject_ref: subjectRef,
+      resource_ref: null
+    }],
+    photos: [{ id: photoId, user_id: userId }]
+  });
+  const applied = [];
+  const result = await runPrivateMediaPrivacyRecovery({
+    pool, env: isolatedEnv, snapshotLedgerSequence: 0, throughSequence: 2,
+    applyEvent: async ({ mapping }) => {
+      applied.push(mapping);
+      return { applied: true, alreadyApplied: false };
+    }
+  });
+  assert.deepEqual(applied, []);
+  assert.deepEqual(result, {
+    complete: false,
+    processedCount: 0,
+    alreadyAppliedCount: 0,
+    blockedSequence: 2,
+    blockedEventType: 'account_erasure_requested',
+    throughSequence: 2
+  });
+});
+
 test('coordinator rejects an incomplete staged sequence range', async () => {
   const { pool, calls } = poolFor({ events: [] });
   await assert.rejects(
