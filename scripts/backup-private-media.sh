@@ -17,6 +17,11 @@ if find "$MEDIA_ROOT" -type l -print -quit | grep -q .; then
   exit 1
 fi
 
+if find "$MEDIA_ROOT" ! -type d ! -type f -print -quit | grep -q .; then
+  echo "private media contains special filesystem entries; refusing an unsafe backup" >&2
+  exit 1
+fi
+
 BACKUP_DIR="${BACKUP_DIR:-./backups/private-media}"
 RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"
 if ! [[ "$RETENTION_DAYS" =~ ^[0-9]+$ ]]; then
