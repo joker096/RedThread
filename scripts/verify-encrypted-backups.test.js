@@ -129,7 +129,7 @@ test('runs authenticated decryption and archive-format validation when an age id
     const calls = [];
     const result = await verifyEncryptedBackupDirectory(root, {
       name: 'privatePhoto',
-      pattern: /^vow-private-media-.*\\.tar\\.age$/,
+      pattern: /^vow-private-media-.*\.tar\.age$/,
       ageIdentityFile: identity,
       archiveValidator: async (...args) => { calls.push(args); }
     });
@@ -154,7 +154,7 @@ test('fails a backup set when authenticated archive validation rejects its conte
     await writeFile(identity, 'AGE-SECRET-KEY-TEST');
     const result = await verifyEncryptedBackupDirectory(root, {
       name: 'postgres',
-      pattern: /^vow-postgres-.*\\.dump\\.age$/,
+      pattern: /^vow-postgres-.*\.dump\.age$/,
       ageIdentityFile: identity,
       archiveValidator: async () => { throw new Error('backup_archive_authentication_or_format_invalid'); }
     });
@@ -177,7 +177,7 @@ test('rejects a symlinked age identity before inspecting backup archives', async
     await symlink(target, identity);
     const result = await verifyEncryptedBackupDirectory(root, {
       name: 'postgres',
-      pattern: /^vow-postgres-.*\\.dump\\.age$/,
+      pattern: /^vow-postgres-.*\.dump\.age$/,
       ageIdentityFile: identity
     });
     assert.equal(result.status, 'failed');
