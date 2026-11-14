@@ -22,7 +22,7 @@ const manifest = (count) => ({
   last_sequence: count,
   event_count: count
 });
-const streamOf = (...records) => Readable.from(records.map(record => JSON.stringify(record) + '\\n'));
+const streamOf = (...records) => Readable.from(records.map(record => JSON.stringify(record) + '\n'));
 
 test('validates manifest and complete contiguous event stream', async () => {
   const result = await verifyLedgerExportStream(streamOf(manifest(2), event(1), event(2)));
@@ -46,6 +46,6 @@ test('rejects sequence gaps, duplicate event IDs and unsupported event types', a
 test('rejects incomplete count, malformed manifest and invalid JSON', async () => {
   await assert.rejects(verifyLedgerExportStream(streamOf(manifest(2), event(1))), /incomplete/);
   await assert.rejects(verifyLedgerExportStream(streamOf({ ...manifest(0), last_sequence: 1 })), /manifest_invalid/);
-  await assert.rejects(verifyLedgerExportStream(Readable.from(['not-json\\n'])), /invalid_json/);
+  await assert.rejects(verifyLedgerExportStream(Readable.from(['not-json\n'])), /invalid_json/);
   await assert.rejects(verifyLedgerExportStream(Readable.from([])), /manifest_missing/);
 });
