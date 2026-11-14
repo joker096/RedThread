@@ -48,3 +48,89 @@ test("ledger rejects oversized event payloads before database access", async () 
   const response = await handleRequest(request, env);
   assert.equal(response.status, 413);
 });
+
+class FakeLedgerDb {
+  constructor() { this.rows = []; this.sequence = 0; }
+  prepare(sql) {
+    const db = this;
+    return {
+      values: [],
+      bind(...values) { this.values = values; return this; },
+      async run() {
+        if (sql.includes("INSERT INTO privacy_events")) {
+          const [eventId, schemaVersion, eventType, subjectRef, resourceRef, occurredAt, receivedAt, payloadHash] = this.values;
+          if (db.rows.some(row => row.event_id === eventId)) throw new Error("unique constraint");
+          db.rows.push({
+            sequence: ++db.sequence, event_id: eventId, schema_version: schemaVersion,
+            event_type: eventType, subject_ref: subjectRef, resource_ref: resourceRef,
+            occurred_at: occurredAt, received_at: receivedAt, payload_sha256: payloadHash
+          });
+          return { success: true };
+        }
+        if (sql.includes("UPDATE privacy_events") || sql.includes("DELETE FROM privacy_events")) throw new Error("append-only");
+        return { success: true };
+      },
+      async first() {
+        if (sql.includes("WHERE event_id = ?")) return db.rows.find(row => row.event_id === this.values[0]) ?? null;
+        if (sql.includes("MAX(sequence)")) return { sequence: db.sequence };
+        return null;
+      },
+      async all() {
+        if (sql.includes("FROM privacy_events WHERE sequence > ?")) {
+          const [after, limit] = this.values;
+          return { results: db.rows.filter(row => row.sequence > after).slice(0, limit).map(({ payload_sha256, ...row }) => row) };
+        }
+        return { results: [] };
+      }
+    };
+  }
+}
+
+function eventPayload(overrides = {}) {
+  return JSON.stringify({
+    event_id: "123e4567-e89b-42d3-a456-426614174000",
+    schema_version: 1,
+    event_type: "account_erasure_requested",
+    subject_ref: "a".repeat(64),
+    occurred_at: "2026-11-14T07:00:00.000Z",
+    ...overrides
+  });
+}
+
+test("ledger appends a valid event and returns a durable sequence", async () => {
+  const db = new FakeLedgerDb();
+  const body = eventPayload();
+  const request = await signedRequest("POST", "https://ledger.test/v1/events", body);
+  const response = await handleRequest(request, { ...env, LEDGER_DB: db });
+  assert.equal(response.status, 201);
+  assert.deepEqual(await response.json(), { accepted: true, duplicate: false, sequence: 1 });
+  assert.equal(db.rows.length, 1);
+});
+
+test("ledger append is idempotent and rejects event ID payload conflicts", async () => {
+  const db = new FakeLedgerDb();
+  const body = eventPayload();
+  const first = await handleRequest(await signedRequest("POST", "https://ledger.test/v1/events", body), { ...env, LEDGER_DB: db });
+  const duplicate = await handleRequest(await signedRequest("POST", "https://ledger.test/v1/events", body), { ...env, LEDGER_DB: db });
+  assert.equal(first.status, 201);
+  assert.equal(duplicate.status, 200);
+  assert.equal((await duplicate.json()).duplicate, true);
+  const conflictBody = eventPayload({ event_type: "voice_intro_consent_withdrawn" });
+  const conflict = await handleRequest(await signedRequest("POST", "https://ledger.test/v1/events", conflictBody), { ...env, LEDGER_DB: db });
+  assert.equal(conflict.status, 409);
+  assert.equal(db.rows.length, 1);
+});
+
+test("ledger pagination is authenticated and exposes a stable watermark", async () => {
+  const db = new FakeLedgerDb();
+  const body = eventPayload();
+  await handleRequest(await signedRequest("POST", "https://ledger.test/v1/events", body), { ...env, LEDGER_DB: db });
+  const url = "https://ledger.test/v1/events?after=0&limit=10";
+  const response = await handleRequest(await signedRequest("GET", url), { ...env, LEDGER_DB: db });
+  assert.equal(response.status, 200);
+  const page = await response.json();
+  assert.equal(page.events.length, 1);
+  assert.equal(page.next_after, 1);
+  assert.equal(page.watermark, 1);
+  assert.equal("payload_sha256" in page.events[0], false);
+});
