@@ -9,6 +9,7 @@ umask 077
 command -v sha256sum >/dev/null 2>&1 || { echo "sha256sum is required" >&2; exit 1; }
 command -v age >/dev/null 2>&1 || { echo "age is required" >&2; exit 1; }
 command -v tar >/dev/null 2>&1 || { echo "tar is required" >&2; exit 1; }
+command -v python3 >/dev/null 2>&1 || { echo "python3 is required for safe archive validation" >&2; exit 1; }
 
 CHECKSUM_FILE="${CHECKSUM_FILE:-${ARCHIVE_FILE}.sha256}"
 for file in "$ARCHIVE_FILE" "$CHECKSUM_FILE" "$AGE_IDENTITY_FILE"; do
@@ -28,6 +29,47 @@ if [[ "$actual_checksum" != "$expected_checksum" ]]; then
   echo "backup checksum verification failed" >&2
   exit 1
 fi
+
+# Validate the decrypted tar stream before extraction. Private-media backups
+# contain only regular files and directories; links and special entries are
+# unnecessary and can redirect extraction outside the staging directory.
+age --decrypt --identity "$AGE_IDENTITY_FILE" "$ARCHIVE_FILE" |
+  python3 -c '
+import posixpath, sys, tarfile
+seen = {}
+try:
+    with tarfile.open(fileobj=sys.stdin.buffer, mode="r|") as archive:
+        for member in archive:
+            name = member.name
+            if not name or name.startswith("/") or "\x00" in name:
+                raise ValueError("unsafe archive member path")
+            parts = name.split("/")
+            if any(part == ".." for part in parts):
+                raise ValueError("parent traversal in archive member path")
+            normalized = posixpath.normpath(name)
+            if normalized in ("", "."):
+                if member.isdir():
+                    continue
+                raise ValueError("invalid archive root member")
+            if normalized.startswith("../") or normalized == ".." or normalized.startswith("/"):
+                raise ValueError("archive member escapes staging directory")
+            if not (member.isdir() or member.isfile()):
+                raise ValueError("archive contains a link or special filesystem entry")
+            if normalized in seen:
+                raise ValueError("archive contains duplicate member paths")
+            seen[normalized] = "directory" if member.isdir() else "file"
+    for name, kind in seen.items():
+        parts = name.split("/")
+        for index in range(1, len(parts)):
+            parent = "/".join(parts[:index])
+            if seen.get(parent) == "file":
+                raise ValueError("archive file is used as a parent directory")
+        if kind == "file" and any(other.startswith(name + "/") for other in seen):
+            raise ValueError("archive file conflicts with a child path")
+except Exception as error:
+    print("private media archive validation failed: " + str(error), file=sys.stderr)
+    sys.exit(1)
+'
 
 destination_parent="$(dirname -- "$RESTORE_DESTINATION")"
 destination_name="$(basename -- "$RESTORE_DESTINATION")"
@@ -60,5 +102,5 @@ age --decrypt --identity "$AGE_IDENTITY_FILE" "$ARCHIVE_FILE" \
 
 restore_complete=1
 trap - EXIT
-printf 'Restored encrypted media archive into isolated staging directory: %s\n' "$destination"
-printf 'Reconcile deletion tombstones, consent, moderation and application references before mounting it.\n'
+printf 'Restored encrypted media archive into isolated staging directory: %s\\n' "$destination"
+printf 'Reconcile deletion tombstones, consent, moderation and application references before mounting it.\\n'
