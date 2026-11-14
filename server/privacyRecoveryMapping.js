@@ -31,7 +31,7 @@ function indexCandidates(rows, key) {
     }
     const ref = pseudonym(key, row.id);
     const matches = index.get(ref) || [];
-    matches.push(row.id);
+    matches.push({ id: row.id, userId: row.user_id ?? null });
     index.set(ref, matches);
   }
   return index;
@@ -82,14 +82,15 @@ export function resolvePrivacyRecoveryMappings({
     else if (resourceRequired && !event.resource_ref) status = 'resource_reference_missing';
     else if (resourceRequired && resourceMatches.length === 0) status = 'resource_unmatched';
     else if (resourceRequired && resourceMatches.length > 1) status = 'resource_ambiguous';
+    else if (resourceRequired && resourceMatches[0].userId && subjectMatches[0] && resourceMatches[0].userId !== subjectMatches[0].id) status = 'resource_subject_mismatch';
 
     return {
       sequence: event.sequence,
       eventId: event.event_id,
       eventType: event.event_type,
       status,
-      subjectUserId: subjectMatches.length === 1 ? subjectMatches[0] : null,
-      resourceId: resourceRequired && resourceMatches.length === 1 ? resourceMatches[0] : null
+      subjectUserId: subjectMatches.length === 1 ? subjectMatches[0].id : null,
+      resourceId: resourceRequired && resourceMatches.length === 1 && status === 'matched' ? resourceMatches[0].id : null
     };
   });
 }
