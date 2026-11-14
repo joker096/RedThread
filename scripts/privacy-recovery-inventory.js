@@ -3,6 +3,12 @@ import { resolvePrivacyRecoveryMappings } from '../server/privacyRecoveryMapping
 
 const { Pool } = pg;
 
+const DOMAIN_REPLAY_EVENT_TYPES = new Set([
+  'private_photo_erasure_requested',
+  'voice_intro_erasure_requested',
+  'voice_intro_consent_withdrawn'
+]);
+
 function assertIsolatedRestoreEnvironment(env) {
   if (env.NODE_ENV === 'production' || env.PRIVACY_RECOVERY_RESTORE_ISOLATED !== 'true') {
     throw new Error('privacy_recovery_inventory_requires_isolated_restore');
@@ -20,10 +26,12 @@ function summarizeMappings(mappings) {
   const byStatus = {};
   const byEventType = {};
   const unresolvedSequences = [];
+  const unsupportedEventSequences = [];
   for (const mapping of mappings) {
     byStatus[mapping.status] = (byStatus[mapping.status] || 0) + 1;
     byEventType[mapping.eventType] = (byEventType[mapping.eventType] || 0) + 1;
     if (mapping.status !== 'matched') unresolvedSequences.push(mapping.sequence);
+    if (!DOMAIN_REPLAY_EVENT_TYPES.has(mapping.eventType)) unsupportedEventSequences.push(mapping.sequence);
   }
   return {
     eventCount: mappings.length,
@@ -32,7 +40,10 @@ function summarizeMappings(mappings) {
     byStatus,
     byEventType,
     unresolvedSequences,
-    readyForDomainReplay: mappings.length > 0 && unresolvedSequences.length === 0
+    supportedEventCount: mappings.length - unsupportedEventSequences.length,
+    unsupportedEventCount: unsupportedEventSequences.length,
+    unsupportedEventSequences,
+    readyForDomainReplay: mappings.length > 0 && unresolvedSequences.length === 0 && unsupportedEventSequences.length === 0
   };
 }
 
