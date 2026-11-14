@@ -37,3 +37,49 @@ A future executor must refuse the entire batch unless all of the following are t
 8. The final report is metadata-only. It must not contain raw identifiers, addresses, media paths, or event payloads.
 
 No account erasure or gift-order cancellation is currently replayable solely from the privacy ledger event. The ledger records a privacy intent, not all business/payment facts needed to safely repeat the original operation.
+
+## Transactional executor design: private photo and voice events
+
+The first executable domain-replay slice is limited to:
+- `private_photo_erasure_requested`
+- `voice_intro_erasure_requested`
+- `voice_intro_consent_withdrawn`
+
+It must enqueue database-backed deletion obligations only. It must never unlink media during event replay. The existing purge workers remain the only file-deletion authority and are not started by replay.
+
+### Durable idempotency receipt
+
+Before implementing the executor, add an append-only `privacy_recovery_replay_receipts` table in a new migration. Each receipt must bind:
+- the original `event_id` and `ledger_sequence`;
+- a SHA-256 digest of the canonical staged event fields;
+- the event type and a non-sensitive outcome code;
+- the transaction timestamp.
+
+Enforce uniqueness on both event ID and ledger sequence. Prevent UPDATE/DELETE with database triggers, matching the immutable staging-table policy. A repeated event with the same ID, sequence, and digest is a no-op; any collision with different content aborts the whole replay transaction. The receipt must be checked before attempting resource mapping, because a successful first pass removes the resource row and would otherwise make an identical retry appear unresolved.
+
+### Batch transaction and lock protocol
+
+1. Validate the verified archive watermark and complete contiguous sequence before opening a write transaction. Reject unsupported event types and any unresolved or ambiguous mapping for the selected batch.
+2. Open one transaction against the isolated restored database. Acquire the same per-user safety locks used by live account/profile mutations, in deterministic sorted user-ID order. Do not invent a second advisory-lock namespace.
+3. Check existing receipts. Exact matching receipts are skipped; conflicting receipts abort. Only unreceipted events proceed to domain checks.
+4. Lock mapped photo/voice rows in deterministic sorted resource-ID order with `FOR UPDATE`. Recheck each row's owner against the mapped subject. Missing unreceipted resources are a hard conflict, not a successful no-op.
+5. Validate every storage path with the exact live storage-path guard before queue insertion. For photos, reuse the private-photo worker's root/UUID/extension policy; for voice, reuse `resolvePrivateVoiceIntroPath`. Never normalize an unsafe path into an accepted path.
+6. For photo erasure, remove the matching `/api/photos/<uuid>` entry from the owner's `profiles.photo_urls`, insert the exact storage path into `private_photo_purge_queue`, then delete the `photo_assets` row. All three operations must commit together.
+7. For one voice-clip erasure, insert its exact storage path into `private_voice_intro_purge_queue`, then delete only the mapped `profile_voice_intros` row. For subject-level voice-consent withdrawal, lock the consent row and every owned clip, queue every clip, delete the clip rows, set `withdrawn_at`, and append the immutable withdrawal-history event in the same transaction. A missing consent row or unexpected already-withdrawn state without a matching receipt is a conflict requiring inventory review.
+8. Insert receipts only after each event's domain operations have succeeded, but before commit. Any failure rolls back all queue changes, metadata changes, consent-history changes, and receipts in the batch.
+9. After commit, run a fresh read-only inventory and compare expected queue obligations and consent state. File deletion remains a separately approved maintenance operation; no replay code invokes a worker or filesystem unlink.
+
+### Required test matrix before enabling writes
+
+- First execution creates exactly one queue obligation and one receipt per event.
+- Replaying the identical batch creates no duplicate obligations and changes no timestamps/state.
+- Same event ID with a different digest, or same sequence with a different event ID, aborts and rolls back the complete batch.
+- Wrong owner, missing unreceipted asset, ambiguous mapping, malformed path, symlinked root, and invalid extension all abort without receipts or domain changes.
+- Photo URL removal, metadata deletion, and queue insertion are atomic.
+- Voice clip queue insertion and metadata deletion are atomic.
+- Voice consent withdrawal queues every clip, revokes consent, and appends exactly one immutable history event atomically.
+- Concurrent live profile deletion/upload and replay cannot bypass the existing user-safety lock protocol.
+- A failed purge worker leaves its queue row retryable; replay never attempts direct file deletion.
+- The test suite uses disposable PostgreSQL and temporary private-media roots only. No VPS, external ledger, Paddle, webhook, or production resource is involved.
+
+The executor remains disabled until the receipt migration, lock integration, path-guard reuse, full PostgreSQL concurrency/rollback tests, and exact-HEAD six-check validation are complete. This design does not authorize account erasure, L3 replay, advertising preference replay, or gift/payment actions.
