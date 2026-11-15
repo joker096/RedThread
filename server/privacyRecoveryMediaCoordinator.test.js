@@ -13,6 +13,7 @@ function poolFor({ events = [], users = [{ id: userId }], voiceIntros = [], phot
     async query(sql) {
       calls.push(sql);
       if (sql.startsWith('BEGIN TRANSACTION')) return { rows: [] };
+      if (sql.includes('current_database()')) return { rows: [{ database_name: 'vow_restore_test', database_role: 'vow_restore_runner' }] };
       if (sql.includes('FROM privacy_recovery_events')) return { rows: events };
       if (sql === 'SELECT id FROM users') return { rows: users };
       if (sql.startsWith('SELECT id, user_id FROM profile_voice_intros')) return { rows: voiceIntros };
@@ -28,7 +29,10 @@ function poolFor({ events = [], users = [{ id: userId }], voiceIntros = [], phot
 const isolatedEnv = {
   NODE_ENV: 'test',
   PRIVACY_RECOVERY_RESTORE_ISOLATED: 'true',
-  PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY: key
+  PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY: key,
+  PRIVACY_RECOVERY_RESTORE_DATABASE_NAME: 'vow_restore_test',
+  PRIVACY_RECOVERY_RESTORE_DATABASE_ROLE: 'vow_restore_runner',
+  PRIVACY_RECOVERY_RESTORE_CONFIRMATION: 'ISOLATED_RESTORE_ONLY'
 };
 
 test('coordinator stops at the first unsupported event without replaying later events', async () => {
