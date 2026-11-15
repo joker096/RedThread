@@ -1,6 +1,6 @@
 # Vow off-host privacy ledger
 
-This is a separately deployable Cloudflare Worker + D1 service. It is intentionally not wired into the Vow API until its D1 database, HMAC secrets, pseudonym key, and deployment have been provisioned and tested.
+This is a separately deployable Cloudflare Worker + D1 service. The Vow API already contains a signed append client and calls it from privacy-sensitive deletion/consent flows when configured. The Worker/D1 resource, secrets, and deployment are not provisioned, so the external ledger is not operational. In production, missing configuration intentionally makes those sensitive mutations fail closed.
 
 ## Local validation
 
@@ -18,7 +18,7 @@ node --test test/worker.test.js
 6. Configure a separately escrowed `PRIVACY_LEDGER_PSEUDONYM_KEY` in the Vow API. This is not the request-authentication key.
 7. Only after the Vow API integration and isolated restore drill pass may the ledger be marked as a release prerequisite satisfied.
 
-No account, D1 database, Worker, secret, DNS record, custom domain, scheduler, or Production resource is created by this repository scaffold. Do not use this ledger for real user events until API integration is complete.
+No account, D1 database, Worker, secret, DNS record, custom domain, scheduler, or Production resource is created by this repository scaffold. The API append client is integrated, but do not use this ledger for real user events until the external Worker/D1 has been provisioned, synthetic-event checks pass, and the isolated restore/replay path is complete.
 
 ## Encrypted off-site export
 
