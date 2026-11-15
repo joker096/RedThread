@@ -536,6 +536,21 @@ test('mobile account deletion validates the authenticated mobile session and rev
     const session = await login.json();
     assert.match(session.accessToken, /^vow_access_/);
 
+    const secondDevice = {
+      ...device,
+      deviceId: randomUUID(),
+      deviceName: 'Second device deletion test'
+    };
+    const secondLogin = await fetch(`${api}/api/mobile/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, ...secondDevice }),
+      signal: AbortSignal.timeout(10_000)
+    });
+    assert.equal(secondLogin.status, 200, logs);
+    const secondSession = await secondLogin.json();
+    assert.match(secondSession.accessToken, /^vow_access_/);
+
     const deletion = await fetch(`${api}/api/account`, {
       method: 'DELETE',
       headers: {
@@ -559,9 +574,20 @@ test('mobile account deletion validates the authenticated mobile session and rev
       "SELECT revoked_at, revoked_reason FROM mobile_sessions WHERE user_id = $1",
       [userId]
     );
-    assert.ok(revoked.rowCount > 0);
+    assert.equal(revoked.rowCount, 2, 'account deletion must revoke every active device session');
     assert.ok(revoked.rows.every(row => row.revoked_at));
     assert.ok(revoked.rows.every(row => row.revoked_reason === 'account_unavailable'));
+
+    const firstDeviceAfterDeletion = await fetch(`${api}/api/mobile/auth/me`, {
+      headers: { Authorization: `Bearer ${session.accessToken}` }
+    });
+    const secondDeviceAfterDeletion = await fetch(`${api}/api/mobile/auth/me`, {
+      headers: { Authorization: `Bearer ${secondSession.accessToken}` }
+    });
+    assert.equal(firstDeviceAfterDeletion.status, 401,
+      'the deleting device must lose access immediately');
+    assert.equal(secondDeviceAfterDeletion.status, 401,
+      'every other registered device must lose access immediately');
   } finally {
     await db.query('DELETE FROM users WHERE id = $1', [userId]).catch(() => {});
     child.kill('SIGTERM');
