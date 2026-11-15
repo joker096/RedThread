@@ -100,7 +100,9 @@ trap cleanup EXIT
 age --decrypt --identity "$AGE_IDENTITY_FILE" "$ARCHIVE_FILE" \
   | tar --extract --file=- --directory="$destination" --no-same-owner --no-same-permissions
 
+: > "$destination/.vow-restore-pending"
+chmod 600 "$destination/.vow-restore-pending"
 restore_complete=1
 trap - EXIT
 printf 'Restored encrypted media archive into isolated staging directory: %s\\n' "$destination"
-printf 'Reconcile deletion tombstones, consent, moderation and application references before mounting it.\\n'
+printf 'Media remains blocked from activation until the privacy-recovery gate succeeds.\\n'
