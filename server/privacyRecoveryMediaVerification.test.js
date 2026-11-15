@@ -79,11 +79,11 @@ test('verification rejects a partially populated purge obligation set even when 
   assert.equal(calls.includes('COMMIT'), false);
 });
 
-test('verification fails closed when purge queue obligation is missing', async () => {
-  const { pool, calls } = makePool({ queuePaths: [] });
+test('verification fails closed when a purge obligation has no immutable completion receipt', async () => {
+  const { pool, calls } = makePool({ completionRows: [] });
   await assert.rejects(
     verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
-    /privacy_recovery_verification_purge_obligation_missing/
+    /privacy_recovery_verification_purge_completion_missing/
   );
   assert.equal(calls.includes('ROLLBACK'), true);
   assert.equal(calls.includes('COMMIT'), false);
