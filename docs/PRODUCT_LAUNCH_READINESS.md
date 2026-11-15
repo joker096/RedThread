@@ -7,7 +7,7 @@ Product scope: Android and iOS applications only, backed by the Vow API. This do
 
 Vow has a substantial server-backed foundation and automated CI coverage, but it is **not ready for public launch, live advertising, or live payments**. Several monetization and fulfillment paths are intentionally fail-closed. Do not remove those safeguards by changing environment flags.
 
-The current working mobile branch is `feat/mobile-capacitor-foundation`, PR #429 (Draft). The current `main` base is `d57b7fa624871ed8a3e3ed99494701d95f976258`. No production deployment or merge is authorized by this document.
+The current working mobile branch is `feat/voice-introduction`, PR #434 (Draft), based on `feat/compatibility-explanations`. Keep it Draft and do not merge or deploy without explicit approval. No production deployment is authorized by this document.
 
 ## Product and platform boundaries
 
@@ -22,7 +22,7 @@ The current working mobile branch is `feat/mobile-capacitor-foundation`, PR #429
 
 | Area | Implemented foundation | Current blocker / release gate |
 |---|---|---|
-| Mobile sessions | Capacitor Android/iOS foundation, bearer API transport, secure refresh-token storage, rotation, replay detection and revocation | Physical-device testing, final API domain, HTTPS and association files |
+| Mobile sessions | Capacitor Android/iOS foundation, bearer API transport, secure refresh-token storage, rotation, replay detection and revocation | Automated Android Emulator/iOS Simulator coverage, final API domain, HTTPS and association files |
 | Account lifecycle | Registration, login, email verification, password recovery and account deletion paths | Production email delivery, domain, templates and end-to-end device validation |
 | Discovery | Server-backed profile search, filters, likes, passes, blocks and reports | Production data volume, abuse/fraud monitoring and load testing |
 | Compatibility | Server-backed relationship assessment is available to all active signed-in users; discovery shows a weighted Family/Budget/Conflict/Lifestyle alignment summary and discussion topics without raw answers or non-negotiable selections; mutual-match endpoint additionally returns each participant's explicit non-negotiable conflicts | Both participants must complete the assessment. Non-negotiable conflicts are visible only inside an active mutual match. Women's free-tier limits remain on discovery/dialogue volume, not on the core assessment. Gender-specific demo quizzes remain local-only and are hidden in native builds. Scoring is preference alignment, not a prediction of relationship success |
