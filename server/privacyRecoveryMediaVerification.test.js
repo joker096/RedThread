@@ -30,7 +30,7 @@ const isolatedEnv = { NODE_ENV: 'test', PRIVACY_RECOVERY_RESTORE_ISOLATED: 'true
 
 function makePool({ receiptRows = [event], obligations = [{
   ledger_sequence: '7', queue_name: 'private_photo', storage_path_sha256: pathDigest
-}], queuePaths = [storagePath], remainingPhotos = [], profiles = [{ user_id: event.subject_user_id, photo_urls: [] }] } = {}) {
+}], queuePaths = [], completionRows = [{ ledger_sequence: '7', queue_name: 'private_photo', storage_path_sha256: pathDigest }], remainingPhotos = [], profiles = [{ user_id: event.subject_user_id, photo_urls: [] }] } = {}) {
   const calls = [];
   const client = {
     async query(sql) {
@@ -41,6 +41,7 @@ function makePool({ receiptRows = [event], obligations = [{
       if (sql.includes('FROM photo_assets')) return { rows: remainingPhotos };
       if (sql.includes('FROM profiles')) return { rows: profiles, rowCount: profiles.length };
       if (sql.includes('FROM privacy_recovery_replay_purge_obligations')) return { rows: obligations };
+      if (sql.includes('FROM privacy_recovery_replay_purge_completions')) return { rows: completionRows };
       if (sql.includes('FROM private_photo_purge_queue')) return { rows: queuePaths.map(storage_path => ({ storage_path })) };
       if (sql.includes('FROM private_voice_intro_purge_queue')) return { rows: [] };
       if (sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
@@ -51,7 +52,7 @@ function makePool({ receiptRows = [event], obligations = [{
   return { pool: { async connect() { return client; } }, calls };
 }
 
-test('post-replay verification confirms receipt, deleted metadata, hidden photo URL and queued purge obligation', async () => {
+test('post-replay verification confirms receipt, deleted metadata, hidden photo URL and completed physical purge receipt', async () => {
   const { pool, calls } = makePool();
   const result = await verifyPrivateMediaPrivacyRecovery({
     pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7
@@ -83,6 +84,17 @@ test('verification fails closed when purge queue obligation is missing', async (
   await assert.rejects(
     verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
     /privacy_recovery_verification_purge_obligation_missing/
+  );
+  assert.equal(calls.includes('ROLLBACK'), true);
+  assert.equal(calls.includes('COMMIT'), false);
+});
+
+
+test('verification refuses activation while a purge obligation remains in the operational queue', async () => {
+  const { pool, calls } = makePool({ queuePaths: [storagePath] });
+  await assert.rejects(
+    verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
+    /privacy_recovery_verification_purge_still_queued/
   );
   assert.equal(calls.includes('ROLLBACK'), true);
   assert.equal(calls.includes('COMMIT'), false);
