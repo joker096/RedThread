@@ -44,7 +44,8 @@
     "test:privacy-ledger": "node --test privacy-ledger/test/worker.test.js server/privacyRecoveryLedger.test.js scripts/export-privacy-ledger.test.mjs scripts/verify-privacy-ledger-export.test.mjs server/privacyRecoveryReplay.test.js server/privacyRecoveryMapping.test.js",
     "privacy-ledger:export": "node scripts/export-privacy-ledger.mjs",
     "privacy-ledger:verify": "node scripts/verify-privacy-ledger-export.mjs",
-    "privacy-recovery:inventory": "node scripts/privacy-recovery-inventory.js"
+    "privacy-recovery:inventory": "node scripts/privacy-recovery-inventory.js",
+    "voice-intros:migrate-once": "node server/runVoiceIntroMigration.js --apply"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
