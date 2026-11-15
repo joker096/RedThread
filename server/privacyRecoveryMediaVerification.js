@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { assertPrivacyRecoveryRestoreTarget, assertPrivacyRecoveryRestoreTargetConfig } from './privacyRecoveryTargetGuard.js';
 
 const OUTCOMES = Object.freeze({
   private_photo_erasure_requested: ['photo_erasure_queued', 'photos'],
@@ -32,6 +33,7 @@ export async function verifyPrivateMediaPrivacyRecovery({
   throughSequence
 }) {
   assertIsolated(env);
+  assertPrivacyRecoveryRestoreTargetConfig(env);
   if (!pool || typeof pool.connect !== 'function') throw new TypeError('privacy_recovery_verification_pool_required');
   if (!Number.isSafeInteger(snapshotLedgerSequence) || snapshotLedgerSequence < 0 ||
       !Number.isSafeInteger(throughSequence) || throughSequence < snapshotLedgerSequence) {
@@ -43,6 +45,7 @@ export async function verifyPrivateMediaPrivacyRecovery({
   try {
     await client.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
     open = true;
+    await assertPrivacyRecoveryRestoreTarget(client, env);
     const result = await client.query(
       `SELECT e.ledger_sequence, e.event_id, e.schema_version, e.event_type,
               e.subject_ref, e.resource_ref, e.occurred_at, e.received_at,
