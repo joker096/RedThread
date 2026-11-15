@@ -51,6 +51,7 @@ jobs:
     env:
       VOW_APP_LINK_HOST: ${{ vars.VOW_APP_LINK_HOST }}
       VITE_APP_LINK_HOST: ${{ vars.VOW_APP_LINK_HOST }}
+      VITE_API_BASE_URL: ${{ vars.VOW_API_BASE_URL }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -92,6 +93,7 @@ jobs:
     env:
       VOW_APP_LINK_HOST: ${{ vars.VOW_APP_LINK_HOST }}
       VITE_APP_LINK_HOST: ${{ vars.VOW_APP_LINK_HOST }}
+      VITE_API_BASE_URL: ${{ vars.VOW_API_BASE_URL }}
     steps:
       - uses: actions/checkout@v4
         with:
