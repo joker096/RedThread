@@ -57,6 +57,8 @@ test('private media restore verifies checksum and extracts into a new private st
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.equal(await readFile(path.join(f.destination, 'photo-fixture.txt'), 'utf8'), 'private-photo-fixture');
     assert.equal((await lstat(f.destination)).mode & 0o777, 0o700);
+    assert.equal(await readFile(path.join(f.destination, '.vow-restore-pending'), 'utf8'), '',
+      'restored media must be explicitly marked pending until privacy reconciliation succeeds');
   } finally {
     await rm(f.root, { recursive: true, force: true });
   }
