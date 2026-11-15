@@ -388,6 +388,25 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     assert.equal(inactiveApproval.rows[0].active, false,
       'withdrawal must revoke L3 access before physical deletion finishes');
 
+    // A withdrawn applicant cannot obtain a fresh capability while old media
+    // cleanup is complete or pending. The shared account lock serializes issue
+    // with withdrawal; this request must observe the committed withdrawal.
+    const capabilityAfterWithdrawal = await request('/api/identity/l3/upload-capability', {
+      method: 'POST',
+      headers: { Cookie: applicantCookie }
+    });
+    assert.equal(capabilityAfterWithdrawal.status, 403);
+    assert.deepEqual(await capabilityAfterWithdrawal.json(), { error: 'l3_consent_required' });
+    const unusedTokensAfterWithdrawal = await pool.query(
+      `SELECT COUNT(*)::int AS count
+       FROM identity_l3_upload_tokens
+       WHERE user_id = $1 AND consumed_at IS NULL AND revoked_at IS NULL
+         AND expires_at > statement_timestamp()`,
+      [applicantId]
+    );
+    assert.equal(unusedTokensAfterWithdrawal.rows[0].count, 0,
+      'withdrawal must leave no live unused L3 upload capability');
+
     const regranted = await request('/api/identity/l3/consent', {
       method: 'PUT',
       headers: { Cookie: applicantCookie },
