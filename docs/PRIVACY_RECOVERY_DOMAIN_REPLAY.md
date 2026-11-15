@@ -119,3 +119,15 @@ Migration 237 adds immutable replay-effect records and SHA-256-only purge obliga
 `server/privacyRecoveryMediaVerification.js` performs a read-only repeatable-read audit in an explicitly isolated, non-production restore. It checks contiguous event coverage, canonical event digests and receipt outcomes, effect records, absence of deleted photo/voice metadata, photo URL removal, withdrawn voice consent, and that every recorded purge obligation still exists in its corresponding queue. The report contains counts and watermarks only, never user IDs, resource IDs or storage paths.
 
 The verifier intentionally fails if a photo/voice erasure lacks a recorded purge obligation or if a queued path has disappeared before verification. Therefore purge workers must remain disabled until the report is complete and reviewed. This is a verification tool only; it does not delete files, start workers, or activate external services.
+
+## Restore activation gate
+
+`scripts/restore-private-media.sh` now leaves a private `.vow-restore-pending` marker in every successfully extracted staging directory. A restored directory is not an application media volume merely because archive extraction succeeded.
+
+The only supported activation path is `scripts/activate-private-media-restore.sh`. It requires the exact staging directory and an existing empty mountpoint, the pending marker and absence of a ready marker, and an absolute executable non-symlink `PRIVACY_RECOVERY_GATE_EXECUTABLE` supplied by the isolated recovery environment.
+
+The gate executable must complete the full restore-specific domain reconciliation: source archive and ledger verification, contiguous inventory, supported privacy-event replay, immutable receipt/effect verification, purge-queue obligation verification, and explicit resolution of account-erasure, L3, advertising-consent, and gift/payment events. Unsupported or unresolved events must return non-zero. The activation script does not invent or infer domain decisions.
+
+Only after the gate exits successfully does the script replace the pending marker with `.vow-privacy-reconciled` and perform the bind mount. A failed gate never mounts; a failed bind mount restores the pending state. The tests use temporary directories and stubbed mount commands; they do not mount or modify host volumes.
+
+Do not mount restored media through Docker, systemd, or another mechanism that bypasses this gate. Production deployment remains disabled until the isolated recovery gate executable is implemented, reviewed, and wired to the actual restored database and ledger. The current helper provides fail-closed activation mechanics; it does not itself implement Paddle/gift/L3 domain replay.
