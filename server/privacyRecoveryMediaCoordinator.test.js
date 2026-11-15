@@ -7,7 +7,7 @@ const userId = '123e4567-e89b-42d3-a456-426614174000';
 const key = 'recovery-test-key-material-which-is-long-enough';
 const subjectRef = createHmac('sha256', key).update(userId, 'utf8').digest('hex');
 
-function poolFor({ events = [], users = [{ id: userId }], voiceIntros = [], photos = [] } = {}) {
+function poolFor({ events = [], users = [{ id: userId }], voiceIntros = [], photos = [], giftOrders = [] } = {}) {
   const calls = [];
   const client = {
     async query(sql) {
@@ -18,6 +18,7 @@ function poolFor({ events = [], users = [{ id: userId }], voiceIntros = [], phot
       if (sql === 'SELECT id FROM users') return { rows: users };
       if (sql.startsWith('SELECT id, user_id FROM profile_voice_intros')) return { rows: voiceIntros };
       if (sql.startsWith('SELECT id, user_id FROM photo_assets')) return { rows: photos };
+      if (sql.startsWith('SELECT id, recipient_id AS user_id FROM gift_delivery_orders')) return { rows: giftOrders };
       if (sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
       throw new Error('unexpected_query');
     },
@@ -138,6 +139,44 @@ test('coordinator preflights the full batch before applying a supported prefix',
     blockedSequence: 2,
     blockedEventType: 'account_erasure_requested',
     throughSequence: 2
+  });
+});
+
+
+test('coordinator inventories gift-order recipients but keeps gift withdrawal blocked until its domain executor exists', async () => {
+  const recipientId = userId;
+  const orderId = '123e4567-e89b-42d3-a456-426614174099';
+  const orderRef = createHmac('sha256', key).update(orderId, 'utf8').digest('hex');
+  const { pool, calls } = poolFor({
+    events: [{
+      sequence: '1',
+      event_id: '123e4567-e89b-42d3-a456-426614174098',
+      event_type: 'gift_order_consent_withdrawn',
+      subject_ref: subjectRef,
+      resource_ref: orderRef
+    }],
+    giftOrders: [{ id: orderId, user_id: recipientId }]
+  });
+  let appliedCount = 0;
+  const result = await runPrivateMediaPrivacyRecovery({
+    pool,
+    env: isolatedEnv,
+    snapshotLedgerSequence: 0,
+    throughSequence: 1,
+    applyEvent: async () => {
+      appliedCount += 1;
+      return { applied: true, alreadyApplied: false };
+    }
+  });
+  assert.equal(calls.includes('SELECT id, recipient_id AS user_id FROM gift_delivery_orders'), true);
+  assert.equal(appliedCount, 0);
+  assert.deepEqual(result, {
+    complete: false,
+    processedCount: 0,
+    alreadyAppliedCount: 0,
+    blockedSequence: 1,
+    blockedEventType: 'gift_order_consent_withdrawn',
+    throughSequence: 1
   });
 });
 
