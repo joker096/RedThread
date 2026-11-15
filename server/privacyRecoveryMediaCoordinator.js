@@ -70,10 +70,11 @@ export async function runPrivateMediaPrivacyRecovery({
       }
     }
 
-    const [users, voiceIntros, photos] = await Promise.all([
+    const [users, voiceIntros, photos, giftOrders] = await Promise.all([
       client.query('SELECT id FROM users'),
       client.query('SELECT id, user_id FROM profile_voice_intros'),
-      client.query('SELECT id, user_id FROM photo_assets')
+      client.query('SELECT id, user_id FROM photo_assets'),
+      client.query('SELECT id, recipient_id AS user_id FROM gift_delivery_orders')
     ]);
     mappings = resolvePrivacyRecoveryMappings({
       events,
@@ -81,7 +82,7 @@ export async function runPrivateMediaPrivacyRecovery({
       users: users.rows || [],
       voiceIntros: voiceIntros.rows || [],
       photos: photos.rows || [],
-      giftOrders: []
+      giftOrders: giftOrders.rows || []
     });
     await client.query('COMMIT');
     transactionOpen = false;
