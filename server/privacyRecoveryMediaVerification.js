@@ -141,15 +141,33 @@ export async function verifyPrivateMediaPrivacyRecovery({
         throw new Error('privacy_recovery_verification_purge_obligation_missing');
       }
     }
+    const completionResult = await client.query(
+      `SELECT ledger_sequence, queue_name, storage_path_sha256
+         FROM privacy_recovery_replay_purge_completions
+        WHERE ledger_sequence > $1 AND ledger_sequence <= $2`,
+      [snapshotLedgerSequence, throughSequence]
+    );
+    const completionRows = completionResult.rows || [];
+    if (completionRows.length !== obligationRows.length) {
+      throw new Error('privacy_recovery_verification_purge_completion_missing');
+    }
     const photoQueue = await client.query('SELECT storage_path FROM private_photo_purge_queue');
     const voiceQueue = await client.query('SELECT storage_path FROM private_voice_intro_purge_queue');
     const queueDigests = {
       private_photo: new Set((photoQueue.rows || []).map(row => sha256(row.storage_path))),
       private_voice_intro: new Set((voiceQueue.rows || []).map(row => sha256(row.storage_path)))
     };
-    for (const obligation of obligationsResult.rows || []) {
-      if (!queueDigests[obligation.queue_name]?.has(obligation.storage_path_sha256)) {
-        throw new Error('privacy_recovery_verification_purge_obligation_missing');
+    for (const obligation of obligationRows) {
+      const completionCount = completionRows.filter(item =>
+        String(item.ledger_sequence) === String(obligation.ledger_sequence) &&
+        item.queue_name === obligation.queue_name &&
+        item.storage_path_sha256 === obligation.storage_path_sha256
+      ).length;
+      if (completionCount !== 1) {
+        throw new Error('privacy_recovery_verification_purge_completion_missing');
+      }
+      if (queueDigests[obligation.queue_name]?.has(obligation.storage_path_sha256)) {
+        throw new Error('privacy_recovery_verification_purge_still_queued');
       }
     }
 
@@ -162,6 +180,7 @@ export async function verifyPrivateMediaPrivacyRecovery({
       verifiedVoiceErasureCount: voiceIds.length,
       verifiedVoiceConsentWithdrawalCount: consentEffects.length,
       verifiedPurgeObligationCount: obligationRows.length,
+      verifiedPurgeCompletionCount: completionRows.length,
       throughSequence
     };
   } catch (error) {
