@@ -23,7 +23,7 @@ export async function runVoiceIntroMigrationOnce(env = process.env) {
     activeKeyId: env.VOICE_INTRO_ACTIVE_KEY_ID,
     legacyKeyValue: env.VOICE_INTRO_ENCRYPTION_KEY
   });
-  if (!keyring || !(keyring.keys instanceof Map) || keyring.keys.size < 2 ||
+  if (!keyring || !(keyring.keys instanceof Map) || keyring.keys.size < 1 ||
       !keyring.legacyKey || keyring.legacyKey.length !== 32) {
     throw new Error('versioned_voice_keyring_with_legacy_key_required');
   }
