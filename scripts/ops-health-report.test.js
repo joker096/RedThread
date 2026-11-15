@@ -55,7 +55,7 @@ test('oldest pending purge work crosses the configured critical threshold', () =
   assert.ok(report.reasons.includes('oldest_job_exceeds_critical_age'));
 });
 
-test('operations report treats unconfigured off-host backup locations as not configured, not as healthy backups', async () => {
+test('operations report fails closed when required off-host backup locations are unconfigured', async () => {
   const pool = {
     async query() {
       return {
@@ -68,11 +68,12 @@ test('operations report treats unconfigured off-host backup locations as not con
     }
   };
   const report = await collectOpsHealth({ pool, now: new Date('2026-11-13T12:00:00Z') });
-  assert.equal(report.status, 'healthy');
+  assert.equal(report.status, 'critical');
+  assert.deepEqual(report.configurationIssues, ['backup_locations_not_configured:postgres,privatePhoto,privateVoice']);
   assert.equal(report.backups.postgres.status, 'not_configured');
   assert.equal(report.backups.privatePhoto.status, 'not_configured');
   assert.equal(report.backups.privateVoice.status, 'not_configured');
-  assert.equal(opsHealthExitCode(report), 0);
+  assert.equal(opsHealthExitCode(report), 2);
 });
 
 test('backup health requires a matching checksum sidecar and checks archive age', async () => {
