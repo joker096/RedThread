@@ -25,8 +25,8 @@ function validateRollbackWindow(value) {
 
 /**
  * Process at most one leased journal row. This is deliberately a library
- * entrypoint only: no scheduler, CLI apply flag, or automatic migration is
- * installed by importing this module.
+ * library entrypoint: the separate CLI runner is explicitly opt-in, and no
+ * scheduler or automatic migration is installed by importing this module.
  */
 export async function processNextVoiceIntroMigration(pool, {
   workerId,
