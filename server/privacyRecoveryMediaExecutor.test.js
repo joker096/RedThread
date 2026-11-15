@@ -82,7 +82,7 @@ test('conflicting receipt identity or digest fails closed and rolls back', async
 test('unresolved mapping without a receipt is rejected before any domain mutation', async () => {
   const { pool, calls } = fakePool();
   await assert.rejects(
-    applyPrivateMediaPrivacyRecoveryEvent({ pool, mapping, pseudonymKey: 'x'.repeat(32) }),
+    applyPrivateMediaPrivacyRecoveryEvent({ pool, mapping, env: isolatedEnv, pseudonymKey: 'x'.repeat(32) }),
     /privacy_recovery_mapping_unresolved/
   );
   assert.equal(calls.filter(call => call.sql === 'ROLLBACK').length, 1);
