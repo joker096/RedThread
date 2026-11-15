@@ -149,3 +149,39 @@ test('private voice intro storage root rejects symlinked ancestors and creates n
     await rm(parent, { recursive: true, force: true });
   }
 });
+
+
+test('voice intro purge records immutable recovery completion before deleting its queue task', async () => {
+  const storageRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-voice-purge-'));
+  const storagePath = path.join(storageRoot, randomUUID() + '.enc');
+  const statements = [];
+  const task = { id: 'voice-purge-task', storage_path: storagePath, attempts: 0 };
+  const client = {
+    async query(sql, params) {
+      statements.push({ sql: sql.replace(/\\s+/g, ' ').trim(), params });
+      if (sql.includes('SELECT id, storage_path, attempts')) return { rows: [task], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    },
+    release() {}
+  };
+  const pool = {
+    async query() { return { rows: [{ id: task.id }] }; },
+    async connect() { return client; }
+  };
+  const removed = [];
+  try {
+    const { processPrivateVoiceIntroPurgeBatch } = await import('./voiceIntroStorage.js');
+    const summary = await processPrivateVoiceIntroPurgeBatch(pool, {
+      storageRoot,
+      unlinkFile: async file => { removed.push(file); }
+    });
+    assert.deepEqual(summary, { scanned: 1, deleted: 1, retried: 0, failures: 0 });
+    assert.deepEqual(removed, [storagePath]);
+    const completion = statements.findIndex(item => item.sql.startsWith('INSERT INTO privacy_recovery_replay_purge_completions'));
+    const deletion = statements.findIndex(item => item.sql.startsWith('DELETE FROM private_voice_intro_purge_queue'));
+    assert.ok(completion >= 0);
+    assert.ok(deletion > completion);
+  } finally {
+    await rm(storageRoot, { recursive: true, force: true });
+  }
+});
