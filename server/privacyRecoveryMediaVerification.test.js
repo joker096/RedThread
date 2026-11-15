@@ -70,7 +70,7 @@ test('post-replay verification confirms receipt, deleted metadata, hidden photo 
 });
 
 test('verification rejects a partially populated purge obligation set even when the queue is empty', async () => {
-  const { pool, calls } = makePool({ obligations: [], queuePaths: [] });
+  const { pool, calls } = makePool({ obligations: [], queuePaths: [], completionRows: [] });
   await assert.rejects(
     verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
     /privacy_recovery_verification_purge_obligation_missing/
