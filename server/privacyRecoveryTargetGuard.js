@@ -3,7 +3,7 @@ const DATABASE_ROLE = /^vow_restore_[a-z0-9_]{1,48}$/;
 const CONFIRMATION = 'ISOLATED_RESTORE_ONLY';
 
 export function assertPrivacyRecoveryRestoreTargetConfig(env = process.env) {
-  if (env.PRIVACY_RECOVERY_RESTORE_ISOLATED !== 'true' ||
+  if (env.NODE_ENV === 'production' || env.PRIVACY_RECOVERY_RESTORE_ISOLATED !== 'true' ||
       typeof env.PRIVACY_RECOVERY_RESTORE_DATABASE_NAME !== 'string' ||
       !DATABASE_NAME.test(env.PRIVACY_RECOVERY_RESTORE_DATABASE_NAME) ||
       typeof env.PRIVACY_RECOVERY_RESTORE_DATABASE_ROLE !== 'string' ||
