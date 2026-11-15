@@ -41,3 +41,6 @@ Status: native L3 camera capture is not enabled. The optional 15–25 second pro
 - A reviewed native file transfer and secure local deletion path.
 - Final user-facing permission descriptions for Android and iOS.
 - Automated Android Emulator/iOS Simulator tests for virtual audio capture, interrupted recording, file cleanup, upload retry, playback and consent withdrawal. Physical-device testing is optional additional QA and is not a required engineering acceptance gate.
+## Automated virtual-device acceptance
+
+The required engineering gate is Android Emulator plus iOS Simulator on the exact same commit SHA. The current smoke workflow verifies install, launch and microphone permission only; it does not prove that the native recorder produced valid audio. Before enabling voice introductions, add deterministic virtual audio input and assert: a non-empty supported media file, 15–25 second duration, bounded file size, successful local preview, authenticated upload, server-side media validation, playback authorization, and local temporary-file deletion after success/cancel/failure. Do not substitute permission-grant checks for capture tests. Physical-device testing is optional additional QA, not a CI acceptance requirement.
