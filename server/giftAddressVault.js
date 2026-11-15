@@ -19,6 +19,36 @@ export function parseGiftAddressVaultKey(value = process.env.GIFT_ADDRESS_VAULT_
   return key.length === 32 && key.toString('base64') === value ? key : null;
 }
 
+export function parseGiftAddressVaultKeyring({
+  keyringValue = process.env.GIFT_ADDRESS_VAULT_KEYRING,
+  activeKeyVersion = process.env.GIFT_ADDRESS_VAULT_ACTIVE_KEY_VERSION
+} = {}) {
+  if (typeof keyringValue !== 'string' || keyringValue.trim() === '') return null;
+  let parsed;
+  try { parsed = JSON.parse(keyringValue); } catch { return null; }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const entries = Object.entries(parsed);
+  if (entries.length < 1 || entries.length > 32 ||
+      typeof activeKeyVersion !== 'string' ||
+      !/^[A-Za-z0-9._-]{1,32}$/.test(activeKeyVersion) ||
+      !Object.hasOwn(parsed, activeKeyVersion)) return null;
+  const keys = new Map();
+  for (const [version, encoded] of entries) {
+    if (!/^[A-Za-z0-9._-]{1,32}$/.test(version)) return null;
+    const key = parseGiftAddressVaultKey(encoded);
+    if (!key) return null;
+    keys.set(version, key);
+  }
+  return { activeKeyVersion, keys };
+}
+
+function resolveGiftAddressVaultKey(key, keyVersion) {
+  if (Buffer.isBuffer(key) && key.length === 32) return key;
+  const resolved = key?.keys instanceof Map ? key.keys.get(keyVersion) : null;
+  if (Buffer.isBuffer(resolved) && resolved.length === 32) return resolved;
+  throw new Error('gift_address_vault_key_version_unavailable');
+}
+
 export function normalizeGiftAddress(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return { ok: false, error: 'invalid_address' };
