@@ -64,6 +64,7 @@ test('post-replay verification confirms receipt, deleted metadata, hidden photo 
     verifiedVoiceErasureCount: 0,
     verifiedVoiceConsentWithdrawalCount: 0,
     verifiedPurgeObligationCount: 1,
+    verifiedPurgeCompletionCount: 1,
     throughSequence: 7
   });
   assert.equal(calls.includes('COMMIT'), true);
