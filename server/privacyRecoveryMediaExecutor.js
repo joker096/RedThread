@@ -80,14 +80,15 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
   mapping,
   pseudonymKey,
   photoStorageRoot,
-  voiceStorageRoot
+  voiceStorageRoot,
+  env = process.env
 }) {
   if (!pool || typeof pool.connect !== 'function' || !mapping ||
       !Object.hasOwn(EVENT_OUTCOMES, mapping.eventType)) {
     throw new TypeError('privacy_recovery_media_executor_input_invalid');
   }
 
-  assertPrivacyRecoveryRestoreTargetConfig(process.env);
+  assertPrivacyRecoveryRestoreTargetConfig(env);
   const client = await pool.connect();
   let transactionOpen = false;
   let replayEffectResourceId = null;
@@ -96,7 +97,7 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
   try {
     await client.query('BEGIN');
     transactionOpen = true;
-    await assertPrivacyRecoveryRestoreTarget(client, process.env);
+    await assertPrivacyRecoveryRestoreTarget(client, env);
 
     // Check an existing receipt before requiring resource mapping: a successful
     // first execution intentionally removed that resource's live row.
