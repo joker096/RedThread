@@ -112,8 +112,8 @@ test('Docker database network is isolated from the public web proxy container', 
     'the API must mount and use the private voice introduction storage root');
   assert.ok(api.includes('VOICE_INTRO_ENCRYPTION_KEY: ${VOICE_INTRO_ENCRYPTION_KEY:-}'),
     'only the API may receive the voice introduction encryption key');
-  assert.equal((compose.match(/^      - private_voice_intros:\/app\/uploads\/private-voice-intros$/gm) || []).length, 2,
-    'API and purge worker must share exactly the same named private volume');
+  assert.equal((compose.match(/^      - private_voice_intros:\/app\/uploads\/private-voice-intros$/gm) || []).length, 3,
+    'API, purge worker, and opt-in migration runner must share exactly the same named private volume');
   assert.ok(api.includes('ACCOUNT_REUSE_HMAC_KEY: ${ACCOUNT_REUSE_HMAC_KEY:-}'));
   assert.ok(api.includes('IDENTITY_L3_ENCRYPTION_KEY: ${IDENTITY_L3_ENCRYPTION_KEY:-}'));
   assert.match(api, /cap_drop: \[ALL\]/);
