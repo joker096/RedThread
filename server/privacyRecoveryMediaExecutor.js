@@ -2,6 +2,7 @@ import { createHash, createHmac } from 'node:crypto';
 import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { acquireGiftSafetyUserLocks } from './giftOrderCreationService.js';
+import { assertPrivacyRecoveryRestoreTarget, assertPrivacyRecoveryRestoreTargetConfig } from './privacyRecoveryTargetGuard.js';
 import { resolvePrivatePhotoPath, queuePrivatePhotoPurges } from './photoPurge.js';
 import {
   ensurePrivateVoiceIntroStorageRoot,
@@ -86,6 +87,7 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
     throw new TypeError('privacy_recovery_media_executor_input_invalid');
   }
 
+  assertPrivacyRecoveryRestoreTargetConfig(process.env);
   const client = await pool.connect();
   let transactionOpen = false;
   let replayEffectResourceId = null;
@@ -94,6 +96,7 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
   try {
     await client.query('BEGIN');
     transactionOpen = true;
+    await assertPrivacyRecoveryRestoreTarget(client, process.env);
 
     // Check an existing receipt before requiring resource mapping: a successful
     // first execution intentionally removed that resource's live row.
