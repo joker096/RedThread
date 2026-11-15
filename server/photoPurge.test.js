@@ -170,17 +170,23 @@ test('photo purge safely resumes when the worker loses its commit after unlink',
   let queueExists = true;
   let commitCount = 0;
   let unlinkCount = 0;
+  let completionExists = false;
   const { processPrivatePhotoPurgeBatch } = await import('./photoPurge.js');
   const pool = {
     async query() { return { rows: queueExists ? [{ id: 'crash-retry' }] : [] }; },
     async connect() {
       let connectionLost = false;
       let pendingDelete = false;
+      let pendingCompletion = false;
       return {
         async query(sql) {
           if (connectionLost) throw new Error('connection_lost');
           if (sql.includes('SELECT id, storage_path, attempts')) {
             return { rows: queueExists ? [{ id: 'crash-retry', storage_path: validPath, attempts: 0 }] : [] };
+          }
+          if (sql.startsWith('INSERT INTO privacy_recovery_replay_purge_completions')) {
+            pendingCompletion = true;
+            return { rows: [], rowCount: 1 };
           }
           if (sql.startsWith('DELETE FROM private_photo_purge_queue')) {
             pendingDelete = true;
@@ -193,6 +199,7 @@ test('photo purge safely resumes when the worker loses its commit after unlink',
               throw new Error('simulated_connection_loss_before_commit');
             }
             if (pendingDelete) queueExists = false;
+            if (pendingCompletion) completionExists = true;
             return { rows: [] };
           }
           if (sql === 'ROLLBACK') throw new Error('connection_lost');
