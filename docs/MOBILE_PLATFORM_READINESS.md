@@ -1,6 +1,6 @@
 # Vow Mobile Platform Readiness
 
-Status: mobile foundation implemented; backend auth, native client transport, Android/iOS cloud builds and CI regression gates are in place. Real-device and production-release blockers remain.
+Status: mobile foundation implemented; backend auth, native client transport, Android/iOS cloud builds and CI regression gates are in place. Automated virtual audio-capture coverage and production-release prerequisites remain.
 Target platforms: Android and iOS only.
 Implementation: preserve the React UI, package it with Capacitor, and keep Express/PostgreSQL as the shared backend.
 
@@ -55,14 +55,14 @@ No Vow API hostname has been selected. `VITE_API_BASE_URL`, `VOW_APP_LINK_HOST` 
 
 ### 3. Camera, microphone, location and verification media
 
-The API currently sends `Permissions-Policy: camera=(), microphone=(), geolocation=()`, intentionally blocking browser media APIs. PR #434 adds a native Capacitor audio-recorder flow for the optional 15–25 second profile voice introduction; the microphone prompt is requested only after the user taps Record. The plugin does not enable browser microphone access and does not change the separate L3 identity-video policy. Server-side media parsing, duration/size checks, encryption and moderation remain authoritative. Physical-device recording, preview, upload, playback and cancellation tests are still required.
+The API currently sends `Permissions-Policy: camera=(), microphone=(), geolocation=()`, intentionally blocking browser media APIs. PR #434 adds a native Capacitor audio-recorder flow for the optional 15–25 second profile voice introduction; the microphone prompt is requested only after the user taps Record. The plugin does not enable browser microphone access and does not change the separate L3 identity-video policy. Server-side media parsing, duration/size checks, encryption and moderation remain authoritative. Automated virtual audio-capture, preview, upload, playback and cancellation coverage is still required; physical-device checks are optional additional QA.
 
 ### 4. Native providers and verified app links
 
 - Google sign-in currently uses browser Google Identity Services and is hidden in native builds. Native provider SDK sign-in and server-side ID-token exchange remain to be implemented.
 - Implemented: strict deep-link parsing, bounded cold-start delivery, duplicate suppression, native handling for email-verification and password-reset HTTPS links when an app-link host is configured, and the non-secret `vow://identity/return` callback.
 - Implemented: Didit opens through the Capacitor native browser surface; the verified return callback refreshes Trust Center state. Existing server-side Didit webhook signature and status checks remain authoritative.
-- Still blocked for production: domain ownership/DNS, Android `assetlinks.json` with the final signing fingerprint, Apple `apple-app-site-association` with the final Team ID/bundle ID, final application identifier, and physical-device validation. Until those are completed, HTTPS app links are prepared but not production-verified.
+- Still blocked for production: domain ownership/DNS, Android `assetlinks.json` with the final signing fingerprint, Apple `apple-app-site-association` with the final Team ID/bundle ID, final application identifier, and automated association-file validation. Until those are completed, HTTPS app links are prepared but not production-verified.
 
 ### 5. Billing, provider eligibility and store policy
 
@@ -72,7 +72,7 @@ Paddle checkout is hidden in native builds. Separately, Google Play and Apple re
 
 ### 6. Push notifications and app lifecycle
 
-Remote push registration, permission UX, provider-token rotation and delivery routing are not implemented. In-app notifications refresh on native app resume. Deep-link parsing and callback handling are implemented, but production domain association and physical-device validation remain outstanding.
+Remote push registration, permission UX, provider-token rotation and delivery routing are not implemented. In-app notifications refresh on native app resume. Deep-link parsing and callback handling are implemented, but production domain association and automated association-file validation remain outstanding.
 
 ## Deployment target
 
@@ -85,7 +85,7 @@ Vow is a mobile product, not a public website/web product. The production VPS sh
 3. Android debug and iOS Simulator cloud builds — implemented and build-checked.
 4. Finish edge-case auth/security regression checks and keep CI + Browser E2E green on the same HEAD.
 5. Validate Android emulator and physical Android/iOS devices against a configured HTTPS API.
-6. Implement native Google sign-in and remote push with corresponding tests; complete physical-device validation for PR #434 voice-intro recording/playback and the separate native L3 identity-video capture before enabling those flows.
+6. Implement native Google sign-in and remote push with corresponding tests; complete automated virtual audio-capture tests for PR #434 voice-intro recording/playback. Physical-device testing is optional additional QA; native L3 capture remains a separate gated workflow.
 7. Resolve store billing, app identifiers, signing and privacy disclosures; prepare signed store builds only after release blockers are cleared.
 
 ## Scope and safety boundaries
@@ -109,5 +109,5 @@ Vow is a mobile product, not a public website/web product. The production VPS sh
 ## Notifications and media follow-up
 
 - In-app notifications remain database-backed. Native app resume now triggers a refresh of notification rows/unread counts and Trust Center state; this is not remote push delivery.
-- Remote push is intentionally not enabled. Firebase/FCM, Apple APNs credentials, final application identifiers, encrypted token storage, provider workers and physical-device tests are prerequisites. See `docs/MOBILE_PUSH_READINESS.md`.
-- Native L3 identity-video capture remains intentionally disabled. PR #434 adds a distinct native audio-only profile introduction; it remains Draft and is not production-enabled until the dedicated encryption key, persistent private storage, backup/restore, scheduled purge worker, moderation staffing and physical-device tests are ready. The global browser Permissions-Policy remains restrictive. See `docs/MOBILE_MEDIA_READINESS.md`.
+- Remote push is intentionally not enabled. Firebase/FCM, Apple APNs credentials, final application identifiers, encrypted token storage and provider workers are prerequisites. See `docs/MOBILE_PUSH_READINESS.md`.
+- Native L3 identity-video capture remains intentionally disabled. PR #434 adds a distinct native audio-only profile introduction; it remains Draft and is not production-enabled until the dedicated encryption key, persistent private storage, backup/restore, scheduled purge worker, moderation staffing and automated virtual media regression tests are ready. The global browser Permissions-Policy remains restrictive. See `docs/MOBILE_MEDIA_READINESS.md`.
