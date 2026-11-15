@@ -11,7 +11,10 @@ const env = {
   NODE_ENV: 'test',
   PRIVACY_RECOVERY_RESTORE_ISOLATED: 'true',
   DATABASE_URL: 'postgres://localhost/isolated_restore',
-  PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY: key
+  PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY: key,
+  PRIVACY_RECOVERY_RESTORE_DATABASE_NAME: 'vow_restore_test',
+  PRIVACY_RECOVERY_RESTORE_DATABASE_ROLE: 'vow_restore_runner',
+  PRIVACY_RECOVERY_RESTORE_CONFIRMATION: 'ISOLATED_RESTORE_ONLY'
 };
 
 function fakePool({ events = [], users = [], voiceIntros = [], photos = [], giftOrders = [] } = {}) {
@@ -23,6 +26,7 @@ function fakePool({ events = [], users = [], voiceIntros = [], photos = [], gift
       return {
         async query(sql) {
           calls.push(sql);
+          if (sql.includes('current_database()')) return { rows: [{ database_name: 'vow_restore_test', database_role: 'vow_restore_runner' }], rowCount: 1 };
           if (sql.startsWith('SELECT ledger_sequence')) return { rows: data.events, rowCount: data.events.length };
           if (sql === 'SELECT id FROM users') return { rows: data.users, rowCount: data.users.length };
           if (sql.startsWith('SELECT id, user_id FROM profile_voice_intros')) return { rows: data.voiceIntros, rowCount: data.voiceIntros.length };
