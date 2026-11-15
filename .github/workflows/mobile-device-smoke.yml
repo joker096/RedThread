@@ -49,6 +49,10 @@ jobs:
   android-emulator:
     name: Android Emulator install, launch and microphone permission
     runs-on: ubuntu-24.04
+    env:
+      VOW_APP_LINK_HOST: ${{ vars.VOW_APP_LINK_HOST }}
+      VITE_APP_LINK_HOST: ${{ vars.VOW_APP_LINK_HOST }}
+      VITE_API_BASE_URL: ${{ vars.VOW_API_BASE_URL }}
     timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
@@ -161,6 +165,10 @@ jobs:
   ios-simulator:
     name: iOS Simulator install, launch and microphone permission
     runs-on: macos-15
+    env:
+      VOW_APP_LINK_HOST: ${{ vars.VOW_APP_LINK_HOST }}
+      VITE_APP_LINK_HOST: ${{ vars.VOW_APP_LINK_HOST }}
+      VITE_API_BASE_URL: ${{ vars.VOW_API_BASE_URL }}
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
