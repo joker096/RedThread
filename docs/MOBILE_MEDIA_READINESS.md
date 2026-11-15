@@ -44,3 +44,8 @@ Status: native L3 camera capture is not enabled. The optional 15–25 second pro
 ## Automated virtual-device acceptance
 
 The required engineering gate is Android Emulator plus iOS Simulator on the exact same commit SHA. The current smoke workflow verifies install, launch and microphone permission only; it does not prove that the native recorder produced valid audio. Before enabling voice introductions, add deterministic virtual audio input and assert: a non-empty supported media file, 15–25 second duration, bounded file size, successful local preview, authenticated upload, server-side media validation, playback authorization, and local temporary-file deletion after success/cancel/failure. Do not substitute permission-grant checks for capture tests. Physical-device testing is optional additional QA, not a CI acceptance requirement.
+
+
+## Voice encryption migration operations
+
+The versioned voice-intro migration worker is exposed only as an explicit one-shot operation. It is not scheduled and is not enabled by default. A run requires `VOICE_INTRO_MIGRATION_ENABLED=true`, a versioned `VOICE_INTRO_KEYRING` containing the target and retained legacy keys, the active key ID, the private media volume, and a database connection. Invoke it with `npm run voice-intros:migrate-once` or the opt-in Compose profile `voice-intro-migration`. The runner processes at most one journal row per invocation; repeat deliberately after reviewing the result. Keep the legacy key until all source records have completed migration and the rollback/retention policy permits retiring it. No migration is run during normal API startup or deployment.
