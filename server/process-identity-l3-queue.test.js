@@ -423,7 +423,7 @@ test('L3 purge safely retries when media unlink succeeds but the completion comm
     deleteObject: async () => { unlinkCalls += 1; return true; }
   });
   assert.equal(first.status, 'retry_scheduled');
-  assert.equal(first.errorCode, 'l3_purge_worker_error');
+  assert.equal(first.errorCode, 'l3_media_processing_failed');
   assert.equal(unlinkCalls, 1);
   assert.ok(client.calls.some(call => call.sql === 'ROLLBACK'));
   assert.ok(client.calls.some(call =>
