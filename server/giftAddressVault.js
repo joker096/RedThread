@@ -81,8 +81,9 @@ function associatedData(orderId, recipientUserId) {
   return Buffer.from(`${VAULT_AAD_PREFIX}:${orderId}:${recipientUserId}`, 'utf8');
 }
 
-export function encryptGiftAddress({ address, orderId, recipientUserId, key, keyVersion = 'v1' } = {}) {
-  if (!Buffer.isBuffer(key) || key.length !== 32) throw new TypeError('a 32-byte vault key is required');
+export function encryptGiftAddress({ address, orderId, recipientUserId, key, keyVersion } = {}) {
+  keyVersion = keyVersion ?? key?.activeKeyVersion ?? 'v1';
+  key = resolveGiftAddressVaultKey(key, keyVersion);
   if (typeof keyVersion !== 'string' || !/^[A-Za-z0-9._-]{1,32}$/.test(keyVersion)) {
     throw new TypeError('invalid vault key version');
   }
@@ -104,7 +105,7 @@ export function encryptGiftAddress({ address, orderId, recipientUserId, key, key
 }
 
 export function decryptGiftAddress({ encrypted, orderId, recipientUserId, key } = {}) {
-  if (!Buffer.isBuffer(key) || key.length !== 32) throw new TypeError('a 32-byte vault key is required');
+  key = resolveGiftAddressVaultKey(key, encrypted?.keyVersion);
   if (!encrypted || !Buffer.isBuffer(encrypted.nonce) || encrypted.nonce.length !== 12 ||
       !Buffer.isBuffer(encrypted.authTag) || encrypted.authTag.length !== 16 ||
       !Buffer.isBuffer(encrypted.ciphertext) || encrypted.ciphertext.length === 0) {
