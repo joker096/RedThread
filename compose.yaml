@@ -274,6 +274,31 @@ services:
         condition: service_completed_successfully
     networks: [backend]
 
+  voice-intro-migration:
+    build:
+      context: .
+      target: api
+    restart: "no"
+    profiles: ["voice-intro-migration"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
+      PGSSL: "${PGSSL:-false}"
+      VOICE_INTRO_STORAGE_DIR: /app/uploads/private-voice-intros
+      VOICE_INTRO_ENCRYPTION_KEY: ${VOICE_INTRO_ENCRYPTION_KEY:-}
+      VOICE_INTRO_KEYRING: ${VOICE_INTRO_KEYRING:-}
+      VOICE_INTRO_ACTIVE_KEY_ID: ${VOICE_INTRO_ACTIVE_KEY_ID:-}
+      VOICE_INTRO_MIGRATION_ENABLED: ${VOICE_INTRO_MIGRATION_ENABLED:-false}
+      VOICE_INTRO_MIGRATION_JOURNAL_ID: ${VOICE_INTRO_MIGRATION_JOURNAL_ID:-}
+    command: ["node", "server/runVoiceIntroMigration.js", "--apply"]
+    volumes:
+      - private_voice_intros:/app/uploads/private-voice-intros
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [backend]
+
   api:
     build:
       context: .
