@@ -227,5 +227,6 @@ test('photo purge safely resumes when the worker loses its commit after unlink',
   });
   assert.deepEqual(second, { scanned: 1, deleted: 1, retried: 0, failures: 0 });
   assert.equal(queueExists, false);
+  assert.equal(completionExists, true, 'retry after ENOENT must durably record the purge completion');
   assert.equal(unlinkCount, 1);
 });
