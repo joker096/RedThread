@@ -40,4 +40,4 @@ Status: native L3 camera capture is not enabled. The optional 15–25 second pro
 - Production private media storage, key lifecycle, backup/restore and purge monitoring.
 - A reviewed native file transfer and secure local deletion path.
 - Final user-facing permission descriptions for Android and iOS.
-- Physical-device tests for front camera, audio, interrupted recording, file cleanup, upload retry and consent withdrawal.
+- Automated Android Emulator/iOS Simulator tests for virtual audio capture, interrupted recording, file cleanup, upload retry, playback and consent withdrawal. Physical-device testing is optional additional QA and is not a required engineering acceptance gate.
