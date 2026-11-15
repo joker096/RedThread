@@ -26,7 +26,7 @@ const event = {
 };
 const storagePath = '/private/photos/123e4567-e89b-42d3-a456-426614174002.jpg';
 const pathDigest = createHash('sha256').update(storagePath).digest('hex');
-const isolatedEnv = { NODE_ENV: 'test', PRIVACY_RECOVERY_RESTORE_ISOLATED: 'true' };
+const isolatedEnv = { NODE_ENV: 'test', PRIVACY_RECOVERY_RESTORE_ISOLATED: 'true', PRIVACY_RECOVERY_RESTORE_DATABASE_NAME: 'vow_restore_test', PRIVACY_RECOVERY_RESTORE_DATABASE_ROLE: 'vow_restore_runner', PRIVACY_RECOVERY_RESTORE_CONFIRMATION: 'ISOLATED_RESTORE_ONLY' };
 
 function makePool({ receiptRows = [event], obligations = [{
   ledger_sequence: '7', queue_name: 'private_photo', storage_path_sha256: pathDigest
@@ -36,6 +36,7 @@ function makePool({ receiptRows = [event], obligations = [{
     async query(sql) {
       calls.push(sql);
       if (sql.startsWith('BEGIN TRANSACTION')) return { rows: [] };
+      if (sql.includes('current_database()')) return { rows: [{ database_name: 'vow_restore_test', database_role: 'vow_restore_runner' }] };
       if (sql.includes('FROM privacy_recovery_events e')) return { rows: receiptRows };
       if (sql.includes('FROM photo_assets')) return { rows: remainingPhotos };
       if (sql.includes('FROM profiles')) return { rows: profiles, rowCount: profiles.length };
