@@ -115,6 +115,7 @@ export async function runPrivateMediaPrivacyRecovery({
     const result = await applyEvent({
       pool,
       mapping,
+      env,
       pseudonymKey: env.PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY,
       photoStorageRoot,
       voiceStorageRoot
