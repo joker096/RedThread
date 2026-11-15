@@ -17,6 +17,8 @@ const digest = createHash('sha256').update(JSON.stringify([
   '42', event.event_id, '1', event.event_type, event.subject_ref, event.resource_ref,
   event.occurred_at.toISOString(), event.received_at.toISOString()
 ])).digest('hex');
+const isolatedEnv = { NODE_ENV: 'test', PRIVACY_RECOVERY_RESTORE_ISOLATED: 'true', PRIVACY_RECOVERY_RESTORE_DATABASE_NAME: 'vow_restore_test', PRIVACY_RECOVERY_RESTORE_DATABASE_ROLE: 'vow_restore_runner', PRIVACY_RECOVERY_RESTORE_CONFIRMATION: 'ISOLATED_RESTORE_ONLY' };
+
 const mapping = {
   sequence: '42',
   eventId: event.event_id,
@@ -32,6 +34,7 @@ function fakePool({ receipt = null } = {}) {
     async query(sql, params = []) {
       calls.push({ sql, params });
       if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rowCount: null, rows: [] };
+      if (sql.includes('current_database()')) return { rowCount: 1, rows: [{ database_name: 'vow_restore_test', database_role: 'vow_restore_runner' }] };
       if (sql.includes('FROM privacy_recovery_replay_receipts')) {
         return { rowCount: receipt ? 1 : 0, rows: receipt ? [receipt] : [] };
       }
@@ -52,7 +55,7 @@ test('exact replay receipt is idempotent and checked before requiring a resource
     outcome_code: 'photo_erasure_queued'
   };
   const { pool, calls } = fakePool({ receipt });
-  const result = await applyPrivateMediaPrivacyRecoveryEvent({ pool, mapping, pseudonymKey: 'x'.repeat(32) });
+  const result = await applyPrivateMediaPrivacyRecoveryEvent({ pool, mapping, env: isolatedEnv, pseudonymKey: 'x'.repeat(32) });
   assert.deepEqual(result, { applied: false, alreadyApplied: true, outcome: 'photo_erasure_queued' });
   assert.equal(calls.filter(call => call.sql === 'COMMIT').length, 1);
   assert.equal(calls.some(call => call.sql === 'ROLLBACK'), false);
@@ -69,7 +72,7 @@ test('conflicting receipt identity or digest fails closed and rolls back', async
   };
   const { pool, calls } = fakePool({ receipt });
   await assert.rejects(
-    applyPrivateMediaPrivacyRecoveryEvent({ pool, mapping, pseudonymKey: 'x'.repeat(32) }),
+    applyPrivateMediaPrivacyRecoveryEvent({ pool, mapping, env: isolatedEnv, pseudonymKey: 'x'.repeat(32) }),
     /privacy_recovery_replay_receipt_conflict/
   );
   assert.equal(calls.filter(call => call.sql === 'ROLLBACK').length, 1);
@@ -92,6 +95,7 @@ test('executor rejects event types outside the private-media allowlist', async (
     applyPrivateMediaPrivacyRecoveryEvent({
       pool: { async connect() { throw new Error('must_not_connect'); } },
       mapping: { ...mapping, eventType: 'account_erasure_requested' },
+      env: isolatedEnv,
       pseudonymKey: 'x'.repeat(32)
     }),
     /privacy_recovery_media_executor_input_invalid/
