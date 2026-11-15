@@ -75,7 +75,10 @@ test('purge worker deletes a file and its queue row transactionally', async () =
   });
   assert.deepEqual(summary, { scanned: 1, deleted: 1, retried: 0, failures: 0 });
   assert.deepEqual(removed, [validPath]);
-  assert.ok(statements.some(item => item.sql.startsWith('DELETE FROM private_photo_purge_queue')));
+  const completionIndex = statements.findIndex(item => item.sql.startsWith('INSERT INTO privacy_recovery_replay_purge_completions'));
+  const deleteIndex = statements.findIndex(item => item.sql.startsWith('DELETE FROM private_photo_purge_queue'));
+  assert.ok(completionIndex >= 0, 'successful unlink must create an immutable recovery completion when an obligation exists');
+  assert.ok(deleteIndex > completionIndex, 'completion must be recorded before the transient queue row is removed');
   assert.equal(statements.at(-1).sql, 'COMMIT');
 });
 
