@@ -143,3 +143,17 @@ Every inventory, coordinator, media executor, and post-replay verification conne
 - `NODE_ENV` must not be `production`
 
 The process executes `SELECT current_database(), current_user` on the same PostgreSQL connection used by the recovery transaction and compares both values exactly. A mismatch aborts before inventory, replay, or verification proceeds. The restore database and role must be created specifically for the isolated recovery exercise; do not reuse the application database role. This guard is an additional fail-closed check, not a substitute for network isolation, disabled workers/webhooks/egress, or operator verification that the target infrastructure is disposable.
+
+
+## Purge completion is distinct from a queued obligation
+
+The immutable `privacy_recovery_replay_purge_obligations` rows describe what must be deleted. They are not proof that deletion finished. The operational photo and voice purge queues are transient: workers remove queue rows after a successful unlink (or after confirming the file is already absent). Therefore queue presence must never be treated as successful completion.
+
+Migration 239 adds append-only `privacy_recovery_replay_purge_completions`, keyed to the immutable obligation and containing only the ledger sequence, queue type, path digest, and completion timestamp. Each purge worker now writes the completion receipt in the same database transaction in which it removes the operational queue row, and only after the filesystem unlink succeeded or returned `ENOENT`. If the worker crashes after unlink but before commit, the queue task remains and the retry safely treats `ENOENT` as success before recording completion.
+
+The restore verifier requires:
+- every immutable obligation has exactly one completion receipt;
+- the matching operational queue item is no longer present;
+- the receipt/effect/metadata/visibility checks still pass.
+
+A missing completion or a still-queued obligation blocks activation. The completion table is append-only and stores no raw filesystem paths. This proves the purge worker's successful unlink outcome; it does not replace host-level storage inspection or infrastructure isolation.
