@@ -187,7 +187,7 @@ export async function collectOpsHealth({
   postgresBackupDir = process.env.OPS_POSTGRES_BACKUP_DIR,
   privatePhotoBackupDir = process.env.OPS_PRIVATE_PHOTO_BACKUP_DIR,
   privateVoiceBackupDir = process.env.OPS_PRIVATE_VOICE_BACKUP_DIR,
-  requireBackups = process.env.OPS_REQUIRE_BACKUPS === 'true'
+  requireBackups = process.env.OPS_REQUIRE_BACKUPS !== 'false'
 } = {}) {
   if (!databaseUrl && !suppliedPool) throw new Error('DATABASE_URL is required');
   const pool = suppliedPool || new Pool({
