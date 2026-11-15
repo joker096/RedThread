@@ -131,3 +131,15 @@ The gate executable must complete the full restore-specific domain reconciliatio
 Only after the gate exits successfully does the script replace the pending marker with `.vow-privacy-reconciled` and perform the bind mount. A failed gate never mounts; a failed bind mount restores the pending state. The tests use temporary directories and stubbed mount commands; they do not mount or modify host volumes.
 
 Do not mount restored media through Docker, systemd, or another mechanism that bypasses this gate. Production deployment remains disabled until the isolated recovery gate executable is implemented, reviewed, and wired to the actual restored database and ledger. The current helper provides fail-closed activation mechanics; it does not itself implement Paddle/gift/L3 domain replay.
+
+## Explicit restored-database identity guard
+
+Every inventory, coordinator, media executor, and post-replay verification connection now checks the actual PostgreSQL identity before reading or changing recovery state. Recovery requires all of the following operator-supplied environment values:
+
+- `PRIVACY_RECOVERY_RESTORE_ISOLATED=true`
+- `PRIVACY_RECOVERY_RESTORE_DATABASE_NAME=vow_restore_<unique_name>`
+- `PRIVACY_RECOVERY_RESTORE_DATABASE_ROLE=vow_restore_<dedicated_role>`
+- `PRIVACY_RECOVERY_RESTORE_CONFIRMATION=ISOLATED_RESTORE_ONLY`
+- `NODE_ENV` must not be `production`
+
+The process executes `SELECT current_database(), current_user` on the same PostgreSQL connection used by the recovery transaction and compares both values exactly. A mismatch aborts before inventory, replay, or verification proceeds. The restore database and role must be created specifically for the isolated recovery exercise; do not reuse the application database role. This guard is an additional fail-closed check, not a substitute for network isolation, disabled workers/webhooks/egress, or operator verification that the target infrastructure is disposable.
