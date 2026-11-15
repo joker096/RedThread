@@ -5,7 +5,8 @@ import {
   decryptGiftAddress,
   encryptGiftAddress,
   normalizeGiftAddress,
-  parseGiftAddressVaultKey
+  parseGiftAddressVaultKey,
+  parseGiftAddressVaultKeyring
 } from './giftAddressVault.js';
 
 const address = {
@@ -63,4 +64,49 @@ test('AES-GCM authentication rejects modified ciphertext', () => {
 test('invalid key and payload inputs fail closed', () => {
   assert.throws(() => encryptGiftAddress({ address, orderId: 'o', recipientUserId: 'u', key: Buffer.alloc(16) }));
   assert.throws(() => encryptGiftAddress({ address: { ...address, countryCode: 'USA' }, orderId: 'o', recipientUserId: 'u', key: randomBytes(32) }));
+});
+
+
+test('versioned gift vault keyring encrypts with active version and decrypts by stored version', () => {
+  const oldKey = randomBytes(32);
+  const activeKey = randomBytes(32);
+  const keyring = parseGiftAddressVaultKeyring({
+    keyringValue: JSON.stringify({
+      '2026-01': oldKey.toString('base64'),
+      '2026-02': activeKey.toString('base64')
+    }),
+    activeKeyVersion: '2026-02'
+  });
+  assert.ok(keyring?.keys instanceof Map);
+  const encrypted = encryptGiftAddress({
+    address, orderId: 'order-rotate', recipientUserId: 'recipient-rotate', key: keyring
+  });
+  assert.equal(encrypted.keyVersion, '2026-02');
+  assert.deepEqual(
+    decryptGiftAddress({
+      encrypted, orderId: 'order-rotate', recipientUserId: 'recipient-rotate', key: keyring
+    }),
+    address
+  );
+  assert.throws(() => decryptGiftAddress({
+    encrypted: { ...encrypted, keyVersion: 'missing-version' },
+    orderId: 'order-rotate',
+    recipientUserId: 'recipient-rotate',
+    key: keyring
+  }), /gift_address_vault_key_version_unavailable/);
+  oldKey.fill(0);
+  activeKey.fill(0);
+  for (const key of keyring.keys.values()) key.fill(0);
+});
+
+test('versioned gift vault keyring rejects invalid or missing active versions', () => {
+  const encoded = randomBytes(32).toString('base64');
+  assert.equal(parseGiftAddressVaultKeyring({
+    keyringValue: JSON.stringify({ '2026-01': encoded }),
+    activeKeyVersion: 'missing'
+  }), null);
+  assert.equal(parseGiftAddressVaultKeyring({
+    keyringValue: '{invalid',
+    activeKeyVersion: '2026-01'
+  }), null);
 });
