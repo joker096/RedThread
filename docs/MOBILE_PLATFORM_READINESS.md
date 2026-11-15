@@ -45,13 +45,13 @@ Implementation: preserve the React UI, package it with Capacitor, and keep Expre
 
 ### 1. API hostname, TLS and real-device connectivity
 
-No Vow production API hostname has been selected. A public HTTPS hostname and valid TLS certificate are required before a real-device release candidate can connect to the production backend. Do not put API secrets in `VITE_*` variables; `VITE_API_BASE_URL` is a public URL.
+No Vow API hostname has been selected. `VITE_API_BASE_URL`, `VOW_APP_LINK_HOST` and `VITE_APP_LINK_HOST` remain blank until a real HTTPS API/domain is chosen; CI receives them from optional repository variables. Never substitute an example domain or put API secrets in `VITE_*` variables.
 
 ### 2. Android and iOS device validation
 
 - Android debug APK builds in CI; local Android development is supported on Windows with Android Studio and an emulator.
 - iOS Simulator builds in hosted macOS CI; a local Mac is not required for this workflow.
-- Physical-device validation, signed release builds, App Store Connect/TestFlight and Google Play internal testing still require the relevant developer accounts, signing/provisioning configuration and a reachable HTTPS API.
+- Automated Android Emulator and iOS Simulator checks are the required engineering regression gates. Physical-device checks are optional additional QA, not a prerequisite for accepting CI work. Signed release builds, App Store Connect/TestFlight and Google Play internal testing still require developer accounts, signing/provisioning configuration and a reachable HTTPS API.
 
 ### 3. Camera, microphone, location and verification media
 
