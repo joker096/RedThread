@@ -1,5 +1,6 @@
 import pg from 'pg';
 import { resolvePrivacyRecoveryMappings } from '../server/privacyRecoveryMapping.js';
+import { assertPrivacyRecoveryRestoreTarget, assertPrivacyRecoveryRestoreTargetConfig } from '../server/privacyRecoveryTargetGuard.js';
 
 const { Pool } = pg;
 
@@ -13,6 +14,7 @@ function assertIsolatedRestoreEnvironment(env) {
   if (env.NODE_ENV === 'production' || env.PRIVACY_RECOVERY_RESTORE_ISOLATED !== 'true') {
     throw new Error('privacy_recovery_inventory_requires_isolated_restore');
   }
+  assertPrivacyRecoveryRestoreTargetConfig(env);
   if (typeof env.DATABASE_URL !== 'string' || !env.DATABASE_URL) {
     throw new Error('privacy_recovery_inventory_database_url_required');
   }
@@ -61,6 +63,7 @@ export async function runPrivacyRecoveryInventory({ pool, env = process.env } = 
   try {
     await client.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
     transactionOpen = true;
+    await assertPrivacyRecoveryRestoreTarget(client, env);
     const eventsResult = await client.query(
       `SELECT ledger_sequence AS sequence, event_id, event_type, subject_ref, resource_ref
          FROM privacy_recovery_events
