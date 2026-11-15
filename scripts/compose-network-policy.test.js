@@ -162,6 +162,11 @@ test('Docker database network is isolated from the public web proxy container', 
 
 test('Nginx streams L3 video uploads without plaintext disk buffering', async () => {
   const nginx = await readFile(new URL('../docker/nginx.conf', import.meta.url), 'utf8');
+  const dockerfile = await readFile(new URL('../Dockerfile', import.meta.url), 'utf8');
+  assert.doesNotMatch(nginx, /root \/usr\/share\/nginx\/html|index\\.html|try_files/,
+    'the mobile API gateway must not serve a public SPA');
+  assert.doesNotMatch(dockerfile, /COPY --from=build \/app\/dist \/usr\/share\/nginx\/html/,
+    'the Nginx image must not package the Vow web frontend');
   assert.match(nginx, /Cross-Origin-Opener-Policy.*same-origin-allow-popups/, 'GIS popup isolation must be configured on the static document response');
   const vite = await readFile(new URL('../vite.config.ts', import.meta.url), 'utf8');
   assert.match(vite, /Cross-Origin-Opener-Policy.*same-origin-allow-popups/, 'local development must use the same GIS popup policy');
