@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { assertPrivacyRecoveryRestoreTarget, assertPrivacyRecoveryRestoreTargetConfig } from './privacyRecoveryTargetGuard.js';
 
 const EVENT_TYPE = 'account_erasure_requested';
@@ -79,6 +79,11 @@ export async function verifyAccountErasurePrivacyRecovery({
           row.resource_id !== null || !/^[a-f0-9]{64}$/i.test(row.account_reuse_hmac || '') ||
           !Number.isSafeInteger(Number(row.purge_count)) || Number(row.purge_count) < 0) {
         throw new Error('privacy_recovery_account_erasure_verification_receipt_mismatch');
+      }
+      const expectedSubject = createHmac('sha256', env.PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY)
+        .update(row.subject_user_id, 'utf8').digest('hex');
+      if (expectedSubject !== String(row.subject_ref).toLowerCase()) {
+        throw new Error('privacy_recovery_account_erasure_verification_subject_mismatch');
       }
       verified.push(row);
     }
