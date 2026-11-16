@@ -147,7 +147,8 @@ export async function verifyAccountErasurePrivacyRecovery({
         ['gift_receiving_preferences', 'user_id', 'privacy_recovery_account_erasure_verification_gift_preferences_remain']
       ];
       for (const [table, predicate, code] of scopedChecks) {
-        await assertNoRows(client, `SELECT 1 FROM ${table} WHERE ${predicate} LIMIT 1`, [userId], code);
+        const where = predicate.includes('$1') ? predicate : `${predicate} = $1`;
+        await assertNoRows(client, `SELECT 1 FROM ${table} WHERE ${where} LIMIT 1`, [userId], code);
       }
 
       await assertNoRows(client,
