@@ -110,9 +110,10 @@ test('all privacy recovery event domains are recognized as supported when mappin
   const report = await runPrivacyRecoveryInventory({ pool, env });
   assert.equal(report.matchedCount, eventTypes.length);
   assert.equal(report.unresolvedCount, 0);
-  assert.equal(report.unsupportedEventCount, eventTypes.length);
-  assert.deepEqual(report.unsupportedEventSequences, [1, 2, 3, 4]);
-  assert.equal(report.readyForDomainReplay, false);
+  assert.equal(report.supportedEventCount, eventTypes.length);
+  assert.equal(report.unsupportedEventCount, 0);
+  assert.deepEqual(report.unsupportedEventSequences, []);
+  assert.equal(report.readyForDomainReplay, true);
 });
 
 test('refuses production or non-isolated execution before opening a connection', async () => {
