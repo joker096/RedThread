@@ -2094,7 +2094,8 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
         userId: req.authUser.id
       });
     } catch (error) {
-      console.error('Privacy recovery ledger rejected account erasure:', error?.message || 'unknown error');
+      await client.query('ROLLBACK');
+      console.error('Privacy recovery outbox rejected account erasure:', error?.message || 'unknown error');
       return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
     }
 
