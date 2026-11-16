@@ -75,7 +75,7 @@ export function subscribeToNativeAppState(
 ): () => void {
   let disposed = false;
   let handle: AppStateListenerHandle | null = null;
-  void register(onStateChange).then(registered => {
+  void Promise.resolve().then(() => register(onStateChange)).then(registered => {
     if (disposed) {
       void registered.remove().catch(() => {});
       return;
