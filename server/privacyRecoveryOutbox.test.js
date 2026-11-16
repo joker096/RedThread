@@ -214,27 +214,24 @@ test('outbox never persists an arbitrary ledger-prefixed database exception', as
 });
 
 test('outbox treats an exact event retry as idempotent but rejects event ID payload collisions', async () => {
-  const calls = [];
-  const payload = {
-    event_id: '123e4567-e89b-42d3-a456-426614174000',
-    schema_version: 1,
-    event_type: 'account_erasure_requested',
-    subject_ref: 'a'.repeat(64),
-    occurred_at: '2026-11-16T12:00:00.000Z'
-  };
+  const stored = new Map();
   const client = {
     async query(sql, values) {
-      calls.push({ sql, values });
       if (sql.includes('INSERT INTO privacy_recovery_ledger_outbox')) {
-        return { rowCount: 0, rows: [] };
+        if (stored.has(values[0])) return { rowCount: 0, rows: [] };
+        stored.set(values[0], JSON.parse(values[1]));
+        return { rowCount: 1, rows: [{ event_id: values[0] }] };
       }
       if (sql.includes('SELECT event_id')) {
-        return { rowCount: values[1] === JSON.stringify(payload) ? 1 : 0, rows: values[1] === JSON.stringify(payload) ? [{ event_id: payload.event_id }] : [] };
+        const existing = stored.get(values[0]);
+        const requested = JSON.parse(values[1]);
+        return existing && JSON.stringify(existing) === JSON.stringify(requested)
+          ? { rowCount: 1, rows: [{ event_id: values[0] }] }
+          : { rowCount: 0, rows: [] };
       }
       throw new Error('unexpected_query');
     }
   };
-  const { enqueuePrivacyRecoveryEvent } = await import('./privacyRecoveryOutbox.js');
   const env = {
     NODE_ENV: 'production',
     PRIVACY_RECOVERY_LEDGER_REQUIRED: 'true',
@@ -242,15 +239,19 @@ test('outbox treats an exact event retry as idempotent but rejects event ID payl
     PRIVACY_RECOVERY_LEDGER_HMAC_SECRET: 'auth-secret-at-least-32-characters-long',
     PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY: 'pseudonym-secret-at-least-32-characters'
   };
-  const result = await enqueuePrivacyRecoveryEvent(client, {
+  const input = {
     eventType: 'account_erasure_requested',
     userId: '123e4567-e89b-42d3-a456-426614174001',
-    eventId: payload.event_id,
-    occurredAt: payload.occurred_at
-  }, { env: {
-    ...env,
-    // HMAC is deterministic; expected JSON is captured from the first insert.
-  }});
-  assert.equal(result.duplicate, true);
-  assert.match(calls[1].sql, /event_payload = \$2::jsonb/);
+    eventId: '123e4567-e89b-42d3-a456-426614174000',
+    occurredAt: '2026-11-16T12:00:00.000Z'
+  };
+  const first = await enqueuePrivacyRecoveryEvent(client, input, { env });
+  const duplicate = await enqueuePrivacyRecoveryEvent(client, input, { env });
+  assert.equal(first.queued, true);
+  assert.equal(duplicate.duplicate, true);
+  await assert.rejects(
+    enqueuePrivacyRecoveryEvent(client, { ...input, eventType: 'ad_consent_revoked' }, { env }),
+    /privacy_recovery_outbox_event_id_conflict/
+  );
+  assert.equal(stored.size, 1);
 });
