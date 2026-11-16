@@ -161,6 +161,9 @@ export async function verifyAccountErasurePrivacyRecovery({
         "SELECT 1 FROM mobile_sessions WHERE user_id = $1 AND revoked_at IS NULL LIMIT 1",
         [userId], 'privacy_recovery_account_erasure_verification_mobile_sessions_active');
       await assertNoRows(client,
+        "SELECT 1 FROM user_reports WHERE reporter_id = $1 OR reported_user_id = $1 LIMIT 1",
+        [userId], 'privacy_recovery_account_erasure_verification_live_report_links_remain');
+      await assertNoRows(client,
         "SELECT 1 FROM messages WHERE sender_id = $1 AND (body <> '[сообщение удалено]' OR deleted_at IS NULL) LIMIT 1",
         [userId], 'privacy_recovery_account_erasure_verification_message_content_remains');
       await assertNoRows(client,
