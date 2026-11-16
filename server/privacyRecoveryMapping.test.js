@@ -41,7 +41,7 @@ test('maps all resource-bearing event types against their own restored entity se
     pseudonymKey: key,
     users: [{ id: userId }],
     voiceIntros: [{ id: voiceId, user_id: userId }],
-    giftOrders: [{ id: orderId }],
+    giftOrders: [{ id: orderId, user_id: userId }],
     events: [
       event('voice_intro_erasure_requested', userId, voiceId),
       event('gift_order_consent_withdrawn', userId, orderId)
