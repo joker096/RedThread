@@ -275,3 +275,28 @@ npm run restore:bundle
 ```
 
 The restore wrapper verifies the manifest and both archive digests before invoking the existing PostgreSQL and media restore guards. If one restore succeeds and the other fails, keep the successful target isolated and reconcile it manually; the wrapper never drops a database or deletes a partially restored target. The media directory receives `.vow-restore-pending` and must not be activated until the privacy-ledger replay and verification gate is satisfied. The integration test uses disposable PostgreSQL databases, synthetic files, and a temporary age identity; it does not access live user data or activate a backup schedule.
+
+
+## Transactional privacy recovery Ledger outbox
+
+Every API-side privacy recovery event is now inserted into `privacy_recovery_ledger_outbox` using the same PostgreSQL transaction as the domain mutation. The row contains only the stable event UUID and pseudonymized event payload; raw user/resource identifiers are not copied into the delivery queue. A transaction rollback therefore removes both the domain change and its pending Ledger event.
+
+Run the one-shot delivery worker from a trusted private scheduler after migration 240 has been applied:
+
+```bash
+npm run privacy-ledger:outbox-worker
+```
+
+Schedule it at a short interval (for example, once per minute) with a deployment service manager or private cron runner. Do not expose the worker as a public HTTP endpoint. It claims work with `FOR UPDATE SKIP LOCKED`, a per-claim lease token and bounded lease expiry; retries always send the original event UUID and payload. Ledger acceptance is recorded only after a valid durable acknowledgement with a positive sequence number. Failed events use bounded exponential backoff and move to `dead` after 12 attempts; alert on any dead row or sustained pending backlog. The worker is not scheduled or enabled by this repository change.
+
+Read-only queue checks:
+
+```sql
+SELECT status, count(*) AS events, min(created_at) AS oldest_created_at,
+       max(attempts) AS max_attempts
+FROM privacy_recovery_ledger_outbox
+GROUP BY status
+ORDER BY status;
+```
+
+Before enabling production recovery, configure the Ledger URL, HMAC secret and pseudonym key in the deployment secret manager, apply migrations, run the worker against a staging Ledger, and test rollback, retry, duplicate delivery, lease expiry and dead-letter alerting.
