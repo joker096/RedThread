@@ -6428,7 +6428,7 @@ app.put('/api/gifts/orders/:publicReference/address-draft', validateRequestOrigi
     await client.query(
       `INSERT INTO gift_address_drafts
          (order_id, recipient_user_id, key_version, nonce, auth_tag, ciphertext, created_at, expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6, statement_timestamp(), $7)
+       VALUES ($1, $2, $3, $4, $5, $6, statement_timestamp(), LEAST($7::timestamptz, statement_timestamp() + INTERVAL '24 hours'))
        ON CONFLICT (order_id) DO UPDATE
          SET recipient_user_id = EXCLUDED.recipient_user_id,
              key_version = EXCLUDED.key_version,
@@ -6436,7 +6436,7 @@ app.put('/api/gifts/orders/:publicReference/address-draft', validateRequestOrigi
              auth_tag = EXCLUDED.auth_tag,
              ciphertext = EXCLUDED.ciphertext,
              created_at = statement_timestamp(),
-             expires_at = EXCLUDED.expires_at`,
+             expires_at = LEAST(EXCLUDED.expires_at, statement_timestamp() + INTERVAL '24 hours')`,
       [locked.order.id, req.authUser.id, encrypted.keyVersion, encrypted.nonce,
         encrypted.authTag, encrypted.ciphertext, new Date(expiresAtMs)]
     );
