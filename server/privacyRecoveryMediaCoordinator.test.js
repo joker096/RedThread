@@ -440,3 +440,43 @@ test('default account preflight failure blocks the entire batch before earlier e
   assert.equal(result.processedCount, 0);
   assert.equal(applyCount, 0);
 });
+
+test('coordinator rejects events for a subject after terminal account erasure', async () => {
+  const photoId = '123e4567-e89b-42d3-a456-426614174027';
+  const photoRef = createHmac('sha256', key).update(photoId, 'utf8').digest('hex');
+  const { pool } = poolFor({
+    events: [{
+      sequence: '1',
+      event_id: '123e4567-e89b-42d3-a456-426614174028',
+      event_type: 'account_erasure_requested',
+      subject_ref: subjectRef,
+      resource_ref: null
+    }, {
+      sequence: '2',
+      event_id: '123e4567-e89b-42d3-a456-426614174029',
+      event_type: 'private_photo_erasure_requested',
+      subject_ref: subjectRef,
+      resource_ref: photoRef
+    }],
+    photos: [{ id: photoId, user_id: userId }]
+  });
+  let appliedCount = 0;
+  const result = await runPrivateMediaPrivacyRecovery({
+    pool,
+    env: isolatedEnv,
+    snapshotLedgerSequence: 0,
+    throughSequence: 2,
+    applyEvent: async () => {
+      appliedCount += 1;
+      return { applied: true, alreadyApplied: false };
+    },
+    preflightAccountErasure: async () => ({ ready: true }),
+    preflightAdConsent: async () => ({ ready: true }),
+    preflightGiftConsent: async () => ({ ready: true })
+  });
+  assert.equal(result.complete, false);
+  assert.equal(result.blockedSequence, 2);
+  assert.equal(result.blockedEventType, 'private_photo_erasure_requested');
+  assert.equal(result.processedCount, 0);
+  assert.equal(appliedCount, 0);
+});
