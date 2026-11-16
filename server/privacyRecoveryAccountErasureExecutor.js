@@ -139,6 +139,22 @@ async function holdGiftOrders(client, userId) {
       );
     }
   }
+
+  const deliveredWithAddress = await client.query(
+    `SELECT id, recipient_id FROM gift_delivery_orders
+      WHERE (sender_id = $1 OR recipient_id = $1)
+        AND status = 'delivered' AND address_vault_ref IS NOT NULL
+      ORDER BY id FOR UPDATE`,
+    [userId]
+  );
+  for (const gift of deliveredWithAddress.rows) {
+    await revokeGiftAddressVaultEntry(client, {
+      orderId: gift.id,
+      recipientUserId: gift.recipient_id,
+      actorUserId: null
+    });
+  }
+  return suspended.rowCount;
 }
 
 /**
@@ -489,19 +505,4 @@ export async function applyAccountErasurePrivacyRecoveryEvent({
   } finally {
     client.release();
   }
-}  const deliveredWithAddress = await client.query(
-    `SELECT id, recipient_id FROM gift_delivery_orders
-      WHERE (sender_id = $1 OR recipient_id = $1)
-        AND status = 'delivered' AND address_vault_ref IS NOT NULL
-      ORDER BY id FOR UPDATE`,
-    [userId]
-  );
-  for (const gift of deliveredWithAddress.rows) {
-    await revokeGiftAddressVaultEntry(client, {
-      orderId: gift.id,
-      recipientUserId: gift.recipient_id,
-      actorUserId: null
-    });
-  }
-
-
+}
