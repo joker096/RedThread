@@ -106,7 +106,8 @@ export async function verifyAccountErasurePrivacyRecovery({
       const profile = await client.query(
         `SELECT display_name, birth_date, gender, country, city, bio, photo_urls,
                 occupation, education, languages, is_visible, has_children,
-                children_disclosure_confirmed_at
+                children_disclosure_confirmed_at, relationship_intent, family_format,
+                wants_children, children_living_arrangement, family_values
            FROM profiles WHERE user_id = $1`,
         [userId]
       );
@@ -116,7 +117,10 @@ export async function verifyAccountErasurePrivacyRecovery({
           p.gender !== null || p.country !== '—' || p.city !== '—' || p.bio !== '' ||
           (p.photo_urls || []).length !== 0 || p.occupation !== '' || p.education !== '' ||
           (p.languages || []).length !== 0 || p.is_visible !== false ||
-          p.has_children !== null || p.children_disclosure_confirmed_at !== null) {
+          p.has_children !== null || p.children_disclosure_confirmed_at !== null ||
+          p.relationship_intent !== 'marriage_family' || p.family_format !== 'open_to_both' ||
+          p.wants_children !== 'discuss' || p.children_living_arrangement !== 'not_applicable' ||
+          (p.family_values || []).length !== 0) {
         throw new Error('privacy_recovery_account_erasure_verification_profile_not_scrubbed');
       }
 
