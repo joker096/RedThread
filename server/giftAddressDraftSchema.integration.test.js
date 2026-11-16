@@ -12,6 +12,7 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
 }, async () => {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
   const client = await pool.connect();
+  await client.query('SELECT pg_advisory_lock(434236)');
   const senderId = randomUUID();
   const recipientId = randomUUID();
   const matchId = randomUUID();
@@ -205,13 +206,14 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
     await client.query('ROLLBACK').catch(() => {});
     throw error;
   } finally {
-    await client.query('SET session_replication_role = replica').catch(() => {});
+    await client.query('ALTER TABLE gift_address_draft_consent_events DISABLE TRIGGER gift_address_draft_consent_events_immutable').catch(() => {});
     await client.query('DELETE FROM gift_address_drafts WHERE order_id = ANY($1::uuid[])', [[orderId, ttlOrderId, accountDeleteOrderId, matchPurgeOrderId]]).catch(() => {});
     await client.query('DELETE FROM gift_address_draft_consent_events WHERE order_id = ANY($1::uuid[])', [[orderId, ttlOrderId, accountDeleteOrderId, matchPurgeOrderId]]).catch(() => {});
     await client.query('DELETE FROM gift_delivery_orders WHERE id = ANY($1::uuid[])', [[orderId, ttlOrderId, accountDeleteOrderId, matchPurgeOrderId]]).catch(() => {});
     await client.query('DELETE FROM matches WHERE id = $1', [matchId]).catch(() => {});
     await client.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [[senderId, recipientId]]).catch(() => {});
-    await client.query('SET session_replication_role = origin').catch(() => {});
+    await client.query('ALTER TABLE gift_address_draft_consent_events ENABLE TRIGGER gift_address_draft_consent_events_immutable').catch(() => {});
+    await client.query('SELECT pg_advisory_unlock(434236)').catch(() => {});
     client.release();
     await pool.end();
   }
