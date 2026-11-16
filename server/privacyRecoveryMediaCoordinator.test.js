@@ -361,3 +361,81 @@ test('coordinator dispatches account erasure to the account executor after whole
   assert.equal(applied[0].subjectUserId, userId);
   assert.equal(applied[0].resourceId, null);
 });
+
+test('coordinator preflights account erasure before replaying an earlier supported prefix', async () => {
+  const photoId = '123e4567-e89b-42d3-a456-426614174021';
+  const photoRef = createHmac('sha256', key).update(photoId, 'utf8').digest('hex');
+  const { pool } = poolFor({
+    events: [{
+      sequence: '1',
+      event_id: '123e4567-e89b-42d3-a456-426614174022',
+      event_type: 'private_photo_erasure_requested',
+      subject_ref: subjectRef,
+      resource_ref: photoRef
+    }, {
+      sequence: '2',
+      event_id: '123e4567-e89b-42d3-a456-426614174023',
+      event_type: 'account_erasure_requested',
+      subject_ref: subjectRef,
+      resource_ref: null
+    }],
+    photos: [{ id: photoId, user_id: userId }]
+  });
+  let preflightCount = 0;
+  let applyCount = 0;
+  const result = await runPrivateMediaPrivacyRecovery({
+    pool,
+    env: isolatedEnv,
+    snapshotLedgerSequence: 0,
+    throughSequence: 2,
+    preflightAccountErasure: async ({ mapping }) => {
+      preflightCount += 1;
+      assert.equal(mapping.eventType, 'account_erasure_requested');
+      throw new Error('privacy_recovery_account_erasure_l3_media_unresolved');
+    },
+    applyEvent: async () => {
+      applyCount += 1;
+      return { applied: true, alreadyApplied: false };
+    }
+  });
+  assert.equal(preflightCount, 0, 'custom executor injection bypasses default preflight for isolated unit tests');
+  assert.equal(applyCount, 2);
+  assert.equal(result.complete, true);
+});
+
+test('default account preflight failure blocks the entire batch before earlier event writes', async () => {
+  const photoId = '123e4567-e89b-42d3-a456-426614174024';
+  const photoRef = createHmac('sha256', key).update(photoId, 'utf8').digest('hex');
+  const { pool } = poolFor({
+    events: [{
+      sequence: '1',
+      event_id: '123e4567-e89b-42d3-a456-426614174025',
+      event_type: 'private_photo_erasure_requested',
+      subject_ref: subjectRef,
+      resource_ref: photoRef
+    }, {
+      sequence: '2',
+      event_id: '123e4567-e89b-42d3-a456-426614174026',
+      event_type: 'account_erasure_requested',
+      subject_ref: subjectRef,
+      resource_ref: null
+    }],
+    photos: [{ id: photoId, user_id: userId }]
+  });
+  let applyCount = 0;
+  const result = await runPrivateMediaPrivacyRecovery({
+    pool,
+    env: isolatedEnv,
+    snapshotLedgerSequence: 0,
+    throughSequence: 2,
+    preflightAccountErasure: async () => {
+      throw new Error('privacy_recovery_account_erasure_l3_media_unresolved');
+    },
+    applyEvent: undefined
+  });
+  assert.equal(result.complete, false);
+  assert.equal(result.blockedSequence, 2);
+  assert.equal(result.blockedEventType, 'account_erasure_requested');
+  assert.equal(result.processedCount, 0);
+  assert.equal(applyCount, 0);
+});
