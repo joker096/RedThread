@@ -36,7 +36,7 @@ export function parseGiftAddressVaultKeyring({
   for (const [version, encoded] of entries) {
     if (!/^[A-Za-z0-9._-]{1,32}$/.test(version)) return null;
     const key = parseGiftAddressVaultKey(encoded);
-    if (!key) return null;
+    if (!key || [...keys.values()].some(existingKey => existingKey.equals(key))) return null;
     keys.set(version, key);
   }
   return { activeKeyVersion, keys };
@@ -74,11 +74,12 @@ export function normalizeGiftAddress(input) {
   return { ok: true, address };
 }
 
-function associatedData(orderId, recipientUserId) {
-  if (typeof orderId !== 'string' || !orderId || typeof recipientUserId !== 'string' || !recipientUserId) {
-    throw new TypeError('order and recipient identifiers are required');
+function associatedData(orderId, recipientUserId, keyVersion) {
+  if (typeof orderId !== 'string' || !orderId || typeof recipientUserId !== 'string' || !recipientUserId ||
+      typeof keyVersion !== 'string' || !/^[A-Za-z0-9._-]{1,32}$/.test(keyVersion)) {
+    throw new TypeError('order, recipient and key version identifiers are required');
   }
-  return Buffer.from(`${VAULT_AAD_PREFIX}:${orderId}:${recipientUserId}`, 'utf8');
+  return Buffer.from(`${VAULT_AAD_PREFIX}:${keyVersion}:${orderId}:${recipientUserId}`, 'utf8');
 }
 
 export function encryptGiftAddress({ address, orderId, recipientUserId, key, keyVersion } = {}) {
@@ -91,7 +92,7 @@ export function encryptGiftAddress({ address, orderId, recipientUserId, key, key
   if (!normalized.ok) throw new TypeError(normalized.error);
   const nonce = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, nonce);
-  cipher.setAAD(associatedData(orderId, recipientUserId));
+  cipher.setAAD(associatedData(orderId, recipientUserId, keyVersion));
   const ciphertext = Buffer.concat([
     cipher.update(JSON.stringify(normalized.address), 'utf8'),
     cipher.final()
@@ -112,7 +113,7 @@ export function decryptGiftAddress({ encrypted, orderId, recipientUserId, key } 
     throw new TypeError('invalid encrypted vault record');
   }
   const decipher = createDecipheriv('aes-256-gcm', key, encrypted.nonce);
-  decipher.setAAD(associatedData(orderId, recipientUserId));
+  decipher.setAAD(associatedData(orderId, recipientUserId, encrypted.keyVersion));
   decipher.setAuthTag(encrypted.authTag);
   const plaintext = Buffer.concat([
     decipher.update(encrypted.ciphertext),

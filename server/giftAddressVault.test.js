@@ -47,6 +47,14 @@ test('AES-256-GCM round-trips only with the same order and recipient context', (
     () => decryptGiftAddress({ encrypted, orderId: 'order-2', recipientUserId: 'recipient-1', key })
   );
   assert.throws(
+    () => decryptGiftAddress({
+      encrypted: { ...encrypted, keyVersion: '2026-02' },
+      orderId: 'order-1',
+      recipientUserId: 'recipient-1',
+      key
+    })
+  );
+  assert.throws(
     () => decryptGiftAddress({ encrypted, orderId: 'order-1', recipientUserId: 'recipient-2', key })
   );
 });
@@ -108,5 +116,10 @@ test('versioned gift vault keyring rejects invalid or missing active versions', 
   assert.equal(parseGiftAddressVaultKeyring({
     keyringValue: '{invalid',
     activeKeyVersion: '2026-01'
+  }), null);
+  const reusedKey = randomBytes(32).toString('base64');
+  assert.equal(parseGiftAddressVaultKeyring({
+    keyringValue: JSON.stringify({ '2026-01': reusedKey, '2026-02': reusedKey }),
+    activeKeyVersion: '2026-02'
   }), null);
 });
