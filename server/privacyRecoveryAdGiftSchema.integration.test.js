@@ -11,7 +11,7 @@ test('privacy replay schema accepts ad revocation and gift consent withdrawal wi
 }, async () => {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   const client = await pool.connect();
-  const base = BigInt(Date.now()) * 1000n;
+  const base = BigInt(Date.now()) * 1_000_000n + BigInt(Math.floor(Math.random() * 1_000_000));
   const userId = randomUUID();
   const orderId = randomUUID();
   const adEventId = randomUUID();
