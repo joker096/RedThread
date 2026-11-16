@@ -40,3 +40,17 @@ test('draft expiry is bounded to at most 24 hours', () => {
   assert.throws(() => resolveGiftAddressDraftExpiry({ now, ttlMs: 1000 }));
   assert.equal(GIFT_ADDRESS_DRAFT_CONSENT_VERSION, 1);
 });
+
+test('draft encryption refuses a key reused by the verified-address Vault', () => {
+  const previous = process.env.GIFT_ADDRESS_VAULT_KEY;
+  process.env.GIFT_ADDRESS_VAULT_KEY = keyA;
+  try {
+    assert.equal(parseGiftAddressDraftKeyring({
+      keyringValue: JSON.stringify({ draft: keyA }),
+      activeKeyVersion: 'draft'
+    }), null);
+  } finally {
+    if (previous === undefined) delete process.env.GIFT_ADDRESS_VAULT_KEY;
+    else process.env.GIFT_ADDRESS_VAULT_KEY = previous;
+  }
+});
