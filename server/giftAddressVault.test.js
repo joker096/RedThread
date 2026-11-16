@@ -172,9 +172,10 @@ test('gift address vault revocation rejects incomplete actor context before quer
   await assert.rejects(
     revokeGiftAddressVaultEntry({ query: async () => { queried = true; } }, {
       orderId: 'order-3',
-      recipientUserId: 'recipient-3'
+      recipientUserId: 'recipient-3',
+      actorUserId: ''
     }),
-    /gift address revocation context is required/
+    /gift address revocation context is invalid/
   );
   assert.equal(queried, false);
 });
