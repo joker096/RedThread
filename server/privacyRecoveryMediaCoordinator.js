@@ -125,14 +125,17 @@ export async function runPrivateMediaPrivacyRecovery({
   // every such event before applying any earlier event in the requested range.
   const accountErasureSequences = new Map();
   for (const mapping of mappings) {
-    if (mapping.eventType === 'account_erasure_requested' && mapping.subjectUserId) {
-      accountErasureSequences.set(mapping.subjectUserId, BigInt(mapping.sequence));
+    if (mapping.eventType !== 'account_erasure_requested' || !mapping.subjectUserId) continue;
+    const sequence = BigInt(mapping.sequence);
+    const previous = accountErasureSequences.get(mapping.subjectUserId);
+    if (previous === undefined || sequence < previous) {
+      accountErasureSequences.set(mapping.subjectUserId, sequence);
     }
   }
   for (const mapping of mappings) {
     const accountSequence = mapping.subjectUserId ? accountErasureSequences.get(mapping.subjectUserId) : null;
     if (accountSequence !== undefined && accountSequence !== null &&
-        BigInt(mapping.sequence) > accountSequence && mapping.eventType !== 'account_erasure_requested') {
+        BigInt(mapping.sequence) > accountSequence) {
       return {
         complete: false,
         processedCount: 0,
