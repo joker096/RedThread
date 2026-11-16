@@ -140,7 +140,7 @@ async function holdGiftOrders(client, userId) {
   }
 }
 
-async function applyAccountErasure(client, userId, env) {
+async function applyAccountErasure(client, userId, env, eventOccurredAt) {
   await acquireGiftSafetyUserLocks(client, userId);
   const userResult = await client.query(
     `SELECT id, email, status, paddle_customer_id, paddle_subscription_id,
@@ -168,8 +168,10 @@ async function applyAccountErasure(client, userId, env) {
       (!user.paddle_subscription_id && subscriptionStatus && !['canceled', 'completed'].includes(subscriptionStatus))) {
     throw new Error('privacy_recovery_account_erasure_paddle_subscription_unresolved');
   }
+  const erasureTime = Date.parse(eventOccurredAt);
+  if (!Number.isFinite(erasureTime)) throw new Error('privacy_recovery_account_erasure_event_time_invalid');
   if (user.premium_lifetime !== true && user.premium_until &&
-      new Date(user.premium_until).getTime() > Date.now()) {
+      new Date(user.premium_until).getTime() > erasureTime) {
     throw new Error('privacy_recovery_account_erasure_premium_state_unresolved');
   }
 
@@ -308,7 +310,25 @@ export async function applyAccountErasurePrivacyRecoveryEvent({
       "SELECT pg_advisory_xact_lock(hashtext($1))",
       [`gift-safety-user:${mapping.subjectUserId}`]
     );
-    const applied = await applyAccountErasure(client, mapping.subjectUserId, env);
+    const concurrentReceipt = await client.query(
+      `SELECT ledger_sequence, event_id, event_digest, event_type, outcome_code
+         FROM privacy_recovery_replay_receipts
+        WHERE ledger_sequence = $1 OR event_id = $2 FOR UPDATE`,
+      [mapping.sequence, mapping.eventId]
+    );
+    if (concurrentReceipt.rowCount) {
+      const receipt = concurrentReceipt.rows[0];
+      if (concurrentReceipt.rowCount !== 1 ||
+          String(receipt.ledger_sequence) !== String(mapping.sequence) ||
+          receipt.event_id !== mapping.eventId || receipt.event_digest !== digest ||
+          receipt.event_type !== EVENT_TYPE || receipt.outcome_code !== OUTCOME) {
+        throw new Error('privacy_recovery_account_erasure_receipt_conflict');
+      }
+      await client.query('COMMIT');
+      open = false;
+      return { applied: false, alreadyApplied: true, outcome: OUTCOME };
+    }
+    const applied = await applyAccountErasure(client, mapping.subjectUserId, env, staged.occurred_at);
     await client.query(
       `INSERT INTO privacy_recovery_replay_receipts
          (ledger_sequence, event_id, event_digest, event_type, outcome_code)
