@@ -19,6 +19,11 @@ test('privacy replay schema accepts ad revocation and gift consent withdrawal wi
   try {
     await client.query('BEGIN');
     await client.query(
+      `INSERT INTO users (id, email, role, status, email_verified_at)
+       VALUES ($1, $2, 'member', 'active', NOW())`,
+      [userId, 'privacy-recovery-ad-gift-' + userId + '@example.invalid']
+    );
+    await client.query(
       `INSERT INTO privacy_recovery_events
          (ledger_sequence, event_id, schema_version, event_type, subject_ref, resource_ref, occurred_at, received_at)
        VALUES
