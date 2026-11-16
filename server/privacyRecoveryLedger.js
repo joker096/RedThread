@@ -99,6 +99,7 @@ export async function deliverPrivacyRecoveryLedgerPayload(event, {
       },
       body,
       cache: 'no-store',
+      redirect: 'error',
       signal: AbortSignal.timeout(5000)
     });
   } catch {
