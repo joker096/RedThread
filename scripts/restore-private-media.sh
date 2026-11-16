@@ -19,12 +19,67 @@ for file in "$ARCHIVE_FILE" "$CHECKSUM_FILE" "$AGE_IDENTITY_FILE"; do
   fi
 done
 
-expected_checksum="$(awk 'NR == 1 { print $1 }' "$CHECKSUM_FILE")"
+# Snapshot the encrypted archive, checksum and identity through O_NOFOLLOW file
+# descriptors. Every later checksum/decrypt pass reads these same private copies,
+# so replacing the source archive between validation and extraction cannot race us.
+work_dir="$(mktemp -d "${TMPDIR:-/tmp}/vow-private-media-restore.XXXXXX")"
+chmod 700 "$work_dir"
+destination=""
+destination_created=0
+restore_complete=0
+cleanup() {
+  status=$?
+  trap - EXIT
+  if [[ "$restore_complete" -ne 1 && "$destination_created" -eq 1 ]]; then
+    rm -rf -- "$destination"
+  fi
+  if [[ -n "$work_dir" && -d "$work_dir" ]]; then
+    rm -rf -- "$work_dir"
+  fi
+  return "$status"
+}
+trap cleanup EXIT
+
+archive_snapshot="$work_dir/archive.tar.age"
+checksum_snapshot="$work_dir/archive.sha256"
+identity_snapshot="$work_dir/age.identity"
+python3 - "$ARCHIVE_FILE" "$archive_snapshot" "$CHECKSUM_FILE" "$checksum_snapshot" "$AGE_IDENTITY_FILE" "$identity_snapshot" <<'PY'
+import os, stat, sys
+
+pairs = [
+    (sys.argv[1], sys.argv[2], None),
+    (sys.argv[3], sys.argv[4], 4096),
+    (sys.argv[5], sys.argv[6], 65536),
+]
+for source, destination, max_size in pairs:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    source_fd = os.open(source, flags)
+    destination_fd = None
+    try:
+        metadata = os.fstat(source_fd)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError("restore inputs must be regular files")
+        if max_size is not None and metadata.st_size > max_size:
+            raise ValueError("restore metadata file is too large")
+        destination_fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        while True:
+            chunk = os.read(source_fd, 1024 * 1024)
+            if not chunk:
+                break
+            os.write(destination_fd, chunk)
+        os.fsync(destination_fd)
+    finally:
+        os.close(source_fd)
+        if destination_fd is not None:
+            os.close(destination_fd)
+PY
+
+expected_checksum="$(awk 'NR == 1 { print $1 }' "$checksum_snapshot")"
 if ! [[ "$expected_checksum" =~ ^[[:xdigit:]]{64}$ ]]; then
   echo "backup checksum file is malformed" >&2
   exit 1
 fi
-actual_checksum="$(sha256sum "$ARCHIVE_FILE" | awk '{ print $1 }')"
+actual_checksum="$(sha256sum "$archive_snapshot" | awk '{ print $1 }')"
 if [[ "$actual_checksum" != "$expected_checksum" ]]; then
   echo "backup checksum verification failed" >&2
   exit 1
@@ -33,7 +88,7 @@ fi
 # Validate the decrypted tar stream before extraction. Private-media backups
 # contain only regular files and directories; links and special entries are
 # unnecessary and can redirect extraction outside the staging directory.
-age --decrypt --identity "$AGE_IDENTITY_FILE" "$ARCHIVE_FILE" |
+age --decrypt --identity "$identity_snapshot" "$archive_snapshot" |
   python3 -c '
 import posixpath, sys, tarfile
 seen = {}
@@ -86,23 +141,14 @@ if [[ -e "$destination" || -L "$destination" ]]; then
 fi
 
 mkdir -m 700 -- "$destination"
-restore_complete=0
-cleanup() {
-  status=$?
-  if [[ "$restore_complete" -ne 1 ]]; then
-    rm -rf -- "$destination"
-  fi
-  exit "$status"
-}
-trap cleanup EXIT
+destination_created=1
 
 # Decrypt only into tar's input stream; never create a plaintext archive file.
-age --decrypt --identity "$AGE_IDENTITY_FILE" "$ARCHIVE_FILE" \
+age --decrypt --identity "$identity_snapshot" "$archive_snapshot" \
   | tar --extract --file=- --directory="$destination" --no-same-owner --no-same-permissions
 
 : > "$destination/.vow-restore-pending"
 chmod 600 "$destination/.vow-restore-pending"
 restore_complete=1
-trap - EXIT
 printf 'Restored encrypted media archive into isolated staging directory: %s\\n' "$destination"
 printf 'Media remains blocked from activation until the privacy-recovery gate succeeds.\\n'
