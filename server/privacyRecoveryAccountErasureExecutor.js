@@ -140,6 +140,108 @@ async function holdGiftOrders(client, userId) {
   }
 }
 
+/**
+ * Read-only whole-range preflight. The executor repeats every mutable check
+ * under transaction locks before applying the event.
+ */
+export async function preflightAccountErasurePrivacyRecovery({
+  pool, mapping, pseudonymKey, env = process.env
+}) {
+  assertIsolated(env);
+  if (!pool || typeof pool.connect !== 'function' || !mapping || mapping.eventType !== EVENT_TYPE) {
+    throw new TypeError('privacy_recovery_account_erasure_preflight_input_invalid');
+  }
+  const client = await pool.connect();
+  let open = false;
+  try {
+    await client.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    open = true;
+    await assertPrivacyRecoveryRestoreTarget(client, env);
+    const receiptResult = await client.query(
+      `SELECT ledger_sequence, event_id, event_digest, event_type, outcome_code
+         FROM privacy_recovery_replay_receipts
+        WHERE ledger_sequence = $1 OR event_id = $2`,
+      [mapping.sequence, mapping.eventId]
+    );
+    const stagedResult = await client.query(
+      `SELECT ledger_sequence, event_id, schema_version, event_type, subject_ref,
+              resource_ref, occurred_at, received_at
+         FROM privacy_recovery_events
+        WHERE ledger_sequence = $1 AND event_id = $2`,
+      [mapping.sequence, mapping.eventId]
+    );
+    if (stagedResult.rowCount !== 1 || stagedResult.rows[0].event_type !== EVENT_TYPE) {
+      throw new Error('privacy_recovery_account_erasure_preflight_event_missing');
+    }
+    const staged = stagedResult.rows[0];
+    const digest = digestEvent(staged);
+    if (receiptResult.rowCount) {
+      const receipt = receiptResult.rows[0];
+      if (receiptResult.rowCount !== 1 ||
+          String(receipt.ledger_sequence) !== String(mapping.sequence) ||
+          receipt.event_id !== mapping.eventId || receipt.event_digest !== digest ||
+          receipt.event_type !== EVENT_TYPE || receipt.outcome_code !== OUTCOME) {
+        throw new Error('privacy_recovery_account_erasure_preflight_receipt_conflict');
+      }
+      await client.query('COMMIT');
+      open = false;
+      return { ready: true, alreadyApplied: true };
+    }
+
+    assertSubjectMapping(staged, mapping, pseudonymKey);
+    const identity = await client.query(
+      `SELECT id, email, status, paddle_customer_id, paddle_subscription_id,
+              paddle_subscription_status
+         FROM users WHERE id = $1`,
+      [mapping.subjectUserId]
+    );
+    if (identity.rowCount !== 1 || identity.rows[0].status !== 'active') {
+      throw new Error('privacy_recovery_account_erasure_preflight_subject_state_conflict');
+    }
+    const user = identity.rows[0];
+    const reuseDigest = createAccountReuseDigest(user.email, env.ACCOUNT_REUSE_HMAC_KEY);
+    if (!reuseDigest) throw new Error('privacy_recovery_account_erasure_reuse_digest_unavailable');
+
+    const checkout = await client.query(
+      'SELECT status, plan FROM paddle_checkout_attempts WHERE user_id = $1',
+      [mapping.subjectUserId]
+    );
+    if (checkout.rows.some(row => ['creating', 'pending', 'completed', 'reconciliation_required'].includes(row.status) &&
+        !(row.status === 'completed' && row.plan === 'lifetime'))) {
+      throw new Error('privacy_recovery_account_erasure_paddle_checkout_unresolved');
+    }
+    if (checkout.rows.some(row => row.status === 'linked' && row.plan !== 'lifetime' &&
+        !user.paddle_subscription_id)) {
+      throw new Error('privacy_recovery_account_erasure_paddle_subscription_unresolved');
+    }
+    const subscriptionStatus = String(user.paddle_subscription_status || '').toLowerCase();
+    if ((user.paddle_subscription_id && (!['canceled', 'completed'].includes(subscriptionStatus) ||
+          typeof user.paddle_customer_id !== 'string' || !/^ctm_[A-Za-z0-9]+$/.test(user.paddle_customer_id))) ||
+        (!user.paddle_subscription_id && subscriptionStatus &&
+          !['canceled', 'completed'].includes(subscriptionStatus))) {
+      throw new Error('privacy_recovery_account_erasure_paddle_subscription_unresolved');
+    }
+    const l3Media = await client.query(
+      'SELECT id FROM identity_l3_submissions WHERE user_id = $1 AND storage_object_key IS NOT NULL',
+      [mapping.subjectUserId]
+    );
+    if (l3Media.rowCount) {
+      throw new Error('privacy_recovery_account_erasure_l3_media_unresolved');
+    }
+
+    await client.query('COMMIT');
+    open = false;
+    return { ready: true, alreadyApplied: false };
+  } catch (error) {
+    if (open) {
+      try { await client.query('ROLLBACK'); } catch { /* preserve original failure */ }
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function applyAccountErasure(client, userId, env) {
   await acquireGiftSafetyUserLocks(client, userId);
   // Read the email without holding the user row lock, then take the same
