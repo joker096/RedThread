@@ -244,7 +244,7 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
              ON j.submission_id = s.id
           WHERE s.user_id = $1 AND s.storage_object_key IS NOT NULL
           ORDER BY s.created_at, s.id
-          FOR UPDATE OF s, j`,
+          FOR UPDATE OF s`,
         [mapping.subjectUserId]
       );
       for (const job of jobs.rows) {
