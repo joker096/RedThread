@@ -1,0 +1,55 @@
+-- Extend immutable replay evidence for the complete account-erasure domain operation.
+-- This migration only changes the isolated restore ledger schema. It does not
+-- enable account_erasure_requested in the coordinator; the event remains blocked
+-- until the account executor and its post-replay verifier are installed.
+ALTER TABLE privacy_recovery_replay_receipts
+  DROP CONSTRAINT IF EXISTS privacy_recovery_replay_receipts_event_type_check;
+ALTER TABLE privacy_recovery_replay_receipts
+  ADD CONSTRAINT privacy_recovery_replay_receipts_event_type_check
+  CHECK (event_type IN (
+    'private_photo_erasure_requested',
+    'voice_intro_erasure_requested',
+    'voice_intro_consent_withdrawn',
+    'identity_l3_consent_withdrawn',
+    'account_erasure_requested'
+  ));
+
+ALTER TABLE privacy_recovery_replay_receipts
+  DROP CONSTRAINT IF EXISTS privacy_recovery_replay_receipts_event_outcome_check;
+ALTER TABLE privacy_recovery_replay_receipts
+  ADD CONSTRAINT privacy_recovery_replay_receipts_event_outcome_check
+  CHECK (
+    (event_type = 'private_photo_erasure_requested' AND outcome_code = 'photo_erasure_queued') OR
+    (event_type = 'voice_intro_erasure_requested' AND outcome_code = 'voice_intro_erasure_queued') OR
+    (event_type = 'voice_intro_consent_withdrawn' AND outcome_code = 'voice_intro_consent_withdrawn') OR
+    (event_type = 'identity_l3_consent_withdrawn' AND outcome_code = 'identity_l3_consent_withdrawn') OR
+    (event_type = 'account_erasure_requested' AND outcome_code = 'account_erasure_replayed')
+  );
+
+ALTER TABLE privacy_recovery_replay_effects
+  DROP CONSTRAINT IF EXISTS privacy_recovery_replay_effects_event_type_check;
+ALTER TABLE privacy_recovery_replay_effects
+  ADD CONSTRAINT privacy_recovery_replay_effects_event_type_check
+  CHECK (event_type IN (
+    'private_photo_erasure_requested',
+    'voice_intro_erasure_requested',
+    'voice_intro_consent_withdrawn',
+    'identity_l3_consent_withdrawn',
+    'account_erasure_requested'
+  ));
+
+ALTER TABLE privacy_recovery_replay_effects
+  DROP CONSTRAINT IF EXISTS privacy_recovery_replay_effects_resource_check;
+ALTER TABLE privacy_recovery_replay_effects
+  ADD CONSTRAINT privacy_recovery_replay_effects_resource_check
+  CHECK (
+    (event_type IN ('private_photo_erasure_requested', 'voice_intro_erasure_requested') AND resource_id IS NOT NULL)
+    OR (event_type IN (
+      'voice_intro_consent_withdrawn',
+      'identity_l3_consent_withdrawn',
+      'account_erasure_requested'
+    ) AND resource_id IS NULL)
+  );
+
+COMMENT ON COLUMN privacy_recovery_replay_receipts.outcome_code IS
+  'Domain-specific outcome. account_erasure_replayed is reserved for the complete account executor; schema support alone does not make the event replayable.';
