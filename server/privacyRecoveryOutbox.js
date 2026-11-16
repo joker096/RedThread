@@ -69,9 +69,19 @@ export async function processPrivacyRecoveryOutboxBatch({
               SET status = 'acknowledged', ledger_sequence = $2,
                   acknowledged_at = statement_timestamp(), lease_expires_at = NULL, lease_token = NULL,
                   last_error_code = NULL, updated_at = statement_timestamp()
-            WHERE event_id = $1 AND status = 'processing' AND lease_token = $3`,
+            WHERE event_id = $1 AND status = 'processing' AND lease_token = $3
+          RETURNING event_id`,
           [row.event_id, acknowledgement.sequence, row.lease_token]
         );
+        if (acknowledged.rowCount !== 1) {
+          const current = await ackClient.query(
+            'SELECT status FROM privacy_recovery_ledger_outbox WHERE event_id = $1',
+            [row.event_id]
+          );
+          if (current.rows[0]?.status !== 'acknowledged') {
+            throw new Error('privacy_recovery_outbox_lease_lost');
+          }
+        }
       } finally {
         ackClient.release();
       }
