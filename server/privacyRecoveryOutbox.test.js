@@ -160,3 +160,55 @@ test('outbox moves the twelfth failed attempt to dead letter without changing ev
   assert.equal(retry.values[1], 12);
   assert.equal(retry.values[3], leaseToken);
 });
+
+test('outbox never persists an arbitrary ledger-prefixed database exception', async () => {
+  const eventId = randomUUID();
+  const leaseToken = randomUUID();
+  const payload = {
+    event_id: eventId, schema_version: 1, event_type: 'account_erasure_requested',
+    subject_ref: 'e'.repeat(64), occurred_at: '2026-11-16T00:00:00.000Z'
+  };
+  let retry;
+  let connection = 0;
+  const pool = {
+    async connect() {
+      connection += 1;
+      if (connection === 1) {
+        return {
+          async query(sql) {
+            if (sql.includes('RETURNING outbox.event_id')) {
+              return { rows: [{ event_id: eventId, event_payload: payload, attempts: 1, lease_token: leaseToken }] };
+            }
+            return { rows: [] };
+          },
+          release() {}
+        };
+      }
+      if (connection === 2) {
+        return {
+          async query(sql) {
+            if (sql.includes("SET status = 'acknowledged'")) {
+              throw new Error('privacy_recovery_ledger_customer_email_secret_value');
+            }
+            return { rows: [] };
+          },
+          release() {}
+        };
+      }
+      return {
+        async query(sql, values) {
+          retry = { sql, values };
+          return { rowCount: 1, rows: [] };
+        },
+        release() {}
+      };
+    }
+  };
+  const result = await processPrivacyRecoveryOutboxBatch({
+    pool, env,
+    fetchImpl: async () => new Response(JSON.stringify({ accepted: true, sequence: 44 }), { status: 201 })
+  });
+  assert.equal(retry.values[2], 'privacy_recovery_delivery_failed');
+  assert.equal(result.results[0].error, 'privacy_recovery_delivery_failed');
+  assert.doesNotMatch(JSON.stringify({ retry, result }), /customer_email_secret_value/);
+});
