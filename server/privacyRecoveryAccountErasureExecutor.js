@@ -215,9 +215,10 @@ async function applyAccountErasure(client, userId, env, eventOccurredAt) {
        display_name = 'Удалённый пользователь', birth_date = NULL,
        country = '—', city = '—', bio = '', photo_urls = '{}',
        occupation = '', education = '', languages = '{}', is_visible = FALSE,
-       has_children = NULL, children_disclosure_confirmed_at = NULL,
-       family_format = 'open_to_both', wants_children = 'discuss',
-       children_living_arrangement = 'not_applicable', updated_at = statement_timestamp()
+       gender = NULL, has_children = NULL, children_disclosure_confirmed_at = NULL,
+       relationship_intent = 'marriage_family', family_format = 'open_to_both',
+       wants_children = 'discuss', children_living_arrangement = 'not_applicable',
+       family_values = '{}', updated_at = statement_timestamp()
      WHERE user_id = $1`,
     [userId]
   );
@@ -228,7 +229,7 @@ async function applyAccountErasure(client, userId, env, eventOccurredAt) {
   );
   await client.query(
     `UPDATE users SET status = 'deleted', email = $2, password_hash = NULL,
-       phone_e164 = NULL, phone_verified_at = NULL, female_trial_ends_at = NULL,
+       email_verified_at = NULL, phone_e164 = NULL, phone_verified_at = NULL, female_trial_ends_at = NULL,
        premium_until = NULL, premium_lifetime = FALSE, updated_at = statement_timestamp()
      WHERE id = $1 AND status = 'active'`,
     [userId, 'deleted+' + userId + '@deleted.invalid']
