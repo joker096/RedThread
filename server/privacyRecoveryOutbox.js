@@ -3,6 +3,13 @@ import { createPrivacyRecoveryLedgerPayload, deliverPrivacyRecoveryLedgerPayload
 const MAX_ATTEMPTS = 12;
 const LEASE_SECONDS = 60;
 
+function safeDeliveryErrorCode(error) {
+  const code = typeof error?.message === 'string' ? error.message : '';
+  return /^privacy_recovery_ledger_[a-z_]{1,64}$/.test(code)
+    ? code
+    : 'privacy_recovery_delivery_failed';
+}
+
 export async function enqueuePrivacyRecoveryEvent(client, input, { env = process.env } = {}) {
   if (!client || typeof client.query !== 'function') throw new TypeError('privacy_recovery_outbox_client_required');
   const payload = createPrivacyRecoveryLedgerPayload(input, { env });
@@ -98,12 +105,12 @@ export async function processPrivacyRecoveryOutboxBatch({
                   last_error_code = $3,
                   updated_at = statement_timestamp()
             WHERE event_id = $1 AND status = 'processing' AND lease_token = $4`,
-          [row.event_id, MAX_ATTEMPTS, String(error?.message || 'ledger_delivery_failed').slice(0, 80), row.lease_token]
+          [row.event_id, MAX_ATTEMPTS, safeDeliveryErrorCode(error), row.lease_token]
         );
       } finally {
         retryClient.release();
       }
-      results.push({ eventId: row.event_id, acknowledged: false, error: String(error?.message || 'ledger_delivery_failed') });
+      results.push({ eventId: row.event_id, acknowledged: false, error: safeDeliveryErrorCode(error) });
     }
   }
   return { claimed: claimed.length, results };
