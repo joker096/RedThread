@@ -27,6 +27,10 @@ if [[ "\${PARTIAL_AGE:-0}" == "1" ]]; then
   head -c 1 -- "$archive"
   exit 23
 fi
+if [[ "${REPLACE_ORIGINAL_ON_FIRST_AGE:-0}" == "1" && ! -e "${REPLACE_MARKER:-}" ]]; then
+  cp -- "$REPLACEMENT_ARCHIVE_FILE" "$ORIGINAL_ARCHIVE_FILE"
+  touch "$REPLACE_MARKER"
+fi
 cat -- "$archive"
 `);
   await chmod(age, 0o700);
@@ -59,6 +63,31 @@ test('private media restore verifies checksum and extracts into a new private st
     assert.equal((await lstat(f.destination)).mode & 0o777, 0o700);
     assert.equal(await readFile(path.join(f.destination, '.vow-restore-pending'), 'utf8'), '',
       'restored media must be explicitly marked pending until privacy reconciliation succeeds');
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('private media restore uses one immutable encrypted snapshot if the source archive is replaced between validation and extraction', async () => {
+  const f = await fixture();
+  const replacementDir = path.join(f.root, 'replacement');
+  const replacementArchive = path.join(f.root, 'replacement.tar.age');
+  const marker = path.join(f.root, 'source-replaced');
+  try {
+    await mkdir(replacementDir);
+    await writeFile(path.join(replacementDir, 'attacker-fixture.txt'), 'must-not-be-restored');
+    const packed = spawnSync('tar', ['--create', '--file', replacementArchive, '--directory', replacementDir, '.']);
+    assert.equal(packed.status, 0, packed.stderr?.toString());
+    const result = run(f, {
+      REPLACE_ORIGINAL_ON_FIRST_AGE: '1',
+      ORIGINAL_ARCHIVE_FILE: f.backup,
+      REPLACEMENT_ARCHIVE_FILE: replacementArchive,
+      REPLACE_MARKER: marker
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(await readFile(path.join(f.destination, 'photo-fixture.txt'), 'utf8'), 'private-photo-fixture');
+    await assert.rejects(lstat(path.join(f.destination, 'attacker-fixture.txt')), { code: 'ENOENT' });
+    assert.equal(await readFile(marker, 'utf8'), '');
   } finally {
     await rm(f.root, { recursive: true, force: true });
   }
