@@ -176,7 +176,6 @@ export async function runPrivateMediaPrivacyRecovery({
         }
         throw error;
       }
-    }
   }
 
   let processedCount = 0;
