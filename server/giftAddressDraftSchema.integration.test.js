@@ -18,6 +18,7 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
   const orderId = randomUUID();
   const ttlOrderId = randomUUID();
   const accountDeleteOrderId = randomUUID();
+  const matchPurgeOrderId = randomUUID();
   try {
     const installed = await client.query(`
       SELECT
@@ -153,13 +154,43 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
     ]);
     assert.equal(draft.rowCount, 0, 'leaving recipient_accepted must physically remove the ciphertext row');
     assert.equal(consent.rows[0].action, 'withdrawn');
+
+    await client.query("UPDATE users SET status = 'active', updated_at = NOW() WHERE id = $1", [recipientId]);
+    await client.query(
+      `INSERT INTO gift_delivery_orders
+         (id, match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+          total_minor_units, currency, idempotency_key, status, payment_status,
+          recipient_consent_at, recipient_consent_version)
+       VALUES ($1, $2, $3, $4, 'Match deactivation test', 'chocolate',
+               1000, 'GEL', $5, 'recipient_accepted', 'not_started', NOW(), 1)`,
+      [matchPurgeOrderId, matchId, senderId, recipientId, 'draft-' + matchPurgeOrderId]
+    );
+    await client.query(
+      `INSERT INTO gift_address_draft_consent_events
+         (order_id, recipient_user_id, consent_version, action, actor_user_id)
+       VALUES ($1, $2, 1, 'granted', $2)`,
+      [matchPurgeOrderId, recipientId]
+    );
+    await client.query(
+      `INSERT INTO gift_address_drafts
+         (order_id, recipient_user_id, key_version, nonce, auth_tag, ciphertext, expires_at)
+       VALUES ($1, $2, 'draft-v1', $3, $4, $5, NOW() + INTERVAL '1 hour')`,
+      [matchPurgeOrderId, recipientId, nonce, tag, ciphertext]
+    );
+    await client.query("UPDATE matches SET status = 'blocked' WHERE id = $1", [matchId]);
+    const [matchDraft, matchConsent] = await Promise.all([
+      client.query('SELECT 1 FROM gift_address_drafts WHERE order_id = $1', [matchPurgeOrderId]),
+      client.query('SELECT action FROM gift_address_draft_consent_events WHERE order_id = $1 ORDER BY id DESC LIMIT 1', [matchPurgeOrderId])
+    ]);
+    assert.equal(matchDraft.rowCount, 0, 'match deactivation must delete the temporary ciphertext');
+    assert.equal(matchConsent.rows[0].action, 'withdrawn');
     await client.query('ROLLBACK');
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     throw error;
   } finally {
     await client.query('SET session_replication_role = replica').catch(() => {});
-    await client.query('DELETE FROM gift_address_drafts WHERE order_id = ANY($1::uuid[])', [[orderId, ttlOrderId, accountDeleteOrderId]]).catch(() => {});
+    await client.query('DELETE FROM gift_address_drafts WHERE order_id = ANY($1::uuid[])', [[orderId, ttlOrderId, accountDeleteOrderId, matchPurgeOrderId]]).catch(() => {});
     await client.query('DELETE FROM gift_address_draft_consent_events WHERE order_id = ANY($1::uuid[])', [[orderId, ttlOrderId, accountDeleteOrderId]]).catch(() => {});
     await client.query('DELETE FROM gift_delivery_orders WHERE id = ANY($1::uuid[])', [[orderId, ttlOrderId, accountDeleteOrderId]]).catch(() => {});
     await client.query('DELETE FROM matches WHERE id = $1', [matchId]).catch(() => {});
