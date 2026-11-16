@@ -22,6 +22,7 @@ test('purge atomically deletes expired ciphertext and records consent expiry', a
   assert.equal(calls[0].sql, 'BEGIN');
   assert.match(calls[1].sql, /DELETE FROM gift_address_drafts/);
   assert.match(calls[1].sql, /INSERT INTO gift_address_draft_consent_events/);
+  assert.match(calls[1].sql, /SELECT consent_version/);
   assert.match(calls[1].sql, /FOR UPDATE SKIP LOCKED/);
   assert.equal(calls[2].sql, 'COMMIT');
   assert.ok(calls.some(call => call.release));
