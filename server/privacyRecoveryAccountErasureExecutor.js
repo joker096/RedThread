@@ -36,7 +36,8 @@ function digestEvent(row) {
 
 function assertSubjectMapping(row, mapping, key) {
   if (!mapping || mapping.status !== 'matched' || mapping.eventType !== EVENT_TYPE ||
-      typeof mapping.subjectUserId !== 'string' || !UUID.test(mapping.subjectUserId)) {
+      typeof mapping.subjectUserId !== 'string' || !UUID.test(mapping.subjectUserId) ||
+      mapping.resourceId !== null || row.resource_ref !== null) {
     throw new Error('privacy_recovery_account_erasure_mapping_unresolved');
   }
   const expected = createHmac('sha256', key).update(mapping.subjectUserId, 'utf8').digest('hex');
