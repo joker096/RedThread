@@ -163,8 +163,8 @@ test('coordinated restore rejects a tampered encrypted artifact before opening s
     await writeFile(mediaPath, 'original-encrypted-media-fixture', { mode: 0o600 });
     const postgresDigest = createHash('sha256').update(await readFile(postgresPath)).digest('hex');
     const mediaDigest = createHash('sha256').update(await readFile(mediaPath)).digest('hex');
-    await writeFile(postgresPath + '.sha256', postgresDigest + '  ' + postgresName + '\\n', { mode: 0o600 });
-    await writeFile(mediaPath + '.sha256', mediaDigest + '  ' + mediaName + '\\n', { mode: 0o600 });
+    await writeFile(postgresPath + '.sha256', postgresDigest + '  ' + postgresName + '\n', { mode: 0o600 });
+    await writeFile(mediaPath + '.sha256', mediaDigest + '  ' + mediaName + '\n', { mode: 0o600 });
     const manifest = [
       'format=vow-backup-bundle-v1',
       'snapshot_id=tamper_fixture',
@@ -173,10 +173,10 @@ test('coordinated restore rejects a tampered encrypted artifact before opening s
       'private_media_archive=private-media/' + mediaName,
       'private_media_sha256=' + mediaDigest,
       ''
-    ].join('\\n');
+    ].join('\n');
     await writeFile(path.join(bundleDir, 'manifest.txt'), manifest, { mode: 0o600 });
     const manifestDigest = createHash('sha256').update(manifest).digest('hex');
-    await writeFile(path.join(bundleDir, 'manifest.sha256'), manifestDigest + '  manifest.txt\\n', { mode: 0o600 });
+    await writeFile(path.join(bundleDir, 'manifest.sha256'), manifestDigest + '  manifest.txt\n', { mode: 0o600 });
 
     // Simulate corruption after the signed-off bundle manifest was produced.
     await writeFile(postgresPath, 'tampered-encrypted-postgres-fixture', { mode: 0o600 });
