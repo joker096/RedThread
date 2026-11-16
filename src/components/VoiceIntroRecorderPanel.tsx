@@ -3,17 +3,14 @@ import { Capacitor } from '@capacitor/core';
 import { App } from '@capacitor/app';
 import { CapacitorAudioRecorder } from '@capgo/capacitor-audio-recorder';
 import { deleteNativeRecordingFile, readAndDeleteNativeRecordingFile } from '../utils/nativeRecordingFile.ts';
-import { startNativeVoiceRecording } from '../utils/nativeVoiceRecording.ts';
+import { startNativeVoiceRecording, validateVoiceIntroRecording, VOICE_INTRO_MIN_DURATION_MS, VOICE_INTRO_MAX_DURATION_MS } from '../utils/nativeVoiceRecording.ts';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 
 type VoiceIntro = { id: string; status: 'pending' | 'approved' | 'rejected'; durationMs: number };
 type Props = { voiceIntro: VoiceIntro | null; onChanged: (voiceIntro: VoiceIntro | null) => void };
 type Preview = { blob: Blob; url: string; mimeType: string; durationMs: number };
 
-const MIN_DURATION_MS = 15_000;
-const MAX_DURATION_MS = 25_000;
 const VOICE_INTRO_CONSENT_VERSION = 1;
-const ALLOWED_MIME_TYPES = new Set(['audio/mp4', 'audio/aac', 'audio/x-m4a']);
 
 export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged }) => {
   const { t } = useLocale();
@@ -80,7 +77,7 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
       const durationMs = Number.isFinite(result.duration) && Number(result.duration) > 0
         ? Math.round(Number(result.duration))
         : Math.round(Date.now() - startedAtRef.current);
-      if (durationMs < MIN_DURATION_MS || durationMs > MAX_DURATION_MS) {
+      if (!Number.isFinite(durationMs) || durationMs < VOICE_INTRO_MIN_DURATION_MS || durationMs > VOICE_INTRO_MAX_DURATION_MS) {
         if (result.uri) await deleteNativeRecordingFile(result.uri);
         if (mountedRef.current) setNotice(t('voiceIntroDurationError'));
         return;
@@ -91,11 +88,11 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
         if (!blob) blob = await readAndDeleteNativeRecordingFile(result.uri);
         else await deleteNativeRecordingFile(result.uri);
       }
-      if (!(blob instanceof Blob) || blob.size < 64 || blob.size > 2 * 1024 * 1024) {
-        throw new Error('invalid_recording_file');
-      }
-      const candidateMimeType = blob.type.split(';', 1)[0].trim().toLowerCase();
-      const mimeType = ALLOWED_MIME_TYPES.has(candidateMimeType) ? candidateMimeType : 'audio/mp4';
+      const validation = blob instanceof Blob
+        ? validateVoiceIntroRecording(blob, durationMs)
+        : { ok: false as const, reason: 'file' as const };
+      if (!validation.ok) throw new Error('invalid_recording_file');
+      const mimeType = validation.mimeType;
       const url = URL.createObjectURL(blob);
       if (!mountedRef.current) {
         URL.revokeObjectURL(url);
@@ -150,7 +147,7 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
         if (!mountedRef.current) return;
         const elapsed = Date.now() - startedAtRef.current;
         setElapsedMs(elapsed);
-        if (elapsed >= MAX_DURATION_MS) void stopRecording();
+        if (elapsed >= VOICE_INTRO_MAX_DURATION_MS) void stopRecording();
       }, 250);
     } catch {
       if (mountedRef.current) setNotice(t('voiceIntroPermissionDenied'));

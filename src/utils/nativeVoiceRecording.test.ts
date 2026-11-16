@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { startNativeVoiceRecording } from './nativeVoiceRecording.ts';
+import { startNativeVoiceRecording, validateVoiceIntroRecording } from './nativeVoiceRecording.ts';
 
 const granted = { recordAudio: 'granted' };
 const denied = { recordAudio: 'denied' };
@@ -81,4 +81,27 @@ test('starts recording only after permission is granted and app remains active',
   });
   assert.equal(result, 'started');
   assert.equal(starts, 1);
+});
+
+
+test('validates synthetic audio fixtures at inclusive 15- and 25-second boundaries', () => {
+  const fixture = new Blob([new Uint8Array(64)], { type: 'audio/mp4' });
+  assert.deepEqual(validateVoiceIntroRecording(fixture, 15_000), { ok: true, mimeType: 'audio/mp4' });
+  assert.deepEqual(validateVoiceIntroRecording(fixture, 25_000), { ok: true, mimeType: 'audio/mp4' });
+});
+
+test('rejects synthetic audio fixtures outside the allowed duration and size bounds', () => {
+  const valid = new Blob([new Uint8Array(64)], { type: 'audio/mp4' });
+  const tooSmall = new Blob([new Uint8Array(63)], { type: 'audio/mp4' });
+  const tooLarge = new Blob([new Uint8Array(2 * 1024 * 1024 + 1)], { type: 'audio/mp4' });
+  assert.deepEqual(validateVoiceIntroRecording(valid, 14_999), { ok: false, reason: 'duration' });
+  assert.deepEqual(validateVoiceIntroRecording(valid, 25_001), { ok: false, reason: 'duration' });
+  assert.deepEqual(validateVoiceIntroRecording(valid, Number.NaN), { ok: false, reason: 'duration' });
+  assert.deepEqual(validateVoiceIntroRecording(tooSmall, 20_000), { ok: false, reason: 'file' });
+  assert.deepEqual(validateVoiceIntroRecording(tooLarge, 20_000), { ok: false, reason: 'file' });
+});
+
+test('normalizes unsupported audio MIME types to the existing upload fallback', () => {
+  const fixture = new Blob([new Uint8Array(64)], { type: 'audio/wav' });
+  assert.deepEqual(validateVoiceIntroRecording(fixture, 20_000), { ok: true, mimeType: 'audio/mp4' });
 });
