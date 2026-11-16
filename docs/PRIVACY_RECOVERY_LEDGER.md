@@ -109,3 +109,16 @@ The command `npm run privacy-recovery:inventory` produces a mapping-readiness re
 The report contains candidate counts, event-type/status aggregates and unresolved ledger sequence numbers. It never emits raw user/resource IDs, pseudonym references, storage paths, addresses or event payloads. A sequence gap or any unresolved/ambiguous mapping prevents a ready result. The command performs no SQL writes, domain actions, filesystem operations, media deletion, consent changes or account changes.
 
 This is still only a preflight inventory. A ready report is not permission to replay events or release the restored environment. Account erasure, L3 revocation, advertising consent and gift-order withdrawal each require their existing domain workflows to be integrated and verified separately. In particular, gift order state/payment/address-vault handling must not be bypassed, and account deletion must not be reduced to deleting a users row.
+
+
+## Transactional delivery from the application database
+
+Application mutations do not call the external Ledger while a PostgreSQL transaction is open. Each supported operation writes a pseudonymized payload to `privacy_recovery_ledger_outbox` using the same transaction and connection as the domain change. A rollback therefore removes the outbox intent; a commit makes it visible to the delivery worker.
+
+The payload contains a stable UUID, schema version, event type, HMAC pseudonym references and occurrence timestamp. Raw user/resource identifiers are not persisted in the outbox payload. The same UUID and byte-equivalent JSON payload are reused for every delivery attempt, so the Ledger can safely deduplicate a request accepted remotely when the client lost the acknowledgement.
+
+The private one-shot worker (`npm run privacy-ledger:outbox-worker`) claims rows with `FOR UPDATE SKIP LOCKED`, a 60-second lease and a unique lease token. It sends only after claim commit, records a row as acknowledged only after validating the Ledger's accepted response and positive sequence, and uses bounded exponential retry. After 12 unsuccessful attempts, a row becomes `dead` and requires operator investigation; it is never silently deleted. Lease tokens prevent an expired worker from overwriting a newer worker's state.
+
+The worker must be run by a trusted private scheduler, not exposed as a public API. No scheduler is configured by this code change. The operations health report includes pending, processing, retrying and dead-letter counts for this outbox. Alert on any dead row, sustained backlog or missing Ledger configuration.
+
+Before production use, apply migration 240, configure all three Ledger secrets through the deployment secret manager, and verify transaction rollback, retry, duplicate delivery, worker lease expiry, and dead-letter alerting against a staging Ledger.
