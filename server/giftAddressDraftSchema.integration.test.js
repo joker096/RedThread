@@ -155,14 +155,6 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
     );
     assert.equal(ttlConsent.rows[0].action, 'expired');
 
-    await client.query("UPDATE users SET status = 'deleted', updated_at = NOW() WHERE id = $1", [recipientId]);
-    const [deletedDraft, deletedConsent] = await Promise.all([
-      client.query('SELECT 1 FROM gift_address_drafts WHERE order_id = $1', [accountDeleteOrderId]),
-      client.query('SELECT action FROM gift_address_draft_consent_events WHERE order_id = $1 ORDER BY id DESC LIMIT 1', [accountDeleteOrderId])
-    ]);
-    assert.equal(deletedDraft.rowCount, 0, 'account tombstoning must delete temporary ciphertext');
-    assert.equal(deletedConsent.rows[0].action, 'withdrawn');
-
     await client.query('BEGIN');
     await client.query(`UPDATE gift_delivery_orders SET status = 'cancelled' WHERE id = $1`, [orderId]);
     const [draft, consent] = await Promise.all([
@@ -171,8 +163,9 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
     ]);
     assert.equal(draft.rowCount, 0, 'leaving recipient_accepted must physically remove the ciphertext row');
     assert.equal(consent.rows[0].action, 'withdrawn');
+    await client.query('ROLLBACK');
 
-    await client.query("UPDATE users SET status = 'active', updated_at = NOW() WHERE id = $1", [recipientId]);
+    await client.query('BEGIN');
     await client.query(
       `INSERT INTO gift_delivery_orders
          (id, match_id, sender_id, recipient_id, product_name_snapshot, product_category,
@@ -194,7 +187,7 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
        VALUES ($1, $2, 'draft-v1', $3, $4, $5, NOW() + INTERVAL '1 hour')`,
       [matchPurgeOrderId, recipientId, nonce, tag, ciphertext]
     );
-    await client.query("UPDATE matches SET status = 'blocked' WHERE id = $1", [matchId]);
+    await client.query(`UPDATE matches SET status = 'blocked' WHERE id = $1`, [matchId]);
     const [matchDraft, matchConsent] = await Promise.all([
       client.query('SELECT 1 FROM gift_address_drafts WHERE order_id = $1', [matchPurgeOrderId]),
       client.query('SELECT action FROM gift_address_draft_consent_events WHERE order_id = $1 ORDER BY id DESC LIMIT 1', [matchPurgeOrderId])
@@ -202,6 +195,14 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
     assert.equal(matchDraft.rowCount, 0, 'match deactivation must delete the temporary ciphertext');
     assert.equal(matchConsent.rows[0].action, 'withdrawn');
     await client.query('ROLLBACK');
+
+    await client.query("UPDATE users SET status = 'deleted', updated_at = NOW() WHERE id = $1", [recipientId]);
+    const [deletedDraft, deletedConsent] = await Promise.all([
+      client.query('SELECT 1 FROM gift_address_drafts WHERE order_id = $1', [accountDeleteOrderId]),
+      client.query('SELECT action FROM gift_address_draft_consent_events WHERE order_id = $1 ORDER BY id DESC LIMIT 1', [accountDeleteOrderId])
+    ]);
+    assert.equal(deletedDraft.rowCount, 0, 'account tombstoning must delete temporary ciphertext');
+    assert.equal(deletedConsent.rows[0].action, 'withdrawn');
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     throw error;
