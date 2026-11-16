@@ -31,8 +31,15 @@ export async function purgeExpiredGiftAddressDrafts(pool, {
        ), expired AS (
          INSERT INTO gift_address_draft_consent_events
            (order_id, recipient_user_id, consent_version, action, actor_user_id)
-         SELECT order_id, recipient_user_id, consent_version, 'expired', NULL
-           FROM deleted
+         SELECT d.order_id, d.recipient_user_id,
+                COALESCE((
+                  SELECT consent_version
+                    FROM gift_address_draft_consent_events c
+                   WHERE c.order_id = d.order_id
+                     AND c.recipient_user_id = d.recipient_user_id
+                   ORDER BY c.id DESC LIMIT 1
+                ), $2), 'expired', NULL
+           FROM deleted d
          RETURNING order_id
        )
        SELECT COUNT(*)::int AS purged FROM expired`,
