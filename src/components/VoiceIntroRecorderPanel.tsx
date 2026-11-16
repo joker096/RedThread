@@ -3,7 +3,7 @@ import { Capacitor } from '@capacitor/core';
 import { App } from '@capacitor/app';
 import { CapacitorAudioRecorder } from '@capgo/capacitor-audio-recorder';
 import { deleteNativeRecordingFile, readAndDeleteNativeRecordingFile } from '../utils/nativeRecordingFile.ts';
-import { startNativeVoiceRecording, validateVoiceIntroRecording, VOICE_INTRO_MIN_DURATION_MS, VOICE_INTRO_MAX_DURATION_MS } from '../utils/nativeVoiceRecording.ts';
+import { startNativeVoiceRecording, subscribeToNativeAppState, validateVoiceIntroRecording, VOICE_INTRO_MIN_DURATION_MS, VOICE_INTRO_MAX_DURATION_MS } from '../utils/nativeVoiceRecording.ts';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 
 type VoiceIntro = { id: string; status: 'pending' | 'approved' | 'rejected'; durationMs: number };
@@ -156,15 +156,17 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
   };
 
   useEffect(() => {
-    let listener: { remove: () => Promise<void> } | undefined;
-    void App.addListener('appStateChange', state => {
-      appActiveRef.current = state.isActive;
-      if (!state.isActive) void cancelRecording();
-    }).then(value => { listener = value; }).catch(() => {});
+    const unsubscribeAppState = subscribeToNativeAppState(
+      listener => App.addListener('appStateChange', listener),
+      state => {
+        appActiveRef.current = state.isActive;
+        if (!state.isActive) void cancelRecording();
+      }
+    );
     return () => {
       appActiveRef.current = false;
       cancelStartRef.current = true;
-      void listener?.remove();
+      unsubscribeAppState();
       clearTimer();
       if (recordingRef.current) {
         recordingRef.current = false;
