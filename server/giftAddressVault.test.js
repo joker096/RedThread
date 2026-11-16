@@ -178,3 +178,38 @@ test('gift address vault revocation rejects incomplete actor context before quer
   );
   assert.equal(queried, false);
 });
+
+test('gift address vault revocation rejects a non-recipient actor before querying', async () => {
+  let queried = false;
+  await assert.rejects(
+    revokeGiftAddressVaultEntry({ query: async () => { queried = true; } }, {
+      orderId: 'order-4',
+      recipientUserId: 'recipient-4',
+      actorUserId: 'moderator-1'
+    }),
+    /requires the recipient as actor/
+  );
+  assert.equal(queried, false);
+});
+
+test('gift address vault revocation propagates audit-write failures for transaction rollback', async () => {
+  const calls = [];
+  const client = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('DELETE FROM gift_address_vault_entries')) {
+        return { rowCount: 1, rows: [{ vault_ref: 'vault-ref' }] };
+      }
+      throw new Error('audit_write_failed');
+    }
+  };
+  await assert.rejects(
+    revokeGiftAddressVaultEntry(client, {
+      orderId: 'order-5',
+      recipientUserId: 'recipient-5',
+      actorUserId: 'recipient-5'
+    }),
+    /audit_write_failed/
+  );
+  assert.equal(calls.length, 2);
+});
