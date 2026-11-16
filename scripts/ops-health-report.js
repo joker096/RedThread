@@ -38,7 +38,16 @@ const QUEUE_SQL = [
   "       COUNT(*) FILTER (WHERE status = 'failed')::int,",
   "       MIN(created_at) FILTER (WHERE status IN ('queued', 'processing', 'failed')),",
   "       COALESCE(MAX(attempts) FILTER (WHERE status IN ('queued', 'processing', 'failed')), 0)::int",
-  "FROM identity_l3_media_purge_jobs"
+  "FROM identity_l3_media_purge_jobs",
+  "UNION ALL",
+  "SELECT 'privacy_recovery_ledger_outbox',",
+  "       COUNT(*) FILTER (WHERE status IN ('pending', 'processing'))::int,",
+  "       COUNT(*) FILTER (WHERE (status = 'pending' AND next_attempt_at <= statement_timestamp()) OR (status = 'processing' AND lease_expires_at <= statement_timestamp()))::int,",
+  "       COUNT(*) FILTER (WHERE attempts > 0 AND status IN ('pending', 'processing'))::int,",
+  "       COUNT(*) FILTER (WHERE status = 'dead')::int,",
+  "       MIN(created_at) FILTER (WHERE status IN ('pending', 'processing')),",
+  "       COALESCE(MAX(attempts) FILTER (WHERE status IN ('pending', 'processing')), 0)::int",
+  "FROM privacy_recovery_ledger_outbox"
 ].join('\n');
 
 function statusRank(status) {
