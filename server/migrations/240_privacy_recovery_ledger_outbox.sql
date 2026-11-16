@@ -8,12 +8,15 @@ CREATE TABLE IF NOT EXISTS privacy_recovery_ledger_outbox (
   attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
   next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
   lease_expires_at TIMESTAMPTZ,
+  lease_token UUID,
   ledger_sequence BIGINT,
   last_error_code TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
   acknowledged_at TIMESTAMPTZ,
   CHECK (event_payload->>'event_id' = event_id::text),
+  CHECK ((status = 'processing' AND lease_expires_at IS NOT NULL AND lease_token IS NOT NULL)
+      OR (status <> 'processing' AND lease_expires_at IS NULL AND lease_token IS NULL)),
   CHECK (
     (status = 'acknowledged' AND ledger_sequence IS NOT NULL AND acknowledged_at IS NOT NULL)
     OR (status <> 'acknowledged' AND ledger_sequence IS NULL AND acknowledged_at IS NULL)
