@@ -5590,11 +5590,7 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
       return res.status(409).json({ error: 'report_not_open_for_review' });
     }
     let accountSuspended = false;
-    if (action === 'suspend_user') {
-      if (!report.reported_user_id) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({ error: 'reported_user_account_unavailable' });
-      }
+    if (action === 'suspend_user' && report.reported_user_id) {
       if (!['children_misrepresentation', 'duplicate_profile', 'fake_profile', 'safety'].includes(report.category)) {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'category_not_eligible_for_suspension' });
@@ -5625,6 +5621,9 @@ app.post('/api/admin/reports/:reportId/action', validateRequestOrigin, requireSe
         accountSuspended = true;
       }
     }
+    // If account erasure already nulled the live FK, the immutable target
+    // snapshot still permits resolving the safety report; there is no live
+    // account left to suspend.
     const status = action === 'review' ? 'reviewing' : action === 'dismiss' ? 'dismissed' : 'resolved';
     await client.query('UPDATE user_reports SET status = $2 WHERE id = $1', [reportId, status]);
     const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 500) : '';
