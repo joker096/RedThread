@@ -2070,16 +2070,6 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
       }
     }
 
-    try {
-      await appendPrivacyRecoveryEvent({
-        eventType: 'account_erasure_requested',
-        userId: req.authUser.id
-      });
-    } catch (error) {
-      console.error('Privacy recovery ledger rejected account erasure:', error?.message || 'unknown error');
-      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
-    }
-
     await client.query('BEGIN');
     // Serialize deletion with registration for the same normalized email. This
     // prevents a concurrent registration from slipping between the tombstone
@@ -2097,6 +2087,17 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
       await client.query('ROLLBACK');
       return res.status(409).json({ error: 'identity_l3_media_purge_unavailable' });
     }
+
+    try {
+      await appendPrivacyRecoveryEvent({
+        eventType: 'account_erasure_requested',
+        userId: req.authUser.id
+      });
+    } catch (error) {
+      console.error('Privacy recovery ledger rejected account erasure:', error?.message || 'unknown error');
+      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+    }
+
     await client.query('DELETE FROM identity_l3_submissions WHERE user_id = $1', [req.authUser.id]);
     await suspendGiftOrdersForUser(client, req.authUser.id, { reason: 'account_deleted' });
     const photoFiles = await client.query('SELECT storage_path FROM photo_assets WHERE user_id = $1', [req.authUser.id]);
