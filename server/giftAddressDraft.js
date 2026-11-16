@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { normalizeGiftAddress } from './giftAddressVault.js';
+import { normalizeGiftAddress, parseGiftAddressVaultKey, parseGiftAddressVaultKeyring } from './giftAddressVault.js';
 
 const AAD_PREFIX = 'vow-gift-address-draft:v1';
 export const GIFT_ADDRESS_DRAFT_CONSENT_VERSION = 1;
@@ -32,6 +32,14 @@ export function parseGiftAddressDraftKeyring({
         [...keys.values()].some(existing => existing.equals(key))) return null;
     keys.set(version, key);
   }
+  const vaultKeyring = parseGiftAddressVaultKeyring();
+  const vaultKeys = [
+    ...(vaultKeyring?.keys instanceof Map ? [...vaultKeyring.keys.values()] : []),
+    parseGiftAddressVaultKey()
+  ].filter(Boolean);
+  if ([...keys.values()].some(draftKey =>
+    vaultKeys.some(vaultKey => draftKey.equals(vaultKey))
+  )) return null;
   return { activeKeyVersion, keys };
 }
 
