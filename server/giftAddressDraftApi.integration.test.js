@@ -125,6 +125,11 @@ test('gift address draft HTTP API is recipient-only, separately consented and en
       body: JSON.stringify({ consent: false, consentVersion: 1, address: {} })
     });
     assert.equal(missingConsent.status, 400);
+    const staleConsent = await request(endpoint, {
+      method: 'PUT', headers: { Cookie: recipient.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ consent: true, consentVersion: 0, address: {} })
+    });
+    assert.equal(staleConsent.status, 400, 'stale consent versions must fail closed');
 
     const address = {
       recipientName: 'Recipient Test', phone: '+995 555 123456',
@@ -141,7 +146,8 @@ test('gift address draft HTTP API is recipient-only, separately consented and en
 
     const stored = await db.query(
       `SELECT d.ciphertext, d.nonce, d.auth_tag, d.key_version,
-              o.status, o.address_vault_ref, o.address_verified_at
+              o.status, o.address_vault_ref, o.address_verified_at,
+              (SELECT COUNT(*)::int FROM gift_address_vault_entries v WHERE v.order_id = o.id) AS main_vault_rows
          FROM gift_address_drafts d
          JOIN gift_delivery_orders o ON o.id = d.order_id
         WHERE d.order_id = $1 AND d.recipient_user_id = $2`,
@@ -152,6 +158,7 @@ test('gift address draft HTTP API is recipient-only, separately consented and en
     assert.equal(stored.rows[0].status, 'recipient_accepted');
     assert.equal(stored.rows[0].address_vault_ref, null);
     assert.equal(stored.rows[0].address_verified_at, null);
+    assert.equal(stored.rows[0].main_vault_rows, 0, 'drafts must never enter the verified-address Vault');
     assert.equal(stored.rows[0].ciphertext.includes(Buffer.from('Rustaveli')), false,
       'database ciphertext must not contain plaintext address bytes');
 
