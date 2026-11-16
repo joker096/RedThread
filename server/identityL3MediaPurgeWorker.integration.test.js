@@ -135,7 +135,19 @@ test('identity L3 purge worker retries deletion failures without clearing the su
     assert.equal(state.rows[0].lease_expires_at, null);
   } finally {
     if (fixtureCreated) {
-      await pool.query('DELETE FROM users WHERE id = $1', [userId]).catch(() => {});
+      await processIdentityL3MediaPurgeBatch(pool, {
+        storageRoot,
+        batchSize: 1,
+        requireMount: false,
+        deleteObject: async () => true
+      }).catch(() => {});
+      const state = await pool.query(
+        'SELECT storage_object_key FROM identity_l3_submissions WHERE id = $1 AND user_id = $2',
+        [submissionId, userId]
+      ).catch(() => ({ rows: [] }));
+      if (state.rows[0]?.storage_object_key === null) {
+        await pool.query('DELETE FROM users WHERE id = $1', [userId]).catch(() => {});
+      }
     }
     await rm(storageRoot, { recursive: true, force: true });
     await pool.end();
