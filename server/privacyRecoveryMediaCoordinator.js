@@ -123,8 +123,28 @@ export async function runPrivateMediaPrivacyRecovery({
   // Account erasure has destructive preconditions outside the event's SQL
   // writes (Paddle cancellation evidence and L3 object availability). Check
   // every such event before applying any earlier event in the requested range.
-  if (!applyEvent) {
-    for (const mapping of mappings) {
+  const accountErasureSequences = new Map();
+  for (const mapping of mappings) {
+    if (mapping.eventType === 'account_erasure_requested' && mapping.subjectUserId) {
+      accountErasureSequences.set(mapping.subjectUserId, BigInt(mapping.sequence));
+    }
+  }
+  for (const mapping of mappings) {
+    const accountSequence = mapping.subjectUserId ? accountErasureSequences.get(mapping.subjectUserId) : null;
+    if (accountSequence !== undefined && accountSequence !== null &&
+        BigInt(mapping.sequence) > accountSequence && mapping.eventType !== 'account_erasure_requested') {
+      return {
+        complete: false,
+        processedCount: 0,
+        alreadyAppliedCount: 0,
+        blockedSequence: Number(mapping.sequence),
+        blockedEventType: mapping.eventType,
+        throughSequence
+      };
+    }
+  }
+
+  for (const mapping of mappings) {
       const preflight = mapping.eventType === 'account_erasure_requested'
         ? preflightAccountErasure
         : mapping.eventType === 'ad_consent_revoked'
