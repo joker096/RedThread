@@ -84,7 +84,8 @@ test('worker retains failed deliveries for retry with the same event identity', 
     pool, env, fetchImpl: async () => { throw new Error('offline'); }
   });
   assert.equal(result.results[0].acknowledged, false);
-  assert.match(retry.sql, /status = 'pending'/);
+  assert.match(retry.sql, /ELSE 'pending'/);
+  assert.match(retry.sql, /WHEN attempts >= \$2 THEN 'dead'/);
   assert.equal(retry.values[0], eventId);
   assert.equal(retry.values[3], leaseToken);
 });
