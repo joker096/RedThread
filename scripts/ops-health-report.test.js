@@ -171,11 +171,11 @@ test('operations report reads all durable purge queues from PostgreSQL', {
   });
   assert.equal(report.queues.length, 5);
   assert.deepEqual(report.queues.map(queue => queue.queue).sort(), [
+    'gift_address_draft_ttl',
     'identity_l3_media',
     'privacy_recovery_ledger_outbox',
     'private_photo',
-    'private_voice_intro',
-    'gift_address_draft_ttl'
+    'private_voice_intro'
   ]);
 });
 
