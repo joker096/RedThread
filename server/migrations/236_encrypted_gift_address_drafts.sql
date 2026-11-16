@@ -143,7 +143,7 @@ CREATE TRIGGER gift_orders_purge_temporary_address_draft
   AFTER UPDATE OF status, consent_withdrawn_at ON gift_delivery_orders
   FOR EACH ROW EXECUTE FUNCTION purge_gift_address_draft_on_order_safety_transition();
 
-CREATE OR REPLACE FUNCTION purge_deleted_account_gift_address_drafts()
+CREATE OR REPLACE FUNCTION purge_inactive_account_gift_address_drafts()
 RETURNS trigger LANGUAGE plpgsql AS $draft_account_cleanup$
 DECLARE
   removed RECORD;
@@ -176,12 +176,12 @@ BEGIN
 END;
 $draft_account_cleanup$;
 
-DROP TRIGGER IF EXISTS users_purge_deleted_gift_address_drafts ON users;
-CREATE TRIGGER users_purge_deleted_gift_address_drafts
+DROP TRIGGER IF EXISTS users_purge_inactive_gift_address_drafts ON users;
+CREATE TRIGGER users_purge_inactive_gift_address_drafts
   AFTER UPDATE OF status ON users
   FOR EACH ROW
   WHEN (NEW.status <> 'active' AND OLD.status = 'active')
-  EXECUTE FUNCTION purge_deleted_account_gift_address_drafts();
+  EXECUTE FUNCTION purge_inactive_account_gift_address_drafts();
 
 -- A match becoming inactive also ends the temporary address-processing purpose,
 -- even if a separate order-state writer has not yet run.
