@@ -44,6 +44,7 @@ function makePool({ receiptRows = [event], obligations = [{
       if (sql.includes('FROM privacy_recovery_replay_purge_completions')) return { rows: completionRows };
       if (sql.includes('FROM private_photo_purge_queue')) return { rows: queuePaths.map(storage_path => ({ storage_path })) };
       if (sql.includes('FROM private_voice_intro_purge_queue')) return { rows: [] };
+      if (sql.includes('FROM identity_l3_submissions')) return { rows: [] };
       if (sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
       throw new Error('unexpected_query');
     },
