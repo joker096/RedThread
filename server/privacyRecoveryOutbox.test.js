@@ -38,6 +38,7 @@ test('production refuses to enqueue when ledger configuration is missing', async
 
 test('worker delivers the persisted payload and records the acknowledged sequence', async () => {
   const eventId = randomUUID();
+  const leaseToken = randomUUID();
   const payload = {
     event_id: eventId, schema_version: 1, event_type: 'account_erasure_requested',
     subject_ref: 'a'.repeat(64), occurred_at: '2026-11-16T00:00:00.000Z'
@@ -47,7 +48,7 @@ test('worker delivers the persisted payload and records the acknowledged sequenc
     connect: async () => ({
       query: async (sql, values = []) => {
         calls.push({ sql, values });
-        if (sql.includes('RETURNING outbox.event_id')) return { rows: [{ event_id: eventId, event_payload: payload, attempts: 1 }] };
+        if (sql.includes('RETURNING outbox.event_id')) return { rows: [{ event_id: eventId, event_payload: payload, attempts: 1, lease_token: leaseToken }] };
         return { rowCount: 1, rows: [] };
       },
       release() {}
@@ -58,11 +59,12 @@ test('worker delivers the persisted payload and records the acknowledged sequenc
   });
   assert.equal(result.claimed, 1);
   assert.deepEqual(result.results[0], { eventId, acknowledged: true, sequence: 42 });
-  assert.equal(calls.some(call => call.sql.includes("status = 'acknowledged'") && call.values[1] === 42), true);
+  assert.equal(calls.some(call => call.sql.includes("status = 'acknowledged'") && call.values[1] === 42 && call.values[2] === leaseToken), true);
 });
 
 test('worker retains failed deliveries for retry with the same event identity', async () => {
   const eventId = randomUUID();
+  const leaseToken = randomUUID();
   const payload = {
     event_id: eventId, schema_version: 1, event_type: 'account_erasure_requested',
     subject_ref: 'b'.repeat(64), occurred_at: '2026-11-16T00:00:00.000Z'
@@ -71,7 +73,7 @@ test('worker retains failed deliveries for retry with the same event identity', 
   const pool = {
     connect: async () => ({
       query: async (sql, values = []) => {
-        if (sql.includes('RETURNING outbox.event_id')) return { rows: [{ event_id: eventId, event_payload: payload, attempts: 1 }] };
+        if (sql.includes('RETURNING outbox.event_id')) return { rows: [{ event_id: eventId, event_payload: payload, attempts: 1, lease_token: leaseToken }] };
         retry = { sql, values };
         return { rowCount: 1, rows: [] };
       },
@@ -84,4 +86,5 @@ test('worker retains failed deliveries for retry with the same event identity', 
   assert.equal(result.results[0].acknowledged, false);
   assert.match(retry.sql, /status = 'pending'/);
   assert.equal(retry.values[0], eventId);
+  assert.equal(retry.values[3], leaseToken);
 });
