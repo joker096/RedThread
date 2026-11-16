@@ -159,7 +159,7 @@ test('stale encrypted backup crosses the warning age threshold', async () => {
   }
 });
 
-test('operations report reads the three durable purge queues from PostgreSQL', {
+test('operations report reads all durable purge queues from PostgreSQL', {
   skip: !process.env.DATABASE_URL ? 'DATABASE_URL is not configured' : false,
   timeout: 15_000
 }, async () => {
@@ -172,9 +172,9 @@ test('operations report reads the three durable purge queues from PostgreSQL', {
   assert.equal(report.queues.length, 4);
   assert.deepEqual(report.queues.map(queue => queue.queue).sort(), [
     'identity_l3_media',
+    'privacy_recovery_ledger_outbox',
     'private_photo',
-    'private_voice_intro',
-    'privacy_recovery_ledger_outbox'
+    'private_voice_intro'
   ]);
 });
 
