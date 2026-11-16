@@ -1847,10 +1847,17 @@ async function suspendGiftOrdersForUser(client, userId, { actorUserId = null, ac
          address_vault_ref = NULL, address_verified_at = NULL, updated_at = statement_timestamp()
      FROM candidates AS c
      WHERE o.id = c.id
-     RETURNING o.id, c.previous_status, c.had_address_pointer, o.status AS next_status, o.payment_status`,
+     RETURNING o.id, o.recipient_id, c.previous_status, c.had_address_pointer, o.status AS next_status, o.payment_status`,
     [userId]
   );
   for (const gift of suspended.rows) {
+    if (gift.had_address_pointer) {
+      await revokeGiftAddressVaultEntry(client, {
+        orderId: gift.id,
+        recipientUserId: gift.recipient_id,
+        actorUserId
+      });
+    }
     await client.query(
       `INSERT INTO gift_delivery_order_events
          (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
@@ -4794,6 +4801,13 @@ app.post('/api/blocks/:targetId', profileActionLimiter, validateRequestOrigin, r
       [req.authUser.id, targetId]
     );
     for (const gift of blockedGifts.rows) {
+      if (gift.had_address_pointer) {
+        await revokeGiftAddressVaultEntry(client, {
+          orderId: gift.id,
+          recipientUserId: gift.recipient_id,
+          actorUserId: req.authUser.id
+        });
+      }
       const eventType = gift.next_status === 'reported' ? 'reported' : 'blocked';
       await client.query(
         `INSERT INTO gift_delivery_order_events (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
@@ -4915,6 +4929,13 @@ app.post('/api/reports', reportLimiter, validateRequestOrigin, requireSession, a
       [req.authUser.id, reportedUserId]
     );
     for (const gift of reportedGifts.rows) {
+      if (gift.had_address_pointer) {
+        await revokeGiftAddressVaultEntry(client, {
+          orderId: gift.id,
+          recipientUserId: gift.recipient_id,
+          actorUserId: req.authUser.id
+        });
+      }
       await client.query(
         `INSERT INTO gift_delivery_order_events (order_id, actor_user_id, actor_type, event_type, from_status, to_status, metadata)
          VALUES ($1, $2, $3, 'reported', $4, $5, $6::jsonb)`,
