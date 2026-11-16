@@ -6408,6 +6408,26 @@ app.put('/api/gifts/orders/:publicReference/address-draft', validateRequestOrigi
       return res.status(locked.status).json({ error: locked.error });
     }
 
+    // Persist the recipient's separate draft-processing consent in this same
+    // transaction. The database scope trigger requires a current grant before
+    // ciphertext can be inserted; gift acceptance alone is never sufficient.
+    const currentDraftConsent = await client.query(
+      `SELECT action, consent_version
+         FROM gift_address_draft_consent_events
+        WHERE order_id = $1 AND recipient_user_id = $2
+        ORDER BY id DESC LIMIT 1`,
+      [locked.order.id, req.authUser.id]
+    );
+    if (currentDraftConsent.rows[0]?.action !== 'granted' ||
+        Number(currentDraftConsent.rows[0]?.consent_version) !== GIFT_ADDRESS_DRAFT_CONSENT_VERSION) {
+      await client.query(
+        `INSERT INTO gift_address_draft_consent_events
+           (order_id, recipient_user_id, consent_version, action, actor_user_id)
+         VALUES ($1, $2, $3, 'granted', $2)`,
+        [locked.order.id, req.authUser.id, GIFT_ADDRESS_DRAFT_CONSENT_VERSION]
+      );
+    }
+
     const encrypted = encryptGiftAddressDraft({
       address: normalized.address, orderId: locked.order.id,
       recipientUserId: req.authUser.id, keyring
