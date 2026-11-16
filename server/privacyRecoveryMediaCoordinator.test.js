@@ -264,8 +264,8 @@ test('coordinator blocks every non-media privacy domain before applying any medi
   const photoId = '123e4567-e89b-42d3-a456-426614174005';
   const photoRef = createHmac('sha256', key).update(photoId, 'utf8').digest('hex');
   const blockedTypes = [
-    'ad_consent_revoked',
-    'gift_order_consent_withdrawn'
+    'profile_data_export_requested',
+    'marketing_profile_enrichment_requested'
   ];
 
   for (const blockedType of blockedTypes) {
