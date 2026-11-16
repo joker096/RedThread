@@ -54,7 +54,7 @@ async function holdGiftOrders(client, userId) {
         AND (
           status IN ('awaiting_recipient_consent', 'recipient_accepted', 'address_verified',
                      'fulfilment_authorized', 'dispatched', 'delivery_failed')
-          OR (address_vault_ref IS NOT NULL AND status <> 'delivered')
+          OR address_vault_ref IS NOT NULL
         )
       ORDER BY user_a, user_b`,
     [userId]
@@ -488,4 +488,19 @@ export async function applyAccountErasurePrivacyRecoveryEvent({
   } finally {
     client.release();
   }
-}
+}  const deliveredWithAddress = await client.query(
+    `SELECT id, recipient_id FROM gift_delivery_orders
+      WHERE (sender_id = $1 OR recipient_id = $1)
+        AND status = 'delivered' AND address_vault_ref IS NOT NULL
+      ORDER BY id FOR UPDATE`,
+    [userId]
+  );
+  for (const gift of deliveredWithAddress.rows) {
+    await revokeGiftAddressVaultEntry(client, {
+      orderId: gift.id,
+      recipientUserId: gift.recipient_id,
+      actorUserId: null
+    });
+  }
+
+
