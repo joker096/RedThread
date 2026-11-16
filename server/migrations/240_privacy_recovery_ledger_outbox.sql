@@ -22,11 +22,18 @@ CREATE TABLE IF NOT EXISTS privacy_recovery_ledger_outbox (
     'identity_l3_consent_withdrawn', 'ad_consent_revoked',
     'gift_order_consent_withdrawn'
   )),
-  CHECK (event_payload->>'subject_ref' ~ '^[a-f0-9]{64}
-  CHECK ((status = 'processing' AND lease_expires_at IS NOT NULL AND lease_token IS NOT NULL)
-      OR (status <> 'processing' AND lease_expires_at IS NULL AND lease_token IS NULL)),
+  CHECK (event_payload->>'subject_ref' ~ '^[a-f0-9]{64}$'),
   CHECK (
-    (status = 'acknowledged' AND ledger_sequence IS NOT NULL AND acknowledged_at IS NOT NULL)
+    event_payload->>'resource_ref' IS NULL
+    OR event_payload->>'resource_ref' ~ '^[a-f0-9]{64}$'
+  ),
+  CHECK (COALESCE(event_payload->>'occurred_at', '') <> ''),
+  CHECK (
+    (status = 'processing' AND lease_expires_at IS NOT NULL AND lease_token IS NOT NULL)
+    OR (status <> 'processing' AND lease_expires_at IS NULL AND lease_token IS NULL)
+  ),
+  CHECK (
+    (status = 'acknowledged' AND ledger_sequence IS NOT NULL AND ledger_sequence > 0 AND acknowledged_at IS NOT NULL)
     OR (status <> 'acknowledged' AND ledger_sequence IS NULL AND acknowledged_at IS NULL)
   )
 );
@@ -43,9 +50,8 @@ CREATE INDEX IF NOT EXISTS privacy_recovery_ledger_outbox_dead_idx
   ON privacy_recovery_ledger_outbox (created_at)
   WHERE status = 'dead';
 
-
 CREATE OR REPLACE FUNCTION prevent_privacy_recovery_outbox_payload_mutation()
-RETURNS trigger LANGUAGE plpgsql AS $
+RETURNS trigger LANGUAGE plpgsql AS $privacy_recovery_outbox$
 BEGIN
   IF NEW.event_id IS DISTINCT FROM OLD.event_id
      OR NEW.event_payload IS DISTINCT FROM OLD.event_payload
@@ -55,61 +61,13 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$;
+$privacy_recovery_outbox$;
 
 DROP TRIGGER IF EXISTS privacy_recovery_outbox_payload_immutable
   ON privacy_recovery_ledger_outbox;
 CREATE TRIGGER privacy_recovery_outbox_payload_immutable
   BEFORE UPDATE ON privacy_recovery_ledger_outbox
   FOR EACH ROW EXECUTE FUNCTION prevent_privacy_recovery_outbox_payload_mutation();
-
-COMMENT ON TABLE privacy_recovery_ledger_outbox IS
-  'Transactional delivery queue for pseudonymized privacy recovery events. Event UUID and payload are stable across retries; domain changes and outbox inserts share one PostgreSQL transaction.';
-),
-  CHECK (event_payload->>'resource_ref' IS NULL OR event_payload->>'resource_ref' ~ '^[a-f0-9]{64}
-  CHECK ((status = 'processing' AND lease_expires_at IS NOT NULL AND lease_token IS NOT NULL)
-      OR (status <> 'processing' AND lease_expires_at IS NULL AND lease_token IS NULL)),
-  CHECK (
-    (status = 'acknowledged' AND ledger_sequence IS NOT NULL AND acknowledged_at IS NOT NULL)
-    OR (status <> 'acknowledged' AND ledger_sequence IS NULL AND acknowledged_at IS NULL)
-  )
-);
-
-CREATE INDEX IF NOT EXISTS privacy_recovery_ledger_outbox_pending_idx
-  ON privacy_recovery_ledger_outbox (next_attempt_at, created_at)
-  WHERE status = 'pending';
-
-CREATE INDEX IF NOT EXISTS privacy_recovery_ledger_outbox_lease_idx
-  ON privacy_recovery_ledger_outbox (lease_expires_at)
-  WHERE status = 'processing';
-
-CREATE INDEX IF NOT EXISTS privacy_recovery_ledger_outbox_dead_idx
-  ON privacy_recovery_ledger_outbox (created_at)
-  WHERE status = 'dead';
-
-COMMENT ON TABLE privacy_recovery_ledger_outbox IS
-  'Transactional delivery queue for pseudonymized privacy recovery events. Event UUID and payload are stable across retries; domain changes and outbox inserts share one PostgreSQL transaction.';
-),
-  CHECK (COALESCE(event_payload->>'occurred_at', '') <> ''),
-  CHECK ((status = 'processing' AND lease_expires_at IS NOT NULL AND lease_token IS NOT NULL)
-      OR (status <> 'processing' AND lease_expires_at IS NULL AND lease_token IS NULL)),
-  CHECK (
-    (status = 'acknowledged' AND ledger_sequence IS NOT NULL AND acknowledged_at IS NOT NULL)
-    OR (status <> 'acknowledged' AND ledger_sequence IS NULL AND acknowledged_at IS NULL)
-  )
-);
-
-CREATE INDEX IF NOT EXISTS privacy_recovery_ledger_outbox_pending_idx
-  ON privacy_recovery_ledger_outbox (next_attempt_at, created_at)
-  WHERE status = 'pending';
-
-CREATE INDEX IF NOT EXISTS privacy_recovery_ledger_outbox_lease_idx
-  ON privacy_recovery_ledger_outbox (lease_expires_at)
-  WHERE status = 'processing';
-
-CREATE INDEX IF NOT EXISTS privacy_recovery_ledger_outbox_dead_idx
-  ON privacy_recovery_ledger_outbox (created_at)
-  WHERE status = 'dead';
 
 COMMENT ON TABLE privacy_recovery_ledger_outbox IS
   'Transactional delivery queue for pseudonymized privacy recovery events. Event UUID and payload are stable across retries; domain changes and outbox inserts share one PostgreSQL transaction.';
