@@ -43,6 +43,26 @@ CREATE INDEX IF NOT EXISTS privacy_recovery_ledger_outbox_dead_idx
   ON privacy_recovery_ledger_outbox (created_at)
   WHERE status = 'dead';
 
+
+CREATE OR REPLACE FUNCTION prevent_privacy_recovery_outbox_payload_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $
+BEGIN
+  IF NEW.event_id IS DISTINCT FROM OLD.event_id
+     OR NEW.event_payload IS DISTINCT FROM OLD.event_payload
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'privacy recovery outbox event identity and payload are immutable'
+      USING ERRCODE = '55000';
+  END IF;
+  RETURN NEW;
+END;
+$;
+
+DROP TRIGGER IF EXISTS privacy_recovery_outbox_payload_immutable
+  ON privacy_recovery_ledger_outbox;
+CREATE TRIGGER privacy_recovery_outbox_payload_immutable
+  BEFORE UPDATE ON privacy_recovery_ledger_outbox
+  FOR EACH ROW EXECUTE FUNCTION prevent_privacy_recovery_outbox_payload_mutation();
+
 COMMENT ON TABLE privacy_recovery_ledger_outbox IS
   'Transactional delivery queue for pseudonymized privacy recovery events. Event UUID and payload are stable across retries; domain changes and outbox inserts share one PostgreSQL transaction.';
 ),
