@@ -176,13 +176,20 @@ test('gift address draft HTTP API is recipient-only, separately consented and en
       { action: 'withdrawn', consent_version: 1 }
     ]);
   } finally {
-    await db.query('SET session_replication_role = replica').catch(() => {});
-    if (orderId) await db.query('DELETE FROM gift_address_drafts WHERE order_id = $1', [orderId]).catch(() => {});
-    if (orderId) await db.query('DELETE FROM gift_address_draft_consent_events WHERE order_id = $1', [orderId]).catch(() => {});
-    if (orderId) await db.query('DELETE FROM gift_delivery_orders WHERE id = $1', [orderId]).catch(() => {});
-    if (matchId) await db.query('DELETE FROM matches WHERE id = $1', [matchId]).catch(() => {});
-    if (users.length) await db.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [users]).catch(() => {});
-    await db.query('SET session_replication_role = origin').catch(() => {});
+    const cleanup = await db.connect().catch(() => null);
+    if (cleanup) {
+      try {
+        await cleanup.query('ALTER TABLE gift_address_draft_consent_events DISABLE TRIGGER gift_address_draft_consent_events_immutable').catch(() => {});
+        if (orderId) await cleanup.query('DELETE FROM gift_address_drafts WHERE order_id = $1', [orderId]).catch(() => {});
+        if (orderId) await cleanup.query('DELETE FROM gift_address_draft_consent_events WHERE order_id = $1', [orderId]).catch(() => {});
+        if (orderId) await cleanup.query('DELETE FROM gift_delivery_orders WHERE id = $1', [orderId]).catch(() => {});
+        if (matchId) await cleanup.query('DELETE FROM matches WHERE id = $1', [matchId]).catch(() => {});
+        if (users.length) await cleanup.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [users]).catch(() => {});
+      } finally {
+        await cleanup.query('ALTER TABLE gift_address_draft_consent_events ENABLE TRIGGER gift_address_draft_consent_events_immutable').catch(() => {});
+        cleanup.release();
+      }
+    }
     await db.end().catch(() => {});
     if (child.exitCode === null && child.signalCode === null) {
       child.kill('SIGTERM');
