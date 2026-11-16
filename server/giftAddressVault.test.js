@@ -179,17 +179,23 @@ test('gift address vault revocation rejects incomplete actor context before quer
   assert.equal(queried, false);
 });
 
-test('gift address vault revocation rejects a non-recipient actor before querying', async () => {
-  let queried = false;
-  await assert.rejects(
-    revokeGiftAddressVaultEntry({ query: async () => { queried = true; } }, {
-      orderId: 'order-4',
-      recipientUserId: 'recipient-4',
-      actorUserId: 'moderator-1'
-    }),
-    /requires the recipient as actor/
-  );
-  assert.equal(queried, false);
+test('gift address vault revocation records a safety moderator as actor without exposing address data', async () => {
+  const calls = [];
+  const client = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      return sql.includes('DELETE FROM gift_address_vault_entries')
+        ? { rowCount: 1, rows: [{ vault_ref: 'vault-ref' }] }
+        : { rowCount: 1, rows: [] };
+    }
+  };
+  const result = await revokeGiftAddressVaultEntry(client, {
+    orderId: 'order-4',
+    recipientUserId: 'recipient-4',
+    actorUserId: 'moderator-1'
+  });
+  assert.deepEqual(result, { revoked: true });
+  assert.deepEqual(calls[1].params, ['order-4', 'moderator-1']);
 });
 
 test('gift address vault revocation propagates audit-write failures for transaction rollback', async () => {
