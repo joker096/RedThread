@@ -1,4 +1,5 @@
 import { createHash, createHmac } from 'node:crypto';
+import { AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { assertPrivacyRecoveryRestoreTarget, assertPrivacyRecoveryRestoreTargetConfig } from './privacyRecoveryTargetGuard.js';
 
 const EVENT_TYPE = 'ad_consent_revoked';
@@ -115,7 +116,7 @@ export async function verifyAdConsentRevocationPrivacyRecovery({
       if (p.ads_consent !== false || p.date_offers_consent !== false ||
           p.wedding_offers_consent !== false || p.marriage_planning_opt_in !== false ||
           !p.category_consents || Object.keys(p.category_consents).length !== 0 ||
-          p.consent_version !== 1) {
+          p.consent_version !== AD_CONSENT_VERSION) {
         throw new Error('privacy_recovery_ad_consent_verification_preferences_not_revoked');
       }
       const history = await client.query(
@@ -123,7 +124,7 @@ export async function verifyAdConsentRevocationPrivacyRecovery({
           WHERE user_id = $1 ORDER BY id DESC LIMIT 1`,
         [row.subject_user_id]
       );
-      if (history.rowCount !== 1 || history.rows[0].consent_version !== 1 ||
+      if (history.rowCount !== 1 || history.rows[0].consent_version !== AD_CONSENT_VERSION ||
           !allOff(history.rows[0].preferences)) {
         throw new Error('privacy_recovery_ad_consent_verification_history_not_revoked');
       }
