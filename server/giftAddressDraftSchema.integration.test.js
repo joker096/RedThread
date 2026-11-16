@@ -74,6 +74,8 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
       [ttlOrderId, recipientId, nonce, tag, ciphertext]
     );
 
+    await client.query('COMMIT');
+
     const mainOrder = await client.query(
       'SELECT status, address_vault_ref, address_verified_at FROM gift_delivery_orders WHERE id = $1',
       [orderId]
@@ -124,11 +126,24 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
     ]);
     assert.equal(draft.rowCount, 0, 'leaving recipient_accepted must physically remove the ciphertext row');
     assert.equal(consent.rows[0].action, 'withdrawn');
+    await client.query('BEGIN');
+    await client.query(`UPDATE gift_delivery_orders SET status = 'cancelled' WHERE id = $1`, [orderId]);
+    const [draft, consent] = await Promise.all([
+      client.query('SELECT 1 FROM gift_address_drafts WHERE order_id = $1', [orderId]),
+      client.query('SELECT action FROM gift_address_draft_consent_events WHERE order_id = $1 ORDER BY id DESC LIMIT 1', [orderId])
+    ]);
+    assert.equal(draft.rowCount, 0, 'leaving recipient_accepted must physically remove the ciphertext row');
+    assert.equal(consent.rows[0].action, 'withdrawn');
     await client.query('ROLLBACK');
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     throw error;
   } finally {
+    await client.query('DELETE FROM gift_address_drafts WHERE order_id = ANY($1::uuid[])', [[orderId, ttlOrderId]]).catch(() => {});
+    await client.query('DELETE FROM gift_address_draft_consent_events WHERE order_id = ANY($1::uuid[])', [[orderId, ttlOrderId]]).catch(() => {});
+    await client.query('DELETE FROM gift_delivery_orders WHERE id = ANY($1::uuid[])', [[orderId, ttlOrderId]]).catch(() => {});
+    await client.query('DELETE FROM matches WHERE id = $1', [matchId]).catch(() => {});
+    await client.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [[senderId, recipientId]]).catch(() => {});
     client.release();
     await pool.end();
   }
