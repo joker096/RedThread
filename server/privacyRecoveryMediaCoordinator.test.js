@@ -184,6 +184,8 @@ test('coordinator preflights and dispatches gift consent withdrawal', async () =
     complete: true,
     processedCount: 1,
     alreadyAppliedCount: 0,
+    blockedSequence: null,
+    blockedEventType: null,
     throughSequence: 1
   });
 });
