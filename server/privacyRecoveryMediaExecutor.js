@@ -161,8 +161,7 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
 
     if (kind === 'identity_l3_consent') {
       await client.query(
-        'SELECT set_config(\'app.identity_l3_actor_user_id\', $1, true), set_config(\'app.identity_l3_reason_code\', \'consent_withdrawn\', true)',
-        [mapping.subjectUserId]
+        "SELECT set_config('app.identity_l3_actor_user_id', '', true), set_config('app.identity_l3_reason_code', 'consent_withdrawn', true)"
       );
       const consent = await client.query(
         'SELECT consent_version, withdrawn_at FROM identity_l3_consents WHERE user_id = $1 FOR UPDATE',
