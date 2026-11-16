@@ -68,8 +68,12 @@ export function createPrivacyRecoveryLedgerPayload({
 export async function deliverPrivacyRecoveryLedgerPayload(event, {
   env = process.env, fetchImpl = globalThis.fetch, now = Date.now
 } = {}) {
-  if (!event || !UUID.test(event.event_id || '') || !ALLOWED_EVENT_TYPES.has(event.event_type) ||
-      !/^[a-f0-9]{64}$/i.test(event.subject_ref || '')) {
+  if (!event || !UUID.test(event.event_id || '') || event.schema_version !== 1 ||
+      !ALLOWED_EVENT_TYPES.has(event.event_type) ||
+      !/^[a-f0-9]{64}$/i.test(event.subject_ref || '') ||
+      (event.resource_ref != null && !/^[a-f0-9]{64}$/i.test(event.resource_ref)) ||
+      !Number.isFinite(Date.parse(event.occurred_at)) ||
+      new Date(event.occurred_at).toISOString() !== event.occurred_at) {
     throw new TypeError('invalid_privacy_recovery_event_payload');
   }
   const endpoint = env.PRIVACY_RECOVERY_LEDGER_URL;
