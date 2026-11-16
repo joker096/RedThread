@@ -27,7 +27,7 @@ if [[ "\${PARTIAL_AGE:-0}" == "1" ]]; then
   head -c 1 -- "$archive"
   exit 23
 fi
-if [[ "${REPLACE_ORIGINAL_ON_FIRST_AGE:-0}" == "1" && ! -e "${REPLACE_MARKER:-}" ]]; then
+if [[ "\${REPLACE_ORIGINAL_ON_FIRST_AGE:-0}" == "1" && ! -e "\${REPLACE_MARKER:-}" ]]; then
   cp -- "$REPLACEMENT_ARCHIVE_FILE" "$ORIGINAL_ARCHIVE_FILE"
   touch "$REPLACE_MARKER"
 fi
