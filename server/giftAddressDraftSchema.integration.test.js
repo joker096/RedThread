@@ -203,6 +203,76 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
     assert.equal(matchConsent.rows[0].action, 'withdrawn');
     await client.query('ROLLBACK');
 
+    // High-risk screening must physically purge existing ciphertext and
+    // the database scope guard must reject any later direct write.
+    await client.query('BEGIN');
+    const screeningRecipientId = randomUUID();
+    const screeningMatchId = randomUUID();
+    const screeningOrderId = randomUUID();
+    await client.query(
+      `INSERT INTO users (id, email, role, status, email_verified_at)
+       VALUES ($1, $2, 'member', 'active', NOW())`,
+      [screeningRecipientId, `draft-screening-${screeningRecipientId}@example.invalid`]
+    );
+    await client.query(
+      `INSERT INTO matches (id, user_a_id, user_b_id, status, created_at)
+       VALUES ($1, LEAST($2::uuid, $3::uuid), GREATEST($2::uuid, $3::uuid), 'active', NOW())`,
+      [screeningMatchId, senderId, screeningRecipientId]
+    );
+    await client.query(
+      `INSERT INTO gift_delivery_orders
+         (id, match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+          total_minor_units, currency, idempotency_key, status, payment_status,
+          recipient_consent_at, recipient_consent_version)
+       VALUES ($1, $2, $3, $4, 'Screening purge test', 'chocolate',
+               1000, 'GEL', $5, 'recipient_accepted', 'not_started', NOW(), 1)`,
+      [screeningOrderId, screeningMatchId, senderId, screeningRecipientId, 'draft-' + screeningOrderId]
+    );
+    await client.query(
+      `INSERT INTO gift_address_draft_consent_events
+         (order_id, recipient_user_id, consent_version, action, actor_user_id)
+       VALUES ($1, $2, 1, 'granted', $2)`,
+      [screeningOrderId, screeningRecipientId]
+    );
+    await client.query(
+      `INSERT INTO gift_address_drafts
+         (order_id, recipient_user_id, key_version, nonce, auth_tag, ciphertext, expires_at)
+       VALUES ($1, $2, 'draft-v1', $3, $4, $5, NOW() + INTERVAL '1 hour')`,
+      [screeningOrderId, screeningRecipientId, nonce, tag, ciphertext]
+    );
+    await client.query(
+      `INSERT INTO user_safety_screenings (user_id, scope, severity, review_status)
+       VALUES ($1, 'profile', 'high', 'pending')`,
+      [screeningRecipientId]
+    );
+    const [screeningDraft, screeningConsent] = await Promise.all([
+      client.query('SELECT 1 FROM gift_address_drafts WHERE order_id = $1', [screeningOrderId]),
+      client.query('SELECT action FROM gift_address_draft_consent_events WHERE order_id = $1 ORDER BY id DESC LIMIT 1', [screeningOrderId])
+    ]);
+    assert.equal(screeningDraft.rowCount, 0, 'high-risk screening must physically delete temporary ciphertext');
+    assert.equal(screeningConsent.rows[0].action, 'withdrawn');
+
+    // Simulate an internal caller attempting to re-grant and bypass the API.
+    await client.query(
+      `INSERT INTO gift_address_draft_consent_events
+         (order_id, recipient_user_id, consent_version, action, actor_user_id)
+       VALUES ($1, $2, 1, 'granted', $2)`,
+      [screeningOrderId, screeningRecipientId]
+    );
+    await client.query('SAVEPOINT high_risk_scope_guard');
+    await assert.rejects(
+      client.query(
+        `INSERT INTO gift_address_drafts
+           (order_id, recipient_user_id, key_version, nonce, auth_tag, ciphertext, expires_at)
+         VALUES ($1, $2, 'draft-v1', $3, $4, $5, NOW() + INTERVAL '1 hour')`,
+        [screeningOrderId, screeningRecipientId, nonce, tag, ciphertext]
+      ),
+      error => error.code === '23514',
+      'database scope guard must reject writes while a high-risk screening is active'
+    );
+    await client.query('ROLLBACK TO SAVEPOINT high_risk_scope_guard');
+    await client.query('ROLLBACK');
+
     await client.query("UPDATE users SET status = 'deleted', updated_at = NOW() WHERE id = $1", [recipientId]);
     const [deletedDraft, deletedConsent] = await Promise.all([
       client.query('SELECT 1 FROM gift_address_drafts WHERE order_id = $1', [accountDeleteOrderId]),
