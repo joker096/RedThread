@@ -50,7 +50,8 @@
     "restore:bundle": "bash scripts/restore-bundle.sh",
     "privacy-ledger:outbox-worker": "node server/process-privacy-recovery-outbox.js",
     "gifts:address-drafts:purge": "node server/process-gift-address-draft-purge.js",
-    "test:gift-address-drafts": "tsx --test server/giftAddressDraft.test.js server/giftAddressDraftPurge.test.js server/giftAddressDraftService.test.js server/giftAddressDraftSchema.integration.test.js server/giftAddressDraftApi.integration.test.js"
+    "test:gift-address-drafts": "tsx --test server/giftAddressDraft.test.js server/giftAddressDraftPurge.test.js server/giftAddressDraftService.test.js server/giftAddressDraftSchema.integration.test.js server/giftAddressDraftApi.integration.test.js",
+    "test:privacy-recovery": "node --test server/privacyRecoveryMediaCoordinator.test.js server/privacyRecoveryMediaVerification.test.js server/privacyRecoveryAccountErasureExecutor.test.js server/privacyRecoveryAccountErasureSchema.integration.test.js server/accountErasureReportEvidence.integration.test.js server/privacyRecoveryAdConsentExecutor.test.js server/privacyRecoveryGiftConsentExecutor.test.js server/privacyRecoveryAdGiftSchema.integration.test.js"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
