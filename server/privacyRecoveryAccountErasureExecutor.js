@@ -168,7 +168,8 @@ async function applyAccountErasure(client, userId, env) {
     throw new Error('privacy_recovery_account_erasure_paddle_subscription_unresolved');
   }
   const subscriptionStatus = String(user.paddle_subscription_status || '').toLowerCase();
-  if ((user.paddle_subscription_id && !['canceled', 'completed'].includes(subscriptionStatus)) ||
+  if ((user.paddle_subscription_id && (!['canceled', 'completed'].includes(subscriptionStatus) ||
+        typeof user.paddle_customer_id !== 'string' || !/^ctm_[A-Za-z0-9]+$/.test(user.paddle_customer_id))) ||
       (!user.paddle_subscription_id && subscriptionStatus && !['canceled', 'completed'].includes(subscriptionStatus))) {
     throw new Error('privacy_recovery_account_erasure_paddle_subscription_unresolved');
   }
@@ -177,6 +178,7 @@ async function applyAccountErasure(client, userId, env) {
     [userId]
   );
   if (l3Media.rowCount) throw new Error('privacy_recovery_account_erasure_l3_media_unresolved');
+  await client.query('DELETE FROM identity_l3_submissions WHERE user_id = $1', [userId]);
 
   await holdGiftOrders(client, userId);
 
@@ -186,7 +188,6 @@ async function applyAccountErasure(client, userId, env) {
   const voicePaths = voices.rows.map(row => row.storage_path);
   await queuePrivatePhotoPurges(client, photoPaths);
   await queuePrivateVoiceIntroPurges(client, voicePaths);
-  await client.query('DELETE FROM identity_l3_submissions WHERE user_id = $1', [userId]);
   await client.query('DELETE FROM photo_assets WHERE user_id = $1', [userId]);
   await client.query('DELETE FROM profile_voice_intros WHERE user_id = $1', [userId]);
 
@@ -243,6 +244,7 @@ async function applyAccountErasure(client, userId, env) {
     "UPDATE matches SET status = 'closed' WHERE user_a_id = $1 OR user_b_id = $1",
     [userId]
   );
+  await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`account-reuse:${reuseDigest}`]);
   await client.query(
     `INSERT INTO account_reuse_restrictions (email_hmac, expires_at)
      VALUES ($1, clock_timestamp() + INTERVAL '90 days')
