@@ -17,7 +17,8 @@ const isolatedEnv = {
   PRIVACY_RECOVERY_RESTORE_ISOLATED: 'true',
   PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY: key,
   PRIVACY_RECOVERY_RESTORE_DATABASE_NAME: 'vow_restore_test',
-  PRIVACY_RECOVERY_RESTORE_DATABASE_ROLE: 'vow_restore_runner'
+  PRIVACY_RECOVERY_RESTORE_DATABASE_ROLE: 'vow_restore_runner',
+  PRIVACY_RECOVERY_RESTORE_CONFIRMATION: 'ISOLATED_RESTORE_ONLY'
 };
 const mapping = {
   sequence: '12', eventId, eventType: 'gift_order_consent_withdrawn',
