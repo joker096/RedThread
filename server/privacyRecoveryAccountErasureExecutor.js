@@ -140,7 +140,7 @@ async function holdGiftOrders(client, userId) {
   }
 }
 
-async function applyAccountErasure(client, userId, env, eventOccurredAt) {
+async function applyAccountErasure(client, userId, env) {
   await acquireGiftSafetyUserLocks(client, userId);
   const userResult = await client.query(
     `SELECT id, email, status, paddle_customer_id, paddle_subscription_id,
@@ -168,13 +168,6 @@ async function applyAccountErasure(client, userId, env, eventOccurredAt) {
       (!user.paddle_subscription_id && subscriptionStatus && !['canceled', 'completed'].includes(subscriptionStatus))) {
     throw new Error('privacy_recovery_account_erasure_paddle_subscription_unresolved');
   }
-  const erasureTime = Date.parse(eventOccurredAt);
-  if (!Number.isFinite(erasureTime)) throw new Error('privacy_recovery_account_erasure_event_time_invalid');
-  if (user.premium_lifetime !== true && user.premium_until &&
-      new Date(user.premium_until).getTime() > erasureTime) {
-    throw new Error('privacy_recovery_account_erasure_premium_state_unresolved');
-  }
-
   const l3Media = await client.query(
     'SELECT id FROM identity_l3_submissions WHERE user_id = $1 AND storage_object_key IS NOT NULL FOR UPDATE',
     [userId]
@@ -334,7 +327,7 @@ export async function applyAccountErasurePrivacyRecoveryEvent({
       open = false;
       return { applied: false, alreadyApplied: true, outcome: OUTCOME };
     }
-    const applied = await applyAccountErasure(client, mapping.subjectUserId, env, staged.occurred_at);
+    const applied = await applyAccountErasure(client, mapping.subjectUserId, env);
     await client.query(
       `INSERT INTO privacy_recovery_replay_receipts
          (ledger_sequence, event_id, event_digest, event_type, outcome_code)
