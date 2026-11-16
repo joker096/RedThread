@@ -19,14 +19,29 @@ export async function enqueuePrivacyRecoveryEvent(client, input, { env = process
   if (!client || typeof client.query !== 'function') throw new TypeError('privacy_recovery_outbox_client_required');
   const payload = createPrivacyRecoveryLedgerPayload(input, { env });
   if (payload.skipped) return payload;
-  await client.query(
+  const serializedPayload = JSON.stringify(payload);
+  const inserted = await client.query(
     `INSERT INTO privacy_recovery_ledger_outbox
        (event_id, event_payload, status, next_attempt_at)
      VALUES ($1, $2::jsonb, 'pending', statement_timestamp())
-     ON CONFLICT (event_id) DO NOTHING`,
-    [payload.event_id, JSON.stringify(payload)]
+     ON CONFLICT (event_id) DO NOTHING
+     RETURNING event_id`,
+    [payload.event_id, serializedPayload]
   );
-  return { queued: true, eventId: payload.event_id };
+  if (inserted.rowCount === 1) return { queued: true, eventId: payload.event_id };
+
+  // Idempotency is valid only for the exact same immutable event. Reusing an
+  // event UUID with different pseudonyms, resource or event type is a hard
+  // conflict, never a silently successful enqueue.
+  const existing = await client.query(
+    `SELECT event_id
+       FROM privacy_recovery_ledger_outbox
+      WHERE event_id = $1 AND event_payload = $2::jsonb
+      FOR SHARE`,
+    [payload.event_id, serializedPayload]
+  );
+  if (existing.rowCount !== 1) throw new Error('privacy_recovery_outbox_event_id_conflict');
+  return { queued: true, duplicate: true, eventId: payload.event_id };
 }
 
 export async function processPrivacyRecoveryOutboxBatch({
