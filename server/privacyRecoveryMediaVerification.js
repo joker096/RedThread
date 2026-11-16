@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { assertPrivacyRecoveryRestoreTarget, assertPrivacyRecoveryRestoreTargetConfig } from './privacyRecoveryTargetGuard.js';
 import { verifyAccountErasurePrivacyRecovery } from './privacyRecoveryAccountErasureVerification.js';
 import { verifyAdConsentRevocationPrivacyRecovery } from './privacyRecoveryAdConsentVerification.js';
+import { verifyGiftConsentWithdrawalPrivacyRecovery } from './privacyRecoveryGiftConsentVerification.js';
 
 const OUTCOMES = Object.freeze({
   private_photo_erasure_requested: ['photo_erasure_queued', 'photos'],
@@ -9,7 +10,8 @@ const OUTCOMES = Object.freeze({
   voice_intro_consent_withdrawn: ['voice_intro_consent_withdrawn', 'voice_consent'],
   identity_l3_consent_withdrawn: ['identity_l3_consent_withdrawn', 'identity_l3_consent'],
   account_erasure_requested: ['account_erasure_replayed', 'account_erasure'],
-  ad_consent_revoked: ['ad_consent_revoked_fail_closed', 'ad_consent']
+  ad_consent_revoked: ['ad_consent_revoked_fail_closed', 'ad_consent'],
+  gift_order_consent_withdrawn: ['gift_order_consent_withdrawn', 'gift_consent']
 });
 
 function eventDigest(row) {
@@ -181,7 +183,8 @@ export async function verifyPrivateMediaPrivacyRecovery({
           ? ['identity_l3_media']
           : row.event_type === 'account_erasure_requested'
             ? ['private_photo', 'private_voice_intro']
-            : row.event_type === 'ad_consent_revoked' ? [] : ['private_voice_intro'];
+            : ['ad_consent_revoked', 'gift_order_consent_withdrawn'].includes(row.event_type)
+              ? [] : ['private_voice_intro'];
       const eventObligations = obligationRows.filter(item =>
         String(item.ledger_sequence) === String(row.ledger_sequence)
       );
@@ -230,6 +233,9 @@ export async function verifyPrivateMediaPrivacyRecovery({
     const adConsentVerification = events.some(row => row.event_type === 'ad_consent_revoked')
       ? await verifyAdConsentRevocationPrivacyRecovery({ pool, env, snapshotLedgerSequence, throughSequence })
       : { verifiedAdConsentRevocationCount: 0 };
+    const giftConsentVerification = events.some(row => row.event_type === 'gift_order_consent_withdrawn')
+      ? await verifyGiftConsentWithdrawalPrivacyRecovery({ pool, env, snapshotLedgerSequence, throughSequence })
+      : { verifiedGiftConsentWithdrawalCount: 0 };
     return {
       complete: true,
       verifiedEventCount: events.length,
@@ -240,6 +246,7 @@ export async function verifyPrivateMediaPrivacyRecovery({
       verifiedPurgeCompletionCount: completionRows.length,
       verifiedAccountErasureCount: accountVerification.verifiedAccountErasureCount,
       verifiedAdConsentRevocationCount: adConsentVerification.verifiedAdConsentRevocationCount,
+      verifiedGiftConsentWithdrawalCount: giftConsentVerification.verifiedGiftConsentWithdrawalCount,
       throughSequence
     };
   } catch (error) {
