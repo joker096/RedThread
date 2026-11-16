@@ -62,7 +62,8 @@ test('operations report fails closed when required off-host backup locations are
         rows: [
           { queue_name: 'private_photo', pending: 0, due: 0, retrying: 0, failed: 0, oldest_created_at: null, max_attempts: 0 },
           { queue_name: 'private_voice_intro', pending: 0, due: 0, retrying: 0, failed: 0, oldest_created_at: null, max_attempts: 0 },
-          { queue_name: 'identity_l3_media', pending: 0, due: 0, retrying: 0, failed: 0, oldest_created_at: null, max_attempts: 0 }
+          { queue_name: 'identity_l3_media', pending: 0, due: 0, retrying: 0, failed: 0, oldest_created_at: null, max_attempts: 0 },
+          { queue_name: 'privacy_recovery_ledger_outbox', pending: 0, due: 0, retrying: 0, failed: 0, oldest_created_at: null, max_attempts: 0 }
         ]
       };
     }
@@ -168,11 +169,12 @@ test('operations report reads the three durable purge queues from PostgreSQL', {
     privatePhotoBackupDir: null,
     privateVoiceBackupDir: null
   });
-  assert.equal(report.queues.length, 3);
+  assert.equal(report.queues.length, 4);
   assert.deepEqual(report.queues.map(queue => queue.queue).sort(), [
     'identity_l3_media',
     'private_photo',
-    'private_voice_intro'
+    'private_voice_intro',
+    'privacy_recovery_ledger_outbox'
   ]);
 });
 
@@ -183,7 +185,8 @@ test('required backup locations become critical when deployment monitoring enabl
         rows: [
           { queue_name: 'private_photo', pending: 0, due: 0, retrying: 0, failed: 0, oldest_created_at: null, max_attempts: 0 },
           { queue_name: 'private_voice_intro', pending: 0, due: 0, retrying: 0, failed: 0, oldest_created_at: null, max_attempts: 0 },
-          { queue_name: 'identity_l3_media', pending: 0, due: 0, retrying: 0, failed: 0, oldest_created_at: null, max_attempts: 0 }
+          { queue_name: 'identity_l3_media', pending: 0, due: 0, retrying: 0, failed: 0, oldest_created_at: null, max_attempts: 0 },
+          { queue_name: 'privacy_recovery_ledger_outbox', pending: 0, due: 0, retrying: 0, failed: 0, oldest_created_at: null, max_attempts: 0 }
         ]
       };
     }
