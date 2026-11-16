@@ -131,3 +131,68 @@ test('privacy recovery replay receipts are append-only, unique and bound to stag
     await pool.end();
   }
 });
+
+
+test('L3 consent replay receipt and purge proof are accepted by the extended schema', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 10_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const client = await pool.connect();
+  const eventId = randomUUID();
+  const sequence = (BigInt(Date.now()) * 1000n + BigInt(Math.floor(Math.random() * 1000))).toString();
+  const subjectRef = 'd'.repeat(64);
+  const digest = createHash('sha256').update(JSON.stringify([
+    sequence, eventId, '1', 'identity_l3_consent_withdrawn',
+    subjectRef, null, '2026-11-16T00:00:00.000Z', '2026-11-16T00:00:01.000Z'
+  ])).digest('hex');
+  const pathDigest = createHash('sha256').update('private-l3-object-key').digest('hex');
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `INSERT INTO privacy_recovery_events
+         (ledger_sequence, event_id, schema_version, event_type, subject_ref, resource_ref, occurred_at, received_at)
+       VALUES ($1, $2, 1, 'identity_l3_consent_withdrawn', $3, NULL, $4, $5)`,
+      [sequence, eventId, subjectRef, new Date('2026-11-16T00:00:00.000Z'), new Date('2026-11-16T00:00:01.000Z')]
+    );
+    await client.query(
+      `INSERT INTO privacy_recovery_replay_receipts
+         (ledger_sequence, event_id, event_digest, event_type, outcome_code)
+       VALUES ($1, $2, $3, 'identity_l3_consent_withdrawn', 'identity_l3_consent_withdrawn')`,
+      [sequence, eventId, digest]
+    );
+    await client.query(
+      `INSERT INTO privacy_recovery_replay_effects
+         (ledger_sequence, event_id, event_type, subject_user_id, resource_id, purge_count)
+       VALUES ($1, $2, 'identity_l3_consent_withdrawn', $3, NULL, 1)`,
+      [sequence, eventId, '123e4567-e89b-42d3-a456-426614174000']
+    );
+    await client.query(
+      `INSERT INTO privacy_recovery_replay_purge_obligations
+         (ledger_sequence, event_id, queue_name, storage_path_sha256)
+       VALUES ($1, $2, 'identity_l3_media', $3)`,
+      [sequence, eventId, pathDigest]
+    );
+    await client.query(
+      `INSERT INTO privacy_recovery_replay_purge_completions
+         (ledger_sequence, queue_name, storage_path_sha256)
+       VALUES ($1, 'identity_l3_media', $2)`,
+      [sequence, pathDigest]
+    );
+    const proof = await client.query(
+      `SELECT o.queue_name, c.completed_at
+         FROM privacy_recovery_replay_purge_obligations o
+         JOIN privacy_recovery_replay_purge_completions c
+           USING (ledger_sequence, queue_name, storage_path_sha256)
+        WHERE o.ledger_sequence = $1`,
+      [sequence]
+    );
+    assert.equal(proof.rowCount, 1);
+    assert.equal(proof.rows[0].queue_name, 'identity_l3_media');
+    assert.ok(proof.rows[0].completed_at);
+  } finally {
+    await client.query('ROLLBACK').catch(() => {});
+    client.release();
+    await pool.end();
+  }
+});
