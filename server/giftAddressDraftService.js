@@ -47,6 +47,7 @@ export async function lockGiftAddressDraftOrder(client, { publicReference, recip
        FROM gift_delivery_orders o
        JOIN matches m ON m.id = o.match_id
       WHERE o.public_reference = $1 AND o.recipient_id = $2
+        AND o.expires_at > statement_timestamp()
       FOR UPDATE OF o`,
     [publicReference, recipientUserId]
   );
