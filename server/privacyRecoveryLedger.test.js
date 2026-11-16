@@ -88,3 +88,15 @@ test('malformed or non-success acknowledgement is rejected', async () => {
     /invalid_acknowledgement/
   );
 });
+
+
+test('delivery rejects malformed persisted payloads before making a network request', async () => {
+  const { deliverPrivacyRecoveryLedgerPayload } = await import('./privacyRecoveryLedger.js');
+  await assert.rejects(
+    deliverPrivacyRecoveryLedgerPayload({
+      event_id: randomUUID(), schema_version: 2, event_type: 'account_erasure_requested',
+      subject_ref: 'c'.repeat(64), occurred_at: '2026-11-16T00:00:00.000Z'
+    }, { env: baseEnv, fetchImpl: async () => { throw new Error('must not call'); } }),
+    /invalid_privacy_recovery_event_payload/
+  );
+});
