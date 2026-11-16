@@ -83,14 +83,13 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
         return;
       }
 
-      let blob = result.blob;
+      let blob: Blob | undefined = result.blob;
       if (result.uri) {
         if (!blob) blob = await readAndDeleteNativeRecordingFile(result.uri);
         else await deleteNativeRecordingFile(result.uri);
       }
-      const validation = blob instanceof Blob
-        ? validateVoiceIntroRecording(blob, durationMs)
-        : { ok: false as const, reason: 'file' as const };
+      if (!(blob instanceof Blob)) throw new Error('invalid_recording_file');
+      const validation = validateVoiceIntroRecording(blob, durationMs);
       if (!validation.ok) throw new Error('invalid_recording_file');
       const mimeType = validation.mimeType;
       const url = URL.createObjectURL(blob);
@@ -288,7 +287,7 @@ export const VoiceIntroRecorderPanel: React.FC<Props> = ({ voiceIntro, onChanged
         <div className="mt-3 rounded-xl border border-rose-400/20 bg-rose-950/20 p-3">
           <p className="text-xs font-semibold text-rose-100">{t('voiceIntroRecording')}</p>
           <p className="mt-1 font-mono text-sm tabular-nums text-white">{(elapsedMs / 1000).toFixed(1)} / 25.0 {t('voiceIntroDurationLabel')}</p>
-          <button type="button" onClick={() => void stopRecording()} disabled={elapsedMs < MIN_DURATION_MS || busy} className="mt-2 min-h-11 rounded-lg bg-rose-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-40">{t('voiceIntroStop')}</button>
+          <button type="button" onClick={() => void stopRecording()} disabled={elapsedMs < VOICE_INTRO_MIN_DURATION_MS || busy} className="mt-2 min-h-11 rounded-lg bg-rose-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-40">{t('voiceIntroStop')}</button>
           <button type="button" onClick={() => void cancelRecording()} disabled={busy} className="ms-2 mt-2 min-h-11 rounded-lg border border-white/10 px-3 py-2 text-xs text-stone-300">{t('voiceIntroCancel')}</button>
         </div>
       )}
