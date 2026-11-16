@@ -131,6 +131,8 @@ export async function verifyAccountErasurePrivacyRecovery({
         ['identity_verification_session_reservations', 'user_id', 'privacy_recovery_account_erasure_verification_identity_reservations_remain'],
         ['identity_verification_events', 'user_id', 'privacy_recovery_account_erasure_verification_identity_events_remain'],
         ['identity_verifications', 'user_id', 'privacy_recovery_account_erasure_verification_identity_records_remain'],
+        ['identity_l3_upload_tokens', 'user_id', 'privacy_recovery_account_erasure_verification_l3_upload_tokens_remain'],
+        ['user_auth_identities', 'user_id', 'privacy_recovery_account_erasure_verification_external_identity_remains'],
         ['likes', 'sender_id = $1 OR target_id = $1', 'privacy_recovery_account_erasure_verification_likes_remain'],
         ['profile_passes', 'passer_id = $1 OR passed_user_id = $1', 'privacy_recovery_account_erasure_verification_passes_remain'],
         ['female_profile_exposures', 'user_id', 'privacy_recovery_account_erasure_verification_exposures_remain'],
