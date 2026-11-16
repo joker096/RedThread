@@ -14,7 +14,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const EVENT_OUTCOMES = Object.freeze({
   private_photo_erasure_requested: ['photo_erasure_queued', 'photos'],
   voice_intro_erasure_requested: ['voice_intro_erasure_queued', 'voice'],
-  voice_intro_consent_withdrawn: ['voice_intro_consent_withdrawn', 'voice_consent']
+  voice_intro_consent_withdrawn: ['voice_intro_consent_withdrawn', 'voice_consent'],
+  identity_l3_consent_withdrawn: ['identity_l3_consent_withdrawn', 'identity_l3_consent']
 });
 
 function canonicalEvent(row) {
@@ -158,7 +159,103 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
       return { applied: false, alreadyApplied: true, outcome: receipt.outcome_code };
     }
 
-    if (kind === 'photos') {
+    if (kind === 'identity_l3_consent') {
+      await client.query(
+        'SELECT set_config(\'app.identity_l3_actor_user_id\', $1, true), set_config(\'app.identity_l3_reason_code\', \'consent_withdrawn\', true)',
+        [mapping.subjectUserId]
+      );
+      const consent = await client.query(
+        'SELECT consent_version, withdrawn_at FROM identity_l3_consents WHERE user_id = $1 FOR UPDATE',
+        [mapping.subjectUserId]
+      );
+      if (consent.rowCount !== 1 || consent.rows[0].withdrawn_at) {
+        throw new Error('privacy_recovery_identity_l3_consent_state_conflict');
+      }
+      const withdrawn = await client.query(
+        `UPDATE identity_l3_consents
+            SET withdrawn_at = statement_timestamp(), updated_at = statement_timestamp()
+          WHERE user_id = $1 AND withdrawn_at IS NULL
+          RETURNING consent_version, withdrawn_at`,
+        [mapping.subjectUserId]
+      );
+      if (withdrawn.rowCount !== 1) throw new Error('privacy_recovery_identity_l3_consent_withdrawal_conflict');
+      await client.query(
+        `INSERT INTO identity_l3_consent_events
+           (user_id, actor_user_id, event_type, consent_version, occurred_at)
+         VALUES ($1, $1, 'withdrawn', $2, $3)`,
+        [mapping.subjectUserId, withdrawn.rows[0].consent_version, withdrawn.rows[0].withdrawn_at]
+      );
+      await client.query(
+        `UPDATE identity_l3_upload_tokens
+            SET revoked_at = statement_timestamp()
+          WHERE user_id = $1 AND consumed_at IS NULL AND revoked_at IS NULL`,
+        [mapping.subjectUserId]
+      );
+
+      const submissions = await client.query(
+        `SELECT id, status, storage_object_key
+           FROM identity_l3_submissions
+          WHERE user_id = $1
+            AND (
+              status IN ('draft', 'upload_authorized', 'uploaded', 'processing', 'pending_review', 'approved')
+              OR storage_object_key IS NOT NULL
+            )
+          ORDER BY created_at, id
+          FOR UPDATE`,
+        [mapping.subjectUserId]
+      );
+      for (const submission of submissions.rows) {
+        if (['draft', 'upload_authorized', 'uploaded', 'processing', 'pending_review'].includes(submission.status)) {
+          await client.query(
+            "UPDATE identity_l3_submissions SET status = 'withdrawn' WHERE id = $1 AND user_id = $2",
+            [submission.id, mapping.subjectUserId]
+          );
+        } else if (submission.status === 'approved') {
+          await client.query(
+            "UPDATE identity_l3_submissions SET status = 'revoked', revoked_at = statement_timestamp() WHERE id = $1 AND user_id = $2",
+            [submission.id, mapping.subjectUserId]
+          );
+        }
+        if (submission.storage_object_key) {
+          await client.query(
+            `UPDATE identity_l3_media_purge_jobs
+                SET status = 'queued',
+                    attempts = 0,
+                    next_attempt_at = statement_timestamp(),
+                    lease_token = NULL,
+                    lease_expires_at = NULL,
+                    last_error_code = NULL,
+                    updated_at = statement_timestamp()
+              WHERE submission_id = $1
+                AND user_id = $2
+                AND status = 'failed'`,
+            [submission.id, mapping.subjectUserId]
+          );
+        }
+      }
+
+      // A terminal submission with retained media must have a durable job
+      // created by the database transition trigger. Never bypass that invariant.
+      const jobs = await client.query(
+        `SELECT s.id AS submission_id, s.storage_object_key, s.status AS submission_status,
+                j.id AS purge_job_id, j.status AS purge_status, j.user_id AS purge_user_id
+           FROM identity_l3_submissions s
+           LEFT JOIN identity_l3_media_purge_jobs j
+             ON j.submission_id = s.id
+          WHERE s.user_id = $1 AND s.storage_object_key IS NOT NULL
+          ORDER BY s.created_at, s.id
+          FOR UPDATE OF s, j`,
+        [mapping.subjectUserId]
+      );
+      for (const job of jobs.rows) {
+        if (!job.purge_job_id || job.purge_user_id !== mapping.subjectUserId ||
+            job.purge_status === 'completed') {
+          throw new Error('privacy_recovery_identity_l3_purge_obligation_missing');
+        }
+        purgeStoragePaths.push(job.storage_object_key);
+      }
+      purgeQueueName = 'identity_l3_media';
+    } else if (kind === 'photos') {
       const root = await assertPhotoRoot(photoStorageRoot);
       const asset = await client.query(
         'SELECT id, user_id, storage_path FROM photo_assets WHERE id = $1 FOR UPDATE',
