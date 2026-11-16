@@ -1,10 +1,12 @@
 import pg from 'pg';
 import { resolvePrivacyRecoveryMappings } from './privacyRecoveryMapping.js';
 import { applyPrivateMediaPrivacyRecoveryEvent } from './privacyRecoveryMediaExecutor.js';
+import { applyAccountErasurePrivacyRecoveryEvent } from './privacyRecoveryAccountErasureExecutor.js';
 import { assertPrivacyRecoveryRestoreTarget, assertPrivacyRecoveryRestoreTargetConfig } from './privacyRecoveryTargetGuard.js';
 
 const { Pool } = pg;
 const SUPPORTED_MEDIA_EVENTS = new Set([
+  'account_erasure_requested',
   'private_photo_erasure_requested',
   'voice_intro_erasure_requested',
   'voice_intro_consent_withdrawn',
@@ -41,7 +43,7 @@ export async function runPrivateMediaPrivacyRecovery({
   throughSequence,
   photoStorageRoot,
   voiceStorageRoot,
-  applyEvent = applyPrivateMediaPrivacyRecoveryEvent
+  applyEvent
 }) {
   assertIsolatedRestore(env);
   validateWatermarks(snapshotLedgerSequence, throughSequence);
@@ -114,7 +116,10 @@ export async function runPrivateMediaPrivacyRecovery({
   let processedCount = 0;
   let alreadyAppliedCount = 0;
   for (const mapping of mappings) {
-    const result = await applyEvent({
+    const executor = applyEvent || (mapping.eventType === 'account_erasure_requested'
+      ? applyAccountErasurePrivacyRecoveryEvent
+      : applyPrivateMediaPrivacyRecoveryEvent);
+    const result = await executor({
       pool,
       mapping,
       env,
