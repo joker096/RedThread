@@ -81,13 +81,16 @@ test('worker retains failed deliveries for retry with the same event identity', 
     })
   };
   const result = await processPrivacyRecoveryOutboxBatch({
-    pool, env, fetchImpl: async () => { throw new Error('offline'); }
+    pool, env, fetchImpl: async () => { throw new Error('offline: recipient=secret@example.test phone=+995555123456'); }
   });
   assert.equal(result.results[0].acknowledged, false);
   assert.match(retry.sql, /ELSE 'pending'/);
   assert.match(retry.sql, /WHEN attempts >= \$2 THEN 'dead'/);
   assert.equal(retry.values[0], eventId);
   assert.equal(retry.values[3], leaseToken);
+  assert.equal(retry.values[2], 'privacy_recovery_delivery_failed',
+    'untrusted exception text must never be persisted as an outbox error code');
+  assert.equal(result.results[0].error, 'privacy_recovery_delivery_failed');
 });
 
 
