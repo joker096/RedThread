@@ -304,3 +304,37 @@ test('coordinator blocks every non-media privacy domain before applying any medi
     assert.equal(appliedCount, 0, blockedType);
   }
 });
+
+
+test('coordinator replays subject-only L3 consent withdrawal events', async () => {
+  const applied = [];
+  const { pool } = poolFor({
+    events: [{
+      sequence: '1',
+      event_id: '123e4567-e89b-42d3-a456-426614174000',
+      event_type: 'identity_l3_consent_withdrawn',
+      subject_ref: subjectRef,
+      resource_ref: null
+    }]
+  });
+  const result = await runPrivateMediaPrivacyRecovery({
+    pool,
+    env: isolatedEnv,
+    snapshotLedgerSequence: 0,
+    throughSequence: 1,
+    applyEvent: async input => {
+      applied.push(input.mapping);
+      return { applied: true, alreadyApplied: false, outcome: 'identity_l3_consent_withdrawn' };
+    }
+  });
+  assert.equal(result.complete, true);
+  assert.equal(result.processedCount, 1);
+  assert.deepEqual(applied, [{
+    sequence: '1',
+    eventId: '123e4567-e89b-42d3-a456-426614174000',
+    eventType: 'identity_l3_consent_withdrawn',
+    status: 'matched',
+    subjectUserId: userId,
+    resourceId: null
+  }]);
+});
