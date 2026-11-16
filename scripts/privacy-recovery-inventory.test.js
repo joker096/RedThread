@@ -76,13 +76,13 @@ test('unresolved mappings fail readiness and report only sequence numbers', asyn
 test('matched events from unsupported domains do not report replay readiness', async () => {
   const pool = fakePool({
     events: [{
-      sequence: 1, event_id: randomUUID(), event_type: 'account_erasure_requested',
+      sequence: 1, event_id: randomUUID(), event_type: 'profile_data_export_requested',
       subject_ref: ref(userId), resource_ref: null
     }],
     users: [{ id: userId }]
   });
   const report = await runPrivacyRecoveryInventory({ pool, env });
-  assert.equal(report.matchedCount, 1);
+  assert.equal(report.matchedCount, 0);
   assert.equal(report.unresolvedCount, 0);
   assert.equal(report.supportedEventCount, 0);
   assert.equal(report.unsupportedEventCount, 1);
@@ -90,12 +90,12 @@ test('matched events from unsupported domains do not report replay readiness', a
   assert.equal(report.readyForDomainReplay, false);
 });
 
-test('all non-media event domains remain explicitly blocked even with matched subjects', async () => {
+test('all privacy recovery event domains are recognized as supported when mappings match', async () => {
   const eventTypes = [
-    'account_erasure_requested',
     'identity_l3_consent_withdrawn',
     'ad_consent_revoked',
-    'gift_order_consent_withdrawn'
+    'gift_order_consent_withdrawn',
+    'account_erasure_requested'
   ];
   const giftOrderId = randomUUID();
   const pool = fakePool({
