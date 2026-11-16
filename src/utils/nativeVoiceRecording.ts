@@ -64,3 +64,30 @@ export async function startNativeVoiceRecording({
 
   return 'started';
 }
+
+
+type AppStateListenerHandle = { remove: () => Promise<void> };
+
+/** Safely disposes an asynchronous native app-state listener, including late registration. */
+export function subscribeToNativeAppState(
+  register: (listener: (state: { isActive: boolean }) => void) => Promise<AppStateListenerHandle>,
+  onStateChange: (state: { isActive: boolean }) => void
+): () => void {
+  let disposed = false;
+  let handle: AppStateListenerHandle | null = null;
+  void register(onStateChange).then(registered => {
+    if (disposed) {
+      void registered.remove().catch(() => {});
+      return;
+    }
+    handle = registered;
+  }).catch(() => {});
+  return () => {
+    disposed = true;
+    if (handle) {
+      const current = handle;
+      handle = null;
+      void current.remove().catch(() => {});
+    }
+  };
+}
