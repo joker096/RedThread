@@ -6330,6 +6330,23 @@ app.post('/api/gifts/orders/:publicReference/withdraw-consent', validateRequestO
       return res.status(409).json({ error: 'gift_order_not_withdrawable' });
     }
 
+    // Consent withdrawal revokes the encrypted address payload in the same
+    // transaction as the order pointer. Clearing only address_vault_ref would
+    // leave the ciphertext recoverable by a future privileged code path.
+    const revokedAddress = await client.query(
+      `DELETE FROM gift_address_vault_entries
+       WHERE order_id = $1 AND recipient_user_id = $2
+       RETURNING vault_ref`,
+      [order.id, req.authUser.id]
+    );
+    if (revokedAddress.rowCount > 0) {
+      await client.query(
+        `INSERT INTO gift_address_vault_access_events (order_id, actor_user_id, action)
+         VALUES ($1, $2, 'revoked')`,
+        [order.id, req.authUser.id]
+      );
+    }
+
     await client.query(
       `INSERT INTO gift_delivery_order_events
          (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
