@@ -1,7 +1,7 @@
 import pg from 'pg';
 import { resolvePrivacyRecoveryMappings } from './privacyRecoveryMapping.js';
 import { applyPrivateMediaPrivacyRecoveryEvent } from './privacyRecoveryMediaExecutor.js';
-import { applyAccountErasurePrivacyRecoveryEvent } from './privacyRecoveryAccountErasureExecutor.js';
+import { applyAccountErasurePrivacyRecoveryEvent, preflightAccountErasurePrivacyRecovery } from './privacyRecoveryAccountErasureExecutor.js';
 import { assertPrivacyRecoveryRestoreTarget, assertPrivacyRecoveryRestoreTargetConfig } from './privacyRecoveryTargetGuard.js';
 
 const { Pool } = pg;
@@ -111,6 +111,36 @@ export async function runPrivateMediaPrivacyRecovery({
       blockedEventType: firstUnsupported.eventType,
       throughSequence
     };
+  }
+
+  // Account erasure has destructive preconditions outside the event's SQL
+  // writes (Paddle cancellation evidence and L3 object availability). Check
+  // every such event before applying any earlier event in the requested range.
+  if (!applyEvent) {
+    for (const mapping of mappings) {
+      if (mapping.eventType !== 'account_erasure_requested') continue;
+      try {
+        await preflightAccountErasurePrivacyRecovery({
+          pool,
+          mapping,
+          pseudonymKey: env.PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY,
+          env
+        });
+      } catch (error) {
+        if (typeof error?.message === 'string' &&
+            error.message.startsWith('privacy_recovery_account_erasure_')) {
+          return {
+            complete: false,
+            processedCount: 0,
+            alreadyAppliedCount: 0,
+            blockedSequence: Number(mapping.sequence),
+            blockedEventType: mapping.eventType,
+            throughSequence
+          };
+        }
+        throw error;
+      }
+    }
   }
 
   let processedCount = 0;
