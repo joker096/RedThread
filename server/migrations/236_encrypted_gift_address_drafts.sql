@@ -223,3 +223,90 @@ CREATE TRIGGER matches_purge_inactive_gift_address_drafts
   FOR EACH ROW
   WHEN (NEW.status <> 'active' AND OLD.status = 'active')
   EXECUTE FUNCTION purge_gift_address_drafts_on_match_safety_transition();
+
+-- Safety events can be written through more than one application path. Enforce
+-- immediate ciphertext deletion at the database boundary as well, including
+-- high-risk screening holds that do not necessarily change the match state.
+CREATE OR REPLACE FUNCTION purge_gift_address_drafts_for_safety_scope(
+  p_user_id UUID,
+  p_other_user_id UUID DEFAULT NULL
+)
+RETURNS void LANGUAGE plpgsql AS $draft_safety_scope$
+BEGIN
+  WITH removed AS (
+    DELETE FROM gift_address_drafts d
+     USING gift_delivery_orders o
+     WHERE d.order_id = o.id
+       AND (
+         (p_other_user_id IS NULL AND (o.sender_id = p_user_id OR o.recipient_id = p_user_id))
+         OR
+         (p_other_user_id IS NOT NULL AND (
+           (o.sender_id = p_user_id AND o.recipient_id = p_other_user_id)
+           OR (o.sender_id = p_other_user_id AND o.recipient_id = p_user_id)
+         ))
+       )
+     RETURNING d.order_id, d.recipient_user_id
+  ), revoked AS (
+    SELECT r.order_id, r.recipient_user_id, latest.consent_version
+      FROM removed r
+      JOIN LATERAL (
+        SELECT action, consent_version
+          FROM gift_address_draft_consent_events
+         WHERE order_id = r.order_id
+           AND recipient_user_id = r.recipient_user_id
+         ORDER BY id DESC LIMIT 1
+      ) latest ON latest.action = 'granted'
+  )
+  INSERT INTO gift_address_draft_consent_events
+    (order_id, recipient_user_id, consent_version, action, actor_user_id)
+  SELECT order_id, recipient_user_id, consent_version, 'withdrawn', NULL
+    FROM revoked;
+END;
+$draft_safety_scope$;
+
+CREATE OR REPLACE FUNCTION purge_gift_address_drafts_on_block()
+RETURNS trigger LANGUAGE plpgsql AS $draft_block$
+BEGIN
+  PERFORM purge_gift_address_drafts_for_safety_scope(NEW.blocker_id, NEW.blocked_id);
+  RETURN NEW;
+END;
+$draft_block$;
+
+DROP TRIGGER IF EXISTS user_blocks_purge_gift_address_drafts ON user_blocks;
+CREATE TRIGGER user_blocks_purge_gift_address_drafts
+  AFTER INSERT ON user_blocks
+  FOR EACH ROW EXECUTE FUNCTION purge_gift_address_drafts_on_block();
+
+CREATE OR REPLACE FUNCTION purge_gift_address_drafts_on_report()
+RETURNS trigger LANGUAGE plpgsql AS $draft_report$
+BEGIN
+  IF NEW.status IN ('open', 'reviewing') THEN
+    PERFORM purge_gift_address_drafts_for_safety_scope(NEW.reporter_id, NEW.reported_user_id);
+  END IF;
+  RETURN NEW;
+END;
+$draft_report$;
+
+DROP TRIGGER IF EXISTS user_reports_purge_gift_address_drafts ON user_reports;
+CREATE TRIGGER user_reports_purge_gift_address_drafts
+  AFTER INSERT OR UPDATE OF status ON user_reports
+  FOR EACH ROW EXECUTE FUNCTION purge_gift_address_drafts_on_report();
+
+CREATE OR REPLACE FUNCTION purge_gift_address_drafts_on_high_risk_screening()
+RETURNS trigger LANGUAGE plpgsql AS $draft_screening$
+BEGIN
+  IF NEW.severity = 'high'
+     AND NEW.review_status IN ('pending', 'reviewing', 'actioned') THEN
+    PERFORM purge_gift_address_drafts_for_safety_scope(NEW.user_id, NULL);
+  END IF;
+  RETURN NEW;
+END;
+$draft_screening$;
+
+DROP TRIGGER IF EXISTS user_safety_screenings_purge_gift_address_drafts ON user_safety_screenings;
+CREATE TRIGGER user_safety_screenings_purge_gift_address_drafts
+  AFTER INSERT OR UPDATE OF severity, review_status ON user_safety_screenings
+  FOR EACH ROW EXECUTE FUNCTION purge_gift_address_drafts_on_high_risk_screening();
+
+COMMENT ON FUNCTION purge_gift_address_drafts_for_safety_scope(UUID, UUID) IS
+  'Physically deletes live temporary address ciphertext for a blocked/reported pair or high-risk account and appends a non-PII withdrawal event.';
