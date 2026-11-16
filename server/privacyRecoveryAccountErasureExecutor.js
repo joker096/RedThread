@@ -154,6 +154,7 @@ async function applyAccountErasure(client, userId, env) {
   const user = userResult.rows[0];
   const reuseDigest = createAccountReuseDigest(user.email, env.ACCOUNT_REUSE_HMAC_KEY);
   if (!reuseDigest) throw new Error('privacy_recovery_account_erasure_reuse_digest_unavailable');
+  await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`account-reuse:${reuseDigest}`]);
 
   const checkout = await client.query(
     `SELECT status, plan FROM paddle_checkout_attempts WHERE user_id = $1 FOR UPDATE`,
@@ -244,7 +245,6 @@ async function applyAccountErasure(client, userId, env) {
     "UPDATE matches SET status = 'closed' WHERE user_a_id = $1 OR user_b_id = $1",
     [userId]
   );
-  await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`account-reuse:${reuseDigest}`]);
   await client.query(
     `INSERT INTO account_reuse_restrictions (email_hmac, expires_at)
      VALUES ($1, clock_timestamp() + INTERVAL '90 days')
