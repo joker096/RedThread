@@ -1,3 +1,5 @@
+import { GIFT_ADDRESS_DRAFT_CONSENT_VERSION } from './giftAddressDraft.js';
+
 export const DEFAULT_GIFT_ADDRESS_DRAFT_PURGE_BATCH_SIZE = 100;
 export function normalizeGiftAddressDraftPurgeBatchSize(value = DEFAULT_GIFT_ADDRESS_DRAFT_PURGE_BATCH_SIZE) {
   const size = Number(value);
@@ -29,12 +31,12 @@ export async function purgeExpiredGiftAddressDrafts(pool, {
        ), expired AS (
          INSERT INTO gift_address_draft_consent_events
            (order_id, recipient_user_id, consent_version, action, actor_user_id)
-         SELECT order_id, recipient_user_id, 1, 'expired', NULL
+         SELECT order_id, recipient_user_id, consent_version, 'expired', NULL
            FROM deleted
          RETURNING order_id
        )
        SELECT COUNT(*)::int AS purged FROM expired`,
-      [limit]
+      [limit, GIFT_ADDRESS_DRAFT_CONSENT_VERSION]
     );
     await client.query('COMMIT');
     return { purged: Number(result.rows[0]?.purged || 0) };
