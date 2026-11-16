@@ -96,3 +96,26 @@ test('rolls back when an existing sequence or event ID conflicts', async () => {
   }), /conflicting_existing_event/);
   assert.equal(client.calls.at(-1).sql, 'ROLLBACK');
 });
+
+
+test('stages gift consent withdrawal as an auditable event but rejects unapproved gift event types', async () => {
+  const giftWithdrawal = event(1, {
+    event_type: 'gift_order_consent_withdrawn',
+    resource_ref: 'e'.repeat(64)
+  });
+  const client = fakeClient();
+  const result = await stagePrivacyRecoveryEvents(client, {
+    snapshotLedgerSequence: 0,
+    events: [giftWithdrawal]
+  });
+  assert.equal(result.stagedCount, 1);
+  assert.equal(client.rows[0].event_type, 'gift_order_consent_withdrawn');
+  assert.equal(client.rows[0].resource_ref, 'e'.repeat(64));
+
+  const unsupportedClient = fakeClient();
+  await assert.rejects(stagePrivacyRecoveryEvents(unsupportedClient, {
+    snapshotLedgerSequence: 0,
+    events: [event(1, { event_type: 'gift_address_draft_submitted' })]
+  }), /archive_invalid/);
+  assert.equal(unsupportedClient.calls.length, 0, 'unapproved event types must fail before opening a transaction');
+});
