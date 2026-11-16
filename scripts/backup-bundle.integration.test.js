@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -138,6 +139,63 @@ test('coordinated backup bundle restores PostgreSQL and private media from one s
       if (sourceCreated) await admin.query('DROP DATABASE IF EXISTS "' + sourceDatabase + '" WITH (FORCE)').catch(() => {});
       await admin.end().catch(() => {});
     }
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+
+test('coordinated restore rejects a tampered encrypted artifact before opening staging targets', async () => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-backup-tamper-'));
+  const bundleDir = path.join(temporaryRoot, 'bundle');
+  const identityFile = path.join(temporaryRoot, 'age-identity.txt');
+  const postgresDir = path.join(bundleDir, 'postgres');
+  const mediaDir = path.join(bundleDir, 'private-media');
+  const postgresName = 'vow-postgres-tamper_fixture.dump.age';
+  const mediaName = 'vow-private-media-tamper_fixture.tar.age';
+  const postgresPath = path.join(postgresDir, postgresName);
+  const mediaPath = path.join(mediaDir, mediaName);
+  const destination = path.join(temporaryRoot, 'restore-target');
+  try {
+    await mkdir(postgresDir, { recursive: true, mode: 0o700 });
+    await mkdir(mediaDir, { recursive: true, mode: 0o700 });
+    await writeFile(identityFile, 'synthetic-age-identity', { mode: 0o600 });
+    await writeFile(postgresPath, 'original-encrypted-postgres-fixture', { mode: 0o600 });
+    await writeFile(mediaPath, 'original-encrypted-media-fixture', { mode: 0o600 });
+    const postgresDigest = createHash('sha256').update(await readFile(postgresPath)).digest('hex');
+    const mediaDigest = createHash('sha256').update(await readFile(mediaPath)).digest('hex');
+    await writeFile(postgresPath + '.sha256', postgresDigest + '  ' + postgresName + '\\n', { mode: 0o600 });
+    await writeFile(mediaPath + '.sha256', mediaDigest + '  ' + mediaName + '\\n', { mode: 0o600 });
+    const manifest = [
+      'format=vow-backup-bundle-v1',
+      'snapshot_id=tamper_fixture',
+      'postgres_archive=postgres/' + postgresName,
+      'postgres_sha256=' + postgresDigest,
+      'private_media_archive=private-media/' + mediaName,
+      'private_media_sha256=' + mediaDigest,
+      ''
+    ].join('\\n');
+    await writeFile(path.join(bundleDir, 'manifest.txt'), manifest, { mode: 0o600 });
+    const manifestDigest = createHash('sha256').update(manifest).digest('hex');
+    await writeFile(path.join(bundleDir, 'manifest.sha256'), manifestDigest + '  manifest.txt\\n', { mode: 0o600 });
+
+    // Simulate corruption after the signed-off bundle manifest was produced.
+    await writeFile(postgresPath, 'tampered-encrypted-postgres-fixture', { mode: 0o600 });
+    const result = spawnSync('bash', [restoreBundleScript], {
+      encoding: 'utf8',
+      timeout: 15_000,
+      env: {
+        ...process.env,
+        BACKUP_BUNDLE_DIR: bundleDir,
+        AGE_IDENTITY_FILE: identityFile,
+        RESTORE_DATABASE_URL: 'postgres://restore.invalid/never_opened',
+        RESTORE_CONFIRM_STAGING: stagingConfirmation,
+        RESTORE_DESTINATION: destination
+      }
+    });
+    assert.notEqual(result.status, 0, 'restore must fail closed for a modified archive');
+    assert.match(result.stderr, /artifact checksum does not match its manifest/);
+    await assert.rejects(readFile(path.join(destination, '.vow-restore-pending')));
+  } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }
 });
