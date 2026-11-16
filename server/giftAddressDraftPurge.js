@@ -1,8 +1,4 @@
-import pg from 'pg';
-
 export const DEFAULT_GIFT_ADDRESS_DRAFT_PURGE_BATCH_SIZE = 100;
-const { Pool } = pg;
-
 export function normalizeGiftAddressDraftPurgeBatchSize(value = DEFAULT_GIFT_ADDRESS_DRAFT_PURGE_BATCH_SIZE) {
   const size = Number(value);
   if (!Number.isInteger(size) || size < 1 || size > 1000) throw new RangeError('gift address draft purge batch size invalid');
@@ -50,21 +46,3 @@ export async function purgeExpiredGiftAddressDrafts(pool, {
   }
 }
 
-async function main() {
-  if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required');
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1,
-    ssl: process.env.PGSSL === 'true' ? { rejectUnauthorized: true } : undefined });
-  try {
-    const result = await purgeExpiredGiftAddressDrafts(pool, {
-      batchSize: process.env.GIFT_ADDRESS_DRAFT_PURGE_BATCH_SIZE || DEFAULT_GIFT_ADDRESS_DRAFT_PURGE_BATCH_SIZE
-    });
-    process.stdout.write(JSON.stringify(result) + '\\n');
-  } finally { await pool.end(); }
-}
-
-if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch(error => {
-    process.stderr.write(`gift address draft purge failed: ${error?.message || 'unknown error'}\\n`);
-    process.exitCode = 1;
-  });
-}
