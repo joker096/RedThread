@@ -245,3 +245,33 @@ The automated `scripts/restore-private-media.sh` wrapper now performs a streamin
 This policy matches the private-media backup contract: the media volume is expected to contain only regular files and directories. Do not weaken the restore filter to accommodate links or special files. If the application later requires another object type, design and test an explicit safe representation rather than restoring arbitrary tar link metadata.
 
 Regression tests cover symlink and hardlink members, parent traversal, checksum mismatch, interrupted decryption, existing/symlink destinations, and cleanup of partial staging output. A restore is still restricted to an isolated new directory and must pass deletion/consent reconciliation before the data is mounted or exposed.
+
+
+## Coordinated PostgreSQL + private-media backup bundles
+
+Use the bundle wrapper when a database snapshot and its private-media archive must be retained and restored as one named recovery point. It invokes the existing encrypted streaming backup scripts with one shared snapshot ID, then writes a manifest that binds both archive paths and SHA-256 digests. Existing standalone backup commands remain supported.
+
+Create a bundle from a trusted backup runner:
+
+```bash
+DATABASE_URL='postgresql://backup_role@db-host/vow_app' \
+PRIVATE_MEDIA_DIR=/srv/vow/private-media \
+BACKUP_AGE_RECIPIENT='age1...' \
+BACKUP_DIR=/secure/backups/vow-bundles \
+npm run backup:bundle
+```
+
+The wrapper creates a new private directory per snapshot and refuses to overwrite an existing ID. If either backup fails, it removes the incomplete bundle directory. Keep the complete directory (both encrypted archives, their checksum sidecars, and `manifest.txt` plus `manifest.sha256`) together in off-site storage. The manifest correlates the archives; it does not make the two source reads transactionally simultaneous or replace a database/media quiescence window and recorded recovery point.
+
+Restore both artifacts into isolated targets:
+
+```bash
+BACKUP_BUNDLE_DIR=/secure/backups/vow-bundles/<snapshot-id> \
+AGE_IDENTITY_FILE=/secure/escrow/vow-age-identity.txt \
+RESTORE_DATABASE_URL='postgresql://restore_role@db-host/vow_restore_dst_example' \
+RESTORE_CONFIRM_STAGING=I_UNDERSTAND_THIS_IS_A_DISPOSABLE_STAGING_DATABASE \
+RESTORE_DESTINATION=/srv/vow/restore-staging/private-media \
+npm run restore:bundle
+```
+
+The restore wrapper verifies the manifest and both archive digests before invoking the existing PostgreSQL and media restore guards. If one restore succeeds and the other fails, keep the successful target isolated and reconcile it manually; the wrapper never drops a database or deletes a partially restored target. The media directory receives `.vow-restore-pending` and must not be activated until the privacy-ledger replay and verification gate is satisfied. The integration test uses disposable PostgreSQL databases, synthetic files, and a temporary age identity; it does not access live user data or activate a backup schedule.
