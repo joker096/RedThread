@@ -256,6 +256,7 @@ export const GiftOrdersPanel: React.FC = () => {
       if (!response.ok) {
         throw new Error(t('giftOrdersDecisionError'));
       }
+      if (draftOrder?.publicReference === order.publicReference) closeAddressDraft();
       setNotice(t('giftOrdersConsentWithdrawn'));
       await load({ preserveNotice: true });
     } catch (error) {
