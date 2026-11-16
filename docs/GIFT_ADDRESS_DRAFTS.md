@@ -30,7 +30,7 @@ Do not reuse `GIFT_ADDRESS_VAULT_KEY`, voice, identity, session, or backup encry
 - `GET /api/gifts/orders/:publicReference/address-draft`: recipient-only; returns the decrypted draft only while consent is active and TTL has not elapsed.
 - `DELETE /api/gifts/orders/:publicReference/address-draft`: recipient-only; deletes ciphertext and appends a withdrawal event.
 
-The order must already be `recipient_accepted`. A transition out of that state, order-level consent withdrawal, account deletion, block/report/safety hold or other terminalization automatically deletes the draft row and withdraws active draft consent.
+The order must already be `recipient_accepted`. A transition out of that state, order-level consent withdrawal, account suspension/deletion, match deactivation, block/report/safety hold or other terminalization automatically deletes the draft row and withdraws active draft consent.
 
 ## TTL and deletion
 
