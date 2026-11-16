@@ -46,7 +46,7 @@ test('read-only inventory maps staged event and emits counts without identifiers
       sequence: 4, event_id: randomUUID(), event_type: 'private_photo_erasure_requested',
       subject_ref: ref(userId), resource_ref: ref(photoId)
     }],
-    users: [{ id: userId }], photos: [{ id: photoId }]
+    users: [{ id: userId }], photos: [{ id: photoId, user_id: userId }]
   });
   const report = await runPrivacyRecoveryInventory({ pool, env });
   assert.equal(report.readyForDomainReplay, true);
