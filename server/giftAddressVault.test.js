@@ -6,7 +6,8 @@ import {
   encryptGiftAddress,
   normalizeGiftAddress,
   parseGiftAddressVaultKey,
-  parseGiftAddressVaultKeyring
+  parseGiftAddressVaultKeyring,
+  revokeGiftAddressVaultEntry
 } from './giftAddressVault.js';
 
 const address = {
@@ -122,4 +123,58 @@ test('versioned gift vault keyring rejects invalid or missing active versions', 
     keyringValue: JSON.stringify({ '2026-01': reusedKey, '2026-02': reusedKey }),
     activeKeyVersion: '2026-02'
   }), null);
+});
+
+test('gift consent withdrawal deletes only the recipient-scoped encrypted address and audits revocation', async () => {
+  const calls = [];
+  const client = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('DELETE FROM gift_address_vault_entries')) {
+        return { rowCount: 1, rows: [{ vault_ref: 'vault-ref' }] };
+      }
+      return { rowCount: 1, rows: [] };
+    }
+  };
+  const result = await revokeGiftAddressVaultEntry(client, {
+    orderId: 'order-1',
+    recipientUserId: 'recipient-1',
+    actorUserId: 'recipient-1'
+  });
+  assert.deepEqual(result, { revoked: true });
+  assert.equal(calls.length, 2);
+  assert.match(calls[0].sql, /WHERE order_id = \$1 AND recipient_user_id = \$2/);
+  assert.deepEqual(calls[0].params, ['order-1', 'recipient-1']);
+  assert.match(calls[1].sql, /action\)\s*VALUES \(\$1, \$2, 'revoked'\)/);
+  assert.deepEqual(calls[1].params, ['order-1', 'recipient-1']);
+  assert.doesNotMatch(JSON.stringify(calls), /addressLine1|deliveryInstructions|phone|postalCode/);
+});
+
+test('gift consent withdrawal remains idempotent when no encrypted address row exists', async () => {
+  const calls = [];
+  const client = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      return { rowCount: 0, rows: [] };
+    }
+  };
+  const result = await revokeGiftAddressVaultEntry(client, {
+    orderId: 'order-2',
+    recipientUserId: 'recipient-2',
+    actorUserId: 'recipient-2'
+  });
+  assert.deepEqual(result, { revoked: false });
+  assert.equal(calls.length, 1, 'no synthetic audit event is written when there was no vault row');
+});
+
+test('gift address vault revocation rejects incomplete actor context before querying', async () => {
+  let queried = false;
+  await assert.rejects(
+    revokeGiftAddressVaultEntry({ query: async () => { queried = true; } }, {
+      orderId: 'order-3',
+      recipientUserId: 'recipient-3'
+    }),
+    /gift address revocation context is required/
+  );
+  assert.equal(queried, false);
 });
