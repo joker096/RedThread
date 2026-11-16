@@ -51,7 +51,7 @@ DECLARE
   order_row RECORD;
   consent_row RECORD;
 BEGIN
-  SELECT recipient_id, status, consent_withdrawn_at, expires_at
+  SELECT sender_id, recipient_id, match_id, status, consent_withdrawn_at, expires_at
     INTO order_row
     FROM gift_delivery_orders
    WHERE id = NEW.order_id
@@ -76,7 +76,36 @@ BEGIN
      OR order_row.consent_withdrawn_at IS NOT NULL
      OR order_row.expires_at <= statement_timestamp()
      OR consent_row.action <> 'granted'
-     OR consent_row.consent_version <> 1 THEN
+     OR consent_row.consent_version <> 1
+     OR NOT EXISTS (
+       SELECT 1 FROM users
+        WHERE id = order_row.sender_id AND status = 'active'
+     )
+     OR NOT EXISTS (
+       SELECT 1 FROM users
+        WHERE id = order_row.recipient_id AND status = 'active'
+     )
+     OR NOT EXISTS (
+       SELECT 1 FROM matches
+        WHERE id = order_row.match_id AND status = 'active'
+     )
+     OR EXISTS (
+       SELECT 1 FROM user_blocks
+        WHERE (blocker_id = order_row.sender_id AND blocked_id = order_row.recipient_id)
+           OR (blocker_id = order_row.recipient_id AND blocked_id = order_row.sender_id)
+     )
+     OR EXISTS (
+       SELECT 1 FROM user_reports
+        WHERE status IN ('open', 'reviewing')
+          AND ((reporter_id = order_row.sender_id AND reported_user_id = order_row.recipient_id)
+            OR (reporter_id = order_row.recipient_id AND reported_user_id = order_row.sender_id))
+     )
+     OR EXISTS (
+       SELECT 1 FROM user_safety_screenings
+        WHERE user_id IN (order_row.sender_id, order_row.recipient_id)
+          AND severity = 'high'
+          AND review_status IN ('pending', 'reviewing', 'actioned')
+     ) THEN
     RAISE EXCEPTION 'gift address draft is not authorized'
       USING ERRCODE = '23514';
   END IF;
