@@ -20,7 +20,7 @@ test('maps user and resource references using the ledger HMAC derivation', () =>
   const result = resolvePrivacyRecoveryMappings({
     pseudonymKey: key,
     users: [{ id: userId }],
-    photos: [{ id: photoId }],
+    photos: [{ id: photoId, user_id: userId }],
     events: [event('private_photo_erasure_requested', userId, photoId)]
   });
   assert.deepEqual(result, [{
@@ -40,7 +40,7 @@ test('maps all resource-bearing event types against their own restored entity se
   const result = resolvePrivacyRecoveryMappings({
     pseudonymKey: key,
     users: [{ id: userId }],
-    voiceIntros: [{ id: voiceId }],
+    voiceIntros: [{ id: voiceId, user_id: userId }],
     giftOrders: [{ id: orderId }],
     events: [
       event('voice_intro_erasure_requested', userId, voiceId),
@@ -133,4 +133,18 @@ test('rejects weak keys, malformed candidates and malformed event references', (
     pseudonymKey: key,
     events: [{ event_type: 'account_erasure_requested', subject_ref: 'bad' }]
   }), /mapping_event_invalid/);
+});
+
+
+test('fails closed when a restored resource has no owner identity', () => {
+  const userId = id();
+  const photoId = id();
+  const result = resolvePrivacyRecoveryMappings({
+    pseudonymKey: key,
+    users: [{ id: userId }],
+    photos: [{ id: photoId, user_id: null }],
+    events: [event('private_photo_erasure_requested', userId, photoId)]
+  });
+  assert.equal(result[0].status, 'resource_owner_missing');
+  assert.equal(result[0].resourceId, null);
 });
