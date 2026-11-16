@@ -2,12 +2,17 @@ import { createPrivacyRecoveryLedgerPayload, deliverPrivacyRecoveryLedgerPayload
 
 const MAX_ATTEMPTS = 12;
 const LEASE_SECONDS = 60;
+const SAFE_DELIVERY_ERROR_CODES = new Set([
+  'privacy_recovery_ledger_invalid_url',
+  'privacy_recovery_ledger_not_configured',
+  'privacy_recovery_ledger_unavailable',
+  'privacy_recovery_ledger_rejected_event',
+  'privacy_recovery_ledger_invalid_acknowledgement'
+]);
 
 function safeDeliveryErrorCode(error) {
   const code = typeof error?.message === 'string' ? error.message : '';
-  return /^privacy_recovery_ledger_[a-z_]{1,64}$/.test(code)
-    ? code
-    : 'privacy_recovery_delivery_failed';
+  return SAFE_DELIVERY_ERROR_CODES.has(code) ? code : 'privacy_recovery_delivery_failed';
 }
 
 export async function enqueuePrivacyRecoveryEvent(client, input, { env = process.env } = {}) {
