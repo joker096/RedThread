@@ -23,7 +23,6 @@ done
 # descriptors. Every later checksum/decrypt pass reads these same private copies,
 # so replacing the source archive between validation and extraction cannot race us.
 work_dir="$(mktemp -d "${TMPDIR:-/tmp}/vow-private-media-restore.XXXXXX")"
-chmod 700 "$work_dir"
 destination=""
 destination_created=0
 restore_complete=0
@@ -39,6 +38,7 @@ cleanup() {
   return "$status"
 }
 trap cleanup EXIT
+chmod 700 "$work_dir"
 
 archive_snapshot="$work_dir/archive.tar.age"
 checksum_snapshot="$work_dir/archive.sha256"
@@ -66,7 +66,10 @@ for source, destination, max_size in pairs:
             chunk = os.read(source_fd, 1024 * 1024)
             if not chunk:
                 break
-            os.write(destination_fd, chunk)
+            view = memoryview(chunk)
+            while view:
+                written = os.write(destination_fd, view)
+                view = view[written:]
         os.fsync(destination_fd)
     finally:
         os.close(source_fd)
