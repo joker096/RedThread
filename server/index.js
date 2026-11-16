@@ -9,7 +9,9 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { validateAdEventPayload, classifyDuplicateAdEvent, hasExplicitAdConsent, evaluateAdEventFrequency, isAdEventCollectionEnabled } from './adEvents.js';
 import { evaluateAdCampaignEligibility, isCampaignCountryAllowed, resolveProfileCountryCode } from './adCampaignRegistry.js';
 import { AD_EVENT_FREQUENCY_COUNTS_SQL } from './adEventFrequencyQuery.js';
-import { revokeGiftAddressVaultEntry } from './giftAddressVault.js';
+import { revokeGiftAddressVaultEntry, normalizeGiftAddress } from './giftAddressVault.js';
+import { decryptGiftAddressDraft, encryptGiftAddressDraft, GIFT_ADDRESS_DRAFT_CONSENT_VERSION, GIFT_ADDRESS_DRAFT_TTL_MS, parseGiftAddressDraftKeyring } from './giftAddressDraft.js';
+import { lockGiftAddressDraftOrder, withdrawGiftAddressDraft } from './giftAddressDraftService.js';
 import { validateGiftDecisionInput } from './giftDecisionInput.js';
 import { projectGiftOrderStatus } from './giftOrderStatusProjection.js';
 import { normalizeGiftRequestInput } from './giftRequestInput.js';
@@ -6374,6 +6376,175 @@ app.post('/api/gifts/orders/:publicReference/withdraw-consent', validateRequestO
     if (client && !await rollbackPooledTransaction(client)) client = null;
     console.error('Gift consent withdrawal failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'gift_consent_withdrawal_unavailable' });
+  } finally {
+    client?.release();
+  }
+});
+
+
+app.put('/api/gifts/orders/:publicReference/address-draft', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  const reference = req.params.publicReference;
+  const body = req.body;
+  if (typeof reference !== 'string' || !/^gift_[a-f0-9]{32}$/i.test(reference) ||
+      !body || typeof body !== 'object' || Array.isArray(body) ||
+      Object.keys(body).some(key => !['consent', 'consentVersion', 'address'].includes(key)) ||
+      body.consent !== true || body.consentVersion !== GIFT_ADDRESS_DRAFT_CONSENT_VERSION) {
+    return res.status(400).json({ error: 'gift_address_draft_consent_required' });
+  }
+  const normalized = normalizeGiftAddress(body.address);
+  if (!normalized.ok) return res.status(400).json({ error: normalized.error });
+  const keyring = parseGiftAddressDraftKeyring();
+  if (!keyring) return res.status(503).json({ error: 'gift_address_draft_storage_not_configured' });
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const locked = await lockGiftAddressDraftOrder(client, {
+      publicReference: reference, recipientUserId: req.authUser.id
+    });
+    if (!locked.ok) {
+      await client.query('ROLLBACK');
+      return res.status(locked.status).json({ error: locked.error });
+    }
+
+    const encrypted = encryptGiftAddressDraft({
+      address: normalized.address, orderId: locked.order.id,
+      recipientUserId: req.authUser.id, keyring
+    });
+    const now = Date.now();
+    const expiresAtMs = Math.min(now + GIFT_ADDRESS_DRAFT_TTL_MS, new Date(locked.order.expires_at).getTime());
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= now) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_address_draft_not_available' });
+    }
+
+    await client.query(
+      `INSERT INTO gift_address_draft_consent_events
+         (order_id, recipient_user_id, consent_version, action, actor_user_id)
+       VALUES ($1, $2, $3, 'granted', $2)`,
+      [locked.order.id, req.authUser.id, GIFT_ADDRESS_DRAFT_CONSENT_VERSION]
+    );
+    await client.query(
+      `INSERT INTO gift_address_drafts
+         (order_id, recipient_user_id, key_version, nonce, auth_tag, ciphertext, created_at, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, statement_timestamp(), $7)
+       ON CONFLICT (order_id) DO UPDATE
+         SET recipient_user_id = EXCLUDED.recipient_user_id,
+             key_version = EXCLUDED.key_version,
+             nonce = EXCLUDED.nonce,
+             auth_tag = EXCLUDED.auth_tag,
+             ciphertext = EXCLUDED.ciphertext,
+             created_at = statement_timestamp(),
+             expires_at = EXCLUDED.expires_at`,
+      [locked.order.id, req.authUser.id, encrypted.keyVersion, encrypted.nonce,
+        encrypted.authTag, encrypted.ciphertext, new Date(expiresAtMs)]
+    );
+    await client.query('COMMIT');
+    return res.status(201).json({
+      draft: { status: 'saved', expiresAt: new Date(expiresAtMs).toISOString() },
+      addressVerified: false,
+      fulfilmentAuthorized: false
+    });
+  } catch (error) {
+    if (client && !await rollbackPooledTransaction(client)) client = null;
+    if (error?.code === '23514' || error?.code === '23503') {
+      return res.status(409).json({ error: 'gift_address_draft_not_available' });
+    }
+    console.error('Gift address draft save failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_address_draft_save_unavailable' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.get('/api/gifts/orders/:publicReference/address-draft', requireSession, profileActionLimiter, async (req, res) => {
+  const reference = req.params.publicReference;
+  if (typeof reference !== 'string' || !/^gift_[a-f0-9]{32}$/i.test(reference)) {
+    return res.status(400).json({ error: 'invalid_gift_reference' });
+  }
+  const keyring = parseGiftAddressDraftKeyring();
+  if (!keyring) return res.status(503).json({ error: 'gift_address_draft_storage_not_configured' });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const locked = await lockGiftAddressDraftOrder(client, {
+      publicReference: reference, recipientUserId: req.authUser.id
+    });
+    if (!locked.ok) {
+      await client.query('ROLLBACK');
+      return res.status(locked.status).json({ error: locked.error });
+    }
+    const selected = await client.query(
+      `SELECT d.key_version AS "keyVersion", d.nonce, d.auth_tag AS "authTag",
+              d.ciphertext, d.expires_at AS "expiresAt",
+              latest.action, latest.consent_version AS "consentVersion"
+         FROM gift_address_drafts d
+         JOIN LATERAL (
+           SELECT action, consent_version
+             FROM gift_address_draft_consent_events
+            WHERE order_id = d.order_id AND recipient_user_id = d.recipient_user_id
+            ORDER BY id DESC LIMIT 1
+         ) latest ON TRUE
+        WHERE d.order_id = $1 AND d.recipient_user_id = $2
+          AND d.expires_at > statement_timestamp()`,
+      [locked.order.id, req.authUser.id]
+    );
+    const draft = selected.rows[0];
+    if (!draft || draft.action !== 'granted' ||
+        Number(draft.consentVersion) !== GIFT_ADDRESS_DRAFT_CONSENT_VERSION) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'gift_address_draft_not_found' });
+    }
+    const address = decryptGiftAddressDraft({
+      encrypted: {
+        keyVersion: draft.keyVersion, nonce: draft.nonce,
+        authTag: draft.authTag, ciphertext: draft.ciphertext
+      },
+      orderId: locked.order.id, recipientUserId: req.authUser.id, keyring
+    });
+    await client.query('COMMIT');
+    return res.json({
+      draft: { address, expiresAt: new Date(draft.expiresAt).toISOString() },
+      addressVerified: false,
+      fulfilmentAuthorized: false
+    });
+  } catch (error) {
+    if (client && !await rollbackPooledTransaction(client)) client = null;
+    console.error('Gift address draft read failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_address_draft_read_unavailable' });
+  } finally {
+    client?.release();
+  }
+});
+
+app.delete('/api/gifts/orders/:publicReference/address-draft', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
+  const reference = req.params.publicReference;
+  if (typeof reference !== 'string' || !/^gift_[a-f0-9]{32}$/i.test(reference)) {
+    return res.status(400).json({ error: 'invalid_gift_reference' });
+  }
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const locked = await lockGiftAddressDraftOrder(client, {
+      publicReference: reference, recipientUserId: req.authUser.id
+    });
+    if (!locked.ok) {
+      await client.query('ROLLBACK');
+      return res.status(locked.status).json({ error: locked.error });
+    }
+    const result = await withdrawGiftAddressDraft(client, {
+      orderId: locked.order.id, recipientUserId: req.authUser.id,
+      actorUserId: req.authUser.id, consentVersion: GIFT_ADDRESS_DRAFT_CONSENT_VERSION
+    });
+    await client.query('COMMIT');
+    return res.status(204).end();
+  } catch (error) {
+    if (client && !await rollbackPooledTransaction(client)) client = null;
+    console.error('Gift address draft withdrawal failed:', error?.message || 'unknown error');
+    return res.status(500).json({ error: 'gift_address_draft_withdrawal_unavailable' });
   } finally {
     client?.release();
   }
