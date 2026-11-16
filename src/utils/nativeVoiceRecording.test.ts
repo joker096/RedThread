@@ -131,3 +131,16 @@ test('removes an already registered native app-state listener on disposal', asyn
   unsubscribe();
   assert.equal(removed, 1);
 });
+
+
+test('contains synchronous native app-state registration failures without throwing from subscription', async () => {
+  let removed = 0;
+  const unsubscribe = subscribeToNativeAppState(
+    () => { throw new Error('native bridge unavailable'); },
+    () => {}
+  );
+  assert.doesNotThrow(() => unsubscribe());
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(removed, 0);
+});
