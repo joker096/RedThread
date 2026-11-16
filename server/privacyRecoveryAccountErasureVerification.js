@@ -171,6 +171,37 @@ export async function verifyAccountErasurePrivacyRecovery({
       await assertNoRows(client,
         "SELECT 1 FROM paddle_checkout_attempts WHERE user_id = $1 AND status IN ('creating','pending','reconciliation_required') LIMIT 1",
         [userId], 'privacy_recovery_account_erasure_verification_checkout_unresolved');
+      await assertNoRows(client,
+        `SELECT 1
+           FROM gift_address_draft_consent_events e
+           JOIN gift_delivery_orders o ON o.id = e.order_id
+           JOIN LATERAL (
+             SELECT action FROM gift_address_draft_consent_events latest
+              WHERE latest.order_id = e.order_id
+                AND latest.recipient_user_id = e.recipient_user_id
+              ORDER BY latest.id DESC LIMIT 1
+           ) current_consent ON TRUE
+          WHERE (o.sender_id = $1 OR o.recipient_id = $1)
+            AND current_consent.action = 'granted'
+          LIMIT 1`,
+        [userId], 'privacy_recovery_account_erasure_verification_gift_draft_consent_active');
+      await assertNoRows(client,
+        `SELECT 1
+           FROM gift_delivery_orders o
+           JOIN LATERAL (
+             SELECT from_status FROM gift_delivery_order_events
+              WHERE order_id = o.id AND event_type = 'safety_hold'
+              ORDER BY id DESC LIMIT 1
+           ) safety_event ON TRUE
+          WHERE (o.sender_id = $1 OR o.recipient_id = $1)
+            AND safety_event.from_status NOT IN ('delivered', 'refund_pending')
+            AND o.payment_status IN ('authorization_pending', 'authorized', 'captured', 'refund_pending')
+            AND NOT EXISTS (
+              SELECT 1 FROM gift_payment_reconciliation_tasks task
+               WHERE task.order_id = o.id
+            )
+          LIMIT 1`,
+        [userId], 'privacy_recovery_account_erasure_verification_gift_payment_reconciliation_missing');
 
       const reuse = await client.query(
         `SELECT 1 FROM account_reuse_restrictions
