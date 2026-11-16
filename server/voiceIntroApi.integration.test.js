@@ -5,6 +5,8 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
+import { pathToFileURL } from 'node:url';
+import { readAndDeleteNativeRecordingFile } from '../src/utils/nativeRecordingFile.ts';
 
 const { Pool } = pg;
 
@@ -306,8 +308,16 @@ test('voice intro HTTP API covers encrypted upload, moderator review, owner play
       assert.equal(generated.error, undefined,
         'ffmpeg must be installed in the integration-test runner: ' + (generated.error?.message || ''));
       assert.equal(generated.status, 0, 'could not generate deterministic AAC fixture: ' + generated.stderr);
-      const audio = await readFile(fixturePath);
+      const nativeFileUri = pathToFileURL(fixturePath).href;
+      const importedNativeRecording = await readAndDeleteNativeRecordingFile(nativeFileUri, {
+        convertFileSrc: uri => uri,
+        fetchFile: async () => new Response(await readFile(fixturePath), { status: 200 }),
+        deleteFile: async () => { await rm(fixturePath, { force: true }); }
+      });
+      const audio = Buffer.from(await importedNativeRecording.arrayBuffer());
       assert.ok(audio.length >= 64 && audio.length <= 2 * 1024 * 1024);
+      assert.equal(await import('node:fs/promises').then(({ access }) => access(fixturePath).then(() => true).catch(() => false)), false,
+        'native recording cache file must be deleted before upload');
 
       const owner = await register('female', 'owner');
       const moderator = await register('female', 'moderator');
