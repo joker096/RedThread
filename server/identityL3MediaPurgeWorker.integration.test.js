@@ -135,6 +135,10 @@ test('identity L3 purge worker retries deletion failures without clearing the su
     assert.equal(state.rows[0].lease_expires_at, null);
   } finally {
     if (fixtureCreated) {
+      await pool.query(
+        'UPDATE identity_l3_media_purge_jobs SET next_attempt_at = statement_timestamp() WHERE submission_id = $1',
+        [submissionId]
+      ).catch(() => {});
       await processIdentityL3MediaPurgeBatch(pool, {
         storageRoot,
         batchSize: 1,
