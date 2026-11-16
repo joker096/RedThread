@@ -28,31 +28,39 @@ function assertIsolatedRestoreEnvironment(env) {
   }
 }
 
-function summarizeMappings(mappings) {
+function summarizeMappings(mappings, allEvents) {
   const byStatus = {};
   const byEventType = {};
   const unresolvedSequences = [];
   const unsupportedEventSequences = [];
   for (const mapping of mappings) {
     byStatus[mapping.status] = (byStatus[mapping.status] || 0) + 1;
-    byEventType[mapping.eventType] = (byEventType[mapping.eventType] || 0) + 1;
     if (mapping.status !== 'matched') unresolvedSequences.push(mapping.sequence);
-    if (!DOMAIN_REPLAY_EVENT_TYPES.has(mapping.eventType)) unsupportedEventSequences.push(mapping.sequence);
   }
+  for (const event of allEvents) {
+    byEventType[event.event_type] = (byEventType[event.event_type] || 0) + 1;
+    if (!DOMAIN_REPLAY_EVENT_TYPES.has(event.event_type)) {
+      unsupportedEventSequences.push(event.sequence);
+    }
+  }
+  const supportedEventCount = allEvents.length - unsupportedEventSequences.length;
+  const matchedCount = byStatus.matched || 0;
   return {
-    eventCount: mappings.length,
-    matchedCount: byStatus.matched || 0,
-    unresolvedCount: mappings.length - (byStatus.matched || 0),
+    eventCount: allEvents.length,
+    matchedCount,
+    unresolvedCount: mappings.length - matchedCount,
     byStatus,
     byEventType,
     unresolvedSequences,
-    supportedEventCount: mappings.length - unsupportedEventSequences.length,
+    supportedEventCount,
     unsupportedEventCount: unsupportedEventSequences.length,
     unsupportedEventSequences,
-    readyForDomainReplay: mappings.length > 0 && unresolvedSequences.length === 0 && unsupportedEventSequences.length === 0
+    readyForDomainReplay: allEvents.length > 0 &&
+      mappings.length === supportedEventCount &&
+      unresolvedSequences.length === 0 &&
+      unsupportedEventSequences.length === 0
   };
 }
-
 /**
  * Read-only inventory against an explicitly isolated restored database.
  * No account/resource identifiers or pseudonym references are emitted.
@@ -85,15 +93,16 @@ export async function runPrivacyRecoveryInventory({ pool, env = process.env } = 
       client.query('SELECT id, user_id FROM photo_assets'),
       client.query('SELECT id, recipient_id AS user_id FROM gift_delivery_orders')
     ]);
+    const supportedEvents = events.filter(event => DOMAIN_REPLAY_EVENT_TYPES.has(event.event_type));
     const mappings = resolvePrivacyRecoveryMappings({
-      events,
+      events: supportedEvents,
       pseudonymKey: env.PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY,
       users: users.rows || [],
       voiceIntros: voiceIntros.rows || [],
       photos: photos.rows || [],
       giftOrders: giftOrders.rows || []
     });
-    const summary = summarizeMappings(mappings);
+    const summary = summarizeMappings(mappings, events);
     await client.query('COMMIT');
     transactionOpen = false;
     return {
