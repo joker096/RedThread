@@ -43,7 +43,8 @@ export async function runPrivateMediaPrivacyRecovery({
   throughSequence,
   photoStorageRoot,
   voiceStorageRoot,
-  applyEvent
+  applyEvent,
+  preflightAccountErasure = preflightAccountErasurePrivacyRecovery
 }) {
   assertIsolatedRestore(env);
   validateWatermarks(snapshotLedgerSequence, throughSequence);
@@ -120,7 +121,7 @@ export async function runPrivateMediaPrivacyRecovery({
     for (const mapping of mappings) {
       if (mapping.eventType !== 'account_erasure_requested') continue;
       try {
-        await preflightAccountErasurePrivacyRecovery({
+        await preflightAccountErasure({
           pool,
           mapping,
           pseudonymKey: env.PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY,
