@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import {
   IDENTITY_L3_WORKER_MAX_ATTEMPTS,
@@ -381,6 +382,14 @@ test('L3 purge worker deletes encrypted media under the account lock and clears 
     objectKey: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
     root: '/private/l3'
   }]);
+  const recoveryProof = client.calls.find(call =>
+    call.sql.includes('INSERT INTO privacy_recovery_replay_purge_completions')
+  );
+  assert.ok(recoveryProof, 'successful L3 unlink must persist recovery completion evidence');
+  assert.equal(
+    recoveryProof.params[0],
+    createHash('sha256').update('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'utf8').digest('hex')
+  );
   const clearIndex = client.calls.findIndex(call => call.sql.includes('UPDATE identity_l3_submissions'));
   const completeIndex = client.calls.findIndex(call =>
     call.sql.includes("SET status = 'completed'") && call.sql.includes('identity_l3_media_purge_jobs')
