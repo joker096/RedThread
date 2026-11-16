@@ -41,7 +41,7 @@ test('coordinator stops at the first unsupported event without replaying later e
     events: [{
       sequence: '1',
       event_id: '123e4567-e89b-42d3-a456-426614174001',
-      event_type: 'ad_consent_revoked',
+      event_type: 'profile_data_export_requested',
       subject_ref: subjectRef,
       resource_ref: null
     }, {
@@ -60,7 +60,7 @@ test('coordinator stops at the first unsupported event without replaying later e
     processedCount: 0,
     alreadyAppliedCount: 0,
     blockedSequence: 1,
-    blockedEventType: 'ad_consent_revoked',
+    blockedEventType: 'profile_data_export_requested',
     throughSequence: 2
   });
   assert.equal(calls.includes('COMMIT'), true);
@@ -88,6 +88,9 @@ test('coordinator preflights the full batch before applying any supported prefix
   const applied = [];
   const result = await runPrivateMediaPrivacyRecovery({
     pool, env: isolatedEnv, snapshotLedgerSequence: 0, throughSequence: 2,
+    preflightAdConsent: async () => {
+      throw new Error('privacy_recovery_ad_consent_preferences_missing');
+    },
     applyEvent: async ({ mapping }) => {
       applied.push(mapping);
       return { applied: true, alreadyApplied: false };
@@ -107,6 +110,8 @@ test('coordinator preflights the full batch before applying any supported prefix
 test('coordinator preflights the full batch before applying a supported prefix', async () => {
   const photoId = '123e4567-e89b-42d3-a456-426614174005';
   const photoRef = createHmac('sha256', key).update(photoId, 'utf8').digest('hex');
+  const giftOrderId = '123e4567-e89b-42d3-a456-426614174099';
+  const giftRef = createHmac('sha256', key).update(giftOrderId, 'utf8').digest('hex');
   const { pool } = poolFor({
     events: [{
       sequence: '1',
@@ -117,15 +122,19 @@ test('coordinator preflights the full batch before applying a supported prefix',
     }, {
       sequence: '2',
       event_id: '123e4567-e89b-42d3-a456-426614174007',
-      event_type: 'ad_consent_revoked',
+      event_type: 'gift_order_consent_withdrawn',
       subject_ref: subjectRef,
-      resource_ref: null
+      resource_ref: giftRef
     }],
-    photos: [{ id: photoId, user_id: userId }]
+    photos: [{ id: photoId, user_id: userId }],
+    giftOrders: [{ id: giftOrderId, user_id: userId }]
   });
   const applied = [];
   const result = await runPrivateMediaPrivacyRecovery({
     pool, env: isolatedEnv, snapshotLedgerSequence: 0, throughSequence: 2,
+    preflightGiftConsent: async () => {
+      throw new Error('privacy_recovery_gift_consent_order_not_withdrawable');
+    },
     applyEvent: async ({ mapping }) => {
       applied.push(mapping);
       return { applied: true, alreadyApplied: false };
@@ -137,13 +146,13 @@ test('coordinator preflights the full batch before applying a supported prefix',
     processedCount: 0,
     alreadyAppliedCount: 0,
     blockedSequence: 2,
-    blockedEventType: 'ad_consent_revoked',
+    blockedEventType: 'gift_order_consent_withdrawn',
     throughSequence: 2
   });
 });
 
 
-test('coordinator inventories gift-order recipients but keeps gift withdrawal blocked until its domain executor exists', async () => {
+test('coordinator preflights and dispatches gift consent withdrawal', async () => {
   const recipientId = userId;
   const orderId = '123e4567-e89b-42d3-a456-426614174099';
   const orderRef = createHmac('sha256', key).update(orderId, 'utf8').digest('hex');
@@ -163,19 +172,18 @@ test('coordinator inventories gift-order recipients but keeps gift withdrawal bl
     env: isolatedEnv,
     snapshotLedgerSequence: 0,
     throughSequence: 1,
+    preflightGiftConsent: async () => ({ ready: true, alreadyApplied: false }),
     applyEvent: async () => {
       appliedCount += 1;
       return { applied: true, alreadyApplied: false };
     }
   });
   assert.equal(calls.includes('SELECT id, recipient_id AS user_id FROM gift_delivery_orders'), true);
-  assert.equal(appliedCount, 0);
+  assert.equal(appliedCount, 1);
   assert.deepEqual(result, {
-    complete: false,
-    processedCount: 0,
+    complete: true,
+    processedCount: 1,
     alreadyAppliedCount: 0,
-    blockedSequence: 1,
-    blockedEventType: 'gift_order_consent_withdrawn',
     throughSequence: 1
   });
 });
