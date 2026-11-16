@@ -6412,23 +6412,13 @@ app.put('/api/gifts/orders/:publicReference/address-draft', validateRequestOrigi
       address: normalized.address, orderId: locked.order.id,
       recipientUserId: req.authUser.id, keyring
     });
-    const now = Date.now();
-    const expiresAtMs = Math.min(now + GIFT_ADDRESS_DRAFT_TTL_MS, new Date(locked.order.expires_at).getTime());
-    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= now) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'gift_address_draft_not_available' });
-    }
-
-    await client.query(
-      `INSERT INTO gift_address_draft_consent_events
-         (order_id, recipient_user_id, consent_version, action, actor_user_id)
-       VALUES ($1, $2, $3, 'granted', $2)`,
-      [locked.order.id, req.authUser.id, GIFT_ADDRESS_DRAFT_CONSENT_VERSION]
-    );
     await client.query(
       `INSERT INTO gift_address_drafts
          (order_id, recipient_user_id, key_version, nonce, auth_tag, ciphertext, created_at, expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6, statement_timestamp(), LEAST($7::timestamptz, statement_timestamp() + INTERVAL '24 hours'))
+       SELECT $1, $2, $3, $4, $5, $6, statement_timestamp(),
+              LEAST(statement_timestamp() + INTERVAL '24 hours', o.expires_at)
+         FROM gift_delivery_orders o
+        WHERE o.id = $1
        ON CONFLICT (order_id) DO UPDATE
          SET recipient_user_id = EXCLUDED.recipient_user_id,
              key_version = EXCLUDED.key_version,
@@ -6436,13 +6426,22 @@ app.put('/api/gifts/orders/:publicReference/address-draft', validateRequestOrigi
              auth_tag = EXCLUDED.auth_tag,
              ciphertext = EXCLUDED.ciphertext,
              created_at = statement_timestamp(),
-             expires_at = LEAST(EXCLUDED.expires_at, statement_timestamp() + INTERVAL '24 hours')`,
+             expires_at = LEAST(EXCLUDED.expires_at, statement_timestamp() + INTERVAL '24 hours')
+       RETURNING expires_at`,
       [locked.order.id, req.authUser.id, encrypted.keyVersion, encrypted.nonce,
-        encrypted.authTag, encrypted.ciphertext, new Date(expiresAtMs)]
+        encrypted.authTag, encrypted.ciphertext]
     );
+    const savedDraft = await client.query(
+      'SELECT expires_at AS "expiresAt" FROM gift_address_drafts WHERE order_id = $1 AND recipient_user_id = $2',
+      [locked.order.id, req.authUser.id]
+    );
+    if (!savedDraft.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'gift_address_draft_not_available' });
+    }
     await client.query('COMMIT');
     return res.status(201).json({
-      draft: { status: 'saved', expiresAt: new Date(expiresAtMs).toISOString() },
+      draft: { status: 'saved', expiresAt: new Date(savedDraft.rows[0].expiresAt).toISOString() },
       addressVerified: false,
       fulfilmentAuthorized: false
     });
