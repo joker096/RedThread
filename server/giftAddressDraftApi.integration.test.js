@@ -31,6 +31,8 @@ test('gift address draft HTTP API is recipient-only, separately consented and en
   const serverDatabaseUrl = new URL(process.env.DATABASE_URL);
   serverDatabaseUrl.searchParams.set('application_name', 'vow-gift-address-draft-api-integration');
   const db = new Pool({ connectionString: serverDatabaseUrl.toString(), max: 3 });
+  const testLock = await db.connect();
+  await testLock.query('SELECT pg_advisory_lock(434236)');
   const key = Buffer.alloc(32, 0x5a).toString('base64');
   const child = spawn(process.execPath, ['server/index.js'], {
     env: {
@@ -186,13 +188,13 @@ test('gift address draft HTTP API is recipient-only, separately consented and en
     const cleanup = await db.connect().catch(() => null);
     if (cleanup) {
       try {
-        await cleanup.query('SET session_replication_role = replica').catch(() => {});
+        await cleanup.query('ALTER TABLE gift_address_draft_consent_events DISABLE TRIGGER gift_address_draft_consent_events_immutable').catch(() => {});
         if (orderId) await cleanup.query('DELETE FROM gift_address_drafts WHERE order_id = $1', [orderId]).catch(() => {});
         if (orderId) await cleanup.query('DELETE FROM gift_address_draft_consent_events WHERE order_id = $1', [orderId]).catch(() => {});
         if (orderId) await cleanup.query('DELETE FROM gift_delivery_orders WHERE id = $1', [orderId]).catch(() => {});
         if (matchId) await cleanup.query('DELETE FROM matches WHERE id = $1', [matchId]).catch(() => {});
       } finally {
-        await cleanup.query('SET session_replication_role = origin').catch(() => {});
+        await cleanup.query('ALTER TABLE gift_address_draft_consent_events ENABLE TRIGGER gift_address_draft_consent_events_immutable').catch(() => {});
         if (users.length) {
           await cleanup.query("UPDATE users SET status = 'deleted', updated_at = NOW() WHERE id = ANY($1::uuid[])", [users]).catch(() => {});
           await cleanup.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [users]).catch(() => {});
@@ -200,6 +202,8 @@ test('gift address draft HTTP API is recipient-only, separately consented and en
         cleanup.release();
       }
     }
+    await testLock.query('SELECT pg_advisory_unlock(434236)').catch(() => {});
+    testLock.release();
     await db.end().catch(() => {});
     if (child.exitCode === null && child.signalCode === null) {
       child.kill('SIGTERM');
