@@ -9,6 +9,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { validateAdEventPayload, classifyDuplicateAdEvent, hasExplicitAdConsent, evaluateAdEventFrequency, isAdEventCollectionEnabled } from './adEvents.js';
 import { evaluateAdCampaignEligibility, isCampaignCountryAllowed, resolveProfileCountryCode } from './adCampaignRegistry.js';
 import { AD_EVENT_FREQUENCY_COUNTS_SQL } from './adEventFrequencyQuery.js';
+import { revokeGiftAddressVaultEntry } from './giftAddressVault.js';
 import { validateGiftDecisionInput } from './giftDecisionInput.js';
 import { projectGiftOrderStatus } from './giftOrderStatusProjection.js';
 import { normalizeGiftRequestInput } from './giftRequestInput.js';
@@ -6333,19 +6334,11 @@ app.post('/api/gifts/orders/:publicReference/withdraw-consent', validateRequestO
     // Consent withdrawal revokes the encrypted address payload in the same
     // transaction as the order pointer. Clearing only address_vault_ref would
     // leave the ciphertext recoverable by a future privileged code path.
-    const revokedAddress = await client.query(
-      `DELETE FROM gift_address_vault_entries
-       WHERE order_id = $1 AND recipient_user_id = $2
-       RETURNING vault_ref`,
-      [order.id, req.authUser.id]
-    );
-    if (revokedAddress.rowCount > 0) {
-      await client.query(
-        `INSERT INTO gift_address_vault_access_events (order_id, actor_user_id, action)
-         VALUES ($1, $2, 'revoked')`,
-        [order.id, req.authUser.id]
-      );
-    }
+    await revokeGiftAddressVaultEntry(client, {
+      orderId: order.id,
+      recipientUserId: req.authUser.id,
+      actorUserId: req.authUser.id
+    });
 
     await client.query(
       `INSERT INTO gift_delivery_order_events
