@@ -25,9 +25,10 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
         to_regclass('gift_address_draft_consent_events') IS NOT NULL AS consents,
         EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'gift_address_draft_scope_guard' AND NOT tgisinternal) AS scope_guard,
         EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'gift_orders_purge_temporary_address_draft' AND NOT tgisinternal) AS order_purge,
-        EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'users_purge_deleted_gift_address_drafts' AND NOT tgisinternal) AS account_purge
+        EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'users_purge_inactive_gift_address_drafts' AND NOT tgisinternal) AS account_purge,
+        EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'matches_purge_inactive_gift_address_drafts' AND NOT tgisinternal) AS match_purge
     `);
-    assert.deepEqual(installed.rows[0], { drafts: true, consents: true, scope_guard: true, order_purge: true, account_purge: true });
+    assert.deepEqual(installed.rows[0], { drafts: true, consents: true, scope_guard: true, order_purge: true, account_purge: true, match_purge: true });
 
     await client.query('BEGIN');
     await client.query(
