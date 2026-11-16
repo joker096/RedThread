@@ -1,4 +1,5 @@
 import { createPrivacyRecoveryLedgerPayload, deliverPrivacyRecoveryLedgerPayload } from './privacyRecoveryLedger.js';
+import { randomUUID } from 'node:crypto';
 
 const MAX_ATTEMPTS = 12;
 const LEASE_SECONDS = 60;
@@ -39,12 +40,13 @@ export async function processPrivacyRecoveryOutboxBatch({
        )
        UPDATE privacy_recovery_ledger_outbox AS outbox
           SET status = 'processing',
+              lease_token = gen_random_uuid(),
               attempts = attempts + 1,
               lease_expires_at = statement_timestamp() + ($2::integer * interval '1 second'),
               updated_at = statement_timestamp()
          FROM candidates
         WHERE outbox.event_id = candidates.event_id
-       RETURNING outbox.event_id, outbox.event_payload, outbox.attempts`,
+       RETURNING outbox.event_id, outbox.event_payload, outbox.attempts, outbox.lease_token`,
       [limit, LEASE_SECONDS]
     );
     claimed = result.rows;
@@ -66,10 +68,10 @@ export async function processPrivacyRecoveryOutboxBatch({
         await ackClient.query(
           `UPDATE privacy_recovery_ledger_outbox
               SET status = 'acknowledged', ledger_sequence = $2,
-                  acknowledged_at = statement_timestamp(), lease_expires_at = NULL,
+                  acknowledged_at = statement_timestamp(), lease_expires_at = NULL, lease_token = NULL,
                   last_error_code = NULL, updated_at = statement_timestamp()
-            WHERE event_id = $1 AND status = 'processing'`,
-          [row.event_id, acknowledgement.sequence]
+            WHERE event_id = $1 AND status = 'processing' AND lease_token = $3`,
+          [row.event_id, acknowledgement.sequence, row.lease_token]
         );
       } finally {
         ackClient.release();
@@ -83,11 +85,11 @@ export async function processPrivacyRecoveryOutboxBatch({
               SET status = CASE WHEN attempts >= $2 THEN 'dead' ELSE 'pending' END,
                   next_attempt_at = statement_timestamp() +
                     (LEAST(3600, power(2, LEAST(attempts, 10))) * interval '1 second'),
-                  lease_expires_at = NULL,
+                  lease_expires_at = NULL, lease_token = NULL,
                   last_error_code = $3,
                   updated_at = statement_timestamp()
-            WHERE event_id = $1 AND status = 'processing'`,
-          [row.event_id, MAX_ATTEMPTS, String(error?.message || 'ledger_delivery_failed').slice(0, 80)]
+            WHERE event_id = $1 AND status = 'processing' AND lease_token = $4`,
+          [row.event_id, MAX_ATTEMPTS, String(error?.message || 'ledger_delivery_failed').slice(0, 80), row.lease_token]
         );
       } finally {
         retryClient.release();
