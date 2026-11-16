@@ -148,7 +148,7 @@ RETURNS trigger LANGUAGE plpgsql AS $draft_account_cleanup$
 DECLARE
   removed RECORD;
 BEGIN
-  IF NEW.status = 'deleted' AND OLD.status IS DISTINCT FROM 'deleted' THEN
+  IF NEW.status <> 'active' AND OLD.status = 'active' THEN
     FOR removed IN
       DELETE FROM gift_address_drafts d
        USING gift_delivery_orders o
@@ -180,5 +180,46 @@ DROP TRIGGER IF EXISTS users_purge_deleted_gift_address_drafts ON users;
 CREATE TRIGGER users_purge_deleted_gift_address_drafts
   AFTER UPDATE OF status ON users
   FOR EACH ROW
-  WHEN (NEW.status = 'deleted' AND OLD.status IS DISTINCT FROM 'deleted')
+  WHEN (NEW.status <> 'active' AND OLD.status = 'active')
   EXECUTE FUNCTION purge_deleted_account_gift_address_drafts();
+
+-- A match becoming inactive also ends the temporary address-processing purpose,
+-- even if a separate order-state writer has not yet run.
+CREATE OR REPLACE FUNCTION purge_gift_address_drafts_on_match_safety_transition()
+RETURNS trigger LANGUAGE plpgsql AS $draft_match_cleanup$
+DECLARE
+  removed RECORD;
+BEGIN
+  IF NEW.status <> 'active' AND OLD.status = 'active' THEN
+    FOR removed IN
+      DELETE FROM gift_address_drafts d
+       USING gift_delivery_orders o
+       WHERE d.order_id = o.id AND o.match_id = NEW.id
+       RETURNING d.order_id, d.recipient_user_id
+    LOOP
+      IF (
+        SELECT action FROM gift_address_draft_consent_events
+         WHERE order_id = removed.order_id
+           AND recipient_user_id = removed.recipient_user_id
+         ORDER BY id DESC LIMIT 1
+      ) = 'granted' THEN
+        INSERT INTO gift_address_draft_consent_events
+          (order_id, recipient_user_id, consent_version, action, actor_user_id)
+        SELECT removed.order_id, removed.recipient_user_id, consent_version, 'withdrawn', NULL
+          FROM gift_address_draft_consent_events
+         WHERE order_id = removed.order_id
+           AND recipient_user_id = removed.recipient_user_id
+         ORDER BY id DESC LIMIT 1;
+      END IF;
+    END LOOP;
+  END IF;
+  RETURN NEW;
+END;
+$draft_match_cleanup$;
+
+DROP TRIGGER IF EXISTS matches_purge_inactive_gift_address_drafts ON matches;
+CREATE TRIGGER matches_purge_inactive_gift_address_drafts
+  AFTER UPDATE OF status ON matches
+  FOR EACH ROW
+  WHEN (NEW.status <> 'active' AND OLD.status = 'active')
+  EXECUTE FUNCTION purge_gift_address_drafts_on_match_safety_transition();
