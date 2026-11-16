@@ -114,11 +114,10 @@ test('removes a native app-state listener when registration resolves after dispo
     () => new Promise(resolve => { resolveRegistration = resolve; }),
     () => {}
   );
-  await Promise.resolve();
+  await new Promise<void>(resolve => setImmediate(resolve));
   unsubscribe();
   resolveRegistration?.({ remove: async () => { removed += 1; } });
-  await Promise.resolve();
-  await Promise.resolve();
+  await new Promise<void>(resolve => setImmediate(resolve));
   assert.equal(removed, 1);
 });
 
@@ -128,8 +127,7 @@ test('removes an already registered native app-state listener on disposal', asyn
     async () => ({ remove: async () => { removed += 1; } }),
     () => {}
   );
-  await Promise.resolve();
-  await Promise.resolve();
+  await new Promise<void>(resolve => setImmediate(resolve));
   unsubscribe();
   assert.equal(removed, 1);
 });
