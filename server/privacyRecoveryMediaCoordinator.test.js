@@ -99,7 +99,7 @@ test('coordinator preflights the full batch before applying any supported prefix
     processedCount: 0,
     alreadyAppliedCount: 0,
     blockedSequence: 2,
-    blockedEventType: 'account_erasure_requested',
+    blockedEventType: 'ad_consent_revoked',
     throughSequence: 2
   });
 });
@@ -117,7 +117,7 @@ test('coordinator preflights the full batch before applying a supported prefix',
     }, {
       sequence: '2',
       event_id: '123e4567-e89b-42d3-a456-426614174007',
-      event_type: 'account_erasure_requested',
+      event_type: 'ad_consent_revoked',
       subject_ref: subjectRef,
       resource_ref: null
     }],
