@@ -48,6 +48,7 @@ test('event is pseudonymized, signed and only acknowledged after remote durable 
   assert.equal(result.acknowledged, true);
   assert.equal(result.sequence, 17);
   assert.equal(captured.url, 'https://ledger.example/v1/events');
+  assert.equal(captured.options.redirect, 'error', 'signed privacy events must never follow redirects to another host');
   assert.equal(captured.event.event_type, 'voice_intro_consent_withdrawn');
   assert.notEqual(captured.event.subject_ref, 'internal-user-uuid');
   assert.notEqual(captured.event.resource_ref, 'internal-resource-uuid');
