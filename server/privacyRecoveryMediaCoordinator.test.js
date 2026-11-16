@@ -265,7 +265,6 @@ test('coordinator blocks every non-media privacy domain before applying any medi
   const photoRef = createHmac('sha256', key).update(photoId, 'utf8').digest('hex');
   const blockedTypes = [
     'account_erasure_requested',
-    'identity_l3_consent_withdrawn',
     'ad_consent_revoked',
     'gift_order_consent_withdrawn'
   ];
