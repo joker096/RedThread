@@ -221,9 +221,9 @@ export async function verifyPrivateMediaPrivacyRecovery({
 
     await client.query('COMMIT');
     open = false;
-    const accountVerification = await verifyAccountErasurePrivacyRecovery({
-      pool, env, snapshotLedgerSequence, throughSequence
-    });
+    const accountVerification = events.some(row => row.event_type === 'account_erasure_requested')
+      ? await verifyAccountErasurePrivacyRecovery({ pool, env, snapshotLedgerSequence, throughSequence })
+      : { verifiedAccountErasureCount: 0 };
     return {
       complete: true,
       verifiedEventCount: events.length,
