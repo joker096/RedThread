@@ -14,6 +14,7 @@ test('account erasure nulls live user-report links but preserves immutable repor
   const reporterId = randomUUID();
   const targetId = randomUUID();
   const reportId = randomUUID();
+  const reverseReportId = randomUUID();
   try {
     await client.query('BEGIN');
     await client.query(
@@ -24,8 +25,9 @@ test('account erasure nulls live user-report links but preserves immutable repor
     );
     await client.query(
       `INSERT INTO user_reports (id, reporter_id, reported_user_id, category, details)
-       VALUES ($1, $2, $3, 'spam', 'privacy recovery report evidence fixture')`,
-      [reportId, reporterId, targetId]
+       VALUES ($1, $2, $3, 'spam', 'privacy recovery report evidence fixture'),
+              ($4, $3, $2, 'safety', 'reverse privacy recovery report evidence fixture')`,
+      [reportId, reporterId, targetId, reverseReportId]
     );
 
     await client.query(
@@ -45,6 +47,19 @@ test('account erasure nulls live user-report links but preserves immutable repor
     assert.equal(report.rows[0].reported_user_ref, targetId);
     assert.equal(report.rows[0].category, 'spam');
     assert.equal(report.rows[0].details, 'privacy recovery report evidence fixture');
+
+    const reverseReport = await client.query(
+      `SELECT reporter_id, reported_user_id, reporter_ref, reported_user_ref, category, details
+         FROM user_reports WHERE id = $1`,
+      [reverseReportId]
+    );
+    assert.equal(reverseReport.rowCount, 1);
+    assert.equal(reverseReport.rows[0].reporter_id, null);
+    assert.equal(reverseReport.rows[0].reported_user_id, reporterId);
+    assert.equal(reverseReport.rows[0].reporter_ref, targetId);
+    assert.equal(reverseReport.rows[0].reported_user_ref, reporterId);
+    assert.equal(reverseReport.rows[0].category, 'safety');
+    assert.equal(reverseReport.rows[0].details, 'reverse privacy recovery report evidence fixture');
     await client.query('ROLLBACK');
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
