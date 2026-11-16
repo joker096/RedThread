@@ -131,11 +131,13 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
     await client.query('ROLLBACK').catch(() => {});
     throw error;
   } finally {
+    await client.query('SET session_replication_role = replica').catch(() => {});
     await client.query('DELETE FROM gift_address_drafts WHERE order_id = ANY($1::uuid[])', [[orderId, ttlOrderId]]).catch(() => {});
     await client.query('DELETE FROM gift_address_draft_consent_events WHERE order_id = ANY($1::uuid[])', [[orderId, ttlOrderId]]).catch(() => {});
     await client.query('DELETE FROM gift_delivery_orders WHERE id = ANY($1::uuid[])', [[orderId, ttlOrderId]]).catch(() => {});
     await client.query('DELETE FROM matches WHERE id = $1', [matchId]).catch(() => {});
     await client.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [[senderId, recipientId]]).catch(() => {});
+    await client.query('SET session_replication_role = origin').catch(() => {});
     client.release();
     await pool.end();
   }
