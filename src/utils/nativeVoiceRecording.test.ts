@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { startNativeVoiceRecording, validateVoiceIntroRecording } from './nativeVoiceRecording.ts';
+import { startNativeVoiceRecording, subscribeToNativeAppState, validateVoiceIntroRecording } from './nativeVoiceRecording.ts';
 
 const granted = { recordAudio: 'granted' };
 const denied = { recordAudio: 'denied' };
@@ -104,4 +104,30 @@ test('rejects synthetic audio fixtures outside the allowed duration and size bou
 test('normalizes unsupported audio MIME types to the existing upload fallback', () => {
   const fixture = new Blob([new Uint8Array(64)], { type: 'audio/wav' });
   assert.deepEqual(validateVoiceIntroRecording(fixture, 20_000), { ok: true, mimeType: 'audio/mp4' });
+});
+
+
+test('removes a native app-state listener when registration resolves after disposal', async () => {
+  let resolveRegistration: ((handle: { remove: () => Promise<void> }) => void) | undefined;
+  let removed = 0;
+  const unsubscribe = subscribeToNativeAppState(
+    () => new Promise(resolve => { resolveRegistration = resolve; }),
+    () => {}
+  );
+  unsubscribe();
+  resolveRegistration?.({ remove: async () => { removed += 1; } });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(removed, 1);
+});
+
+test('removes an already registered native app-state listener on disposal', async () => {
+  let removed = 0;
+  const unsubscribe = subscribeToNativeAppState(
+    async () => ({ remove: async () => { removed += 1; } }),
+    () => {}
+  );
+  await Promise.resolve();
+  unsubscribe();
+  assert.equal(removed, 1);
 });
