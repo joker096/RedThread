@@ -88,9 +88,10 @@ test('worker retains failed deliveries for retry with the same event identity', 
   assert.match(retry.sql, /WHEN attempts >= \$2 THEN 'dead'/);
   assert.equal(retry.values[0], eventId);
   assert.equal(retry.values[3], leaseToken);
-  assert.equal(retry.values[2], 'privacy_recovery_delivery_failed',
-    'untrusted exception text must never be persisted as an outbox error code');
-  assert.equal(result.results[0].error, 'privacy_recovery_delivery_failed');
+  assert.equal(retry.values[2], 'privacy_recovery_ledger_unavailable',
+    'the delivery adapter must expose only its stable, allowlisted error code');
+  assert.equal(result.results[0].error, 'privacy_recovery_ledger_unavailable');
+  assert.doesNotMatch(JSON.stringify({ retry, result }), /secret@example\.test|\+995555123456/);
 });
 
 
