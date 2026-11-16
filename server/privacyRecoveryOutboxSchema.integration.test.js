@@ -56,3 +56,43 @@ test('domain rollback atomically removes its privacy recovery outbox event', {
     await pool.end();
   }
 });
+
+test('outbox schema rejects malformed payloads and immutable event mutation', {
+  skip: !process.env.DATABASE_URL ? 'DATABASE_URL is not configured' : false,
+  timeout: 15_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+  const eventId = randomUUID();
+  const payload = {
+    event_id: eventId,
+    schema_version: 1,
+    event_type: 'account_erasure_requested',
+    subject_ref: 'a'.repeat(64),
+    occurred_at: new Date().toISOString()
+  };
+  try {
+    await assert.rejects(
+      pool.query(
+        'INSERT INTO privacy_recovery_ledger_outbox (event_id, event_payload) VALUES ($1, $2::jsonb)',
+        [randomUUID(), JSON.stringify(payload)]
+      ),
+      error => error.code === '23514',
+      'event UUID and payload UUID must match'
+    );
+    await pool.query(
+      'INSERT INTO privacy_recovery_ledger_outbox (event_id, event_payload) VALUES ($1, $2::jsonb)',
+      [eventId, JSON.stringify(payload)]
+    );
+    await assert.rejects(
+      pool.query(
+        'UPDATE privacy_recovery_ledger_outbox SET event_payload = jsonb_set(event_payload, \'{event_type}\', \'"ad_consent_revoked"\'::jsonb) WHERE event_id = $1',
+        [eventId]
+      ),
+      error => error.code === '55000',
+      'event payload must remain immutable after enqueue'
+    );
+  } finally {
+    await pool.query('DELETE FROM privacy_recovery_ledger_outbox WHERE event_id = $1', [eventId]).catch(() => {});
+    await pool.end();
+  }
+});
