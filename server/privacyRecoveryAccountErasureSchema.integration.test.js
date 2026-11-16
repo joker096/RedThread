@@ -13,9 +13,9 @@ test('account-erasure replay evidence schema accepts only a subject-scoped immut
   const client = await pool.connect();
   const eventId = randomUUID();
   const userId = randomUUID();
-  const sequence = Number((await client.query(
-    'SELECT COALESCE(MAX(ledger_sequence), 0) + 1 AS next_sequence FROM privacy_recovery_events'
-  )).rows[0].next_sequence);
+  const sequence = (await client.query(
+    'SELECT (COALESCE(MAX(ledger_sequence), 0) + 1)::text AS next_sequence FROM privacy_recovery_events'
+  )).rows[0].next_sequence;
   try {
     await client.query('BEGIN');
     await client.query(
@@ -32,9 +32,9 @@ test('account-erasure replay evidence schema accepts only a subject-scoped immut
     );
     await client.query(
       `INSERT INTO privacy_recovery_replay_effects
-         (ledger_sequence, event_id, event_type, subject_user_id, resource_id, purge_count)
-       VALUES ($1, $2, 'account_erasure_requested', $3, NULL, 0)`,
-      [sequence, eventId, userId]
+         (ledger_sequence, event_id, event_type, subject_user_id, resource_id, purge_count, account_reuse_hmac)
+       VALUES ($1, $2, 'account_erasure_requested', $3, NULL, 0, $4)`,
+      [sequence, eventId, userId, 'c'.repeat(64)]
     );
 
     await assert.rejects(
