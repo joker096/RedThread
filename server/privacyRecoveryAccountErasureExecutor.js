@@ -461,10 +461,12 @@ export async function applyAccountErasurePrivacyRecoveryEvent({
       [mapping.sequence, mapping.eventId, EVENT_TYPE, mapping.subjectUserId, applied.purgePaths.length, applied.reuseDigest]
     );
     if (applied.purgePaths.length) {
-      const obligations = applied.purgePaths.map(item => [
-        mapping.sequence, mapping.eventId, item.queue,
-        createHash('sha256').update(item.storagePath, 'utf8').digest('hex')
-      ]);
+      const obligations = applied.purgePaths.map(item => ({
+        ledger_sequence: mapping.sequence,
+        event_id: mapping.eventId,
+        queue_name: item.queue,
+        storage_path_sha256: createHash('sha256').update(item.storagePath, 'utf8').digest('hex')
+      }));
       await client.query(
         `INSERT INTO privacy_recovery_replay_purge_obligations
            (ledger_sequence, event_id, queue_name, storage_path_sha256)
