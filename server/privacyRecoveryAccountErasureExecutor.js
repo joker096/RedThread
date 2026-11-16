@@ -253,7 +253,7 @@ async function applyAccountErasure(client, userId, env, eventOccurredAt) {
      SET expires_at = GREATEST(account_reuse_restrictions.expires_at, EXCLUDED.expires_at)`,
     [reuseDigest]
   );
-  return { purgePaths: [
+  return { reuseDigest, purgePaths: [
     ...photoPaths.map(storagePath => ({ queue: 'private_photo', storagePath })),
     ...voicePaths.map(storagePath => ({ queue: 'private_voice_intro', storagePath }))
   ] };
@@ -337,9 +337,9 @@ export async function applyAccountErasurePrivacyRecoveryEvent({
     );
     await client.query(
       `INSERT INTO privacy_recovery_replay_effects
-         (ledger_sequence, event_id, event_type, subject_user_id, resource_id, purge_count)
-       VALUES ($1, $2, $3, $4, NULL, $5)`,
-      [mapping.sequence, mapping.eventId, EVENT_TYPE, mapping.subjectUserId, applied.purgePaths.length]
+         (ledger_sequence, event_id, event_type, subject_user_id, resource_id, purge_count, account_reuse_hmac)
+       VALUES ($1, $2, $3, $4, NULL, $5, $6)`,
+      [mapping.sequence, mapping.eventId, EVENT_TYPE, mapping.subjectUserId, applied.purgePaths.length, applied.reuseDigest]
     );
     if (applied.purgePaths.length) {
       const obligations = applied.purgePaths.map(item => [
