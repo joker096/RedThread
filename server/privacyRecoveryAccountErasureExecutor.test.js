@@ -33,6 +33,10 @@ function poolWithQueries(responses = []) {
       if (sql.includes('current_database()')) {
         return { rowCount: 1, rows: [{ database_name: 'vow_restore_test', database_role: 'vow_restore_runner' }] };
       }
+      if (/^(BEGIN|COMMIT|ROLLBACK)\\b/i.test(String(sql).trim()) ||
+          String(sql).includes('pg_advisory_xact_lock')) {
+        return { rowCount: 0, rows: [] };
+      }
       return responses.shift() || { rowCount: 0, rows: [] };
     },
     release() { calls.push({ sql: 'RELEASE' }); }
