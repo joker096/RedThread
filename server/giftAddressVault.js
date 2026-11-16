@@ -124,3 +124,34 @@ export function decryptGiftAddress({ encrypted, orderId, recipientUserId, key } 
   if (!normalized.ok) throw new Error('decrypted_gift_address_invalid');
   return normalized.address;
 }
+/**
+ * Permanently removes a recipient's encrypted address after consent withdrawal.
+ * The caller owns the surrounding PostgreSQL transaction and must clear the
+ * order pointer in that same transaction before invoking this helper.
+ */
+export async function revokeGiftAddressVaultEntry(client, {
+  orderId,
+  recipientUserId,
+  actorUserId
+} = {}) {
+  if (!client || typeof client.query !== 'function' ||
+      typeof orderId !== 'string' || !orderId ||
+      typeof recipientUserId !== 'string' || !recipientUserId ||
+      typeof actorUserId !== 'string' || !actorUserId) {
+    throw new TypeError('gift address revocation context is required');
+  }
+  const deleted = await client.query(
+    `DELETE FROM gift_address_vault_entries
+     WHERE order_id = $1 AND recipient_user_id = $2
+     RETURNING vault_ref`,
+    [orderId, recipientUserId]
+  );
+  if (deleted.rowCount > 0) {
+    await client.query(
+      `INSERT INTO gift_address_vault_access_events (order_id, actor_user_id, action)
+       VALUES ($1, $2, 'revoked')`,
+      [orderId, actorUserId]
+    );
+  }
+  return { revoked: deleted.rowCount > 0 };
+}
