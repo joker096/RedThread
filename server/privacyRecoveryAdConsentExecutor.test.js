@@ -5,6 +5,7 @@ import {
   applyAdConsentRevocationPrivacyRecoveryEvent,
   preflightAdConsentRevocationPrivacyRecovery
 } from './privacyRecoveryAdConsentExecutor.js';
+import { verifyAdConsentRevocationPrivacyRecovery } from './privacyRecoveryAdConsentVerification.js';
 
 const userId = '123e4567-e89b-42d3-a456-426614174100';
 const eventId = '123e4567-e89b-42d3-a456-426614174101';
@@ -95,4 +96,18 @@ test('ad consent preflight blocks missing preference state before batch writes',
   assert.equal(calls.some(call => call.sql === 'COMMIT'), false);
   assert.equal(calls.some(call => call.sql === 'ROLLBACK'), true);
   assert.equal(calls.some(call => call.sql.includes('UPDATE ad_consent_preferences')), false);
+});
+
+test('ad consent verifier refuses production before opening a database connection', async () => {
+  let connects = 0;
+  await assert.rejects(
+    verifyAdConsentRevocationPrivacyRecovery({
+      pool: { async connect() { connects += 1; throw new Error('must_not_connect'); } },
+      env: { ...isolatedEnv, NODE_ENV: 'production' },
+      snapshotLedgerSequence: 0,
+      throughSequence: 12
+    }),
+    /privacy_recovery_ad_consent_verification_requires_isolated_restore/
+  );
+  assert.equal(connects, 0);
 });
