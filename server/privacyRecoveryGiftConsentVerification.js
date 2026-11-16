@@ -76,8 +76,7 @@ export async function verifyGiftConsentWithdrawalPrivacyRecovery({
       if (event.event_type !== event.receipt_event_type ||
           event.event_type !== event.effect_event_type ||
           event.outcome_code !== OUTCOME || event.event_digest !== digestEvent(event) ||
-          !event.subject_user_id || !event.resource_id ||
-          String(event.resource_id).toLowerCase() !== String(event.resource_ref).toLowerCase() ||
+          !event.subject_user_id || !event.resource_id || !event.resource_ref ||
           Number(event.purge_count) !== 0) {
         throw new Error('privacy_recovery_gift_consent_verification_receipt_mismatch');
       }
