@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS privacy_recovery_ledger_outbox (
   acknowledged_at TIMESTAMPTZ,
   CHECK (COALESCE(event_payload->>'event_id', '') = event_id::text),
   CHECK (event_payload->>'schema_version' = '1'),
-  CHECK (event_payload->>'event_type' IN (
+  CHECK (COALESCE(event_payload->>'event_type', '') IN (
     'account_erasure_requested', 'voice_intro_consent_withdrawn',
     'voice_intro_erasure_requested', 'private_photo_erasure_requested',
     'identity_l3_consent_withdrawn', 'ad_consent_revoked',
@@ -70,7 +70,7 @@ CREATE INDEX IF NOT EXISTS privacy_recovery_ledger_outbox_dead_idx
 COMMENT ON TABLE privacy_recovery_ledger_outbox IS
   'Transactional delivery queue for pseudonymized privacy recovery events. Event UUID and payload are stable across retries; domain changes and outbox inserts share one PostgreSQL transaction.';
 ),
-  CHECK (event_payload->>'occurred_at' IS NOT NULL),
+  CHECK (COALESCE(event_payload->>'occurred_at', '') <> ''),
   CHECK ((status = 'processing' AND lease_expires_at IS NOT NULL AND lease_token IS NOT NULL)
       OR (status <> 'processing' AND lease_expires_at IS NULL AND lease_token IS NULL)),
   CHECK (
