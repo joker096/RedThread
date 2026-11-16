@@ -20,7 +20,7 @@ function assertIsolated(env) {
       env.PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY.length < 32) {
     throw new Error('privacy_recovery_account_erasure_pseudonym_key_required');
   }
-  if (typeof env.ACCOUNT_REUSE_HMAC_KEY !== 'string' || env.ACCOUNT_REUSE_HMAC_KEY.length < 32) {
+  if (typeof env.ACCOUNT_REUSE_HMAC_KEY !== 'string' || !/^[a-f0-9]{64}$/i.test(env.ACCOUNT_REUSE_HMAC_KEY)) {
     throw new Error('privacy_recovery_account_erasure_reuse_key_required');
   }
 }
