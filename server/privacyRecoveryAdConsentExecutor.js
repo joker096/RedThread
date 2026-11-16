@@ -165,6 +165,19 @@ export async function applyAdConsentRevocationPrivacyRecoveryEvent({
       [mapping.subjectUserId]
     );
     if (current.rowCount !== 1) throw new Error('privacy_recovery_ad_consent_preferences_missing');
+    const concurrentReceipt = await client.query(
+      `SELECT ledger_sequence, event_id, event_digest, event_type, outcome_code
+         FROM privacy_recovery_replay_receipts
+        WHERE ledger_sequence = $1 OR event_id = $2 FOR UPDATE`,
+      [mapping.sequence, mapping.eventId]
+    );
+    if (concurrentReceipt.rowCount) {
+      if (concurrentReceipt.rowCount !== 1) throw new Error('privacy_recovery_ad_consent_receipt_conflict');
+      assertReceipt(concurrentReceipt.rows[0], mapping, digest);
+      await client.query('COMMIT');
+      open = false;
+      return { applied: false, alreadyApplied: true, outcome: OUTCOME };
+    }
 
     // The signed ledger event carries no category payload. Never infer which
     // child purpose was revoked: replay the safest valid state, all purposes off.
