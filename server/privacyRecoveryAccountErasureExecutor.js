@@ -216,9 +216,8 @@ async function applyAccountErasure(client, userId, env, eventOccurredAt) {
        country = '—', city = '—', bio = '', photo_urls = '{}',
        occupation = '', education = '', languages = '{}', is_visible = FALSE,
        has_children = NULL, children_disclosure_confirmed_at = NULL,
-       relationship_intent = 'marriage_family', family_format = 'open_to_both',
-       wants_children = 'discuss', children_living_arrangement = 'not_applicable',
-       family_values = '{}', updated_at = statement_timestamp()
+       family_format = 'open_to_both', wants_children = 'discuss',
+       children_living_arrangement = 'not_applicable', updated_at = statement_timestamp()
      WHERE user_id = $1`,
     [userId]
   );
