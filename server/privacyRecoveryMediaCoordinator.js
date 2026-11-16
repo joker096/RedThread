@@ -3,12 +3,14 @@ import { resolvePrivacyRecoveryMappings } from './privacyRecoveryMapping.js';
 import { applyPrivateMediaPrivacyRecoveryEvent } from './privacyRecoveryMediaExecutor.js';
 import { applyAccountErasurePrivacyRecoveryEvent, preflightAccountErasurePrivacyRecovery } from './privacyRecoveryAccountErasureExecutor.js';
 import { applyAdConsentRevocationPrivacyRecoveryEvent, preflightAdConsentRevocationPrivacyRecovery } from './privacyRecoveryAdConsentExecutor.js';
+import { applyGiftConsentWithdrawalPrivacyRecoveryEvent, preflightGiftConsentWithdrawalPrivacyRecovery } from './privacyRecoveryGiftConsentExecutor.js';
 import { assertPrivacyRecoveryRestoreTarget, assertPrivacyRecoveryRestoreTargetConfig } from './privacyRecoveryTargetGuard.js';
 
 const { Pool } = pg;
 const SUPPORTED_MEDIA_EVENTS = new Set([
   'account_erasure_requested',
   'ad_consent_revoked',
+  'gift_order_consent_withdrawn',
   'private_photo_erasure_requested',
   'voice_intro_erasure_requested',
   'voice_intro_consent_withdrawn',
@@ -47,7 +49,8 @@ export async function runPrivateMediaPrivacyRecovery({
   voiceStorageRoot,
   applyEvent,
   preflightAccountErasure = preflightAccountErasurePrivacyRecovery,
-  preflightAdConsent = preflightAdConsentRevocationPrivacyRecovery
+  preflightAdConsent = preflightAdConsentRevocationPrivacyRecovery,
+  preflightGiftConsent = preflightGiftConsentWithdrawalPrivacyRecovery
 }) {
   assertIsolatedRestore(env);
   validateWatermarks(snapshotLedgerSequence, throughSequence);
@@ -125,7 +128,9 @@ export async function runPrivateMediaPrivacyRecovery({
       const preflight = mapping.eventType === 'account_erasure_requested'
         ? preflightAccountErasure
         : mapping.eventType === 'ad_consent_revoked'
-          ? preflightAdConsent : null;
+          ? preflightAdConsent
+          : mapping.eventType === 'gift_order_consent_withdrawn'
+            ? preflightGiftConsent : null;
       if (!preflight) continue;
       try {
         await preflight({
@@ -138,7 +143,8 @@ export async function runPrivateMediaPrivacyRecovery({
         const message = error?.message;
         if (typeof message === 'string' &&
             (message.startsWith('privacy_recovery_account_erasure_') ||
-             message.startsWith('privacy_recovery_ad_consent_'))) {
+             message.startsWith('privacy_recovery_ad_consent_') ||
+             message.startsWith('privacy_recovery_gift_consent_'))) {
           return {
             complete: false,
             processedCount: 0,
@@ -160,7 +166,9 @@ export async function runPrivateMediaPrivacyRecovery({
       ? applyAccountErasurePrivacyRecoveryEvent
       : mapping.eventType === 'ad_consent_revoked'
         ? applyAdConsentRevocationPrivacyRecoveryEvent
-        : applyPrivateMediaPrivacyRecoveryEvent);
+        : mapping.eventType === 'gift_order_consent_withdrawn'
+          ? applyGiftConsentWithdrawalPrivacyRecoveryEvent
+          : applyPrivateMediaPrivacyRecoveryEvent);
     const result = await executor({
       pool,
       mapping,
