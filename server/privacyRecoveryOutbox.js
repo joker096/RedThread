@@ -1,5 +1,4 @@
 import { createPrivacyRecoveryLedgerPayload, deliverPrivacyRecoveryLedgerPayload } from './privacyRecoveryLedger.js';
-import { randomUUID } from 'node:crypto';
 
 const MAX_ATTEMPTS = 12;
 const LEASE_SECONDS = 60;
