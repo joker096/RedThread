@@ -32,5 +32,7 @@ test('purge rolls back on failure', async () => {
   const calls = [];
   const client = { async query(sql) { calls.push(sql); if (sql.includes('WITH due')) throw new Error('db unavailable'); return {}; }, release() {} };
   await assert.rejects(() => purgeExpiredGiftAddressDrafts({ connect: async () => client }), /db unavailable/);
-  assert.deepEqual(calls, ['BEGIN', 'ROLLBACK']);
+  assert.equal(calls[0], 'BEGIN');
+  assert.match(calls[1], /^WITH due AS/);
+  assert.equal(calls[2], 'ROLLBACK');
 });
