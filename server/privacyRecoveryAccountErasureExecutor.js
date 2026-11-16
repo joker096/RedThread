@@ -306,6 +306,12 @@ export async function applyAccountErasurePrivacyRecoveryEvent({
     }
 
     assertSubjectMapping(staged, mapping, pseudonymKey);
+    // Match the account deletion/checkout lock order: checkout first,
+    // then account safety, then pair-level gift locks inside the executor.
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext($1))",
+      [`paddle-checkout:${mapping.subjectUserId}`]
+    );
     await client.query(
       "SELECT pg_advisory_xact_lock(hashtext($1))",
       [`gift-safety-user:${mapping.subjectUserId}`]
