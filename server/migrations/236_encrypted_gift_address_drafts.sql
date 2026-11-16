@@ -3,7 +3,7 @@
 -- satisfy the address_verified / fulfilment constraints.
 CREATE TABLE IF NOT EXISTS gift_address_draft_consent_events (
   id BIGSERIAL PRIMARY KEY,
-  order_id UUID NOT NULL REFERENCES gift_delivery_orders(id) ON DELETE CASCADE,
+  order_id UUID NOT NULL REFERENCES gift_delivery_orders(id) ON DELETE RESTRICT,
   recipient_user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   consent_version INTEGER NOT NULL CHECK (consent_version > 0),
   action TEXT NOT NULL CHECK (action IN ('granted', 'withdrawn', 'expired')),
