@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { pathToFileURL } from 'node:url';
 import { readAndDeleteNativeRecordingFile } from '../src/utils/nativeRecordingFile.ts';
+import { validateVoiceIntroRecording } from '../src/utils/nativeVoiceRecording.ts';
 
 const { Pool } = pg;
 
@@ -314,6 +315,8 @@ test('voice intro HTTP API covers encrypted upload, moderator review, owner play
         fetchFile: async () => new Response(await readFile(fixturePath), { status: 200 }),
         deleteFile: async () => { await rm(fixturePath, { force: true }); }
       });
+      const clientValidation = validateVoiceIntroRecording(importedNativeRecording, 20_000);
+      assert.equal(clientValidation.ok, true, 'native client must validate the imported AAC recording before upload');
       const audio = Buffer.from(await importedNativeRecording.arrayBuffer());
       assert.ok(audio.length >= 64 && audio.length <= 2 * 1024 * 1024);
       assert.equal(await import('node:fs/promises').then(({ access }) => access(fixturePath).then(() => true).catch(() => false)), false,
