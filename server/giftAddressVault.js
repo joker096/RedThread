@@ -132,14 +132,13 @@ export function decryptGiftAddress({ encrypted, orderId, recipientUserId, key } 
 export async function revokeGiftAddressVaultEntry(client, {
   orderId,
   recipientUserId,
-  actorUserId
+  actorUserId = null
 } = {}) {
   if (!client || typeof client.query !== 'function' ||
       typeof orderId !== 'string' || !orderId ||
       typeof recipientUserId !== 'string' || !recipientUserId ||
-      typeof actorUserId !== 'string' || !actorUserId ||
-      actorUserId !== recipientUserId) {
-    throw new TypeError('gift address revocation requires the recipient as actor');
+      (actorUserId != null && (typeof actorUserId !== 'string' || !actorUserId))) {
+    throw new TypeError('gift address revocation context is invalid');
   }
   const deleted = await client.query(
     `DELETE FROM gift_address_vault_entries
