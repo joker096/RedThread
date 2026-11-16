@@ -7,7 +7,11 @@ const { Pool } = pg;
 const DOMAIN_REPLAY_EVENT_TYPES = new Set([
   'private_photo_erasure_requested',
   'voice_intro_erasure_requested',
-  'voice_intro_consent_withdrawn'
+  'voice_intro_consent_withdrawn',
+  'identity_l3_consent_withdrawn',
+  'account_erasure_requested',
+  'ad_consent_revoked',
+  'gift_order_consent_withdrawn'
 ]);
 
 function assertIsolatedRestoreEnvironment(env) {
