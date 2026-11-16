@@ -4,7 +4,8 @@ import { assertPrivacyRecoveryRestoreTarget, assertPrivacyRecoveryRestoreTargetC
 const OUTCOMES = Object.freeze({
   private_photo_erasure_requested: ['photo_erasure_queued', 'photos'],
   voice_intro_erasure_requested: ['voice_intro_erasure_queued', 'voice'],
-  voice_intro_consent_withdrawn: ['voice_intro_consent_withdrawn', 'voice_consent']
+  voice_intro_consent_withdrawn: ['voice_intro_consent_withdrawn', 'voice_consent'],
+  identity_l3_consent_withdrawn: ['identity_l3_consent_withdrawn', 'identity_l3_consent']
 });
 
 function eventDigest(row) {
@@ -78,7 +79,7 @@ export async function verifyPrivateMediaPrivacyRecovery({
         throw new Error('privacy_recovery_verification_receipt_mismatch');
       }
       if (!row.subject_user_id ||
-          (expected[1] === 'voice_consent' ? row.resource_id !== null : !row.resource_id) ||
+          (['voice_consent', 'identity_l3_consent'].includes(expected[1]) ? row.resource_id !== null : !row.resource_id) ||
           !Number.isSafeInteger(Number(row.purge_count)) || Number(row.purge_count) < 0 ||
           (expected[1] !== 'voice_consent' && Number(row.purge_count) !== 1)) {
         throw new Error('privacy_recovery_verification_effect_missing');
@@ -123,6 +124,45 @@ export async function verifyPrivateMediaPrivacyRecovery({
       if ((intros.rows || []).length) throw new Error('privacy_recovery_verification_voice_intros_remain');
     }
 
+    const l3Effects = effects.filter(row => row.event_type === 'identity_l3_consent_withdrawn');
+    for (const effect of l3Effects) {
+      const consent = await client.query(
+        'SELECT withdrawn_at FROM identity_l3_consents WHERE user_id = $1',
+        [effect.subject_user_id]
+      );
+      if (consent.rowCount !== 1 || !consent.rows[0].withdrawn_at) {
+        throw new Error('privacy_recovery_verification_identity_l3_consent_active');
+      }
+      const tokens = await client.query(
+        `SELECT id FROM identity_l3_upload_tokens
+          WHERE user_id = $1 AND consumed_at IS NULL AND revoked_at IS NULL`,
+        [effect.subject_user_id]
+      );
+      if ((tokens.rows || []).length) {
+        throw new Error('privacy_recovery_verification_identity_l3_upload_token_active');
+      }
+      const submissions = await client.query(
+        `SELECT id FROM identity_l3_submissions
+          WHERE user_id = $1
+            AND (
+              status IN ('draft', 'upload_authorized', 'uploaded', 'processing', 'pending_review', 'approved')
+              OR storage_object_key IS NOT NULL
+            )`,
+        [effect.subject_user_id]
+      );
+      if ((submissions.rows || []).length) {
+        throw new Error('privacy_recovery_verification_identity_l3_media_remains');
+      }
+      const jobs = await client.query(
+        `SELECT id FROM identity_l3_media_purge_jobs
+          WHERE user_id = $1 AND status <> 'completed'`,
+        [effect.subject_user_id]
+      );
+      if ((jobs.rows || []).length) {
+        throw new Error('privacy_recovery_verification_identity_l3_purge_incomplete');
+      }
+    }
+
     const obligationsResult = await client.query(
       `SELECT ledger_sequence, queue_name, storage_path_sha256
          FROM privacy_recovery_replay_purge_obligations
@@ -132,7 +172,9 @@ export async function verifyPrivateMediaPrivacyRecovery({
     const obligationRows = obligationsResult.rows || [];
     for (const row of effects) {
       const expectedQueue = row.event_type === 'private_photo_erasure_requested'
-        ? 'private_photo' : 'private_voice_intro';
+        ? 'private_photo'
+        : row.event_type === 'identity_l3_consent_withdrawn'
+          ? 'identity_l3_media' : 'private_voice_intro';
       const eventObligations = obligationRows.filter(item =>
         String(item.ledger_sequence) === String(row.ledger_sequence)
       );
@@ -153,9 +195,11 @@ export async function verifyPrivateMediaPrivacyRecovery({
     }
     const photoQueue = await client.query('SELECT storage_path FROM private_photo_purge_queue');
     const voiceQueue = await client.query('SELECT storage_path FROM private_voice_intro_purge_queue');
+    const l3Objects = await client.query('SELECT storage_object_key FROM identity_l3_submissions WHERE storage_object_key IS NOT NULL');
     const queueDigests = {
       private_photo: new Set((photoQueue.rows || []).map(row => sha256(row.storage_path))),
-      private_voice_intro: new Set((voiceQueue.rows || []).map(row => sha256(row.storage_path)))
+      private_voice_intro: new Set((voiceQueue.rows || []).map(row => sha256(row.storage_path))),
+      identity_l3_media: new Set((l3Objects.rows || []).map(row => sha256(row.storage_object_key)))
     };
     for (const obligation of obligationRows) {
       const completionCount = completionRows.filter(item =>
