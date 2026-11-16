@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
+import { revokeGiftAddressVaultEntry } from './giftAddressVault.js';
 
 const { Pool } = pg;
 
@@ -85,6 +86,81 @@ test('encrypted gift address rows are order/recipient scoped and purged on accou
       assert.equal(order.rows[0].payment_status, 'captured');
       assert.equal(order.rows[0].address_vault_ref, null, 'opaque order pointer must be revoked');
       assert.deepEqual(audit.rows.map(row => row.action), ['created'], 'PII-free access audit evidence is retained');
+      await client.query('ROLLBACK');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    }
+  } finally {
+    client.release();
+    await pool.end();
+  }
+});
+
+test('gift safety hold clears the order pointer and purges ciphertext in the same transaction', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 10_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const client = await pool.connect();
+  const senderId = randomUUID();
+  const recipientId = randomUUID();
+  const moderatorId = randomUUID();
+  const matchId = randomUUID();
+  const orderId = randomUUID();
+  const vaultRef = randomUUID();
+  const idempotencyKey = 'gift-safety-vault-' + randomUUID();
+  try {
+    await client.query('BEGIN');
+    try {
+      await client.query(
+        'INSERT INTO users (id, email, role, status, email_verified_at) VALUES ($1, $2, \'member\', \'active\', NOW()), ($3, $4, \'member\', \'active\', NOW()), ($5, $6, \'moderator\', \'active\', NOW())',
+        [senderId, 'gift-safety-sender-' + senderId + '@example.invalid', recipientId, 'gift-safety-recipient-' + recipientId + '@example.invalid', moderatorId, 'gift-safety-mod-' + moderatorId + '@example.invalid']
+      );
+      await client.query(
+        'INSERT INTO matches (id, user_a_id, user_b_id, status, created_at) VALUES ($1, LEAST($2::uuid, $3::uuid), GREATEST($2::uuid, $3::uuid), \'active\', NOW())',
+        [matchId, senderId, recipientId]
+      );
+      await client.query(
+        `INSERT INTO gift_delivery_orders
+           (id, match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+            total_minor_units, currency, idempotency_key, status, payment_status,
+            recipient_consent_at, recipient_consent_version, address_vault_ref, address_verified_at)
+         VALUES ($1, $2, $3, $4, 'Safety hold test gift', 'chocolate',
+                 1500, 'USD', $5, 'address_verified', 'not_started',
+                 NOW() - INTERVAL '1 hour', 1, $6, NOW() - INTERVAL '1 hour')`,
+        [orderId, matchId, senderId, recipientId, idempotencyKey, vaultRef]
+      );
+      await client.query(
+        `INSERT INTO gift_address_vault_entries
+           (vault_ref, order_id, recipient_user_id, key_version, nonce, auth_tag, ciphertext)
+         VALUES ($1, $2, $3, 'test-v1', $4, $5, $6)`,
+        [vaultRef, orderId, recipientId, Buffer.alloc(12, 3), Buffer.alloc(16, 4), Buffer.from('encrypted-only')]
+      );
+
+      const held = await client.query(
+        `UPDATE gift_delivery_orders
+            SET status = 'blocked', address_vault_ref = NULL, address_verified_at = NULL
+          WHERE id = $1 AND status = 'address_verified'
+          RETURNING id, recipient_id`,
+        [orderId]
+      );
+      assert.equal(held.rowCount, 1);
+      const revoked = await revokeGiftAddressVaultEntry(client, {
+        orderId: held.rows[0].id,
+        recipientUserId: held.rows[0].recipient_id,
+        actorUserId: moderatorId
+      });
+      assert.deepEqual(revoked, { revoked: true });
+      const [vault, order, audit] = await Promise.all([
+        client.query('SELECT 1 FROM gift_address_vault_entries WHERE order_id = $1', [orderId]),
+        client.query('SELECT status, address_vault_ref FROM gift_delivery_orders WHERE id = $1', [orderId]),
+        client.query('SELECT actor_user_id, action FROM gift_address_vault_access_events WHERE order_id = $1', [orderId])
+      ]);
+      assert.equal(vault.rowCount, 0, 'safety hold must make encrypted address unrecoverable');
+      assert.equal(order.rows[0].status, 'blocked');
+      assert.equal(order.rows[0].address_vault_ref, null);
+      assert.deepEqual(audit.rows, [{ actor_user_id: moderatorId, action: 'revoked' }]);
       await client.query('ROLLBACK');
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
