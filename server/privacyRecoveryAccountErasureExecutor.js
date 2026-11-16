@@ -163,6 +163,10 @@ async function applyAccountErasure(client, userId, env) {
       !(row.status === 'completed' && row.plan === 'lifetime'))) {
     throw new Error('privacy_recovery_account_erasure_paddle_checkout_unresolved');
   }
+  if (checkout.rows.some(row => row.status === 'linked' && row.plan !== 'lifetime' &&
+      !user.paddle_subscription_id)) {
+    throw new Error('privacy_recovery_account_erasure_paddle_subscription_unresolved');
+  }
   const subscriptionStatus = String(user.paddle_subscription_status || '').toLowerCase();
   if ((user.paddle_subscription_id && !['canceled', 'completed'].includes(subscriptionStatus)) ||
       (!user.paddle_subscription_id && subscriptionStatus && !['canceled', 'completed'].includes(subscriptionStatus))) {
