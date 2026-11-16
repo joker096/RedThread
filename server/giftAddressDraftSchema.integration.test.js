@@ -84,6 +84,7 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
     assert.equal(mainOrder.rows[0].address_vault_ref, null);
     assert.equal(mainOrder.rows[0].address_verified_at, null);
 
+    await client.query('BEGIN');
     await client.query('SAVEPOINT wrong_recipient');
     await assert.rejects(
       client.query(
@@ -96,6 +97,7 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
     );
     await client.query('ROLLBACK TO SAVEPOINT wrong_recipient');
     await client.query('RELEASE SAVEPOINT wrong_recipient');
+    await client.query('COMMIT');
 
     const purged = await purgeExpiredGiftAddressDrafts(pool, { batchSize: 10 });
     assert.deepEqual(purged, { purged: 1 });
@@ -116,16 +118,6 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
     );
     assert.equal(ttlConsent.rows[0].action, 'expired');
 
-    await client.query(
-      `UPDATE gift_delivery_orders SET status = 'cancelled' WHERE id = $1`,
-      [orderId]
-    );
-    const [draft, consent] = await Promise.all([
-      client.query('SELECT 1 FROM gift_address_drafts WHERE order_id = $1', [orderId]),
-      client.query('SELECT action FROM gift_address_draft_consent_events WHERE order_id = $1 ORDER BY id DESC LIMIT 1', [orderId])
-    ]);
-    assert.equal(draft.rowCount, 0, 'leaving recipient_accepted must physically remove the ciphertext row');
-    assert.equal(consent.rows[0].action, 'withdrawn');
     await client.query('BEGIN');
     await client.query(`UPDATE gift_delivery_orders SET status = 'cancelled' WHERE id = $1`, [orderId]);
     const [draft, consent] = await Promise.all([
