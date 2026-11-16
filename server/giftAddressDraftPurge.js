@@ -5,7 +5,7 @@ export function normalizeGiftAddressDraftPurgeBatchSize(value = DEFAULT_GIFT_ADD
   return size;
 }
 
-/** Physically deletes expired ciphertext and appends a non-PII expiry event atomically. */
+/** Deletes expired ciphertext rows from the live store and appends a non-PII expiry event atomically. */
 export async function purgeExpiredGiftAddressDrafts(pool, {
   batchSize = DEFAULT_GIFT_ADDRESS_DRAFT_PURGE_BATCH_SIZE
 } = {}) {
