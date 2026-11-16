@@ -157,3 +157,21 @@ The restore verifier requires:
 - the receipt/effect/metadata/visibility checks still pass.
 
 A missing completion or a still-queued obligation blocks activation. The completion table is append-only and stores no raw filesystem paths. This proves the purge worker's successful unlink outcome; it does not replace host-level storage inspection or infrastructure isolation.
+
+
+## Account-erasure replay and verification
+
+The isolated replay coordinator now dispatches `account_erasure_requested` to a dedicated transactional executor. The event remains subject-only: it is mapped by the ledger pseudonym to exactly one restored user and never accepts a resource reference.
+
+The executor mirrors the destructive domain effects of the authenticated account-deletion route in one database transaction:
+
+- requires the original account-reuse HMAC key and recreates the 90-day keyed email-reuse restriction without retaining the email;
+- refuses replay if the restored Paddle subscription/checkout state is unresolved; it never calls Paddle or repeats a provider cancellation;
+- refuses replay if L3 object keys remain, rather than discarding the only deletion references;
+- serializes with gift safety operations, suspends in-flight orders, revokes encrypted address pointers, retains delivery/payment evidence, and creates payment-reconciliation tasks where required;
+- queues photo and voice files before deleting their metadata, revokes sessions, removes identity and discovery data, scrubs authored messages/profile visibility, closes matches, and tombstones the account;
+- records an immutable receipt, effect, keyed account-reuse proof, and per-file SHA-256 purge obligations in the same transaction as the domain changes.
+
+The account event is not treated as successful merely because a tombstone exists. `verifyPrivateMediaPrivacyRecovery` now also invokes `verifyAccountErasurePrivacyRecovery` when the requested range contains account-erasure events. The account verifier checks the tombstone, profile scrub, session revocation, removal of identity/discovery/consent/ad data, closed matches, scrubbed messages, gift address and temporary-draft revocation, outstanding payment reconciliation, the 90-day reuse restriction, and one immutable physical-purge completion for every queued file. It emits counts and watermarks only.
+
+The new schema migrations 244–245 extend immutable replay receipts/effects and store only the keyed reuse HMAC. They do not store email addresses or enable external provider calls. The executor still requires an explicitly isolated restore identity, disabled workers/webhooks/egress, and a separately reviewed restore run. No production replay or activation is performed by these modules.
