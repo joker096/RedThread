@@ -187,6 +187,19 @@ export async function applyGiftConsentWithdrawalPrivacyRecoveryEvent({
     const { sender_id: senderId, recipient_id: recipientId } = pair.rows[0];
     await acquireGiftSafetyUserLocks(client, senderId, recipientId);
     await acquireGiftSafetyPairLock(client, senderId, recipientId);
+    const concurrentReceipt = await client.query(
+      `SELECT ledger_sequence, event_id, event_digest, event_type, outcome_code
+         FROM privacy_recovery_replay_receipts
+        WHERE ledger_sequence = $1 OR event_id = $2 FOR UPDATE`,
+      [mapping.sequence, mapping.eventId]
+    );
+    if (concurrentReceipt.rowCount) {
+      if (concurrentReceipt.rowCount !== 1) throw new Error('privacy_recovery_gift_consent_receipt_conflict');
+      assertReceipt(concurrentReceipt.rows[0], mapping, digest);
+      await client.query('COMMIT');
+      open = false;
+      return { applied: false, alreadyApplied: true, outcome: OUTCOME };
+    }
     const accountStates = await client.query(
       'SELECT id, status FROM users WHERE id = ANY($1::uuid[]) ORDER BY id FOR SHARE',
       [[senderId, recipientId]]
