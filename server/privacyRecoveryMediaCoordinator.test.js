@@ -41,7 +41,7 @@ test('coordinator stops at the first unsupported event without replaying later e
     events: [{
       sequence: '1',
       event_id: '123e4567-e89b-42d3-a456-426614174001',
-      event_type: 'account_erasure_requested',
+      event_type: 'ad_consent_revoked',
       subject_ref: subjectRef,
       resource_ref: null
     }, {
@@ -60,7 +60,7 @@ test('coordinator stops at the first unsupported event without replaying later e
     processedCount: 0,
     alreadyAppliedCount: 0,
     blockedSequence: 1,
-    blockedEventType: 'account_erasure_requested',
+    blockedEventType: 'ad_consent_revoked',
     throughSequence: 2
   });
   assert.equal(calls.includes('COMMIT'), true);
@@ -79,7 +79,7 @@ test('coordinator preflights the full batch before applying any supported prefix
     }, {
       sequence: '2',
       event_id: '123e4567-e89b-42d3-a456-426614174007',
-      event_type: 'account_erasure_requested',
+      event_type: 'ad_consent_revoked',
       subject_ref: subjectRef,
       resource_ref: null
     }],
@@ -264,7 +264,6 @@ test('coordinator blocks every non-media privacy domain before applying any medi
   const photoId = '123e4567-e89b-42d3-a456-426614174005';
   const photoRef = createHmac('sha256', key).update(photoId, 'utf8').digest('hex');
   const blockedTypes = [
-    'account_erasure_requested',
     'ad_consent_revoked',
     'gift_order_consent_withdrawn'
   ];
@@ -336,4 +335,29 @@ test('coordinator replays subject-only L3 consent withdrawal events', async () =
     subjectUserId: userId,
     resourceId: null
   }]);
+});
+
+test('coordinator dispatches account erasure to the account executor after whole-range preflight', async () => {
+  const { pool } = poolFor({
+    events: [{
+      sequence: '1',
+      event_id: '123e4567-e89b-42d3-a456-426614174020',
+      event_type: 'account_erasure_requested',
+      subject_ref: subjectRef,
+      resource_ref: null
+    }]
+  });
+  const applied = [];
+  const result = await runPrivateMediaPrivacyRecovery({
+    pool, env: isolatedEnv, snapshotLedgerSequence: 0, throughSequence: 1,
+    applyEvent: async ({ mapping }) => {
+      applied.push(mapping);
+      return { applied: true, alreadyApplied: false, outcome: 'account_erasure_replayed' };
+    }
+  });
+  assert.equal(result.complete, true);
+  assert.equal(result.processedCount, 1);
+  assert.equal(applied[0].eventType, 'account_erasure_requested');
+  assert.equal(applied[0].subjectUserId, userId);
+  assert.equal(applied[0].resourceId, null);
 });
