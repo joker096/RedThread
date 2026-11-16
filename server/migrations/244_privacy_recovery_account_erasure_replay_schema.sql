@@ -15,9 +15,11 @@ ALTER TABLE privacy_recovery_replay_receipts
   ));
 
 ALTER TABLE privacy_recovery_replay_receipts
+  DROP CONSTRAINT IF EXISTS privacy_recovery_replay_receipts_outcome_code_check;
+ALTER TABLE privacy_recovery_replay_receipts
   DROP CONSTRAINT IF EXISTS privacy_recovery_replay_receipts_event_outcome_check;
 ALTER TABLE privacy_recovery_replay_receipts
-  ADD CONSTRAINT privacy_recovery_replay_receipts_event_outcome_check
+  ADD CONSTRAINT privacy_recovery_replay_receipts_outcome_code_check
   CHECK (
     (event_type = 'private_photo_erasure_requested' AND outcome_code = 'photo_erasure_queued') OR
     (event_type = 'voice_intro_erasure_requested' AND outcome_code = 'voice_intro_erasure_queued') OR
