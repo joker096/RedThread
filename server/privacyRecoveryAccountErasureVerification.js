@@ -127,13 +127,13 @@ export async function verifyAccountErasurePrivacyRecovery({
         ['identity_verification_session_reservations', 'user_id', 'privacy_recovery_account_erasure_verification_identity_reservations_remain'],
         ['identity_verification_events', 'user_id', 'privacy_recovery_account_erasure_verification_identity_events_remain'],
         ['identity_verifications', 'user_id', 'privacy_recovery_account_erasure_verification_identity_records_remain'],
-        ['likes', 'sender_id = $1 OR target_id', 'privacy_recovery_account_erasure_verification_likes_remain'],
-        ['profile_passes', 'passer_id = $1 OR passed_user_id', 'privacy_recovery_account_erasure_verification_passes_remain'],
+        ['likes', 'sender_id = $1 OR target_id = $1', 'privacy_recovery_account_erasure_verification_likes_remain'],
+        ['profile_passes', 'passer_id = $1 OR passed_user_id = $1', 'privacy_recovery_account_erasure_verification_passes_remain'],
         ['female_profile_exposures', 'user_id', 'privacy_recovery_account_erasure_verification_exposures_remain'],
         ['profile_preferences', 'user_id', 'privacy_recovery_account_erasure_verification_preferences_remain'],
         ['user_notifications', 'user_id', 'privacy_recovery_account_erasure_verification_notifications_remain'],
         ['account_action_tokens', 'user_id', 'privacy_recovery_account_erasure_verification_action_tokens_remain'],
-        ['user_blocks', 'blocker_id = $1 OR blocked_id', 'privacy_recovery_account_erasure_verification_blocks_remain'],
+        ['user_blocks', 'blocker_id = $1 OR blocked_id = $1', 'privacy_recovery_account_erasure_verification_blocks_remain'],
         ['photo_assets', 'user_id', 'privacy_recovery_account_erasure_verification_photo_metadata_remains'],
         ['profile_voice_intros', 'user_id', 'privacy_recovery_account_erasure_verification_voice_metadata_remains'],
         ['profile_voice_intro_consents', 'user_id', 'privacy_recovery_account_erasure_verification_voice_consent_remains'],
@@ -147,15 +147,7 @@ export async function verifyAccountErasurePrivacyRecovery({
         ['gift_receiving_preferences', 'user_id', 'privacy_recovery_account_erasure_verification_gift_preferences_remain']
       ];
       for (const [table, predicate, code] of scopedChecks) {
-        const sql = predicate.includes('OR')
-          ? `SELECT 1 FROM ${table} WHERE (${predicate} = $1) LIMIT 1`
-          : `SELECT 1 FROM ${table} WHERE ${predicate} = $1 LIMIT 1`;
-        // OR predicates already contain the parameter on their first side; append
-        // the same user ID for the second side explicitly.
-        const normalized = predicate.includes('OR')
-          ? `SELECT 1 FROM ${table} WHERE ${predicate} = $1 OR ${predicate.split(' OR ')[1]}_id = $1 LIMIT 1`
-          : sql;
-        await assertNoRows(client, normalized, [userId], code);
+        await assertNoRows(client, `SELECT 1 FROM ${table} WHERE ${predicate} LIMIT 1`, [userId], code);
       }
 
       await assertNoRows(client,
@@ -171,7 +163,7 @@ export async function verifyAccountErasurePrivacyRecovery({
         "SELECT 1 FROM gift_delivery_orders WHERE (sender_id = $1 OR recipient_id = $1) AND (address_vault_ref IS NOT NULL OR status IN ('awaiting_recipient_consent','recipient_accepted','address_verified','fulfilment_authorized','dispatched','delivery_failed')) LIMIT 1",
         [userId], 'privacy_recovery_account_erasure_verification_gift_orders_unsafe');
       await assertNoRows(client,
-        "SELECT 1 FROM gift_address_vault_entries WHERE recipient_user_id = $1 LIMIT 1",
+        "SELECT 1 FROM gift_address_vault_entries v JOIN gift_delivery_orders o ON o.id = v.order_id WHERE o.sender_id = $1 OR o.recipient_id = $1 LIMIT 1",
         [userId], 'privacy_recovery_account_erasure_verification_gift_vault_remains');
       await assertNoRows(client,
         "SELECT 1 FROM gift_address_drafts d JOIN gift_delivery_orders o ON o.id = d.order_id WHERE o.sender_id = $1 OR o.recipient_id = $1 LIMIT 1",
