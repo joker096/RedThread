@@ -45,7 +45,7 @@ test('coordinated backup bundle restores PostgreSQL and private media from one s
   const suffix = process.pid + '_' + Date.now();
   const snapshotId = 'ci_' + suffix;
   const sourceDatabase = 'vow_bundle_src_' + suffix;
-  const targetDatabase = 'vow_bundle_dst_' + suffix;
+  const targetDatabase = 'vow_restore_dst_' + suffix;
   const sourceUrl = databaseUrl(sourceDatabase);
   const targetUrl = databaseUrl(targetDatabase);
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-coordinated-backup-'));
