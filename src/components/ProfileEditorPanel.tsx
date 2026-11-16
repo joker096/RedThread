@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
+import { VoiceIntroRecorderPanel } from './VoiceIntroRecorderPanel.tsx';
 
+type VoiceIntro = { id: string; status: 'pending' | 'approved' | 'rejected'; durationMs: number };
 type Profile = {
   id: string; displayName: string; age: number; gender: 'female' | 'male';
   country: string; city: string; bio: string; photoUrls: string[];
@@ -9,6 +11,7 @@ type Profile = {
   familyFormat: 'marriage' | 'cohabitation' | 'open_to_both'; hasChildren: boolean | null;
   childrenDisclosureConfirmedAt: string | null; wantsChildren: 'yes' | 'no' | 'discuss' | 'unsure';
   childrenLivingArrangement: 'with_me' | 'shared_custody' | 'with_other_parent' | 'not_applicable' | 'prefer_to_discuss';
+  voiceIntro: VoiceIntro | null;
 };
 type BlockedProfile = { id: string; displayName: string; createdAt: string };
 type Props = { onOpenAccount: () => void };
@@ -95,7 +98,17 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
           ? rawProfile.languages.filter((value: unknown): value is string =>
               typeof value === 'string' && value.trim().length > 0
             ).map((value: string) => value.trim())
-          : []
+          : [],
+        voiceIntro: rawProfile.voiceIntro && typeof rawProfile.voiceIntro === 'object' &&
+          typeof rawProfile.voiceIntro.id === 'string' &&
+          ['pending', 'approved', 'rejected'].includes(rawProfile.voiceIntro.status) &&
+          Number.isInteger(rawProfile.voiceIntro.durationMs)
+          ? {
+              id: rawProfile.voiceIntro.id,
+              status: rawProfile.voiceIntro.status,
+              durationMs: rawProfile.voiceIntro.durationMs
+            }
+          : null
       } as Profile;
       setProfile(p);
       setDisplayName(p.displayName || '');
@@ -193,7 +206,7 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
         };
         throw new Error(errors[data?.error] || t('profileSaveError'));
       }
-      setProfile(data.profile);
+      setProfile(current => ({ ...data.profile, voiceIntro: current?.voiceIntro ?? null }));
       setNotice(t('profileSaved'));
     } catch (error) {
       if (sessionId === sessionRequestId.current) {
@@ -246,6 +259,10 @@ export const ProfileEditorPanel: React.FC<Props> = ({ onOpenAccount }) => {
           <label className="block text-xs text-stone-300">{t('profileUploadedPhotos')}<textarea name="profile-uploaded-photos" value={photoUrls} readOnly rows={3} placeholder={t('profilePhotosPlaceholder')} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus:border-rose-500/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 read-only:opacity-80" /></label>
           {photoUrls.split(/\n|,/).map(value => value.trim()).filter(Boolean).length > 0 && <button type="button" onClick={() => setPhotoUrls(current => current.split(/\n|,/).map(value => value.trim()).filter(Boolean).slice(0, -1).join("\n"))} className="min-h-11 rounded-lg border border-white/10 px-3 py-2 text-xs text-stone-300 focus:border-rose-500/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400" >{t('profileRemoveLastPhoto')}</button>}
           <p id="profile-photo-privacy-note" className="text-[10px] leading-relaxed text-stone-500">{t('profilePhotoPrivacyNote')}</p>
+          <VoiceIntroRecorderPanel
+            voiceIntro={profile?.voiceIntro ?? null}
+            onChanged={voiceIntro => setProfile(current => current ? { ...current, voiceIntro } : current)}
+          />
           <label className="block text-xs text-stone-300">{t('profileRelationshipGoal')}<select name="profile-relationship-intent" value={relationshipIntent} onChange={e => setRelationshipIntent(e.target.value as typeof relationshipIntent)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus:border-rose-500/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400"><option value="marriage_family">{t('profileGoalMarriage')}</option><option value="family_without_marriage">{t('profileGoalFamilyNoMarriage')}</option><option value="serious_relationship">{t('profileGoalSerious')}</option></select></label>
           <label className="block text-xs text-stone-300">{t('profileFamilyFormat')}<select name="profile-family-format" value={familyFormat} onChange={e => setFamilyFormat(e.target.value as typeof familyFormat)} className="mt-1 w-full rounded-xl border border-white/10 bg-stone-950 p-3 text-sm text-white focus:border-rose-500/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400"><option value="open_to_both">{t('profileFamilyBoth')}</option><option value="marriage">{t('profileFamilyMarriage')}</option><option value="cohabitation">{t('profileFamilyCohabitation')}</option></select></label>
           <fieldset className="rounded-xl border border-white/10 bg-stone-950 p-3">

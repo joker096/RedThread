@@ -1,0 +1,8 @@
+name = "vow-privacy-ledger"
+main = "src/index.js"
+compatibility_date = "2026-11-14"
+
+[[d1_databases]]
+binding = "LEDGER_DB"
+database_name = "vow-privacy-ledger"
+database_id = "REPLACE_AFTER_CREATING_D1_DATABASE"

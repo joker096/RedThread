@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import {
   IDENTITY_L3_WORKER_MAX_ATTEMPTS,
@@ -381,6 +382,14 @@ test('L3 purge worker deletes encrypted media under the account lock and clears 
     objectKey: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
     root: '/private/l3'
   }]);
+  const recoveryProof = client.calls.find(call =>
+    call.sql.includes('INSERT INTO privacy_recovery_replay_purge_completions')
+  );
+  assert.ok(recoveryProof, 'successful L3 unlink must persist recovery completion evidence');
+  assert.equal(
+    recoveryProof.params[0],
+    createHash('sha256').update('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'utf8').digest('hex')
+  );
   const clearIndex = client.calls.findIndex(call => call.sql.includes('UPDATE identity_l3_submissions'));
   const completeIndex = client.calls.findIndex(call =>
     call.sql.includes("SET status = 'completed'") && call.sql.includes('identity_l3_media_purge_jobs')
@@ -397,6 +406,51 @@ test('L3 purge worker deletes encrypted media under the account lock and clears 
   assert.ok(client.calls.some(call => call.sql.includes('pg_advisory_lock')));
   assert.ok(client.calls.some(call => call.sql.includes('pg_advisory_unlock')));
   assert.equal(client.released, true);
+});
+
+test('L3 purge safely retries when media unlink succeeds but the completion commit is lost', async () => {
+  const { pool, client } = fakePurgePool();
+  const originalQuery = client.query.bind(client);
+  let commitCount = 0;
+  let failCompletionCommit = true;
+  client.query = async (sql, params = []) => {
+    if (sql === 'COMMIT') {
+      commitCount += 1;
+      // First COMMIT persists the lease. Fail the next COMMIT after unlink,
+      // simulating a lost DB connection before the completion transaction lands.
+      if (commitCount === 2 && failCompletionCommit) {
+        failCompletionCommit = false;
+        throw new Error('simulated_lost_completion_commit');
+      }
+    }
+    return originalQuery(sql, params);
+  };
+
+  let unlinkCalls = 0;
+  const first = await runIdentityL3PurgeOnce(pool, {
+    storageRoot: '/private/l3',
+    deleteObject: async () => { unlinkCalls += 1; return true; }
+  });
+  assert.equal(first.status, 'retry_scheduled');
+  assert.equal(first.errorCode, 'l3_media_processing_failed');
+  assert.equal(unlinkCalls, 1);
+  assert.ok(client.calls.some(call => call.sql === 'ROLLBACK'));
+  assert.ok(client.calls.some(call =>
+    call.sql.includes('UPDATE identity_l3_media_purge_jobs') &&
+    call.sql.includes('SET status = $3') &&
+    call.params[2] === 'queued'
+  ), 'failed completion must preserve a retryable purge obligation');
+
+  const second = await runIdentityL3PurgeOnce(pool, {
+    storageRoot: '/private/l3',
+    deleteObject: async () => {
+      unlinkCalls += 1;
+      return false; // ENOENT: the first attempt already removed the object.
+    }
+  });
+  assert.equal(second.status, 'completed');
+  assert.equal(unlinkCalls, 2);
+  assert.ok(client.calls.some(call => call.sql.includes("SET status = 'completed'")));
 });
 
 test('L3 purge worker retries storage failures without clearing the encrypted object key', async () => {

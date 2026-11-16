@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { mkdtemp, rm, symlink } from 'node:fs/promises';
+import os from 'node:os';
+import { privatePhotoPurgeExitCode } from './process-private-photo-purge.js';
 import {
   normalizePrivatePhotoPurgeBatchSize,
   resolvePrivatePhotoPath,
@@ -72,7 +75,10 @@ test('purge worker deletes a file and its queue row transactionally', async () =
   });
   assert.deepEqual(summary, { scanned: 1, deleted: 1, retried: 0, failures: 0 });
   assert.deepEqual(removed, [validPath]);
-  assert.ok(statements.some(item => item.sql.startsWith('DELETE FROM private_photo_purge_queue')));
+  const completionIndex = statements.findIndex(item => item.sql.startsWith('INSERT INTO privacy_recovery_replay_purge_completions'));
+  const deleteIndex = statements.findIndex(item => item.sql.startsWith('DELETE FROM private_photo_purge_queue'));
+  assert.ok(completionIndex >= 0, 'successful unlink must create an immutable recovery completion when an obligation exists');
+  assert.ok(deleteIndex > completionIndex, 'completion must be recorded before the transient queue row is removed');
   assert.equal(statements.at(-1).sql, 'COMMIT');
 });
 
@@ -102,4 +108,125 @@ test('purge worker retains failed tasks and schedules a retry', async () => {
   assert.equal(retry.params[1], 3);
   assert.equal(retry.params[3], 'EACCES');
   assert.equal(statements.at(-1).sql, 'COMMIT');
+});
+
+
+test('photo purge runner rejects a symlinked storage root and accepts a real directory', async () => {
+  const { runPrivatePhotoPurge } = await import('./process-private-photo-purge.js');
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-photo-purge-'));
+  const realRoot = path.join(tempRoot, 'real');
+  const linkedRoot = path.join(tempRoot, 'linked');
+  const pool = { query: async () => ({ rows: [] }) };
+  try {
+    await (await import('node:fs/promises')).mkdir(realRoot);
+    await symlink(realRoot, linkedRoot, 'dir');
+    await assert.rejects(
+      runPrivatePhotoPurge({ storageRoot: linkedRoot, pool }),
+      /not a real directory/
+    );
+    const summary = await runPrivatePhotoPurge({ storageRoot: realRoot, pool });
+    assert.deepEqual(summary, { scanned: 0, deleted: 0, retried: 0, failures: 0 });
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+
+test('photo purge process exit code reports deletion failures to the scheduler', () => {
+  assert.equal(privatePhotoPurgeExitCode({ failures: 0 }), 0);
+  assert.equal(privatePhotoPurgeExitCode({ failures: 1 }), 2);
+  assert.equal(privatePhotoPurgeExitCode({ failures: 4 }), 2);
+  assert.equal(privatePhotoPurgeExitCode(undefined), 0);
+});
+
+
+test('photo purge skips a queue row already locked by another worker', async () => {
+  const statements = [];
+  const client = {
+    async query(sql) {
+      statements.push(sql.replace(/\\s+/g, ' ').trim());
+      if (sql.includes('FOR UPDATE SKIP LOCKED')) return { rows: [], rowCount: 0 };
+      return { rows: [], rowCount: 0 };
+    },
+    release() {}
+  };
+  const pool = {
+    async query() { return { rows: [{ id: 'claimed-by-other-worker' }] }; },
+    async connect() { return client; }
+  };
+  let unlinkCalls = 0;
+  const { processPrivatePhotoPurgeBatch } = await import('./photoPurge.js');
+  const summary = await processPrivatePhotoPurgeBatch(pool, {
+    storageRoot: root,
+    unlinkFile: async () => { unlinkCalls += 1; }
+  });
+  assert.deepEqual(summary, { scanned: 1, deleted: 0, retried: 0, failures: 0 });
+  assert.equal(unlinkCalls, 0);
+  assert.ok(statements.includes('COMMIT'));
+  assert.equal(statements.some(sql => sql.startsWith('DELETE FROM private_photo_purge_queue')), false);
+});
+
+test('photo purge safely resumes when the worker loses its commit after unlink', async () => {
+  let queueExists = true;
+  let commitCount = 0;
+  let unlinkCount = 0;
+  let completionExists = false;
+  const { processPrivatePhotoPurgeBatch } = await import('./photoPurge.js');
+  const pool = {
+    async query() { return { rows: queueExists ? [{ id: 'crash-retry' }] : [] }; },
+    async connect() {
+      let connectionLost = false;
+      let pendingDelete = false;
+      let pendingCompletion = false;
+      return {
+        async query(sql) {
+          if (connectionLost) throw new Error('connection_lost');
+          if (sql.includes('SELECT id, storage_path, attempts')) {
+            return { rows: queueExists ? [{ id: 'crash-retry', storage_path: validPath, attempts: 0 }] : [] };
+          }
+          if (sql.startsWith('INSERT INTO privacy_recovery_replay_purge_completions')) {
+            pendingCompletion = true;
+            return { rows: [], rowCount: 1 };
+          }
+          if (sql.startsWith('DELETE FROM private_photo_purge_queue')) {
+            pendingDelete = true;
+            return { rows: [], rowCount: 1 };
+          }
+          if (sql === 'COMMIT') {
+            commitCount += 1;
+            if (commitCount === 1) {
+              connectionLost = true;
+              throw new Error('simulated_connection_loss_before_commit');
+            }
+            if (pendingDelete) queueExists = false;
+            if (pendingCompletion) completionExists = true;
+            return { rows: [] };
+          }
+          if (sql === 'ROLLBACK') throw new Error('connection_lost');
+          return { rows: [], rowCount: 0 };
+        },
+        release() {}
+      };
+    }
+  };
+  const first = await processPrivatePhotoPurgeBatch(pool, {
+    storageRoot: root,
+    unlinkFile: async () => { unlinkCount += 1; }
+  });
+  assert.deepEqual(first, { scanned: 1, deleted: 0, retried: 0, failures: 1 });
+  assert.equal(queueExists, true, 'failed transaction must leave the purge obligation queued');
+  assert.equal(unlinkCount, 1);
+
+  const second = await processPrivatePhotoPurgeBatch(pool, {
+    storageRoot: root,
+    unlinkFile: async () => {
+      const error = new Error('file was already removed by the previous worker');
+      error.code = 'ENOENT';
+      throw error;
+    }
+  });
+  assert.deepEqual(second, { scanned: 1, deleted: 1, retried: 0, failures: 0 });
+  assert.equal(queueExists, false);
+  assert.equal(completionExists, true, 'retry after ENOENT must durably record the purge completion');
+  assert.equal(unlinkCount, 1);
 });

@@ -1,0 +1,157 @@
+import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+
+const ADDRESS_FIELDS = Object.freeze([
+  'recipientName',
+  'phone',
+  'addressLine1',
+  'addressLine2',
+  'city',
+  'region',
+  'postalCode',
+  'countryCode',
+  'deliveryInstructions'
+]);
+const VAULT_AAD_PREFIX = 'vow-gift-address:v1';
+
+export function parseGiftAddressVaultKey(value = process.env.GIFT_ADDRESS_VAULT_KEY) {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9+/]{43}=$/.test(value)) return null;
+  const key = Buffer.from(value, 'base64');
+  return key.length === 32 && key.toString('base64') === value ? key : null;
+}
+
+export function parseGiftAddressVaultKeyring({
+  keyringValue = process.env.GIFT_ADDRESS_VAULT_KEYRING,
+  activeKeyVersion = process.env.GIFT_ADDRESS_VAULT_ACTIVE_KEY_VERSION
+} = {}) {
+  if (typeof keyringValue !== 'string' || keyringValue.trim() === '') return null;
+  let parsed;
+  try { parsed = JSON.parse(keyringValue); } catch { return null; }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const entries = Object.entries(parsed);
+  if (entries.length < 1 || entries.length > 32 ||
+      typeof activeKeyVersion !== 'string' ||
+      !/^[A-Za-z0-9._-]{1,32}$/.test(activeKeyVersion) ||
+      !Object.hasOwn(parsed, activeKeyVersion)) return null;
+  const keys = new Map();
+  for (const [version, encoded] of entries) {
+    if (!/^[A-Za-z0-9._-]{1,32}$/.test(version)) return null;
+    const key = parseGiftAddressVaultKey(encoded);
+    if (!key || [...keys.values()].some(existingKey => existingKey.equals(key))) return null;
+    keys.set(version, key);
+  }
+  return { activeKeyVersion, keys };
+}
+
+function resolveGiftAddressVaultKey(key, keyVersion) {
+  if (Buffer.isBuffer(key) && key.length === 32) return key;
+  const resolved = key?.keys instanceof Map ? key.keys.get(keyVersion) : null;
+  if (Buffer.isBuffer(resolved) && resolved.length === 32) return resolved;
+  throw new Error('gift_address_vault_key_version_unavailable');
+}
+
+export function normalizeGiftAddress(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { ok: false, error: 'invalid_address' };
+  }
+  if (Object.keys(input).some(field => !ADDRESS_FIELDS.includes(field))) {
+    return { ok: false, error: 'unknown_address_field' };
+  }
+  const address = {};
+  for (const field of ADDRESS_FIELDS) {
+    const value = input[field];
+    if (value == null && ['addressLine2', 'region', 'postalCode', 'deliveryInstructions'].includes(field)) continue;
+    if (typeof value !== 'string') return { ok: false, error: 'invalid_address' };
+    const trimmed = value.trim();
+    const max = field === 'deliveryInstructions' ? 300 : field === 'addressLine1' ? 200 : 120;
+    if (!trimmed || trimmed.length > max) {
+      if (field === 'addressLine2' || field === 'region' || field === 'postalCode' || field === 'deliveryInstructions') continue;
+      return { ok: false, error: 'invalid_address' };
+    }
+    address[field] = trimmed;
+  }
+  if (!/^[A-Z]{2}$/.test(address.countryCode || '')) return { ok: false, error: 'invalid_country_code' };
+  if (!/^\+?[0-9 ()-]{7,24}$/.test(address.phone || '')) return { ok: false, error: 'invalid_phone' };
+  return { ok: true, address };
+}
+
+function associatedData(orderId, recipientUserId, keyVersion) {
+  if (typeof orderId !== 'string' || !orderId || typeof recipientUserId !== 'string' || !recipientUserId ||
+      typeof keyVersion !== 'string' || !/^[A-Za-z0-9._-]{1,32}$/.test(keyVersion)) {
+    throw new TypeError('order, recipient and key version identifiers are required');
+  }
+  return Buffer.from(`${VAULT_AAD_PREFIX}:${keyVersion}:${orderId}:${recipientUserId}`, 'utf8');
+}
+
+export function encryptGiftAddress({ address, orderId, recipientUserId, key, keyVersion } = {}) {
+  keyVersion = keyVersion ?? key?.activeKeyVersion ?? 'v1';
+  key = resolveGiftAddressVaultKey(key, keyVersion);
+  if (typeof keyVersion !== 'string' || !/^[A-Za-z0-9._-]{1,32}$/.test(keyVersion)) {
+    throw new TypeError('invalid vault key version');
+  }
+  const normalized = normalizeGiftAddress(address);
+  if (!normalized.ok) throw new TypeError(normalized.error);
+  const nonce = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, nonce);
+  cipher.setAAD(associatedData(orderId, recipientUserId, keyVersion));
+  const ciphertext = Buffer.concat([
+    cipher.update(JSON.stringify(normalized.address), 'utf8'),
+    cipher.final()
+  ]);
+  return {
+    nonce,
+    authTag: cipher.getAuthTag(),
+    ciphertext,
+    keyVersion
+  };
+}
+
+export function decryptGiftAddress({ encrypted, orderId, recipientUserId, key } = {}) {
+  key = resolveGiftAddressVaultKey(key, encrypted?.keyVersion);
+  if (!encrypted || !Buffer.isBuffer(encrypted.nonce) || encrypted.nonce.length !== 12 ||
+      !Buffer.isBuffer(encrypted.authTag) || encrypted.authTag.length !== 16 ||
+      !Buffer.isBuffer(encrypted.ciphertext) || encrypted.ciphertext.length === 0) {
+    throw new TypeError('invalid encrypted vault record');
+  }
+  const decipher = createDecipheriv('aes-256-gcm', key, encrypted.nonce);
+  decipher.setAAD(associatedData(orderId, recipientUserId, encrypted.keyVersion));
+  decipher.setAuthTag(encrypted.authTag);
+  const plaintext = Buffer.concat([
+    decipher.update(encrypted.ciphertext),
+    decipher.final()
+  ]).toString('utf8');
+  const parsed = JSON.parse(plaintext);
+  const normalized = normalizeGiftAddress(parsed);
+  if (!normalized.ok) throw new Error('decrypted_gift_address_invalid');
+  return normalized.address;
+}
+/**
+ * Permanently removes a recipient-scoped encrypted address after consent withdrawal
+ * or a safety hold. The caller owns the surrounding PostgreSQL transaction and
+ * must clear the order pointer in that same transaction before invoking this helper.
+ */
+export async function revokeGiftAddressVaultEntry(client, {
+  orderId,
+  recipientUserId,
+  actorUserId = null
+} = {}) {
+  if (!client || typeof client.query !== 'function' ||
+      typeof orderId !== 'string' || !orderId ||
+      typeof recipientUserId !== 'string' || !recipientUserId ||
+      (actorUserId != null && (typeof actorUserId !== 'string' || !actorUserId))) {
+    throw new TypeError('gift address revocation context is invalid');
+  }
+  const deleted = await client.query(
+    `DELETE FROM gift_address_vault_entries
+     WHERE order_id = $1 AND recipient_user_id = $2
+     RETURNING vault_ref`,
+    [orderId, recipientUserId]
+  );
+  if (deleted.rowCount > 0) {
+    await client.query(
+      `INSERT INTO gift_address_vault_access_events (order_id, actor_user_id, action)
+       VALUES ($1, $2, 'revoked')`,
+      [orderId, actorUserId]
+    );
+  }
+  return { revoked: deleted.rowCount > 0 };
+}

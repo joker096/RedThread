@@ -247,6 +247,61 @@ services:
         condition: service_completed_successfully
     networks: [backend]
 
+  private-voice-intro-purge:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
+      PGSSL: "${PGSSL:-false}"
+      VOICE_INTRO_STORAGE_DIR: /app/uploads/private-voice-intros
+      VOICE_INTRO_PURGE_BATCH_SIZE: ${VOICE_INTRO_PURGE_BATCH_SIZE:-100}
+    command:
+      - sh
+      - -c
+      - |
+        while :; do
+          node server/process-private-voice-intro-purge.js || echo "Private voice introduction purge failed; retrying on the next minute."
+          sleep 60
+        done
+    volumes:
+      - private_voice_intros:/app/uploads/private-voice-intros
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [backend]
+
+  voice-intro-migration:
+    build:
+      context: .
+      target: api
+    restart: "no"
+    profiles: ["voice-intro-migration"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
+      PGSSL: "${PGSSL:-false}"
+      VOICE_INTRO_STORAGE_DIR: /app/uploads/private-voice-intros
+      VOICE_INTRO_ENCRYPTION_KEY: ${VOICE_INTRO_ENCRYPTION_KEY:-}
+      VOICE_INTRO_KEYRING: ${VOICE_INTRO_KEYRING:-}
+      VOICE_INTRO_ACTIVE_KEY_ID: ${VOICE_INTRO_ACTIVE_KEY_ID:-}
+      GIFT_ADDRESS_VAULT_KEY: ${GIFT_ADDRESS_VAULT_KEY:-}
+      GIFT_ADDRESS_VAULT_KEYRING: ${GIFT_ADDRESS_VAULT_KEYRING:-}
+      GIFT_ADDRESS_VAULT_ACTIVE_KEY_VERSION: ${GIFT_ADDRESS_VAULT_ACTIVE_KEY_VERSION:-}
+      VOICE_INTRO_MIGRATION_ENABLED: ${VOICE_INTRO_MIGRATION_ENABLED:-false}
+      VOICE_INTRO_MIGRATION_JOURNAL_ID: ${VOICE_INTRO_MIGRATION_JOURNAL_ID:-}
+    command: ["node", "server/runVoiceIntroMigration.js", "--apply"]
+    volumes:
+      - private_voice_intros:/app/uploads/private-voice-intros
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [backend]
+
   api:
     build:
       context: .
@@ -257,7 +312,7 @@ services:
     environment:
       NODE_ENV: production
       API_PORT: "3001"
-      # The API is reachable through the single Nginx web container in this Compose topology.
+      # The native mobile apps reach the API through this Nginx gateway; no Vow SPA is served.
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
       DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
       PGSSL: ${PGSSL:-false}
@@ -265,6 +320,9 @@ services:
       APP_URL: ${APP_URL:?Set APP_URL in .env}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       ACCOUNT_REUSE_HMAC_KEY: ${ACCOUNT_REUSE_HMAC_KEY:-}
+      PRIVACY_RECOVERY_LEDGER_URL: ${PRIVACY_RECOVERY_LEDGER_URL:-}
+      PRIVACY_RECOVERY_LEDGER_HMAC_SECRET: ${PRIVACY_RECOVERY_LEDGER_HMAC_SECRET:-}
+      PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY: ${PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY:-}
       EMAIL_VERIFICATION_REQUIRED: ${EMAIL_VERIFICATION_REQUIRED:-true}
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-resend}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
@@ -290,12 +348,17 @@ services:
       IDENTITY_L3_TEMP_DIR: /run/identity-l3-tmp
       IDENTITY_L3_ENCRYPTION_KEY: ${IDENTITY_L3_ENCRYPTION_KEY:-}
       PHOTO_STORAGE_DIR: /app/uploads/private-photos
+      VOICE_INTRO_STORAGE_DIR: /app/uploads/private-voice-intros
+      VOICE_INTRO_ENCRYPTION_KEY: ${VOICE_INTRO_ENCRYPTION_KEY:-}
+      VOICE_INTRO_KEYRING: ${VOICE_INTRO_KEYRING:-}
+      VOICE_INTRO_ACTIVE_KEY_ID: ${VOICE_INTRO_ACTIVE_KEY_ID:-}
       PHOTO_AI_ENABLED: ${PHOTO_AI_ENABLED:-false}
       PHOTO_AI_MODEL: ${PHOTO_AI_MODEL:-llava:7b}
       LOCAL_AI_ENABLED: ${LOCAL_AI_ENABLED:-false}
       LOCAL_AI_MODEL: ${LOCAL_AI_MODEL:-qwen2.5:3b}
     volumes:
       - private_photos:/app/uploads/private-photos
+      - private_voice_intros:/app/uploads/private-voice-intros
       - private_identity_l3:/app/uploads/private-identity-l3
     tmpfs:
       - /run/identity-l3-tmp:rw,noexec,nosuid,nodev,size=256m,mode=0700,uid=1000,gid=1000
@@ -325,6 +388,7 @@ services:
 volumes:
   postgres_data:
   private_photos:
+  private_voice_intros:
   private_identity_l3:
   clamav_database:
 

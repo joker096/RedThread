@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 export const DEFAULT_PRIVATE_PHOTO_PURGE_BATCH_SIZE = 100;
 export const PRIVATE_PHOTO_PURGE_MAX_RETRY_DELAY_MS = 6 * 60 * 60 * 1000;
@@ -96,6 +97,16 @@ export async function processPrivatePhotoPurgeBatch(pool, {
         } catch (error) {
           if (error?.code !== 'ENOENT') throw error;
         }
+        const storagePathDigest = createHash('sha256').update(task.storage_path, 'utf8').digest('hex');
+        await client.query(
+          `INSERT INTO privacy_recovery_replay_purge_completions
+             (ledger_sequence, queue_name, storage_path_sha256)
+           SELECT ledger_sequence, queue_name, storage_path_sha256
+             FROM privacy_recovery_replay_purge_obligations
+            WHERE queue_name = 'private_photo' AND storage_path_sha256 = $1
+           ON CONFLICT DO NOTHING`,
+          [storagePathDigest]
+        );
         await client.query('DELETE FROM private_photo_purge_queue WHERE id = $1', [task.id]);
         await client.query('COMMIT');
         summary.deleted += 1;

@@ -1,7 +1,9 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
+import { generateNativeAppIcons } from './generate-native-app-icons.mjs';
 import { mergeAssociatedDomainsEntitlements } from './capacitor-entitlements.mjs';
+import { ensureAndroidRecordAudioPermission, ensureIosMicrophoneUsageDescription, ensureIosFilesystemPrivacyManifest, createEmptyIosPrivacyManifest, ensureIosPrivacyManifestXcodeResource } from './capacitor-audio-permissions.mjs';
 
 const platform = process.argv[2];
 if (!['android', 'ios'].includes(platform)) {
@@ -108,9 +110,44 @@ function configureIosDeepLinks(host) {
   }
 }
 
-const appLinkHost = configuredAppLinkHost();
-if (platform === 'android') configureAndroidDeepLinks(appLinkHost);
-else configureIosDeepLinks(appLinkHost);
+function configureAndroidAudioPermission() {
+  const manifestPath = join('android', 'app', 'src', 'main', 'AndroidManifest.xml');
+  const current = readFileSync(manifestPath, 'utf8');
+  const updated = ensureAndroidRecordAudioPermission(current);
+  if (updated !== current) writeFileSync(manifestPath, updated);
+}
 
-console.log('Capacitor ' + platform + ' project configured for Vow links' +
+function configureIosMicrophonePermission() {
+  const appDirectory = join('ios', 'App', 'App');
+  const plistPath = join(appDirectory, 'Info.plist');
+  const current = readFileSync(plistPath, 'utf8');
+  const updated = ensureIosMicrophoneUsageDescription(current);
+  if (updated !== current) writeFileSync(plistPath, updated);
+
+  const privacyManifestPath = join(appDirectory, 'PrivacyInfo.xcprivacy');
+  const emptyPrivacyManifest = createEmptyIosPrivacyManifest();
+  const currentPrivacy = existsSync(privacyManifestPath)
+    ? readFileSync(privacyManifestPath, 'utf8')
+    : emptyPrivacyManifest;
+  const updatedPrivacy = ensureIosFilesystemPrivacyManifest(currentPrivacy);
+  if (updatedPrivacy !== currentPrivacy) writeFileSync(privacyManifestPath, updatedPrivacy);
+
+  const projectPath = join('ios', 'App', 'App.xcodeproj', 'project.pbxproj');
+  if (!existsSync(projectPath)) throw new Error('ios_xcode_project_missing_after_capacitor_add');
+  const currentProject = readFileSync(projectPath, 'utf8');
+  const updatedProject = ensureIosPrivacyManifestXcodeResource(currentProject);
+  if (updatedProject !== currentProject) writeFileSync(projectPath, updatedProject);
+}
+
+const appLinkHost = configuredAppLinkHost();
+await generateNativeAppIcons(platform);
+if (platform === 'android') {
+  configureAndroidDeepLinks(appLinkHost);
+  configureAndroidAudioPermission();
+} else {
+  configureIosDeepLinks(appLinkHost);
+  configureIosMicrophonePermission();
+}
+
+console.log('Capacitor ' + platform + ' project configured for Vow links and microphone permission' +
   (appLinkHost ? ' on ' + appLinkHost + '.' : '; verified HTTPS app links await VOW_APP_LINK_HOST.'));

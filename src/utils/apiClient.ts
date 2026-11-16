@@ -1,5 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { KeychainAccess, SecureStorage } from '@aparajita/capacitor-secure-storage';
+import { createSessionMutationQueue } from './sessionMutationQueue';
 
 type MobilePlatform = 'android' | 'ios';
 
@@ -26,6 +27,8 @@ const AUTH_ENDPOINT = /^\/api\/mobile\/auth\/(?:login|register|verify-email|emai
 const nativePlatform = Capacitor.getPlatform();
 const isNative = Capacitor.isNativePlatform() &&
   (nativePlatform === 'android' || nativePlatform === 'ios');
+
+const sessionMutations = createSessionMutationQueue();
 
 let accessToken: string | null = null;
 let accessTokenExpiresAt = 0;
@@ -132,17 +135,29 @@ export async function getMobileDeviceContext(): Promise<MobileDeviceContext> {
   };
 }
 
-export async function clearMobileSession(): Promise<void> {
+export async function clearMobileSession(expectedGeneration?: number): Promise<boolean> {
+  if (expectedGeneration !== undefined && !sessionMutations.isCurrent(expectedGeneration)) {
+    return false;
+  }
+  const generation = sessionMutations.invalidate();
   accessToken = null;
   accessTokenExpiresAt = 0;
   try {
-    if (isNative) await secureRemove(REFRESH_TOKEN_KEY);
+    const cleared = await sessionMutations.run(generation, async () => {
+      if (isNative) await secureRemove(REFRESH_TOKEN_KEY);
+      return true;
+    });
+    return cleared === true;
   } catch (error) {
     console.error('Could not clear the secure mobile session store:', error);
+    return false;
   }
 }
 
-async function persistMobileSession(payload: MobileSessionPayload): Promise<void> {
+async function persistMobileSession(
+  payload: MobileSessionPayload,
+  expectedGeneration = sessionMutations.currentGeneration()
+): Promise<boolean> {
   if (!isNative ||
       typeof payload.accessToken !== 'string' ||
       !payload.accessToken.startsWith('vow_access_') ||
@@ -156,10 +171,18 @@ async function persistMobileSession(payload: MobileSessionPayload): Promise<void
       refreshExpiry <= Date.now() || expiry <= Date.now()) {
     throw new Error('invalid_mobile_session_expiry');
   }
-  // Persist refresh credentials before publishing the in-memory access token.
-  await secureSetString(REFRESH_TOKEN_KEY, payload.refreshToken);
-  accessToken = payload.accessToken;
-  accessTokenExpiresAt = expiry;
+  // Serialize secure-store writes with logout and reject responses from older sessions.
+  const persisted = await sessionMutations.run(expectedGeneration, async isCurrent => {
+    await secureSetString(REFRESH_TOKEN_KEY, payload.refreshToken);
+    if (!isCurrent()) {
+      await secureRemove(REFRESH_TOKEN_KEY);
+      return false;
+    }
+    accessToken = payload.accessToken;
+    accessTokenExpiresAt = expiry;
+    return true;
+  });
+  return persisted === true;
 }
 
 export async function saveMobileSession(payload: MobileSessionPayload): Promise<void> {
@@ -167,6 +190,7 @@ export async function saveMobileSession(payload: MobileSessionPayload): Promise<
 }
 
 async function performRefresh(): Promise<RefreshResult> {
+  const generation = sessionMutations.currentGeneration();
   let refreshToken: string | null;
   let device: MobileDeviceContext;
   try {
@@ -183,14 +207,14 @@ async function performRefresh(): Promise<RefreshResult> {
       body: JSON.stringify(device)
     });
     if (response.status === 400 || response.status === 401 || response.status === 403) {
-      await clearMobileSession();
-      dispatchSessionExpired();
+      const cleared = await clearMobileSession(generation);
+      if (cleared) dispatchSessionExpired();
       return 'invalid';
     }
     if (!response.ok) return 'unavailable';
     const payload = await response.json() as MobileSessionPayload;
-    await persistMobileSession(payload);
-    return 'refreshed';
+    const persisted = await persistMobileSession(payload, generation);
+    return persisted ? 'refreshed' : 'invalid';
   } catch (error) {
     console.error('Mobile session refresh unavailable:', error);
     return 'unavailable';
@@ -289,6 +313,7 @@ export async function mobileAuthFetch(
   payload: Record<string, unknown>
 ): Promise<Response> {
   if (!isNative) throw new Error('mobile_auth_unavailable_on_web');
+  const requestGeneration = sessionMutations.currentGeneration();
   const body = ['login', 'register'].includes(action)
     ? { ...payload, ...(await getMobileDeviceContext()) }
     : payload;
@@ -301,7 +326,7 @@ export async function mobileAuthFetch(
     if (response.ok) {
       const result = await response.clone().json().catch(() => null);
       if (result?.accessToken && result?.refreshToken) {
-        await persistMobileSession(result as MobileSessionPayload);
+        await persistMobileSession(result as MobileSessionPayload, requestGeneration);
       }
     }
     return response;

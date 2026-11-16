@@ -2,6 +2,23 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider.tsx';
 import { formatMinorCurrency } from '../utils/currency.ts';
 
+type GiftAddressDraft = {
+  recipientName: string;
+  phone: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  region: string;
+  postalCode: string;
+  countryCode: string;
+  deliveryInstructions: string;
+};
+
+const EMPTY_GIFT_ADDRESS_DRAFT: GiftAddressDraft = {
+  recipientName: '', phone: '', addressLine1: '', addressLine2: '',
+  city: '', region: '', postalCode: '', countryCode: '', deliveryInstructions: ''
+};
+
 type GiftOrder = {
   publicReference: string;
   productName: string;
@@ -87,6 +104,11 @@ export const GiftOrdersPanel: React.FC = () => {
   const [loadFailed, setLoadFailed] = useState(false);
   const [busyReference, setBusyReference] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
+  const [draftOrder, setDraftOrder] = useState<GiftOrder | null>(null);
+  const [draftAddress, setDraftAddress] = useState<GiftAddressDraft>(EMPTY_GIFT_ADDRESS_DRAFT);
+  const [draftConsent, setDraftConsent] = useState(false);
+  const [draftLoading, setDraftLoading] = useState(false);
+  const [draftNotice, setDraftNotice] = useState('');
   const loadRequestId = useRef(0);
   const sessionEpoch = useRef(0);
   const panelRef = useRef<HTMLElement | null>(null);
@@ -140,6 +162,10 @@ export const GiftOrdersPanel: React.FC = () => {
       setNotice('');
       setLoadFailed(false);
       setBusyReference(null);
+      setDraftOrder(null);
+      setDraftAddress(EMPTY_GIFT_ADDRESS_DRAFT);
+      setDraftConsent(false);
+      setDraftNotice('');
       void load();
     };
     window.addEventListener('focus', refresh);
@@ -230,6 +256,7 @@ export const GiftOrdersPanel: React.FC = () => {
       if (!response.ok) {
         throw new Error(t('giftOrdersDecisionError'));
       }
+      if (draftOrder?.publicReference === order.publicReference) closeAddressDraft();
       setNotice(t('giftOrdersConsentWithdrawn'));
       await load({ preserveNotice: true });
     } catch (error) {
@@ -239,6 +266,123 @@ export const GiftOrdersPanel: React.FC = () => {
     } finally {
       if (actionEpoch === sessionEpoch.current) setBusyReference(null);
     }
+  };
+
+  const closeAddressDraft = () => {
+    setDraftOrder(null);
+    setDraftAddress(EMPTY_GIFT_ADDRESS_DRAFT);
+    setDraftConsent(false);
+    setDraftNotice('');
+  };
+
+  const openAddressDraft = async (order: GiftOrder) => {
+    const actionEpoch = sessionEpoch.current;
+    setBusyReference(order.publicReference);
+    setDraftOrder(order);
+    setDraftAddress(EMPTY_GIFT_ADDRESS_DRAFT);
+    setDraftConsent(false);
+    setDraftLoading(true);
+    setDraftNotice('');
+    try {
+      const response = await fetch(`/api/gifts/orders/${encodeURIComponent(order.publicReference)}/address-draft`, {
+        credentials: 'include'
+      });
+      const payload: unknown = await response.json().catch(() => null);
+      if (actionEpoch !== sessionEpoch.current) return;
+      if (response.status === 404) return;
+      if (response.status === 401) {
+        sessionEpoch.current += 1;
+        loadRequestId.current += 1;
+        setOrders([]);
+        setDraftOrder(null);
+        setNotice(t('giftOrdersSignInRequired'));
+        return;
+      }
+      if (response.status === 503) throw new Error(t('giftDraftStorageNotConfigured'));
+      if (!response.ok || !payload || typeof payload !== 'object' || !('draft' in payload)) {
+        throw new Error(response.status === 409 ? t('giftDraftNotAvailable') : t('giftDraftLoadError'));
+      }
+      const draft = (payload as { draft?: { address?: unknown } }).draft;
+      const address = draft?.address;
+      if (!address || typeof address !== 'object') throw new Error(t('giftDraftLoadError'));
+      const record = address as Record<string, unknown>;
+      const next = { ...EMPTY_GIFT_ADDRESS_DRAFT };
+      for (const key of Object.keys(next) as (keyof GiftAddressDraft)[]) {
+        const value = record[key];
+        if (typeof value === 'string') next[key] = value.slice(0, key === 'deliveryInstructions' ? 300 : key === 'addressLine1' ? 200 : 120);
+      }
+      setDraftAddress(next);
+      setDraftConsent(true);
+    } catch (error) {
+      if (actionEpoch === sessionEpoch.current) setDraftNotice(error instanceof Error ? error.message : t('giftDraftLoadError'));
+    } finally {
+      if (actionEpoch === sessionEpoch.current) {
+        setDraftLoading(false);
+        setBusyReference(null);
+      }
+    }
+  };
+
+  const saveAddressDraft = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!draftOrder || !draftConsent) {
+      setDraftNotice(t('giftDraftConsentRequired'));
+      return;
+    }
+    const actionEpoch = sessionEpoch.current;
+    setBusyReference(draftOrder.publicReference);
+    setDraftNotice('');
+    try {
+      const response = await fetch(`/api/gifts/orders/${encodeURIComponent(draftOrder.publicReference)}/address-draft`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ consent: true, consentVersion: 1, address: draftAddress })
+      });
+      if (actionEpoch !== sessionEpoch.current) return;
+      const payload: unknown = await response.json().catch(() => null);
+      if (response.status === 401) throw new Error(t('giftOrdersSignInRequired'));
+      if (response.status === 503) throw new Error(t('giftDraftStorageNotConfigured'));
+      if (!response.ok) {
+        const code = payload && typeof payload === 'object' && 'error' in payload
+          ? String((payload as { error?: unknown }).error) : '';
+        throw new Error(code === 'gift_address_draft_consent_required'
+          ? t('giftDraftConsentRequired')
+          : code === 'gift_address_draft_not_available' ? t('giftDraftNotAvailable') : t('giftDraftSaveError'));
+      }
+      closeAddressDraft();
+      setNotice(t('giftDraftSaved'));
+      await load({ preserveNotice: true });
+    } catch (error) {
+      if (actionEpoch === sessionEpoch.current) setDraftNotice(error instanceof Error ? error.message : t('giftDraftSaveError'));
+    } finally {
+      if (actionEpoch === sessionEpoch.current) setBusyReference(null);
+    }
+  };
+
+  const deleteAddressDraft = async () => {
+    if (!draftOrder) return;
+    const actionEpoch = sessionEpoch.current;
+    setBusyReference(draftOrder.publicReference);
+    setDraftNotice('');
+    try {
+      const response = await fetch(`/api/gifts/orders/${encodeURIComponent(draftOrder.publicReference)}/address-draft`, {
+        method: 'DELETE', credentials: 'include'
+      });
+      if (actionEpoch !== sessionEpoch.current) return;
+      if (response.status === 401) throw new Error(t('giftOrdersSignInRequired'));
+      if (!response.ok) throw new Error(response.status === 409 ? t('giftDraftNotAvailable') : t('giftDraftSaveError'));
+      closeAddressDraft();
+      setNotice(t('giftDraftDeleted'));
+    } catch (error) {
+      if (actionEpoch === sessionEpoch.current) setDraftNotice(error instanceof Error ? error.message : t('giftDraftSaveError'));
+    } finally {
+      if (actionEpoch === sessionEpoch.current) setBusyReference(null);
+    }
+  };
+
+  const updateDraftField = (field: keyof GiftAddressDraft, value: string) => {
+    setDraftAddress(current => ({ ...current, [field]: field === 'countryCode' ? value.toUpperCase() : value }));
   };
 
   const money = (order: GiftOrder) =>
@@ -283,6 +427,8 @@ export const GiftOrdersPanel: React.FC = () => {
           {orders.map(order => {
             const isPendingRecipient = order.myRole === 'recipient' && order.status === 'awaiting_recipient_consent';
             const canWithdraw = order.myRole === 'recipient' && ['recipient_accepted', 'address_verified'].includes(order.status);
+            const canDraftAddress = order.myRole === 'recipient' && order.status === 'recipient_accepted';
+            const showDraft = draftOrder?.publicReference === order.publicReference;
             const busy = busyReference === order.publicReference;
             return (
               <li key={order.publicReference} className="rounded-xl border border-white/10 p-3">
@@ -303,6 +449,50 @@ export const GiftOrdersPanel: React.FC = () => {
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     <button type="button" disabled={busy || busyReference !== null} onClick={() => void submitDecision(order, 'accept')} className="min-h-11 rounded-xl bg-rose-700 px-3 py-2 text-sm font-semibold hover:bg-rose-600 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">{busy ? t('giftOrdersWorking') : t('giftOrdersAccept')}</button>
                     <button type="button" disabled={busy || busyReference !== null} onClick={() => void submitDecision(order, 'decline')} className="min-h-11 rounded-xl border border-white/20 px-3 py-2 text-sm font-semibold hover:bg-white/10 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">{t('giftOrdersDeclineAction')}</button>
+                  </div>
+                )}
+                {canDraftAddress && !showDraft && (
+                  <button type="button" disabled={busy || busyReference !== null} onClick={() => void openAddressDraft(order)} className="mt-3 min-h-11 w-full rounded-xl border border-rose-300/40 px-3 py-2 text-sm font-semibold hover:bg-rose-300/10 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300">{t('giftDraftOpen')}</button>
+                )}
+                {showDraft && (
+                  <div className="mt-3 rounded-xl border border-rose-300/20 bg-black/20 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <h4 className="text-sm font-semibold">{t('giftDraftTitle')}</h4>
+                      <button type="button" onClick={closeAddressDraft} className="min-h-9 rounded-lg px-2 text-xs text-stone-300 hover:bg-white/10">{t('giftDraftClose')}</button>
+                    </div>
+                    <p className="mt-2 text-xs leading-relaxed text-stone-300">{t('giftDraftPrivacy')}</p>
+                    {draftLoading ? <p className="mt-3 text-sm text-stone-300" role="status">{t('giftOrdersLoading')}</p> : (
+                      <form className="mt-3 space-y-2" onSubmit={event => void saveAddressDraft(event)}>
+                        {([
+                          ['recipientName', 'giftDraftRecipientName', true, 120, 'text'],
+                          ['phone', 'giftDraftPhone', true, 24, 'tel'],
+                          ['addressLine1', 'giftDraftAddressLine1', true, 200, 'text'],
+                          ['addressLine2', 'giftDraftAddressLine2', false, 120, 'text'],
+                          ['city', 'giftDraftCity', true, 120, 'text'],
+                          ['region', 'giftDraftRegion', false, 120, 'text'],
+                          ['postalCode', 'giftDraftPostalCode', false, 120, 'text'],
+                          ['countryCode', 'giftDraftCountryCode', true, 2, 'text']
+                        ] as const).map(([field, labelKey, required, maxLength, inputType]) => (
+                          <label key={field} className="block text-xs text-stone-300">
+                            <span className="mb-1 block">{t(labelKey)}</span>
+                            <input type={inputType} required={required} maxLength={maxLength} value={draftAddress[field]} onChange={event => updateDraftField(field, event.target.value)} autoComplete="off" className="min-h-10 w-full rounded-lg border border-white/15 bg-stone-950 px-3 py-2 text-sm text-white outline-none focus:border-rose-300" />
+                          </label>
+                        ))}
+                        <label className="block text-xs text-stone-300">
+                          <span className="mb-1 block">{t('giftDraftInstructions')}</span>
+                          <textarea maxLength={300} rows={2} value={draftAddress.deliveryInstructions} onChange={event => updateDraftField('deliveryInstructions', event.target.value)} className="w-full rounded-lg border border-white/15 bg-stone-950 px-3 py-2 text-sm text-white outline-none focus:border-rose-300" />
+                        </label>
+                        <label className="flex items-start gap-2 rounded-lg border border-white/10 p-2 text-xs leading-relaxed text-stone-200">
+                          <input type="checkbox" checked={draftConsent} onChange={event => setDraftConsent(event.target.checked)} className="mt-0.5 size-4 shrink-0 accent-rose-600" />
+                          <span>{t('giftDraftConsent')}</span>
+                        </label>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <button type="submit" disabled={busy || busyReference !== null || !draftConsent} className="min-h-11 rounded-xl bg-rose-700 px-3 py-2 text-sm font-semibold hover:bg-rose-600 disabled:opacity-60">{t('giftDraftSave')}</button>
+                          <button type="button" disabled={busy || busyReference !== null} onClick={() => void deleteAddressDraft()} className="min-h-11 rounded-xl border border-amber-300/30 px-3 py-2 text-xs hover:bg-amber-300/10 disabled:opacity-60">{t('giftDraftDelete')}</button>
+                        </div>
+                      </form>
+                    )}
+                    {draftNotice && <p className="mt-2 text-xs text-amber-200" role="status" aria-live="polite">{draftNotice}</p>}
                   </div>
                 )}
                 {canWithdraw && (

@@ -1,5 +1,5 @@
 import React from 'react';
-import { SlidersHorizontal, Flame, MessageCircle, Brain, Crown, Sun, Moon } from 'lucide-react';
+import { SlidersHorizontal, Brain, Crown, Sun, Moon, Heart, ShieldCheck, Venus, Mars } from 'lucide-react';
 import type { DeviceFrame, Gender } from '../types/index.ts';
 import { getTranslationCoverage, LANGUAGE_OPTIONS, useLocale } from '../i18n/LocaleProvider.tsx';
 
@@ -56,13 +56,13 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   return (
     <header className="vow-app-header sticky top-0 z-40 w-full border-b border-white/[0.07] bg-stone-950/90 px-3 py-2 backdrop-blur-2xl supports-[backdrop-filter]:bg-stone-950/75 sm:px-5">
       <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-2 sm:gap-4">
-        {/* NIT brand */}
+        {/* Vow brand */}
         <div 
           className="flex items-center gap-1.5 select-none group shrink-0"
           title={t('brandTagline')}
         >
-          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-tr from-rose-600 via-red-600 to-amber-500 flex items-center justify-center text-white shadow-md shadow-rose-950/60 group-hover:scale-105 transition-transform">
-            <Flame className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-white" />
+          <div className="w-8 h-8 sm:w-9 sm:h-9 overflow-hidden rounded-xl shadow-md shadow-rose-950/40 transition-transform group-hover:scale-105">
+            <img src="/icon.svg" alt="" aria-hidden="true" className="block h-full w-full object-cover" />
           </div>
           <div className="flex items-baseline gap-1">
             <span className="font-heading font-black tracking-tight text-sm sm:text-base text-white">
@@ -77,13 +77,14 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             type="button"
             onClick={() => setActiveTab('discovery')}
             aria-current={activeTab === 'discovery' ? 'page' : undefined}
-            className={`focus-visible:border-rose-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 min-h-11 px-3 py-2 rounded-full text-xs font-bold transition-all ${
+            className={`focus-visible:border-rose-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 flex min-h-11 items-center gap-1.5 px-3 py-2 rounded-full text-xs font-bold transition-all ${
               activeTab === 'discovery'
                 ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-sm'
                 : 'text-stone-400 hover:text-stone-200'
             }`}
           >
-            {t('discovery')}
+            <Heart className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>{t('discovery')}</span>
           </button>
 
           <button
@@ -127,13 +128,14 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             type="button"
             onClick={() => setActiveTab('safety')}
             aria-current={activeTab === 'safety' ? 'page' : undefined}
-            className={`focus-visible:border-rose-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 min-h-11 px-3 py-2 rounded-full text-xs font-bold transition-all ${
+            className={`focus-visible:border-rose-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 flex min-h-11 items-center gap-1.5 px-3 py-2 rounded-full text-xs font-bold transition-all ${
               activeTab === 'safety'
                 ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-sm'
                 : 'text-stone-400 hover:text-stone-200'
             }`}
           >
-            {t('safety')}
+            <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>{t('safety')}</span>
           </button>
         </nav>
 
@@ -179,8 +181,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             }`}
             title={t('demoModeToggleHelp')} aria-label={t('demoModeToggleHelp')} aria-pressed={currentGender === 'female'}
           >
-            <span className={`focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300 w-1.5 h-1.5 rounded-full ${currentGender === 'female' ? 'bg-rose-500' : 'bg-blue-400'}`}></span>
-            <span className="hidden min-[380px]:inline">{currentGender === 'female' ? `${t('demoWoman')} ♀` : `${t('demoMan')} ♂`}</span>
+            {currentGender === 'female' ? <Venus className="h-4 w-4" aria-hidden="true" /> : <Mars className="h-4 w-4" aria-hidden="true" />}
           </button>}
 
           {/* Demo filters only: registered-account discovery has its own connected filters. */}

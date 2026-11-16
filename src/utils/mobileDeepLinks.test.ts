@@ -6,14 +6,22 @@ const token = 'a'.repeat(64);
 const appHost = 'app.vow-example.test';
 
 test('parses verified HTTPS email verification and password reset app links', () => {
+  assert.deepEqual(parseVowDeepLink(`https://${appHost}/#verifyEmail=${token}`, appHost), {
+    type: 'verify-email', token
+  });
+  assert.deepEqual(parseVowDeepLink(`https://${appHost}/#resetPassword=${token}`, appHost), {
+    type: 'reset-password', token
+  });
+  assert.equal(parseVowDeepLink(`https://${appHost}/#verifyEmail=${token}`), null,
+    'token-bearing HTTPS links require an explicitly configured host');
+});
+
+test('accepts legacy query links while preferring fragment-based token links', () => {
   assert.deepEqual(parseVowDeepLink(`https://${appHost}/?verifyEmail=${token}`, appHost), {
     type: 'verify-email', token
   });
-  assert.deepEqual(parseVowDeepLink(`https://${appHost}/?resetPassword=${token}`, appHost), {
-    type: 'reset-password', token
-  });
-  assert.equal(parseVowDeepLink(`https://${appHost}/?verifyEmail=${token}`), null,
-    'token-bearing HTTPS links require an explicitly configured host');
+  assert.equal(parseVowDeepLink(`https://${appHost}/#verifyEmail=${token}&unexpected=1`, appHost), null);
+  assert.equal(parseVowDeepLink(`https://${appHost}/?verifyEmail=${token}#resetPassword=${token}`, appHost), null);
 });
 
 test('parses Didit return only through the configured verified HTTPS host', () => {
@@ -57,7 +65,7 @@ test('rejects invalid configured app-link hosts', () => {
 
 test('queues cold-start links until the UI subscribes and suppresses duplicate delivery', () => {
   const coldToken = 'b'.repeat(64);
-  const raw = `https://${appHost}/?resetPassword=${coldToken}`;
+  const raw = `https://${appHost}/#resetPassword=${coldToken}`;
   publishVowDeepLink(raw, appHost);
   const received: unknown[] = [];
   const unsubscribe = subscribeVowDeepLinks(link => received.push(link));
@@ -66,7 +74,7 @@ test('queues cold-start links until the UI subscribes and suppresses duplicate d
   publishVowDeepLink(raw, appHost);
   assert.equal(received.length, 1, 'the same one-time token must not be processed twice');
   const nextToken = 'c'.repeat(64);
-  publishVowDeepLink(`https://${appHost}/?verifyEmail=${nextToken}`, appHost);
+  publishVowDeepLink(`https://${appHost}/#verifyEmail=${nextToken}`, appHost);
   assert.deepEqual(received[1], { type: 'verify-email', token: nextToken });
   unsubscribe();
 });
@@ -86,7 +94,7 @@ test('duplicate identity return delivery is suppressed but later verification at
 
 test('a one-time token can be retried after the duplicate-delivery window', () => {
   const retryToken = 'd'.repeat(64);
-  const raw = `https://${appHost}/?verifyEmail=${retryToken}`;
+  const raw = `https://${appHost}/#verifyEmail=${retryToken}`;
   const received: unknown[] = [];
   const unsubscribe = subscribeVowDeepLinks(link => received.push(link));
   publishVowDeepLink(raw, appHost, 1000);

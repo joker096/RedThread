@@ -247,6 +247,111 @@ test('gift creation rechecks account and match safety after waiting for safety l
 });
 
 
+test('account deletion wins a race against queued gift creation and revokes delivered address access', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 20_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
+  let fixture;
+  let holder;
+  let creationPromise;
+  try {
+    fixture = await seedFixture(pool);
+    const { ids } = fixture;
+    const deliveredOrderId = randomUUID();
+    const idempotencyKey = 'delete-race-delivered-' + randomUUID();
+
+    await pool.query(
+      `INSERT INTO gift_delivery_orders
+         (id, match_id, sender_id, recipient_id, product_name_snapshot, product_category,
+          total_minor_units, currency, idempotency_key, status, payment_status,
+          recipient_consent_at, recipient_consent_version, address_vault_ref,
+          address_verified_at, fulfilment_authorized_at, dispatched_at, delivered_at)
+       VALUES ($1, $2, $3, $4, 'Deletion race evidence', 'chocolate',
+               2500, 'GEL', $5, 'delivered', 'captured',
+               NOW() - INTERVAL '2 days', 1, 'vault:deletion-race-reference',
+               NOW() - INTERVAL '2 days', NOW() - INTERVAL '2 days',
+               NOW() - INTERVAL '1 day', NOW() - INTERVAL '12 hours')`,
+      [deliveredOrderId, ids.matchA, ids.sender, ids.recipientA, idempotencyKey]
+    );
+
+    holder = await pool.connect();
+    await holder.query('BEGIN');
+    await acquireGiftSafetyUserLocks(holder, ids.sender, ids.recipientA);
+
+    creationPromise = runRequest(pool, {
+      senderId: ids.sender,
+      matchId: ids.matchA,
+      catalogItemId: ids.catalogItem,
+      idempotencyKey: 'delete-race-new-order-' + randomUUID()
+    }).then(value => ({ value }), error => ({ error }));
+
+    const deadline = Date.now() + 5_000;
+    let waitingOnSafetyLock = false;
+    while (Date.now() < deadline && !waitingOnSafetyLock) {
+      await pool.query('SELECT pg_sleep(0.05)');
+      const waiting = await pool.query(
+        `SELECT 1
+           FROM pg_stat_activity
+          WHERE pid <> pg_backend_pid()
+            AND wait_event_type = 'Lock'
+            AND query LIKE '%gift-safety-user:%'
+          LIMIT 1`
+      );
+      waitingOnSafetyLock = waiting.rowCount > 0;
+    }
+    assert.equal(waitingOnSafetyLock, true,
+      'gift creation must be blocked behind the account-deletion safety lock');
+
+    await holder.query(
+      "UPDATE users SET status = 'deleted', updated_at = NOW() WHERE id = $1",
+      [ids.recipientA]
+    );
+    await holder.query('COMMIT');
+
+    const outcome = await creationPromise;
+    if (outcome.error) throw outcome.error;
+    assert.equal(outcome.value.status, 409);
+    assert.equal(outcome.value.body.error, 'gift_request_unavailable');
+
+    const state = await pool.query(
+      `SELECT u.status AS account_status, o.status AS delivered_status,
+              o.payment_status, o.address_vault_ref, o.recipient_consent_at,
+              o.address_verified_at, o.fulfilment_authorized_at,
+              o.dispatched_at, o.delivered_at
+         FROM users u
+         JOIN gift_delivery_orders o ON o.recipient_id = u.id
+        WHERE u.id = $1 AND o.id = $2`,
+      [ids.recipientA, deliveredOrderId]
+    );
+    assert.equal(state.rowCount, 1);
+    assert.equal(state.rows[0].account_status, 'deleted');
+    assert.equal(state.rows[0].delivered_status, 'delivered');
+    assert.equal(state.rows[0].payment_status, 'captured');
+    assert.equal(state.rows[0].address_vault_ref, null,
+      'account deletion must revoke the delivered gift address pointer');
+    for (const field of ['recipient_consent_at', 'address_verified_at',
+      'fulfilment_authorized_at', 'dispatched_at', 'delivered_at']) {
+      assert.ok(state.rows[0][field], `deletion must preserve ${field} evidence`);
+    }
+
+    const newOrders = await pool.query(
+      "SELECT COUNT(*)::int AS count FROM gift_delivery_orders WHERE match_id = $1 AND id <> $2",
+      [ids.matchA, deliveredOrderId]
+    );
+    assert.equal(newOrders.rows[0].count, 0,
+      'no new gift order may be created after account deletion wins the safety-lock race');
+  } finally {
+    if (holder) {
+      await holder.query('ROLLBACK').catch(() => {});
+      holder.release();
+    }
+    if (creationPromise) await creationPromise;
+    if (fixture) await cleanupFixture(pool, fixture);
+    await pool.end();
+  }
+});
+
 test('gift creation rechecks recipient opt-out after waiting for preference safety lock', {
   skip: !process.env.DATABASE_URL,
   timeout: 20_000

@@ -9,6 +9,27 @@ The database trigger:
 - Moves in-flight L3 submissions to a terminal withdrawn/revoked state so the existing L3 media-purge trigger enqueues encrypted media for deletion. The L3 purge worker must complete the job; retain the object key until deletion is confirmed.
 - Makes the deleted-account tombstone terminal. It cannot be reactivated because its identity fields have intentionally been erased; a returning user must register a new account.
 
+## Private-media purge operations
+
+The private photo and encrypted voice-introduction purge workers are separate one-shot jobs. Run them from the deployment scheduler after migrations are applied, with the same mounted private storage volumes used by the API:
+
+```bash
+npm run photos:purge
+npm run voice-intros:purge
+```
+
+Both workers process bounded batches and retain failed queue rows for exponential-backoff retry. Exit code `0` means the batch had no deletion failures; a non-zero exit must trigger scheduler alerting. The photo worker exits with code `2` when any item was retried after a filesystem failure; configuration/database failures exit non-zero. The voice worker follows the same failure-signalling contract.
+
+Monitor all durable purge queues (private photos, private voice introductions and L3 media) with the consolidated read-only operations report after migrations are applied:
+
+```bash
+npm run ops:health
+```
+
+The report includes pending/due/retrying counts, oldest-item age and failed jobs. It can also check the latest encrypted PostgreSQL, private-photo and private-voice backup artifacts when `OPS_POSTGRES_BACKUP_DIR`, `OPS_PRIVATE_PHOTO_BACKUP_DIR` and `OPS_PRIVATE_VOICE_BACKUP_DIR` point to their respective backup directories. Unconfigured off-host backup directories are reported as `not_configured`, not as verified backups. The default warning/critical thresholds are defined in `scripts/ops-health-report.js`; scheduler alerts should be wired to its exit code (`0` healthy, `1` warning, `2` critical). Use a read-only database role for this report. It does not modify queue rows or delete files.
+
+A zero queue count confirms only that the database queue is empty; it does not prove that all backups, replicas, object-store versions, or external copies have expired. Include private media volumes and backup retention in the approved erasure process. Do not configure these jobs on the existing shared VPS until the Vow service volumes, database credentials, and scheduler isolation are explicitly provisioned.
+
 ## L3 audit evidence migration prerequisite
 
 Migration `134_deleted_profile_personal_data_purge.sql` checks for legacy deleted-account L3 submissions that have no remaining media object but still have media-access audit events. If such evidence exists and migration `136_adjustment_and_l3_access_evidence.sql` is not recorded as applied, migration 134 aborts before changing schema or data. Apply migration 136 through the approved deployment procedure, then rerun the migration runner. Do not manually insert a row into `schema_migrations` to bypass this check.

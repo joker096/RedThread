@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import pg from 'pg';
 import {
@@ -582,6 +582,19 @@ export async function runIdentityL3PurgeOnce(pool, {
         [job.id, leaseToken]
       );
       if (!completed.rowCount) throw Object.assign(new Error('identity_l3_purge_lease_lost'), { code: 'identity_l3_purge_lease_lost' });
+      if (job.storage_object_key) {
+        const storagePathDigest = createHash('sha256').update(job.storage_object_key, 'utf8').digest('hex');
+        await client.query(
+          `INSERT INTO privacy_recovery_replay_purge_completions
+             (ledger_sequence, queue_name, storage_path_sha256)
+           SELECT ledger_sequence, 'identity_l3_media', storage_path_sha256
+             FROM privacy_recovery_replay_purge_obligations
+            WHERE queue_name = 'identity_l3_media'
+              AND storage_path_sha256 = $1
+           ON CONFLICT (ledger_sequence, queue_name, storage_path_sha256) DO NOTHING`,
+          [storagePathDigest]
+        );
+      }
       // A deleted account retains L3 metadata only until its encrypted object
       // has been physically removed and the purge job is durably completed.
       // Active accounts keep their decision history after ordinary media expiry.

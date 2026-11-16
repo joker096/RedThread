@@ -1,7 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#0c0a09"/>
-  <circle cx="256" cy="256" r="178" fill="#991b1b"/>
-  <path d="M155 128c75 44 128 100 202 256" fill="none" stroke="#fecaca" stroke-width="24" stroke-linecap="round"/>
-  <path d="M357 128c-75 44-128 100-202 256" fill="none" stroke="#f43f5e" stroke-width="24" stroke-linecap="round"/>
-  <circle cx="256" cy="256" r="25" fill="#fff1f2"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Vow</title>
+  <desc id="desc">A heart-shaped handshake symbolizing trust and commitment.</desc>
+  <metadata>Based on the Lucide heart-handshake icon, ISC License. See ICON_ATTRIBUTION.md.</metadata>
+  <defs>
+    <linearGradient id="mark" x1="105" y1="112" x2="410" y2="408" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FDA4AF"/>
+      <stop offset=".48" stop-color="#F43F5E"/>
+      <stop offset="1" stop-color="#FBBF24"/>
+    </linearGradient>
+    <radialGradient id="bg" cx="0" cy="0" r="1" gradientTransform="matrix(0 430 -430 0 256 42)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#292024"/>
+      <stop offset="1" stop-color="#0C0A09"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <g transform="translate(58 36) scale(16.5)" fill="none" stroke="url(#mark)" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M19.414 14.414C21 12.828 22 11.5 22 9.5a5.5 5.5 0 0 0-9.591-3.676.6.6 0 0 1-.818.001A5.5 5.5 0 0 0 2 9.5c0 2.3 1.5 4 3 5.5l5.535 5.362a2 2 0 0 0 2.879.052 2.12 2.12 0 0 0-.004-3 2.124 2.124 0 1 0 3-3 2.124 2.124 0 0 0 3.004 0 2 2 0 0 0 0-2.828l-1.881-1.882a2.41 2.41 0 0 0-3.409 0l-1.71 1.71a2 2 0 0 1-2.828 0 2 2 0 0 1 0-2.828l2.823-2.762"/>
+  </g>
 </svg>

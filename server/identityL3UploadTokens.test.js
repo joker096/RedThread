@@ -87,6 +87,8 @@ test('upload capability issuance persists only a digest and returns plaintext on
     userId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
   });
   assert.match(result.uploadToken, /^[A-Za-z0-9_-]{43}$/);
+  assert.match(client.calls[0].sql, /pg_advisory_xact_lock\(hashtext\('gift-safety-user:'/,
+    'capability issuance must use the same account safety lock as consent withdrawal');
   assert.equal(result.submissionId, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
   assert.equal(result.maxBytes, 104857600);
   assert.deepEqual(result.acceptedMimeTypes, ['video/mp4', 'video/webm']);
@@ -132,6 +134,8 @@ test('upload capability consumption binds the token to the authenticated user an
     uploadToken: token
   });
   assert.equal(result.submissionId, 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+  assert.match(client.calls[0].sql, /pg_advisory_xact_lock\(hashtext\('gift-safety-user:'/,
+    'capability consumption must use the same account safety lock as consent withdrawal');
   const lookup = client.calls.find(call => /FROM identity_l3_upload_tokens t/.test(call.sql));
   assert.equal(lookup.params[0], 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
   assert.equal(lookup.params[1], hashIdentityL3UploadToken(token));
