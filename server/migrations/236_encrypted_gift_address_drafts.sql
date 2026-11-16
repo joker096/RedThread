@@ -57,6 +57,11 @@ BEGIN
    WHERE id = NEW.order_id
    FOR UPDATE;
 
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'gift address draft order does not exist'
+      USING ERRCODE = '23514';
+  END IF;
+
   SELECT action, consent_version
     INTO consent_row
     FROM gift_address_draft_consent_events
