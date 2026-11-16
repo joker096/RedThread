@@ -186,14 +186,17 @@ test('gift address draft HTTP API is recipient-only, separately consented and en
     const cleanup = await db.connect().catch(() => null);
     if (cleanup) {
       try {
-        await cleanup.query('ALTER TABLE gift_address_draft_consent_events DISABLE TRIGGER gift_address_draft_consent_events_immutable').catch(() => {});
+        await cleanup.query('SET session_replication_role = replica').catch(() => {});
         if (orderId) await cleanup.query('DELETE FROM gift_address_drafts WHERE order_id = $1', [orderId]).catch(() => {});
         if (orderId) await cleanup.query('DELETE FROM gift_address_draft_consent_events WHERE order_id = $1', [orderId]).catch(() => {});
         if (orderId) await cleanup.query('DELETE FROM gift_delivery_orders WHERE id = $1', [orderId]).catch(() => {});
         if (matchId) await cleanup.query('DELETE FROM matches WHERE id = $1', [matchId]).catch(() => {});
-        if (users.length) await cleanup.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [users]).catch(() => {});
       } finally {
-        await cleanup.query('ALTER TABLE gift_address_draft_consent_events ENABLE TRIGGER gift_address_draft_consent_events_immutable').catch(() => {});
+        await cleanup.query('SET session_replication_role = origin').catch(() => {});
+        if (users.length) {
+          await cleanup.query("UPDATE users SET status = 'deleted', updated_at = NOW() WHERE id = ANY($1::uuid[])", [users]).catch(() => {});
+          await cleanup.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [users]).catch(() => {});
+        }
         cleanup.release();
       }
     }
