@@ -15,7 +15,7 @@ import { normalizeGiftRequestInput } from './giftRequestInput.js';
 import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, acquireGiftSafetyUserLocks, recipientGiftAcceptanceLimitReached, expireStaleGiftRequestsForPair, enqueueExpiredGiftPaymentReconciliation, notifyGiftRequestUpdate, hasPendingRecipientDecline } from './giftOrderCreationService.js';
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
-import { appendPrivacyRecoveryEvent } from './privacyRecoveryLedger.js';
+import { enqueuePrivacyRecoveryEvent } from './privacyRecoveryOutbox.js';
 import { consumeIdentityL3UploadCapability, IDENTITY_L3_CONSENT_NOTICE, IDENTITY_L3_CONSENT_VERSION, IdentityL3UploadTokenError, issueIdentityL3UploadCapability } from './identityL3UploadTokens.js';
 import { assertIdentityL3StorageReady, assertIdentityL3TemporaryStorageReady, clearIdentityL3TemporaryFiles, deleteIdentityL3Object, IDENTITY_L3_MAX_MEDIA_BYTES, IdentityL3StorageError, openIdentityL3Stream, parseIdentityL3EncryptionKey, storeIdentityL3Stream } from './identityL3Storage.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
@@ -2089,7 +2089,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     }
 
     try {
-      await appendPrivacyRecoveryEvent({
+      await enqueuePrivacyRecoveryEvent(client, {
         eventType: 'account_erasure_requested',
         userId: req.authUser.id
       });
@@ -2772,7 +2772,7 @@ app.delete('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession
     );
     for (const clip of result.rows) {
       try {
-        await appendPrivacyRecoveryEvent({
+        await enqueuePrivacyRecoveryEvent(client, {
           eventType: 'voice_intro_erasure_requested',
           userId: req.authUser.id,
           resourceId: clip.id
@@ -2785,7 +2785,7 @@ app.delete('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession
     }
     if (consent.rows[0] && !consent.rows[0].withdrawn_at) {
       try {
-        await appendPrivacyRecoveryEvent({
+        await enqueuePrivacyRecoveryEvent(client, {
           eventType: 'voice_intro_consent_withdrawn',
           userId: req.authUser.id
         });
@@ -3443,7 +3443,7 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
       photosPendingErasure = selectedPhotos.rows;
       for (const photo of photosPendingErasure) {
         try {
-          await appendPrivacyRecoveryEvent({
+          await enqueuePrivacyRecoveryEvent(client, {
             eventType: 'private_photo_erasure_requested',
             userId: req.authUser.id,
             resourceId: photo.id
@@ -6299,7 +6299,7 @@ app.post('/api/gifts/orders/:publicReference/withdraw-consent', validateRequestO
     }
 
     try {
-      await appendPrivacyRecoveryEvent({
+      await enqueuePrivacyRecoveryEvent(client, {
         eventType: 'gift_order_consent_withdrawn',
         userId: req.authUser.id,
         resourceId: order.id
@@ -6887,7 +6887,7 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, id
     const wasActive = Boolean(consent && !consent.withdrawn_at);
     if (wasActive) {
       try {
-        await appendPrivacyRecoveryEvent({
+        await enqueuePrivacyRecoveryEvent(client, {
           eventType: 'identity_l3_consent_withdrawn',
           userId: req.authUser.id
         });
@@ -7069,7 +7069,7 @@ app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileAction
     ));
     if (consentRevoked) {
       try {
-        await appendPrivacyRecoveryEvent({
+        await enqueuePrivacyRecoveryEvent(client, {
           eventType: 'ad_consent_revoked',
           userId: req.authUser.id
         });
