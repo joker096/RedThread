@@ -350,6 +350,7 @@ test('coordinator dispatches account erasure to the account executor after whole
   const applied = [];
   const result = await runPrivateMediaPrivacyRecovery({
     pool, env: isolatedEnv, snapshotLedgerSequence: 0, throughSequence: 1,
+    preflightAccountErasure: async () => ({ ready: true, alreadyApplied: false }),
     applyEvent: async ({ mapping }) => {
       applied.push(mapping);
       return { applied: true, alreadyApplied: false, outcome: 'account_erasure_replayed' };
@@ -391,14 +392,14 @@ test('coordinator preflights account erasure before replaying an earlier support
     preflightAccountErasure: async ({ mapping }) => {
       preflightCount += 1;
       assert.equal(mapping.eventType, 'account_erasure_requested');
-      throw new Error('privacy_recovery_account_erasure_l3_media_unresolved');
+      return { ready: true, alreadyApplied: false };
     },
     applyEvent: async () => {
       applyCount += 1;
       return { applied: true, alreadyApplied: false };
     }
   });
-  assert.equal(preflightCount, 0, 'custom executor injection bypasses default preflight for isolated unit tests');
+  assert.equal(preflightCount, 1, 'account preflight still runs when an executor is injected');
   assert.equal(applyCount, 2);
   assert.equal(result.complete, true);
 });
