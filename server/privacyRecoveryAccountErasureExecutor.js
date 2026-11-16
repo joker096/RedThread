@@ -142,19 +142,31 @@ async function holdGiftOrders(client, userId) {
 
 async function applyAccountErasure(client, userId, env) {
   await acquireGiftSafetyUserLocks(client, userId);
+  // Read the email without holding the user row lock, then take the same
+  // keyed registration lock as the live deletion route before locking the row.
+  // This avoids a unique-index/advisory-lock deadlock with concurrent signup.
+  const identity = await client.query(
+    'SELECT email, status FROM users WHERE id = $1',
+    [userId]
+  );
+  if (identity.rowCount !== 1 || identity.rows[0].status !== 'active') {
+    throw new Error('privacy_recovery_account_erasure_subject_state_conflict');
+  }
+  const reuseDigest = createAccountReuseDigest(identity.rows[0].email, env.ACCOUNT_REUSE_HMAC_KEY);
+  if (!reuseDigest) throw new Error('privacy_recovery_account_erasure_reuse_digest_unavailable');
+  await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`account-reuse:${reuseDigest}`]);
+
   const userResult = await client.query(
     `SELECT id, email, status, paddle_customer_id, paddle_subscription_id,
             paddle_subscription_status, premium_until, premium_lifetime
        FROM users WHERE id = $1 FOR UPDATE`,
     [userId]
   );
-  if (userResult.rowCount !== 1 || userResult.rows[0].status !== 'active') {
+  if (userResult.rowCount !== 1 || userResult.rows[0].status !== 'active' ||
+      userResult.rows[0].email !== identity.rows[0].email) {
     throw new Error('privacy_recovery_account_erasure_subject_state_conflict');
   }
   const user = userResult.rows[0];
-  const reuseDigest = createAccountReuseDigest(user.email, env.ACCOUNT_REUSE_HMAC_KEY);
-  if (!reuseDigest) throw new Error('privacy_recovery_account_erasure_reuse_digest_unavailable');
-  await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`account-reuse:${reuseDigest}`]);
 
   const checkout = await client.query(
     `SELECT status, plan FROM paddle_checkout_attempts WHERE user_id = $1 FOR UPDATE`,
