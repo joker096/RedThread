@@ -2,11 +2,13 @@ import pg from 'pg';
 import { resolvePrivacyRecoveryMappings } from './privacyRecoveryMapping.js';
 import { applyPrivateMediaPrivacyRecoveryEvent } from './privacyRecoveryMediaExecutor.js';
 import { applyAccountErasurePrivacyRecoveryEvent, preflightAccountErasurePrivacyRecovery } from './privacyRecoveryAccountErasureExecutor.js';
+import { applyAdConsentRevocationPrivacyRecoveryEvent, preflightAdConsentRevocationPrivacyRecovery } from './privacyRecoveryAdConsentExecutor.js';
 import { assertPrivacyRecoveryRestoreTarget, assertPrivacyRecoveryRestoreTargetConfig } from './privacyRecoveryTargetGuard.js';
 
 const { Pool } = pg;
 const SUPPORTED_MEDIA_EVENTS = new Set([
   'account_erasure_requested',
+  'ad_consent_revoked',
   'private_photo_erasure_requested',
   'voice_intro_erasure_requested',
   'voice_intro_consent_withdrawn',
@@ -44,7 +46,8 @@ export async function runPrivateMediaPrivacyRecovery({
   photoStorageRoot,
   voiceStorageRoot,
   applyEvent,
-  preflightAccountErasure = preflightAccountErasurePrivacyRecovery
+  preflightAccountErasure = preflightAccountErasurePrivacyRecovery,
+  preflightAdConsent = preflightAdConsentRevocationPrivacyRecovery
 }) {
   assertIsolatedRestore(env);
   validateWatermarks(snapshotLedgerSequence, throughSequence);
@@ -119,17 +122,23 @@ export async function runPrivateMediaPrivacyRecovery({
   // every such event before applying any earlier event in the requested range.
   if (!applyEvent) {
     for (const mapping of mappings) {
-      if (mapping.eventType !== 'account_erasure_requested') continue;
+      const preflight = mapping.eventType === 'account_erasure_requested'
+        ? preflightAccountErasure
+        : mapping.eventType === 'ad_consent_revoked'
+          ? preflightAdConsent : null;
+      if (!preflight) continue;
       try {
-        await preflightAccountErasure({
+        await preflight({
           pool,
           mapping,
           pseudonymKey: env.PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY,
           env
         });
       } catch (error) {
-        if (typeof error?.message === 'string' &&
-            error.message.startsWith('privacy_recovery_account_erasure_')) {
+        const message = error?.message;
+        if (typeof message === 'string' &&
+            (message.startsWith('privacy_recovery_account_erasure_') ||
+             message.startsWith('privacy_recovery_ad_consent_'))) {
           return {
             complete: false,
             processedCount: 0,
@@ -149,7 +158,9 @@ export async function runPrivateMediaPrivacyRecovery({
   for (const mapping of mappings) {
     const executor = applyEvent || (mapping.eventType === 'account_erasure_requested'
       ? applyAccountErasurePrivacyRecoveryEvent
-      : applyPrivateMediaPrivacyRecoveryEvent);
+      : mapping.eventType === 'ad_consent_revoked'
+        ? applyAdConsentRevocationPrivacyRecoveryEvent
+        : applyPrivateMediaPrivacyRecoveryEvent);
     const result = await executor({
       pool,
       mapping,
