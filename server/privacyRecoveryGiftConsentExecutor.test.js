@@ -5,6 +5,7 @@ import {
   applyGiftConsentWithdrawalPrivacyRecoveryEvent,
   preflightGiftConsentWithdrawalPrivacyRecovery
 } from './privacyRecoveryGiftConsentExecutor.js';
+import { verifyGiftConsentWithdrawalPrivacyRecovery } from './privacyRecoveryGiftConsentVerification.js';
 
 const recipientId = '123e4567-e89b-42d3-a456-426614174200';
 const senderId = '123e4567-e89b-42d3-a456-426614174201';
@@ -103,4 +104,18 @@ test('gift consent preflight blocks dispatched or paid orders before batch write
   assert.equal(calls.some(call => call.sql === 'COMMIT'), false);
   assert.equal(calls.some(call => call.sql === 'ROLLBACK'), true);
   assert.equal(calls.some(call => call.sql.includes('UPDATE gift_delivery_orders')), false);
+});
+
+test('gift consent verifier refuses production before opening a database connection', async () => {
+  let connects = 0;
+  await assert.rejects(
+    verifyGiftConsentWithdrawalPrivacyRecovery({
+      pool: { async connect() { connects += 1; throw new Error('must_not_connect'); } },
+      env: { ...isolatedEnv, NODE_ENV: 'production' },
+      snapshotLedgerSequence: 0,
+      throughSequence: 12
+    }),
+    /privacy_recovery_gift_consent_verification_requires_isolated_restore/
+  );
+  assert.equal(connects, 0);
 });
