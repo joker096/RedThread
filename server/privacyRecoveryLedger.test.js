@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHmac } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import { appendPrivacyRecoveryEvent } from './privacyRecoveryLedger.js';
 
 const baseEnv = {
