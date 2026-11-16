@@ -33,6 +33,10 @@ export async function verifyAccountErasurePrivacyRecovery({
 }) {
   assertIsolated(env);
   assertPrivacyRecoveryRestoreTargetConfig(env);
+  const pseudonymKey = env.PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY;
+  if (typeof pseudonymKey !== 'string' || pseudonymKey.length < 32) {
+    throw new Error('privacy_recovery_account_erasure_verification_pseudonym_key_required');
+  }
   if (!pool || typeof pool.connect !== 'function') throw new TypeError('privacy_recovery_account_erasure_verification_pool_required');
   if (!Number.isSafeInteger(snapshotLedgerSequence) || snapshotLedgerSequence < 0 ||
       !Number.isSafeInteger(throughSequence) || throughSequence < snapshotLedgerSequence) {
@@ -80,7 +84,7 @@ export async function verifyAccountErasurePrivacyRecovery({
           !Number.isSafeInteger(Number(row.purge_count)) || Number(row.purge_count) < 0) {
         throw new Error('privacy_recovery_account_erasure_verification_receipt_mismatch');
       }
-      const expectedSubject = createHmac('sha256', env.PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY)
+      const expectedSubject = createHmac('sha256', pseudonymKey)
         .update(row.subject_user_id, 'utf8').digest('hex');
       if (expectedSubject !== String(row.subject_ref).toLowerCase()) {
         throw new Error('privacy_recovery_account_erasure_verification_subject_mismatch');
