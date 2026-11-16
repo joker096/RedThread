@@ -1,6 +1,6 @@
 import { createHmac, randomUUID } from 'node:crypto';
 
-const ALLOWED_EVENT_TYPES = new Set([
+export const PRIVACY_RECOVERY_EVENT_TYPES = Object.freeze([
   'account_erasure_requested',
   'voice_intro_consent_withdrawn',
   'voice_intro_erasure_requested',
@@ -10,6 +10,9 @@ const ALLOWED_EVENT_TYPES = new Set([
   'gift_order_consent_withdrawn'
 ]);
 
+const ALLOWED_EVENT_TYPES = new Set(PRIVACY_RECOVERY_EVENT_TYPES);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function hmacHex(key, value) {
   return createHmac('sha256', key).update(value, 'utf8').digest('hex');
 }
@@ -18,31 +21,7 @@ function ledgerIsRequired(env) {
   return env.PRIVACY_RECOVERY_LEDGER_REQUIRED === 'true' || env.NODE_ENV === 'production';
 }
 
-export async function appendPrivacyRecoveryEvent({
-  eventType,
-  userId,
-  resourceId = null,
-  occurredAt = new Date().toISOString()
-}, {
-  env = process.env,
-  fetchImpl = globalThis.fetch,
-  now = Date.now
-} = {}) {
-  if (!ALLOWED_EVENT_TYPES.has(eventType) || typeof userId !== 'string' || !userId) {
-    throw new TypeError('invalid_privacy_recovery_event');
-  }
-
-  const endpoint = env.PRIVACY_RECOVERY_LEDGER_URL;
-  const authSecret = env.PRIVACY_RECOVERY_LEDGER_HMAC_SECRET;
-  const pseudonymKey = env.PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY;
-  if (!endpoint || !authSecret || !pseudonymKey) {
-    if (!ledgerIsRequired(env)) return { skipped: true };
-    throw new Error('privacy_recovery_ledger_not_configured');
-  }
-  if (typeof fetchImpl !== 'function' || authSecret.length < 32 || pseudonymKey.length < 32) {
-    throw new Error('privacy_recovery_ledger_not_configured');
-  }
-
+function validateEndpoint(endpoint) {
   let parsedEndpoint;
   try {
     parsedEndpoint = new URL(endpoint);
@@ -53,15 +32,54 @@ export async function appendPrivacyRecoveryEvent({
       parsedEndpoint.search || parsedEndpoint.hash || parsedEndpoint.username || parsedEndpoint.password) {
     throw new Error('privacy_recovery_ledger_invalid_url');
   }
+  return parsedEndpoint;
+}
 
-  const event = {
-    event_id: randomUUID(),
+export function createPrivacyRecoveryLedgerPayload({
+  eventType, userId, resourceId = null, occurredAt = new Date().toISOString(), eventId = randomUUID()
+}, { env = process.env } = {}) {
+  if (!ALLOWED_EVENT_TYPES.has(eventType) || typeof userId !== 'string' || !userId ||
+      (resourceId !== null && (typeof resourceId !== 'string' || !resourceId)) ||
+      !UUID.test(eventId) || !Number.isFinite(Date.parse(occurredAt))) {
+    throw new TypeError('invalid_privacy_recovery_event');
+  }
+
+  const endpoint = env.PRIVACY_RECOVERY_LEDGER_URL;
+  const authSecret = env.PRIVACY_RECOVERY_LEDGER_HMAC_SECRET;
+  const pseudonymKey = env.PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY;
+  if (!endpoint || !authSecret || !pseudonymKey) {
+    if (!ledgerIsRequired(env)) return { skipped: true };
+    throw new Error('privacy_recovery_ledger_not_configured');
+  }
+  if (authSecret.length < 32 || pseudonymKey.length < 32) {
+    throw new Error('privacy_recovery_ledger_not_configured');
+  }
+
+  return {
+    event_id: eventId,
     schema_version: 1,
     event_type: eventType,
     subject_ref: hmacHex(pseudonymKey, userId),
     ...(resourceId ? { resource_ref: hmacHex(pseudonymKey, resourceId) } : {}),
-    occurred_at: occurredAt
+    occurred_at: new Date(occurredAt).toISOString()
   };
+}
+
+export async function deliverPrivacyRecoveryLedgerPayload(event, {
+  env = process.env, fetchImpl = globalThis.fetch, now = Date.now
+} = {}) {
+  if (!event || !UUID.test(event.event_id || '') || !ALLOWED_EVENT_TYPES.has(event.event_type) ||
+      !/^[a-f0-9]{64}$/i.test(event.subject_ref || '')) {
+    throw new TypeError('invalid_privacy_recovery_event_payload');
+  }
+  const endpoint = env.PRIVACY_RECOVERY_LEDGER_URL;
+  const authSecret = env.PRIVACY_RECOVERY_LEDGER_HMAC_SECRET;
+  if (!endpoint || !authSecret || authSecret.length < 32) {
+    if (!ledgerIsRequired(env)) return { skipped: true };
+    throw new Error('privacy_recovery_ledger_not_configured');
+  }
+  if (typeof fetchImpl !== 'function') throw new Error('privacy_recovery_ledger_not_configured');
+  const parsedEndpoint = validateEndpoint(endpoint);
   const body = JSON.stringify(event);
   const timestamp = String(Math.floor(now() / 1000));
   const signature = hmacHex(authSecret, `${timestamp}.${body}`);
@@ -82,9 +100,7 @@ export async function appendPrivacyRecoveryEvent({
   } catch {
     throw new Error('privacy_recovery_ledger_unavailable');
   }
-  if (!response?.ok) {
-    throw new Error('privacy_recovery_ledger_rejected_event');
-  }
+  if (!response?.ok) throw new Error('privacy_recovery_ledger_rejected_event');
   let acknowledgement;
   try {
     acknowledgement = await response.json();
@@ -96,4 +112,10 @@ export async function appendPrivacyRecoveryEvent({
     throw new Error('privacy_recovery_ledger_invalid_acknowledgement');
   }
   return { acknowledged: true, sequence: acknowledgement.sequence, eventId: event.event_id };
+}
+
+export async function appendPrivacyRecoveryEvent(input, options = {}) {
+  const event = createPrivacyRecoveryLedgerPayload(input, options);
+  if (event.skipped) return event;
+  return deliverPrivacyRecoveryLedgerPayload(event, options);
 }
