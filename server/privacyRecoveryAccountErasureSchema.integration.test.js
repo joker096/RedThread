@@ -13,9 +13,7 @@ test('account-erasure replay evidence schema accepts only a subject-scoped immut
   const client = await pool.connect();
   const eventId = randomUUID();
   const userId = randomUUID();
-  const sequence = (await client.query(
-    'SELECT (COALESCE(MAX(ledger_sequence), 0) + 1)::text AS next_sequence FROM privacy_recovery_events'
-  )).rows[0].next_sequence;
+  const sequence = (BigInt(Date.now()) * 1000n + BigInt(Math.floor(Math.random() * 1000))).toString();
   try {
     await client.query('BEGIN');
     await client.query(
