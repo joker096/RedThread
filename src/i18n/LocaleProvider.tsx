@@ -168,7 +168,7 @@ const messages = {
     giftCatalogTotal: 'Total',
     giftCatalogSendRequest: 'Send gift request',
     giftCatalogSending: 'Sending request…',
-    giftCatalogRequestSent: 'Gift request created. The recipient must accept it separately. Payment, address collection, and delivery are not enabled.',
+    giftCatalogRequestSent: 'Gift request created. The recipient must accept it separately. They may save a separate encrypted temporary address draft; verification, payment and delivery remain disabled.',
     giftCatalogRequestError: 'Could not send the request. Please try again.',
     giftCatalogRequestUnavailable: 'This gift request cannot be sent right now. Eligibility may have changed, or a request may already be pending.',
     giftCatalogRateLimited: 'The gift-request limit has been reached. Please try again later.',
