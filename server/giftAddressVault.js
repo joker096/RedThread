@@ -125,9 +125,9 @@ export function decryptGiftAddress({ encrypted, orderId, recipientUserId, key } 
   return normalized.address;
 }
 /**
- * Permanently removes a recipient's encrypted address after consent withdrawal.
- * The caller owns the surrounding PostgreSQL transaction and must clear the
- * order pointer in that same transaction before invoking this helper.
+ * Permanently removes a recipient-scoped encrypted address after consent withdrawal
+ * or a safety hold. The caller owns the surrounding PostgreSQL transaction and
+ * must clear the order pointer in that same transaction before invoking this helper.
  */
 export async function revokeGiftAddressVaultEntry(client, {
   orderId,
