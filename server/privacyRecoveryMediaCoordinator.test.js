@@ -137,7 +137,7 @@ test('coordinator preflights the full batch before applying a supported prefix',
     processedCount: 0,
     alreadyAppliedCount: 0,
     blockedSequence: 2,
-    blockedEventType: 'account_erasure_requested',
+    blockedEventType: 'ad_consent_revoked',
     throughSequence: 2
   });
 });
