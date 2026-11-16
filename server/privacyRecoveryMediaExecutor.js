@@ -40,7 +40,7 @@ function assertMapping(row, mapping, pseudonymKey) {
   assertUuid(mapping.subjectUserId, 'privacy_recovery_subject_mapping_invalid');
   const subjectRef = createHmac('sha256', pseudonymKey).update(mapping.subjectUserId, 'utf8').digest('hex');
   if (subjectRef !== String(row.subject_ref).toLowerCase()) throw new Error('privacy_recovery_subject_mapping_mismatch');
-  if (row.event_type !== 'voice_intro_consent_withdrawn') {
+  if (!['voice_intro_consent_withdrawn', 'identity_l3_consent_withdrawn'].includes(row.event_type)) {
     assertUuid(mapping.resourceId, 'privacy_recovery_resource_mapping_invalid');
     const resourceRef = createHmac('sha256', pseudonymKey).update(mapping.resourceId, 'utf8').digest('hex');
     if (resourceRef !== String(row.resource_ref || '').toLowerCase()) throw new Error('privacy_recovery_resource_mapping_mismatch');
