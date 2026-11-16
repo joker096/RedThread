@@ -64,7 +64,7 @@ export async function processPrivacyRecoveryOutboxBatch({
       if (!acknowledgement.acknowledged) throw new Error('privacy_recovery_ledger_ack_required');
       const ackClient = await pool.connect();
       try {
-        await ackClient.query(
+        const acknowledged = await ackClient.query(
           `UPDATE privacy_recovery_ledger_outbox
               SET status = 'acknowledged', ledger_sequence = $2,
                   acknowledged_at = statement_timestamp(), lease_expires_at = NULL, lease_token = NULL,
