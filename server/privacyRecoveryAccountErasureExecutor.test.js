@@ -14,7 +14,7 @@ const isolatedEnv = {
   PRIVACY_RECOVERY_RESTORE_DATABASE_NAME: 'vow_restore_test',
   PRIVACY_RECOVERY_RESTORE_DATABASE_ROLE: 'vow_restore_runner',
   PRIVACY_RECOVERY_RESTORE_CONFIRMATION: 'ISOLATED_RESTORE_ONLY',
-  ACCOUNT_REUSE_HMAC_KEY: 'account-reuse-test-key-material-long-enough'
+  ACCOUNT_REUSE_HMAC_KEY: 'd'.repeat(64)
 };
 const mapping = {
   sequence: '1',
