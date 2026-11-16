@@ -169,7 +169,7 @@ test('operations report reads all durable purge queues from PostgreSQL', {
     privatePhotoBackupDir: null,
     privateVoiceBackupDir: null
   });
-  assert.equal(report.queues.length, 4);
+  assert.equal(report.queues.length, 5);
   assert.deepEqual(report.queues.map(queue => queue.queue).sort(), [
     'identity_l3_media',
     'privacy_recovery_ledger_outbox',
