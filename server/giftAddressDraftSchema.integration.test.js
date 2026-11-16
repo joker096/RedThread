@@ -105,6 +105,22 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
     assert.equal(mainOrder.rows[0].address_verified_at, null);
 
     await client.query('BEGIN');
+    await client.query('SAVEPOINT forbid_main_vault_write');
+    await assert.rejects(
+      client.query(
+        `INSERT INTO gift_address_vault_entries
+           (order_id, recipient_user_id, key_version, nonce, auth_tag, ciphertext)
+         VALUES ($1, $2, 'draft-must-not-enter-vault', $3, $4, $5)`,
+        [orderId, recipientId, Buffer.alloc(12, 1), Buffer.alloc(16, 2), Buffer.from('temporary-draft')]
+      ),
+      error => error.code === '23514',
+      'the database must reject even a transient write of a recipient_accepted draft into the verified-address Vault'
+    );
+    await client.query('ROLLBACK TO SAVEPOINT forbid_main_vault_write');
+    await client.query('RELEASE SAVEPOINT forbid_main_vault_write');
+    await client.query('COMMIT');
+
+    await client.query('BEGIN');
     await client.query('SAVEPOINT wrong_recipient');
     await assert.rejects(
       client.query(
