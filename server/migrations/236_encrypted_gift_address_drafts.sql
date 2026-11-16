@@ -93,3 +93,92 @@ COMMENT ON TABLE gift_address_drafts IS
   'Separate AES-256-GCM encrypted temporary address drafts. Never referenced by address_vault_ref; never proves address verification or authorizes fulfilment. Physical deletion is required on withdrawal and by the TTL purge worker.';
 COMMENT ON TABLE gift_address_draft_consent_events IS
   'Append-only, versioned recipient consent history for temporary gift-address processing. Separate from gift acceptance and the verified-address Vault.';
+
+-- Any transition out of recipient_accepted destroys the temporary payload and
+-- revokes the draft-processing consent. The event contains no address data.
+CREATE OR REPLACE FUNCTION purge_gift_address_draft_on_order_safety_transition()
+RETURNS trigger LANGUAGE plpgsql AS $draft_order_cleanup$
+DECLARE
+  removed RECORD;
+BEGIN
+  IF (NEW.status IS DISTINCT FROM OLD.status OR
+      NEW.consent_withdrawn_at IS DISTINCT FROM OLD.consent_withdrawn_at)
+     AND (NEW.status <> 'recipient_accepted' OR NEW.consent_withdrawn_at IS NOT NULL) THEN
+    FOR removed IN
+      DELETE FROM gift_address_drafts
+       WHERE order_id = NEW.id
+       RETURNING order_id, recipient_user_id
+    LOOP
+      INSERT INTO gift_address_draft_consent_events
+        (order_id, recipient_user_id, consent_version, action, actor_user_id)
+      SELECT removed.order_id, removed.recipient_user_id,
+             COALESCE((
+               SELECT consent_version FROM gift_address_draft_consent_events
+                WHERE order_id = removed.order_id
+                  AND recipient_user_id = removed.recipient_user_id
+                ORDER BY id DESC LIMIT 1
+             ), 1),
+             'withdrawn', NULL
+      WHERE EXISTS (
+        SELECT 1 FROM gift_address_draft_consent_events
+         WHERE order_id = removed.order_id
+           AND recipient_user_id = removed.recipient_user_id
+           AND action = 'granted'
+         ORDER BY id DESC LIMIT 1
+      )
+      AND (
+        SELECT action FROM gift_address_draft_consent_events
+         WHERE order_id = removed.order_id
+           AND recipient_user_id = removed.recipient_user_id
+         ORDER BY id DESC LIMIT 1
+      ) = 'granted';
+    END LOOP;
+  END IF;
+  RETURN NEW;
+END;
+$draft_order_cleanup$;
+
+DROP TRIGGER IF EXISTS gift_orders_purge_temporary_address_draft ON gift_delivery_orders;
+CREATE TRIGGER gift_orders_purge_temporary_address_draft
+  AFTER UPDATE OF status, consent_withdrawn_at ON gift_delivery_orders
+  FOR EACH ROW EXECUTE FUNCTION purge_gift_address_draft_on_order_safety_transition();
+
+CREATE OR REPLACE FUNCTION purge_deleted_account_gift_address_drafts()
+RETURNS trigger LANGUAGE plpgsql AS $draft_account_cleanup$
+DECLARE
+  removed RECORD;
+BEGIN
+  IF NEW.status = 'deleted' AND OLD.status IS DISTINCT FROM 'deleted' THEN
+    FOR removed IN
+      DELETE FROM gift_address_drafts d
+       USING gift_delivery_orders o
+       WHERE d.order_id = o.id
+         AND (o.sender_id = NEW.id OR o.recipient_id = NEW.id)
+       RETURNING d.order_id, d.recipient_user_id
+    LOOP
+      IF (
+        SELECT action FROM gift_address_draft_consent_events
+         WHERE order_id = removed.order_id
+           AND recipient_user_id = removed.recipient_user_id
+         ORDER BY id DESC LIMIT 1
+      ) = 'granted' THEN
+        INSERT INTO gift_address_draft_consent_events
+          (order_id, recipient_user_id, consent_version, action, actor_user_id)
+        SELECT removed.order_id, removed.recipient_user_id, consent_version, 'withdrawn', NULL
+          FROM gift_address_draft_consent_events
+         WHERE order_id = removed.order_id
+           AND recipient_user_id = removed.recipient_user_id
+         ORDER BY id DESC LIMIT 1;
+      END IF;
+    END LOOP;
+  END IF;
+  RETURN NEW;
+END;
+$draft_account_cleanup$;
+
+DROP TRIGGER IF EXISTS users_purge_deleted_gift_address_drafts ON users;
+CREATE TRIGGER users_purge_deleted_gift_address_drafts
+  AFTER UPDATE OF status ON users
+  FOR EACH ROW
+  WHEN (NEW.status = 'deleted' AND OLD.status IS DISTINCT FROM 'deleted')
+  EXECUTE FUNCTION purge_deleted_account_gift_address_drafts();
