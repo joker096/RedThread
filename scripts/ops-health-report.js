@@ -49,9 +49,11 @@ const QUEUE_SQL = [
   "       COALESCE(MAX(attempts) FILTER (WHERE status IN ('pending', 'processing')), 0)::int",
   "FROM privacy_recovery_ledger_outbox",
   "UNION ALL",
-  "SELECT 'gift_address_draft_ttl', COUNT(*)::int,",
+  "SELECT 'gift_address_draft_ttl',",
   "       COUNT(*) FILTER (WHERE expires_at <= statement_timestamp())::int,",
-  "       0::int, 0::int, MIN(created_at), 0::int",
+  "       COUNT(*) FILTER (WHERE expires_at <= statement_timestamp())::int,",
+  "       0::int, 0::int,",
+  "       MIN(expires_at) FILTER (WHERE expires_at <= statement_timestamp()), 0::int",
   "FROM gift_address_drafts"
 ].join('\n');
 
