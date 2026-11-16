@@ -80,6 +80,20 @@ export async function runPrivateMediaPrivacyRecovery({
       }
     }
 
+    const firstUnsupportedEvent = events.find(event => !SUPPORTED_MEDIA_EVENTS.has(event.event_type));
+    if (firstUnsupportedEvent) {
+      await client.query('COMMIT');
+      transactionOpen = false;
+      return {
+        complete: false,
+        processedCount: 0,
+        alreadyAppliedCount: 0,
+        blockedSequence: Number(firstUnsupportedEvent.sequence),
+        blockedEventType: firstUnsupportedEvent.event_type,
+        throughSequence
+      };
+    }
+
     const [users, voiceIntros, photos, giftOrders] = await Promise.all([
       client.query('SELECT id FROM users'),
       client.query('SELECT id, user_id FROM profile_voice_intros'),
@@ -108,18 +122,6 @@ export async function runPrivateMediaPrivacyRecovery({
   // Validate the entire ordered range before the first write. A supported
   // media event followed by an unsupported domain event must not partially
   // replay the prefix of a batch whose full domain semantics are unavailable.
-  const firstUnsupported = mappings.find(mapping => !SUPPORTED_MEDIA_EVENTS.has(mapping.eventType));
-  if (firstUnsupported) {
-    return {
-      complete: false,
-      processedCount: 0,
-      alreadyAppliedCount: 0,
-      blockedSequence: Number(firstUnsupported.sequence),
-      blockedEventType: firstUnsupported.eventType,
-      throughSequence
-    };
-  }
-
   // Account erasure has destructive preconditions outside the event's SQL
   // writes (Paddle cancellation evidence and L3 object availability). Check
   // every such event before applying any earlier event in the requested range.
