@@ -30,7 +30,9 @@ export async function processOneGiftPaymentReconciliation({
   maxAttempts = 8
 }) {
   if (!pool?.connect) throw new TypeError('database_pool_required');
-  if (!providerAdapter || typeof providerAdapter.reconcile !== 'function') {
+  // lookup() is deliberately read-only: it must query provider state by the
+  // immutable reference/idempotency key and must never create, void, or refund.
+  if (!providerAdapter || typeof providerAdapter.lookup !== 'function') {
     throw Object.assign(new Error('gift_payment_provider_adapter_not_configured'), {
       code: 'gift_payment_provider_adapter_not_configured'
     });
@@ -60,7 +62,7 @@ export async function processOneGiftPaymentReconciliation({
 
   let outcome;
   try {
-    outcome = await providerAdapter.reconcile({
+    outcome = await providerAdapter.lookup({
       providerKey: identity.provider_key,
       providerReference: identity.provider_reference,
       idempotencyKey: identity.idempotency_key
@@ -78,7 +80,12 @@ export async function processOneGiftPaymentReconciliation({
     return { claimed: true, completed: true, status: terminalStatus };
   } catch (error) {
     const code = /^[a-z0-9_]{1,80}$/.test(error?.code || '') ? error.code : 'provider_reconciliation_uncertain';
-    await releaseGiftTask(pool, task, code, false);
+    const integrityFailure = new Set([
+      'provider_identity_or_amount_mismatch',
+      'unexpected_refund_state',
+      'unexpected_payment_state'
+    ]).has(code);
+    await releaseGiftTask(pool, task, code, integrityFailure);
     return { claimed: true, completed: false, code };
   }
 }
