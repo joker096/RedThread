@@ -28,6 +28,15 @@ test('gift payment reconciliation ledger installs fenced claim and immutable inb
       'guard_gift_payment_attempt_identity'
     ]) assert.ok(names.has(name), `migration 212 must install ${name}`);
 
+    const healthView = await client.query(
+      "SELECT pg_get_viewdef('gift_payment_reconciliation_health'::regclass, true) AS definition"
+    );
+    assert.match(
+      healthView.rows[0].definition,
+      /status IN \\(\\'pending\\'::text, \\'failed\\'::text\\).*dead_lettered_at IS NULL.*next_attempt_at <= statement_timestamp/s,
+      'due_tasks must include due retryable failed tasks, not only pending tasks'
+    );
+
     await assert.rejects(
       client.query('SELECT * FROM claim_gift_payment_reconciliation_task($1, 90, 8)', ['invalid worker name with spaces']),
       error => error.code === '22023'
