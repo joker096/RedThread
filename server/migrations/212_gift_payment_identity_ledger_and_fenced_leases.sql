@@ -457,6 +457,11 @@ FROM gift_payment_reconciliation_tasks AS task
 LEFT JOIN gift_payment_attempt_identity AS identity
   ON identity.order_id = task.order_id;
 
+-- Queue-control functions are privileged application operations. Keep PostgreSQL's
+-- default PUBLIC EXECUTE grant from allowing arbitrary roles to claim/heartbeat work.
+REVOKE ALL ON FUNCTION claim_gift_payment_reconciliation_task(TEXT, INTEGER, INTEGER) FROM PUBLIC;
+REVOKE ALL ON FUNCTION heartbeat_gift_payment_reconciliation_task(BIGINT, UUID, BIGINT, INTEGER) FROM PUBLIC;
+
 COMMENT ON VIEW gift_payment_reconciliation_health IS
   'Aggregate gift-payment reconciliation health counters only; no user, order, provider reference, or recipient personal data.';
 COMMENT ON FUNCTION claim_gift_payment_reconciliation_task(TEXT, INTEGER, INTEGER) IS

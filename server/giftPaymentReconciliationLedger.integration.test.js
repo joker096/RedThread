@@ -28,6 +28,19 @@ test('gift payment reconciliation ledger installs fenced claim and immutable inb
       'guard_gift_payment_attempt_identity'
     ]) assert.ok(names.has(name), `migration 212 must install ${name}`);
 
+    const publicFunctionGrants = await client.query(
+      `SELECT proc.proname, privilege.privilege_type
+         FROM pg_proc AS proc
+         CROSS JOIN LATERAL aclexplode(COALESCE(proc.proacl, acldefault('f', proc.proowner))) AS privilege
+        WHERE proc.oid IN (
+          'claim_gift_payment_reconciliation_task(TEXT,INTEGER,INTEGER)'::regprocedure,
+          'heartbeat_gift_payment_reconciliation_task(BIGINT,UUID,BIGINT,INTEGER)'::regprocedure
+        )
+          AND privilege.grantee = 0 AND privilege.privilege_type = 'EXECUTE'`
+    );
+    assert.equal(publicFunctionGrants.rowCount, 0,
+      'queue claim and heartbeat functions must not be executable by PostgreSQL PUBLIC');
+
     const healthView = await client.query(
       "SELECT pg_get_viewdef('gift_payment_reconciliation_health'::regclass, true) AS definition"
     );
