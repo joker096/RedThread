@@ -34,7 +34,7 @@ function withSandboxPriceConfig(fn) {
     'PADDLE_EXPECTED_AMOUNT_MINOR_1MONTH'
   ];
   const previous = new Map(keys.map(key => [key, process.env[key]]));
-  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_month_test';
+  process.env.PADDLE_PRICE_ID_1MONTH = 'pri_monthtest';
   process.env.PADDLE_EXPECTED_CURRENCY_CODE = 'USD';
   process.env.PADDLE_EXPECTED_AMOUNT_MINOR_1MONTH = '990';
   return Promise.resolve().then(fn).finally(() => {
@@ -55,7 +55,7 @@ function matchingProviderResponse(attemptId, userId, transactionId = 'txn_recove
           id: transactionId,
           status: 'ready',
           custom_data: { userId, plan: '1month', checkoutAttemptId: attemptId },
-          items: [{ price: { id: 'pri_month_test' }, quantity: 1 }],
+          items: [{ price: { id: 'pri_monthtest' }, quantity: 1 }],
           currency_code: 'USD',
           details: { totals: { total: '990' } }
         }],
