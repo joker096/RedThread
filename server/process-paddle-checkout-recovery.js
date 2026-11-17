@@ -42,7 +42,7 @@ export function paddleRecoveryTransactionMatches(transaction, attempt, expected)
     ['1month', '3months', 'lifetime'].includes(attempt?.plan);
   if (!validIdentity || !expectedPriceId || typeof expectedPriceId !== 'string' ||
       typeof expectedCurrencyCode !== 'string' || !/^[A-Z]{3}$/.test(expectedCurrencyCode) ||
-      typeof expectedAmountMinorUnits !== 'string' || !/^\\d+$/.test(expectedAmountMinorUnits)) {
+      typeof expectedAmountMinorUnits !== 'string' || !/^\d+$/.test(expectedAmountMinorUnits)) {
     return { kind: 'invalid_configuration' };
   }
   if (custom?.checkoutAttemptId !== attemptId) return { kind: 'no_match' };
@@ -246,7 +246,7 @@ export async function runPaddleCheckoutRecoveryOnce(pool, {
   };
   try {
     if (!expected.priceId || !/^pri_[A-Za-z0-9]+$/.test(expected.priceId) ||
-        !/^[A-Z]{3}$/.test(expected.currencyCode) || !/^\\d+$/.test(String(expected.amountMinorUnits || ''))) {
+        !/^[A-Z]{3}$/.test(expected.currencyCode) || !/^\d+$/.test(String(expected.amountMinorUnits || ''))) {
       return await finishRecovery(pool, attempt, { action: 'quarantine', reason: 'expected_price_not_configured' }, { dryRun, errorCode: 'expected_price_not_configured' });
     }
     const listed = await listPaddleTransactionsForAttempt({ apiKey, attempt, fetchImpl, maxPages, expected });
