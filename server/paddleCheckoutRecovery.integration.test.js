@@ -261,7 +261,7 @@ test('provider timeout and delayed visibility retry the same attempt using read-
         }
       };
     }
-    return matchingProviderResponse(fixture.attemptId, fixture.userId, 'txn_delayed_visible123');
+    return matchingProviderResponse(fixture.attemptId, fixture.userId, 'txn_delayedvisible123');
   };
   try {
     await assert.rejects(
@@ -304,8 +304,8 @@ test('provider timeout and delayed visibility retry the same attempt using read-
     const visible = await runPaddleCheckoutRecoveryOnce(pool, {
       apiKey: 'sandbox_test_key', environment: 'sandbox', fetchImpl, dryRun: false
     });
-    assert.equal(visible.action, 'attach_pending');
-    assert.equal(visible.transactionId, 'txn_delayed_visible123');
+    assert.equal(visible.action, 'attach_pending', JSON.stringify(visible));
+    assert.equal(visible.transactionId, 'txn_delayedvisible123');
     assert.equal(providerReads, 3);
     assert.deepEqual(methods, ['GET', 'GET', 'GET'],
       'timeouts and delayed visibility must never trigger a transaction-creation POST');
@@ -314,7 +314,7 @@ test('provider timeout and delayed visibility retry the same attempt using read-
       [fixture.userId]
     );
     assert.equal(state.rows[0].status, 'pending');
-    assert.equal(state.rows[0].transaction_id, 'txn_delayed_visible123');
+    assert.equal(state.rows[0].transaction_id, 'txn_delayedvisible123');
     assert.equal(Number(state.rows[0].recovery_attempt_count), 3);
   } finally {
     await pool.end();
