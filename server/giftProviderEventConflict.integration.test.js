@@ -55,6 +55,40 @@ test('verified gift provider event recording deduplicates and preserves conflict
       client.query('UPDATE gift_payment_provider_event_conflicts SET conflicting_event_type = $1 WHERE provider_key = $2 AND provider_event_id = $3', ['tampered', providerKey, eventId]),
       error => error.code === '55000'
     );
+
+    const repeatedConflict = await client.query(
+      'SELECT record_verified_gift_provider_event($1, $2, $3, $4, $5) AS result',
+      [providerKey, eventId, 'transaction.refunded', conflictHash, '2026-01-02T00:00:00Z']
+    );
+    assert.equal(repeatedConflict.rows[0].result, 'conflict');
+    const conflictCount = await client.query(
+      'SELECT COUNT(*)::int AS count FROM gift_payment_provider_event_conflicts WHERE provider_key = $1 AND provider_event_id = $2',
+      [providerKey, eventId]
+    );
+    assert.equal(conflictCount.rows[0].count, 1);
+
+    // Two independent database sessions race to insert the same provider event.
+    // Exactly one may create the inbox row; the other must observe a duplicate.
+    const concurrentEventId = `test_concurrent_${randomUUID()}`;
+    const concurrentResults = await Promise.all([
+      pool.query(
+        'SELECT record_verified_gift_provider_event($1, $2, $3, $4, $5) AS result',
+        [providerKey, concurrentEventId, 'transaction.updated', firstHash, '2026-01-03T00:00:00Z']
+      ),
+      pool.query(
+        'SELECT record_verified_gift_provider_event($1, $2, $3, $4, $5) AS result',
+        [providerKey, concurrentEventId, 'transaction.updated', firstHash, '2026-01-03T00:00:00Z']
+      )
+    ]);
+    assert.deepEqual(
+      concurrentResults.map(result => result.rows[0].result).sort(),
+      ['duplicate', 'inserted']
+    );
+    const concurrentInbox = await client.query(
+      'SELECT COUNT(*)::int AS count FROM gift_payment_provider_event_inbox WHERE provider_key = $1 AND provider_event_id = $2',
+      [providerKey, concurrentEventId]
+    );
+    assert.equal(concurrentInbox.rows[0].count, 1);
   } finally {
     // Event and conflict evidence are intentionally append-only. The CI database is disposable.
     client.release();
