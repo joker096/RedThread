@@ -70,3 +70,87 @@ test('reconciliation retries use bounded exponential backoff', () => {
   assert.throws(() => giftReconciliationRetryDelaySeconds(0), RangeError);
   assert.throws(() => giftReconciliationRetryDelaySeconds(1.5), RangeError);
 });
+
+test('an interrupted post-lookup attempt retries by looking up the same immutable transaction, never creating one', async () => {
+  let claimCount = 0;
+  let lookupCount = 0;
+  let firstCommitBoundaryInterrupted = false;
+  let orderCommitted = false;
+  const task = {
+    id: 'task-1',
+    order_id: 'order-1',
+    lease_token: 'lease-token-1',
+    lease_generation: 1,
+    attempt_count: 1
+  };
+  const dbIdentity = {
+    ...identity,
+    id: 'identity-1',
+    order_id: 'order-1',
+    payment_status: 'authorized',
+    order_status: 'pending'
+  };
+  const pool = {
+    async query(sql) {
+      if (sql.includes('claim_gift_payment_reconciliation_task')) {
+        claimCount += 1;
+        return { rows: [{ ...task, lease_token: `lease-token-${claimCount}`, lease_generation: claimCount, attempt_count: claimCount }] };
+      }
+      if (sql.includes('FROM gift_payment_attempt_identity')) return { rows: [dbIdentity] };
+      if (sql.includes("SET status = 'failed'")) return { rowCount: 1, rows: [] };
+      throw new Error('unexpected_pool_query');
+    },
+    async connect() {
+      if (!firstCommitBoundaryInterrupted) {
+        firstCommitBoundaryInterrupted = true;
+        throw new Error('simulated_connection_loss_after_provider_lookup_before_commit');
+      }
+      return {
+        async query(sql) {
+          if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rowCount: null, rows: [] };
+          if (sql.includes('UPDATE gift_delivery_orders')) {
+            orderCommitted = true;
+            return { rowCount: 1, rows: [] };
+          }
+          if (sql.includes('INSERT INTO gift_delivery_order_events')) return { rowCount: 1, rows: [] };
+          if (sql.includes("SET status = 'completed'")) return { rowCount: 1, rows: [] };
+          throw new Error('unexpected_client_query');
+        },
+        release() {}
+      };
+    }
+  };
+  const providerAdapter = {
+    async lookup(args) {
+      lookupCount += 1;
+      assert.deepEqual(args, {
+        providerKey: 'sandbox_provider',
+        providerReference: 'txn_test_123',
+        idempotencyKey: dbIdentity.idempotency_key
+      });
+      return {
+        status: 'voided',
+        providerKey: 'sandbox_provider',
+        providerReference: 'txn_test_123',
+        amountMinorUnits: 12500,
+        currency: 'GEL'
+      };
+    }
+  };
+
+  const interrupted = await processOneGiftPaymentReconciliation({ pool, providerAdapter });
+  assert.equal(interrupted.completed, false);
+  assert.equal(interrupted.code, 'simulated_connection_loss_after_provider_lookup_before_commit');
+  assert.equal(orderCommitted, false);
+
+  const recovered = await processOneGiftPaymentReconciliation({ pool, providerAdapter });
+  assert.equal(recovered.completed, true);
+  assert.equal(recovered.status, 'voided');
+  assert.equal(lookupCount, 2, 'recovery must query the same existing provider transaction again');
+  assert.equal(claimCount, 2);
+  assert.equal(orderCommitted, true);
+  assert.equal(typeof providerAdapter.create, 'undefined');
+  assert.equal(typeof providerAdapter.authorize, 'undefined');
+  assert.equal(typeof providerAdapter.capture, 'undefined');
+  assert.equal(typeof providerAdapter.refund, 'undefined');
+});
