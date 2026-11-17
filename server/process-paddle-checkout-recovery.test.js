@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   PADDLE_CHECKOUT_RECOVERY_MAX_ATTEMPTS,
   PADDLE_CHECKOUT_RECOVERY_MAX_PAGES,
+  paddleRecoveryRetryDelayMs,
   paddleRecoveryWindow,
   paddleRecoveryTransactionMatches,
   paddleRecoveryDecision,
@@ -26,6 +27,9 @@ const transaction = (overrides = {}) => ({
 test('recovery bounds and time window are deterministic', () => {
   assert.equal(PADDLE_CHECKOUT_RECOVERY_MAX_ATTEMPTS, 5);
   assert.equal(PADDLE_CHECKOUT_RECOVERY_MAX_PAGES, 5);
+  assert.equal(paddleRecoveryRetryDelayMs(1), 60_000);
+  assert.equal(paddleRecoveryRetryDelayMs(5), 960_000);
+  assert.throws(() => paddleRecoveryRetryDelayMs(0), RangeError);
   assert.deepEqual(paddleRecoveryWindow(attempt.created_at, Date.parse('2026-11-17T07:03:00Z')), {
     from: '2026-11-17T06:59:00.000Z',
     to: '2026-11-17T07:03:30.000Z'
