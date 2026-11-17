@@ -4,6 +4,7 @@ ALTER TABLE paddle_checkout_attempts
   ADD COLUMN IF NOT EXISTS recovery_lease_expires_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS recovery_attempt_count INTEGER NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS recovery_last_checked_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS recovery_next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   ADD COLUMN IF NOT EXISTS recovery_last_error_code TEXT;
 
 ALTER TABLE paddle_checkout_attempts
