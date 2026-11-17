@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { queuePrivatePhotoPurges } from './photoPurge.js';
+import { createGiftProviderWebhookHandler } from './giftProviderWebhook.js';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -101,6 +102,14 @@ app.use((_req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   next();
 });
+// Provider-neutral gift ingress. Empty until a provider is selected and its
+// reviewed sandbox verifier/account/environment are explicitly configured.
+const giftPaymentWebhookProviders = Object.freeze({});
+app.post('/api/gifts/providers/:providerKey/webhook',
+  express.raw({ type: 'application/json', limit: '256kb' }),
+  createGiftProviderWebhookHandler({ pool, providers: giftPaymentWebhookProviders })
+);
+
 app.post('/api/paddle/webhook', express.raw({ type: 'application/json', limit: '1mb' }), async (req, res) => {
   const apiKey = process.env.PADDLE_API_KEY;
   const secret = process.env.PADDLE_WEBHOOK_SECRET;
