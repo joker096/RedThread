@@ -50,6 +50,9 @@ test('only exact attempt, owner, plan, configured price and quantity are matched
     custom_data: { ...transaction().custom_data, userId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' }
   }), attempt, { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' }).kind, 'identity_conflict');
   assert.equal(paddleRecoveryTransactionMatches(transaction({
+    custom_data: { ...transaction().custom_data, plan: '3months' }
+  }), attempt, { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' }).kind, 'identity_conflict');
+  assert.equal(paddleRecoveryTransactionMatches(transaction({
     items: [{ price: { id: 'pri_other' }, quantity: 1 }]
   }), attempt, { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' }).kind, 'price_conflict');
   assert.equal(paddleRecoveryTransactionMatches(transaction({
